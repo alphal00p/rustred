@@ -7,6 +7,10 @@
   "descendant_clipping": false,
   "family_closure_claim": false,
   "inputs": {
+    "helper_positive_power_owners_from": {
+      "path": "/common/dev/rustred/TMP/qcd-feynman-d9d10-input.dcgP73/match-v1/matching-summary.json",
+      "sha256": "82cea7c0d5c45700a78931826931e6619bc2c9dac705ebae8d8fbf143b859659"
+    },
     "manifest": {
       "path": "campaigns/five-loop-dependency-closure/inputs/selection.json",
       "sha256": "d2667dc9c761d1dcd171408452eea030c0b1eae23421e55407745d046deec3f0"
@@ -249,9 +253,9 @@
       "entry_capable": false,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-011001110110100",
+        "id": "owner-anchor-r6-anone-011001110110100",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 907,
       "owner": "011001110110100",
@@ -293,9 +297,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-010011111101011",
+        "id": "owner-anchor-r4-anone-010011111101011",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 783,
       "owner": "010011111101011",
@@ -385,9 +389,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111011100111111",
+        "id": "owner-anchor-r6-anone-111011100111111",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2685,
       "owner": "111011100111111",
@@ -431,9 +435,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-111011101100011",
+        "id": "owner-anchor-r14-anone-111011101100011",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 2543,
       "owner": "111011101100011",
@@ -465,9 +469,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111001111101011",
+        "id": "owner-anchor-r6-anone-111001111101011",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2339,
       "owner": "111001111101011",
@@ -512,9 +516,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111011111101011",
+        "id": "owner-anchor-r6-anone-111011111101011",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2579,
       "owner": "111011111101011",
@@ -730,9 +734,9 @@
       "entry_capable": false,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111000100011101",
+        "id": "owner-anchor-r6-anone-111000100011101",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2299,
       "owner": "111000100011101",
@@ -774,9 +778,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r3-a13-011001000101111",
+        "id": "owner-anchor-r3-anone-011001000101111",
         "max_numerator_rank": 3,
-        "max_positive_power": 13
+        "max_positive_power": null
       },
       "ordinal": 875,
       "owner": "011001000101111",
@@ -820,9 +824,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r3-a13-111101010011100",
+        "id": "owner-anchor-r3-anone-111101010011100",
         "max_numerator_rank": 3,
-        "max_positive_power": 13
+        "max_positive_power": null
       },
       "ordinal": 2571,
       "owner": "111101010011100",
@@ -866,9 +870,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-011101111101100",
+        "id": "owner-anchor-r4-anone-011101111101100",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 1129,
       "owner": "011101111101100",
@@ -958,9 +962,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r5-a15-011101111111100",
+        "id": "owner-anchor-r5-anone-011101111111100",
         "max_numerator_rank": 5,
-        "max_positive_power": 15
+        "max_positive_power": null
       },
       "ordinal": 1133,
       "owner": "011101111111100",
@@ -1220,9 +1224,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r12-a21-110001101101001",
+        "id": "owner-anchor-r12-anone-110001101101001",
         "max_numerator_rank": 12,
-        "max_positive_power": 21
+        "max_positive_power": null
       },
       "ordinal": 1901,
       "owner": "110001101101001",
@@ -1254,9 +1258,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-001001100101111",
+        "id": "owner-anchor-r4-anone-001001100101111",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 299,
       "owner": "001001100101111",
@@ -1301,9 +1305,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-011110111001001",
+        "id": "owner-anchor-r4-anone-011110111001001",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 1025,
       "owner": "011110111001001",
@@ -1348,9 +1352,9 @@
       "entry_capable": false,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-110010101101011",
+        "id": "owner-anchor-r6-anone-110010101101011",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2011,
       "owner": "110010101101011",
@@ -1392,9 +1396,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-111001000001111",
+        "id": "owner-anchor-r4-anone-111001000001111",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 2339,
       "owner": "111001000001111",
@@ -1438,9 +1442,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-110001011101011",
+        "id": "owner-anchor-r4-anone-110001011101011",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 1887,
       "owner": "110001011101011",
@@ -1484,9 +1488,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-110110111101001",
+        "id": "owner-anchor-r4-anone-110110111101001",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 1993,
       "owner": "110110111101001",
@@ -1564,9 +1568,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111111001001001",
+        "id": "owner-anchor-r6-anone-111111001001001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2425,
       "owner": "111111001001001",
@@ -1613,9 +1617,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-111011000101001",
+        "id": "owner-anchor-r4-anone-111011000101001",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 2599,
       "owner": "111011000101001",
@@ -1660,9 +1664,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-111001100101101",
+        "id": "owner-anchor-r4-anone-111001100101101",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 2419,
       "owner": "111001100101101",
@@ -1707,9 +1711,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-111100011111100",
+        "id": "owner-anchor-r4-anone-111100011111100",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 2475,
       "owner": "111100011111100",
@@ -1753,9 +1757,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-101011111001010",
+        "id": "owner-anchor-r4-anone-101011111001010",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 1762,
       "owner": "101011111001010",
@@ -1799,9 +1803,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r4-a14-111100111101001",
+        "id": "owner-anchor-r4-anone-111100111101001",
         "max_numerator_rank": 4,
-        "max_positive_power": 14
+        "max_positive_power": null
       },
       "ordinal": 2301,
       "owner": "111100111101001",
@@ -1880,9 +1884,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r13-a22-011100111100001",
+        "id": "owner-anchor-r13-anone-011100111100001",
         "max_numerator_rank": 13,
-        "max_positive_power": 22
+        "max_positive_power": null
       },
       "ordinal": 931,
       "owner": "011100111100001",
@@ -1914,9 +1918,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111001100110110",
+        "id": "owner-anchor-r6-anone-111001100110110",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2428,
       "owner": "111001100110110",
@@ -1962,9 +1966,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-011101011001001",
+        "id": "owner-anchor-r14-anone-011101011001001",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 953,
       "owner": "011101011001001",
@@ -1997,9 +2001,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-101011011101001",
+        "id": "owner-anchor-r14-anone-101011011101001",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 1713,
       "owner": "101011011101001",
@@ -2031,9 +2035,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r5-a15-111010111100011",
+        "id": "owner-anchor-r5-anone-111010111100011",
         "max_numerator_rank": 5,
-        "max_positive_power": 15
+        "max_positive_power": null
       },
       "ordinal": 2455,
       "owner": "111010111100011",
@@ -2078,9 +2082,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111101110101001",
+        "id": "owner-anchor-r6-anone-111101110101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2341,
       "owner": "111101110101001",
@@ -2126,9 +2130,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-011000101101011",
+        "id": "owner-anchor-r14-anone-011000101101011",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 821,
       "owner": "011000101101011",
@@ -2162,9 +2166,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-011011101101001",
+        "id": "owner-anchor-r6-anone-011011101101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 1121,
       "owner": "011011101101001",
@@ -2211,9 +2215,9 @@
       "entry_capable": false,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-011011111101001",
+        "id": "owner-anchor-r6-anone-011011111101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 901,
       "owner": "011011111101001",
@@ -2255,9 +2259,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r13-a22-110101101101001",
+        "id": "owner-anchor-r13-anone-110101101101001",
         "max_numerator_rank": 13,
-        "max_positive_power": 22
+        "max_positive_power": null
       },
       "ordinal": 1921,
       "owner": "110101101101001",
@@ -2289,9 +2293,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-111100100101001",
+        "id": "owner-anchor-r14-anone-111100100101001",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 2281,
       "owner": "111100100101001",
@@ -2325,9 +2329,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-011111001101001",
+        "id": "owner-anchor-r14-anone-011111001101001",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 1045,
       "owner": "011111001101001",
@@ -2360,9 +2364,9 @@
       "entry_capable": true,
       "factorized": true,
       "helper": {
-        "id": "owner-anchor-r14-a23-111101101101001",
+        "id": "owner-anchor-r14-anone-111101101101001",
         "max_numerator_rank": 14,
-        "max_positive_power": 23
+        "max_positive_power": null
       },
       "ordinal": 2333,
       "owner": "111101101101001",
@@ -2394,9 +2398,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111111001101001",
+        "id": "owner-anchor-r6-anone-111111001101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2429,
       "owner": "111111001101001",
@@ -2442,9 +2446,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111111011101001",
+        "id": "owner-anchor-r6-anone-111111011101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2445,
       "owner": "111111011101001",
@@ -2489,9 +2493,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111011001101001",
+        "id": "owner-anchor-r6-anone-111011001101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2485,
       "owner": "111011001101001",
@@ -2538,9 +2542,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111011011101001",
+        "id": "owner-anchor-r6-anone-111011011101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2513,
       "owner": "111011011101001",
@@ -2586,9 +2590,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-101111101101001",
+        "id": "owner-anchor-r6-anone-101111101101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 1657,
       "owner": "101111101101001",
@@ -2634,9 +2638,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111111101101001",
+        "id": "owner-anchor-r6-anone-111111101101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2461,
       "owner": "111111101101001",
@@ -2681,9 +2685,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r5-a15-111110111001001",
+        "id": "owner-anchor-r5-anone-111110111001001",
         "max_numerator_rank": 5,
-        "max_positive_power": 15
+        "max_positive_power": null
       },
       "ordinal": 2409,
       "owner": "111110111001001",
@@ -2728,9 +2732,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111101111101001",
+        "id": "owner-anchor-r6-anone-111101111101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2349,
       "owner": "111101111101001",
@@ -2775,9 +2779,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r5-a15-111011111101010",
+        "id": "owner-anchor-r5-anone-111011111101010",
         "max_numerator_rank": 5,
-        "max_positive_power": 15
+        "max_positive_power": null
       },
       "ordinal": 2578,
       "owner": "111011111101010",
@@ -2821,9 +2825,9 @@
       "entry_capable": true,
       "factorized": false,
       "helper": {
-        "id": "owner-anchor-r6-a16-111111111101001",
+        "id": "owner-anchor-r6-anone-111111111101001",
         "max_numerator_rank": 6,
-        "max_positive_power": 16
+        "max_positive_power": null
       },
       "ordinal": 2477,
       "owner": "111111111101001",
@@ -2944,60 +2948,13 @@
     "gauge": "feynman",
     "gauge_parameter_powers": 0,
     "helper_positive_power_owners": [
-      "001001100101111",
-      "010011111101011",
-      "011000101101011",
-      "011001000101111",
-      "011001110110100",
       "011011000111111",
-      "011011101101001",
-      "011011111101001",
-      "011100111100001",
-      "011101011001001",
       "011101110111000",
-      "011101111101100",
-      "011101111111100",
-      "011110111001001",
-      "011111001101001",
-      "101011011101001",
-      "101011111001010",
-      "101111101101001",
-      "110001011101011",
-      "110001101101001",
-      "110010101101011",
-      "110101101101001",
-      "110110111101001",
-      "111000100011101",
       "111000100111001",
-      "111001000001111",
-      "111001100101101",
-      "111001100110110",
       "111001100111001",
       "111001100111111",
-      "111001111101011",
       "111010100100101",
-      "111010111100011",
-      "111011000101001",
-      "111011001101001",
-      "111011011101001",
-      "111011100111111",
-      "111011101100011",
-      "111011111101010",
-      "111011111101011",
-      "111100011111100",
-      "111100100101001",
-      "111100111101001",
-      "111101010011100",
-      "111101101101001",
-      "111101110101001",
-      "111101111101001",
-      "111101111111100",
-      "111110111001001",
-      "111111001001001",
-      "111111001101001",
-      "111111011101001",
-      "111111101101001",
-      "111111111101001"
+      "111101111111100"
     ],
     "id_prefixes": {
       "connected": "phys",
@@ -3029,8 +2986,8 @@
       "9,10",
       "--classification",
       "examples/python/fixtures/tide_five_loop_skeleton_classification.json",
-      "--helper-positive-power-owners",
-      "001001100101111,010011111101011,011000101101011,011001000101111,011001110110100,011011000111111,011011101101001,011011111101001,011100111100001,011101011001001,011101110111000,011101111101100,011101111111100,011110111001001,011111001101001,101011011101001,101011111001010,101111101101001,110001011101011,110001101101001,110010101101011,110101101101001,110110111101001,111000100011101,111000100111001,111001000001111,111001100101101,111001100110110,111001100111001,111001100111111,111001111101011,111010100100101,111010111100011,111011000101001,111011001101001,111011011101001,111011100111111,111011101100011,111011111101010,111011111101011,111100011111100,111100100101001,111100111101001,111101010011100,111101101101001,111101110101001,111101111101001,111101111111100,111110111001001,111111001001001,111111001101001,111111011101001,111111101101001,111111111101001",
+      "--helper-positive-power-owners-from",
+      "/common/dev/rustred/TMP/qcd-feynman-d9d10-input.dcgP73/match-v1/matching-summary.json",
       "--executable",
       "/common/dev/rustred/target/release/rustred",
       "--output-directory",
@@ -3040,7 +2997,7 @@
       "path": "/common/dev/rustred/target/release/rustred",
       "sha256": "32fdec098a57dd0c51aef71c01c260fb5cf7d0954b0992db08bb0f955aed358a"
     },
-    "git_head": "223cc75ff24ad7d2253026631474faa70596a003",
+    "git_head": "a1a768608ceaa25af4cff225e5c00b76c9cb7d88",
     "python_version": "3.11.15",
     "script": "plan_renormalization_entry_queries.py",
     "script_sha256": "fd328fe28698f3323b6379fb0a6e81eb15ca8067de7d393ecebf20bcb0e3bf11"
@@ -3604,8 +3561,8 @@
     "count_source": "rust",
     "helper_count": 67,
     "owner_count": 67,
-    "queries_bytes": 121424,
-    "queries_sha256": "2c7148601436ebd1e50f7c13d922859cdb5d296f5584f33d266f0f866d27204f",
+    "queries_bytes": 121612,
+    "queries_sha256": "0f7f0a043de8a896725d3bd1fcb42a7948d2aeadc68cbd78bf2fa549d80d97b8",
     "query_count": 183,
     "query_order": "selection owner order; helper first, then roots by descending R_max",
     "root_count": 116,

@@ -661,7 +661,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-011001110110100",
+      "id": "owner-anchor-r6-anone-011001110110100",
       "lower": [
         0,
         0,
@@ -682,7 +682,7 @@
       "max_numerator_rank": 6,
       "owner": "011001110110100",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -793,7 +793,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-010011111101011",
+      "id": "owner-anchor-r4-anone-010011111101011",
       "lower": [
         0,
         0,
@@ -814,7 +814,7 @@
       "max_numerator_rank": 4,
       "owner": "010011111101011",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -1057,7 +1057,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111011100111111",
+      "id": "owner-anchor-r6-anone-111011100111111",
       "lower": [
         0,
         0,
@@ -1078,7 +1078,7 @@
       "max_numerator_rank": 6,
       "owner": "111011100111111",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -1189,7 +1189,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-111011101100011",
+      "id": "owner-anchor-r14-anone-111011101100011",
       "lower": [
         0,
         0,
@@ -1210,7 +1210,7 @@
       "max_numerator_rank": 14,
       "owner": "111011101100011",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -1277,7 +1277,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111001111101011",
+      "id": "owner-anchor-r6-anone-111001111101011",
       "lower": [
         0,
         0,
@@ -1298,7 +1298,7 @@
       "max_numerator_rank": 6,
       "owner": "111001111101011",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -1409,7 +1409,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111011111101011",
+      "id": "owner-anchor-r6-anone-111011111101011",
       "lower": [
         0,
         0,
@@ -1430,7 +1430,7 @@
       "max_numerator_rank": 6,
       "owner": "111011111101011",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -2025,7 +2025,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111000100011101",
+      "id": "owner-anchor-r6-anone-111000100011101",
       "lower": [
         0,
         0,
@@ -2046,7 +2046,7 @@
       "max_numerator_rank": 6,
       "owner": "111000100011101",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -2157,7 +2157,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r3-a13-011001000101111",
+      "id": "owner-anchor-r3-anone-011001000101111",
       "lower": [
         0,
         0,
@@ -2178,7 +2178,7 @@
       "max_numerator_rank": 3,
       "owner": "011001000101111",
       "power_bounds": {
-        "max_positive_power": 13,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -2289,7 +2289,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r3-a13-111101010011100",
+      "id": "owner-anchor-r3-anone-111101010011100",
       "lower": [
         0,
         0,
@@ -2310,7 +2310,7 @@
       "max_numerator_rank": 3,
       "owner": "111101010011100",
       "power_bounds": {
-        "max_positive_power": 13,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -2421,7 +2421,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-011101111101100",
+      "id": "owner-anchor-r4-anone-011101111101100",
       "lower": [
         0,
         0,
@@ -2442,7 +2442,7 @@
       "max_numerator_rank": 4,
       "owner": "011101111101100",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -2685,7 +2685,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r5-a15-011101111111100",
+      "id": "owner-anchor-r5-anone-011101111111100",
       "lower": [
         0,
         0,
@@ -2706,7 +2706,7 @@
       "max_numerator_rank": 5,
       "owner": "011101111111100",
       "power_bounds": {
-        "max_positive_power": 15,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -3389,7 +3389,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r12-a21-110001101101001",
+      "id": "owner-anchor-r12-anone-110001101101001",
       "lower": [
         0,
         0,
@@ -3410,7 +3410,7 @@
       "max_numerator_rank": 12,
       "owner": "110001101101001",
       "power_bounds": {
-        "max_positive_power": 21,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -3477,7 +3477,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-001001100101111",
+      "id": "owner-anchor-r4-anone-001001100101111",
       "lower": [
         0,
         0,
@@ -3498,7 +3498,7 @@
       "max_numerator_rank": 4,
       "owner": "001001100101111",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -3609,7 +3609,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-011110111001001",
+      "id": "owner-anchor-r4-anone-011110111001001",
       "lower": [
         0,
         0,
@@ -3630,7 +3630,7 @@
       "max_numerator_rank": 4,
       "owner": "011110111001001",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -3741,7 +3741,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-110010101101011",
+      "id": "owner-anchor-r6-anone-110010101101011",
       "lower": [
         0,
         0,
@@ -3762,7 +3762,7 @@
       "max_numerator_rank": 6,
       "owner": "110010101101011",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -3873,7 +3873,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-111001000001111",
+      "id": "owner-anchor-r4-anone-111001000001111",
       "lower": [
         0,
         0,
@@ -3894,7 +3894,7 @@
       "max_numerator_rank": 4,
       "owner": "111001000001111",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4005,7 +4005,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-110001011101011",
+      "id": "owner-anchor-r4-anone-110001011101011",
       "lower": [
         0,
         0,
@@ -4026,7 +4026,7 @@
       "max_numerator_rank": 4,
       "owner": "110001011101011",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4137,7 +4137,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-110110111101001",
+      "id": "owner-anchor-r4-anone-110110111101001",
       "lower": [
         0,
         0,
@@ -4158,7 +4158,7 @@
       "max_numerator_rank": 4,
       "owner": "110110111101001",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4357,7 +4357,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111111001001001",
+      "id": "owner-anchor-r6-anone-111111001001001",
       "lower": [
         0,
         0,
@@ -4378,7 +4378,7 @@
       "max_numerator_rank": 6,
       "owner": "111111001001001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4489,7 +4489,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-111011000101001",
+      "id": "owner-anchor-r4-anone-111011000101001",
       "lower": [
         0,
         0,
@@ -4510,7 +4510,7 @@
       "max_numerator_rank": 4,
       "owner": "111011000101001",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4621,7 +4621,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-111001100101101",
+      "id": "owner-anchor-r4-anone-111001100101101",
       "lower": [
         0,
         0,
@@ -4642,7 +4642,7 @@
       "max_numerator_rank": 4,
       "owner": "111001100101101",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4753,7 +4753,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-111100011111100",
+      "id": "owner-anchor-r4-anone-111100011111100",
       "lower": [
         0,
         0,
@@ -4774,7 +4774,7 @@
       "max_numerator_rank": 4,
       "owner": "111100011111100",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -4885,7 +4885,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-101011111001010",
+      "id": "owner-anchor-r4-anone-101011111001010",
       "lower": [
         0,
         0,
@@ -4906,7 +4906,7 @@
       "max_numerator_rank": 4,
       "owner": "101011111001010",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5017,7 +5017,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r4-a14-111100111101001",
+      "id": "owner-anchor-r4-anone-111100111101001",
       "lower": [
         0,
         0,
@@ -5038,7 +5038,7 @@
       "max_numerator_rank": 4,
       "owner": "111100111101001",
       "power_bounds": {
-        "max_positive_power": 14,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5237,7 +5237,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r13-a22-011100111100001",
+      "id": "owner-anchor-r13-anone-011100111100001",
       "lower": [
         0,
         0,
@@ -5258,7 +5258,7 @@
       "max_numerator_rank": 13,
       "owner": "011100111100001",
       "power_bounds": {
-        "max_positive_power": 22,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5325,7 +5325,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111001100110110",
+      "id": "owner-anchor-r6-anone-111001100110110",
       "lower": [
         0,
         0,
@@ -5346,7 +5346,7 @@
       "max_numerator_rank": 6,
       "owner": "111001100110110",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5457,7 +5457,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-011101011001001",
+      "id": "owner-anchor-r14-anone-011101011001001",
       "lower": [
         0,
         0,
@@ -5478,7 +5478,7 @@
       "max_numerator_rank": 14,
       "owner": "011101011001001",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5545,7 +5545,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-101011011101001",
+      "id": "owner-anchor-r14-anone-101011011101001",
       "lower": [
         0,
         0,
@@ -5566,7 +5566,7 @@
       "max_numerator_rank": 14,
       "owner": "101011011101001",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5633,7 +5633,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r5-a15-111010111100011",
+      "id": "owner-anchor-r5-anone-111010111100011",
       "lower": [
         0,
         0,
@@ -5654,7 +5654,7 @@
       "max_numerator_rank": 5,
       "owner": "111010111100011",
       "power_bounds": {
-        "max_positive_power": 15,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5765,7 +5765,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111101110101001",
+      "id": "owner-anchor-r6-anone-111101110101001",
       "lower": [
         0,
         0,
@@ -5786,7 +5786,7 @@
       "max_numerator_rank": 6,
       "owner": "111101110101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5897,7 +5897,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-011000101101011",
+      "id": "owner-anchor-r14-anone-011000101101011",
       "lower": [
         0,
         0,
@@ -5918,7 +5918,7 @@
       "max_numerator_rank": 14,
       "owner": "011000101101011",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -5985,7 +5985,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-011011101101001",
+      "id": "owner-anchor-r6-anone-011011101101001",
       "lower": [
         0,
         0,
@@ -6006,7 +6006,7 @@
       "max_numerator_rank": 6,
       "owner": "011011101101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6117,7 +6117,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-011011111101001",
+      "id": "owner-anchor-r6-anone-011011111101001",
       "lower": [
         0,
         0,
@@ -6138,7 +6138,7 @@
       "max_numerator_rank": 6,
       "owner": "011011111101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6249,7 +6249,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r13-a22-110101101101001",
+      "id": "owner-anchor-r13-anone-110101101101001",
       "lower": [
         0,
         0,
@@ -6270,7 +6270,7 @@
       "max_numerator_rank": 13,
       "owner": "110101101101001",
       "power_bounds": {
-        "max_positive_power": 22,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6337,7 +6337,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-111100100101001",
+      "id": "owner-anchor-r14-anone-111100100101001",
       "lower": [
         0,
         0,
@@ -6358,7 +6358,7 @@
       "max_numerator_rank": 14,
       "owner": "111100100101001",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6425,7 +6425,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-011111001101001",
+      "id": "owner-anchor-r14-anone-011111001101001",
       "lower": [
         0,
         0,
@@ -6446,7 +6446,7 @@
       "max_numerator_rank": 14,
       "owner": "011111001101001",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6513,7 +6513,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r14-a23-111101101101001",
+      "id": "owner-anchor-r14-anone-111101101101001",
       "lower": [
         0,
         0,
@@ -6534,7 +6534,7 @@
       "max_numerator_rank": 14,
       "owner": "111101101101001",
       "power_bounds": {
-        "max_positive_power": 23,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6601,7 +6601,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111111001101001",
+      "id": "owner-anchor-r6-anone-111111001101001",
       "lower": [
         0,
         0,
@@ -6622,7 +6622,7 @@
       "max_numerator_rank": 6,
       "owner": "111111001101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6733,7 +6733,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111111011101001",
+      "id": "owner-anchor-r6-anone-111111011101001",
       "lower": [
         0,
         0,
@@ -6754,7 +6754,7 @@
       "max_numerator_rank": 6,
       "owner": "111111011101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6865,7 +6865,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111011001101001",
+      "id": "owner-anchor-r6-anone-111011001101001",
       "lower": [
         0,
         0,
@@ -6886,7 +6886,7 @@
       "max_numerator_rank": 6,
       "owner": "111011001101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -6997,7 +6997,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111011011101001",
+      "id": "owner-anchor-r6-anone-111011011101001",
       "lower": [
         0,
         0,
@@ -7018,7 +7018,7 @@
       "max_numerator_rank": 6,
       "owner": "111011011101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7129,7 +7129,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-101111101101001",
+      "id": "owner-anchor-r6-anone-101111101101001",
       "lower": [
         0,
         0,
@@ -7150,7 +7150,7 @@
       "max_numerator_rank": 6,
       "owner": "101111101101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7261,7 +7261,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111111101101001",
+      "id": "owner-anchor-r6-anone-111111101101001",
       "lower": [
         0,
         0,
@@ -7282,7 +7282,7 @@
       "max_numerator_rank": 6,
       "owner": "111111101101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7393,7 +7393,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r5-a15-111110111001001",
+      "id": "owner-anchor-r5-anone-111110111001001",
       "lower": [
         0,
         0,
@@ -7414,7 +7414,7 @@
       "max_numerator_rank": 5,
       "owner": "111110111001001",
       "power_bounds": {
-        "max_positive_power": 15,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7525,7 +7525,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111101111101001",
+      "id": "owner-anchor-r6-anone-111101111101001",
       "lower": [
         0,
         0,
@@ -7546,7 +7546,7 @@
       "max_numerator_rank": 6,
       "owner": "111101111101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7657,7 +7657,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r5-a15-111011111101010",
+      "id": "owner-anchor-r5-anone-111011111101010",
       "lower": [
         0,
         0,
@@ -7678,7 +7678,7 @@
       "max_numerator_rank": 5,
       "owner": "111011111101010",
       "power_bounds": {
-        "max_positive_power": 15,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
@@ -7789,7 +7789,7 @@
       ]
     },
     {
-      "id": "owner-anchor-r6-a16-111111111101001",
+      "id": "owner-anchor-r6-anone-111111111101001",
       "lower": [
         0,
         0,
@@ -7810,7 +7810,7 @@
       "max_numerator_rank": 6,
       "owner": "111111111101001",
       "power_bounds": {
-        "max_positive_power": 16,
+        "max_positive_power": null,
         "max_power_difference": null,
         "min_power_difference": null
       },
