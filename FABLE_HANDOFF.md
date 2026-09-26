@@ -92,6 +92,44 @@ ETA and no closure is claimed anywhere.
   ~9 min. The host cannot hold both at their ceilings; the user stops the old
   one.
 
+## 2b. Status update (2026-09-26 ~15:10 UTC): merge landed, second campaign prepared
+
+- `fable_5_1` now contains both Rust packages (merges faab984e, 544c3dce,
+  5d24b1ca, 7c28080e): release lib suite 728 passed / 0 failed / 4 ignored at
+  343a86a7 (the last merged commit adds a six-line shard-CLI `BufReader` fix
+  and its own suite ran green on the author's branch: 709/0/4), fmt clean,
+  Python suite 185. Release binary `102adcc345ff3010496861f6057789632718cb86dbb1c7ac52d5107bc4c1f2ae`
+  (`target/release/rustred`, also frozen in the v2 campaign directory).
+- Four-loop before/after with the merged binary (`TMP/fable51-controls/new-4034ae50*/`,
+  gate binary 4034ae50 = same sources except the shard-CLI fix): identical
+  inspections and containment counts in all four families under Ordered;
+  whole-command 17.5/35.2/16.5/40.5 s (FG/BMW/H/X) vs 18.2/40.2/17.5/41.0 s
+  frozen; Ready 16.0/32.5/16.0/34.5 s vs 19.6/45.3/17.5/38.2 s; strict record
+  comparison identical (BMW differs only in closure-refresh telemetry);
+  FG CP5 checkpoint 142.7 MB / 0.69 s vs CP3 198.1 MB / 1.36 s. Table in the PR body.
+- Interim campaign (section 2) keeps accumulating `local_dispatch_frontier`
+  records (290 at 1.3 h, 6/67 roots closed, 62 GB RSS): unbounded-A helpers on
+  t >= 8 owners route unbounded descendants into the seven guard-sensitive
+  owners. It cannot yield a closing set; it is useful only for throughput and
+  memory observation, and the user may stop it.
+- Single-owner pilot (Ordered, frozen binary): at 3.1 h 4.70M inspections,
+  pending 298K and shrinking (-0.18 per completion), max rank 8, 56 GB RSS,
+  zero frontiers; the Ready case runs after it
+  (`TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/`).
+- Second campaign `campaigns/five-loop-qcd-feynman-d9d10-v2` is PREPARED (not
+  yet started at the time of writing): binary 102adcc3..., v3 inputs
+  (`examples/input/five_loop_qcd_feynman_d9d10/queries.json`, sha 2c714860...,
+  183 queries, 54 bounded helpers, zero unresolved pieces), Ready, 100 workers
+  on CPUs 28-127 (new split 67 inspectors / 32 helpers / 1 coordinator),
+  700 GB guard, 4 h checkpoints (CP5). Start command:
+  `cd /common/dev/rustred && env TMPDIR=$PWD/TMP nix develop --command python examples/python/production_saved_owner_campaign.py --campaign-directory campaigns/five-loop-qcd-feynman-d9d10-v2 --start`
+  Placement lesson: `zellij action new-pane` opens in the tab focused by an
+  ATTACHED client; with no client attached the server reuses its last active
+  tab and `go-to-tab-name` has no effect. Attach, focus `fable_5_1`, then run
+  `XDG_RUNTIME_DIR=/run/user/1125 zellij --session rustred action new-pane --cwd /common/dev/rustred --name five-loop-qcd-feynman-d9d10-v2 -- env TMPDIR=/common/dev/rustred/TMP nix develop --command python examples/python/production_saved_owner_campaign.py --campaign-directory campaigns/five-loop-qcd-feynman-d9d10-v2 --start`
+  (or simply type the start command in that tab's shell). Verify with
+  `zellij action dump-layout`.
+
 ## 3. Reproducing the campaign inputs from scratch
 
 ```sh
