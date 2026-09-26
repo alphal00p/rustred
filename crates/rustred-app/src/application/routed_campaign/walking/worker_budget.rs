@@ -6,6 +6,10 @@
 use super::{OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest};
 use serde_json::{Value, json};
 
+/// Largest automatic Ready helper allocation; explicit `--inspection-workers`
+/// partitions are never capped.
+pub(super) const READY_HELPER_CAP: usize = 32;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WorkerBudget {
     pub requested: usize,
@@ -73,7 +77,15 @@ impl WorkerBudget {
         let helpers = match inspection {
             Some(inspection) => available - inspection,
             None if requested >= helper_threshold && finite_comparison_cap.is_none() => {
-                available / 2
+                let half = available / 2;
+                if policy == OwnerDomainWalkPublicationPolicy::Ready {
+                    // Lookup preparation saturates well before the inspection
+                    // side does; large Ready budgets keep the rest inspecting.
+                    // Every W <= 64 default is unchanged (half <= 31 there).
+                    half.min(READY_HELPER_CAP)
+                } else {
+                    half
+                }
             }
             None => 0,
         };

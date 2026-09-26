@@ -216,7 +216,7 @@ pub fn owner_domain_walk_with_progress(
     if request.max_domains == 0
         || request.max_events == 0
         || request.max_frontiers == 0
-        || !(1..=64).contains(&request.workers)
+        || !(1..=256).contains(&request.workers)
         || request.max_containment_checks == Some(0)
         || request.max_route_masks == 0
     {

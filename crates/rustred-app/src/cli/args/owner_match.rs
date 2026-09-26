@@ -402,8 +402,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "at most 1000000 retained frontiers",
         ));
     }
-    if result.workers > 64 {
-        return Err(ArgError::InvalidCombination("at most 64 symbolic workers"));
+    if result.workers > 256 {
+        return Err(ArgError::InvalidCombination("at most 256 symbolic workers"));
     }
     if !result.follow_successors
         && [
@@ -758,7 +758,7 @@ mod tests {
             "--max-sign-splits-per-query 10",
             "--workers 1",
             "--follow-successors --workers 0",
-            "--follow-successors --workers 65",
+            "--follow-successors --workers 257",
             "--follow-successors --max-rhs-events-per-query 0",
             "--follow-successors --max-shift-groups-per-query 0",
             "--follow-successors --max-sign-splits-per-query 0",
