@@ -320,7 +320,11 @@ impl Store {
             );
         }
         // The forced save after resume is free unless the walk changes state.
-        self.last_stamp = Some(restored.state.change_stamp());
+        // The restored state is not paused; the retained manifest may say it
+        // was, so continuing the walk flips the flag with exactly one write.
+        let mut stamp = restored.state.change_stamp();
+        stamp.paused = m.metadata["paused"] == true;
+        self.last_stamp = Some(stamp);
         let mut report = restored.report.clone();
         report["directory"] = json!(self.options.directory);
         report["generation"] = json!(m.generation);
@@ -1182,6 +1186,79 @@ mod tests {
         assert_eq!(saved["checkpoint"]["generation"], 4);
         drop(store); // Release the directory lock before reopening.
         assert_eq!(fixture.resume::<1>().unwrap().uncommitted.len(), 1);
+    }
+
+    #[test]
+    fn completed_physical_part_receipt_changes_the_stamp() {
+        let state = State::<1>::new(Queue::new(8, None), 0, None);
+        let fixture = Fixture::save(&state);
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let mut resumed = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        assert!(
+            store
+                .save(&resumed, &[], &[], true, &|_| {})
+                .unwrap()
+                .is_none()
+        );
+        // Part 0 of a subdivided parent finished without accepting an event.
+        resumed.physical_progress = Some(super::super::physical_parts::Progress {
+            parent: resumed.queue.next,
+            completed: vec![json!({"part":0,"stats":{},"seconds":0.5,"error":null})],
+        });
+        let saved = store
+            .save(&resumed, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 3);
+        drop(store);
+        let again = fixture.resume::<1>().unwrap();
+        assert_eq!(again.physical_progress.as_ref().unwrap().completed.len(), 1);
+    }
+
+    #[test]
+    fn pause_flag_transitions_write_exactly_one_generation() {
+        let mut state = ledger_fixture();
+        let fixture = Fixture::save(&state);
+        assert_eq!(fixture.manifest()["metadata"]["paused"], false);
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        drop(store.resume::<1>(&|_| {}).unwrap().unwrap());
+        // A cooperative stop with no in-flight work still records the pause.
+        state.checkpoint_paused = true;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 3);
+        assert_eq!(saved["checkpoint"]["paused"], true);
+        assert!(
+            store
+                .save(&state, &[], &[], true, &|_| {})
+                .unwrap()
+                .is_none()
+        );
+        drop(store);
+        assert_eq!(fixture.manifest()["metadata"]["paused"], true);
+        // Resuming the paused checkpoint flips the flag with one write.
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let resumed = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        assert!(!resumed.checkpoint_paused);
+        let saved = store
+            .save(&resumed, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4);
+        assert_eq!(saved["checkpoint"]["paused"], false);
+        assert!(
+            store
+                .save(&resumed, &[], &[], true, &|_| {})
+                .unwrap()
+                .is_none()
+        );
+        drop(store);
+        assert_eq!(fixture.manifest()["metadata"]["paused"], false);
     }
 
     #[test]
