@@ -178,3 +178,103 @@ on 192-241: Ordered 425.6 s (traversal 321.5 s, 967,621 inspections), Ready
   is open (plan B3).
 - Shared host: another user's job floats over all cores; `zpool status`
   reports 2 data errors on the single NVMe pool (file list needs root).
+
+## 7. Remaining work, with the exact plans to follow (for the follow-up model)
+
+Everything below has a verbatim file-level design already written; do not
+re-plan, execute. Read in this order: `FABLE_5_1_five_loop_vacuum_plan.md`
+(scope, gates, decision log), then the design of the package you touch, then
+its review report (findings are verified, with file:line at the branch tips of
+2026-09-26; lines shift after the merge, titles and symbols do not).
+
+| Package | Design (verbatim) | Review (verified findings) | Status at handoff |
+|---|---|---|---|
+| B scheduler/admission | `docs/research/fable51_design_scheduler_admission_2026-09-26.md` | `docs/research/fable51_review_scheduler_branch_2026-09-26.md` | items 1(d-f), 2, 4, 5, 7, 8 merged; review must-fix #1, #4, #5, #7 applied |
+| C checkpoint/memory | `docs/research/fable51_design_checkpoint_memory_2026-09-26.md` | `docs/research/fable51_review_checkpoint_branch_2026-09-26.md` | items 4, 5, 6 merged (CP5 store, semantics binding, change-stamp saves); review must-fix #1-#6 applied |
+| A/D/E/F inputs, launcher, harness, pilots, launch | `docs/research/fable51_design_inputs_pilots_launch_2026-09-26.md` | (no separate review; Python suite 185 green) | planner/checker/launcher/monitor/harness merged; pilots partly run |
+
+### 7.1 Package C, wave 2 (largest remaining value: the RAM wall)
+Follow design sections 1, 2, 3, 7 in that order; each is self-contained.
+1. Records sidecar (design §1): `RecordSink::{Memory, Sidecar}` in
+   `walking/execution/records.rs`; `State.records` becomes `RefCell<RecordSink>`
+   plus a `records_accepted_events` counter; records are streamed to
+   `records-<S>.jsonl` at commit (`execution.rs` commit_result and
+   `execution/delegation.rs` delegated records) and sealed per generation; the
+   CP5 store already writes `records-<S>.jsonl` segments (wave 1 kept the
+   in-RAM `Vec<Value>` as the source), so the change is to stop retaining them
+   and to replace `validate_closure_records` by the ledger/closure cross-check
+   of §1.4; `OwnerDomainWalkResult::write_json` streams `domains` into
+   `result.json` (CLI writer in `cli/owner_match.rs`); tests listed in §1.5,
+   including the test-facing `snapshot()` accessor to migrate the ~10 tests
+   that index `state.records`. Gate: RSS growth per committed domain drops
+   from ~6 KB to ~0 on the synthetic state (§7.3) and the FG control's
+   `domains` array is unchanged.
+2. Compact in-RAM state (§2): `CompactDomain<N>` (u16 coordinates, ~96 B) and
+   `CompactSummary<N>` (~176 B) with retired-slot reclamation and a
+   `HashMap<u128, u32>` exact map; keep `Domain<N>` as the transport type;
+   differential tests against `DomainPowerSummary::contains` on random boxes;
+   the only new refusal is a coordinate above 65534. Gate: <= 0.8 KB per
+   discovered domain on the synthetic state.
+3. CSR edges (§3): u32 CSR-by-target plus a bounded append log folded after
+   each save; node flags as bytes; restore rebuilds heads from the edge
+   segments; gate: refresh time <= 1/3 of the linked-list time and <= 5 B/edge.
+4. Scale tests (§7): timed restore of a copied production CP5 checkpoint on
+   CPUs 192-241, FG interrupted-vs-uninterrupted equivalence (Ordered and
+   Ready), synthetic 20M-domain save/restore benchmark.
+5. Review follow-ups not yet applied (report #7-#14): meta-section closure
+   `unavailable` bypass, `previous.json` ordering, `effective_interval`
+   reporting, manifest segment-list compaction (currently only the byte cap
+   was raised), monitor rendering of the new events.
+
+### 7.2 Package B, wave 2
+1. Ready multi-prefix resume-to-exhaustion gate (design §1(a)): env seam
+   `RUSTRED_WALK_DIAGNOSTIC_PAUSE=ready-multi-prefix` in the `maybe_save`
+   closure of `walking/mod.rs` that force-saves and cancels when
+   `ready_accepted_source_prefixes >= 2 && published_count > queue.next`; the
+   in-process W=4 test with scripted inspectors (`ready_native_multi_tests.rs`)
+   and the fresh-process pause/resume harness on the four-loop X control and
+   the restricted five-loop pilot; pass criteria in §1(a).
+2. Review follow-ups (report #2, #3, #6, #8-#13): disjoint duty buckets,
+   deferred Delegates in the mid-commit service step (the branch currently
+   `break`s at the first unpublished Delegate, which caps the benefit of slot
+   recycling in retirement-heavy regimes), third snapshot tier for per-slot
+   arrays, ungated `reclaim_all_finished` test, frozen key-set test.
+3. Prep/commit pipelining (§4) only if, after the above, prep + commit exceed
+   15% of coordinator wall on the five-loop control; inner parallelism (§6)
+   off by default, only if pilots show coordinator duty < 60% with idle
+   inspectors. Both are fully specified in the design.
+
+### 7.3 Pilots, profiling and the "real" launch
+1. Profiling matrix (design 3 §3): `examples/python/walk_control_matrix.py`
+   over FG/BMW/H/X (W6, CPUs 192-197, Ordered and Ready) and the 1,324-tuple
+   five-loop control (W50, CPUs 192-241), old binary `32fdec09...` vs new;
+   `audit_owner_domain_walk.py` on every case; `compare_walk_records.py
+   --mode strict` for Ordered pairs. Baselines: `TMP/fable51-controls/RESULTS.md`.
+2. Multi-owner Ready pilot at W24 on CPUs 200-223 (design 3 §2(d)) with the
+   matched-metric decision thresholds of plan section 3.F.
+3. Restore-at-scale before trusting any multi-day run (C §7.1).
+4. If a third campaign is launched: prepare with the current binary and
+   `examples/input/five_loop_qcd_feynman_d9d10/queries.json` (v3, frontier-free
+   in the matching diagnostic), Ready, W50 on free cores, 700 GB guard, 4 h
+   interval, exactly as in section 3 of this file, and launch it in the
+   `fable_5_1` tab with `XDG_RUNTIME_DIR=/run/user/1125 zellij --session rustred
+   action go-to-tab-name fable_5_1 && zellij --session rustred action
+   focus-pane-id terminal_1 && zellij --session rustred action new-pane --cwd
+   /common/dev/rustred --name <campaign> -- env TMPDIR=... nix develop
+   --command python examples/python/production_saved_owner_campaign.py
+   --campaign-directory campaigns/<campaign> --start` (verify with
+   `dump-layout` that the pane landed in `fable_5_1`; a headless
+   `go-to-tab-name` alone once failed to move focus).
+
+### 7.4 Physics follow-ups (user decisions needed)
+- Linear-xi gauge terms (`--gauge linear-xi --gauge-parameter-powers 1`)
+  would add one dot and one scalar product per owner; not requested.
+- The eight non-entry owners keep convenience roots at the widest connected
+  box; if the community tool needs more than that (e.g. the six-line banana
+  with higher powers), widen those roots explicitly and re-run the matching
+  diagnostic.
+- Frontiers: any campaign must be checked for `frontiers == 0` in its first
+  minutes (`status.json` -> `progress.work.frontiers`); a nonzero count with
+  `local_dispatch_frontier` records means a helper with unbounded positive
+  power on an owner with >= 8 active lines (see section 2 of
+  `TMP/qcd-feynman-d9d10-input.dcgP73/RESULTS.md`).
