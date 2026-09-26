@@ -280,6 +280,45 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 self.assertTrue(any(fragment in violation for violation in report["violations"]),
                                 (fragment, report["violations"]))
 
+    def test_resumed_walk_may_carry_only_reinspected_earlier_session_attempts(self):
+        def carried(identity, flag=True):
+            entry = {"id": identity, "committed": False, "physical_part": None, "error": "Cancelled",
+                     "seconds": 0.03, "stats": apply_stats(0, 0)}
+            if flag:
+                entry["resume_reinspects_unfinished_part"] = True
+            return entry
+
+        def resumed(run):
+            request = json.loads((run / "request.json").read_text())
+            command = request["command"]
+            command[command.index("--checkpoint")] = "--resume"
+            (run / "request.json").write_text(json.dumps(request))
+
+        def carrying(entries, returned):
+            def mutate(top):
+                top["uncommitted_inspections"] = entries
+                top["parallel"]["returned_inspections"] = returned
+            return mutate
+
+        cases = [(True, carrying([carried(3), carried(0)], 7), None),
+                 (False, carrying([carried(3)], 6), "uncommitted_inspections must be empty"),
+                 (True, carrying([carried(3, flag=False)], 6), "is not a carried earlier-session attempt"),
+                 (True, carrying([carried(2)], 6), "carried attempt 2 was not re-inspected"),
+                 (True, carrying([carried(3)], 5), "pool returned_inspections != native records + carried")]
+        for index, (resume, mutate, fragment) in enumerate(cases):
+            with self.subTest(case=index), tempfile.TemporaryDirectory() as temporary:
+                run = build_run(Path(temporary), "ready", mutate=mutate)
+                if resume:
+                    resumed(run)
+                report = AUDIT.audit_walk(run)
+                self.assertEqual(report["resumed"], resume)
+                if fragment is None:
+                    self.assertEqual(report["audit"], "PASS", report["violations"])
+                else:
+                    self.assertEqual(report["audit"], "FAIL")
+                    self.assertTrue(any(fragment in violation for violation in report["violations"]),
+                                    (fragment, report["violations"]))
+
     def test_receipt_manifest_command_and_schema_expectations(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

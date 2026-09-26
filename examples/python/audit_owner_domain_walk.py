@@ -214,6 +214,31 @@ def check_native_stats(audit, phase, stats, identity):
     return numeric
 
 
+def resumed_attempts(resumed, uncommitted, kinds, check):
+    """Uncommitted attempts a checkpoint carried into this session; returns their count.
+
+    A walk that never resumed must have none. A resumed walk may report the
+    in-flight inspections its paused session returned but never published:
+    each is `committed: false` with `resume_reinspects_unfinished_part: true`,
+    and its domain must be published natively (or as a partial inspection) in
+    this result, since resume re-inspects it from the start.
+    """
+    if not resumed:
+        check(uncommitted == [], "uncommitted_inspections must be empty")
+        return 0
+    if not check(isinstance(uncommitted, list), "uncommitted_inspections must be a list"):
+        return 0
+    for row in uncommitted:
+        identity = row.get("id") if isinstance(row, dict) else None
+        if not check(type(identity) is int and identity >= 0
+                     and row.get("committed") is False and row.get("resume_reinspects_unfinished_part") is True,
+                     f"resumed run: uncommitted entry {identity!r} is not a carried earlier-session attempt"):
+            continue
+        check(identity < len(kinds) and kinds[identity] in (NATIVE, PARTIAL),
+              f"resumed run: carried attempt {identity} was not re-inspected and published natively")
+    return len(uncommitted)
+
+
 def locate(run, queries=None, command=None, receipt=None):
     """Find the native argv, query document and resource receipt for one run directory."""
     run = Path(run)
@@ -410,7 +435,7 @@ def _audit(run, located, audit, expect_schema):
     for field in TOP_ZERO:
         check(top.get(field) == 0, f"{field} must be 0")
     check(top.get("input_frontiers") == [], "input_frontiers must be empty")
-    check(top.get("uncommitted_inspections") == [], "uncommitted_inspections must be empty")
+    carried = resumed_attempts(located["resumed"], top.get("uncommitted_inspections"), kinds, check)
     for field in ("scheduled_nodes", "processed_nodes", "committed_domains"):
         check(top.get(field) == total, f"{field} != logical record count")
     for field in ("completed_nodes", "native_processed_nodes"):
@@ -464,7 +489,10 @@ def _audit(run, located, audit, expect_schema):
         check(ledger.get(field) == 0, f"ledger {field} must be 0")
     pool = top.get("parallel")
     pool = pool if isinstance(pool, dict) else {}
-    check(pool.get("returned_inspections") == native_count, "pool returned_inspections != native records")
+    # Attempt counters accumulate across checkpoint sessions; an earlier
+    # session's cancelled or unpolled attempts were returned but not published.
+    check(pool.get("returned_inspections") == native_count + carried,
+          "pool returned_inspections != native records + carried earlier-session attempts")
     for field in POOL_ZERO:
         check(pool.get(field) == 0, f"pool {field} must be 0")
     check(pool.get("first_failure") is None and pool.get("non_cancellation_failure") is None, "pool recorded a failure")
