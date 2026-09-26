@@ -498,12 +498,28 @@ impl Store {
         }
         Ok(generation)
     }
+    /// `save_cancellable` for tests that never cancel.
+    #[cfg(test)]
     pub(super) fn save<const N: usize>(
         &mut self,
         state: &State<N>,
         inputs: &[Value],
         frontiers: &[Value],
         force: bool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<Value>, String> {
+        let never = AtomicBool::new(false);
+        self.save_cancellable(state, inputs, frontiers, force, &never, observer)
+    }
+    /// Write one generation when the interval elapsed (or `force`). The
+    /// run's `cancellation` only shortens the pre-save closure refresh.
+    pub(super) fn save_cancellable<const N: usize>(
+        &mut self,
+        state: &State<N>,
+        inputs: &[Value],
+        frontiers: &[Value],
+        force: bool,
+        cancellation: &AtomicBool,
         observer: &impl Fn(Value),
     ) -> Result<Option<Value>, String> {
         if !force && self.last.elapsed().as_secs_f64() < self.effective_interval() {
@@ -528,12 +544,12 @@ impl Store {
             );
             return Ok(None);
         }
-        // Persisted closed counts are current, not a throttled stale snapshot.
-        state
-            .closure
-            .borrow_mut()
-            .refresh(&AtomicBool::new(false), true);
+        // The pre-save scan is part of the save's cost (and of the adaptive
+        // interval). Persisted closed counts are current unless the run is
+        // being cancelled or scratch is short; then the previous snapshot,
+        // stale but valid, is persisted and the monitor stays enabled.
         let started = Instant::now();
+        state.closure.borrow_mut().refresh_before_save(cancellation);
         let started_unix_time = unix_time()?;
         let generation = self.next_generation()?;
         let directory = self.options.directory.clone();

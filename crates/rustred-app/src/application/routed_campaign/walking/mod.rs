@@ -597,7 +597,14 @@ fn run<const N: usize>(
         if let Some(store) = checkpoint.as_mut() {
             if state.error.is_none() {
                 if let Some(event) = store
-                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .save_cancellable(
+                        &state,
+                        &inputs,
+                        &input_frontiers,
+                        true,
+                        cancellation,
+                        observer,
+                    )
                     .map_err(AppError::input)?
                 {
                     observer(event);
@@ -610,9 +617,14 @@ fn run<const N: usize>(
                 cancellation,
                 observer,
                 &mut |state| {
-                    if let Some(event) =
-                        store.save(state, &inputs, &input_frontiers, false, observer)?
-                    {
+                    if let Some(event) = store.save_cancellable(
+                        state,
+                        &inputs,
+                        &input_frontiers,
+                        false,
+                        cancellation,
+                        observer,
+                    )? {
                         observer(event);
                     }
                     Ok(())
@@ -620,7 +632,14 @@ fn run<const N: usize>(
             );
             if state.error.is_none() {
                 if let Some(event) = store
-                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .save_cancellable(
+                        &state,
+                        &inputs,
+                        &input_frontiers,
+                        true,
+                        cancellation,
+                        observer,
+                    )
                     .map_err(AppError::input)?
                 {
                     observer(event);

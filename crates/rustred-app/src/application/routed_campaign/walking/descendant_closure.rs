@@ -42,6 +42,9 @@ pub(super) struct Counters {
 pub(super) const REFRESH_DUTY_MULTIPLIER: f64 = 100.0;
 pub(super) const REFRESH_MIN_INTERVAL_SECONDS: f64 = 5.0;
 
+/// The refresh scratch (blocked bitset, u32 stack) could not be reserved.
+struct ScratchUnavailable;
+
 /// Node flags as bytes (bit0 sealed, bit1 inspected, bit2 closed) and the
 /// edges as a u32 CSR-by-target plus an append log (`edges.rs`). The log is
 /// folded after a checkpoint save persisted it; without a checkpoint store
@@ -198,8 +201,22 @@ impl Tracker {
     /// after a costly scan. Dirty older counts remain a monotone conservative
     /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
+        if self.scan(cancellation, force).is_err() {
+            self.disable("dependency refresh allocation unavailable");
+        }
+    }
+
+    /// The forced scan before a checkpoint save. Cancellation or missing
+    /// scratch memory leaves the previous snapshot in place: stale but valid
+    /// (closed nodes stay closed), which restore accepts, so the save never
+    /// gives up the monitor it is about to persist.
+    pub fn refresh_before_save(&mut self, cancellation: &AtomicBool) {
+        let _ = self.scan(cancellation, true);
+    }
+
+    fn scan(&mut self, cancellation: &AtomicBool, force: bool) -> Result<(), ScratchUnavailable> {
         if self.unavailable.is_some() || self.revision == self.snapshot_revision {
-            return;
+            return Ok(());
         }
         let interval = self.refresh_interval();
         if !force
@@ -207,7 +224,7 @@ impl Tracker {
                 .last_refresh
                 .is_some_and(|time| time.elapsed() < interval)
         {
-            return;
+            return Ok(());
         }
         let started = Instant::now();
         let nodes = self.flags.len();
@@ -216,13 +233,12 @@ impl Tracker {
         if blocked.try_reserve_exact(nodes.div_ceil(64)).is_err()
             || stack.try_reserve_exact(nodes).is_err()
         {
-            self.disable("dependency refresh allocation unavailable");
-            return;
+            return Err(ScratchUnavailable);
         }
         blocked.resize(nodes.div_ceil(64), 0);
         for (id, &flag) in self.flags.iter().enumerate() {
             if id % 1024 == 0 && cancellation.load(Ordering::Relaxed) {
-                return;
+                return Ok(());
             }
             if flag & FLAG_SEALED == 0 {
                 blocked[id / 64] |= 1 << (id % 64);
@@ -244,7 +260,7 @@ impl Tracker {
                 ControlFlow::Continue(())
             });
             if visit.is_break() {
-                return;
+                return Ok(());
             }
         }
         let mut total = 0;
@@ -264,6 +280,7 @@ impl Tracker {
         self.refresh_count = self.refresh_count.saturating_add(1);
         self.refresh_seconds += self.last_refresh_seconds;
         self.last_refresh = Some(Instant::now());
+        Ok(())
     }
 
     /// The periodic refresh throttle, reported under `parallel` so the
@@ -644,6 +661,22 @@ mod tests {
         assert_eq!(restored.total_closed, 2);
         restored.edge(0, 1);
         assert!(!restored.json(2, 1)["available"].as_bool().unwrap());
+    }
+    #[test]
+    fn save_path_refresh_never_disables_and_honours_cancellation() {
+        let mut g = Tracker::new(1);
+        g.discovered(2);
+        g.edge(0, 1);
+        g.finish(1, true, true);
+        g.finish(0, true, true);
+        g.refresh_before_save(&AtomicBool::new(true));
+        assert_eq!(g.refresh_count, 0, "a cancelled pre-save scan does nothing");
+        assert_eq!(g.total_closed, 0);
+        assert!(g.json(2, 1)["snapshot_stale"].as_bool().unwrap());
+        g.refresh_before_save(&AtomicBool::new(false));
+        assert_eq!(g.refresh_count, 1);
+        assert_eq!(g.total_closed, 2);
+        assert!(g.unavailable.is_none());
     }
     #[test]
     fn fold_only_after_the_whole_log_was_persisted() {
