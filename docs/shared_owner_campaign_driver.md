@@ -438,8 +438,9 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 ```
 
 With `--start` the launcher refuses a live run (the `processes.json` and
-`status.json` PID/start-time identities of the run named by `active-run.json`,
-or its `run.pid` before those exist) and holds the native `checkpoint.lock`
+`status.json` PID/start-time identities, or `run.pid` before those exist, of
+the run named by `active-run.json`, of its `.resume-<id>` siblings and of
+every directory under `runs/`) and holds the native `checkpoint.lock`
 while it freezes the new bytes as `bin/rustred-<sha256>` (mode 0555, synced,
 digest re-checked; the old binary is kept), re-probes that frozen copy,
 rewrites `bin/steering.json` so that only the `--executable` value changes
@@ -450,6 +451,10 @@ receipts (`replaced_unix_time`, `walk_semantics_version`,
 `--resume --start`; RAM overrides combine as usual and every other frozen
 option is unchanged. Later plain `--resume --start` invocations use the
 upgraded binary, and the native run reports `checkpoint_executable_changed`.
+After an upgrade, resume only through this launcher: the `Resume with fresh
+receipts` command a supervisor prints (and records as `resume_command`)
+replays that run's own `--executable`, bypasses `active-run.json` and would
+run the replaced binary.
 
 Refusals exit 2 and change nothing:
 

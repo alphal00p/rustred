@@ -126,7 +126,7 @@ class ExecutableUpgradeTests(unittest.TestCase):
         self.assertEqual(upgrade["new"]["probe"], PROBE)
         self.assertEqual(upgrade["checkpoint"]["walk_semantics_version"], 1)
         self.assertEqual(upgrade["checkpoint"]["generation"], 7)
-        self.assertEqual(upgrade["active_run_evidence"], [])
+        self.assertEqual(upgrade["live_run_evidence"], [])
         self.assertEqual(upgrade["steering_sha256_before"], PRODUCTION.digest(self.campaign / "bin/steering.json"))
         self.assertIsNone(plan["steering_policy_sha256"])
         self.assertEqual(plan["executable_sha256"], PRODUCTION.digest(self.new))
@@ -282,10 +282,10 @@ class ExecutableUpgradeTests(unittest.TestCase):
         before = snapshot(self.campaign)
         status, output, errors, _ = run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--json")
         self.assertEqual(status, 0, errors)
-        self.assertEqual(len(json.loads(output)["executable_upgrade"]["active_run_evidence"]), 1)
+        self.assertEqual(len(json.loads(output)["executable_upgrade"]["live_run_evidence"]), 1)
         status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--start")
         self.assertEqual(status, 2)
-        self.assertIn("active run is alive", errors)
+        self.assertIn("a run of this campaign is alive", errors)
         self.assertIn(f"supervisor pid {os.getpid()}", errors)
         launch.assert_not_called()
         self.assertEqual(snapshot(self.campaign), before)
@@ -294,7 +294,7 @@ class ExecutableUpgradeTests(unittest.TestCase):
         PRODUCTION.write_json(run_directory / "status.json", {"process_identity": dict(
             identity, supervisor={"pid": os.getpid(), "start_ticks": start_ticks(os.getpid()) + 1})})
         (run_directory / "run.status").write_text("4\n")
-        self.assertEqual(PRODUCTION.active_run_liveness(self.campaign), [])
+        self.assertEqual(PRODUCTION.campaign_run_liveness(self.campaign), [])
         before = snapshot(self.campaign)
         descriptor = os.open(self.checkpoint / "checkpoint.lock", os.O_RDWR)
         try:
@@ -311,21 +311,61 @@ class ExecutableUpgradeTests(unittest.TestCase):
     def test_liveness_evidence_sources(self):
         run_directory = self.campaign / "runs" / "starting"
         PRODUCTION.write_json(self.campaign / "active-run.json", {"run_directory": str(run_directory)})
-        self.assertEqual(PRODUCTION.active_run_liveness(self.campaign), [])  # never created
+        self.assertEqual(PRODUCTION.campaign_run_liveness(self.campaign), [])  # never created
         run_directory.mkdir(parents=True)
         (run_directory / "request.json").write_text(json.dumps({"supervisor_pid": os.getpid()}))
-        self.assertIn("identity is not yet published", PRODUCTION.active_run_liveness(self.campaign)[0])
+        self.assertIn("identity is not yet published", PRODUCTION.campaign_run_liveness(self.campaign)[0])
         me = {"pid": os.getpid(), "start_ticks": start_ticks(os.getpid())}
         PRODUCTION.write_json(run_directory / "status.json", {"process_identity": {
             "supervisor": me, "boot_id": boot_id()}})
-        self.assertEqual(len(PRODUCTION.active_run_liveness(self.campaign)), 1)
+        self.assertEqual(len(PRODUCTION.campaign_run_liveness(self.campaign)), 1)
         PRODUCTION.write_json(run_directory / "status.json", {"process_identity": {
             "supervisor": me, "boot_id": "another-boot"}})
-        self.assertEqual(PRODUCTION.active_run_liveness(self.campaign), [])
+        self.assertEqual(PRODUCTION.campaign_run_liveness(self.campaign), [])
         (run_directory / "run.pid").write_text(f"{os.getpid()}\n")
-        self.assertIn("run.pid", PRODUCTION.active_run_liveness(self.campaign)[0])
+        self.assertIn("run.pid", PRODUCTION.campaign_run_liveness(self.campaign)[0])
         (run_directory / "supervisor-result.json").write_text("{}")
-        self.assertEqual(PRODUCTION.active_run_liveness(self.campaign), [])
+        self.assertEqual(PRODUCTION.campaign_run_liveness(self.campaign), [])
+
+    def test_runs_not_named_by_active_run_json_are_checked(self):
+        """The supervisor's printed resume command starts `<run>.resume-<id>` without active-run.json."""
+        me = {"pid": os.getpid(), "start_ticks": start_ticks(os.getpid())}
+        outside = self.root / "elsewhere" / "20260926T000000.000000Z"
+        finished = self.campaign / "runs" / "20260926T000000.000000Z"
+        for run_directory in (outside, finished):
+            run_directory.mkdir(parents=True)
+            (run_directory / "run.status").write_text("4\n")
+            (run_directory / "supervisor-result.json").write_text("{}")
+            PRODUCTION.write_json(run_directory / "processes.json", {
+                "supervisor": dict(me, start_ticks=me["start_ticks"] + 1), "boot_id": boot_id()})
+        for active in (outside, finished):
+            resumed = active.with_name(active.name + ".resume-0123456789ab")
+            with self.subTest(active=active):
+                PRODUCTION.write_json(self.campaign / "active-run.json", {"run_directory": str(active)})
+                self.assertEqual(PRODUCTION.campaign_run_liveness(self.campaign), [])
+                resumed.mkdir()
+                PRODUCTION.write_json(resumed / "status.json", {"process_identity": {
+                    "supervisor": me, "boot_id": boot_id()}})
+                [evidence] = PRODUCTION.campaign_run_liveness(self.campaign)
+                self.assertIn(f"supervisor pid {os.getpid()} from {resumed / 'status.json'} is alive", evidence)
+                before = snapshot(self.campaign)
+                status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new),
+                                                "--start")
+                self.assertEqual(status, 2)
+                self.assertIn("a run of this campaign is alive", errors)
+                launch.assert_not_called()
+                self.assertEqual(snapshot(self.campaign), before)
+                (resumed / "status.json").unlink()
+                resumed.rmdir()
+        # Any run directory of the campaign counts, named or not; unreadable identities are refused.
+        stray = self.campaign / "runs" / "manual"
+        stray.mkdir()
+        (stray / "processes.json").write_text(json.dumps({"native": me, "boot_id": boot_id()}))
+        [evidence] = PRODUCTION.campaign_run_liveness(self.campaign)
+        self.assertIn(f"native pid {os.getpid()}", evidence)
+        (stray / "processes.json").write_text("{")
+        with self.assertRaisesRegex(ValueError, f"cannot read the process identity of run {stray}"):
+            PRODUCTION.campaign_run_liveness(self.campaign)
 
     def test_upgrade_rewrites_only_the_executable_and_records_history(self):
         old_bytes, old_policy = self.steering()

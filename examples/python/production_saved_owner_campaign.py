@@ -274,27 +274,52 @@ def process_alive(identity):
         return False
 
 
-def active_run_liveness(campaign):
-    """Evidence that the latest requested run may still be alive (empty: none).
+def campaign_runs(campaign):
+    """Run directories that may hold a live supervisor of this campaign.
 
-    Reads active-run.json and its run directory's processes.json/status.json
+    The run named by active-run.json, every directory under campaign/runs and
+    the `<run>.resume-<id>` siblings of the active run: the supervisor's
+    printed resume command creates those without updating active-run.json.
+    """
+    runs = set()
+    path = campaign / "active-run.json"
+    if path.exists():
+        run = read_bounded_json(path, MAX_RECEIPT_BYTES, "active-run.json").get("run_directory")
+        if not isinstance(run, str) or not run:
+            raise ValueError("active-run.json does not name a run directory")
+        run = Path(run)
+        runs.add(run)
+        if run.parent.is_dir():
+            runs.update(sibling for sibling in run.parent.iterdir()
+                        if sibling.name.startswith(run.name + ".resume-"))
+    if (campaign / "runs").is_dir():
+        runs.update((campaign / "runs").iterdir())
+    return sorted(run for run in runs if run.is_dir())
+
+
+def campaign_run_liveness(campaign):
+    """Evidence that any run of this campaign may still be alive (empty: none).
+
+    For every run of campaign_runs it reads the processes.json/status.json
     identities; before the first identity is published, a live run.pid or
     request.json supervisor PID counts as alive. The native checkpoint.lock
     remains the final guard.
     """
-    path = campaign / "active-run.json"
-    if not path.exists():
-        return []
-    run = read_bounded_json(path, MAX_RECEIPT_BYTES, "active-run.json").get("run_directory")
-    if not isinstance(run, str) or not run:
-        raise ValueError("active-run.json does not name a run directory")
-    run = Path(run)
-    if not run.is_dir():
-        return []
     try:
         boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     except OSError:
         boot = None
+    evidence = []
+    for run in campaign_runs(campaign):
+        try:
+            evidence += run_liveness(run, boot)
+        except ValueError as error:
+            raise ValueError(f"cannot read the process identity of run {run}: {error}") from error
+    return evidence
+
+
+def run_liveness(run, boot):
+    """Liveness evidence for one supervisor run directory."""
     evidence = []
     identified = False
     for name in ("processes.json", "status.json"):
@@ -373,7 +398,7 @@ def plan_executable_upgrade(campaign, checkpoint, source, frozen, frozen_hash):
             "new": {"sha256": new_hash, "source": str(source),
                     "path": str((campaign / "bin" / ("rustred-" + new_hash)).resolve()), "probe": probe},
             "checkpoint": saved, "walk_semantics_version": saved["walk_semantics_version"],
-            "active_run_evidence": active_run_liveness(campaign)}
+            "live_run_evidence": campaign_run_liveness(campaign)}
 
 
 def upgraded_steering(policy, upgrade, replaced_unix_time):
@@ -404,9 +429,9 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
     copy is probed before it takes its final name, so a refusal here leaves
     bin/ unchanged.
     """
-    evidence = active_run_liveness(campaign)
+    evidence = campaign_run_liveness(campaign)
     if evidence:
-        raise ValueError("the campaign's active run is alive (" + "; ".join(evidence)
+        raise ValueError("a run of this campaign is alive (" + "; ".join(evidence)
                          + "); pause it with Ctrl-C and wait for exit 4 first")
     directory = campaign / "bin"
     receipt_path, steering_path = directory / "executable.json", directory / "steering.json"
@@ -827,7 +852,7 @@ def main(argv=None):
             print(f"  walk semantics: checkpoint {upgrade['checkpoint']['walk_semantics_version']} "
                   f"(generation {upgrade['checkpoint']['generation']}, {upgrade['checkpoint']['kind']}), "
                   f"new executable {upgrade['new']['probe']['walk_semantics_version']}")
-            for line in upgrade["active_run_evidence"]:
+            for line in upgrade["live_run_evidence"]:
                 print(f"  refusal with --start while alive: {line}")
             print("  apply by rerunning with --start; it will launch:")
         print(json.dumps(plan, indent=2) if args.json else shlex.join(command))
