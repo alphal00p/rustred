@@ -539,6 +539,9 @@ impl Tracker {
 mod reference_tests;
 
 #[cfg(test)]
+mod edges_benchmark;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn scan(graph: &mut Tracker) {
