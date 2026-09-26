@@ -581,6 +581,10 @@ fn ready_late_native_fault_after_cancellation_disallows_pause() {
     }
     let mut s = seed();
     let cancelled = AtomicBool::new(false);
+    // Cancel only once ticket 0 is inside its visitor. A dispatched slot
+    // whose worker has not yet taken the job returns nothing after the stop
+    // (Pool::take refuses), so under load the late fault could never happen.
+    let running = AtomicBool::new(false);
     run_pool(
         &mut s,
         &request(),
@@ -588,13 +592,14 @@ fn ready_late_native_fault_after_cancellation_disallows_pause() {
         &|_| {},
         true,
         &mut |s| {
-            if s.completed >= 3 {
+            if s.completed >= 3 && running.load(Ordering::Acquire) {
                 cancelled.store(true, Ordering::Release);
             }
             Ok(())
         },
         |id, _, stop, _| {
             if id == 0 {
+                running.store(true, Ordering::Release);
                 let start = Instant::now();
                 while !stop.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(10) {
                     std::thread::yield_now();
