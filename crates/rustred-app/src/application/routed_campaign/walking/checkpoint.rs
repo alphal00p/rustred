@@ -674,7 +674,6 @@ impl Store {
             inputs,
             input_frontiers: frontiers,
             streams: &state.streams,
-            records_accepted_events: state.ready().then_some(state.records_accepted_events),
         };
         let mut jobs: Vec<(Section, usize, usize, Writer<'_>)> = vec![
             (

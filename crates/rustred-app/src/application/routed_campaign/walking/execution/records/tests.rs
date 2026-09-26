@@ -409,26 +409,50 @@ fn ready_state() -> State<1> {
     state
 }
 
+fn meta_of(fixture: &Fixture) -> Value {
+    let manifest = fixture.manifest();
+    let file = manifest["sections"]["meta"]["file"].as_str().unwrap();
+    serde_json::from_slice(&fs::read(fixture.dir.join(file)).unwrap()).unwrap()
+}
+fn keys(value: &Value) -> std::collections::BTreeSet<&str> {
+    value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
 #[test]
 fn ready_accepted_events_aggregate_is_persisted_and_derived_for_older_checkpoints() {
     let state = ready_state();
     assert_eq!(state.records_accepted_events, 2);
     assert_eq!(state.events, 2);
     let fixture = Fixture::save(&state);
-    let meta_of = |fixture: &Fixture| {
-        let manifest = fixture.manifest();
-        let file = manifest["sections"]["meta"]["file"].as_str().unwrap();
-        serde_json::from_slice::<Value>(&fs::read(fixture.dir.join(file)).unwrap()).unwrap()
-    };
-    assert_eq!(meta_of(&fixture)["records_accepted_events"], 2);
-    assert_eq!(fixture.resume::<1>().unwrap().records_accepted_events, 2);
-    // A checkpoint written before the aggregate existed: derived once.
+    assert_eq!(meta_of(&fixture)["progress"]["records_accepted_events"], 2);
+    let restored = fixture.resume_full::<1>().unwrap();
+    assert_eq!(restored.state.records_accepted_events, 2);
+    assert_eq!(restored.report["records_accepted_events_derived"], false);
+    // A present but malformed aggregate is refused, never silently derived.
     fixture.rewrite_section::<1>(Section::Meta, |meta| {
-        meta.as_object_mut()
+        meta["progress"]["records_accepted_events"] = json!("2");
+    });
+    let error = fixture.resume::<1>().err().unwrap();
+    assert!(
+        error.contains("invalid ready accepted-events aggregate"),
+        "{error}"
+    );
+    // A checkpoint written without the aggregate (a fable_5_1 binary, also
+    // after an executable-history rollback saved again): derived once.
+    fixture.rewrite_section::<1>(Section::Meta, |meta| {
+        meta["progress"]
+            .as_object_mut()
             .unwrap()
             .remove("records_accepted_events");
     });
-    assert_eq!(fixture.resume::<1>().unwrap().records_accepted_events, 2);
+    let restored = fixture.resume_full::<1>().unwrap();
+    assert_eq!(restored.state.records_accepted_events, 2);
+    assert_eq!(restored.report["records_accepted_events_derived"], true);
     // The derivation reads the records: a corrupt count is refused.
     fixture.rewrite_section::<1>(Section::Records, |records| {
         records[0]["accepted_events"] = json!(3);
@@ -448,9 +472,13 @@ fn ready_accepted_events_aggregate_is_persisted_and_derived_for_older_checkpoint
     assert!(error.contains("no accepted-events count"), "{error}");
     // Ordered checkpoints never carry the key.
     let ordered = Fixture::save(&aliased());
-    assert!(meta_of(&ordered).get("records_accepted_events").is_none());
+    assert!(
+        meta_of(&ordered)["progress"]
+            .get("records_accepted_events")
+            .is_none()
+    );
     ordered.rewrite_section::<1>(Section::Meta, |meta| {
-        meta["records_accepted_events"] = json!(1);
+        meta["progress"]["records_accepted_events"] = json!(1);
     });
     assert!(
         ordered
@@ -459,6 +487,47 @@ fn ready_accepted_events_aggregate_is_persisted_and_derived_for_older_checkpoint
             .unwrap()
             .contains("ordered checkpoint carries ready accepted-event accounting")
     );
+}
+
+#[test]
+fn meta_section_keeps_the_key_set_the_fable_5_1_binaries_accept() {
+    // Top-level meta keys of rustred-102adcc3 (fable_5_1 at 343a86a7), whose
+    // meta section denies unknown fields; its progress reader reads only the
+    // keys below and ignores any other. A campaign may roll back to it
+    // through the executable history, so neither policy may add a meta key.
+    const META: [&str; 13] = [
+        "closure",
+        "counters",
+        "details",
+        "input_frontiers",
+        "inputs",
+        "optional",
+        "parallel",
+        "progress",
+        "queue",
+        "refusals",
+        "route_joint_support_masks_pruned",
+        "streams",
+        "uncommitted",
+    ];
+    const PROGRESS: [&str; 5] = [
+        "physical_enabled",
+        "physical_inspections_published",
+        "physical_parent",
+        "replay",
+        "subdivided_logical_inspections",
+    ];
+    for state in [ready_state(), aliased()] {
+        let meta = meta_of(&Fixture::save(&state));
+        assert_eq!(keys(&meta), META.into_iter().collect());
+        let mut progress = PROGRESS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if state.ready() {
+            progress.insert("records_accepted_events");
+        }
+        assert_eq!(keys(&meta["progress"]), progress);
+    }
 }
 
 #[test]

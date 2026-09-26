@@ -30,6 +30,14 @@ mod replay;
 pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
 
+/// Ready only: `State::records_accepted_events` rides in the checkpoint's
+/// free-form progress value, never as a top-level meta key. Every CP5 reader,
+/// including the fable_5_1 binaries whose meta section denies unknown keys,
+/// ignores progress keys it does not know, so a checkpoint written here can
+/// still be resumed by them (executable-history rollback). A checkpoint
+/// without the key (written by those binaries) derives it on restore.
+pub(super) const PROGRESS_ACCEPTED_EVENTS: &str = "records_accepted_events";
+
 /// Cheap summary of the persisted walk state that can change between saves.
 /// Equal stamps mean the retained generation already holds this state.
 /// Deliberately excluded: `parallel` telemetry and session timing (diagnostics
@@ -175,10 +183,14 @@ impl<const N: usize> State<N> {
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {
-        json!({"physical_enabled":self.physical_enabled,
+        let mut metadata = json!({"physical_enabled":self.physical_enabled,
             "replay":self.replay.as_ref().map(replay::Replay::snapshot),
             "physical_inspections_published":self.physical_inspections_published,
-            "subdivided_logical_inspections":self.subdivided_logical_inspections})
+            "subdivided_logical_inspections":self.subdivided_logical_inspections});
+        if self.ready() {
+            metadata[PROGRESS_ACCEPTED_EVENTS] = json!(self.records_accepted_events);
+        }
+        metadata
     }
     #[cfg(test)]
     fn checkpoint_progress(&self) -> Value {

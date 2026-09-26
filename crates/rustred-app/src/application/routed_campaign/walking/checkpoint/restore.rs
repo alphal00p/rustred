@@ -6,7 +6,7 @@
 use super::super::{
     descendant_closure::Tracker,
     execution::{
-        State,
+        PROGRESS_ACCEPTED_EVENTS, State,
         records::{self, RecordSink, Sidecar},
     },
     queue::Queue,
@@ -115,7 +115,7 @@ pub(super) fn restore<const N: usize>(
         s.plain(section)
             .ok_or_else(|| format!("state manifest is missing the {} section", section.name()))
     };
-    let meta = sections::read_meta(&read_section(
+    let mut meta = sections::read_meta(&read_section(
         dir,
         &plain(Section::Meta)?.file,
         plain(Section::Meta)?.bytes,
@@ -204,12 +204,25 @@ pub(super) fn restore<const N: usize>(
     {
         return Err("inconsistent checkpoint publication counters".into());
     }
-    let derived = ready && meta.records_accepted_events.is_none();
-    let records_accepted_events = match meta.records_accepted_events {
+    let saved_accepted_events = meta
+        .progress
+        .as_object_mut()
+        .ok_or("invalid checkpoint progress")?
+        .remove(PROGRESS_ACCEPTED_EVENTS)
+        .map(|value| {
+            value
+                .as_u64()
+                .and_then(|total| usize::try_from(total).ok())
+                .ok_or("invalid ready accepted-events aggregate")
+        })
+        .transpose()?;
+    let derived = ready && saved_accepted_events.is_none();
+    let records_accepted_events = match saved_accepted_events {
         Some(total) if ready => total,
         Some(0) | None if !ready => 0,
         Some(_) => return Err("ordered checkpoint carries ready accepted-event accounting".into()),
-        // Written before the sidecar kept the aggregate: derive it once.
+        // Written by a binary that keeps no aggregate (before the sidecar, or
+        // an executable-history rollback that saved again): derive it once.
         None => derive_accepted_events(&sidecar, native_records)?,
     };
     let mut state = State::new(queue, frontiers, None);

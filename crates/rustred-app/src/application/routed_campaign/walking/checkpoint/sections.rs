@@ -410,6 +410,9 @@ pub(super) struct ProgressRef<'a> {
     pub metadata: Value,
     pub physical_parent: &'a Option<PhysicalProgress>,
 }
+/// The top-level key set is frozen for this format: CP5 binaries of the same
+/// semantics version deny unknown meta keys, and a campaign may roll back to
+/// any of them. New persisted scalars go into the free-form `progress` value.
 #[derive(Serialize)]
 pub(super) struct MetaRef<'a> {
     pub counters: [usize; 12],
@@ -425,11 +428,6 @@ pub(super) struct MetaRef<'a> {
     pub inputs: &'a [Value],
     pub input_frontiers: &'a [Value],
     pub streams: &'a Streams,
-    /// Ready only: sum of `accepted_events` over the published native records
-    /// (the sidecar keeps no record in RAM). Omitted for Ordered, so an Ordered
-    /// meta section keeps the key set every CP5 reader accepts.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub records_accepted_events: Option<usize>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -447,10 +445,6 @@ pub(super) struct Meta {
     pub inputs: Vec<Value>,
     pub input_frontiers: Vec<Value>,
     pub streams: Streams,
-    /// Absent in checkpoints written before the record sidecar; restore then
-    /// derives it once by streaming the record segments.
-    #[serde(default)]
-    pub records_accepted_events: Option<usize>,
 }
 pub(super) fn write_meta(
     out: &mut (impl Write + ?Sized),
