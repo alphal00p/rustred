@@ -670,7 +670,8 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
             [
                 "closure_refresh_policy",
                 "containment_prefilter",
-                "coordinator_duty"
+                "coordinator_duty",
+                "queue_storage"
             ]
         );
         assert_eq!(
@@ -729,6 +730,7 @@ fn observe_attaches_the_lean_pool_tier_to_per_domain_events_only() {
         "closure_refresh_policy",
         "containment_prefilter",
         "coordinator_duty",
+        "queue_storage",
     ];
     let expected = [
         with(pool.snapshot_lean(), &lean),
