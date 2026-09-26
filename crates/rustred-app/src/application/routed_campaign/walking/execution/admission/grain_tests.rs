@@ -128,15 +128,18 @@ fn canonical(state: &State<2>) -> Value {
         .unwrap()
         .sort_by_cached_key(|bucket| serde_json::to_string(&(&bucket[0], &bucket[1])).unwrap());
     let mut progress = state.progress("test", 0, &json!({}));
-    progress["parallel"]
-        .as_object_mut()
-        .unwrap()
-        .remove("admission_preparation");
-    // Session telemetry (wall seconds, filter-tier callback counts) is not
-    // admission semantics and legitimately differs between engines.
-    let progress_fields = progress.as_object_mut().unwrap();
-    progress_fields.remove("coordinator_duty");
-    progress_fields.remove("containment_prefilter");
+    // Session telemetry (wall seconds, filter-tier callback counts, refresh
+    // throttle) is not admission semantics and legitimately differs between
+    // engines; it all lives under `parallel`.
+    let parallel = progress["parallel"].as_object_mut().unwrap();
+    for key in [
+        "admission_preparation",
+        "coordinator_duty",
+        "containment_prefilter",
+        "closure_refresh_policy",
+    ] {
+        parallel.remove(key);
+    }
     json!({"queue_metadata":queue[0], "domains":queue[1], "buckets":queue[2], "ledger":queue[3],
         "progress":progress, "records":state.records, "details":state.details,
         "refusals":state.refusals, "optional":state.optional,
