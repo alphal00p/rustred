@@ -649,3 +649,30 @@ powers=[1]
     assert_eq!(report["domains"], json!([]));
     assert_eq!(report["family_closure_claim"], false);
 }
+
+#[test]
+fn cli_walk_semantics_version_probe_reports_the_checkpoint_resume_identity() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .arg("walk-semantics-version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1);
+    let probe: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        probe,
+        json!({
+            "walk_semantics_version": rustred_app::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+            "checkpoint_format": rustred_app::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
+            "checkpoint_schema": rustred_app::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
+        })
+    );
+    let refused = Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .args(["walk-semantics-version", "extra"])
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+}

@@ -393,11 +393,10 @@ class ProductionTests(unittest.TestCase):
             args = Namespace(workers=1, cpus=str(cpu), checkpoint_interval_seconds=1234,
                              max_memory_bytes=10_000_000_000, ram_guard_margin_percent=7,
                              apply_subdivision_axis=2, apply_subdivision_cut=3, resume=False,
-                             publication_policy=None)
+                             publication_policy="ordered")
             policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                campaign / "inputs", 67, 123456)
-            args = Namespace(**{name: None for name in policy["options"]}, resume=True,
-                             publication_policy=None)
+            args = Namespace(**{name: None for name in policy["options"]}, resume=True)
             with patch.object(PRODUCTION.os, "sched_getaffinity", return_value={cpu + 1}):
                 resumed = PRODUCTION.frozen_policy(campaign, args, campaign / "ignored",
                                                     campaign / "ignored", 1, 2)
@@ -423,12 +422,14 @@ class ProductionTests(unittest.TestCase):
                 policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                    campaign / "inputs", 67, 123456)
                 command = policy["command_arguments"]
-                expected = requested or "ordered"
+                expected = requested or "ready"
+                self.assertEqual(policy["schema"], "rustred.production-steering.v2")
+                self.assertEqual(policy["options"]["publication_policy"], expected)
                 self.assertEqual(command[command.index("--publication-policy") + 1], expected)
                 self.assertEqual(command[command.index("--transfer-unreserved-lookahead") + 1], "256")
+                self.assertNotIn("--inspection-workers", command)
                 frozen = (campaign / "bin/steering.json").read_bytes()
-                resumed_args = Namespace(**{name: None for name in policy["options"]},
-                                         resume=True, publication_policy=None)
+                resumed_args = Namespace(**{name: None for name in policy["options"]}, resume=True)
                 for explicit in (None, expected):
                     resumed_args.publication_policy = explicit
                     self.assertEqual(PRODUCTION.frozen_policy(campaign, resumed_args,
@@ -495,6 +496,61 @@ class ProductionTests(unittest.TestCase):
                     PRODUCTION.main(flags)
                 verify.assert_not_called()
                 freeze.assert_not_called()
+
+
+
+class DerivedDashboardTests(unittest.TestCase):
+    def derived_lines(self, status):
+        return [line for line in MONITOR.dashboard(status) if line.startswith(("Inspectors ", "Rate ", "Checkpoint gen "))]
+
+    def test_absent_derived_block_renders_unknown_without_eta(self):
+        for status in ({}, {"progress": {}}, {"derived": None}, {"derived": {}}, {"derived": {"last_checkpoint": None}}):
+            with self.subTest(status=status):
+                lines = self.derived_lines(status)
+                self.assertEqual(lines, [
+                    "Inspectors unknown computing / unknown reserved · stall >=5 s unknown · coordinator duty unknown",
+                    "Rate unknown per hour · pending unknown per completion · max scheduled rank unknown · RSS unknown KB per domain",
+                    "Checkpoint gen unknown · unknown in unknown · duty unknown · roots closed unknown/unknown"])
+        text = "\n".join(MONITOR.dashboard({"derived": {"completions_per_hour_1h": 10.0}}))
+        self.assertNotIn("ETA ", text.replace("closure ETA unknown", ""))
+        self.assertNotIn("estimate", text)
+
+    def test_measured_derived_values_are_formatted_and_partial_blocks_degrade(self):
+        derived = {"computing_inspectors_mean_1h": 3.26, "stall_share_5s": 0.317, "coordinator_duty_1h": 0.42,
+                   "completions_per_hour_1h": 12345.6, "pending_growth_per_completion_1h": 1.234,
+                   "max_scheduled_finite_rank": 21, "rss_bytes_per_discovered_domain": 4375.0,
+                   "last_checkpoint": {"generation": 18, "bytes": 68_696_213_315, "duration_seconds": 496.1},
+                   "checkpoint_duty": 0.077, "roots_closed": 7, "roots_total": 67}
+        status = {"derived": derived, "progress": {"worker_reservations": {"inspectors": 5}}}
+        self.assertEqual(self.derived_lines(status), [
+            "Inspectors 3.3 computing / 5 reserved · stall >=5 s 32% · coordinator duty 42%",
+            "Rate 12,346 per hour · pending +1.23 per completion · max scheduled rank 21 · RSS 4.4 KB per domain",
+            "Checkpoint gen 18 · 68.70 GB in 496 s · duty 8% · roots closed 7/67"])
+        partial = {"derived": {"completions_per_hour_1h": 0.0, "pending_growth_per_completion_1h": -0.5,
+                               "stall_share_5s": float("nan"), "roots_closed": True, "last_checkpoint": {"generation": 3}}}
+        self.assertEqual(self.derived_lines(partial), [
+            "Inspectors unknown computing / unknown reserved · stall >=5 s unknown · coordinator duty unknown",
+            "Rate 0 per hour · pending -0.50 per completion · max scheduled rank unknown · RSS unknown KB per domain",
+            "Checkpoint gen 3 · unknown in unknown · duty unknown · roots closed unknown/unknown"])
+        stream = io.StringIO()
+        MONITOR.Presenter(stream, plain_seconds=1).render(dict(status, state="running"), now=0)
+        self.assertIn("Rate 12,346 per hour", stream.getvalue())
+        self.assertNotIn("\x1b", stream.getvalue())
+
+    def test_event_tail_observers_receive_every_complete_record(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            path.write_text('{"event": "a"}\nnot json\n{"event": "b"}\n{"event": "partial"')
+            tail = MONITOR.EventTail(path)
+            seen = []
+            tail.observers.append(seen.append)
+            tail.poll(1.0)
+            self.assertEqual(seen, [{"event": "a"}, {"event": "b"}])
+            self.assertEqual(tail.invalid_records, 1)
+            with path.open("a") as stream:
+                stream.write('}\n')
+            tail.poll(2.0)
+            self.assertEqual(seen[-1], {"event": "partial"})
 
 
 if __name__ == "__main__":

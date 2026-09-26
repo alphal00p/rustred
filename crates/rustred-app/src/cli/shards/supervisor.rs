@@ -648,7 +648,7 @@ fn finish(
     {
         let manifest: Value = checkpoint::read_json(
             &directory.join(format!("jobs/{:04}/checkpoint/latest.json", job.id)),
-            1024 * 1024,
+            crate::OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
         )?;
         if manifest["metadata"]["state"] != "saved" {
             return Err(bad("paused child is missing a saved checkpoint manifest"));

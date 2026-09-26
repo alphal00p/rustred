@@ -1,5 +1,29 @@
 # RustRed project goal
 
+## September 26 directive: `fable_5_1` branch, QCD-renormalization entry class
+
+The user directs a new feature branch `fable_5_1` implementing every lever of
+the 2026-09-26 audit ([report](docs/research/five_loop_completion_levers_2026-09-26.md)):
+Ready-first scheduling with a cheaper admission path, a CP5 checkpoint format
+that streams write-only records out of RAM and binds resume to a declared
+semantics version instead of executable bytes, and a physics-scoped input set.
+The live `five-loop-dependency-closure` campaign is left running untouched;
+the user stops it themselves once the new campaign shows better odds.
+
+Scope decision (user-confirmed): the new campaign's required roots cover the
+class needed for complete five-loop QCD renormalization in Feynman gauge in
+the auxiliary-mass tadpole scheme, at D = A - R in {9, 10}: connected entry
+owners get A <= 16 - V4min, R <= 6 - V4min (D = 10) and A <= 14 - V4min,
+R <= 5 - V4min (D = 9); the 18 factorized owners keep the nested full-jet
+bounds A <= 24 - V4min, R <= 15 - V4min, D >= 9; the 8 owners that are never
+entry sectors keep convenience roots with the widest connected box. Helpers are
+rank-reduced full orthants. Descendants are never clipped. The original
+A <= 24, R <= 15, D >= 9 inputs remain runnable fresh with the new binary; old
+checkpoints (CP1/CP3/CP4) become unresumable. The governing plan, gates,
+launch and monitoring thresholds are in
+[`FABLE_5_1_five_loop_vacuum_plan.md`](FABLE_5_1_five_loop_vacuum_plan.md).
+No ETA or closure is claimed by this directive.
+
 ## September 25 follow-up: actual dependency-closure monitoring and clean restart
 
 Implement native dependency accounting for the shared saved-owner walker so the

@@ -135,8 +135,19 @@ The launcher freezes exact executable bytes and the original steering policy on
 first use. Omit `--start` to freeze/prepare and print the command without
 launching. The production preset has no solve timeout or cumulative work stop;
 it retains bounded worker buffers, input/scratch/algebra admission, at most
-50 CPUs and a default 500 GB decimal requested RAM ceiling. Hourly native checkpoints are the
-resume authority. The Python RAM guard requests checkpoint-and-stop at 95%
+256 workers (never more than the permitted CPU affinity; the default is 50) and
+a default 500 GB decimal requested RAM ceiling. Hourly native checkpoints are the
+resume authority.
+
+The frozen steering file is `rustred.production-steering.v2`: workers, the CPU
+set, checkpoint interval, RAM policy, `--publication-policy` (default `ready`
+for new campaigns; `ordered` remains selectable and is required for physical
+subdivision), `--transfer-unreserved-lookahead` (default 256) and optional
+`--inspection-workers N` (default: the native split). Older v1 steering files
+stay readable with their recorded values (Ordered, 256, native split). Resume
+refuses any change to a frozen option except the RAM overrides below. `--cpus`
+accepts comma lists and ranges (`128-177`, `0-3,8`); the frozen value is the
+sorted comma list. The Python RAM guard requests checkpoint-and-stop at 95%
 of the effective hard ceiling, earlier under host/cgroup pressure. Configure
 `--max-memory-bytes` (any positive byte count, for example 700000000000) or
 `--ram-guard-margin-percent` on first preparation or as per-invocation resume overrides.
@@ -171,6 +182,25 @@ publication separately from descendant work, and checkpoint writing/completion.
 The entry bar is not a closure percentage; the closure ETA stays unknown.
 Use `--once` or `--json` with the monitor for a read-only snapshot; `NO_COLOR`
 disables color. Stale heartbeats/process identities are reported explicitly.
+Three further lines (`Inspectors`, `Rate`, `Checkpoint gen`) show measured
+rates from `status.json`'s additive `derived` block: completions per hour,
+stall share (fraction of wall time in heartbeat intervals of at least 5 s or
+20 s with no completion), coordinator duty, pending growth per completion,
+RSS per discovered domain, computing inspectors, max scheduled finite rank,
+checkpoint generation/bytes/seconds/duty and roots closed. They are deltas of
+native counters over the last hour of heartbeats (two hours retained), never
+estimates; absent fields print `unknown`, and no line carries an ETA.
+`heartbeat_metrics.py EVENTS.jsonl --start S --end E` recomputes the same
+numbers offline for any elapsed window, so a pilot can be compared with the
+live run at matched elapsed time.
+
+`--prepare-from SOURCE --queries NEW.json --attach FILE ...` stages a new,
+verified query document (schema v2, only the six native row fields, owners
+drawn from the source selection) beside the copied owner payloads, and copies
+each attached planner receipt read-only into `inputs/`; the input receipt and
+the printed plan record every attachment's name, size and SHA-256, and the
+plan's `entry_plan_receipt` names an attached `entry-plan-receipt.json`. With
+`--queries` the default order is `preserve`; the planner's order is data.
 
 For another supplied snapshot, `stage_saved_owner_campaign.py --help` describes
 the generic staging helper. Its default is byte-preserving. Optional
@@ -191,6 +221,56 @@ The Nix flake also exports
 `campaign`, `campaign-production`, `campaign-monitor` and `campaign-stage` apps.
 See [the driver documentation](../../docs/shared_owner_campaign_driver.md) for
 resource accounting, genuine native resume and low-level command examples.
+
+## Profiling controls and walk audits
+
+These scripts measure and check completed walks; none of them launches a
+campaign or claims closure.
+
+- [`walk_control_matrix.py`](walk_control_matrix.py) runs a JSON matrix
+  (`rustred.walk-control-matrix.json.v1`; cases name an executable, manifest,
+  queries, owner base, workers, CPU range such as `192-197`, publication
+  policy, optional inspection workers, extra supervisor options, RAM ceiling
+  and checkpoint interval) sequentially through `shared_owner_campaign.py`
+  under `nice -n 5 taskset -c CPUS`. Each case gets `command.json`, the
+  supervisor `run/` receipts and `summary.json` (whole-command wall/CPU/max
+  RSS from `wait4`, native preparation and traversal seconds, inspections by
+  phase, aliases, events, max scheduled finite rank, checkpoint seconds, peak
+  sampled RSS, exit status); the matrix gets `RESULTS.md` and
+  `matrix-receipt.json` with executable and input digests. It refuses CPUs
+  outside its own affinity mask; `--dry-run` only writes commands and
+  `--audit` streams the audit below over every result.
+- [`audit_owner_domain_walk.py`](audit_owner_domain_walk.py) streams a
+  possibly multi-gigabyte `result.json` once with bounded memory and writes
+  `audit.json`: aliases resolve to same-phase, same-owner completed native
+  representatives; Apply/Route statistics are consistent (zero problems and
+  missing routes, successor sums); queue, ledger and pool are drained; zero
+  frontiers; initial and partial-anchor obligations discharged; input queries
+  preserved; the durable checkpoint manifest matches the report. Any
+  violation gives a nonzero exit. It checks recorded completion, not IBP
+  identities or family termination.
+- [`compare_walk_records.py`](compare_walk_records.py) compares two reports:
+  `--mode strict` (Ordered, old vs new binary) demands identical record
+  geometry, native/guard/dependency counters and outcomes apart from timing,
+  checkpoint bookkeeping and scheduling diagnostics; `--mode multiset` (Ready
+  or cross-policy) demands equal multisets of
+  `(phase, owner, lower, upper, rank, power_bounds, outcome)` and native
+  counts within `--native-tolerance`. `--shape discharged` (default) makes
+  the outcome policy-independent (error-free, obligation discharged natively
+  or by delegation); `--shape kind` adds the record kind for same-policy
+  runs; `--shape geometry` drops the outcome. Measured on the FG baseline:
+  the Ordered walk and its repeat are strictly identical (98,909 records),
+  while the Ready walk holds 28 fewer logical records, so cross-policy
+  multisets differ even in geometry; a difference is a finding, not closure.
+- [`heartbeat_metrics.py`](heartbeat_metrics.py) is the offline twin of the
+  supervisor's `derived` status block (see above).
+
+```sh
+nix develop --command python examples/python/walk_control_matrix.py matrix.json \
+  --output TMP/fable51-controls/new-binary --audit
+nix develop --command python examples/python/compare_walk_records.py --mode strict \
+  TMP/fable51-controls/baseline/fg/run/result.json TMP/fable51-controls/new-binary/fg/run/result.json
+```
 
 ## Other examples
 

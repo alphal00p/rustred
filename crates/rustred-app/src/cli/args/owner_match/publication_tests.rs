@@ -171,7 +171,7 @@ fn publication_policy_does_not_bypass_existing_scheduling_validation() {
             "--transfer-unreserved-lookahead 256 --max-containment-checks 10",
             "--transfer-unreserved-lookahead 256 --reuse-initial-d-bands --max-containment-checks 10",
             "--workers 0",
-            "--workers 65",
+            "--workers 257",
         ] {
             assert!(
                 parse_suffix(&format!(

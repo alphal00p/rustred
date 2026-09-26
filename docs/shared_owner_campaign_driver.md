@@ -38,10 +38,18 @@ unrestricted-family certificate. Updates are conservative periodic snapshots,
 not a completion-time estimate. See the [design and validation record](research/dependency_closure_monitoring_2026-09-25.md).
 
 This requires complete dependency history from the beginning. New native
-checkpoints use CP3 (Ordered) or CP4 (Ready); old CP1/CP2 checkpoints cannot
-resume under the new executable. Keep the original binary if retaining an old
-run. An old run viewed with the updated monitor reports recursive closure as
-**unknown**, never substitutes its publication counter into the bar.
+checkpoints use the sectioned CP5 format (`latest.json` manifest with schema 5
+and `format: "RUSTRED-WALK-CP5"` over per-generation `meta`/`nodes`/`ledger`/
+`index` files and append-only `domains`/`edges`/`records` segments, every
+file length- and blake3-verified before decoding); old CP1-CP4 checkpoints
+cannot resume under the new executable and are refused with a fresh-campaign
+message. Resume is bound to the request/policy digest, the owner digests and
+the executable's `WALK_SEMANTICS_VERSION`; a rebuilt executable with the same
+semantics version resumes (the manifest records both digests and emits
+`checkpoint_executable_changed`), a different semantics version is refused.
+An old run viewed with the updated monitor reports recursive closure as
+**unknown**, never substitutes its publication counter into the bar. See the
+[CP5 checkpoint record](research/five_loop_checkpoint_cp5_2026-09-26.md).
 
 At the user's request, the previous local campaigns have been removed from the
 active `campaigns/` directory and retained in the recovery archive
@@ -118,7 +126,16 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 `--prepare-from` accepts an existing staged campaign directory, verifies its
 immutable inputs and copies them to a disjoint, nonexistent destination.
 It defaults to `--query-order helpers-first`; `--query-order preserve` is an
-explicit control. It preserves every query object/ID/bound and program payload,
+explicit control. Adding `--queries NEW.json` keeps the copied owner payloads
+and selection but stages the supplied query document instead, after verifying
+it (schema `rustred.owner-domain-queries.json.v2`, every owner mask present in
+the selection, exactly the six native row fields `id`, `owner`, `lower`,
+`upper`, `max_numerator_rank`, `power_bounds`, unique ids); the default order
+is then `preserve`. `--attach FILE` (repeatable) copies planner receipts such
+as `entry-plan-receipt.json` read-only into `inputs/`; the input receipt lists
+each attachment's name, size and SHA-256 and the printed plan records
+`entry_plan_receipt` when that file is attached. Attachments are opaque data,
+never solver input. It preserves every query object/ID/bound and program payload,
 saves the input query bytes as `queries-original.json` when reordering, and
 records the ordering in the input receipt and displayed launch plan.
 The present five-loop input remains 67 owners and 134 explicit requests.
@@ -162,25 +179,39 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 ```
 
 Omit `--start` to prepare and print the exact command without executing it.
-This still freezes the executable and policy. The default policy is at most
-50 permitted CPUs, a requested 500 GB decimal resident-memory ceiling, a 5% RAM guard
-margin, hourly checkpoints, Ordered publication, H256 unreserved transfer,
+This still freezes the executable and policy. The default policy is 50 workers
+(at most 256 and never more than the permitted CPU affinity; `--cpus` accepts
+comma lists and ranges such as `128-177` or `0-3,8`), a requested 500 GB
+decimal resident-memory ceiling, a 5% RAM guard margin, hourly checkpoints,
+Ready publication, H256 unreserved transfer, the native inspector split,
 exact initial-D reuse, finite-axis refinement and degree-64 guard admission.
+The frozen `steering.json` is `rustred.production-steering.v2` and records
+`publication_policy`, `transfer_unreserved_lookahead`, `inspection_workers`
+and `checkpoint_interval_seconds` beside the earlier options; the supervisor
+command is built from those options, and `--inspection-workers N` is added
+only when frozen. v1 steering files remain readable with their recorded
+values (Ordered, lookahead 256, native split).
 Cumulative enumeration work is uncapped (`--unbounded-work`); input admission,
 bounded worker buffers, native scratch and per-operation algebra safeguards
 remain explicit. Physical subdivision is optional, with the paired
 `--apply-subdivision-axis N --apply-subdivision-cut C`; it is not a default
 whole-walker speed claim. The saved input remains data, not topology dispatch.
 
-Experimental `--publication-policy ready` lets completed or partially ready
-sources publish without waiting for an earlier slow source, including within
-one owner. It still uses shared admission and bounded outstanding-work credits
-(H256 in the production preset). New runs use CP4 checkpoints, require
-unreserved-transfer scheduling, and currently rejects physical subdivision.
-Select it only when preparing a **new** campaign; do not attach the current
-Ordered checkpoint or swap its frozen executable. Ordered remains the default.
+Ready publication (`--publication-policy ready`, the default for campaigns
+prepared with the v2 steering) lets completed or partially ready sources
+publish without waiting for an earlier slow source, including within one
+owner. It still uses shared admission and bounded outstanding-work credits
+(H256 in the production preset), requires unreserved-transfer scheduling and
+rejects physical subdivision. New runs use CP5 checkpoints whose manifest
+binds the publication policy, so an Ordered checkpoint refuses a Ready resume
+as a policy change. `--publication-policy ordered` remains selectable and is
+required for `--apply-subdivision-axis/--cut`. Choose the policy only when
+preparing a **new** campaign; resume refuses a different policy, lookahead,
+inspector count, worker count, CPU set or checkpoint interval than the frozen
+one (only the RAM overrides may differ), and never swaps the frozen executable
+for one with a different walk semantics version.
 See [the implementation and validation record](research/five_loop_ready_publication_2026-09-24.md)
-for the experimental status and measurement boundaries.
+for the measurement boundaries.
 
 After a graceful pause, resume with the same immutable binary and frozen solver
 flags automatically. Each invocation creates a new receipt directory:
@@ -211,9 +242,10 @@ record the original policy and requested RAM overrides separately; supervisor
 receipts record both requested and host-admitted effective limits.
 
 `campaigns/five-loop-saved/active-run.json` points to the latest requested run.
-The launcher still rejects conflicting native policy overrides and a different executable;
-changing native policy requires a separate campaign. A later Cargo rebuild does
-not replace the frozen executable. `campaign_monitor.py RUN --json` gives one
+The launcher still rejects conflicting native policy overrides and a different executable
+(except a semantics-compatible `--upgrade-executable`, below); changing native
+policy requires a separate campaign. A later Cargo rebuild does not replace the
+frozen executable. `campaign_monitor.py RUN --json` gives one
 read-only machine-readable status; `--once` prints one human-readable snapshot.
 The flake also exposes `campaign-production`, `campaign-monitor`,
 `campaign-stage`, and `campaign` apps. The tested development environment uses
@@ -255,9 +287,12 @@ diagnostic mode; production unbounded work removes that stop too. Concrete-only 
 flags and `--expansion-limits` are rejected with `--queries`; symbolic-only
 flags are rejected with `--targets`. The two input flags are mutually exclusive.
 
-CPU IDs must be permitted by the process affinity. Pass all concurrent campaign
-process roots with repeated `--registered-pid`, and their configured compute
-workers (including builds) with `--other-workers`. The sum must not exceed 50.
+CPU IDs must be permitted by the process affinity; `--cpus` accepts comma
+lists and ranges (`128-177`, `0-3,8`) and must name exactly `--workers` IDs.
+Pass all concurrent campaign process roots with repeated `--registered-pid`,
+and their configured compute workers (including builds) with `--other-workers`.
+The sum must not exceed 256 or the number of permitted CPUs, whichever is
+smaller.
 Concurrent external jobs also require `--reserved-other-memory-bytes`, covering
 their full intended memory allowance, not only a low initial sample. Currently
 observed external RSS must fit this reservation before launch.
@@ -272,8 +307,8 @@ remain tracked after reparenting. Children born and reparented between samples
 before first observation can be missed; this is not universal descendant
 capture. Transient unreadable live identities are retained for later retry.
 
-Defaults are at most 50 outer workers, all native/BLAS/Rayon inner pools fixed
-to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
+Defaults are 50 outer workers (at most 256, bounded by the permitted CPUs),
+all native/BLAS/Rayon inner pools fixed to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
 `--max-memory-bytes` accepts any positive byte count, including a higher requested
 ceiling such as 700 GB; there is no fixed numerical RAM maximum. Admission reduces it if
 host/cgroup available RAM minus the host reserve is smaller. The reserve
@@ -318,6 +353,22 @@ bar, not a publication fallback. Sampled actual native CPU occupancy and blocked
 from reserved inspector/admission/coordinator workers. `NO_COLOR` suppresses
 color; redirected output is low-rate plain text, including checkpoint status.
 Resource records expose local completion rates and RSS slope.
+`status.json` additionally carries a `derived` block (schema string unchanged;
+the block is additive) computed from a bounded deque of the last two hours of
+native heartbeats: `completions_per_hour_1h`, `stall_share_5s` and
+`stall_share_20s` (fraction of wall time in heartbeat intervals of at least
+5 s or 20 s with zero completion delta), `pending_growth_per_completion_1h`,
+`rss_bytes_per_discovered_domain`, `coordinator_duty_1h` (delta of
+preparation plus ordered-commit wall over delta wall), `checkpoint_duty`
+(sum of save durations over elapsed), `computing_inspectors_mean_1h` (null
+until the native heartbeat reports `computing_workers`),
+`max_scheduled_finite_rank`, `roots_closed`, `roots_total` and
+`last_checkpoint` (generation, bytes, duration). The dashboard shows them on
+the `Inspectors`, `Rate` and `Checkpoint gen` lines, `unknown` when absent.
+These are measured deltas, not estimates: nothing in the status or dashboard
+is an ETA. `examples/python/heartbeat_metrics.py EVENTS.jsonl [--start S
+--end E --window W]` recomputes the same numbers offline for any elapsed
+window of any `events.jsonl`, tolerating a partially written last line.
 Each resource record also includes per-PID/start CPU deltas and RSS, with the
 supervisor and owned native process labelled separately. Newly observed or
 temporarily unreadable processes have no CPU delta until a fresh baseline is
@@ -352,6 +403,174 @@ stale/dead-supervisor snapshots instead of claiming current activity. There is n
 overwrite or silent continuation of an old receipt. CPU measurements are
 sampled deltas of live registered processes, not a complete GNU-time accounting
 of short-lived children between samples.
+
+### Resuming onto a semantics-compatible binary
+
+A paused CP5 campaign may continue on a newer, performance-only executable
+whose walk semantics equal the checkpoint's. The native store accepts a
+different executable digest with the same `WALK_SEMANTICS_VERSION` (emitting
+`checkpoint_executable_changed`) and refuses a different version before
+touching the checkpoint directory. The launcher checks the same condition
+first with the read-only probe `rustred walk-semantics-version`, which prints
+`{"walk_semantics_version":1,"checkpoint_format":"RUSTRED-WALK-CP5","checkpoint_schema":5}`.
+
+The probe is necessary, not sufficient. The native resume also requires the
+manifest's request binding to equal the new executable's: the inputs, the
+limits (including that executable's default limits) and the `Debug` form of
+its reduction-limit, publication and scheduling policies. A binary that
+changes one of those without a semantics bump passes the probe, and then its
+native open refuses with `checkpoint request or policy differs; refusing to
+restart` before touching the checkpoint. Nothing is lost, but the campaign's
+`bin/` already names that binary; return to the previous one as described
+under *Rolling back* below.
+
+Pause first: Ctrl-C (or SIGTERM) to the **Python supervisor** requests the
+cooperative save; wait for the saved checkpoint and the terminal `paused`
+receipt (native exit 4). Never kill the native process. Then build the new
+binary and run the read-only dry run:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable target/release/rustred
+```
+
+It changes nothing and prints the frozen and new SHA-256 digests, the
+checkpoint's walk semantics version (with generation and kind), the new
+executable's probe result, any evidence that the active run is still alive
+and the exact supervisor command it would launch (`--json` prints the full
+plan with an `executable_upgrade` block). Apply and resume with:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable target/release/rustred --start
+```
+
+With `--start` the launcher refuses a live run (the `processes.json` and
+`status.json` PID/start-time identities, or `run.pid` before those exist, of
+the run named by `active-run.json`, of its `.resume-<id>` siblings and of
+every directory under `runs/`) and holds the native `checkpoint.lock`
+while it freezes the new bytes as `bin/rustred-<sha256>` (mode 0555, synced,
+digest re-checked; the old binary is kept), re-probes that frozen copy,
+rewrites `bin/steering.json` so that only the `--executable` value changes
+(plus an `executable_upgrades` note; mode 0444 again) and finally commits
+`bin/executable.json` as the new receipt with a `history` list of the replaced
+receipts (`replaced_unix_time`, `walk_semantics_version`,
+`reason: "upgrade_executable"`). It then resumes exactly like
+`--resume --start`; RAM overrides combine as usual and every other frozen
+option is unchanged. Later plain `--resume --start` invocations use the
+upgraded binary, and the native run reports `checkpoint_executable_changed`.
+After an upgrade, resume only through this launcher: the `Resume with fresh
+receipts` command a supervisor prints (and records as `resume_command`)
+replays that run's own `--executable`, bypasses `active-run.json` and would
+run the replaced binary.
+
+Refusals exit 2 and change nothing:
+
+- `--upgrade-executable` without `--resume`, or with `--prepare-from` or `--executable`;
+- the new binary has the frozen digest (plain `--resume` suffices);
+- `checkpoints/main/latest.json` is missing, or is not `RUSTRED-WALK-CP5`
+  schema 5 of kind `state` or `bootstrap`;
+- the new binary has no `walk-semantics-version` probe (every binary built
+  before the probe, including the frozen `rustred-102adcc3…`), or the probe
+  fails, exceeds 60 s or 64 KiB, or does not print one JSON object, unless
+  `bin/executable.json` history lists it (see *Rolling back*);
+- a different checkpoint format/schema or walk semantics version: start a new campaign;
+- any other supplied option that differs from the frozen steering, or a RAM
+  override the frozen command cannot carry (checked before anything changes);
+- with `--start`: a live supervisor or native process, or a held `checkpoint.lock`;
+- with `--start`: the checkpoint's semantics version, the new binary's bytes
+  or probe, the receipt or the steering changed after validation (re-checked
+  under `checkpoint.lock` before the copy; the copy is probed under a
+  temporary name before it becomes `bin/rustred-<sha256>`).
+
+If an upgrade is interrupted after the steering rewrite but before the receipt
+commit, a plain `--resume` refuses because steering and receipt name different
+executables; rerunning the same `--upgrade-executable NEW --start` completes it.
+An interrupted copy leaves at most a hidden `bin/.rustred-<sha256>.*`
+temporary, never a file under the final name, so a rerun is not blocked.
+
+**Rolling back.** `--upgrade-executable` also returns, without a probe, to a
+binary that the `history` of `bin/executable.json` lists under the
+checkpoint's walk semantics version: the campaign established that version
+for it earlier (the original binary wrote the checkpoint; later ones passed
+the probe). This is how a campaign goes back to its original, pre-probe
+binary, for example after the native refused the new one or it was slower:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable campaigns/CAMPAIGN/bin/rustred-<old sha256>        # dry run
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable campaigns/CAMPAIGN/bin/rustred-<old sha256> --start
+```
+
+The kept frozen file is reused; the steering note and the replaced receipt
+record `reason: "rollback_executable"`.
+
+## Profiling controls and walk audits
+
+`examples/python/walk_control_matrix.py MATRIX.json --output DIR [--audit]
+[--dry-run] [--case NAME] [--skip-existing]` runs matched controls
+sequentially through this supervisor under `nice -n 5 taskset -c CPUS`. The
+matrix (`rustred.walk-control-matrix.json.v1`) lists cases with `name`,
+`executable`, `manifest`, `queries`, `owner_base`, `workers`, `cpus` (for
+example `"192-197"`), `publication_policy`, `inspection_workers` (or null),
+`native_options` (extra supervisor arguments), `max_memory_bytes` and
+`checkpoint_interval_seconds`; optional `transfer_unreserved_lookahead`
+(256) and `ram_guard_margin_percent` (5). Every case is validated, including
+that its CPUs lie inside the harness's own affinity mask, before anything
+runs. Per case it writes `command.json`, the supervisor `run/` directory and
+`summary.json`: whole-command wall, user/system CPU and max RSS from `wait4`
+of the supervisor (which includes its waited-for native child), the native
+report's `prepared_seconds`/`traversal_seconds`/`elapsed_seconds`, native
+inspections (Apply/Route from `completed_nodes` and `routed_domains`),
+aliases (`scheduled_nodes - completed_nodes`), events, max scheduled finite
+rank, checkpoint save seconds and the last generation from `events.jsonl`,
+peak sampled RSS from `resources.jsonl`, the supervisor receipt and exit
+status. Large reports are scanned head and tail for their top-level scalars
+rather than parsed whole. `RESULTS.md` tabulates the cases and
+`matrix-receipt.json` records executable, manifest and query SHA-256 digests.
+These are single-run measurements on the stated CPUs, not portable timings.
+
+`examples/python/audit_owner_domain_walk.py RUN [--queries Q] [--command
+ARGV.json] [--supervisor-receipt R] [--expect-schema S]` streams `result.json`
+once with bounded memory (record ids, owner/phase, kinds and dependency links
+in arrays) and writes `audit.json`: every alias resolves to a same-phase,
+same-owner completed native representative; Apply statistics have zero
+problems and unsupported-support successors and consistent successor sums;
+Route statistics have zero missing routes and consistent event accounting;
+queue, ledger and worker pool are drained; frontiers are zero; initial-entry
+and partial-anchor obligations are discharged over the distinct initial
+records; the input queries are preserved: `inputs` maps every query, in
+document order, to an initial record that equals the first query naming it,
+and a later (helpers-first) query may share it only if the record has the
+same owner and syntactically contains the query, as the walker's
+`Domain::contains` decides (counted as `aliased_queries`); ordered records are
+in order or ready records sum their accepted events to the committed
+watermark; the durable checkpoint manifest matches the report; the resource
+receipt shows a clean exit. Violations are listed and the exit status is
+nonzero. The audit checks recorded completion and explicit dependencies only,
+never IBP identities or family termination.
+
+`examples/python/compare_walk_records.py --mode strict|multiset A.json B.json`
+compares two reports while streaming both. Strict mode (Ordered, old versus
+new binary) requires identical completed-record geometry, native/guard/
+dependency counters and outcomes, ignoring only timing fields, checkpoint
+bookkeeping and scheduling diagnostics (`--ignore-top`/`--ignore-record`
+extend the list explicitly). Multiset mode (Ready or cross-policy) requires
+equal multisets of `(phase, owner, lower, upper, rank, power_bounds, outcome)`
+and native inspection counts within `--native-tolerance`; `--shape` chooses
+the outcome component (`discharged`, the default, is independent of whether a
+domain was inspected natively or delegated; `kind` adds the record kind for
+same-policy runs; `geometry` drops it). A difference is a nonzero exit;
+equality is not a closure claim. On the September 26 FG baselines the
+Ordered walk and its repeat compare strictly identical (98,909 records, 0
+differences), whereas Ready records 98,881 logical domains, so the
+cross-policy multisets differ; native counts (98,869 versus 98,841) lie
+within 0.03%.
 
 ## Inputs and API
 

@@ -1,0 +1,917 @@
+{
+  "V4_semantics": "sum over vertices of (degree - 3); the quartic vertex count for degrees {3, 4}",
+  "coordinate_count": 15,
+  "enumeration": {
+    "degree_sequences": [
+      {
+        "V4": 4,
+        "degrees": [
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "V4": 3,
+        "degrees": [
+          4,
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 2,
+        "degrees": [
+          4,
+          4,
+          3,
+          3,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 1,
+        "degrees": [
+          4,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 0,
+        "degrees": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ]
+      }
+    ],
+    "distinct_skeletons_by_V4": {
+      "0": 16,
+      "1": 38,
+      "2": 64,
+      "3": 38,
+      "4": 10
+    },
+    "labelled_leaves_by_V4": {
+      "0": 1256395,
+      "1": 100525,
+      "2": 9236,
+      "3": 1004,
+      "4": 138
+    },
+    "owner_canonical_forms": 101,
+    "unmatched_reduced_skeletons_by_V4_and_t": {}
+  },
+  "inputs": {
+    "momenta_sha256": "1b7d5bc9516621ef49110a3b81e43513ffca0f4fd18c80e11d47abc2c9a1dd81",
+    "parent_witnesses_sha256": "bc0737dd6b5520cb869502fc68421ffbde3a9842100fec2113952956f594ff70"
+  },
+  "loops": 5,
+  "owner_count": 67,
+  "owners": {
+    "000010011001001": {
+      "V4min": 4,
+      "closure_states": 52,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "4": 3
+      },
+      "t": 5
+    },
+    "000011001001011": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {},
+      "t": 6
+    },
+    "001000100101111": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {},
+      "t": 7
+    },
+    "001001000101111": {
+      "V4min": 3,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 7
+    },
+    "001001011101001": {
+      "V4min": 2,
+      "closure_states": 7,
+      "connected_forms": 2,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "2": 3
+      },
+      "t": 7
+    },
+    "001001100101111": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "2": 1,
+        "3": 1
+      },
+      "t": 8
+    },
+    "001100101110000": {
+      "V4min": 4,
+      "closure_states": 6,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "4": 3
+      },
+      "t": 6
+    },
+    "010011111101011": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "010100101110000": {
+      "V4min": 3,
+      "closure_states": 21,
+      "connected_forms": 2,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "3": 7
+      },
+      "t": 6
+    },
+    "010111011000001": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {},
+      "t": 7
+    },
+    "011000101101011": {
+      "V4min": 1,
+      "closure_states": 10,
+      "connected_forms": 5,
+      "connected_states": 8,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "1": 3,
+        "2": 6,
+        "3": 3
+      },
+      "t": 8
+    },
+    "011001000001111": {
+      "V4min": 3,
+      "closure_states": 4,
+      "connected_forms": 3,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "3": 3
+      },
+      "t": 7
+    },
+    "011001000101111": {
+      "V4min": 3,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 8
+    },
+    "011001110110100": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {},
+      "t": 8
+    },
+    "011011000111111": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "011011101101001": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 3,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 2,
+        "2": 3,
+        "3": 1
+      },
+      "t": 9
+    },
+    "011011111101001": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {},
+      "t": 10
+    },
+    "011100111100001": {
+      "V4min": 2,
+      "closure_states": 26,
+      "connected_forms": 2,
+      "connected_states": 16,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "2": 4
+      },
+      "t": 8
+    },
+    "011101011001001": {
+      "V4min": 1,
+      "closure_states": 4,
+      "connected_forms": 2,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "1": 2,
+        "2": 2
+      },
+      "t": 8
+    },
+    "011101110111000": {
+      "V4min": 3,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 9
+    },
+    "011101111101100": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "011101111111100": {
+      "V4min": 1,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 11
+    },
+    "011110111001001": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "2": 1,
+        "3": 1
+      },
+      "t": 9
+    },
+    "011111001101001": {
+      "V4min": 1,
+      "closure_states": 12,
+      "connected_forms": 4,
+      "connected_states": 10,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "1": 4,
+        "2": 5
+      },
+      "t": 9
+    },
+    "101010000110001": {
+      "V4min": null,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {},
+      "t": 6
+    },
+    "101011011101001": {
+      "V4min": 1,
+      "closure_states": 5,
+      "connected_forms": 1,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 9
+    },
+    "101011111001010": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 9
+    },
+    "101101100101000": {
+      "V4min": 2,
+      "closure_states": 17,
+      "connected_forms": 4,
+      "connected_states": 9,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "2": 8,
+        "3": 7
+      },
+      "t": 7
+    },
+    "101111101101001": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 3,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 2,
+        "2": 2
+      },
+      "t": 10
+    },
+    "110001011101011": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 9
+    },
+    "110001101101001": {
+      "V4min": 3,
+      "closure_states": 5,
+      "connected_forms": 2,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "3": 3
+      },
+      "t": 8
+    },
+    "110010101101011": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {},
+      "t": 9
+    },
+    "110101101101001": {
+      "V4min": 2,
+      "closure_states": 6,
+      "connected_forms": 2,
+      "connected_states": 5,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "2": 2
+      },
+      "t": 9
+    },
+    "110110111101001": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "111000010101001": {
+      "V4min": 4,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "4": 1
+      },
+      "t": 7
+    },
+    "111000100011101": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {},
+      "t": 8
+    },
+    "111000100111001": {
+      "V4min": 4,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "4": 1
+      },
+      "t": 8
+    },
+    "111001000001111": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 8
+    },
+    "111001100101101": {
+      "V4min": 2,
+      "closure_states": 2,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "2": 1,
+        "3": 1
+      },
+      "t": 9
+    },
+    "111001100110110": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 2,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 9
+    },
+    "111001100111001": {
+      "V4min": 3,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 9
+    },
+    "111001100111111": {
+      "V4min": 1,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 11
+    },
+    "111001111101011": {
+      "V4min": 0,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 11
+    },
+    "111010100100101": {
+      "V4min": 4,
+      "closure_states": 3,
+      "connected_forms": 1,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "4": 1
+      },
+      "t": 8
+    },
+    "111010111100011": {
+      "V4min": 1,
+      "closure_states": 2,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "1": 1,
+        "2": 1
+      },
+      "t": 10
+    },
+    "111011000101001": {
+      "V4min": 2,
+      "closure_states": 3,
+      "connected_forms": 2,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "2": 1,
+        "3": 1
+      },
+      "t": 8
+    },
+    "111011001101001": {
+      "V4min": 0,
+      "closure_states": 6,
+      "connected_forms": 3,
+      "connected_states": 6,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 3,
+        "2": 4,
+        "3": 1
+      },
+      "t": 9
+    },
+    "111011011101001": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 2,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 2,
+        "2": 1
+      },
+      "t": 10
+    },
+    "111011100111111": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30527,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 12
+    },
+    "111011101100011": {
+      "V4min": 1,
+      "closure_states": 7,
+      "connected_forms": 1,
+      "connected_states": 6,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 10
+    },
+    "111011111101010": {
+      "V4min": 1,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 11
+    },
+    "111011111101011": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 30699,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 12
+    },
+    "111100000011100": {
+      "V4min": 4,
+      "closure_states": 4,
+      "connected_forms": 1,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "4": 1
+      },
+      "t": 7
+    },
+    "111100011111100": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "111100100101001": {
+      "V4min": 1,
+      "closure_states": 15,
+      "connected_forms": 2,
+      "connected_states": 12,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "1": 2,
+        "2": 3,
+        "3": 3
+      },
+      "t": 8
+    },
+    "111100111101001": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 10
+    },
+    "111101010011100": {
+      "V4min": 3,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 9
+    },
+    "111101101101001": {
+      "V4min": 1,
+      "closure_states": 7,
+      "connected_forms": 1,
+      "connected_states": 6,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "1": 2
+      },
+      "t": 10
+    },
+    "111101110101001": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 1,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 10
+    },
+    "111101111101001": {
+      "V4min": 0,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 11
+    },
+    "111101111111100": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 31740,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 12
+    },
+    "111110111001001": {
+      "V4min": 1,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "1": 1,
+        "2": 1
+      },
+      "t": 10
+    },
+    "111111001001001": {
+      "V4min": 0,
+      "closure_states": 12,
+      "connected_forms": 1,
+      "connected_states": 12,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 2,
+        "3": 1
+      },
+      "t": 9
+    },
+    "111111001101001": {
+      "V4min": 0,
+      "closure_states": 6,
+      "connected_forms": 2,
+      "connected_states": 6,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 2,
+        "2": 2
+      },
+      "t": 10
+    },
+    "111111011101001": {
+      "V4min": 0,
+      "closure_states": 4,
+      "connected_forms": 1,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 11
+    },
+    "111111101101001": {
+      "V4min": 0,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 11
+    },
+    "111111111101001": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 32745,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 12
+    }
+  },
+  "role": "offline input planning; native admission remains the coverage authority",
+  "schema": "rustred.vacuum-skeleton-classification.json.v1",
+  "vertex_degrees": {
+    "max": 4,
+    "min": 3
+  }
+}

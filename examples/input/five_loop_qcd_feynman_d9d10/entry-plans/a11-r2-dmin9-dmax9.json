@@ -1,0 +1,45 @@
+{
+  "arity": 15,
+  "budget": {
+    "max_numerator_rank": 2,
+    "max_positive_power": 11,
+    "max_power_difference": 9,
+    "min_power_difference": 9
+  },
+  "counts_exact": true,
+  "max_positive_layers_per_sector": 12,
+  "operation": "entry_domain_plan",
+  "preview": {
+    "emitted": 0,
+    "max_targets": 0,
+    "order": "input_sector_order; native_A/R_shell_and_composition_order",
+    "scope": "prefix_only; not_coverage_or_closure",
+    "targets": [],
+    "truncated": true
+  },
+  "profile": {
+    "assumptions": "caller_supplied_bounds; no_automatic_physics_coverage_claim",
+    "name": "explicit"
+  },
+  "schema": "rustred.entry-domain-plan.json.v1",
+  "scope": "finite_starting_targets_only; not_descendant_bounds_or_solver_closure",
+  "sectors": [
+    {
+      "sector": "011001000101111",
+      "target_count": "3620"
+    },
+    {
+      "sector": "111101010011100",
+      "target_count": "1000"
+    },
+    {
+      "sector": "111001100111001",
+      "target_count": "1000"
+    },
+    {
+      "sector": "011101110111000",
+      "target_count": "1000"
+    }
+  ],
+  "total_target_count": "6620"
+}

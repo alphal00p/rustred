@@ -80,7 +80,7 @@ class SteeringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary); executable=production_fixture(directory)
             original=production_plan(directory,"--executable",str(executable),"--workers","1",
-                "--apply-subdivision-axis","2","--apply-subdivision-cut","3")
+                "--publication-policy","ordered","--apply-subdivision-axis","2","--apply-subdivision-cut","3")
             policy_path=directory/"bin/steering.json"
             original_bytes=policy_path.read_bytes()
             resumed=production_plan(directory,"--resume","--max-memory-bytes","700000000000",
@@ -473,7 +473,11 @@ raise SystemExit(4)
 
     def test_global_workers_rejected_before_launch(self):
         result=subprocess.run([sys.executable,str(SOURCE),"--executable","missing","--manifest","missing",
-            "--targets","missing","--workers","50","--other-workers","1"],capture_output=True,text=True)
+            "--targets","missing","--workers","256","--other-workers","1"],capture_output=True,text=True)
+        self.assertEqual(result.returncode,2)
+        self.assertIn("aggregate",result.stderr)
+        result=subprocess.run([sys.executable,str(SOURCE),"--executable","missing","--manifest","missing",
+            "--targets","missing","--workers","257"],capture_output=True,text=True)
         self.assertEqual(result.returncode,2)
         self.assertIn("aggregate",result.stderr)
 
@@ -610,5 +614,200 @@ raise SystemExit(4)
             self.assertEqual(result.returncode,2,result.stderr)
             self.assertIn(diagnostic,result.stderr)
 
+
+
+class CpuSetAndWorkerCapTests(unittest.TestCase):
+    def test_parse_cpu_set_accepts_ranges_and_mixed_lists(self):
+        self.assertEqual(CAMPAIGN.parse_cpu_set("128-177"),set(range(128,178)))
+        self.assertEqual(CAMPAIGN.parse_cpu_set("0-3,8"),{0,1,2,3,8})
+        self.assertEqual(CAMPAIGN.parse_cpu_set(" 5 , 7-7 ,9"),{5,7,9})
+        self.assertEqual(CAMPAIGN.format_cpu_set({8,0,3}),"0,3,8")
+        self.assertEqual(CAMPAIGN.MAX_WORKERS,256)
+        for bad in ("","a","3-1","1,1","0-2,1","-1","1-","1--2","\uff11",None,","):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                CAMPAIGN.parse_cpu_set(bad)
+
+    def test_worker_cap_is_bounded_by_affinity_and_ranges_are_accepted(self):
+        permitted=sorted(os.sched_getaffinity(0))[:3]
+        if len(permitted)<3:
+            self.skipTest("needs three permitted CPUs")
+        base=[str(SOURCE),"--executable","missing","--manifest","missing","--targets","missing"]
+        cases=[(["--workers","4"],"within the 3 permitted CPUs"),
+               (["--workers","2","--other-workers","2","--reserved-other-memory-bytes","1"],"aggregate"),
+               (["--workers","3","--cpus",f"{permitted[0]}-{permitted[2]},{permitted[2]+1}"],"exactly --workers"),
+               (["--workers","2","--cpus","1-x"],"invalid CPU specification"),
+               (["--workers","2","--cpus",f"{permitted[0]}-{permitted[1]}"],"not a file")]
+        with patch.object(CAMPAIGN.os,"sched_getaffinity",return_value=set(permitted)), \
+                patch.object(CAMPAIGN.os,"sched_setaffinity"), patch.object(CAMPAIGN,"owned_process") as launch:
+            for extra,fragment in cases:
+                with self.subTest(extra=extra), patch.object(sys,"argv",base+extra), redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(SystemExit) as error:
+                        CAMPAIGN.main()
+                    self.assertEqual(error.exception.code,2)
+                    self.assertIn(fragment,errors.getvalue())
+            launch.assert_not_called()
+
+    def test_fake_symbolic_child_heartbeats_yield_derived_status_block(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)
+            child=directory/"fake-rustred"
+            child.write_text(f"#!{sys.executable}\n"+"""import json,sys,time
+from pathlib import Path
+arg=lambda name: Path(sys.argv[sys.argv.index(name)+1])
+stop=arg('--stop-file'); events=arg('--events')
+def beat(elapsed,completed,queued,prep,commit):
+    return {'event':'heartbeat','elapsed_seconds':elapsed,'process_rss_bytes':5000,'currently_discovered_nodes':100,
+            'progress':{'event':'domain_progress','completed_nodes':completed,'scheduled_nodes':100,'queued_nodes':queued,
+                        'max_scheduled_finite_rank':13,'parallel':{'active_workers':1,'admission_preparation':{
+                        'preparation_wall_seconds':prep,'ordered_commit_wall_seconds':commit}},
+                        'descendant_closure':{'available':True,'initial_total':4,'initial_closed':1,'total_domains':100,
+                                              'total_closed':10,'unresolved_domains':90}}}
+saved={'state':'saved','generation':2,'bytes':5000,'duration_seconds':3.0,'saved_unix_time':1790000000,'paused':False,
+       'directory':'/nowhere','state_path':'/nowhere/state-2.bin'}
+with events.open('w') as stream:
+    for record in (beat(0,0,10,0.0,0.0),beat(10,4,12,1.0,1.0),{'event':'checkpoint_saved','checkpoint':saved},beat(20,4,12,2.0,1.0)):
+        stream.write(json.dumps(record)+'\\n')
+while not stop.exists(): time.sleep(.02)
+raise SystemExit(4)
+""")
+            child.chmod(0o700)
+            manifest=directory/"selection.json"; manifest.write_text("{}")
+            queries=directory/"queries.json"; queries.write_text("{}")
+            run=directory/"run"
+            result=subprocess.run([sys.executable,str(SOURCE),"--executable",str(child),"--manifest",str(manifest),
+                "--queries",str(queries),"--workers","1","--soft-memory-bytes","1","--sample-seconds","0.1",
+                "--run-directory",str(run),"--no-progress"],capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,4,result.stderr)
+            status=json.loads((run/"status.json").read_text())
+            self.assertEqual(status["schema"],"rustred.campaign-status.v1")
+            derived=status["derived"]
+            self.assertEqual(derived["schema"],"rustred.heartbeat-derived-metrics.v1")
+            self.assertAlmostEqual(derived["completions_per_hour_1h"],4/20*3600)
+            self.assertAlmostEqual(derived["stall_share_5s"],0.5)
+            self.assertAlmostEqual(derived["stall_share_20s"],0.0)
+            self.assertAlmostEqual(derived["pending_growth_per_completion_1h"],0.5)
+            self.assertAlmostEqual(derived["rss_bytes_per_discovered_domain"],50.0)
+            self.assertAlmostEqual(derived["coordinator_duty_1h"],3.0/20)
+            self.assertAlmostEqual(derived["checkpoint_duty"],3.0/20)
+            self.assertIsNone(derived["computing_inspectors_mean_1h"])
+            self.assertEqual(derived["max_scheduled_finite_rank"],13)
+            self.assertEqual((derived["roots_closed"],derived["roots_total"]),(1,4))
+            self.assertEqual(derived["last_checkpoint"],{"generation":2,"bytes":5000,"duration_seconds":3.0})
+            self.assertIsNone(status["closure_eta_seconds"])
+            lines=CAMPAIGN.MONITOR.dashboard(status)
+            self.assertIn("Rate 720 per hour · pending +0.50 per completion · max scheduled rank 13 · RSS 0.1 KB per domain",lines)
+            self.assertTrue(any(line.startswith("Inspectors unknown computing / unknown reserved · stall >=5 s 50% · coordinator duty 15%") for line in lines))
+            self.assertTrue(any(line.startswith("Checkpoint gen 2 · 0.00 GB in 3 s · duty 15% · roots closed 1/4") for line in lines))
+
+
+class SteeringV2Tests(unittest.TestCase):
+    def cpus(self,count):
+        permitted=sorted(os.sched_getaffinity(0))
+        if len(permitted)<count:
+            self.skipTest(f"needs {count} permitted CPUs")
+        return permitted[:count]
+
+    def test_new_campaign_freezes_v2_options_and_builds_command_from_them(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            cpus=self.cpus(4)
+            spec=f"{cpus[0]}-{cpus[2]},{cpus[3]}" if cpus[0]+2==cpus[2] else ",".join(map(str,cpus))
+            plan=production_plan(directory,"--executable",str(executable),"--workers","4","--cpus",spec,
+                                 "--inspection-workers","2","--transfer-unreserved-lookahead","128")
+            policy=plan["steering_policy"]
+            self.assertEqual(policy["schema"],"rustred.production-steering.v2")
+            options=policy["options"]
+            self.assertEqual(options["cpus"],",".join(map(str,cpus)))
+            self.assertEqual(options["publication_policy"],"ready")
+            self.assertEqual(options["transfer_unreserved_lookahead"],128)
+            self.assertEqual(options["inspection_workers"],2)
+            self.assertEqual(options["checkpoint_interval_seconds"],3600)
+            command=policy["command_arguments"]
+            self.assertEqual(command[command.index("--publication-policy")+1],"ready")
+            self.assertEqual(command[command.index("--transfer-unreserved-lookahead")+1],"128")
+            self.assertEqual(command[command.index("--inspection-workers")+1],"2")
+            self.assertEqual(command[command.index("--cpus")+1],",".join(map(str,cpus)))
+            self.assertEqual(plan["publication_policy"],"ready")
+            self.assertEqual(plan["inspection_workers"],2)
+            self.assertEqual(plan["cpus"],options["cpus"])
+            self.assertIsNone(plan["entry_plan_receipt"])
+            self.assertEqual(plan["attachments"],[])
+            resumed=production_plan(directory,"--resume")
+            self.assertEqual(resumed["steering_policy"],policy)
+            self.assertEqual(resumed["inspection_workers"],2)
+            self.assertEqual(production_plan(directory,"--resume","--cpus",spec)["steering_policy"],policy)
+            self.assertEqual(production_plan(directory,"--resume","--workers","4","--publication-policy","ready",
+                                             "--inspection-workers","2","--transfer-unreserved-lookahead","128")["steering_policy"],policy)
+            for options in (("--resume","--inspection-workers","3"),("--resume","--transfer-unreserved-lookahead","256"),
+                            ("--resume","--publication-policy","ordered"),("--resume","--checkpoint-interval-seconds","10"),
+                            ("--resume","--cpus",",".join(map(str,cpus[:3]))+","+str(cpus[3]+1))):
+                with self.subTest(options=options), redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit) as error:
+                    production_plan(directory,*options)
+                self.assertEqual(error.exception.code,2)
+                self.assertIn("differs from frozen policy",errors.getvalue())
+            self.assertEqual(production_plan(directory,"--resume","--max-memory-bytes","700000000000")["supervisor_ram_overrides"],
+                             {"max_memory_bytes":700_000_000_000})
+
+    def test_ordered_control_remains_selectable_and_invalid_partitions_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            plan=production_plan(directory,"--executable",str(executable),"--workers","1","--publication-policy","ordered")
+            command=plan["steering_policy"]["command_arguments"]
+            self.assertEqual(command[command.index("--publication-policy")+1],"ordered")
+            self.assertEqual(command[command.index("--transfer-unreserved-lookahead")+1],"256")
+            self.assertNotIn("--inspection-workers",command)
+            self.assertEqual(plan["steering_policy"]["options"]["inspection_workers"],None)
+            self.assertEqual(plan["publication_policy"],"ordered")
+        for options,fragment in ((["--workers","257"],"1..256"),(["--workers","0"],"1..256"),
+                                 (["--inspection-workers","0"],"positive"),(["--transfer-unreserved-lookahead","0"],"positive"),
+                                 (["--queries","x.json"],"require --prepare-from"),(["--attach","x"],"require --prepare-from")):
+            with self.subTest(options=options), patch.object(PRODUCTION,"verify_inputs") as verify, \
+                    patch.object(PRODUCTION,"freeze_executable") as freeze, redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as error:
+                    PRODUCTION.main(options)
+                self.assertEqual(error.exception.code,2)
+                self.assertIn(fragment,errors.getvalue())
+                verify.assert_not_called(); freeze.assert_not_called()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            for options,fragment in ((["--workers","2","--inspection-workers","2"],"leave one coordinator"),
+                                     (["--workers","1","--apply-subdivision-axis","0","--apply-subdivision-cut","1"],"requires --publication-policy ordered")):
+                with self.subTest(options=options), redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    production_plan(directory,"--executable",str(executable),*options)
+                self.assertIn(fragment,errors.getvalue())
+                self.assertFalse((directory/"bin/steering.json").exists())
+
+    def test_v1_steering_remains_readable_with_v1_defaults_and_is_frozen(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            cpu=self.cpus(1)[0]
+            (directory/"bin").mkdir()
+            frozen=PRODUCTION.freeze_executable(directory,executable)[0]
+            inputs=directory/"inputs"
+            command=["--executable",str(frozen),"--manifest",str(inputs/"selection.json"),"--queries",str(inputs/"queries.json"),
+                     "--owner-base",str(inputs),"--workers","1","--cpus",str(cpu),"--max-memory-bytes","500000000000",
+                     "--ram-guard-margin-percent","5.0","--unbounded-work","--max-queries","1","--max-query-bytes","70",
+                     "--bounded-refinement-axes","finite-axes","--max-guard-univariate-degree","64",
+                     "--publication-policy","ordered","--route-domain-overcover","--transfer-unreserved-lookahead","256",
+                     "--reuse-initial-d-bands","--checkpoint-interval-seconds","3600"]
+            v1={"schema":"rustred.production-steering.v1","options":{"workers":1,"cpus":str(cpu),
+                "checkpoint_interval_seconds":3600,"max_memory_bytes":500_000_000_000,"ram_guard_margin_percent":5.0,
+                "apply_subdivision_axis":None,"apply_subdivision_cut":None},"command_arguments":command}
+            PRODUCTION.write_json(directory/"bin/steering.json",v1)
+            original=(directory/"bin/steering.json").read_bytes()
+            resumed=production_plan(directory,"--resume")
+            self.assertEqual(resumed["steering_policy"],v1)
+            self.assertEqual(resumed["publication_policy"],"ordered")
+            self.assertEqual(resumed["transfer_unreserved_lookahead"],256)
+            self.assertIsNone(resumed["inspection_workers"])
+            self.assertEqual(resumed["command"][2:-4],command)
+            self.assertEqual(PRODUCTION.frozen_options(v1)["apply_cell_refinement_max_cardinality"],None)
+            self.assertEqual(production_plan(directory,"--resume","--publication-policy","ordered","--transfer-unreserved-lookahead","256")["steering_policy"],v1)
+            for options in (("--resume","--publication-policy","ready"),("--resume","--transfer-unreserved-lookahead","64"),
+                            ("--resume","--inspection-workers","1"),("--resume","--workers","2")):
+                with self.subTest(options=options), redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    production_plan(directory,*options)
+                self.assertIn("differs from frozen policy",errors.getvalue())
+            self.assertEqual((directory/"bin/steering.json").read_bytes(),original)
 
 if __name__=="__main__": unittest.main()

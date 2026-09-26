@@ -244,7 +244,7 @@ This does not reorder, restart or alter a running campaign or its checkpoints.
 The shared-walker monitor now distinguishes **recursively closed starting
 domains** (the progress bar) from initial publication, and reports total
 discovered/closed/unresolved domains. Tracking is native and checkpointed;
-old runs without the dependency history display unknown closure. New CP3/CP4
+old runs without the dependency history display unknown closure. New CP5
 campaigns start fresh from the same saved rules, without IBP regeneration.
 See the [monitoring and clean restart recipe](docs/shared_owner_campaign_driver.md#dependency-closure-monitoring-fresh-campaign-format).
 

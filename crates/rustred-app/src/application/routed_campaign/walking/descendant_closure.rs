@@ -10,6 +10,30 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const NONE: usize = usize::MAX;
+const FLAG_SEALED: u8 = 1;
+const FLAG_INSPECTED: u8 = 2;
+const FLAG_CLOSED: u8 = 4;
+
+/// Persisted scalar state. Node flags and (source, target) edges travel in
+/// their own checkpoint sections; the incoming lists are rebuilt on restore.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Counters {
+    pub initial: usize,
+    pub unavailable: Option<String>,
+    pub revision: u64,
+    pub snapshot_revision: u64,
+    pub initial_closed: usize,
+    pub total_closed: usize,
+    pub inspected: usize,
+    pub refresh_count: u64,
+    pub refresh_seconds: f64,
+}
+
+/// Periodic refresh spacing as a multiple of the last scan's wall time: the
+/// coordinator spends at most ~1/multiplier of its wall in closure scans.
+pub(super) const REFRESH_DUTY_MULTIPLIER: f64 = 100.0;
+pub(super) const REFRESH_MIN_INTERVAL_SECONDS: f64 = 5.0;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -172,13 +196,33 @@ impl Tracker {
         self.changed();
     }
 
-    /// At most one scan per five seconds, and <=~5% refresh duty cycle after a
-    /// costly scan. Dirty older counts remain a monotone conservative bound.
+    /// Minimum spacing between two periodic scans: at least five seconds and
+    /// at least `REFRESH_DUTY_MULTIPLIER` times the last scan's own wall time,
+    /// so a costly scan bounds the periodic refresh duty to about 1%.
+    pub(super) fn refresh_interval(&self) -> Duration {
+        Duration::from_secs_f64(
+            REFRESH_MIN_INTERVAL_SECONDS.max(self.last_refresh_seconds * REFRESH_DUTY_MULTIPLIER),
+        )
+    }
+
+    /// Seconds until the periodic throttle admits another scan; None before
+    /// the first scan. A forced refresh ignores it.
+    fn next_refresh_seconds(&self) -> Option<f64> {
+        self.last_refresh.map(|time| {
+            self.refresh_interval()
+                .saturating_sub(time.elapsed())
+                .as_secs_f64()
+        })
+    }
+
+    /// At most one periodic scan per `refresh_interval`: <= ~1% refresh duty
+    /// after a costly scan. Dirty older counts remain a monotone conservative
+    /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
         if self.unavailable.is_some() || self.revision == self.snapshot_revision {
             return;
         }
-        let interval = Duration::from_secs_f64(5.0_f64.max(self.last_refresh_seconds * 20.0));
+        let interval = self.refresh_interval();
         if !force
             && self
                 .last_refresh
@@ -238,6 +282,16 @@ impl Tracker {
         self.last_refresh = Some(Instant::now());
     }
 
+    /// The periodic refresh throttle, reported under `parallel` so the
+    /// historical `descendant_closure` key set stays byte-comparable between
+    /// binaries.
+    pub fn refresh_policy_json(&self) -> Value {
+        json!({"duty_bound":1.0 / REFRESH_DUTY_MULTIPLIER,
+            "min_interval_seconds":REFRESH_MIN_INTERVAL_SECONDS,
+            "next_refresh_seconds":self.next_refresh_seconds(),
+            "scope":"periodic_refresh_spacing_max(min_interval, last_scan_wall / duty_bound); forced_refreshes_bypass"})
+    }
+
     pub fn json(&self, total: usize, initial: usize) -> Value {
         let available =
             self.unavailable.is_none() && self.nodes.len() == total && self.initial == initial;
@@ -294,6 +348,105 @@ impl Tracker {
 
     pub fn dependencies(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         self.edges.iter().map(|edge| (edge.source, edge.target))
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    pub fn counters(&self) -> Counters {
+        Counters {
+            initial: self.initial,
+            unavailable: self.unavailable.clone(),
+            revision: self.revision,
+            snapshot_revision: self.snapshot_revision,
+            initial_closed: self.initial_closed,
+            total_closed: self.total_closed,
+            inspected: self.inspected,
+            refresh_count: self.refresh_count,
+            refresh_seconds: self.refresh_seconds,
+        }
+    }
+
+    /// One byte per node: bit0 sealed, bit1 inspected, bit2 closed.
+    pub fn node_flags(&self) -> impl Iterator<Item = u8> + '_ {
+        self.nodes.iter().map(|node| {
+            u8::from(node.sealed) * FLAG_SEALED
+                | u8::from(node.inspected) * FLAG_INSPECTED
+                | u8::from(node.closed) * FLAG_CLOSED
+        })
+    }
+
+    /// Rebuild the incoming lists from the persisted edge order. The caller
+    /// must still run `restore`, which validates counters, deduplication and
+    /// closure consistency; nothing is reconstructed from geometry.
+    pub fn from_parts(
+        counters: Counters,
+        flags: &[u8],
+        edges: impl IntoIterator<Item = (usize, usize)>,
+    ) -> Result<Self, String> {
+        if counters.unavailable.is_some() && !flags.is_empty() {
+            return Err("unavailable dependency monitor retains nodes".into());
+        }
+        let mut nodes = Vec::new();
+        nodes
+            .try_reserve_exact(flags.len())
+            .map_err(|_| "dependency restore allocation")?;
+        for &flag in flags {
+            if flag & !(FLAG_SEALED | FLAG_INSPECTED | FLAG_CLOSED) != 0 {
+                return Err("invalid checkpoint dependency node flags".into());
+            }
+            nodes.push(Node {
+                sealed: flag & FLAG_SEALED != 0,
+                inspected: flag & FLAG_INSPECTED != 0,
+                closed: flag & FLAG_CLOSED != 0,
+                incoming: NONE,
+            });
+        }
+        let mut tracker = Self {
+            nodes,
+            edges: Vec::new(),
+            initial: counters.initial,
+            unavailable: counters.unavailable,
+            revision: counters.revision,
+            snapshot_revision: counters.snapshot_revision,
+            initial_closed: counters.initial_closed,
+            total_closed: counters.total_closed,
+            inspected: counters.inspected,
+            refresh_count: counters.refresh_count,
+            refresh_seconds: counters.refresh_seconds,
+            open_targets: HashMap::new(),
+            last_refresh: None,
+            last_refresh_seconds: 0.0,
+        };
+        for (source, target) in edges {
+            if tracker.unavailable.is_some()
+                || source >= tracker.nodes.len()
+                || target >= tracker.nodes.len()
+            {
+                return Err("invalid checkpoint dependency edge".into());
+            }
+            tracker
+                .edges
+                .try_reserve(1)
+                .map_err(|_| "dependency restore allocation")?;
+            let index = tracker.edges.len();
+            tracker.edges.push(Edge {
+                source,
+                target,
+                next: tracker.nodes[target].incoming,
+            });
+            tracker.nodes[target].incoming = index;
+        }
+        Ok(tracker)
     }
 
     /// Validate and rebuild only ephemeral dedup state. Never reconstruct
@@ -425,6 +578,35 @@ mod tests {
         scan(&mut g);
         assert_eq!(g.total_closed, 3);
         assert_eq!(g.inspected, 2);
+    }
+    #[test]
+    fn parts_rebuild_incoming_lists_and_reject_bad_flags_or_endpoints() {
+        let mut g = Tracker::new(1);
+        g.discovered(3);
+        g.edge(0, 1);
+        g.edge(1, 2);
+        g.edge(0, 2);
+        g.finish(0, true, true);
+        scan(&mut g);
+        let flags: Vec<u8> = g.node_flags().collect();
+        let edges: Vec<_> = g.dependencies().collect();
+        assert_eq!(flags, [3, 0, 0]);
+        assert_eq!(edges, [(0, 1), (1, 2), (0, 2)]);
+        let mut restored = Tracker::from_parts(g.counters(), &flags, edges.clone()).unwrap();
+        restored.restore(3, 1).unwrap();
+        assert_eq!(restored.nodes[2].incoming, 2);
+        assert_eq!(restored.edges[2].next, 1);
+        assert_eq!(restored.total_closed, 0);
+        restored.edge(1, 2); // Deduplicated against the rebuilt open set.
+        assert_eq!(restored.edges.len(), 3);
+        assert!(Tracker::from_parts(g.counters(), &[8, 0, 0], edges.clone()).is_err());
+        assert!(Tracker::from_parts(g.counters(), &flags, [(0, 3)]).is_err());
+        let mut disabled = g.counters();
+        disabled.unavailable = Some("test".into());
+        assert!(Tracker::from_parts(disabled, &flags, []).is_err());
+        let mut bad = Tracker::from_parts(g.counters(), &flags, edges.clone()).unwrap();
+        bad.total_closed = 1;
+        assert!(bad.restore(3, 1).is_err());
     }
     #[test]
     fn interrupted_prefix_roundtrip_keeps_edges_and_deduplicates_replay() {

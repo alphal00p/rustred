@@ -1,0 +1,30 @@
+{
+  "schema": "rustred.vacuum-parent-vertices.json.v1",
+  "role": "offline research input; no solver dispatch",
+  "source": "docs/research/tide_five_loop_census.md, section with the four root witnesses",
+  "loop_count": 5,
+  "coordinate_count": 15,
+  "convention": "each vertex lists signed one-based slot indices; signed momentum sum is zero at every vertex; each slot occurs exactly twice with opposite signs",
+  "parents": [
+    {
+      "sector_id": 32745,
+      "sector_bits": "111111111101001",
+      "vertices": [[1, -4, -7], [-1, 5, 8], [2, -3, -9], [-2, 4, 10], [3, -5, -12], [-6, 7, -15], [6, -8, 12], [9, -10, 15]]
+    },
+    {
+      "sector_id": 31740,
+      "sector_bits": "111101111111100",
+      "vertices": [[1, -3, -6], [-1, 4, 7], [-2, 3, 9], [2, -4, -10], [6, -8, 12], [-7, 8, -13], [-9, 11, -12], [10, -11, 13]]
+    },
+    {
+      "sector_id": 30699,
+      "sector_bits": "111011111101011",
+      "vertices": [[1, -5, -8], [-1, -10, 14], [-2, 3, 9], [2, 7, -14], [-3, 5, 12], [6, -7, 15], [-6, 8, -12], [-9, 10, -15]]
+    },
+    {
+      "sector_id": 30527,
+      "sector_bits": "111011100111111",
+      "vertices": [[1, -3, -6], [-1, -10, 14], [-2, 5, 11], [2, 7, -14], [3, -5, -12], [6, -7, 15], [10, -11, 13], [12, -13, -15]]
+    }
+  ]
+}

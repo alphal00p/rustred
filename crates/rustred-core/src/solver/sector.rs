@@ -11,8 +11,8 @@ use super::{
     RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError, extract_exceptions,
 };
 
-mod finite;
 mod domains;
+mod finite;
 pub use domains::SectorDomainSolution;
 pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
 

@@ -55,6 +55,9 @@ class EventTail:
         self.milestone_count = 0
         self.saved_checkpoint = None
         self.checkpoint_write = None
+        # Every complete parsed record is also handed to these callbacks (for
+        # example the derived heartbeat metrics); they must not raise.
+        self.observers = []
 
     def poll(self, now: float | None = None) -> dict:
         now = time.monotonic() if now is None else now
@@ -102,6 +105,8 @@ class EventTail:
                 self.latest = value
                 self.observed_at = now
                 self._checkpoint_milestone(value)
+                for observer in self.observers:
+                    observer(value)
             except (ValueError, UnicodeError, RecursionError):
                 self.invalid_records += 1
         self.pending = b""
@@ -285,6 +290,42 @@ def duration(seconds) -> str:
     return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
+def percent(value) -> str:
+    return "unknown" if number(value) is None else f"{100 * value:.0f}%"
+
+
+def derived_lines(status: dict) -> list[str]:
+    """Three measured-rate lines from status["derived"]; every absent field is unknown."""
+    derived = status.get("derived")
+    derived = derived if isinstance(derived, dict) else {}
+    progress = status.get("progress", {})
+    progress = progress if isinstance(progress, dict) else {}
+    reservations = progress.get("worker_reservations", {})
+    reservations = reservations if isinstance(reservations, dict) else {}
+    computing = number(derived.get("computing_inspectors_mean_1h"))
+    computing_text = "unknown" if computing is None else f"{computing:.1f}"
+    rate = number(derived.get("completions_per_hour_1h"))
+    rate_text = "unknown" if rate is None else f"{rate:,.0f}"
+    growth = number(derived.get("pending_growth_per_completion_1h"))
+    growth_text = "unknown" if growth is None else f"{growth:+.2f}"
+    rss_per_domain = number(derived.get("rss_bytes_per_discovered_domain"))
+    rss_text = "unknown" if rss_per_domain is None else f"{rss_per_domain / 1000:.1f}"
+    checkpoint = derived.get("last_checkpoint")
+    checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+    size = number(checkpoint.get("bytes"))
+    size_text = "unknown" if size is None else f"{size / 1e9:.2f} GB"
+    seconds = number(checkpoint.get("duration_seconds"))
+    seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
+    return [
+        f"Inspectors {computing_text} computing / {count(reservations.get('inspectors'))} reserved"
+        f" · stall >=5 s {percent(derived.get('stall_share_5s'))} · coordinator duty {percent(derived.get('coordinator_duty_1h'))}",
+        f"Rate {rate_text} per hour · pending {growth_text} per completion"
+        f" · max scheduled rank {count(derived.get('max_scheduled_finite_rank'))} · RSS {rss_text} KB per domain",
+        f"Checkpoint gen {count(checkpoint.get('generation'))} · {size_text} in {seconds_text}"
+        f" · duty {percent(derived.get('checkpoint_duty'))} · roots closed {count(derived.get('roots_closed'))}/{count(derived.get('roots_total'))}",
+    ]
+
+
 def bar(value, total, elapsed=0, width=16) -> str:
     if number(value) is None or number(total) is None or total <= 0 or not 0 <= value <= total:
         marker = int(elapsed or 0) % width
@@ -361,6 +402,7 @@ def dashboard(status: dict) -> list[str]:
         f"Initial {count(entry.get('published'))} / {count(entry.get('total'))} published · initial native inspected {count(entry.get('locally_inspected'))} · not closure",
         f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} local · frontiers {count(work.get('frontiers'))}",
         f"Descendants {count(work.get('pending_descendants'))} pending · discovered dependency coverage only; not termination/family proof · closure ETA unknown",
+        *derived_lines(status),
         f"Memory {memory_text} / {hard_text} ceiling · save+stop at {soft_text} · host available {host_text}",
         f"Checkpoint {clean(checkpoint_text)}",
         f"Phase {clean(progress.get('phase', 'starting'))} · update age {duration(progress.get('progress_age_seconds'))} · heartbeat age {duration(status.get('heartbeat_age_seconds'))} · closure ETA unknown",

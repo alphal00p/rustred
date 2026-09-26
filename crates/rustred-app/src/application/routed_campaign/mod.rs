@@ -22,9 +22,12 @@ pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
 pub use walking::{
+    MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
-    OwnerDomainWalkSchedulingPolicy, owner_domain_walk_with_progress,
+    OwnerDomainWalkSchedulingPolicy, WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+    owner_domain_walk_with_progress,
 };
 #[cfg(test)]
 mod tests;

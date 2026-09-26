@@ -35,17 +35,15 @@ fn save(path: &Path, value: &impl Serialize) {
     output.get_ref().sync_all().unwrap();
 }
 
-fn restore(state: &Path, manifest: &Path) -> State<N> {
-    let expected: Value = load(manifest);
-    assert_eq!(expected["schema"], 2);
+/// A CP5 checkpoint directory; every section digest is verified on restore.
+fn restore(directory: &Path) -> State<N> {
+    let expected: Value = load(&directory.join("latest.json"));
+    assert_eq!(expected["schema"], 5);
+    assert_eq!(expected["format"], "RUSTRED-WALK-CP5");
     assert_eq!(expected["kind"], "state");
-    let bytes = std::fs::read(state).unwrap();
-    assert_eq!(expected["bytes"].as_u64().unwrap(), bytes.len() as u64);
-    assert_eq!(
-        expected["digest"],
-        blake3::hash(&bytes).to_hex().to_string()
-    );
-    checkpoint::codec::read(bytes.as_slice()).unwrap().state
+    checkpoint::test_support::restore_directory::<N>(directory)
+        .unwrap()
+        .state
 }
 
 /// Only the outer owner-bucket HashMap order is unordered. Inner group/block,
@@ -97,14 +95,8 @@ fn counts<const D: usize>(queue: &Queue<D>) -> Value {
 fn prepare_retained_admission_grain_fixture() {
     let root = directory();
     let input: Value = load(&root.join("input.json"));
-    let base = restore(
-        Path::new(input["base_state"].as_str().unwrap()),
-        Path::new(input["base_manifest"].as_str().unwrap()),
-    );
-    let later = restore(
-        Path::new(input["later_state"].as_str().unwrap()),
-        Path::new(input["later_manifest"].as_str().unwrap()),
-    );
+    let base = restore(Path::new(input["base_checkpoint"].as_str().unwrap()));
+    let later = restore(Path::new(input["later_checkpoint"].as_str().unwrap()));
     assert_eq!(
         base.queue.domains.len(),
         input["base_domains"].as_u64().unwrap() as usize
@@ -275,7 +267,7 @@ fn replay_retained_admission_grain() {
             .validate_checkpoint()
             .unwrap();
         assert!(state.queue.index_work_counters_disabled_and_zero());
-        let metrics = state.admission.json();
+        let metrics = state.admission.metrics_json(false);
         assert_eq!(metrics["counter_saturated"], false);
         assert_eq!(
             metrics["parallel_batches"].as_u64().unwrap() as usize,

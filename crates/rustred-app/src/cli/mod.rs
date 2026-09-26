@@ -63,6 +63,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::Version => {
             write_informational_output(concat!("RustRed ", env!("CARGO_PKG_VERSION"), "\n"))
         }
+        Command::WalkSemanticsVersion => write_informational_output(&walk_semantics_probe()),
         Command::Derive(arguments) => derive_cli(arguments),
         Command::FamilySolve(arguments) => family_solve_cli(arguments),
         Command::FamilyClose(arguments) => family_close_cli(arguments),
@@ -326,10 +327,56 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> 
     )
 }
 
+/// One JSON line naming the walk-checkpoint resume identity of this binary.
+/// Launchers compare it with a paused CP5 manifest before swapping in a
+/// performance-only executable; it opens no file and runs no algebra.
+fn walk_semantics_probe() -> String {
+    format!(
+        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{}}}\n",
+        crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+        serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
+        crate::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
+    )
+}
+
 fn write_informational_output(contents: &str) -> Result<(), CliError> {
     let mut stdout = std::io::stdout().lock();
     stdout
         .write_all(contents.as_bytes())
         .and_then(|()| stdout.flush())
         .map_err(|error| CliError::OutputIo(format!("cannot write standard output: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use args::ArgError;
+
+    fn arguments(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn walk_semantics_version_probe_is_one_json_line_of_checkpoint_identity() {
+        assert_eq!(
+            parse_args(arguments(&["rustred", "walk-semantics-version"])).unwrap(),
+            Command::WalkSemanticsVersion
+        );
+        assert_eq!(
+            parse_args(arguments(&["rustred", "walk-semantics-version", "--json"])),
+            Err(ArgError::UnexpectedArgument("--json".into()))
+        );
+        let line = walk_semantics_probe();
+        assert!(line.ends_with('\n') && line.matches('\n').count() == 1);
+        let probe: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            probe,
+            serde_json::json!({
+                "walk_semantics_version": crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+                "checkpoint_format": "RUSTRED-WALK-CP5",
+                "checkpoint_schema": 5,
+            })
+        );
+        assert!(line.starts_with("{\"walk_semantics_version\":"));
+    }
 }

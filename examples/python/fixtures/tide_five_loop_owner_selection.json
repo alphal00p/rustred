@@ -1,0 +1,477 @@
+{
+  "owner_count": 67,
+  "owners": [
+    {
+      "mask": "000011001001011",
+      "ordinal": 107,
+      "parent": 30699,
+      "published_sector": 1611,
+      "representative": 28686
+    },
+    {
+      "mask": "011011000111111",
+      "ordinal": 1091,
+      "parent": 30527,
+      "published_sector": 13887,
+      "representative": 29550
+    },
+    {
+      "mask": "101010000110001",
+      "ordinal": 1649,
+      "parent": 30527,
+      "published_sector": 21553,
+      "representative": 29702
+    },
+    {
+      "mask": "010111011000001",
+      "ordinal": 699,
+      "parent": 32745,
+      "published_sector": 11969,
+      "representative": 29703
+    },
+    {
+      "mask": "001000100101111",
+      "ordinal": 219,
+      "parent": 30527,
+      "published_sector": 4399,
+      "representative": 30214
+    },
+    {
+      "mask": "011001110110100",
+      "ordinal": 907,
+      "parent": 31740,
+      "published_sector": 13236,
+      "representative": 30222
+    },
+    {
+      "mask": "010011111101011",
+      "ordinal": 783,
+      "parent": 30699,
+      "published_sector": 10219,
+      "representative": 30239
+    },
+    {
+      "mask": "111001100111111",
+      "ordinal": 2437,
+      "parent": 30527,
+      "published_sector": 29503,
+      "representative": 30526
+    },
+    {
+      "mask": "111011100111111",
+      "ordinal": 2685,
+      "parent": 30527,
+      "published_sector": 30527,
+      "representative": 30527
+    },
+    {
+      "mask": "111011101100011",
+      "ordinal": 2543,
+      "parent": 30699,
+      "published_sector": 30563,
+      "representative": 30563
+    },
+    {
+      "mask": "111001111101011",
+      "ordinal": 2339,
+      "parent": 30699,
+      "published_sector": 29675,
+      "representative": 30691
+    },
+    {
+      "mask": "111011111101011",
+      "ordinal": 2579,
+      "parent": 30699,
+      "published_sector": 30699,
+      "representative": 30699
+    },
+    {
+      "mask": "111000010101001",
+      "ordinal": 2069,
+      "parent": 32745,
+      "published_sector": 28841,
+      "representative": 30858
+    },
+    {
+      "mask": "111000100111001",
+      "ordinal": 2323,
+      "parent": 30527,
+      "published_sector": 28985,
+      "representative": 30862
+    },
+    {
+      "mask": "111100000011100",
+      "ordinal": 2422,
+      "parent": 31740,
+      "published_sector": 30748,
+      "representative": 30872
+    },
+    {
+      "mask": "111010100100101",
+      "ordinal": 2535,
+      "parent": 30527,
+      "published_sector": 29989,
+      "representative": 30876
+    },
+    {
+      "mask": "111000100011101",
+      "ordinal": 2299,
+      "parent": 30527,
+      "published_sector": 28957,
+      "representative": 31246
+    },
+    {
+      "mask": "011001000101111",
+      "ordinal": 875,
+      "parent": 30527,
+      "published_sector": 12847,
+      "representative": 31380
+    },
+    {
+      "mask": "111101010011100",
+      "ordinal": 2571,
+      "parent": 31740,
+      "published_sector": 31388,
+      "representative": 31388
+    },
+    {
+      "mask": "011101111101100",
+      "ordinal": 1129,
+      "parent": 31740,
+      "published_sector": 15340,
+      "representative": 31420
+    },
+    {
+      "mask": "111001100111001",
+      "ordinal": 2431,
+      "parent": 30527,
+      "published_sector": 29497,
+      "representative": 31516
+    },
+    {
+      "mask": "011101111111100",
+      "ordinal": 1133,
+      "parent": 31740,
+      "published_sector": 15356,
+      "representative": 31736
+    },
+    {
+      "mask": "111101111111100",
+      "ordinal": 2655,
+      "parent": 31740,
+      "published_sector": 31740,
+      "representative": 31740
+    },
+    {
+      "mask": "000010011001001",
+      "ordinal": 55,
+      "parent": 30699,
+      "published_sector": 1225,
+      "representative": 31744
+    },
+    {
+      "mask": "001100101110000",
+      "ordinal": 312,
+      "parent": 31740,
+      "published_sector": 6512,
+      "representative": 31746
+    },
+    {
+      "mask": "001001000101111",
+      "ordinal": 255,
+      "parent": 30527,
+      "published_sector": 4655,
+      "representative": 31754
+    },
+    {
+      "mask": "010100101110000",
+      "ordinal": 618,
+      "parent": 31740,
+      "published_sector": 10608,
+      "representative": 32256
+    },
+    {
+      "mask": "011001000001111",
+      "ordinal": 849,
+      "parent": 30527,
+      "published_sector": 12815,
+      "representative": 32258
+    },
+    {
+      "mask": "110001101101001",
+      "ordinal": 1901,
+      "parent": 30699,
+      "published_sector": 25449,
+      "representative": 32259
+    },
+    {
+      "mask": "001001100101111",
+      "ordinal": 299,
+      "parent": 30527,
+      "published_sector": 4911,
+      "representative": 32266
+    },
+    {
+      "mask": "011110111001001",
+      "ordinal": 1025,
+      "parent": 32745,
+      "published_sector": 15817,
+      "representative": 32267
+    },
+    {
+      "mask": "110010101101011",
+      "ordinal": 2011,
+      "parent": 30699,
+      "published_sector": 25963,
+      "representative": 32270
+    },
+    {
+      "mask": "111001000001111",
+      "ordinal": 2339,
+      "parent": 30527,
+      "published_sector": 29199,
+      "representative": 32274
+    },
+    {
+      "mask": "110001011101011",
+      "ordinal": 1887,
+      "parent": 30699,
+      "published_sector": 25323,
+      "representative": 32278
+    },
+    {
+      "mask": "110110111101001",
+      "ordinal": 1993,
+      "parent": 32745,
+      "published_sector": 28137,
+      "representative": 32279
+    },
+    {
+      "mask": "001001011101001",
+      "ordinal": 261,
+      "parent": 30699,
+      "published_sector": 4841,
+      "representative": 32288
+    },
+    {
+      "mask": "111111001001001",
+      "ordinal": 2425,
+      "parent": 32745,
+      "published_sector": 32329,
+      "representative": 32329
+    },
+    {
+      "mask": "111011000101001",
+      "ordinal": 2599,
+      "parent": 30527,
+      "published_sector": 30249,
+      "representative": 32386
+    },
+    {
+      "mask": "111001100101101",
+      "ordinal": 2419,
+      "parent": 30527,
+      "published_sector": 29485,
+      "representative": 32390
+    },
+    {
+      "mask": "111100011111100",
+      "ordinal": 2475,
+      "parent": 31740,
+      "published_sector": 30972,
+      "representative": 32391
+    },
+    {
+      "mask": "101011111001010",
+      "ordinal": 1762,
+      "parent": 30699,
+      "published_sector": 22474,
+      "representative": 32394
+    },
+    {
+      "mask": "111100111101001",
+      "ordinal": 2301,
+      "parent": 32745,
+      "published_sector": 31209,
+      "representative": 32398
+    },
+    {
+      "mask": "101101100101000",
+      "ordinal": 1772,
+      "parent": 31740,
+      "published_sector": 23336,
+      "representative": 32512
+    },
+    {
+      "mask": "011100111100001",
+      "ordinal": 931,
+      "parent": 32745,
+      "published_sector": 14817,
+      "representative": 32513
+    },
+    {
+      "mask": "111001100110110",
+      "ordinal": 2428,
+      "parent": 30527,
+      "published_sector": 29494,
+      "representative": 32518
+    },
+    {
+      "mask": "011101011001001",
+      "ordinal": 953,
+      "parent": 32745,
+      "published_sector": 15049,
+      "representative": 32528
+    },
+    {
+      "mask": "101011011101001",
+      "ordinal": 1713,
+      "parent": 30699,
+      "published_sector": 22249,
+      "representative": 32529
+    },
+    {
+      "mask": "111010111100011",
+      "ordinal": 2455,
+      "parent": 30699,
+      "published_sector": 30179,
+      "representative": 32534
+    },
+    {
+      "mask": "111101110101001",
+      "ordinal": 2341,
+      "parent": 32745,
+      "published_sector": 31657,
+      "representative": 32562
+    },
+    {
+      "mask": "011000101101011",
+      "ordinal": 821,
+      "parent": 30699,
+      "published_sector": 12651,
+      "representative": 32576
+    },
+    {
+      "mask": "011011101101001",
+      "ordinal": 1121,
+      "parent": 30699,
+      "published_sector": 14185,
+      "representative": 32592
+    },
+    {
+      "mask": "011011111101001",
+      "ordinal": 901,
+      "parent": 32745,
+      "published_sector": 14313,
+      "representative": 32596
+    },
+    {
+      "mask": "110101101101001",
+      "ordinal": 1921,
+      "parent": 32745,
+      "published_sector": 27497,
+      "representative": 32608
+    },
+    {
+      "mask": "111100100101001",
+      "ordinal": 2281,
+      "parent": 32745,
+      "published_sector": 31017,
+      "representative": 32640
+    },
+    {
+      "mask": "011111001101001",
+      "ordinal": 1045,
+      "parent": 32745,
+      "published_sector": 15977,
+      "representative": 32648
+    },
+    {
+      "mask": "111101101101001",
+      "ordinal": 2333,
+      "parent": 32745,
+      "published_sector": 31593,
+      "representative": 32652
+    },
+    {
+      "mask": "111111001101001",
+      "ordinal": 2429,
+      "parent": 32745,
+      "published_sector": 32361,
+      "representative": 32674
+    },
+    {
+      "mask": "111111011101001",
+      "ordinal": 2445,
+      "parent": 32745,
+      "published_sector": 32489,
+      "representative": 32682
+    },
+    {
+      "mask": "111011001101001",
+      "ordinal": 2485,
+      "parent": 30699,
+      "published_sector": 30313,
+      "representative": 32704
+    },
+    {
+      "mask": "111011011101001",
+      "ordinal": 2513,
+      "parent": 30699,
+      "published_sector": 30441,
+      "representative": 32708
+    },
+    {
+      "mask": "101111101101001",
+      "ordinal": 1657,
+      "parent": 32745,
+      "published_sector": 24425,
+      "representative": 32712
+    },
+    {
+      "mask": "111111101101001",
+      "ordinal": 2461,
+      "parent": 32745,
+      "published_sector": 32617,
+      "representative": 32713
+    },
+    {
+      "mask": "111110111001001",
+      "ordinal": 2409,
+      "parent": 32745,
+      "published_sector": 32201,
+      "representative": 32736
+    },
+    {
+      "mask": "111101111101001",
+      "ordinal": 2349,
+      "parent": 32745,
+      "published_sector": 31721,
+      "representative": 32737
+    },
+    {
+      "mask": "111011111101010",
+      "ordinal": 2578,
+      "parent": 30699,
+      "published_sector": 30698,
+      "representative": 32744
+    },
+    {
+      "mask": "111111111101001",
+      "ordinal": 2477,
+      "parent": 32745,
+      "published_sector": 32745,
+      "representative": 32745
+    },
+    {
+      "mask": "011101110111000",
+      "ordinal": 1116,
+      "parent": null,
+      "published_sector": 15288,
+      "representative": 30231
+    }
+  ],
+  "role": "test fixture: owner masks, representatives and parents copied from campaigns/five-loop-dependency-closure/inputs/selection.json; no owner payloads, no coverage authority",
+  "schema": "rustred.owner-selection-fixture.json.v1",
+  "source_selection_utc": "2026-09-21T16:08:07.579897+00:00"
+}

@@ -256,11 +256,12 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
                 value => panic!("invalid replay phase {value}"),
             };
             assert_eq!(record.owner.len(), N, "mixed or invalid owner arity");
-            let owner: [bool; N] = std::array::from_fn(|axis| match record.owner.as_bytes()[axis] {
-                b'0' => false,
-                b'1' => true,
-                _ => panic!("owner mask must be binary"),
-            });
+            let owner: [bool; N] =
+                std::array::from_fn(|axis| match record.owner.as_bytes()[axis] {
+                    b'0' => false,
+                    b'1' => true,
+                    _ => panic!("owner mask must be binary"),
+                });
             assert_eq!(record.lower.len(), N);
             assert_eq!(record.upper.len(), N);
             Domain {

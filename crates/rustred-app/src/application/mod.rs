@@ -24,11 +24,13 @@ mod routed_campaign;
 
 pub(crate) use routed_campaign::guarded_limits_from_json;
 pub use routed_campaign::{
-    OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
-    OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
-    OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,
-    RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
+    MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
+    OWNER_DOMAIN_WALK_SEMANTICS_VERSION, OwnerDomainMatchRequest, OwnerDomainMatchResult,
+    OwnerDomainScanRequest, OwnerDomainScanResult, OwnerDomainWalkApplySubdivision,
+    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
+    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest,
+    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
     RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
     RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
     RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,

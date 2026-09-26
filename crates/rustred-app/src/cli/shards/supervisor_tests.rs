@@ -85,6 +85,7 @@ done
 if [ '@MODE@' = pause ]; then
   mkdir -p "$check"
   printf '%s\n' '{"metadata":{"state":"saved"}}' > "$check/latest.json"
+  head -c 1100000 /dev/zero | tr '\0' ' ' >> "$check/latest.json"
   count=0
   while [ ! -f "$stop" ] && [ "$count" -lt 200 ]; do sleep 0.02; count=$((count+1)); done
   [ -f "$stop" ] || exit 66

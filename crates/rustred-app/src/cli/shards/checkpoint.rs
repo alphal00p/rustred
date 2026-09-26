@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -15,7 +15,9 @@ pub(super) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Resul
             path.display()
         )));
     }
-    serde_json::from_reader(file.take(maximum + 1))
+    // Byte-at-a-time reads through an unbuffered file cost one syscall per
+    // byte; a walk manifest can legitimately reach megabytes.
+    serde_json::from_reader(BufReader::new(file.take(maximum + 1)))
         .map_err(|e| bad(format!("{}: {e}", path.display())))
 }
 pub(super) fn write_json(
