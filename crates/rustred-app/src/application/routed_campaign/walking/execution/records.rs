@@ -114,6 +114,32 @@ struct Open {
     count: usize,
 }
 
+impl Open {
+    /// fsync, digest of the bytes as written, then the directory entry: the
+    /// segment is durable before any manifest can reference it.
+    fn seal(self, directory: &Path, generation: u64, first: usize) -> Result<Segment, String> {
+        self.writer
+            .get_ref()
+            .sync_all()
+            .map_err(|e| format!("cannot sync record segment {}: {e}", self.file))?;
+        let (bytes, blake3) = self
+            .writer
+            .finish()
+            .map_err(|e| format!("cannot finish record segment {}: {e}", self.file))?;
+        File::open(directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|e| format!("cannot sync checkpoint directory: {e}"))?;
+        Ok(Segment {
+            generation,
+            file: self.file,
+            first: first as u64,
+            count: self.count as u64,
+            bytes,
+            blake3,
+        })
+    }
+}
+
 impl Sidecar {
     pub fn new(directory: PathBuf, generation: u64) -> Self {
         Self::restored(directory, Vec::new(), generation)
@@ -199,34 +225,10 @@ impl Sidecar {
         }
         let segment = match self.open.take() {
             None => None,
-            Some(open) => {
-                let sealed =
-                    (|| {
-                        open.writer.get_ref().sync_all().map_err(|e| {
-                            format!("cannot sync record segment {}: {e}", open.file)
-                        })?;
-                        let (bytes, blake3) = open.writer.finish().map_err(|e| {
-                            format!("cannot finish record segment {}: {e}", open.file)
-                        })?;
-                        // The segment's directory entry is durable before any
-                        // manifest can reference it.
-                        File::open(&self.directory)
-                            .and_then(|directory| directory.sync_all())
-                            .map_err(|e| format!("cannot sync checkpoint directory: {e}"))?;
-                        Ok::<_, String>(Segment {
-                            generation,
-                            file: open.file,
-                            first: self.sealed as u64,
-                            count: open.count as u64,
-                            bytes,
-                            blake3,
-                        })
-                    })();
-                match sealed {
-                    Ok(segment) => Some(segment),
-                    Err(e) => return Err(self.fail(e)),
-                }
-            }
+            Some(open) => match open.seal(&self.directory, generation, self.sealed) {
+                Ok(segment) => Some(segment),
+                Err(e) => return Err(self.fail(e)),
+            },
         };
         if let Some(segment) = &segment {
             self.sealed += segment.count as usize;

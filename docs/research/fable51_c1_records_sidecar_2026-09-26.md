@@ -118,6 +118,13 @@ what is left (discovered-domain state plus allocator noise). The
 reference's ~9.5 KB per committed domain was the retained `serde_json::Value`
 record (1.34 KB of JSON on FG).
 
+Finalization and `result.json` write: peak RSS minus the largest heartbeat
+RSS bounds what the process added after its last heartbeat (finalization,
+annotation, report write): FG 305,569,792 - 300,138,496 = 5.4 MB and BMW
+531,574,784 - 529,260,544 = 2.3 MB for the new binary (reference: FG
+21.4 MB, BMW 52.0 MB). This is an upper-bound indicator at four-loop size,
+not the design 1.6 measurement at 7M records.
+
 Wall time (informational, whole command / traversal seconds, ref -> new):
 FG 17.0 / 13.30 -> 16.5 / 13.04; BMW 36.0 / 30.34 -> 36.0 / 30.98; H
 17.0 / 12.48 -> 16.0 / 12.14; X 40.5 / 34.16 -> 39.5 / 33.16; FG Ready

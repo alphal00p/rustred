@@ -462,7 +462,7 @@ fn ready_accepted_events_aggregate_is_persisted_and_derived_for_older_checkpoint
 }
 
 #[test]
-fn store_type_is_the_records_owner_of_the_open_segment() {
+fn save_takes_the_sidecar_reservation_and_refuses_a_foreign_sidecar() {
     // The save generation is the sidecar's reservation, never a fresh scan
     // that would skip over the sidecar's own open segment.
     let fixture = Fixture::save(&State::<1>::new(Queue::new(8, None), 0, None));
