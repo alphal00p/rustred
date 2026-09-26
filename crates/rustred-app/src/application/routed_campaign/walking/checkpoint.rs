@@ -16,7 +16,8 @@ pub(super) mod sections;
 pub(super) mod test_support;
 
 use super::{
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, WALK_SEMANTICS_VERSION,
+    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkSchedulingPolicy,
+    WALK_SEMANTICS_VERSION,
     execution::{ChangeStamp, State},
 };
 use crate::application::atomic_file::{write_file_atomically, write_file_atomically_with};
@@ -54,6 +55,9 @@ pub(super) struct Store {
     manifest: Option<Manifest>,
     request: String,
     policy: String,
+    /// Responsibility-transfer lookahead the request demands (None for
+    /// InspectAll); the restored ledger must agree, not only the digest.
+    lookahead: Option<std::num::NonZeroUsize>,
     executable: String,
     semantics: u32,
     owners: Vec<String>,
@@ -224,11 +228,21 @@ impl Store {
             .map_err(|e| format!("checkpoint is in use: {e}"))?;
         let request_binding = binding(request);
         let policy = policy_name(request.publication_policy).to_owned();
+        let lookahead = match request.scheduling_policy {
+            OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead } => Some(lookahead),
+            OwnerDomainWalkSchedulingPolicy::InspectAll => None,
+        };
         let mut pending_events = Vec::new();
         let mut verify_seconds = 0.0;
         let manifest = if options.resume {
             let m = manifest::read(&options.directory.join("latest.json"))?;
-            if m.request != request_binding || m.publication_policy != policy {
+            // The ledger section is optional in the manifest, so its presence
+            // is bound to the request here; a manifest without it must not
+            // resume a transfer campaign as InspectAll.
+            if m.request != request_binding
+                || m.publication_policy != policy
+                || (m.kind == "state" && m.sections.ledger.is_some() != lookahead.is_some())
+            {
                 return Err("checkpoint request or policy differs; refusing to restart".into());
             }
             if m.walk_semantics_version != semantics {
@@ -253,6 +267,7 @@ impl Store {
             manifest,
             request: request_binding,
             policy,
+            lookahead,
             executable,
             semantics,
             owners: Vec::new(),
@@ -292,6 +307,18 @@ impl Store {
         }
         let started = Instant::now();
         let restored = restore::restore::<N>(&self.options.directory, m, self.verify_seconds)?;
+        if restored
+            .state
+            .queue
+            .delegation
+            .as_ref()
+            .map(|ledger| ledger.lookahead())
+            != self.lookahead
+        {
+            return Err(
+                "checkpoint request or policy differs; restored responsibility ledger does not match the scheduling policy".into(),
+            );
+        }
         // The forced save after resume is free unless the walk changes state.
         self.last_stamp = Some(restored.state.change_stamp());
         let mut report = restored.report.clone();
@@ -1059,6 +1086,44 @@ mod tests {
                 .is_some()
         );
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn ledger_section_presence_is_bound_to_the_scheduling_policy() {
+        const REFUSED: &str = "checkpoint request or policy differs; refusing to restart";
+        let fixture = Fixture::save(&ledger_fixture());
+        let good = fixture.manifest();
+        assert!(!good["sections"]["ledger"].is_null());
+        // Dropping the optional key passes every digest; the request refuses it.
+        let mut tampered = good.clone();
+        tampered["sections"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ledger");
+        fixture.write_manifest(&tampered);
+        assert_eq!(fixture.open(true).err().unwrap(), REFUSED);
+        fixture.write_manifest(&good);
+        fixture.resume::<1>().unwrap();
+        // Mirror: an InspectAll campaign must not acquire a ledger section.
+        let plain = Fixture::save(&State::<1>::new(Queue::new(8, None), 0, None));
+        let good_plain = plain.manifest();
+        let mut tampered = good_plain.clone();
+        tampered["sections"]["ledger"] = good["sections"]["ledger"].clone();
+        plain.write_manifest(&tampered);
+        assert_eq!(plain.open(true).err().unwrap(), REFUSED);
+        plain.write_manifest(&good_plain);
+        plain.resume::<1>().unwrap();
+        // The restored ledger's lookahead is asserted even when digests agree.
+        fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["lookahead"] = json!(2));
+        assert!(
+            fixture
+                .resume::<1>()
+                .err()
+                .unwrap()
+                .contains("does not match the scheduling policy")
+        );
+        fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["lookahead"] = json!(1));
+        fixture.resume::<1>().unwrap();
     }
 
     #[test]

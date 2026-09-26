@@ -4,6 +4,7 @@
 //! leaves the digest stale to exercise the checksum path.
 use super::super::{
     OwnerDomainMatchRequest, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
+    OwnerDomainWalkSchedulingPolicy,
     delegation::StoredLedger,
     execution::State,
     queue::{Domain, StoredBuckets},
@@ -39,7 +40,8 @@ pub(in super::super) struct Fixture {
     pub request: OwnerDomainWalkRequest,
 }
 impl Fixture {
-    /// Minimal request whose publication policy matches the state's ledger.
+    /// Minimal request whose publication and scheduling policies match the
+    /// state's ledger; the store binds both on resume.
     pub fn request_for<const N: usize>(state: &State<N>) -> OwnerDomainWalkRequest {
         let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
             "selection".into(),
@@ -47,6 +49,11 @@ impl Fixture {
         ));
         if state.ready() {
             request.publication_policy = OwnerDomainWalkPublicationPolicy::Ready;
+        }
+        if let Some(ledger) = state.queue.delegation.as_ref() {
+            request.scheduling_policy = OwnerDomainWalkSchedulingPolicy::TransferUnreserved {
+                lookahead: ledger.lookahead(),
+            };
         }
         request
     }
