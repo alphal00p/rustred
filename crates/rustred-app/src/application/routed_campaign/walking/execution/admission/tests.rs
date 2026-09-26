@@ -194,6 +194,16 @@ fn parallel_preparation_preserves_every_event_frontier_and_domain_cap_prefix() {
         assert_same(&expected, &actual);
         assert_eq!(actual.admission.batches, 1);
         assert_eq!(actual.admission.preparations, 48); // Includes proposals past a cap.
+        assert!(actual.admission.speculative_reverse_checks > 0);
+        if event_cap >= 3 {
+            // The first admission retires seeded point 0 through its
+            // helper-prepared reverse set.
+            assert!(
+                actual.admission.prepared_retirements_applied > 0,
+                "event cap {event_cap}"
+            );
+            assert_eq!(actual.admission.prepared_retire_fallbacks, 0);
+        }
     }
     for (domains, frontiers) in [(128, 99), (130, 99), (1000, 0), (1000, 3), (1000, 99)] {
         let mut request = request();
@@ -213,6 +223,67 @@ fn parallel_preparation_preserves_every_event_frontier_and_domain_cap_prefix() {
         );
         assert_same(&expected, &actual);
     }
+}
+
+#[test]
+fn bit_prefilter_toggle_preserves_engine_results_and_counters() {
+    let engine = Engine::new(ordered_budget(8, None)).unwrap();
+    let cancellation = AtomicBool::new(false);
+    let mut reference = seeded(1000, None);
+    let mut filtered = seeded(1000, None);
+    let mut unfiltered = seeded(1000, None);
+    unfiltered.queue.disable_bit_prefilter();
+    serial(&mut reference, &request(), stream()).unwrap();
+    for state in [&mut filtered, &mut unfiltered] {
+        engine
+            .commit_chunk(
+                state,
+                &request(),
+                stream(),
+                &cancellation,
+                &cancellation,
+                &mut |_| {},
+            )
+            .unwrap();
+        assert_same(&reference, state);
+        assert_eq!(
+            reference.queue.containment_maintenance_checks,
+            state.queue.containment_maintenance_checks
+        );
+    }
+    assert_eq!(
+        filtered.queue.containment_checks,
+        unfiltered.queue.containment_checks
+    );
+    let (f, u) = (&filtered.admission, &unfiltered.admission);
+    assert_eq!(f.speculative_checks, u.speculative_checks);
+    assert_eq!(f.speculative_reverse_checks, u.speculative_reverse_checks);
+    assert_eq!(
+        f.prepared_retirements_applied,
+        u.prepared_retirements_applied
+    );
+    assert_eq!(
+        u.speculative_forward_bit_rejections + u.speculative_reverse_bit_rejections,
+        0
+    );
+    assert_eq!(
+        filtered.queue.session.forward_callbacks,
+        unfiltered.queue.session.forward_callbacks
+    );
+    assert_eq!(
+        filtered.queue.session.reverse_callbacks,
+        unfiltered.queue.session.reverse_callbacks
+    );
+    assert_eq!(unfiltered.queue.session.forward_bit_rejections, 0);
+    let json = filtered.admission.json();
+    assert!(json["prepared_retirements_applied"].as_u64().unwrap() > 0);
+    assert_eq!(json["prepared_retire_fallbacks"], 0);
+    println!(
+        "engine_bit_prefilter filtered={} unfiltered={} session={:?}",
+        json,
+        unfiltered.admission.json(),
+        filtered.queue.session
+    );
 }
 
 #[test]

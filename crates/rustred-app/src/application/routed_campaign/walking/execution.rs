@@ -201,6 +201,7 @@ impl<const N: usize> State<N> {
             "routed_domains":self.routed, "route_masks":self.route_masks,
             "parallel":self.enrich(telemetry.clone())});
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
+        progress["containment_prefilter"] = self.queue.session.json();
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
         progress["descendant_closure"] = self.closure_json();

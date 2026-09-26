@@ -12,12 +12,21 @@ const BATCH_RECORDS: usize = 256;
 const MIN_ADMISSIONS: usize = 16;
 const MIN_CANDIDATES: usize = 128;
 
+
 pub(super) struct Metrics {
     budget: WorkerBudget,
     batches: usize,
     records: usize,
     preparations: usize,
     speculative_checks: usize,
+    /// Helper-side reverse comparisons and bit-tier rejections (item B1/B2).
+    speculative_reverse_checks: usize,
+    speculative_forward_bit_rejections: usize,
+    speculative_reverse_bit_rejections: usize,
+    /// Commits whose reverse retirement applied a helper-prepared set, and
+    /// commits with a prepared lookup that retired on the serial scan.
+    prepared_retirements_applied: usize,
+    prepared_retire_fallbacks: usize,
     preparation_seconds: f64,
     ordered_commit_seconds: f64,
     counter_saturated: bool,
@@ -40,10 +49,57 @@ impl Metrics {
             records: 0,
             preparations: 0,
             speculative_checks: 0,
+            speculative_reverse_checks: 0,
+            speculative_forward_bit_rejections: 0,
+            speculative_reverse_bit_rejections: 0,
+            prepared_retirements_applied: 0,
+            prepared_retire_fallbacks: 0,
             preparation_seconds: 0.0,
             ordered_commit_seconds: 0.0,
             counter_saturated: false,
         }
+    }
+    fn add_speculative(&mut self, work: super::super::queue::SpeculativeWork) {
+        let saturated = &mut self.counter_saturated;
+        Self::add(&mut self.speculative_checks, work.checks, saturated);
+        Self::add(
+            &mut self.speculative_reverse_checks,
+            work.reverse_checks,
+            saturated,
+        );
+        Self::add(
+            &mut self.speculative_forward_bit_rejections,
+            work.forward_bit_rejections,
+            saturated,
+        );
+        Self::add(
+            &mut self.speculative_reverse_bit_rejections,
+            work.reverse_bit_rejections,
+            saturated,
+        );
+    }
+    /// Commit-time outcomes are counted by the queue; fold the delta of one
+    /// ordered commit into this session's admission telemetry.
+    fn add_prepared_retirements(
+        &mut self,
+        before: super::super::queue::SessionCounters,
+        after: super::super::queue::SessionCounters,
+    ) {
+        let saturated = &mut self.counter_saturated;
+        Self::add(
+            &mut self.prepared_retirements_applied,
+            after
+                .prepared_retirements_applied
+                .saturating_sub(before.prepared_retirements_applied),
+            saturated,
+        );
+        Self::add(
+            &mut self.prepared_retire_fallbacks,
+            after
+                .prepared_retire_fallbacks
+                .saturating_sub(before.prepared_retire_fallbacks),
+            saturated,
+        );
     }
     fn add(counter: &mut usize, amount: usize, saturated: &mut bool) {
         *counter = match counter.checked_add(amount) {
@@ -67,6 +123,13 @@ impl Metrics {
             "prepared_batch_records":self.records, "speculative_admission_requests":self.preparations,
             "speculative_containment_checks":self.speculative_checks,
             "speculative_check_scope":"all_completed_preparation_checks; overlaps_committed_checks_when_reused; do_not_sum",
+            "speculative_reverse_checks":self.speculative_reverse_checks,
+            "speculative_forward_bit_rejections":self.speculative_forward_bit_rejections,
+            "speculative_reverse_bit_rejections":self.speculative_reverse_bit_rejections,
+            "prepared_retirements_applied":self.prepared_retirements_applied,
+            "prepared_retire_fallbacks":self.prepared_retire_fallbacks,
+            "prepared_retirement_limit":super::super::queue::PREPARED_RETIRE_LIMIT,
+            "prepared_retirement_scope":"helper_prepared_reverse_sets_applied_at_ordered_commit; results_layout_counters_transfers_identical_to_serial",
             "preparation_wall_seconds":self.preparation_seconds,
             "ordered_commit_wall_seconds":self.ordered_commit_seconds,
             "counter_saturated":self.counter_saturated,
@@ -259,11 +322,7 @@ impl Engine {
             metrics.preparation_seconds += started.elapsed().as_secs_f64();
             for event in &prepared {
                 if let PreparedEvent::Admission { prepared, .. } = event {
-                    Metrics::add(
-                        &mut metrics.speculative_checks,
-                        prepared.speculative_checks(),
-                        &mut metrics.counter_saturated,
-                    );
+                    metrics.add_speculative(prepared.speculative_work());
                 }
             }
             prepared
@@ -325,6 +384,7 @@ impl Engine {
         // A token is never authority to commit after cancellation or a
         // producer failure. Every helper has joined before this check.
         let started = Instant::now();
+        let before = state.queue.session;
         let result = (|| {
             for event in prepared {
                 if cancellation.load(Ordering::Acquire) || producer_stop.load(Ordering::Acquire) {
@@ -335,6 +395,9 @@ impl Engine {
             Ok(())
         })();
         state.admission.ordered_commit_seconds += started.elapsed().as_secs_f64();
+        state
+            .admission
+            .add_prepared_retirements(before, state.queue.session);
         result
     }
 }

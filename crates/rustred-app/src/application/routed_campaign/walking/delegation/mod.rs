@@ -12,6 +12,8 @@ mod types;
 pub(super) use ledger::Ledger;
 pub(super) use ledger::{LedgerRef, StoredLedger};
 pub use types::SchedulingPolicy;
+#[cfg(test)]
+pub(super) use types::Summary;
 pub(super) use types::{NativeOutcome, ResolutionStatus};
 
 #[cfg(test)]

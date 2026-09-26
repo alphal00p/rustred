@@ -9,14 +9,18 @@ fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
     }
 }
 
-fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
+pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
     assert_eq!(serial.domains, prepared.domains);
     assert_eq!(serial.summaries, prepared.summaries);
+    assert_eq!(serial.bits, prepared.bits);
     assert_eq!(serial.exact, prepared.exact);
     assert_eq!(serial.by_owner.len(), prepared.by_owner.len());
     for (key, bucket) in &serial.by_owner {
         let other = &prepared.by_owner[key];
         assert_eq!(bucket.candidate_ids(), other.candidate_ids());
+        // Physical layout too: the prepared reverse pass must retain, pin and
+        // remove exactly what the serial pass does, in the same order.
+        assert_eq!(bucket.indexed.layout(), other.indexed.layout());
         assert_eq!(bucket.orthant, other.orthant);
     }
     assert_eq!(serial.next, prepared.next);
@@ -52,7 +56,7 @@ fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
     // This telemetry is deliberately not a semantic state-equality condition.
 }
 
-fn parallel_prepare<const N: usize>(
+pub(super) fn parallel_prepare<const N: usize>(
     queue: &Queue<N>,
     batch: &[Domain<N>],
     workers: usize,
@@ -340,4 +344,240 @@ fn stale_lookup_counter_overflow_falls_back_for_both_forward_and_reverse_work() 
             assert_eq!(serial.containment_checks, prepared.containment_checks);
         }
     }
+}
+
+/// Overlapping boxes with in-batch containment chains: every third proposal
+/// contains its two predecessors, wider bands retire whole runs, and repeated
+/// exact keys and unrelated owners interleave.
+fn overlapping_stream() -> Vec<Domain<2>> {
+    let mut stream = Vec::new();
+    for i in 0..60_u64 {
+        let base = i * 3;
+        stream.push(box_domain([base, 1], [base + 1, 2]));
+        stream.push(box_domain([base, 0], [base + 2, 2]));
+        stream.push(box_domain([base, 0], [base + 3, 3])); // contains both above
+        if i % 4 == 3 {
+            stream.push(box_domain([base - 9, 0], [base + 3, 3])); // retires a run
+        }
+        if i % 5 == 0 {
+            stream.push(box_domain([base, 1], [base + 1, 2])); // exact repeat
+            let mut other = box_domain([base, 0], [base + 3, 3]);
+            other.owner = [false, true];
+            stream.push(other);
+        }
+    }
+    stream.push(box_domain([0, 0], [200, 3])); // retires nearly everything
+    stream.push(box_domain([5, 0], [6, 1])); // reuse under the wide band
+    stream
+}
+
+fn ledger_queue(policy: usize, len: usize) -> Queue<2> {
+    let mut queue = Queue::new(len, None);
+    let lookahead = std::num::NonZeroUsize::new(2).unwrap();
+    queue.delegation = match policy {
+        0 => None,
+        1 => Some(Ledger::new(lookahead, len).unwrap()),
+        _ => Some(Ledger::new_ready(lookahead, len).unwrap()),
+    };
+    queue
+}
+
+fn ledger_summary(queue: &Queue<2>) -> Option<(usize, super::super::super::delegation::Summary)> {
+    queue
+        .delegation
+        .as_ref()
+        .map(|ledger| (ledger.transfer_count(), ledger.resolve().unwrap().summary))
+}
+
+#[test]
+fn prepared_retirement_matches_serial_retire_set_layout_and_transfers() {
+    for policy in 0..3 {
+        for (workers, batch_size) in [(1, 1), (3, 7), (6, 64)] {
+            let stream = overlapping_stream();
+            let mut serial = ledger_queue(policy, stream.len());
+            let mut prepared = ledger_queue(policy, stream.len());
+            let mut applied_any = false;
+            for batch in stream.chunks(batch_size) {
+                let tokens = parallel_prepare(&prepared, batch, workers);
+                for (item, token) in batch.iter().zip(tokens) {
+                    applied_any |= token.prepared_retire_len().is_some_and(|len| len > 0);
+                    let expected = serial.admit(item.clone());
+                    assert_eq!(prepared.admit_prepared(token), expected);
+                    same_state(&serial, &prepared);
+                    assert_eq!(serial.containment_checks, prepared.containment_checks);
+                    assert_eq!(
+                        serial.containment_maintenance_checks,
+                        prepared.containment_maintenance_checks
+                    );
+                    assert_eq!(ledger_summary(&serial), ledger_summary(&prepared));
+                }
+            }
+            assert!(
+                applied_any,
+                "policy {policy}: no prepared reverse set was ever non-empty"
+            );
+            assert!(prepared.session.prepared_retirements_applied > 0);
+            assert_eq!(prepared.session.prepared_retire_fallbacks, 0);
+            assert_eq!(serial.session.prepared_retirements_applied, 0);
+            assert!(serial.containment_retired_candidates > 10);
+            if policy != 0 {
+                let (transfers, summary) = ledger_summary(&serial).unwrap();
+                assert!(transfers > 0, "policy {policy}: no transfer happened");
+                assert!(
+                    transfers < serial.containment_retired_candidates,
+                    "policy {policy}: reserved olds must stay native: {summary:?}"
+                );
+            }
+            println!(
+                "prepared_retirement policy={policy} workers={workers} batch={batch_size} retired={} session={:?}",
+                serial.containment_retired_candidates, prepared.session
+            );
+        }
+    }
+}
+
+#[test]
+fn prepared_retirement_scans_in_batch_admissions_above_the_watermark() {
+    let mut queue = Queue::new(20, None);
+    assert_eq!(queue.admit(box_domain([1, 1], [2, 2])), Ok((0, true)));
+    assert_eq!(queue.admit(box_domain([50, 0], [60, 3])), Ok((1, true)));
+    let request = box_domain([0, 0], [9, 9]);
+    let token = queue.prepare_admission(request.clone(), &AtomicBool::new(false));
+    assert_eq!(token.prepared_retire_len(), Some(1)); // only ID 0 at the snapshot
+    assert_eq!(token.speculative_work().reverse_checks, 1);
+    // An in-batch admission above the watermark, also contained by the request.
+    assert_eq!(queue.admit(box_domain([3, 3], [4, 4])), Ok((2, true)));
+    let before = queue.session;
+    assert_eq!(queue.admit_prepared(token), Ok((3, true)));
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, [true, false])].candidate_ids(),
+        [1, 3]
+    );
+    assert_eq!(queue.containment_retired_candidates, 2);
+    assert_eq!(
+        queue.session.prepared_retirements_applied,
+        before.prepared_retirements_applied + 1
+    );
+    // Only the new ID 2 needed a commit-time comparison; ID 0 came from the set.
+    assert_eq!(
+        queue.session.reverse_callbacks,
+        before.reverse_callbacks + 1
+    );
+    let mut serial = Queue::new(20, None);
+    for item in [
+        box_domain([1, 1], [2, 2]),
+        box_domain([50, 0], [60, 3]),
+        box_domain([3, 3], [4, 4]),
+        request,
+    ] {
+        serial.admit(item).unwrap();
+    }
+    same_state(&serial, &queue);
+    assert_eq!(serial.containment_checks, queue.containment_checks);
+}
+
+#[test]
+fn prepared_retirement_falls_back_for_retired_winners_and_near_counter_exhaustion() {
+    // Retired snapshot winner: the fresh scan hits its wider replacement, so
+    // nothing is retired and no prepared set is consulted.
+    let mut queue = Queue::new(20, None);
+    queue.admit(box_domain([0, 0], [2, 3])).unwrap();
+    let token = queue.prepare_admission(box_domain([1, 1], [1, 1]), &AtomicBool::new(false));
+    assert_eq!(token.prepared_retire_len(), None);
+    assert_eq!(queue.admit(box_domain([0, 0], [3, 4])), Ok((1, true)));
+    assert_eq!(queue.admit_prepared(token), Ok((1, false)));
+    assert_eq!(queue.session.prepared_retirements_applied, 0);
+    assert_eq!(queue.session.prepared_retire_fallbacks, 0);
+    // Near counter exhaustion a prepared miss must retire on the serial path
+    // (and count a fallback) with results identical to a serial queue.
+    for remaining in 0..6 {
+        let mut serial = Queue::new(20, None);
+        let mut prepared = Queue::new(20, None);
+        for item in [box_domain([1, 1], [2, 2]), box_domain([5, 0], [7, 3])] {
+            serial.admit(item.clone()).unwrap();
+            prepared.admit(item).unwrap();
+        }
+        let request = box_domain([0, 0], [3, 3]);
+        let token = prepared.prepare_admission(request.clone(), &AtomicBool::new(false));
+        assert_eq!(token.prepared_retire_len(), Some(1));
+        serial.containment_checks = usize::MAX - remaining;
+        prepared.containment_checks = usize::MAX - remaining;
+        assert_eq!(prepared.admit_prepared(token), serial.admit(request));
+        same_state(&serial, &prepared);
+        assert_eq!(serial.containment_checks, prepared.containment_checks);
+        if prepared.domains.len() == 3 {
+            // Revalidation needs 2 x summaries.len() = 4 units of headroom;
+            // below that the prepared set is dropped and the serial scan
+            // retires (a counted fallback), above it the set is applied.
+            let fell_back = remaining < 4;
+            assert_eq!(
+                prepared.session.prepared_retirements_applied,
+                usize::from(!fell_back),
+                "remaining {remaining}"
+            );
+            assert_eq!(
+                prepared.session.prepared_retire_fallbacks,
+                usize::from(fell_back),
+                "remaining {remaining}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cancelled_reverse_preparation_publishes_nothing() {
+    let fixture = || {
+        let mut queue = Queue::new(20, None);
+        for item in [box_domain([1, 1], [2, 2]), box_domain([5, 0], [7, 3])] {
+            queue.admit(item).unwrap();
+        }
+        queue
+    };
+    let serial = fixture();
+    let prepared = fixture();
+    let request = box_domain([0, 0], [3, 3]);
+    let uncancelled = prepared.prepare_admission_check(request.clone(), || false);
+    let mut total_checkpoints = 0;
+    let _ = prepared.prepare_admission_check(request.clone(), || {
+        total_checkpoints += 1;
+        false
+    });
+    assert!(uncancelled.has_lookup() && uncancelled.prepared_retire_len() == Some(1));
+    assert!(
+        total_checkpoints >= 6,
+        "entry, forward group/block, reverse group/block and final checkpoints"
+    );
+    let mut seen_reverse = false;
+    // Cancel at every checkpoint, so some tokens are cut off inside the
+    // reverse collection itself after a completed forward miss.
+    for allowed in 1..total_checkpoints {
+        let mut checkpoints = 0;
+        let token = prepared.prepare_admission_check(request.clone(), || {
+            checkpoints += 1;
+            checkpoints > allowed
+        });
+        let work = token.speculative_work();
+        seen_reverse |= work.reverse_checks > 0;
+        assert!(!token.has_lookup(), "cancelled speculation is discarded");
+        assert_eq!(token.prepared_retire_len(), None);
+        same_state(&serial, &prepared);
+        let mut serial_clone = fixture();
+        let mut prepared_clone = fixture();
+        let mut checkpoints = 0;
+        let token = prepared_clone.prepare_admission_check(request.clone(), || {
+            checkpoints += 1;
+            checkpoints > allowed
+        });
+        assert_eq!(
+            prepared_clone.admit_prepared(token),
+            serial_clone.admit(request.clone())
+        );
+        same_state(&serial_clone, &prepared_clone);
+        assert_eq!(prepared_clone.session.prepared_retirements_applied, 0);
+        assert_eq!(prepared_clone.session.prepared_retire_fallbacks, 0);
+    }
+    assert!(
+        seen_reverse,
+        "some cancellation must land inside the reverse scan"
+    );
 }

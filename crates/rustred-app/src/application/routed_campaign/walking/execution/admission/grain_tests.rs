@@ -132,6 +132,11 @@ fn canonical(state: &State<2>) -> Value {
         .as_object_mut()
         .unwrap()
         .remove("admission_preparation");
+    // Session telemetry (wall seconds, filter-tier callback counts) is not
+    // admission semantics and legitimately differs between engines.
+    let progress_fields = progress.as_object_mut().unwrap();
+    progress_fields.remove("coordinator_duty");
+    progress_fields.remove("containment_prefilter");
     json!({"queue_metadata":queue[0], "domains":queue[1], "buckets":queue[2], "ledger":queue[3],
         "progress":progress, "records":state.records, "details":state.details,
         "refusals":state.refusals, "optional":state.optional,
