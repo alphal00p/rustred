@@ -236,8 +236,9 @@ impl OwnerDomainWalkResult {
 pub const MAX_WALK_WORKERS: usize = 256;
 
 /// Correctness-gate seam, not a campaign knob: an environment variable keeps
-/// the frozen campaign argv (validated by the launcher) untouched.
-const DIAGNOSTIC_PAUSE_VARIABLE: &str = "RUSTRED_WALK_DIAGNOSTIC_PAUSE";
+/// the frozen campaign argv (validated by the launcher) untouched. Both
+/// campaign supervisors remove it from their native children's environment.
+pub(crate) const DIAGNOSTIC_PAUSE_VARIABLE: &str = "RUSTRED_WALK_DIAGNOSTIC_PAUSE";
 
 /// Force-save and cooperatively pause a checkpointed walk the first time its
 /// state reaches a diagnostic trigger. Read once per walk.

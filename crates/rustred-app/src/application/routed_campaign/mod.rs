@@ -21,6 +21,7 @@ pub use guarded::{
 pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
+pub(crate) use walking::DIAGNOSTIC_PAUSE_VARIABLE;
 pub use walking::{
     MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
