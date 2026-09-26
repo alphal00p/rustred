@@ -275,11 +275,12 @@ fn bit_prefilter_toggle_preserves_engine_results_and_counters() {
         unfiltered.queue.session.reverse_callbacks
     );
     assert_eq!(unfiltered.queue.session.forward_bit_rejections, 0);
-    let json = filtered.admission.json();
+    let json = filtered.admission.metrics_json(false);
     assert!(json["prepared_retirements_applied"].as_u64().unwrap() > 0);
     assert_eq!(json["prepared_retire_fallbacks"], 0);
+    assert!(json.get("coordinator_duty").is_none());
     assert!(
-        json["coordinator_duty"]["ordered_commit_seconds"]
+        filtered.admission.duty_json()["ordered_commit_seconds"]
             .as_f64()
             .unwrap()
             >= 0.0
@@ -287,7 +288,7 @@ fn bit_prefilter_toggle_preserves_engine_results_and_counters() {
     println!(
         "engine_bit_prefilter filtered={} unfiltered={} session={:?}",
         json,
-        unfiltered.admission.json(),
+        unfiltered.admission.metrics_json(false),
         filtered.queue.session
     );
 }

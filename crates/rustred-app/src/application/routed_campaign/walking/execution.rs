@@ -208,9 +208,6 @@ impl<const N: usize> State<N> {
             "routed_domains":self.routed, "route_masks":self.route_masks,
             "parallel":self.enrich_with(telemetry.clone(), lean)});
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
-        if !lean {
-            progress["coordinator_duty"] = self.admission.duty_json();
-        }
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
         progress["descendant_closure"] = self.closure_json();
@@ -262,15 +259,14 @@ impl<const N: usize> State<N> {
             telemetry["physical_publisher_part"] =
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
-        telemetry["admission_preparation"] = if lean {
-            self.admission.metrics_json(true)
-        } else {
-            self.admission.json()
-        };
+        telemetry["admission_preparation"] = self.admission.metrics_json(lean);
         if !lean {
             // Session telemetry lives under `parallel`, the object the strict
             // old-vs-new result comparison already ignores; the top level and
-            // `descendant_closure` keep their historical key sets.
+            // `descendant_closure` keep their historical key sets. The duty
+            // breakdown is emitted exactly once, where the campaign monitor
+            // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
+            telemetry["coordinator_duty"] = self.admission.duty_json();
             telemetry["containment_prefilter"] = self.queue.session.json();
             telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
         }

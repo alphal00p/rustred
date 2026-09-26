@@ -418,7 +418,8 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
         assert!(lean.get("coordinator_duty").is_none(), "{event}");
         assert!(
             lean["parallel"].get("containment_prefilter").is_none()
-                && lean["parallel"].get("closure_refresh_policy").is_none(),
+                && lean["parallel"].get("closure_refresh_policy").is_none()
+                && lean["parallel"].get("coordinator_duty").is_none(),
             "{event}"
         );
         let admission = &lean["parallel"]["admission_preparation"];
@@ -456,11 +457,16 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
             detailed["parallel"]["admission_preparation"]["prepared_retirements_applied"],
             0
         );
-        assert!(detailed["coordinator_duty"]["dispatch_seconds"].is_number());
+        // Exactly one duty object, where heartbeat_metrics.py reads it.
+        let duty = &detailed["parallel"]["coordinator_duty"];
+        assert!(duty["dispatch_seconds"].is_number());
+        assert!(duty["ordered_commit_seconds"].is_number());
+        assert!(duty["coordinator_elapsed_seconds"].is_null()); // Not started.
+        assert!(detailed.get("coordinator_duty").is_none());
         assert!(
-            detailed["parallel"]["admission_preparation"]["coordinator_duty"]
-                ["ordered_commit_seconds"]
-                .is_number()
+            detailed["parallel"]["admission_preparation"]
+                .get("coordinator_duty")
+                .is_none()
         );
     }
 }

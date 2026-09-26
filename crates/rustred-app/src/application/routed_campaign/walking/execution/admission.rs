@@ -158,14 +158,11 @@ impl Metrics {
             "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint; ready_service_includes_its_own_dispatch; resets_on_resume"
         })
     }
-    pub fn json(&self) -> Value {
-        let mut value = self.metrics_json(false);
-        value["coordinator_duty"] = self.duty_json();
-        value
-    }
-    /// The admission counters without the duty breakdown. `lean` keeps the
-    /// historical key set for per-domain progress events; heartbeats and the
-    /// final report also carry the filter-tier and prepared-retirement counters.
+    /// The admission counters. The duty breakdown is a sibling object
+    /// (`parallel.coordinator_duty`, see `State::enrich_with`), never nested
+    /// here. `lean` keeps the historical key set for per-domain progress
+    /// events; heartbeats and the final report also carry the filter-tier and
+    /// prepared-retirement counters.
     pub fn metrics_json(&self, lean: bool) -> Value {
         let mut value = json!({"policy":"immutable_bounded_batch_ordered_commit",
             "counter_scope":"current_execution_session; resets_on_resume",
