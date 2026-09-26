@@ -57,11 +57,15 @@ fn delegated_record_does_not_charge_events_or_fake_native_failure() {
     assert_eq!(state.native_records, 1);
     assert_eq!(state.completed, 1);
     assert_eq!(state.events, 0);
-    assert_eq!(state.records[1]["record_kind"], "delegated_not_inspected");
-    assert_eq!(state.records[1]["local_inspection_finished"], false);
-    assert!(state.records[1].get("stats").is_none());
-    assert!(state.records[1].get("seconds").is_none());
-    assert_eq!(state.finalize_delegation().unwrap()["delegated_pending"], 1);
+    let records = state.records.borrow().snapshot();
+    assert_eq!(records[1]["record_kind"], "delegated_not_inspected");
+    assert_eq!(records[1]["local_inspection_finished"], false);
+    assert!(records[1].get("stats").is_none());
+    assert!(records[1].get("seconds").is_none());
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["delegated_pending"],
+        1
+    );
 }
 
 #[test]
@@ -82,8 +86,11 @@ fn native_frontier_is_retained_and_blocks_the_containing_representative() {
     state.commit(2, finish());
     assert_eq!(state.completed, 2); // Native completion is not frontier discharge.
     assert_eq!(state.frontiers, 1);
-    assert_eq!(state.records[2]["frontiers"][0]["witness"], "preserved");
-    let result = state.finalize_delegation().unwrap();
+    assert_eq!(
+        state.records.borrow().snapshot()[2]["frontiers"][0]["witness"],
+        "preserved"
+    );
+    let result = state.finalize_delegation().0.unwrap();
     assert_eq!(result["native_frontier_blocked"], 1);
     assert_eq!(result["delegated_frontier_blocked"], 1);
     assert_eq!(result["all_ledger_obligations_discharged"], false);
@@ -105,7 +112,7 @@ fn cleanup_error_free_buffered_finished_never_erases_outer_failure_or_cancellati
         assert_eq!(state.completed, 1);
         assert_eq!(state.native_records, 2);
         assert_eq!(state.error.as_deref(), Some(error));
-        let result = state.finalize_delegation().unwrap();
+        let result = state.finalize_delegation().0.unwrap();
         assert_eq!(result["all_ledger_obligations_discharged"], false);
         let field = if error == "cancelled" {
             "delegated_cancelled"
@@ -140,7 +147,10 @@ fn cleanup_never_advances_alias_cursor_and_retains_later_real_attempt() {
     assert_eq!(state.uncommitted[0]["id"], 4);
     assert_eq!(state.uncommitted[0]["committed"], false);
     assert!(state.current_is_delegated());
-    assert_eq!(state.finalize_delegation().unwrap()["delegated_pending"], 1);
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["delegated_pending"],
+        1
+    );
 }
 
 #[test]
@@ -172,7 +182,10 @@ fn streamed_successor_admission_installs_transfer_only_at_canonical_accept() {
     state.commit(0, finish());
     state.commit_delegated().unwrap();
     assert_eq!(state.native_records, 1);
-    assert_eq!(state.finalize_delegation().unwrap()["delegated_pending"], 1);
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["delegated_pending"],
+        1
+    );
 }
 
 #[test]
@@ -200,7 +213,7 @@ fn failed_streamed_admission_preserves_old_index_and_ledger_obligations() {
     state.error = Some(error.into());
     state.commit(0, finish());
     assert_eq!(
-        state.finalize_delegation().unwrap()["all_ledger_obligations_discharged"],
+        state.finalize_delegation().0.unwrap()["all_ledger_obligations_discharged"],
         false
     );
 }
@@ -229,9 +242,12 @@ fn event_cap_still_charges_native_prefix_and_keeps_frontier_payload() {
     state.commit(2, finish());
     assert_eq!(state.events, 1);
     assert_eq!(state.frontiers, 1);
-    assert_eq!(state.records[2]["frontiers"][0]["kind"], "kept_at_cap");
     assert_eq!(
-        state.finalize_delegation().unwrap()["all_ledger_obligations_discharged"],
+        state.records.borrow().snapshot()[2]["frontiers"][0]["kind"],
+        "kept_at_cap"
+    );
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["all_ledger_obligations_discharged"],
         false
     );
 }
@@ -302,7 +318,7 @@ fn native_walk_transfer_runs_serial_two_six_fifty_and_default_keeps_every_job() 
     assert!(baseline.error.is_none(), "{:?}", baseline.error);
     assert_eq!(baseline.frontiers, 0);
     assert_eq!(baseline.completed, 3);
-    assert!(baseline.finalize_delegation().is_none());
+    assert!(baseline.finalize_delegation().0.is_none());
     let mut expected = None;
     for workers in [1, 2, 6, 50] {
         if let Err(error) =
@@ -327,10 +343,11 @@ fn native_walk_transfer_runs_serial_two_six_fifty_and_default_keeps_every_job() 
         assert_eq!(state.completed, 2);
         assert_eq!(state.native_records, 2);
         assert_eq!(state.queue.next, state.queue.domains.len());
-        let result = state.finalize_delegation().unwrap();
+        let (result, records) = state.finalized_records();
+        let result = result.unwrap();
         assert_eq!(result["all_ledger_obligations_discharged"], true);
         assert_eq!(result["delegated_resolved"], 1);
-        let records = no_seconds(json!(state.records));
+        let records = no_seconds(json!(records));
         if let Some((ref a, ref b)) = expected {
             assert_eq!(&records, a, "{workers} workers");
             assert_eq!(&result, b, "{workers} workers");
@@ -360,7 +377,7 @@ fn native_walk_cancellation_at_alias_retains_unresolved_representative() {
         });
         assert!(state.error.is_some());
         assert!(state.current_is_delegated() || state.queue.next == 2);
-        let result = state.finalize_delegation().unwrap();
+        let result = state.finalize_delegation().0.unwrap();
         assert_eq!(result["all_ledger_obligations_discharged"], false);
         assert_eq!(result["delegated_pending"], 1);
     }

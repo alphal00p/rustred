@@ -106,8 +106,8 @@ fn ready_w1_native_disk_resume_preserves_accepted_work_and_master_boundaries() {
     assert_eq!(resumed.pending_descendants(), 0);
     assert_eq!(resumed.queue.domains, baseline.queue.domains);
     assert_eq!(
-        without_timing(json!(resumed.records)),
-        without_timing(json!(baseline.records))
+        without_timing(json!(resumed.records.borrow().snapshot())),
+        without_timing(json!(baseline.records.borrow().snapshot()))
     );
     assert_eq!(
         (
@@ -124,7 +124,7 @@ fn ready_w1_native_disk_resume_preserves_accepted_work_and_master_boundaries() {
         )
     );
     assert_eq!(
-        resumed.finalize_delegation().unwrap(),
-        baseline.finalize_delegation().unwrap()
+        resumed.finalize_delegation().0.unwrap(),
+        baseline.finalize_delegation().0.unwrap()
     );
 }

@@ -418,7 +418,7 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
     assert!(state.error.is_none(), "{:?}", state.error);
     assert_eq!(state.queue.domains.len(), 1040);
     assert_eq!(state.published_count(), 1040);
-    assert_eq!(state.records.len(), 1040);
+    assert_eq!(state.records.borrow().total(), 1040);
     assert_eq!(state.queue.next, 1040);
     assert!(state.streams.active.is_none() && state.streams.parked.is_empty());
     let parallel = &state.parallel;
@@ -559,6 +559,8 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
             assert!(state.admission.duty.publication > 0.0);
             let delegated: Vec<u64> = state
                 .records
+                .borrow()
+                .snapshot()
                 .iter()
                 .filter(|record| record["record_kind"] == "delegated_not_inspected")
                 .map(|record| record["id"].as_u64().unwrap())

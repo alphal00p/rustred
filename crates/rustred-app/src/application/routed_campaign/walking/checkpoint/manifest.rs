@@ -81,7 +81,7 @@ pub(super) struct SectionRef {
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Segment {
+pub(in super::super) struct Segment {
     pub generation: u64,
     pub file: String,
     pub first: u64,

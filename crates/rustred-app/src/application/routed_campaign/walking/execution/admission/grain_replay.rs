@@ -258,7 +258,7 @@ fn replay_retained_admission_grain() {
         assert_eq!(state.successors, 0); // Synthetic admission flags, not native counters.
         assert_eq!(state.conditional, 0);
         assert_eq!(state.error, None);
-        assert!(state.records.is_empty() && state.details.is_empty());
+        assert!((state.records.borrow().total() == 0) && state.details.is_empty());
         state
             .queue
             .delegation

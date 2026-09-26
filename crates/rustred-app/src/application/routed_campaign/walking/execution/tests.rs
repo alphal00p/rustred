@@ -260,7 +260,7 @@ fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_resul
     retain_leftovers(&mut state, &mut leftovers);
     assert_eq!(state.queue.next, 1);
     assert_eq!(state.completed, 0);
-    assert_eq!(state.records.len(), 1);
+    assert_eq!(state.records.borrow().total(), 1);
     assert_eq!(state.uncommitted.len(), 2);
     assert_eq!(state.uncommitted[1]["id"], 2);
     assert_eq!(state.uncommitted[1]["lower"], json!([2]));
@@ -401,7 +401,7 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
     retain_leftovers(&mut state, &mut leftovers);
     assert_eq!(state.queue.next, 2);
     assert_eq!(state.completed, 1); // failed publisher is not completion
-    assert_eq!(state.records.len(), 2);
+    assert_eq!(state.records.borrow().total(), 2);
     assert_eq!(state.uncommitted.len(), 2);
     assert_eq!(state.uncommitted[0]["id"], 2);
     assert_eq!(state.uncommitted[1]["id"], 3);

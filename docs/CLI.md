@@ -76,7 +76,13 @@ continues it and `--stop-file PATH` requests a cooperative save-and-pause
 rewritten each save; `domains-<S>.bin`, `edges-<S>.bin` and
 `records-<S>.jsonl` are append-only segments tiling their section. Every
 referenced file carries its byte length and blake3 digest and is verified
-before decoding. Resume requires the same request/policy digest, owner
+before decoding. The walk keeps no committed record in RAM: each record is
+appended to the open `records-<G>.jsonl` when it is committed, the save of
+generation `G` seals that segment (fsync, digest) and an unsealed tail left
+by a crash is ignored on resume and later removed by cleanup. The final
+`result.json` streams its `domains` array from the segments one record at a
+time (library callers: `OwnerDomainWalkResult::write_json` or
+`into_document`; `document["domains"]` is `null` for checkpointed walks). Resume requires the same request/policy digest, owner
 digests and executable `WALK_SEMANTICS_VERSION`; a different executable
 digest with the same semantics version is accepted and reported. CP1-CP4
 directories are refused; start a fresh campaign.

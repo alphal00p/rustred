@@ -6,7 +6,7 @@ use super::super::{
     OwnerDomainMatchRequest, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
     OwnerDomainWalkSchedulingPolicy,
     delegation::StoredLedger,
-    execution::State,
+    execution::{State, records::RecordSink},
     queue::{Domain, StoredBuckets},
 };
 use super::manifest::{Manifest, Section, SectionRef, Segment, Segmented};
@@ -88,12 +88,18 @@ impl Fixture {
         store.bind_owners(vec![OWNER.into()])?;
         store.save(state, &[], &[], true, &|_| {})
     }
+    /// Restore through the real store, then read the restored sidecar back
+    /// into an in-memory sink: the test directory is removed with the
+    /// fixture, while the restored state lives on in the calling test.
     pub fn resume_full<const N: usize>(&self) -> Result<Restored<N>, String> {
         let mut store = self.open(true)?;
         store.bind_owners(vec![OWNER.into()])?;
-        store
+        let mut restored = store
             .resume::<N>(&|_| {})?
-            .ok_or_else(|| "test stateful checkpoint missing".to_owned())
+            .ok_or_else(|| "test stateful checkpoint missing".to_owned())?;
+        let records = restored.state.records.get_mut().snapshot();
+        *restored.state.records.get_mut() = RecordSink::Memory(records);
+        Ok(restored)
     }
     pub fn resume<const N: usize>(&self) -> Result<State<N>, String> {
         Ok(self.resume_full::<N>()?.state)

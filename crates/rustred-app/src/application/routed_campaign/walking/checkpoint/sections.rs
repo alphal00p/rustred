@@ -142,7 +142,7 @@ impl Header {
 }
 
 /// Hashes exactly the bytes that reached the inner writer.
-pub(super) struct HashingWriter<W: Write> {
+pub(in super::super) struct HashingWriter<W: Write> {
     inner: W,
     hasher: blake3::Hasher,
     bytes: u64,
@@ -154,6 +154,9 @@ impl<W: Write> HashingWriter<W> {
             hasher: blake3::Hasher::new(),
             bytes: 0,
         }
+    }
+    pub fn get_ref(&self) -> &W {
+        &self.inner
     }
     pub fn finish(mut self) -> io::Result<(u64, String)> {
         self.inner.flush()?;
@@ -381,6 +384,7 @@ pub(super) fn write_records(
     }
     out.flush().map_err(io_error)
 }
+#[cfg(test)]
 pub(super) fn read_records(bytes: &[u8], count: usize, out: &mut Vec<Value>) -> Result<(), String> {
     out.try_reserve(count).map_err(|_| "record allocation")?;
     let mut seen = 0usize;
@@ -421,6 +425,11 @@ pub(super) struct MetaRef<'a> {
     pub inputs: &'a [Value],
     pub input_frontiers: &'a [Value],
     pub streams: &'a Streams,
+    /// Ready only: sum of `accepted_events` over the published native records
+    /// (the sidecar keeps no record in RAM). Omitted for Ordered, so an Ordered
+    /// meta section keeps the key set every CP5 reader accepts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub records_accepted_events: Option<usize>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -438,6 +447,10 @@ pub(super) struct Meta {
     pub inputs: Vec<Value>,
     pub input_frontiers: Vec<Value>,
     pub streams: Streams,
+    /// Absent in checkpoints written before the record sidecar; restore then
+    /// derives it once by streaming the record segments.
+    #[serde(default)]
+    pub records_accepted_events: Option<usize>,
 }
 pub(super) fn write_meta(
     out: &mut (impl Write + ?Sized),
