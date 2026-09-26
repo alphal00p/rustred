@@ -250,8 +250,14 @@ at its final `acquire_lock` after the child has exited (the assertion that
 failed in 2 of 5 runs before this round). The same test binary passes it 10
 of 10 times alone and 5 of 5 times with the `cli::shards` tests; no lock or
 fork code changed here (`child_environment` only moves the environment
-setup). The holder of the lock copy was not identified. Logs: worktree
-`TMP/b2/fix-test-run{1,2,3,4}.log`.
+setup). A watcher over the test process's children caught one failing run:
+a second, not yet exec'd child of the test process, pinned by `pre_exec` to
+CPU 200 where all fake children run, held a close-on-exec descriptor of the
+same lock file, most likely a sibling test's launch that forked while the
+lock was held (the watcher cannot tell the locked open file description
+from the test's probe). 9e20a9cb makes the final acquisition poll for up to
+10 s; the suite then passed 8 of 8 runs on CPUs 200-211 with 739 / 0 / 4.
+Logs: worktree `TMP/b2/fix-test-run{1..14}.log`.
 
 ## Reading
 
