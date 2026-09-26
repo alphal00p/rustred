@@ -91,10 +91,6 @@ pub(super) struct PreparedLookup<const N: usize> {
     /// Prepared reverse retirement set (ascending, all below the watermark),
     /// only for a snapshot miss and only while it fitted the limit.
     retire: Option<Vec<usize>>,
-    /// The set is empty because no candidate of this phase/owner existed at
-    /// the snapshot: no helper comparison decided anything below the
-    /// watermark, so applying it is not evidence of helper effectiveness.
-    retire_trivial: bool,
 }
 
 /// Outcome of revalidating a prepared lookup against the commit-time index.
@@ -102,10 +98,8 @@ pub(super) struct Revalidated {
     pub found: Option<usize>,
     /// Forward comparisons to charge, bounded before the scan.
     pub checks: usize,
-    /// On a miss: the prepared reverse set to apply with `retire_prepared`,
-    /// and whether it is the trivial empty set of an absent snapshot bucket.
+    /// On a miss: the prepared reverse set to apply with `retire_prepared`.
     pub retire: Option<Vec<usize>>,
-    pub retire_trivial: bool,
     /// IDs at or above this watermark are decided at commit time.
     pub first_new: usize,
 }
@@ -172,16 +166,41 @@ impl<const N: usize> Queue<N> {
         let prefilter = self.prefilter;
         let signature = Signature::of(&summary);
         let coordinates = Coordinates::of(&summary);
-        let (found, retire, retire_trivial) =
-            if let Some(bucket) = self.by_owner.get(&(domain.phase, domain.owner)) {
-                if bucket
-                    .orthant
-                    .is_some_and(|id| rank_contains(self.domains[id].rank, domain.rank))
-                {
-                    // Commit must still reproduce the ordinary summary preflight
-                    // and fresh exact/orthant priority, without a general scan.
-                    (None, None, false)
-                } else {
+        let (found, retire) = if let Some(bucket) = self.by_owner.get(&(domain.phase, domain.owner))
+        {
+            if bucket
+                .orthant
+                .is_some_and(|id| rank_contains(self.domains[id].rank, domain.rank))
+            {
+                // Commit must still reproduce the ordinary summary preflight
+                // and fresh exact/orthant priority, without a general scan.
+                (None, None)
+            } else {
+                let checkpoint = || {
+                    if is_cancelled() {
+                        Err("cancelled speculative lookup")
+                    } else {
+                        Ok(())
+                    }
+                };
+                let found = bucket
+                    .indexed
+                    .find_controlled(signature, coordinates, 0, checkpoint, |id| {
+                        work.checks = work
+                            .checks
+                            .checked_add(1)
+                            .ok_or("speculative check overflow")?;
+                        let rejected = prefilter.rejects(self.bits[id], word);
+                        work.forward_bit_rejections = work
+                            .forward_bit_rejections
+                            .saturating_add(usize::from(rejected));
+                        Ok(!rejected && self.summaries[id].contains(&summary))
+                    })
+                    .ok()?;
+                let retire = if found.is_none() {
+                    // A miss commits a new candidate, so prepare the reverse
+                    // pass too. Failure here only forfeits the prepared set;
+                    // the forward evidence remains valid.
                     let checkpoint = || {
                         if is_cancelled() {
                             Err("cancelled speculative lookup")
@@ -189,61 +208,35 @@ impl<const N: usize> Queue<N> {
                             Ok(())
                         }
                     };
-                    let found = bucket
+                    bucket
                         .indexed
-                        .find_controlled(signature, coordinates, 0, checkpoint, |id| {
-                            work.checks = work
-                                .checks
-                                .checked_add(1)
-                                .ok_or("speculative check overflow")?;
-                            let rejected = prefilter.rejects(self.bits[id], word);
-                            work.forward_bit_rejections = work
-                                .forward_bit_rejections
-                                .saturating_add(usize::from(rejected));
-                            Ok(!rejected && self.summaries[id].contains(&summary))
-                        })
-                        .ok()?;
-                    let retire = if found.is_none() {
-                        // A miss commits a new candidate, so prepare the reverse
-                        // pass too. Failure here only forfeits the prepared set;
-                        // the forward evidence remains valid.
-                        let checkpoint = || {
-                            if is_cancelled() {
-                                Err("cancelled speculative lookup")
-                            } else {
-                                Ok(())
-                            }
-                        };
-                        bucket
-                            .indexed
-                            .collect_contained(
-                                signature,
-                                coordinates,
-                                PREPARED_RETIRE_LIMIT,
-                                checkpoint,
-                                |id| {
-                                    work.reverse_checks = work
-                                        .reverse_checks
-                                        .checked_add(1)
-                                        .ok_or("speculative check overflow")?;
-                                    let rejected = prefilter.rejects(word, self.bits[id]);
-                                    work.reverse_bit_rejections = work
-                                        .reverse_bit_rejections
-                                        .saturating_add(usize::from(rejected));
-                                    Ok(!rejected && summary.contains(&self.summaries[id]))
-                                },
-                            )
-                            .ok()
-                    } else {
-                        None
-                    };
-                    (found, retire, false)
-                }
-            } else {
-                // No candidate of this phase/owner existed at the snapshot: the
-                // empty set is correct but decides nothing below the watermark.
-                (None, Some(Vec::new()), true)
-            };
+                        .collect_contained(
+                            signature,
+                            coordinates,
+                            PREPARED_RETIRE_LIMIT,
+                            checkpoint,
+                            |id| {
+                                work.reverse_checks = work
+                                    .reverse_checks
+                                    .checked_add(1)
+                                    .ok_or("speculative check overflow")?;
+                                let rejected = prefilter.rejects(word, self.bits[id]);
+                                work.reverse_bit_rejections = work
+                                    .reverse_bit_rejections
+                                    .saturating_add(usize::from(rejected));
+                                Ok(!rejected && summary.contains(&self.summaries[id]))
+                            },
+                        )
+                        .ok()
+                } else {
+                    None
+                };
+                (found, retire)
+            }
+        } else {
+            // No candidate of this phase/owner existed at the snapshot.
+            (None, Some(Vec::new()))
+        };
         if is_cancelled() {
             return None;
         }
@@ -254,7 +247,6 @@ impl<const N: usize> Queue<N> {
             found,
             checks: work.checks,
             retire,
-            retire_trivial,
         })
     }
 
@@ -308,7 +300,6 @@ impl<const N: usize> PreparedLookup<N> {
                     found: Some(id),
                     checks: self.checks,
                     retire: None,
-                    retire_trivial: false,
                     first_new: self.watermark,
                 });
         }
@@ -335,7 +326,6 @@ impl<const N: usize> PreparedLookup<N> {
             } else {
                 None
             },
-            retire_trivial: self.retire_trivial,
             found,
             checks,
             first_new: self.watermark,

@@ -263,10 +263,6 @@ fn bit_prefilter_toggle_preserves_engine_results_and_counters() {
         u.prepared_retirements_applied
     );
     assert_eq!(
-        f.prepared_retirements_trivial,
-        u.prepared_retirements_trivial
-    );
-    assert_eq!(
         u.speculative_forward_bit_rejections + u.speculative_reverse_bit_rejections,
         0
     );

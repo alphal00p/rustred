@@ -54,11 +54,9 @@ pub(super) struct Metrics {
     speculative_reverse_checks: usize,
     speculative_forward_bit_rejections: usize,
     speculative_reverse_bit_rejections: usize,
-    /// Commits whose reverse retirement applied a helper-prepared set,
-    /// commits that applied the trivial empty set of a bucket absent at the
-    /// snapshot, and commits with a prepared lookup that retired serially.
+    /// Commits whose reverse retirement applied a helper-prepared set, and
+    /// commits with a prepared lookup that retired on the serial scan.
     prepared_retirements_applied: usize,
-    prepared_retirements_trivial: usize,
     prepared_retire_fallbacks: usize,
     preparation_seconds: f64,
     ordered_commit_seconds: f64,
@@ -87,7 +85,6 @@ impl Metrics {
             speculative_forward_bit_rejections: 0,
             speculative_reverse_bit_rejections: 0,
             prepared_retirements_applied: 0,
-            prepared_retirements_trivial: 0,
             prepared_retire_fallbacks: 0,
             preparation_seconds: 0.0,
             ordered_commit_seconds: 0.0,
@@ -126,13 +123,6 @@ impl Metrics {
             after
                 .prepared_retirements_applied
                 .saturating_sub(before.prepared_retirements_applied),
-            saturated,
-        );
-        Self::add(
-            &mut self.prepared_retirements_trivial,
-            after
-                .prepared_retirements_trivial
-                .saturating_sub(before.prepared_retirements_trivial),
             saturated,
         );
         Self::add(
@@ -204,7 +194,6 @@ impl Metrics {
             value["speculative_reverse_bit_rejections"] =
                 json!(self.speculative_reverse_bit_rejections);
             value["prepared_retirements_applied"] = json!(self.prepared_retirements_applied);
-            value["prepared_retirements_trivial"] = json!(self.prepared_retirements_trivial);
             value["prepared_retire_fallbacks"] = json!(self.prepared_retire_fallbacks);
             value["prepared_retirement_limit"] = json!(super::super::queue::PREPARED_RETIRE_LIMIT);
             value["prepared_retirement_scope"] = json!(

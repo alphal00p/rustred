@@ -117,13 +117,8 @@ pub(in super::super) struct SessionCounters {
     pub forward_bit_rejections: usize,
     pub reverse_callbacks: usize,
     pub reverse_bit_rejections: usize,
-    /// Commits whose reverse retirement applied a helper-prepared set that
-    /// decided every candidate below the snapshot watermark.
+    /// Commits whose reverse retirement applied a helper-prepared set.
     pub prepared_retirements_applied: usize,
-    /// Commits that applied the trivial empty set of a phase/owner bucket
-    /// absent at the snapshot: correct, but no helper comparison decided
-    /// anything, so not evidence of helper effectiveness.
-    pub prepared_retirements_trivial: usize,
     /// Commits that had a prepared lookup but retired with the serial scan.
     pub prepared_retire_fallbacks: usize,
 }
@@ -152,7 +147,6 @@ impl SessionCounters {
             "reverse_callbacks": self.reverse_callbacks,
             "reverse_bit_rejections": self.reverse_bit_rejections,
             "prepared_retirements_applied": self.prepared_retirements_applied,
-            "prepared_retirements_trivial": self.prepared_retirements_trivial,
             "prepared_retire_fallbacks": self.prepared_retire_fallbacks,
             "counter_scope": "coordinator_commit_path_current_process_session; not_persisted; speculative_helper_work_reported_by_admission_preparation",
             "bit_layout": "0-15 upper=inf per axis; 16-31 lower=0 per axis; 32 A upper=inf; 33 R upper=inf; 34 D lower=-inf; 35 D upper=inf; 36 A lower=0; 37 R lower=0; 38 D lower<=0 or -inf",
