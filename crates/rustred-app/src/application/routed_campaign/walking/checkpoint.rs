@@ -68,6 +68,8 @@ pub(super) struct Store {
     pending_events: Vec<Value>,
     #[cfg(test)]
     fail_section: Option<Section>,
+    #[cfg(test)]
+    fail_cleanup: bool,
 }
 fn binding(request: &OwnerDomainWalkRequest) -> String {
     // Checkpoint location, interval and resume mode are transport, not policy.
@@ -278,6 +280,8 @@ impl Store {
             pending_events,
             #[cfg(test)]
             fail_section: None,
+            #[cfg(test)]
+            fail_cleanup: false,
         }))
     }
     /// Events produced while opening (before the caller's observer existed).
@@ -393,7 +397,9 @@ impl Store {
             json!({"event":"checkpoint_saved","operation":"owner_domain_walk","checkpoint":metadata,"family_closure_claim":false}),
         ))
     }
-    fn publish(&mut self, manifest: Manifest) -> Result<(), String> {
+    /// Install the manifest (fatal on failure), then reclaim superseded files
+    /// best-effort; the returned strings describe cleanup failures only.
+    fn publish(&mut self, manifest: Manifest) -> Result<Vec<String>, String> {
         // Retain the complete preceding authority, not merely its state bytes.
         // Recovery is explicit: a corrupt latest generation is never silently
         // replaced by an older prefix during normal --resume admission.
@@ -411,39 +417,65 @@ impl Store {
         )?;
         let previous = self.manifest.replace(manifest);
         self.last = Instant::now();
-        // Only our own validated section names below the previous good
-        // generation, and only when neither retained manifest references
-        // them, are ours to remove. A failed save returns before this point,
-        // keeping both the old authority and any newly written orphan.
-        if let Some(previous) = previous {
-            let latest = self.manifest.as_ref().expect("published manifest");
-            let referenced: HashSet<&str> = latest
-                .files()
-                .into_iter()
-                .chain(previous.files())
-                .map(|f| f.file)
-                .collect();
-            for entry in fs::read_dir(&self.options.directory).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                let Some((_, generation)) = Section::parse(&name) else {
+        // The new generation is durable from here on. A failed save returns
+        // before this point, keeping both the old authority and any newly
+        // written orphan; a failed cleanup must not turn a saved generation
+        // into a failed one, so it is reported and retried at the next save.
+        Ok(previous.map_or_else(Vec::new, |previous| self.cleanup(&previous)))
+    }
+    /// Only our own validated section names below the previous good
+    /// generation, and only when neither retained manifest references them,
+    /// are ours to remove.
+    fn cleanup(&self, previous: &Manifest) -> Vec<String> {
+        let mut errors = Vec::new();
+        let latest = self.manifest.as_ref().expect("published manifest");
+        let referenced: HashSet<&str> = latest
+            .files()
+            .into_iter()
+            .chain(previous.files())
+            .map(|f| f.file)
+            .collect();
+        let entries = match fs::read_dir(&self.options.directory) {
+            Ok(entries) => entries,
+            Err(e) => return vec![format!("cannot list checkpoint directory: {e}")],
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    errors.push(format!("cannot read checkpoint directory entry: {e}"));
                     continue;
-                };
-                if generation < previous.generation
-                    && !referenced.contains(name.as_ref())
-                    && entry.file_type().map_err(|e| e.to_string())?.is_file()
-                {
-                    fs::remove_file(entry.path()).map_err(|e| {
-                        format!("checkpoint saved, old generation cleanup failed: {e}")
-                    })?;
                 }
+            };
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some((_, generation)) = Section::parse(&name) else {
+                continue;
+            };
+            if generation >= previous.generation || referenced.contains(name.as_ref()) {
+                continue;
             }
-            File::open(&self.options.directory)
-                .and_then(|f| f.sync_all())
-                .map_err(|e| e.to_string())?;
+            let is_file = entry.file_type().map(|kind| kind.is_file());
+            #[cfg(test)]
+            let is_file = if self.fail_cleanup {
+                Err(std::io::Error::other("injected cleanup failure"))
+            } else {
+                is_file
+            };
+            match is_file {
+                Ok(true) => {
+                    if let Err(e) = fs::remove_file(entry.path()) {
+                        errors.push(format!("cannot remove superseded {name}: {e}"));
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => errors.push(format!("cannot inspect superseded {name}: {e}")),
+            }
         }
-        Ok(())
+        if let Err(e) = File::open(&self.options.directory).and_then(|f| f.sync_all()) {
+            errors.push(format!("cannot sync checkpoint directory: {e}"));
+        }
+        errors
     }
     fn next_generation(&self) -> Result<u64, String> {
         let mut generation = self
@@ -718,19 +750,24 @@ impl Store {
             "started_unix_time":started_unix_time,"save_seconds":started.elapsed().as_secs_f64(),"duration_seconds":started.elapsed().as_secs_f64()});
         merge(&mut metadata, self.identity_metadata(&executable_first));
         manifest.metadata = metadata.clone();
-        self.publish(manifest)?;
+        let cleanup_errors = self.publish(manifest)?;
         self.last_save_seconds = started.elapsed().as_secs_f64();
         self.last_stamp = Some(stamp);
         metadata["duration_seconds"] = json!(self.last_save_seconds);
         metadata["save_seconds"] = json!(self.last_save_seconds);
         metadata["saved_unix_time"] = json!(unix_time()?);
         metadata["effective_interval_seconds"] = json!(self.effective_interval());
+        if !cleanup_errors.is_empty() {
+            metadata["cleanup_errors"] = json!(cleanup_errors);
+        }
         if let Some(manifest) = self.manifest.as_mut() {
             manifest.metadata = metadata.clone();
         }
-        Ok(Some(
-            json!({"event":"checkpoint_saved","operation":"owner_domain_walk","checkpoint":metadata,"family_closure_claim":false}),
-        ))
+        let mut event = json!({"event":"checkpoint_saved","operation":"owner_domain_walk","checkpoint":metadata,"family_closure_claim":false});
+        if !cleanup_errors.is_empty() {
+            event["cleanup_errors"] = json!(cleanup_errors);
+        }
+        Ok(Some(event))
     }
 }
 fn merge(target: &mut Value, extra: Value) {
@@ -1566,6 +1603,55 @@ mod tests {
         assert!(!fixture.dir.join(Section::Domains.file_name(3)).exists());
         drop(store);
         assert_eq!(fixture.resume::<1>().unwrap().queue.domains.len(), 2);
+    }
+
+    #[test]
+    fn cleanup_failure_after_publish_is_reported_not_fatal() {
+        let mut state = State::<1>::new(Queue::new(64, None), 0, None);
+        let fixture = Fixture::save(&state); // generation 2; bootstrap meta-1 remains
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        drop(store.resume::<1>(&|_| {}).unwrap().unwrap());
+        store.fail_cleanup = true;
+        state.events += 1;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 3);
+        assert!(
+            saved["cleanup_errors"][0]
+                .as_str()
+                .unwrap()
+                .contains("injected cleanup failure"),
+            "{saved}"
+        );
+        assert_eq!(
+            saved["checkpoint"]["cleanup_errors"],
+            saved["cleanup_errors"]
+        );
+        assert_eq!(fixture.manifest()["generation"], 3);
+        assert!(fixture.dir.join(Section::Meta.file_name(1)).exists());
+        // The generation is the authority: stamp and interval were updated.
+        assert!(
+            store
+                .save(&state, &[], &[], true, &|_| {})
+                .unwrap()
+                .is_none()
+        );
+        store.fail_cleanup = false;
+        state.events += 1;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4);
+        assert!(saved.get("cleanup_errors").is_none());
+        assert!(saved["checkpoint"].get("cleanup_errors").is_none());
+        assert!(!fixture.dir.join(Section::Meta.file_name(1)).exists());
+        assert!(!fixture.dir.join(Section::Meta.file_name(2)).exists());
+        drop(store);
+        assert_eq!(fixture.resume::<1>().unwrap().events, 2);
     }
 
     #[test]
