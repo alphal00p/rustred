@@ -286,6 +286,11 @@ five-loop control at W50 on CPUs 192-241 (Ordered and Ready), old binary
 recorded (2026-09-26, `TMP/fable51-controls/baseline-32fdec*/`): FG 18.2 s
 whole command / 13.7 s traversal / 98,869 inspections; BMW 40.2 / 33.9 /
 147,233; H 17.5 / 12.6 / 24,680; X 41.0 / 34.4 / 46,826.
+Ready baselines with the same binary (same day): FG 19.6 / 15.3 / 98,841;
+BMW 45.3 / 39.6 / 148,282; H 17.5 / 13.1 / 24,777; X 38.2 / 31.9 / 46,826; the
+five-loop finite control at W50 on CPUs 192-241: Ordered 425.6 s whole / 321.5 s
+traversal / 967,621 inspections, Ready 339.4 / 236.2 / 981,183 (table in
+`TMP/fable51-controls/RESULTS.md`).
 Acceptance of a new binary: all audits pass; strict record equality for
 Ordered; no case slower than the FG repeat spread; targets: coordinator
 prep + commit per request down >= 30% after B1, ordered-commit per request
