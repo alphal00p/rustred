@@ -4,12 +4,16 @@
 //!   RUSTRED_CLOSURE_BENCH_EDGES (default 4000000),
 //!   RUSTRED_CLOSURE_BENCH_COMMITTED_PER_MILLE (default 350: the committed,
 //!     sealed prefix that owns every edge; the rest is pending and unsealed,
-//!     so reverse reachability blocks nearly every node, the costly case),
+//!     so reverse reachability blocks nearly every node, the costly case;
+//!     every tenth committed node depends only on earlier ones of its own
+//!     class, which therefore stays closed),
 //!   RUSTRED_CLOSURE_BENCH_RECEIPT (optional path for the JSON receipt).
 //! Reports bytes per edge after the fold, the forced refresh wall time against
 //! the former linked-list layout on the same graph, and the restore rebuild
-//! (CSR from persisted pairs plus validation) wall time. Only the closure
-//! results are asserted; the numbers are measurements, not gates in CI.
+//! (CSR from persisted pairs plus validation) wall time. Asserted: equal
+//! closure flags of both layouts and an order-independent fingerprint of the
+//! edge multiset after the fold and after the restore rebuild; the numbers
+//! are measurements, not gates in CI.
 use super::*;
 use std::time::Instant;
 
@@ -119,6 +123,26 @@ fn status_bytes(key: &str) -> Option<u64> {
         .checked_mul(1024)
 }
 
+/// Order-independent fingerprint of an edge multiset: wrapping sum and xor
+/// of a SplitMix64 finalizer over each (source, target) pair.
+#[derive(Debug, Default, PartialEq)]
+struct Fingerprint(u64, u64);
+impl Fingerprint {
+    fn add(&mut self, source: usize, target: usize) {
+        let mut z = ((source as u64) << 32 | target as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        self.0 = self.0.wrapping_add(z);
+        self.1 ^= z;
+    }
+    fn of(graph: &Tracker) -> Self {
+        let mut fingerprint = Self::default();
+        graph.for_each_edge(|source, target| fingerprint.add(source, target));
+        fingerprint
+    }
+}
+
 /// Best of three forced scans of an unchanged graph.
 fn timed_refresh(graph: &mut Tracker) -> f64 {
     (0..3)
@@ -140,7 +164,8 @@ fn csr_edges_scale_benchmark() {
     let initial = nodes / 10;
     let rss_start = status_bytes("VmRSS:");
     // Committed sources in order, each sealed after its edges were accepted,
-    // exactly as the walk records them; targets uniform over all nodes.
+    // exactly as the walk records them; targets uniform over all nodes, or
+    // over the earlier members of the closed class.
     let started = Instant::now();
     let mut graph = Tracker::new(initial);
     graph.discovered(nodes);
@@ -156,7 +181,11 @@ fn csr_edges_scale_benchmark() {
     for source in 0..committed {
         let degree = target_edges / committed + usize::from(source < target_edges % committed);
         for _ in 0..degree {
-            let target = (draw() % nodes as u64) as usize;
+            let target = match (source % 10, source / 10) {
+                (0, 0) => break,
+                (0, class) => (draw() % class as u64) as usize * 10,
+                _ => (draw() % nodes as u64) as usize,
+            };
             let before = graph.edge_count();
             graph.edge(source, target);
             if graph.edge_count() > before {
@@ -167,6 +196,10 @@ fn csr_edges_scale_benchmark() {
     }
     assert!(graph.unavailable.is_none());
     let edges = graph.edge_count();
+    let mut persisted = Fingerprint::default();
+    for &(source, target) in &pairs {
+        persisted.add(source as usize, target as usize);
+    }
     let build_seconds = started.elapsed().as_secs_f64();
     let log_bytes = graph.storage_estimate_bytes();
     let refresh_log_seconds = timed_refresh(&mut graph);
@@ -174,11 +207,16 @@ fn csr_edges_scale_benchmark() {
     graph.persisted(edges);
     let fold_seconds = started.elapsed().as_secs_f64();
     assert_eq!(graph.folded_edge_count(), edges);
+    assert_eq!(Fingerprint::of(&graph), persisted);
     let edge_bytes = graph.edges.storage_bytes();
     let tracker_bytes = graph.storage_estimate_bytes();
     let rss_folded = status_bytes("VmRSS:");
     let refresh_csr_seconds = timed_refresh(&mut graph);
     let closed = graph.total_closed;
+    assert!(
+        closed >= committed / 10,
+        "the closed class is closed: {closed}"
+    );
     // Restore rebuild: CSR from the persisted pairs plus full validation.
     let (counters, flags) = (graph.counters(), graph.node_flags().collect::<Vec<_>>());
     let started = Instant::now();
@@ -187,6 +225,7 @@ fn csr_edges_scale_benchmark() {
     restored.restore(nodes, initial).unwrap();
     let restore_rebuild_seconds = started.elapsed().as_secs_f64();
     assert_eq!(restored.edge_count(), edges);
+    assert_eq!(Fingerprint::of(&restored), persisted);
     drop(restored);
     let sealed: Vec<bool> = flags.iter().map(|flag| flag & FLAG_SEALED != 0).collect();
     drop(graph);
