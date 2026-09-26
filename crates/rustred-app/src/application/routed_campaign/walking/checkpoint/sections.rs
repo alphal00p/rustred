@@ -142,7 +142,7 @@ impl Header {
 }
 
 /// Hashes exactly the bytes that reached the inner writer.
-pub(super) struct HashingWriter<W: Write> {
+pub(in super::super) struct HashingWriter<W: Write> {
     inner: W,
     hasher: blake3::Hasher,
     bytes: u64,
@@ -154,6 +154,14 @@ impl<W: Write> HashingWriter<W> {
             hasher: blake3::Hasher::new(),
             bytes: 0,
         }
+    }
+    pub fn get_ref(&self) -> &W {
+        &self.inner
+    }
+    /// Length and digest of the bytes the inner writer accepted so far; for
+    /// an unbuffered inner writer these are the bytes in the file.
+    pub fn digest(&self) -> (u64, String) {
+        (self.bytes, self.hasher.finalize().to_hex().to_string())
     }
     pub fn finish(mut self) -> io::Result<(u64, String)> {
         self.inner.flush()?;
@@ -381,6 +389,7 @@ pub(super) fn write_records(
     }
     out.flush().map_err(io_error)
 }
+#[cfg(test)]
 pub(super) fn read_records(bytes: &[u8], count: usize, out: &mut Vec<Value>) -> Result<(), String> {
     out.try_reserve(count).map_err(|_| "record allocation")?;
     let mut seen = 0usize;
@@ -406,6 +415,9 @@ pub(super) struct ProgressRef<'a> {
     pub metadata: Value,
     pub physical_parent: &'a Option<PhysicalProgress>,
 }
+/// The top-level key set is frozen for this format: CP5 binaries of the same
+/// semantics version deny unknown meta keys, and a campaign may roll back to
+/// any of them. New persisted scalars go into the free-form `progress` value.
 #[derive(Serialize)]
 pub(super) struct MetaRef<'a> {
     pub counters: [usize; 12],

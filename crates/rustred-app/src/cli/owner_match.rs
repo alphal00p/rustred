@@ -6,8 +6,8 @@ use super::{
 };
 use crate::{OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress};
 use crate::{
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
-    owner_domain_walk_with_progress,
+    OwnerDomainWalkRecords, OwnerDomainWalkRequest, OwnerDomainWalkResult,
+    OwnerDomainWalkSchedulingPolicy, owner_domain_walk_with_progress,
 };
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
@@ -124,23 +124,43 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
             event["operation"] = json!(operation);
             monitor.observe(event);
         })
-        .map(|result| (result.document, result.all_scheduled_domains_resolved))
+        .map(|result| {
+            (
+                result.document,
+                result.records,
+                result.all_scheduled_domains_resolved,
+            )
+        })
     } else {
         owner_domain_match_with_progress(request, &cancellation, |mut event| {
             event["operation"] = json!(operation);
             monitor.observe(event)
         })
-        .map(|result| (result.document, result.classification_complete))
+        .map(|result| {
+            (
+                result.document,
+                OwnerDomainWalkRecords::default(),
+                result.classification_complete,
+            )
+        })
     };
-    let (mut document, outcome) = match result {
-        Ok((document, completed)) => (document, classification_outcome(completed)),
+    // A checkpointed walk's records stay in its sidecar until they are
+    // streamed into the report below, one record at a time.
+    let (mut document, records, outcome) = match result {
+        Ok((document, records, completed)) => {
+            (document, records, classification_outcome(completed))
+        }
         Err(error) => {
             let document = json!({"schema":"rustred.owner-domain-match.json.v2", "event":"finished",
                 "status":"preparation_error", "classification_complete":false,
                 "all_queries_locally_applicable":false, "family_closure_claim":false,
                 "ibp_generation":false, "rhs_successors_expanded":false,
                 "error_kind":error.kind().as_str(), "error":error.to_string()});
-            (document, Err(CliError::from(error)))
+            (
+                document,
+                OwnerDomainWalkRecords::default(),
+                Err(CliError::from(error)),
+            )
         }
     };
     document["operation"] = json!(operation);
@@ -180,7 +200,7 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     let presentation = monitor.finish();
     crate::application::atomic_file::write_file_atomically_with(&args.output, false, |file| {
         let mut writer = io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, &document).map_err(|e| e.to_string())?;
+        records.write_json(&document, &mut writer)?;
         writer.flush().map_err(|e| e.to_string())
     })
     .map_err(CliError::OutputIo)?;

@@ -4,9 +4,12 @@
 //! the manifests; `meta-<G>.json`, `nodes-<G>.bin`, `ledger-<G>.bin` and
 //! `index-<G>.bin` are rewritten each generation; `domains-<S>.bin`,
 //! `edges-<S>.bin` and `records-<S>.jsonl` are append-only segments that tile
-//! their section, so a save costs O(new state) plus the small sections. Every
-//! digest is computed while writing; resume verifies every referenced file in
-//! parallel before decoding. Resume is bound to the request/policy digest,
+//! their section, so a save costs O(new state) plus the small sections. A
+//! checkpointed walk streams its records into the open `records-<G>.jsonl`
+//! at commit time (`execution/records.rs`); the save seals that segment
+//! instead of writing records from RAM. Every digest is computed while
+//! writing; resume verifies every referenced file in parallel before
+//! decoding. Resume is bound to the request/policy digest,
 //! the owner digests and `WALK_SEMANTICS_VERSION`; the executable digest is
 //! recorded and reported, never a refusal.
 pub(super) mod manifest;
@@ -18,7 +21,10 @@ pub(super) mod test_support;
 use super::{
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkSchedulingPolicy,
     WALK_SEMANTICS_VERSION,
-    execution::{ChangeStamp, State},
+    execution::{
+        ChangeStamp, State,
+        records::{RecordSink, Sidecar},
+    },
 };
 use crate::application::atomic_file::{write_file_atomically, write_file_atomically_with};
 /// Bound every reader of `latest.json` shares with the store.
@@ -134,6 +140,22 @@ fn write_section(
         Ok(())
     })?;
     digest.ok_or_else(|| "checkpoint section digest missing".into())
+}
+/// Smallest generation above `after` with no section file of ours: orphans
+/// of a failed save or a crashed sidecar keep their generation to themselves.
+pub(super) fn next_free_generation(directory: &Path, after: u64) -> Result<u64, String> {
+    let mut generation = after
+        .checked_add(1)
+        .ok_or("checkpoint generation overflow")?;
+    while Section::ALL
+        .iter()
+        .any(|s| directory.join(s.file_name(generation)).exists())
+    {
+        generation = generation
+            .checked_add(1)
+            .ok_or("checkpoint generation overflow")?;
+    }
+    Ok(generation)
 }
 /// Segments retained from the previous generation plus the new tail.
 struct Plan {
@@ -484,23 +506,39 @@ impl Store {
         errors
     }
     fn next_generation(&self) -> Result<u64, String> {
-        let mut generation = self
-            .manifest
-            .as_ref()
-            .map_or(Some(1), |m| m.generation.checked_add(1))
-            .ok_or("checkpoint generation overflow")?;
-        // Orphans of a failed save keep their generation number to themselves.
-        while Section::ALL.iter().any(|s| {
-            self.options
-                .directory
-                .join(s.file_name(generation))
-                .exists()
-        }) {
-            generation = generation
-                .checked_add(1)
-                .ok_or("checkpoint generation overflow")?;
+        next_free_generation(
+            &self.options.directory,
+            self.manifest.as_ref().map_or(0, |m| m.generation),
+        )
+    }
+    /// Route committed records into this directory's sidecar before the walk
+    /// commits anything: a fresh walk's empty in-memory sink becomes a sidecar
+    /// whose first segment takes the next free generation; a restored sidecar
+    /// must already belong to this directory.
+    pub(super) fn attach_records<const N: usize>(&self, state: &State<N>) -> Result<(), String> {
+        let mut sink = state.records.borrow_mut();
+        match &mut *sink {
+            RecordSink::Sidecar(sidecar) => {
+                if sidecar.directory() != self.options.directory {
+                    return Err("record sidecar belongs to another checkpoint directory".into());
+                }
+            }
+            RecordSink::Memory(records) => {
+                if self.manifest.as_ref().is_some_and(|m| m.kind == "state") {
+                    return Err(
+                        "saved walk state must be resumed with its record sidecar, not an in-memory prefix"
+                            .into(),
+                    );
+                }
+                let mut sidecar =
+                    Sidecar::new(self.options.directory.clone(), self.next_generation()?);
+                for record in std::mem::take(records) {
+                    sidecar.push(&record)?;
+                }
+                *sink = RecordSink::Sidecar(sidecar);
+            }
         }
-        Ok(generation)
+        Ok(())
     }
     pub(super) fn save<const N: usize>(
         &mut self,
@@ -539,14 +577,40 @@ impl Store {
             .refresh(&AtomicBool::new(false), true);
         let started = Instant::now();
         let started_unix_time = unix_time()?;
-        let generation = self.next_generation()?;
         let directory = self.options.directory.clone();
+        // A sidecar's open segment already reserved this save's generation.
+        let generation = match &*state.records.borrow() {
+            RecordSink::Sidecar(sidecar) => {
+                if sidecar.directory() != directory
+                    || self
+                        .manifest
+                        .as_ref()
+                        .is_some_and(|m| sidecar.generation() <= m.generation)
+                {
+                    return Err(
+                        "record sidecar does not belong to this checkpoint generation".into(),
+                    );
+                }
+                sidecar.generation()
+            }
+            RecordSink::Memory(_) => self.next_generation()?,
+        };
         let meta_path = directory.join(Section::Meta.file_name(generation));
         observer(
             json!({"event":"checkpoint_started","operation":"owner_domain_walk",
             "checkpoint_write":{"state":"writing","directory":directory,"generation":generation,"state_path":meta_path,"started_unix_time":started_unix_time},
             "committed_domains":state.published_count(),"contiguous_publication_watermark":state.queue.next,"committed_events":state.events,"family_closure_claim":false}),
         );
+        // Seal the records committed since the previous save; the next
+        // segment takes the next free generation after this one.
+        let seal_started = Instant::now();
+        let sealed = match &mut *state.records.borrow_mut() {
+            RecordSink::Sidecar(sidecar) => {
+                Some(sidecar.seal(generation, next_free_generation(&directory, generation)?)?)
+            }
+            RecordSink::Memory(_) => None,
+        };
+        let seal_seconds = seal_started.elapsed().as_secs_f64();
         let identity = Identity {
             arity: N,
             ready: state.ready(),
@@ -560,13 +624,27 @@ impl Store {
         let closure_ref = state.closure.borrow();
         let closure: &super::descendant_closure::Tracker = &closure_ref;
         let domains = state.queue.domains.as_slice();
-        let records = state.records.as_slice();
+        let records_ref = state.records.borrow();
         let domains_plan = plan(previous.and_then(|s| s.domains.as_ref()), domains.len());
         let edges_plan = plan(
             previous.and_then(|s| s.edges.as_ref()),
             closure.edge_count(),
         );
-        let records_plan = plan(previous.and_then(|s| s.records.as_ref()), records.len());
+        // In-memory records (non-sidecar states in tests) are written from RAM.
+        let (records, records_plan) = match &*records_ref {
+            RecordSink::Memory(records) => (
+                records.as_slice(),
+                plan(previous.and_then(|s| s.records.as_ref()), records.len()),
+            ),
+            RecordSink::Sidecar(sidecar) => (
+                &[][..],
+                Plan {
+                    keep: sidecar.closed().to_vec(),
+                    first: sidecar.sealed_total(),
+                    count: 0,
+                },
+            ),
+        };
         let buckets = state.queue.checkpoint_buckets();
         let ledger = state.queue.checkpoint_ledger();
         let ledger_entries = state.queue.delegation.as_ref().map_or(0, |l| l.len());
@@ -685,6 +763,7 @@ impl Store {
             }
         });
         drop(closure_ref);
+        drop(records_ref);
         let mut written = Vec::new();
         for slot in slots {
             written.push(slot.ok_or("checkpoint section writer did not run")??);
@@ -692,6 +771,10 @@ impl Store {
         let mut new_sections = Sections::default();
         let mut new_bytes = 0u64;
         let mut section_seconds = json!({});
+        if let Some(Some(segment)) = &sealed {
+            new_bytes += segment.bytes;
+            section_seconds[Section::Records.name()] = json!(seal_seconds);
+        }
         for w in &written {
             new_bytes += w.bytes;
             section_seconds[w.section.name()] = json!(w.seconds);
@@ -854,14 +937,110 @@ mod tests {
         state.closure.borrow_mut().finish(0, true, true);
         state.closure.borrow_mut().edge(1, 2);
         state.closure.borrow_mut().finish(1, false, true);
-        state
-            .records
-            .push(json!({"id":0,"local_inspection_finished":true,"error":null,"frontiers":[]}));
-        state
-            .records
-            .push(json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}));
+        let records = state.records.get_mut();
+        records
+            .push(json!({"id":0,"local_inspection_finished":true,"error":null,"frontiers":[]}))
+            .unwrap();
+        records
+            .push(json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}))
+            .unwrap();
         state.details.push(json!({"accepted_frontier":3}));
         state
+    }
+
+    /// Resume through a store that stays open, keeping the restored record
+    /// sidecar (`Fixture::resume` reads it back into RAM instead).
+    fn resumed_with_sidecar(fixture: &Fixture) -> (Store, State<1>) {
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let state = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        store.attach_records(&state).unwrap();
+        (store, state)
+    }
+    /// Publish `ledger_fixture`'s representative 2 as the walk would.
+    fn publish_representative(state: &mut State<1>) {
+        let ledger = state.queue.delegation.as_mut().unwrap();
+        ledger.native_started(2).unwrap();
+        ledger
+            .publish_native(
+                2,
+                NativeOutcome::Completed {
+                    unresolved_frontiers: 0,
+                },
+            )
+            .unwrap();
+        state.queue.next = ledger.cursor();
+        state.completed += 1;
+        state.native_records += 1;
+        state.closure.borrow_mut().finish(2, true, true);
+        state
+            .records
+            .get_mut()
+            .push(json!({"id":2,"local_inspection_finished":true,"error":null,"frontiers":[]}))
+            .unwrap();
+    }
+    fn record_ids(fixture: &Fixture) -> Vec<u64> {
+        let state = fixture.resume::<1>().unwrap();
+        let rows = state.records.borrow().snapshot();
+        rows.iter().map(|r| r["id"].as_u64().unwrap()).collect()
+    }
+
+    #[test]
+    fn crashed_sidecar_tail_is_skipped_on_resume_and_removed_by_cleanup() {
+        let fixture = Fixture::save(&ledger_fixture()); // generation 2
+        let (store, mut state) = resumed_with_sidecar(&fixture);
+        publish_representative(&mut state);
+        let orphan = fixture.dir.join(Section::Records.file_name(3));
+        assert!(orphan.exists());
+        drop((store, state)); // Crash: generation 3 is never saved.
+        let (mut store, mut state) = resumed_with_sidecar(&fixture);
+        assert_eq!(state.records.borrow().total(), 2);
+        publish_representative(&mut state);
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4); // 3 is the orphan's.
+        assert!(orphan.exists()); // Not yet below the previous generation.
+        state.events += 1;
+        store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert!(!orphan.exists());
+        drop(store);
+        assert_eq!(record_ids(&fixture), [0, 1, 2]);
+    }
+
+    #[test]
+    fn failed_save_after_sealing_lists_the_segment_in_the_next_generation() {
+        let fixture = Fixture::save(&ledger_fixture());
+        let (mut store, mut state) = resumed_with_sidecar(&fixture);
+        publish_representative(&mut state);
+        store.fail_section = Some(Section::Index);
+        let error = store.save(&state, &[], &[], true, &|_| {}).unwrap_err();
+        assert!(error.contains("injected index section failure"), "{error}");
+        assert_eq!(fixture.manifest()["generation"], 2);
+        assert!(fixture.dir.join(Section::Records.file_name(3)).exists());
+        store.fail_section = None;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4);
+        let manifest = fixture.manifest();
+        assert_eq!(manifest["sections"]["records"]["total"], 3);
+        assert_eq!(
+            manifest["sections"]["records"]["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["generation"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            [2, 3]
+        );
+        drop(store);
+        assert_eq!(record_ids(&fixture), [0, 1, 2]);
     }
 
     #[test]
@@ -942,7 +1121,10 @@ mod tests {
         assert_eq!(restored.state.completed, 1);
         assert_eq!(restored.state.events, 7);
         assert_eq!(restored.state.details, state.details);
-        assert_eq!(restored.state.records, state.records);
+        assert_eq!(
+            restored.state.records.borrow().snapshot(),
+            state.records.borrow().snapshot()
+        );
         assert_eq!(restored.inputs, vec![json!({"domain":0})]);
         assert_eq!(restored.report["dependency_edges"], 1);
         // Started was not completed/cancelled; its original responsibility is
@@ -1699,12 +1881,16 @@ mod tests {
             meta["closure"]["inspected"] = json!(1)
         });
         fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["cursor"] = json!(3));
-        assert!(fixture.resume::<1>().is_err());
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains("not a contiguous prefix"), "{error}");
         fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["cursor"] = json!(2));
         fixture.rewrite_section::<1>(Section::Records, |records| {
             records.as_array_mut().unwrap().pop();
         });
-        assert!(fixture.resume::<1>().is_err());
+        assert_eq!(
+            fixture.resume::<1>().err().unwrap(),
+            "checkpoint records/publications disagree"
+        );
         fixture.rewrite_section::<1>(Section::Records, |records| {
             records.as_array_mut().unwrap().push(
                 json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}),

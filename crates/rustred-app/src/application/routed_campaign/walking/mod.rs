@@ -133,9 +133,61 @@ pub struct OwnerDomainWalkResult {
     /// tracked containing representative, without unresolved work. Does not
     /// certify provenance, global route order compatibility, or family closure.
     pub all_scheduled_domains_resolved: bool,
+    /// The report. When `records` is streamed (checkpointed walks) its
+    /// `domains` entry is `null` here; `write_json` and `into_document`
+    /// supply the records.
     pub document: Value,
+    pub records: OwnerDomainWalkRecords,
 }
+
+/// Where a walk report's `domains` live: inline in the document (default),
+/// or in the checkpoint's record sidecar, read back one record at a time
+/// with the finalization annotations applied when the report is written.
+#[derive(Clone, Default)]
+pub struct OwnerDomainWalkRecords(Option<execution::records::Streamed>);
+impl OwnerDomainWalkRecords {
+    pub fn is_streamed(&self) -> bool {
+        self.0.is_some()
+    }
+    /// Pretty JSON of `document`, byte-identical to
+    /// `serde_json::to_writer_pretty` of the materialized report; streamed
+    /// records are never all resident.
+    pub fn write_json(&self, document: &Value, out: impl std::io::Write) -> Result<(), String> {
+        match &self.0 {
+            Some(streamed) => streamed.write_json(document, out),
+            None => serde_json::to_writer_pretty(out, document).map_err(|e| e.to_string()),
+        }
+    }
+    /// Place every record into `document["domains"]` (small runs and tests).
+    pub fn materialize(&self, document: &mut Value) -> Result<(), String> {
+        if let Some(streamed) = &self.0 {
+            document["domains"] = Value::Array(streamed.collect()?);
+        }
+        Ok(())
+    }
+}
+impl std::fmt::Debug for OwnerDomainWalkRecords {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            None => f.write_str("OwnerDomainWalkRecords::Inline"),
+            Some(streamed) => f
+                .debug_struct("OwnerDomainWalkRecords::Streamed")
+                .field("records", &streamed.total())
+                .field("segments", &streamed.segments())
+                .finish(),
+        }
+    }
+}
+
 impl OwnerDomainWalkResult {
+    /// See `OwnerDomainWalkRecords::write_json`.
+    pub fn write_json(&self, out: impl std::io::Write) -> Result<(), String> {
+        self.records.write_json(&self.document, out)
+    }
+    pub fn into_document(mut self) -> Result<Value, String> {
+        self.records.materialize(&mut self.document)?;
+        Ok(self.document)
+    }
     pub(crate) fn completion_progress(document: &Value) -> Value {
         let mut out = json!({"event":"finished", "operation":"owner_domain_walk",
             "full_result_in_output_document":true, "family_closure_claim":false});
@@ -586,6 +638,7 @@ fn run<const N: usize>(
         return Ok(OwnerDomainWalkResult {
             all_scheduled_domains_resolved: document["all_scheduled_domains_resolved"] == true,
             document,
+            records: OwnerDomainWalkRecords::default(),
         });
     }
     let mut state = execution::State::new(queue, input_frontiers.len(), error);
@@ -596,6 +649,8 @@ fn run<const N: usize>(
     }
     if let Some(reducer) = &reducer {
         if let Some(store) = checkpoint.as_mut() {
+            // Records are streamed to the sidecar from the first commit on.
+            store.attach_records(&state).map_err(AppError::input)?;
             if state.error.is_none() {
                 if let Some(event) = store
                     .save(&state, &inputs, &input_frontiers, true, observer)
@@ -663,14 +718,11 @@ fn run<const N: usize>(
         return Ok(OwnerDomainWalkResult {
             all_scheduled_domains_resolved: false,
             document,
+            records: OwnerDomainWalkRecords::default(),
         });
     }
-    let delegation = state.finalize_delegation();
-    for row in &mut state.records {
-        if let Some(id) = row["id"].as_u64().and_then(|id| usize::try_from(id).ok()) {
-            row["descendant_closed"] = json!(state.closure.borrow().closed(id));
-        }
-    }
+    let (delegation, resolutions) = state.finalize_delegation();
+    let annotations = execution::records::Annotations::new(resolutions, &state.closure.borrow());
     let exhausted = state.error.is_none() && state.published_count() == state.queue.domains.len();
     let resolved = exhausted
         && state.frontiers == 0
@@ -703,7 +755,27 @@ fn run<const N: usize>(
     // json!(mem::take(...)) would still serialize and clone every nested Value.
     document["inputs"] = Value::Array(inputs);
     document["input_frontiers"] = Value::Array(input_frontiers);
-    document["domains"] = take_report_array(&mut state.records);
+    // In-memory records are annotated and moved (never cloned) into the
+    // report; sidecar records are annotated while the report is written.
+    let records = match state
+        .records
+        .replace(execution::records::RecordSink::Memory(Vec::new()))
+    {
+        execution::records::RecordSink::Memory(mut rows) => {
+            for row in &mut rows {
+                annotations.apply(row);
+            }
+            document["domains"] = take_report_array(&mut rows);
+            OwnerDomainWalkRecords::default()
+        }
+        execution::records::RecordSink::Sidecar(sidecar) => {
+            document["domains"] = Value::Null;
+            OwnerDomainWalkRecords(Some(execution::records::Streamed::new(
+                sidecar,
+                annotations,
+            )))
+        }
+    };
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
     if checkpoint.is_some() {
@@ -803,6 +875,7 @@ fn run<const N: usize>(
     Ok(OwnerDomainWalkResult {
         all_scheduled_domains_resolved: resolved,
         document,
+        records,
     })
 }
 

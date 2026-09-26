@@ -25,9 +25,18 @@ mod admission;
 mod delegation;
 pub(super) mod owner_batches;
 mod publication;
+pub(super) mod records;
 mod replay;
 pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
+
+/// Ready only: `State::records_accepted_events` rides in the checkpoint's
+/// free-form progress value, never as a top-level meta key. Every CP5 reader,
+/// including the fable_5_1 binaries whose meta section denies unknown keys,
+/// ignores progress keys it does not know, so a checkpoint written here can
+/// still be resumed by them (executable-history rollback). A checkpoint
+/// without the key (written by those binaries) derives it on restore.
+pub(super) const PROGRESS_ACCEPTED_EVENTS: &str = "records_accepted_events";
 
 /// Cheap summary of the persisted walk state that can change between saves.
 /// Equal stamps mean the retained generation already holds this state.
@@ -56,7 +65,13 @@ pub(super) struct ChangeStamp {
 pub(super) struct State<const N: usize> {
     pub closure: RefCell<super::descendant_closure::Tracker>,
     pub queue: Queue<N>,
-    pub records: Vec<Value>,
+    /// Committed records: in RAM (Memory) or streamed into the checkpoint
+    /// sidecar at commit time; a RefCell like `closure` so that `save(&State)`
+    /// can seal the open segment.
+    pub records: RefCell<records::RecordSink>,
+    /// Ready: sum of `accepted_events` over published native records, the
+    /// aggregate the restore check needs now that no record stays in RAM.
+    pub records_accepted_events: usize,
     pub events: usize,
     pub successors: usize,
     pub conditional: usize,
@@ -117,7 +132,8 @@ impl<const N: usize> State<N> {
         Self {
             closure: RefCell::new(closure),
             queue,
-            records: Vec::new(),
+            records: RefCell::new(records::RecordSink::Memory(Vec::new())),
+            records_accepted_events: 0,
             events: 0,
             successors: 0,
             conditional: 0,
@@ -157,7 +173,7 @@ impl<const N: usize> State<N> {
             closure_revision: self.closure.borrow().revision(),
             ledger_reserved_through: ledger.map_or(0, |l| l.reservation_scan()),
             ledger_transfers: ledger.map_or(0, |l| l.transfers()),
-            records_total: self.records.len(),
+            records_total: self.records.borrow().total(),
             uncommitted: self.uncommitted.len(),
             physical_parts_completed: self
                 .physical_progress
@@ -167,10 +183,14 @@ impl<const N: usize> State<N> {
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {
-        json!({"physical_enabled":self.physical_enabled,
+        let mut metadata = json!({"physical_enabled":self.physical_enabled,
             "replay":self.replay.as_ref().map(replay::Replay::snapshot),
             "physical_inspections_published":self.physical_inspections_published,
-            "subdivided_logical_inspections":self.subdivided_logical_inspections})
+            "subdivided_logical_inspections":self.subdivided_logical_inspections});
+        if self.ready() {
+            metadata[PROGRESS_ACCEPTED_EVENTS] = json!(self.records_accepted_events);
+        }
+        metadata
     }
     #[cfg(test)]
     fn checkpoint_progress(&self) -> Value {
@@ -670,7 +690,14 @@ impl<const N: usize> State<N> {
         if self.ready()
             && let Some(replay) = &self.replay
         {
-            record["accepted_events"] = json!(replay.accepted_events());
+            let accepted = replay.accepted_events();
+            record["accepted_events"] = json!(accepted);
+            if let Some(total) = self.records_accepted_events.checked_add(accepted) {
+                self.records_accepted_events = total;
+            } else {
+                self.error
+                    .get_or_insert_with(|| "record accepted-events counter overflow".into());
+            }
         }
         record["frontiers"] = Value::Array(std::mem::take(&mut self.details));
         if self.queue.delegation.is_some() {
@@ -734,7 +761,9 @@ impl<const N: usize> State<N> {
             );
             record["physical_parts"] = Value::Array(parts);
         }
-        self.records.push(record);
+        if let Err(error) = self.records.get_mut().push(record) {
+            self.error.get_or_insert(error);
+        }
         if self.ready() {
             self.streams.initial_published += usize::from(id < self.initial_domain_count);
             self.queue.next = self

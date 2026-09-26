@@ -47,11 +47,12 @@ fn initial_overlap_actual_native_residual_and_alias_match_across_workers() {
         assert_eq!(s.frontiers, 0);
         assert_eq!(s.queue.domains.len(), 4);
         assert_eq!(s.native_records, 3);
-        let report = s.finalize_delegation().unwrap();
+        let (report, rows) = s.finalized_records();
+        let report = report.unwrap();
         assert_eq!(report["all_ledger_obligations_discharged"], true);
         assert_eq!(report["partial_initial_inspections"], 1);
         assert_eq!(report["delegated_resolved"], 1);
-        let q = &s.records[3];
+        let q = &rows[3];
         assert!(q["stats"]["selected_pieces"].as_u64().unwrap() > 0);
         assert!(q["stats"]["successors"].as_u64().unwrap() > 0);
         assert_eq!(q["record_kind"], "partial_initial_overlap_inspection");
@@ -62,7 +63,7 @@ fn initial_overlap_actual_native_residual_and_alias_match_across_workers() {
         assert_eq!(q["local_inspection_finished"], false);
         assert_eq!(q["residual_inspection_finished"], true);
         assert_eq!(q["local_classification_discharged"], true);
-        let records = no_seconds(json!(s.records));
+        let records = no_seconds(json!(rows));
         if let Some((a, b)) = &reference {
             assert_eq!(&records, a);
             assert_eq!(&report, b);
@@ -78,7 +79,7 @@ fn initial_overlap_actual_native_residual_and_alias_match_across_workers() {
     execution::run(&mut full, &reducer, &r, &AtomicBool::new(false), &|_| {});
     assert!(full.error.is_none());
     assert_eq!(full.frontiers, 0);
-    let report = full.finalize_delegation().unwrap();
+    let report = full.finalize_delegation().0.unwrap();
     assert_eq!(report["all_ledger_obligations_discharged"], true);
     assert_eq!(report["partial_initial_inspections"], 0);
 }
@@ -126,12 +127,13 @@ fn initial_overlap_frontier_anchor_blocks_successful_residual_and_alias() {
     let mut s = ready_partial(true);
     s.commit(3, partial_finished());
     assert_eq!(s.frontiers, 1);
-    assert_eq!(s.records[0]["frontiers"][0]["kind"], "anchor_source_guard");
-    let report = s.finalize_delegation().unwrap();
+    let (report, rows) = s.finalized_records();
+    assert_eq!(rows[0]["frontiers"][0]["kind"], "anchor_source_guard");
+    let report = report.unwrap();
     assert_eq!(report["all_ledger_obligations_discharged"], false);
     assert_eq!(report["partial_initial_blocked"], 1);
     assert_eq!(report["delegated_frontier_blocked"], 1);
-    assert_eq!(s.records[3]["local_classification_discharged"], false);
+    assert_eq!(rows[3]["local_classification_discharged"], false);
 }
 
 #[test]
@@ -144,11 +146,12 @@ fn initial_overlap_cleanup_cannot_discharge_error_free_buffered_residual() {
         execution::retain_leftovers(&mut s, &mut leftovers);
         assert_eq!(s.native_records, before + 1);
         assert_eq!(s.queue.next, 4);
-        let report = s.finalize_delegation().unwrap();
+        let (report, rows) = s.finalized_records();
+        let report = report.unwrap();
         assert_eq!(report["all_ledger_obligations_discharged"], false);
         assert_eq!(report["partial_initial_blocked"], 1);
-        assert_eq!(s.records[3]["residual_inspection_finished"], false);
-        assert_eq!(s.records[3]["local_classification_discharged"], false);
+        assert_eq!(rows[3]["residual_inspection_finished"], false);
+        assert_eq!(rows[3]["local_classification_discharged"], false);
     }
 }
 
@@ -197,14 +200,14 @@ fn initial_overlap_uncommitted_later_residual_keeps_scope_but_not_coverage() {
     execution::retain_leftovers(&mut s, &mut leftovers);
     assert_eq!(s.queue.next, 0);
     assert_eq!(s.native_records, 0);
-    assert!(s.records.is_empty());
+    assert_eq!(s.records.borrow().total(), 0);
     assert_eq!(s.uncommitted.len(), 1);
     let record = &s.uncommitted[0];
     assert_eq!(record["committed"], false);
     assert_eq!(record["native_inspection_scope"], "low_D_residual_only");
     assert_eq!(record["initial_overlap"]["anchor_id"], 0);
     assert_eq!(record["initial_overlap"]["responsibility_published"], false);
-    let report = s.finalize_delegation().unwrap();
+    let report = s.finalize_delegation().0.unwrap();
     assert_eq!(report["partial_initial_inspections"], 0);
     assert_eq!(report["pending_native_publications"], 3);
     assert_eq!(report["all_ledger_obligations_discharged"], false);

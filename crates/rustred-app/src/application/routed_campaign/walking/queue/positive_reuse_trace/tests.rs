@@ -394,7 +394,10 @@ fn measure_real_ordered_positive_reuse() {
             panic!("native spectator failed: {e}")
         }
     };
-    save(&root.join("result.json"), &result.document);
+    save(
+        &root.join("result.json"),
+        &result.clone().into_document().unwrap(),
+    );
     assert!(result.all_scheduled_domains_resolved);
     for (field, expected) in [
         ("completed_nodes", "native"),

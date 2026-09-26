@@ -1,7 +1,8 @@
 //! Integration through the actual coordinator admission/publication paths.
 use super::super::{
-    checkpoint::{round_trip_state, test_support::Fixture},
+    checkpoint::{manifest::Section, round_trip_state, test_support::Fixture},
     delegation::{Ledger, SchedulingPolicy},
+    descendant_closure::Tracker,
     queue::Domain,
 };
 use super::*;
@@ -287,8 +288,9 @@ fn checkpoint_rejects_fictional_seal_and_missing_alias_dependency() {
     );
 }
 
-#[test]
-fn partial_initial_inspection_keeps_anchor_frontier_transitively_blocking() {
+/// Initial prefix {0, 10} under a ledger; native 0 retains a frontier and
+/// discovers 2, which is inspected as a partial initial overlap anchored at 0.
+fn partial_initial_state() -> State<1> {
     let mut queue = Queue::with_policy(
         20,
         None,
@@ -341,9 +343,133 @@ fn partial_initial_inspection_keeps_anchor_frontier_transitively_blocking() {
         },
     );
     assert!(state.error.is_none());
+    state
+}
+
+#[test]
+fn partial_initial_inspection_keeps_anchor_frontier_transitively_blocking() {
+    let state = partial_initial_state();
     assert_eq!(refresh(&state)["initial_closed"], 1);
     assert_eq!(state.closure_json()["total_closed"], 1);
     assert_eq!(state.closure_json()["dependency_edges"], 2);
     let restored = round_trip_state(&state).unwrap();
     assert_eq!(refresh(&restored)["total_closed"], 1);
+}
+
+fn frontier(state: &mut State<1>) {
+    state
+        .accept(
+            Event::one(Effect::Frontier {
+                value: json!({"kind":"test"}),
+                successor: false,
+                conditional: false,
+            }),
+            &request(),
+        )
+        .unwrap();
+}
+/// The state's dependency monitor rebuilt from its per-ID status and the
+/// edges `keep` retains; nothing refreshed, so the closed counts are zero.
+fn rebuilt_closure(state: &State<1>, keep: impl Fn((usize, usize)) -> bool) -> Tracker {
+    let original = state.closure.borrow();
+    let mut rebuilt = Tracker::new(state.initial_domain_count);
+    rebuilt.discovered(state.queue.domains.len());
+    for edge in original.dependencies().filter(|&edge| keep(edge)) {
+        rebuilt.edge(edge.0, edge.1);
+    }
+    for id in 0..state.queue.domains.len() {
+        let (inspected, sealed) = original.local_status(id).unwrap();
+        rebuilt.finish(id, inspected, sealed);
+    }
+    rebuilt
+}
+
+#[test]
+fn checkpoint_rejects_a_seal_the_ledger_or_frontier_count_does_not_allow() {
+    // Ledger: a published native that retained a frontier is never sealed.
+    let mut queue = Queue::with_policy(
+        20,
+        None,
+        SchedulingPolicy::TransferUnreserved {
+            lookahead: NonZeroUsize::new(1).unwrap(),
+        },
+    )
+    .unwrap();
+    queue.admit(point(Phase::Apply, 0)).unwrap();
+    let mut state = State::new(queue, 0, None);
+    state.note_native_started(0).unwrap();
+    frontier(&mut state);
+    state.commit(0, finished());
+    assert!(round_trip_state(&state).is_ok());
+    let mut sealed = Tracker::new(1);
+    sealed.finish(0, true, true);
+    state.closure = RefCell::new(sealed);
+    let error = round_trip_state(&state).err().unwrap();
+    assert!(
+        error.contains("seal disagrees with native publication"),
+        "{error}"
+    );
+
+    // No ledger: the seal of an inspection depends on its record's frontiers,
+    // so only the number of unsealed inspections is bounded by the frontier
+    // count. A native without frontiers may not stay unsealed...
+    let mut queue = Queue::new(10, None);
+    queue.admit(point(Phase::Apply, 0)).unwrap();
+    let mut state = State::new(queue, 0, None);
+    state.commit(0, finished());
+    assert_eq!(state.frontiers, 0);
+    assert!(round_trip_state(&state).is_ok());
+    let mut unsealed = Tracker::new(1);
+    unsealed.finish(0, true, false);
+    state.closure = RefCell::new(unsealed);
+    let error = round_trip_state(&state).err().unwrap();
+    assert!(
+        error.contains("seal disagrees with native publication"),
+        "{error}"
+    );
+    // ...while one retained frontier admits exactly one unsealed inspection.
+    let mut queue = Queue::new(10, None);
+    queue.admit(point(Phase::Apply, 0)).unwrap();
+    let mut state = State::new(queue, 0, None);
+    frontier(&mut state);
+    state.commit(0, finished());
+    assert_eq!(state.closure.borrow().local_status(0), Some((true, false)));
+    assert!(round_trip_state(&state).is_ok());
+}
+
+#[test]
+fn checkpoint_rejects_a_missing_or_misplaced_partial_anchor() {
+    let mut state = partial_initial_state();
+    let anchor = (2, 0);
+    assert!(
+        state
+            .closure
+            .borrow()
+            .dependencies()
+            .any(|edge| edge == anchor)
+    );
+    // The rebuild itself is a valid monitor; without the anchor edge it is not.
+    state.closure = RefCell::new(rebuilt_closure(&state, |_| true));
+    assert!(round_trip_state(&state).is_ok());
+    state.closure = RefCell::new(rebuilt_closure(&state, |edge| edge != anchor));
+    assert_eq!(state.closure.borrow().edge_count(), 1);
+    let error = round_trip_state(&state).err().unwrap();
+    assert!(error.contains("partial-anchor edge missing"), "{error}");
+
+    // An anchor at or beyond the initial prefix. The ledger restore already
+    // refuses an anchor outside its protected prefix, so shrink the prefix
+    // the meta section records instead (with every counter bound to it).
+    let state = partial_initial_state();
+    let fixture = Fixture::save(&state);
+    fixture.rewrite_section::<1>(Section::Meta, |meta| {
+        meta["counters"][10] = json!(0); // initial_domain_count
+        meta["counters"][11] = json!(0); // initial_entry_domains_inspected
+        meta["closure"]["initial"] = json!(0);
+        meta["closure"]["initial_closed"] = json!(0);
+    });
+    let error = fixture.resume::<1>().err().unwrap();
+    assert!(
+        error.contains("partial anchor outside initial prefix"),
+        "{error}"
+    );
 }
