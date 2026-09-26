@@ -354,7 +354,9 @@ impl Tracker {
 
     /// Every (source, target) edge exactly once, in unspecified order
     /// (currently folded edges grouped by target, then the unfolded log in
-    /// insertion order). Validation must not depend on the order.
+    /// insertion order). Validation must not depend on the order. Test-only:
+    /// production validation iterates with `try_for_each_edge`.
+    #[cfg(test)]
     pub fn dependencies(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         self.edges
             .iter()
@@ -362,7 +364,9 @@ impl Tracker {
     }
 
     /// `dependencies` as internal iteration (`fold` walks the CSR slices as
-    /// plain loops): every edge exactly once, order unspecified.
+    /// plain loops): every edge exactly once, order unspecified. Test-only
+    /// (the closure tests and the edge benchmark).
+    #[cfg(test)]
     pub fn for_each_edge(&self, mut visit: impl FnMut(usize, usize)) {
         self.dependencies()
             .for_each(|(source, target)| visit(source, target));
