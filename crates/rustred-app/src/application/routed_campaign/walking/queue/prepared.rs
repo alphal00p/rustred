@@ -172,7 +172,7 @@ impl<const N: usize> Queue<N> {
         }
         // An unrepresentable domain is refused by the ordered commit itself.
         let &(compact, key) = key?;
-        if self.exact.get(key, &compact, &self.domains).is_some() {
+        if self.exact.get(key, &compact, &self.domains).is_ok() {
             return None;
         }
         let query = Query::new(

@@ -358,11 +358,14 @@ impl<const N: usize> Queue<N> {
         debug_assert_eq!(compact.expand(), domain);
         // Digest lookup confirmed on the stored domain: a digest collision can
         // cost a comparison, never a wrong hit. Nothing is allocated here.
-        if let Some(id) = self.exact.get(key, &compact, &self.domains) {
-            self.exact_hits += 1;
-            self.deduplicated += 1;
-            return Ok((id, false));
-        }
+        let exact_miss = match self.exact.get(key, &compact, &self.domains) {
+            Ok(id) => {
+                self.exact_hits += 1;
+                self.deduplicated += 1;
+                return Ok((id, false));
+            }
+            Err(miss) => miss,
+        };
         let query = if self.max_checks.is_none() {
             let builds = self
                 .containment_summary_builds
@@ -482,7 +485,7 @@ impl<const N: usize> Queue<N> {
         self.domains
             .try_reserve(1)
             .map_err(|_| "domain allocation")?;
-        self.exact.try_reserve(key)?;
+        self.exact.try_reserve(key, exact_miss)?;
         if query.is_some() {
             self.summaries.try_reserve()?;
             self.bits

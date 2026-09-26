@@ -205,7 +205,7 @@ impl<const N: usize> CompactDomain<N> {
             .expect("an admitted domain's native summary is reproducible")
     }
 
-    /// 128-bit blake3 prefix of the canonical little-endian field bytes
+    /// 64-bit blake3 prefix of the canonical little-endian field bytes
     /// (padding never enters the digest).
     pub(super) fn digest(&self) -> Digest {
         let mut bytes = [0_u8; 12 + 4 * MAX_COMPACT_ARITY + 24];
@@ -224,18 +224,18 @@ impl<const N: usize> CompactDomain<N> {
         put(&self.min_power_difference.to_le_bytes());
         put(&self.max_power_difference.to_le_bytes());
         let hash = blake3::hash(&bytes[..at]);
-        let hash = hash.as_bytes();
-        Digest(
-            u64::from_le_bytes(hash[..8].try_into().expect("eight bytes")),
-            u64::from_le_bytes(hash[8..16].try_into().expect("eight bytes")),
-        )
+        Digest(u64::from_le_bytes(
+            hash.as_bytes()[..8].try_into().expect("eight bytes"),
+        ))
     }
 }
 
-/// Exact-map key. Stored as two words so a map bucket is 24 bytes (a `u128`
-/// key would be 16-byte aligned and make it 32).
+/// Exact-map key. Every hit is confirmed on the stored domain and genuine
+/// collisions live in `overflow`, so the width only sets how rare that path
+/// is (about 4e-5 expected colliding pairs among 38M domains, an estimate);
+/// one word keeps a map bucket at 16 bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Digest(pub u64, pub u64);
+pub(super) struct Digest(pub u64);
 
 impl Hash for Digest {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -262,6 +262,14 @@ impl Hasher for DigestHasher {
 }
 
 type DigestMap<V> = HashMap<Digest, V, BuildHasherDefault<DigestHasher>>;
+
+/// An exact-index miss: whether a different domain already holds the digest's
+/// primary slot, so publishing this one goes to `overflow`. Valid until the
+/// index next changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Miss {
+    collides: bool,
+}
 
 /// Exact-duplicate index. A digest hit is only a candidate: the stored compact
 /// domain is compared field by field, and genuinely different domains with
@@ -306,21 +314,24 @@ impl<const N: usize> ExactIndex<N> {
         domain.digest()
     }
 
+    /// The confirmed ID of `candidate`, or the miss that `try_reserve` needs
+    /// to prepare its publication without probing the table again.
     pub fn get(
         &self,
         key: Digest,
         candidate: &CompactDomain<N>,
         domains: &[CompactDomain<N>],
-    ) -> Option<usize> {
-        let &id = self.primary.get(&key)?;
+    ) -> Result<usize, Miss> {
+        let Some(&id) = self.primary.get(&key) else {
+            return Err(Miss { collides: false });
+        };
         if domains[id] == *candidate {
-            return Some(id);
+            return Ok(id);
         }
         self.overflow
-            .get(&key)?
-            .iter()
-            .copied()
-            .find(|&id| domains[id] == *candidate)
+            .get(&key)
+            .and_then(|ids| ids.iter().copied().find(|&id| domains[id] == *candidate))
+            .ok_or(Miss { collides: true })
     }
 
     #[cfg(test)]
@@ -344,19 +355,21 @@ impl<const N: usize> ExactIndex<N> {
             .map_err(|_| "exact domain index allocation")
     }
 
-    /// Reserve everything `insert(key, _)` needs, so publication is infallible.
-    /// A collision list left empty by a later failed preflight is harmless.
-    pub fn try_reserve(&mut self, key: Digest) -> Result<(), &'static str> {
-        self.primary
-            .try_reserve(1)
-            .map_err(|_| "exact domain index allocation")?;
-        if self.primary.contains_key(&key) {
+    /// Reserve everything `insert(key, _)` needs after `miss` (the index is
+    /// unchanged since that lookup), so publication is infallible. A collision
+    /// list left empty by a later failed preflight is harmless.
+    pub fn try_reserve(&mut self, key: Digest, miss: Miss) -> Result<(), &'static str> {
+        if miss.collides {
             self.overflow
                 .try_reserve(1)
                 .map_err(|_| "exact domain index allocation")?;
             self.overflow
                 .entry(key)
                 .or_default()
+                .try_reserve(1)
+                .map_err(|_| "exact domain index allocation")?;
+        } else {
+            self.primary
                 .try_reserve(1)
                 .map_err(|_| "exact domain index allocation")?;
         }

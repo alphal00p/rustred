@@ -147,11 +147,11 @@ impl<const N: usize> Queue<N> {
         q.domains = domains;
         for (id, domain) in q.domains.iter().enumerate() {
             let key = q.exact.key(domain);
-            if q.exact.get(key, domain, &q.domains).is_some() {
+            let Err(miss) = q.exact.get(key, domain, &q.domains) else {
                 return Err("duplicate checkpoint exact domain".into());
-            }
+            };
             q.exact
-                .try_reserve(key)
+                .try_reserve(key, miss)
                 .map_err(|_| "checkpoint exact index allocation")?;
             q.exact.insert(key, id);
         }

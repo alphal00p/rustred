@@ -257,12 +257,12 @@ fn exact_index_confirms_digest_hits_and_never_caches_contained_request_keys() {
     // The index holds a digest per admitted ID; the stored domain confirms it.
     let compact = CompactDomain::try_from_domain(&narrow).unwrap();
     let key = queue.exact.key(&compact);
-    assert_eq!(queue.exact.get(key, &compact, &queue.domains), Some(0));
+    assert_eq!(queue.exact.get(key, &compact, &queue.domains), Ok(0));
     // A different domain presented under that digest is not a hit.
     let mut child = narrow.clone();
     child.lower[0] = 2;
     let child = CompactDomain::try_from_domain(&child).unwrap();
-    assert_eq!(queue.exact.get(key, &child, &queue.domains), None);
+    assert!(queue.exact.get(key, &child, &queue.domains).is_err());
     // General fallback reuse also must not retain arbitrary observed keys.
     for lower in 2..12 {
         let mut child = narrow.clone();

@@ -318,8 +318,8 @@ fn compact_state_size_of_is_within_budget() {
     assert_eq!(size_of::<CompactSummary<15>>(), 176);
     assert!(size_of::<CompactDomain<16>>() <= 104);
     assert!(size_of::<CompactSummary<16>>() <= 184);
-    // Exact-map entry: 128-bit key as two words, so no 16-byte alignment.
-    assert_eq!(size_of::<(Digest, usize)>(), 24);
+    // Exact-map entry: 64-bit digest key and the ID.
+    assert_eq!(size_of::<(Digest, usize)>(), 16);
     // Transport types, for the record: what one queued ID used to retain
     // (Arc block + two coordinate vectors + native summary + map entry).
     let arc_domain = 2 * size_of::<usize>() + size_of::<Domain<15>>();
@@ -347,10 +347,10 @@ fn compact_state_size_of_is_within_budget() {
 #[test]
 fn exact_index_survives_injected_digest_collisions() {
     fn collide_all<const N: usize>(_: &CompactDomain<N>) -> Digest {
-        Digest(7, 7)
+        Digest(7)
     }
     fn collide_in_pairs<const N: usize>(d: &CompactDomain<N>) -> Digest {
-        Digest(d.lower(0) / 2, 0)
+        Digest(d.lower(0) / 2)
     }
     let stream = super::aggregate::complete_proposals();
     for (name, key) in [
@@ -383,8 +383,10 @@ fn exact_index_survives_injected_digest_collisions() {
         restored_index.set_key_function(key);
         for (id, domain) in colliding.domains.iter().enumerate() {
             let key = restored_index.key(domain);
-            assert_eq!(restored_index.get(key, domain, &colliding.domains), None);
-            restored_index.try_reserve(key).unwrap();
+            let miss = restored_index
+                .get(key, domain, &colliding.domains)
+                .unwrap_err();
+            restored_index.try_reserve(key, miss).unwrap();
             restored_index.insert(key, id);
         }
         assert_eq!(restored_index, colliding.exact);

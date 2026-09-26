@@ -339,7 +339,7 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
     assert_eq!(raw.domains.len(), raw.exact.len());
     for (id, domain) in queue.domains.iter().enumerate() {
         let key = queue.exact.key(domain);
-        assert_eq!(queue.exact.get(key, domain, &queue.domains), Some(id));
+        assert_eq!(queue.exact.get(key, domain, &queue.domains), Ok(id));
     }
     for (id, domain) in raw.domains.iter().enumerate() {
         assert_eq!(raw.exact.get(domain), Some(&id));

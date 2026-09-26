@@ -93,7 +93,7 @@ impl<const N: usize> LinearSemantic<N> {
         for (domain, &id) in &self.exact {
             let compact = CompactDomain::try_from_domain(domain).unwrap();
             let key = queue.exact.key(&compact);
-            assert_eq!(queue.exact.get(key, &compact, &queue.domains), Some(id));
+            assert_eq!(queue.exact.get(key, &compact, &queue.domains), Ok(id));
         }
         assert_eq!(self.buckets.len(), queue.by_owner.len());
         let mut live = vec![false; self.domains.len()];
