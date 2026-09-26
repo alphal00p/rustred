@@ -416,17 +416,16 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
         let lean = state.progress(event, 0, &json!({}));
         assert!(lean.get("containment_prefilter").is_none(), "{event}");
         assert!(lean.get("coordinator_duty").is_none(), "{event}");
+        assert!(
+            lean["parallel"].get("containment_prefilter").is_none()
+                && lean["parallel"].get("closure_refresh_policy").is_none(),
+            "{event}"
+        );
         let admission = &lean["parallel"]["admission_preparation"];
         assert!(admission.get("coordinator_duty").is_none(), "{event}");
         assert!(
             admission.get("prepared_retirements_applied").is_none()
                 && admission.get("speculative_reverse_checks").is_none(),
-            "{event}"
-        );
-        assert!(
-            lean["descendant_closure"]
-                .get("refresh_duty_bound")
-                .is_none(),
             "{event}"
         );
         assert_eq!(lean["containment_checks"], 0); // Historical keys stay.
@@ -436,7 +435,23 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
     for event in ["domain_progress", "domain_draining"] {
         assert!(!State::<1>::lean_event(event));
         let detailed = state.progress(event, 0, &json!({}));
-        assert_eq!(detailed["containment_prefilter"]["forward_callbacks"], 0);
+        // New session telemetry sits under `parallel`, which the strict
+        // old-vs-new result comparison ignores; the top level and the
+        // closure report keep their historical key sets on every event.
+        assert!(detailed.get("containment_prefilter").is_none());
+        assert_eq!(
+            detailed["parallel"]["containment_prefilter"]["forward_callbacks"],
+            0
+        );
+        assert_eq!(
+            detailed["parallel"]["closure_refresh_policy"]["duty_bound"],
+            0.01
+        );
+        assert!(
+            detailed["descendant_closure"]
+                .get("refresh_duty_bound")
+                .is_none()
+        );
         assert_eq!(
             detailed["parallel"]["admission_preparation"]["prepared_retirements_applied"],
             0
@@ -447,6 +462,5 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
                 ["ordered_commit_seconds"]
                 .is_number()
         );
-        assert_eq!(detailed["descendant_closure"]["refresh_duty_bound"], 0.01);
     }
 }

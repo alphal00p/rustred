@@ -263,16 +263,20 @@ impl Tracker {
         self.last_refresh = Some(Instant::now());
     }
 
-    pub fn json(&self, total: usize, initial: usize) -> Value {
-        self.json_with(total, initial, false)
+    /// The periodic refresh throttle, reported under `parallel` so the
+    /// historical `descendant_closure` key set stays byte-comparable between
+    /// binaries.
+    pub fn refresh_policy_json(&self) -> Value {
+        json!({"duty_bound":1.0 / REFRESH_DUTY_MULTIPLIER,
+            "min_interval_seconds":REFRESH_MIN_INTERVAL_SECONDS,
+            "next_refresh_seconds":self.next_refresh_seconds(),
+            "scope":"periodic_refresh_spacing_max(min_interval, last_scan_wall / duty_bound); forced_refreshes_bypass"})
     }
 
-    /// `lean` keeps the historical key set for per-domain progress events;
-    /// heartbeats and the final report also carry the refresh-duty fields.
-    pub fn json_with(&self, total: usize, initial: usize, lean: bool) -> Value {
+    pub fn json(&self, total: usize, initial: usize) -> Value {
         let available =
             self.unavailable.is_none() && self.nodes.len() == total && self.initial == initial;
-        let mut value = json!({"available":available,"initial_total":initial,
+        json!({"available":available,"initial_total":initial,
             "initial_closed":available.then_some(self.initial_closed),
             "total_domains":total,"total_closed":available.then_some(self.total_closed),
             "unresolved_domains":available.then_some(total.saturating_sub(self.total_closed)),
@@ -289,13 +293,7 @@ impl Tracker {
             "method":"reverse_unsealed_reachability_including_sealed_cycles",
             "scope":"discovered_dependency_coverage; not termination, descent, or family certification",
             "closed_counts_are_conservative_lower_bounds":true,"family_closure_claim":false,
-            "reason":if available {None} else {Some(self.unavailable.as_deref().unwrap_or("dependency domain inventory mismatch"))}});
-        if !lean {
-            value["refresh_duty_bound"] = json!(1.0 / REFRESH_DUTY_MULTIPLIER);
-            value["refresh_min_interval_seconds"] = json!(REFRESH_MIN_INTERVAL_SECONDS);
-            value["next_refresh_seconds"] = json!(self.next_refresh_seconds());
-        }
-        value
+            "reason":if available {None} else {Some(self.unavailable.as_deref().unwrap_or("dependency domain inventory mismatch"))}})
     }
 
     fn storage_estimate_bytes(&self) -> usize {

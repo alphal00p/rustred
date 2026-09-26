@@ -209,16 +209,11 @@ impl<const N: usize> State<N> {
             "parallel":self.enrich_with(telemetry.clone(), lean)});
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
         if !lean {
-            progress["containment_prefilter"] = self.queue.session.json();
             progress["coordinator_duty"] = self.admission.duty_json();
         }
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
-        progress["descendant_closure"] = self.closure.borrow().json_with(
-            self.queue.domains.len(),
-            self.initial_domain_count,
-            lean,
-        );
+        progress["descendant_closure"] = self.closure_json();
         progress
     }
     pub(super) fn closure_json(&self) -> Value {
@@ -272,6 +267,13 @@ impl<const N: usize> State<N> {
         } else {
             self.admission.json()
         };
+        if !lean {
+            // Session telemetry lives under `parallel`, the object the strict
+            // old-vs-new result comparison already ignores; the top level and
+            // `descendant_closure` keep their historical key sets.
+            telemetry["containment_prefilter"] = self.queue.session.json();
+            telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
+        }
         for key in ["first_failure", "non_cancellation_failure"] {
             if let Some(id) = telemetry[key]["domain"]
                 .as_u64()

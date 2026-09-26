@@ -91,15 +91,24 @@ fn stale_snapshot_is_a_lower_bound_after_discovery_and_shared_edge_changes() {
 fn refresh_interval_bounds_duty_to_one_percent_and_force_bypasses_it() {
     let mut graph = Tracker::new(2);
     assert_eq!(graph.refresh_interval(), Duration::from_secs(5));
-    assert_eq!(graph.json(2, 2)["next_refresh_seconds"], Value::Null);
-    assert_eq!(graph.json(2, 2)["refresh_duty_bound"], 0.01);
+    assert_eq!(
+        graph.refresh_policy_json()["next_refresh_seconds"],
+        Value::Null
+    );
+    assert_eq!(graph.refresh_policy_json()["duty_bound"], 0.01);
+    assert_eq!(graph.refresh_policy_json()["min_interval_seconds"], 5.0);
+    // The closure report itself keeps its historical key set.
+    assert!(graph.json(2, 2).get("refresh_duty_bound").is_none());
+    assert!(graph.json(2, 2).get("next_refresh_seconds").is_none());
     graph.finish(0, true, true);
     graph.refresh(&AtomicBool::new(false), false); // First scan is never throttled.
     assert_eq!(graph.refresh_count, 1);
     // A costly scan spaces the next periodic scan to 100x its wall time.
     graph.last_refresh_seconds = 0.5;
     assert_eq!(graph.refresh_interval(), Duration::from_secs(50));
-    let next = graph.json(2, 2)["next_refresh_seconds"].as_f64().unwrap();
+    let next = graph.refresh_policy_json()["next_refresh_seconds"]
+        .as_f64()
+        .unwrap();
     assert!(next > 49.0 && next <= 50.0, "{next}");
     graph.finish(1, true, true);
     assert_eq!(graph.json(2, 2)["snapshot_stale"], true);
@@ -113,7 +122,7 @@ fn refresh_interval_bounds_duty_to_one_percent_and_force_bypasses_it() {
     assert_eq!(graph.refresh_count, 1);
     // An elapsed interval admits the periodic scan again.
     graph.last_refresh = Some(Instant::now() - Duration::from_secs(6));
-    assert_eq!(graph.json(2, 2)["next_refresh_seconds"], 0.0);
+    assert_eq!(graph.refresh_policy_json()["next_refresh_seconds"], 0.0);
     graph.refresh(&AtomicBool::new(false), false);
     assert_eq!(graph.refresh_count, 2);
     assert_eq!(graph.total_closed, 2);

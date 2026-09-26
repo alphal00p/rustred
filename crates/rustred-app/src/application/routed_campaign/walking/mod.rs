@@ -719,7 +719,6 @@ fn run<const N: usize>(
     document["containment_index_policy"] = json!(state.queue.containment_index_policy());
     document["containment_check_policy"] =
         json!("general_comparisons_only; null_is_unlimited; checked_counter");
-    document["containment_prefilter"] = state.queue.session.json();
     document["applied_limits"] = limits_json(request);
     document["bounded_refinement_axes"] = json!(matching::refinement_axes_name(
         request.matching.match_limits.refinement_axes
