@@ -302,6 +302,38 @@ impl DiagnosticPause {
     }
 }
 
+/// One checkpoint opportunity of a diagnostic walk: the first time the
+/// trigger holds, persist exactly that state under the label, journal the
+/// trigger and cancel the way a stop request does; the walk's own forced save
+/// after cancellation carries the same label. Taking `pause` makes it fire at
+/// most once per session. Returns whether it fired (the caller then skips its
+/// ordinary interval save).
+fn diagnostic_checkpoint<const N: usize>(
+    pause: &mut Option<DiagnosticPause>,
+    store: &mut checkpoint::Store,
+    state: &execution::State<N>,
+    inputs: &[Value],
+    input_frontiers: &[Value],
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<bool, String> {
+    let Some(pause) = pause.take_if(|pause| pause.fires(state)) else {
+        return Ok(false);
+    };
+    store.mark_diagnostic_pause(pause.name());
+    if let Some(event) = store.save(state, inputs, input_frontiers, true, observer)? {
+        observer(event);
+    }
+    let mut event = json!({"event":"diagnostic_pause","operation":"owner_domain_walk",
+        "diagnostic_pause":pause.name(),"committed_domains":state.published_count(),
+        "contiguous_publication_watermark":state.queue.next,"committed_events":state.events,
+        "completed_native_inspections":state.completed,"family_closure_claim":false});
+    state.add_ready_progress(&mut event);
+    observer(event);
+    cancellation.store(true, std::sync::atomic::Ordering::Release);
+    Ok(true)
+}
+
 pub fn owner_domain_walk_with_progress(
     request: OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
@@ -676,7 +708,7 @@ fn run<const N: usize>(
                     observer(event);
                 }
             }
-            let mut diagnostic_paused = false;
+            let mut diagnostic_pause = diagnostic_pause;
             execution::run_checkpointed(
                 &mut state,
                 reducer,
@@ -684,27 +716,15 @@ fn run<const N: usize>(
                 cancellation,
                 observer,
                 &mut |state| {
-                    if let Some(pause) = diagnostic_pause
-                        && !diagnostic_paused
-                        && pause.fires(state)
-                    {
-                        // Persist exactly the triggering state, then pause the
-                        // way a stop request does; the walk's own forced save
-                        // after cancellation carries the same label.
-                        diagnostic_paused = true;
-                        store.mark_diagnostic_pause(pause.name());
-                        if let Some(event) =
-                            store.save(state, &inputs, &input_frontiers, true, observer)?
-                        {
-                            observer(event);
-                        }
-                        let mut event = json!({"event":"diagnostic_pause","operation":"owner_domain_walk",
-                            "diagnostic_pause":pause.name(),"committed_domains":state.published_count(),
-                            "contiguous_publication_watermark":state.queue.next,"committed_events":state.events,
-                            "completed_native_inspections":state.completed,"family_closure_claim":false});
-                        state.add_ready_progress(&mut event);
-                        observer(event);
-                        cancellation.store(true, std::sync::atomic::Ordering::Release);
+                    if diagnostic_checkpoint(
+                        &mut diagnostic_pause,
+                        store,
+                        state,
+                        &inputs,
+                        &input_frontiers,
+                        cancellation,
+                        observer,
+                    )? {
                         return Ok(());
                     }
                     if let Some(event) =

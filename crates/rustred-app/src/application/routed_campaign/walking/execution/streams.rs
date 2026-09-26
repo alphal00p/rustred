@@ -22,6 +22,13 @@ pub(in super::super) struct Streams {
     pub initial_published: usize,
 }
 
+/// The multi-prefix gate's threshold on plain counts: at least two
+/// unfinished accepted prefixes and a published record beyond the contiguous
+/// watermark.
+pub(super) fn multi_prefix_hole(prefixes: usize, published: usize, watermark: usize) -> bool {
+    prefixes >= 2 && published > watermark
+}
+
 impl<const N: usize> State<N> {
     pub(in super::super) fn add_ready_progress(&self, out: &mut Value) {
         if !self.ready() {
@@ -54,8 +61,11 @@ impl<const N: usize> State<N> {
     /// Ready resume-to-exhaustion gate must restore.
     pub(in super::super) fn ready_multi_prefix_hole(&self) -> bool {
         self.ready()
-            && self.ready_accepted_source_prefixes() >= 2
-            && self.published_count() > self.queue.next
+            && multi_prefix_hole(
+                self.ready_accepted_source_prefixes(),
+                self.published_count(),
+                self.queue.next,
+            )
     }
     /// Failure/cancellation without a checkpoint still retains every accepted
     /// source-local diagnostic, never a fictional completed native inspection.

@@ -12,8 +12,9 @@
 //! baseline therefore commit the same events in the same order.
 use super::super::{
     DiagnosticPause,
-    checkpoint::test_support::Fixture,
+    checkpoint::test_support::{Fixture, OWNER},
     delegation::{Ledger, SchedulingPolicy},
+    diagnostic_checkpoint,
     queue::Domain,
 };
 use super::ready_native_tests::without_timing;
@@ -205,45 +206,27 @@ fn assert_exhausted(state: &State<1>) {
     assert!(state.streams.active.is_none() && state.streams.parked.is_empty());
 }
 
-#[test]
-fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
-        return;
-    }
-    if rustred::campaign::ParallelExecution::preflight_requested_core_budget(4).is_err() {
-        eprintln!("skipped: W=4 needs four CPUs in this process's affinity mask");
-        return;
-    }
-    let reducer = super::initial_orthants_tests::native_fixture();
-    let budget = super::super::worker_budget::WorkerBudget::for_request(&request());
-    assert_eq!((budget.inspection, budget.helpers), (3, 0));
+/// The uninterrupted gated walk; records and ledger are taken before and
+/// after one finalization (which annotates delegated records).
+struct Baseline {
+    state: State<1>,
+    records: Value,
+    ledger: Value,
+}
 
-    let mut baseline = seed();
-    walk(
-        &mut baseline,
-        &reducer,
-        &AtomicBool::new(false),
-        &mut |_| {},
-    );
-    assert_exhausted(&baseline);
-
-    // The production trigger decides when to save and cancel.
-    let cancellation = AtomicBool::new(false);
-    let mut fixture = None;
-    let mut paused = seed();
-    walk(&mut paused, &reducer, &cancellation, &mut |state| {
-        if fixture.is_none() && DiagnosticPause::ReadyMultiPrefix.fires(state) {
-            assert_eq!(state.queue.next, FIRST);
-            fixture = Some(Fixture::save(state));
-            cancellation.store(true, Ordering::Release);
-        }
-    });
-    assert_eq!(paused.error, None);
-    assert!(paused.checkpoint_paused);
-    assert!(paused.ready_multi_prefix_hole());
-    let fixture = fixture.expect("multi-prefix hole checkpoint");
-
+/// Resume one on-disk generation in a fresh `State`, walk it to exhaustion
+/// and require exact equality with the uninterrupted gated baseline.
+fn resume_matches_baseline(
+    fixture: &Fixture,
+    reducer: &RoutedCandidateReducer<1>,
+    baseline: &Baseline,
+    paused: &State<1>,
+) {
+    let Baseline {
+        state: baseline,
+        records,
+        ledger,
+    } = baseline;
     let mut resumed: State<1> = fixture.resume().unwrap();
     assert!(has_two_prefixes(&resumed));
     assert!(resumed.streams.active.is_none());
@@ -268,15 +251,12 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
     );
     assert!(resumed.published_count() > resumed.queue.next);
     assert!(DiagnosticPause::ReadyMultiPrefix.fires(&resumed));
-    walk(&mut resumed, &reducer, &AtomicBool::new(false), &mut |_| {});
+    walk(&mut resumed, reducer, &AtomicBool::new(false), &mut |_| {});
     assert_exhausted(&resumed);
     assert!(resumed.completed > paused.completed);
 
     assert_eq!(resumed.queue.domains, baseline.queue.domains);
-    assert_eq!(
-        without_timing(json!(resumed.records)),
-        without_timing(json!(baseline.records))
-    );
+    assert_eq!(&without_timing(json!(resumed.records)), records);
     assert_eq!(
         (
             resumed.events,
@@ -293,16 +273,129 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
             baseline.queue.deduplicated
         )
     );
-    assert_eq!(
-        resumed.finalize_delegation().unwrap(),
-        baseline.finalize_delegation().unwrap()
+    assert_eq!(&resumed.finalize_delegation().unwrap(), ledger);
+}
+
+#[test]
+fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
+    if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
+        return;
+    }
+    if rustred::campaign::ParallelExecution::preflight_requested_core_budget(4).is_err() {
+        eprintln!("skipped: W=4 needs four CPUs in this process's affinity mask");
+        return;
+    }
+    let reducer = super::initial_orthants_tests::native_fixture();
+    let budget = super::super::worker_budget::WorkerBudget::for_request(&request());
+    assert_eq!((budget.inspection, budget.helpers), (3, 0));
+
+    let mut baseline = seed();
+    walk(
+        &mut baseline,
+        &reducer,
+        &AtomicBool::new(false),
+        &mut |_| {},
     );
+    assert_exhausted(&baseline);
+    let records = without_timing(json!(baseline.records));
+    let ledger = baseline.finalize_delegation().unwrap();
+    let baseline = Baseline {
+        state: baseline,
+        records,
+        ledger,
+    };
+
+    // The production branch decides when to save, label, journal and cancel,
+    // against a real store; the triggering state is also copied to a second
+    // store so both generations a paused process leaves can be resumed.
+    let production = Fixture::save(&seed());
+    let mut store = production.open(true).unwrap();
+    store.bind_owners(vec![OWNER.into()]).unwrap();
+    let journal = RefCell::new(Vec::new());
+    let observer = |event: Value| journal.borrow_mut().push(event);
+    let cancellation = AtomicBool::new(false);
+    let mut pause = Some(DiagnosticPause::ReadyMultiPrefix);
+    let mut trigger = None;
+    let mut paused = seed();
+    walk(&mut paused, &reducer, &cancellation, &mut |state| {
+        let fired = diagnostic_checkpoint(
+            &mut pause,
+            &mut store,
+            state,
+            &[],
+            &[],
+            &cancellation,
+            &observer,
+        )
+        .unwrap();
+        if fired {
+            assert!(trigger.is_none(), "the pause fires once");
+            assert_eq!(state.queue.next, FIRST);
+            trigger = Some(Fixture::save(state));
+        }
+    });
+    assert_eq!(paused.error, None);
+    assert!(paused.checkpoint_paused);
+    assert!(paused.ready_multi_prefix_hole());
+    assert!(pause.is_none() && cancellation.load(Ordering::Acquire));
+    assert!(
+        !diagnostic_checkpoint(
+            &mut pause,
+            &mut store,
+            &paused,
+            &[],
+            &[],
+            &cancellation,
+            &observer
+        )
+        .unwrap()
+    );
+    let triggers: Vec<Value> = journal
+        .borrow()
+        .iter()
+        .filter(|event| event["event"] == "diagnostic_pause")
+        .cloned()
+        .collect();
+    assert_eq!(triggers.len(), 1);
+    assert_eq!(triggers[0]["diagnostic_pause"], "ready-multi-prefix");
+    assert!(triggers[0]["ready_accepted_source_prefixes"].as_u64() >= Some(2));
+    assert!(triggers[0]["ready_published_holes"].as_u64() > Some(0));
+    let labelled = production.manifest()["metadata"].clone();
+    assert_eq!(labelled["diagnostic_pause"], "ready-multi-prefix");
+    assert_eq!(labelled["paused"], false);
+    // The walk's own forced save after cancellation: the generation a
+    // production resume restores, still labelled by this session.
+    store
+        .save(&paused, &[], &[], true, &observer)
+        .unwrap()
+        .expect("the cancelled state differs from the triggering one");
+    drop(store);
+    let latest = production.manifest()["metadata"].clone();
+    assert_eq!(latest["diagnostic_pause"], "ready-multi-prefix");
+    assert_eq!(latest["paused"], true);
+    assert!(latest["generation"].as_u64() > labelled["generation"].as_u64());
+
+    let trigger = trigger.expect("multi-prefix hole checkpoint");
+    resume_matches_baseline(&trigger, &reducer, &baseline, &paused);
+    resume_matches_baseline(&production, &reducer, &baseline, &paused);
     println!(
         "ready_multi_prefix_gate domains={} events={} completed={} paused_published={} paused_watermark={}",
-        baseline.queue.domains.len(),
-        baseline.events,
-        baseline.completed,
+        baseline.state.queue.domains.len(),
+        baseline.state.events,
+        baseline.state.completed,
         paused.published_count(),
         paused.queue.next
     );
+}
+
+#[test]
+fn multi_prefix_threshold_needs_two_prefixes_and_a_published_hole() {
+    use super::streams::multi_prefix_hole;
+    // (accepted prefixes, published records, contiguous watermark)
+    assert!(!multi_prefix_hole(1, 5, 0));
+    assert!(!multi_prefix_hole(2, 3, 3));
+    assert!(multi_prefix_hole(2, 4, 3));
+    assert!(multi_prefix_hole(17, 1, 0));
+    assert!(!multi_prefix_hole(0, 0, 0));
 }
