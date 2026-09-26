@@ -76,9 +76,10 @@ continues it and `--stop-file PATH` requests a cooperative save-and-pause
 rewritten each save; `domains-<S>.bin`, `edges-<S>.bin` and
 `records-<S>.jsonl` are append-only segments tiling their section. Every
 referenced file carries its byte length and blake3 digest and is verified
-before decoding. The walk keeps no committed record in RAM: each record is
-appended to the open `records-<G>.jsonl` when it is committed, the save of
-generation `G` seals that segment (fsync, digest) and an unsealed tail left
+before decoding. The walk keeps at most one 64 KiB batch of committed
+records in RAM: each record is serialized when it is committed and its
+batch is appended to the open `records-<G>.jsonl`; the save of generation
+`G` writes the last batch, seals that segment (fsync, digest) and an unsealed tail left
 by a crash is ignored on resume and later removed by cleanup. The final
 `result.json` streams its `domains` array from the segments one record at a
 time (library callers: `OwnerDomainWalkResult::write_json` or
