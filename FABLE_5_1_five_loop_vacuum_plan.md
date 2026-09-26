@@ -130,8 +130,10 @@ comparisons per admission.
    an in-process W=4 test with scripted inspectors, and a fresh-process
    pause/resume harness; recycle finished slots under Ready (reclaim into
    escrow and dispatch reserved work between commit batches); Ready becomes the
-   launcher default for new campaigns; H stays 256 (>= 4 x inspectors up to
-   W = 128); stale docs updated.
+   launcher default for new campaigns; H stays 256 (>= 2 x automatic Ready
+   inspectors through W = 128, >= 4 x through W = 97; each Reserved ID is one
+   that transfer_retired cannot delegate, so H is not raised automatically);
+   stale docs updated.
 4. Closure refresh duty: interval multiplier 20x -> 100x (<= ~1% duty),
    `refresh_duty_bound` and `next_refresh_seconds` in the JSON.
 5. Preparation/commit pipelining (double-buffered lagging read replica) only
