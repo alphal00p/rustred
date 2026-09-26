@@ -122,7 +122,11 @@ impl RoutedProgress {
             )
         );
         let milestone = checkpoint.then(|| event.clone());
-        *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
+        // A skipped save carries no walk counters: journal it as a milestone
+        // but leave the dashboard's latest progress record in place.
+        if event["event"] != "checkpoint_skipped_unchanged" {
+            *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
+        }
         if let Some(event) = milestone {
             let _ = self.stop.send(Control::Checkpoint(event));
         }
@@ -588,6 +592,34 @@ mod tests {
             );
             assert_eq!(row["generation"], index / 2 + 1);
         }
+    }
+
+    #[test]
+    fn skipped_save_is_a_milestone_but_not_the_latest_progress_record() {
+        struct Sink;
+        impl Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let monitor = RoutedProgress::start(
+            Box::new(Sink),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        );
+        monitor.observe(json!({"event":"domain_progress","completed_nodes":7}));
+        monitor.observe(json!({"event":"checkpoint_skipped_unchanged","generation":3}));
+        let (_, latest) = monitor.latest.lock().unwrap().clone();
+        assert_eq!(latest["event"], "domain_progress");
+        assert_eq!(latest["completed_nodes"], 7);
+        monitor.observe(json!({"event":"checkpoint_saved","generation":4}));
+        let (_, latest) = monitor.latest.lock().unwrap().clone();
+        assert_eq!(latest["event"], "checkpoint_saved");
+        monitor.finish().unwrap();
     }
 
     #[test]

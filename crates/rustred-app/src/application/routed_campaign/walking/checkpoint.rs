@@ -479,6 +479,10 @@ impl Store {
         }
         let stamp = state.change_stamp();
         if self.last_stamp == Some(stamp) {
+            // The retained generation already holds this state. Restart the
+            // interval so an idle coordinator re-evaluates (and announces the
+            // skip) once per effective interval, not on every heartbeat.
+            self.last = Instant::now();
             observer(
                 json!({"event":"checkpoint_skipped_unchanged","operation":"owner_domain_walk",
                 "generation":self.manifest.as_ref().map(|m| m.generation),"forced":force,
@@ -1178,6 +1182,41 @@ mod tests {
         assert_eq!(saved["checkpoint"]["generation"], 4);
         drop(store); // Release the directory lock before reopening.
         assert_eq!(fixture.resume::<1>().unwrap().uncommitted.len(), 1);
+    }
+
+    #[test]
+    fn unchanged_skip_is_announced_once_per_effective_interval() {
+        let state = ledger_fixture();
+        let fixture = Fixture::save(&state);
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        store.options.interval_seconds = 3600;
+        // Restore fixes the stamp; the interval has elapsed with a stable state.
+        drop(store.resume::<1>(&|_| {}).unwrap().unwrap());
+        store.last = Instant::now() - Duration::from_secs(7200);
+        let seen = RefCell::new(Vec::new());
+        let observe = |event: Value| seen.borrow_mut().push(event);
+        for _ in 0..3 {
+            assert!(
+                store
+                    .save(&state, &[], &[], false, &observe)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert_eq!(seen.borrow().len(), 1, "{:?}", seen.borrow());
+        assert_eq!(seen.borrow()[0]["event"], "checkpoint_skipped_unchanged");
+        assert!(store.last.elapsed() < Duration::from_secs(60));
+        assert_eq!(fixture.manifest()["generation"], 2);
+        // Once the interval elapses again the skip is re-evaluated once more.
+        store.last = Instant::now() - Duration::from_secs(7200);
+        assert!(
+            store
+                .save(&state, &[], &[], false, &observe)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(seen.borrow().len(), 2);
     }
 
     #[test]
