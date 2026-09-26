@@ -170,7 +170,8 @@ impl<const N: usize> Queue<N> {
             }
         }
         if m.max_checks.is_none() {
-            q.restore_summaries()?;
+            let indexed = q.indexed_ids()?;
+            q.restore_summaries(indexed)?;
         }
         q.delegation = ledger
             .map(|l| l.restore(q.domains.iter().map(|d| (d.phase(), d.owner()))))
@@ -194,18 +195,38 @@ impl<const N: usize> Queue<N> {
     }
 }
 impl<const N: usize> Queue<N> {
+    /// Which IDs are indexed candidates. Each appears once, in its own
+    /// (phase, owner) bucket: retirement releases a candidate's summary slot
+    /// exactly once, so a repeated ID must be refused here, never met mid-walk.
+    /// Index positions are already range-checked against the domains.
+    fn indexed_ids(&self) -> Result<Vec<bool>, String> {
+        let mut indexed = Vec::new();
+        indexed
+            .try_reserve_exact(self.domains.len())
+            .map_err(|_| "checkpoint index allocation")?;
+        indexed.resize(self.domains.len(), false);
+        let (mut repeated, mut misplaced) = (false, false);
+        for (&(phase, owner), bucket) in &self.by_owner {
+            bucket.indexed.for_each_id(|id| {
+                repeated |= std::mem::replace(&mut indexed[id], true);
+                let domain = &self.domains[id];
+                misplaced |= domain.phase() != phase || domain.owner() != owner;
+            });
+        }
+        if repeated {
+            return Err("duplicate checkpoint index ID".into());
+        }
+        if misplaced {
+            return Err("invalid checkpoint owner bucket".into());
+        }
+        Ok(indexed)
+    }
+
     /// Rebuild the unlimited lane's derived geometry after the owner buckets:
     /// a filter word for every ID and a compact summary slot for each indexed
     /// candidate only. A retired ID's summary is never read, so it gets none.
-    fn restore_summaries(&mut self) -> Result<(), String> {
+    fn restore_summaries(&mut self, live: Vec<bool>) -> Result<(), String> {
         let count = self.domains.len();
-        let mut live = Vec::new();
-        live.try_reserve_exact(count)
-            .map_err(|_| "checkpoint summary allocation")?;
-        live.resize(count, false);
-        for bucket in self.by_owner.values() {
-            bucket.indexed.for_each_id(|id| live[id] = true);
-        }
         self.bits
             .try_reserve_exact(count)
             .map_err(|_| "checkpoint summary allocation")?;
