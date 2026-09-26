@@ -300,12 +300,18 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 top["parallel"]["returned_inspections"] = returned
             return mutate
 
-        cases = [(True, carrying([carried(3), carried(0)], 7), None),
-                 (False, carrying([carried(3)], 6), "uncommitted_inspections must be empty"),
-                 (True, carrying([carried(3, flag=False)], 6), "is not a carried earlier-session attempt"),
-                 (True, carrying([carried(2)], 6), "carried attempt 2 was not re-inspected"),
-                 (True, carrying([carried(3)], 5), "pool returned_inspections != native records + carried")]
-        for index, (resume, mutate, fragment) in enumerate(cases):
+        # (resumed, mutation, violation fragment or None, expected surplus when PASS)
+        cases = [(True, carrying([carried(3), carried(0)], 7), None, 0),
+                 (False, carrying([carried(3)], 6), "uncommitted_inspections must be empty", None),
+                 (True, carrying([carried(3, flag=False)], 6), "is not a carried earlier-session attempt", None),
+                 (True, carrying([carried(2)], 6), "carried attempt 2 was not re-inspected", None),
+                 (True, carrying([carried(3)], 5), "pool returned_inspections < native records + carried", None),
+                 # A crash after a periodic save: unpolled or escrowed results
+                 # were counted as returned there and re-inspected here.
+                 (True, carrying([], 7), None, 2),
+                 (True, carrying([carried(3)], 8), None, 2),
+                 (False, carrying([], 7), "pool returned_inspections != native records + carried", None)]
+        for index, (resume, mutate, fragment, surplus) in enumerate(cases):
             with self.subTest(case=index), tempfile.TemporaryDirectory() as temporary:
                 run = build_run(Path(temporary), "ready", mutate=mutate)
                 if resume:
@@ -314,6 +320,7 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 self.assertEqual(report["resumed"], resume)
                 if fragment is None:
                     self.assertEqual(report["audit"], "PASS", report["violations"])
+                    self.assertEqual(report["resumed_unpublished_returned_inspections"], surplus)
                 else:
                     self.assertEqual(report["audit"], "FAIL")
                     self.assertTrue(any(fragment in violation for violation in report["violations"]),

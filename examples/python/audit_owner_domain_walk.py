@@ -489,10 +489,21 @@ def _audit(run, located, audit, expect_schema):
         check(ledger.get(field) == 0, f"ledger {field} must be 0")
     pool = top.get("parallel")
     pool = pool if isinstance(pool, dict) else {}
-    # Attempt counters accumulate across checkpoint sessions; an earlier
-    # session's cancelled or unpolled attempts were returned but not published.
-    check(pool.get("returned_inspections") == native_count + carried,
-          "pool returned_inspections != native records + carried earlier-session attempts")
+    # Attempt counters accumulate across checkpoint sessions. A paused session
+    # lists the attempts it returned but never published as carried entries.
+    # A crash after a periodic save leaves no such list: results that were
+    # finished but unpolled (or in Ready escrow) at that save were counted as
+    # returned, then re-inspected after the resume. A resumed run may therefore
+    # exceed the count; the surplus is reported, not a violation.
+    expected = native_count + carried
+    returned = pool.get("returned_inspections")
+    surplus = None
+    if located["resumed"]:
+        if check(type(returned) is int and returned >= expected,
+                 "pool returned_inspections < native records + carried earlier-session attempts"):
+            surplus = returned - expected
+    elif check(returned == expected, "pool returned_inspections != native records + carried earlier-session attempts"):
+        surplus = 0
     for field in POOL_ZERO:
         check(pool.get(field) == 0, f"pool {field} must be 0")
     check(pool.get("first_failure") is None and pool.get("non_cancellation_failure") is None, "pool recorded a failure")
@@ -547,6 +558,7 @@ def _audit(run, located, audit, expect_schema):
         "logical_by_phase": dict(phases), "record_kinds": dict(kind_counts),
         "aliases": kind_counts["delegated_not_inspected"], "partial_initial_inspections": kind_counts["partial_initial_overlap_inspection"],
         "initial_queries": initial_count, "out_of_order_records": out_of_order,
+        "carried_earlier_session_attempts": carried, "resumed_unpublished_returned_inspections": surplus,
         "rank_histogram": {str(rank): value for rank, value in sorted(ranks.items(), key=lambda item: (item[0] is None, item[0]))},
         "apply_stats": dict(apply_stats), "route_stats": dict(route_stats),
         "events": top.get("events"), "max_scheduled_finite_rank": top.get("max_scheduled_finite_rank"),

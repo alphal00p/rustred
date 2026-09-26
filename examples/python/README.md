@@ -251,7 +251,11 @@ campaign or claims closure.
   identities or family termination. A `--resume` run may report the
   in-flight attempts its paused session returned but never published
   (`resume_reinspects_unfinished_part`); each must be published natively in
-  the result, and they are the only allowed uncommitted entries.
+  the result, and they are the only allowed uncommitted entries. After a
+  resume the pool's `returned_inspections` must be at least native records
+  plus carried attempts: results that were finished but unpolled at a
+  periodic save, followed by a crash, count once more; the surplus is
+  reported as `resumed_unpublished_returned_inspections`.
 - [`ready_resume_control.py`](ready_resume_control.py) is the fresh-process
   Ready multi-prefix resume gate: one control argv run as an uninterrupted
   Ready baseline, as a run with `RUSTRED_WALK_DIAGNOSTIC_PAUSE=ready-multi-prefix`
