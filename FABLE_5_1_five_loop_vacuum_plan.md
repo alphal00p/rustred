@@ -389,3 +389,24 @@ pass at every commit; new tests accompany each package. Push to
   on branches `fable_5_1-sched` / `fable_5_1-ckpt` (pushed, unmerged);
   single-owner pilot running under `TMP/qcd-feynman-d9d10-pilot-hot-owner/`.
   Handoff: `FABLE_HANDOFF.md`.
+- 2026-09-26 15:25-21:30 UTC (second session): the v2 campaign
+  (`campaigns/five-loop-qcd-feynman-d9d10-v2`, run `20260926T151353.794886Z`,
+  binary 102adcc3, W100 Ready) is monitored read-only; frontiers stay 0.
+  Measured on it (first 2 h, `coordinator_duty`): the coordinator is
+  saturated (~93% busy; commit 47-53%, preparation 22-30%), 4-12 of 67
+  inspectors compute. Gate decisions: B5 pipelining gate fires
+  (prep + commit >> 15%); B6 inner parallelism gate does not (duty > 60%).
+  A read-only 14-agent design review
+  (`docs/research/fable51_coordinator_relief_design_2026-09-26.md`) ranks
+  result-identical coordinator levers first (telemetry diet, per-slot
+  wake-ups, helper-final hit verdicts, spin barrier) and defers
+  bucket-sharded commit. Wave 2 of C (sidecar, compact state, CSR edges)
+  and B (Ready multi-prefix gate, review follow-ups) implemented, reviewed
+  and fixed on four branches; integration into `fable_5_1-wave2` in
+  progress. New: `rustred walk-semantics-version` and
+  `production_saved_owner_campaign.py --resume --upgrade-executable` so a
+  paused campaign continues on a semantics-compatible binary (WALK_SEMANTICS_VERSION
+  stays 1; checkpoints stay CP5-byte-compatible in both directions).
+  Single-owner Ordered pilot (hot owner, physics box, 32fdec) drained:
+  5.79M native inspections, max rank 8, 3.8 h at W6, audit PASS after the
+  audit learned helper-aliased roots.
