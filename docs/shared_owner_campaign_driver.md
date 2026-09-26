@@ -414,6 +414,16 @@ touching the checkpoint directory. The launcher checks the same condition
 first with the read-only probe `rustred walk-semantics-version`, which prints
 `{"walk_semantics_version":1,"checkpoint_format":"RUSTRED-WALK-CP5","checkpoint_schema":5}`.
 
+The probe is necessary, not sufficient. The native resume also requires the
+manifest's request binding to equal the new executable's: the inputs, the
+limits (including that executable's default limits) and the `Debug` form of
+its reduction-limit, publication and scheduling policies. A binary that
+changes one of those without a semantics bump passes the probe, and then its
+native open refuses with `checkpoint request or policy differs; refusing to
+restart` before touching the checkpoint. Nothing is lost, but the campaign's
+`bin/` already names that binary; return to the previous one as described
+under *Rolling back* below.
+
 Pause first: Ctrl-C (or SIGTERM) to the **Python supervisor** requests the
 cooperative save; wait for the saved checkpoint and the terminal `paused`
 receipt (native exit 4). Never kill the native process. Then build the new
@@ -464,13 +474,41 @@ Refusals exit 2 and change nothing:
   schema 5 of kind `state` or `bootstrap`;
 - the new binary has no `walk-semantics-version` probe (every binary built
   before the probe, including the frozen `rustred-102adcc3…`), or the probe
-  fails, exceeds 60 s or 64 KiB, or does not print one JSON object;
+  fails, exceeds 60 s or 64 KiB, or does not print one JSON object, unless
+  `bin/executable.json` history lists it (see *Rolling back*);
 - a different checkpoint format/schema or walk semantics version: start a new campaign;
-- with `--start`: a live supervisor or native process, or a held `checkpoint.lock`.
+- any other supplied option that differs from the frozen steering, or a RAM
+  override the frozen command cannot carry (checked before anything changes);
+- with `--start`: a live supervisor or native process, or a held `checkpoint.lock`;
+- with `--start`: the checkpoint's semantics version, the new binary's bytes
+  or probe, the receipt or the steering changed after validation (re-checked
+  under `checkpoint.lock` before the copy; the copy is probed under a
+  temporary name before it becomes `bin/rustred-<sha256>`).
 
 If an upgrade is interrupted after the steering rewrite but before the receipt
 commit, a plain `--resume` refuses because steering and receipt name different
 executables; rerunning the same `--upgrade-executable NEW --start` completes it.
+An interrupted copy leaves at most a hidden `bin/.rustred-<sha256>.*`
+temporary, never a file under the final name, so a rerun is not blocked.
+
+**Rolling back.** `--upgrade-executable` also returns, without a probe, to a
+binary that the `history` of `bin/executable.json` lists under the
+checkpoint's walk semantics version: the campaign established that version
+for it earlier (the original binary wrote the checkpoint; later ones passed
+the probe). This is how a campaign goes back to its original, pre-probe
+binary, for example after the native refused the new one or it was slower:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable campaigns/CAMPAIGN/bin/rustred-<old sha256>        # dry run
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable campaigns/CAMPAIGN/bin/rustred-<old sha256> --start
+```
+
+The kept frozen file is reused; the steering note and the replaced receipt
+record `reason: "rollback_executable"`.
 
 ## Profiling controls and walk audits
 

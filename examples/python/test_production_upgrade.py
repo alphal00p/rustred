@@ -436,6 +436,59 @@ class ExecutableUpgradeTests(unittest.TestCase):
         self.assertEqual([row["sha256"] for row in receipt["history"]], [old_hash, new_hash])
         self.assertNotIn("history", receipt["history"][1])
 
+    def test_rollback_to_a_binary_from_the_history_needs_no_probe(self):
+        legacy = fake_executable(self.root / "legacy-rustred", body=MISSING_PROBE)
+        campaign = self.prepare(self.root / "legacy", legacy)
+        steering_path = campaign / "bin" / "steering.json"
+        original_bytes = steering_path.read_bytes()
+        legacy_hash, new_hash = PRODUCTION.digest(legacy), PRODUCTION.digest(self.new)
+        legacy_frozen = self.frozen(legacy, campaign)
+        # With an empty history a probe-less binary is refused as before.
+        other = fake_executable(self.root / "other-legacy", body="# other build\n" + MISSING_PROBE)
+        status, _, errors, _ = run(campaign, "--resume", "--upgrade-executable", str(other))
+        self.assertEqual(status, 2)
+        self.assertIn("has no usable walk-semantics-version probe", errors)
+        status, _, errors, _ = run(campaign, "--resume", "--upgrade-executable", str(self.new), "--start")
+        self.assertIsNone(status, errors)
+        # The kept original binary (no probe) is vouched for by the history.
+        before = snapshot(campaign)
+        status, output, errors, launch = run(campaign, "--resume", "--upgrade-executable", str(legacy_frozen))
+        self.assertEqual(status, 0, errors)
+        self.assertIn("Executable rollback dry run; nothing was changed.", output)
+        self.assertIn("new executable 1 from bin/executable.json history (rollback; no probe needed)", output)
+        launch.assert_not_called()
+        status, output, errors, _ = run(campaign, "--resume", "--upgrade-executable", str(legacy), "--json")
+        self.assertEqual(status, 0, errors)
+        upgrade = json.loads(output)["executable_upgrade"]
+        self.assertEqual((upgrade["reason"], upgrade["new"]["probe"], upgrade["new"]["semantics_evidence"]),
+                         ("rollback_executable", None, "executable_history"))
+        self.assertEqual(snapshot(campaign), before)
+        status, output, errors, launch = run(campaign, "--resume", "--upgrade-executable", str(legacy_frozen),
+                                             "--start")
+        self.assertIsNone(status, errors)
+        self.assertIn(f"Executable rolled back to sha256 {legacy_hash}", output)
+        command = launch.call_args.args[1]
+        self.assertEqual(command[command.index("--executable") + 1], str(legacy_frozen))
+        policy = json.loads(steering_path.read_text())
+        self.assertEqual([(row["replaced_sha256"], row["sha256"], row["reason"])
+                          for row in policy.pop("executable_upgrades")],
+                         [(legacy_hash, new_hash, "upgrade_executable"),
+                          (new_hash, legacy_hash, "rollback_executable")])
+        self.assertEqual((json.dumps(policy, indent=2) + "\n").encode(), original_bytes)
+        receipt = json.loads((campaign / "bin" / "executable.json").read_text())
+        self.assertEqual((receipt["sha256"], receipt["file"]), (legacy_hash, legacy_frozen.name))
+        self.assertEqual([(row["sha256"], row["reason"]) for row in receipt["history"]],
+                         [(legacy_hash, "upgrade_executable"), (new_hash, "rollback_executable")])
+        self.assertEqual(sorted(path.name for path in (campaign / "bin").iterdir()),
+                         sorted(["executable.json", "steering.json", legacy_frozen.name, "rustred-" + new_hash]))
+        self.assertEqual(PRODUCTION.freeze_executable(campaign, None), (legacy_frozen, legacy_hash))
+        self.assertEqual(run(campaign, "--resume")[0], 0)
+        # History recorded under another walk semantics version vouches for nothing: the probe decides.
+        (campaign / "checkpoints/main/latest.json").write_text(json.dumps(manifest(walk_semantics_version=2)))
+        status, _, errors, _ = run(campaign, "--resume", "--upgrade-executable", str(self.new))
+        self.assertEqual(status, 2)
+        self.assertIn("walk semantics version differs (checkpoint 2, new executable 1)", errors)
+
     def test_interrupted_upgrade_is_refused_by_plain_resume_and_completed_by_rerun(self):
         original = PRODUCTION.write_json
 

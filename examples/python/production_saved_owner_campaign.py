@@ -12,10 +12,13 @@ publication policy, transfer lookahead and inspection workers; only the RAM
 options may be overridden per resume.
 --resume --upgrade-executable NEW moves a paused campaign onto a
 performance-only binary: NEW's `walk-semantics-version` probe must equal the
-saved CP5 checkpoint's walk semantics version. Without --start this is a
-read-only dry run. With --start it refuses a live run, freezes NEW beside the
-kept old binary, rewrites only the --executable value of the frozen steering,
-records the history in bin/executable.json and then resumes normally.
+saved CP5 checkpoint's walk semantics version, unless bin/executable.json
+history already lists NEW for that version (a rollback, which needs no
+probe). Without --start this is a read-only dry run. With --start it refuses
+a live run, freezes NEW beside the kept old binary, rewrites only the
+--executable value of the frozen steering, records the history in
+bin/executable.json and then resumes normally. The probe is necessary, not
+sufficient: the native resume also compares the saved request binding.
 """
 from __future__ import annotations
 
@@ -57,6 +60,7 @@ PROBE_COMMAND = "walk-semantics-version"
 PROBE_TIMEOUT_SECONDS = 60.0
 MAX_PROBE_BYTES = 64 * 1024
 UPGRADE_REASON = "upgrade_executable"
+ROLLBACK_REASON = "rollback_executable"
 _SUPERVISOR_SPEC = importlib.util.spec_from_file_location(
     "shared_owner_campaign", Path(__file__).with_name("shared_owner_campaign.py"))
 SUPERVISOR = importlib.util.module_from_spec(_SUPERVISOR_SPEC)
@@ -377,8 +381,30 @@ def steering_executable(policy):
     return command.index("--executable") + 1, Path(command[command.index("--executable") + 1])
 
 
+def receipt_history(receipt):
+    history = receipt.get("history", [])
+    if not isinstance(history, list) or not all(isinstance(row, dict) for row in history):
+        raise ValueError("bin/executable.json history must be a list of objects")
+    return history
+
+
+def history_vouches(receipt, sha256, walk_semantics_version):
+    """Whether this campaign's history records sha256 under the checkpoint's semantics version."""
+    return any(row.get("sha256") == sha256 and natural(row.get("walk_semantics_version"))
+               and row["walk_semantics_version"] == walk_semantics_version for row in receipt_history(receipt))
+
+
 def plan_executable_upgrade(campaign, checkpoint, source, frozen, frozen_hash):
-    """Read-only half of --upgrade-executable: everything the dry run prints."""
+    """Read-only half of --upgrade-executable: everything the dry run prints.
+
+    NEW's probe must report the checkpoint's format, schema and walk
+    semantics version, unless bin/executable.json history lists NEW's digest
+    with that version: the campaign established it earlier (the original
+    binary wrote the checkpoint, later ones passed the probe), so returning
+    to it (a rollback, e.g. to the original pre-probe binary) needs no probe.
+    The native resume stays the final check; it also compares the request
+    binding, which no probe covers.
+    """
     if not source.is_file() or not os.access(source, os.X_OK):
         raise ValueError("--upgrade-executable must name an executable file")
     source = source.resolve()
@@ -386,17 +412,23 @@ def plan_executable_upgrade(campaign, checkpoint, source, frozen, frozen_hash):
     if new_hash == frozen_hash:
         raise ValueError("--upgrade-executable names the already frozen executable; plain --resume suffices")
     saved = checkpoint_identity(checkpoint)
-    probe = probe_walk_semantics(source)
-    if (probe["checkpoint_format"], probe["checkpoint_schema"]) != (saved["format"], saved["schema"]):
-        raise ValueError(f"new executable resumes {probe['checkpoint_format']} schema {probe['checkpoint_schema']}, "
-                         f"but the checkpoint is {saved['format']} schema {saved['schema']}")
-    if probe["walk_semantics_version"] != saved["walk_semantics_version"]:
-        raise ValueError(f"walk semantics version differs (checkpoint {saved['walk_semantics_version']}, "
-                         f"new executable {probe['walk_semantics_version']}); only a semantics-compatible "
-                         "binary may resume this campaign; start a new campaign instead")
-    return {"reason": UPGRADE_REASON, "frozen": {"sha256": frozen_hash, "path": str(frozen)},
+    receipt = read_bounded_json(campaign / "bin" / "executable.json", MAX_RECEIPT_BYTES, "executable receipt")
+    if history_vouches(receipt, new_hash, saved["walk_semantics_version"]):
+        reason, probe, evidence = ROLLBACK_REASON, None, "executable_history"
+    else:
+        reason, probe, evidence = UPGRADE_REASON, probe_walk_semantics(source), "probe"
+        if (probe["checkpoint_format"], probe["checkpoint_schema"]) != (saved["format"], saved["schema"]):
+            raise ValueError(f"new executable resumes {probe['checkpoint_format']} schema "
+                             f"{probe['checkpoint_schema']}, but the checkpoint is {saved['format']} "
+                             f"schema {saved['schema']}")
+        if probe["walk_semantics_version"] != saved["walk_semantics_version"]:
+            raise ValueError(f"walk semantics version differs (checkpoint {saved['walk_semantics_version']}, "
+                             f"new executable {probe['walk_semantics_version']}); only a semantics-compatible "
+                             "binary may resume this campaign; start a new campaign instead")
+    return {"reason": reason, "frozen": {"sha256": frozen_hash, "path": str(frozen)},
             "new": {"sha256": new_hash, "source": str(source),
-                    "path": str((campaign / "bin" / ("rustred-" + new_hash)).resolve()), "probe": probe},
+                    "path": str((campaign / "bin" / ("rustred-" + new_hash)).resolve()), "probe": probe,
+                    "semantics_evidence": evidence},
             "checkpoint": saved, "walk_semantics_version": saved["walk_semantics_version"],
             "live_run_evidence": campaign_run_liveness(campaign)}
 
@@ -407,7 +439,7 @@ def upgraded_steering(policy, upgrade, replaced_unix_time):
     current = current.resolve()
     old, new = Path(upgrade["frozen"]["path"]), Path(upgrade["new"]["path"])
     note = {"replaced_sha256": upgrade["frozen"]["sha256"], "sha256": upgrade["new"]["sha256"],
-            "walk_semantics_version": upgrade["walk_semantics_version"], "reason": UPGRADE_REASON}
+            "walk_semantics_version": upgrade["walk_semantics_version"], "reason": upgrade["reason"]}
     history = policy.get("executable_upgrades", [])
     if not isinstance(history, list) or not all(isinstance(row, dict) for row in history):
         raise ValueError("frozen steering executable_upgrades must be a list of objects")
@@ -444,7 +476,9 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
         if checkpoint_identity(checkpoint)["walk_semantics_version"] != upgrade["walk_semantics_version"]:
             raise ValueError("checkpoint walk semantics version changed during the upgrade")
         previous = read_bounded_json(receipt_path, MAX_RECEIPT_BYTES, "executable receipt")
-        if previous.get("sha256") != upgrade["frozen"]["sha256"]:
+        if previous.get("sha256") != upgrade["frozen"]["sha256"] or (
+                upgrade["new"]["probe"] is None
+                and not history_vouches(previous, upgrade["new"]["sha256"], upgrade["walk_semantics_version"])):
             raise ValueError("frozen executable receipt changed during the upgrade")
         if str((directory / ("rustred-" + upgrade["new"]["sha256"])).resolve()) != upgrade["new"]["path"]:
             raise ValueError("campaign bin directory moved since validation")
@@ -453,7 +487,8 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
         if policy.get("schema") not in STEERING_SCHEMAS:
             raise ValueError("unknown frozen steering policy")
         upgraded = upgraded_steering(policy, upgrade, now)
-        target, new_hash = copy_executable(directory, source, expected=upgrade["new"]["sha256"], check=same_probe)
+        target, new_hash = copy_executable(directory, source, expected=upgrade["new"]["sha256"],
+                                           check=None if upgrade["new"]["probe"] is None else same_probe)
         if upgraded is not policy:
             write_json(steering_path, upgraded)
         steering_path.chmod(0o444)
@@ -461,10 +496,10 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
         # refused by a plain --resume and completed by rerunning the upgrade.
         replaced = {key: value for key, value in previous.items() if key != "history"}
         replaced.update(replaced_unix_time=now, walk_semantics_version=upgrade["walk_semantics_version"],
-                        reason=UPGRADE_REASON)
+                        reason=upgrade["reason"])
         write_json(receipt_path, {"sha256": new_hash, "file": target.name, "source": upgrade["new"]["source"],
                                   "walk_semantics_version": upgrade["walk_semantics_version"],
-                                  "history": [*previous.get("history", []), replaced]})
+                                  "history": [*receipt_history(previous), replaced]})
 
 
 def verify_inputs(directory):
@@ -717,7 +752,8 @@ def main(argv=None):
                              "--upgrade-executable onto a semantics-compatible replacement")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
                         help="only with --resume: freeze NEW in place of the frozen binary when its "
-                             "walk-semantics-version equals the checkpoint's; without --start a read-only dry run")
+                             "walk-semantics-version equals the checkpoint's, or return to a binary that "
+                             "bin/executable.json history lists; without --start a read-only dry run")
     parser.add_argument("--workers", type=int, help=f"initial default: at most 50 permitted CPUs (cap {MAX_WORKERS}); frozen for resume")
     parser.add_argument("--cpus", help="optional explicit affinity: comma list or ranges (128-177, 0-3,8); exactly --workers IDs")
     parser.add_argument("--run-directory", type=Path)
@@ -846,19 +882,24 @@ def main(argv=None):
         plan["executable_upgrade"] = dict(upgrade, applied=args.start)
     if not args.start:
         if upgrade is not None and not args.json:
-            print("Executable upgrade dry run; nothing was changed.")
+            new = upgrade["new"]
+            rollback = new["probe"] is None
+            print(f"Executable {'rollback' if rollback else 'upgrade'} dry run; nothing was changed.")
             print(f"  frozen: sha256 {upgrade['frozen']['sha256']}  {upgrade['frozen']['path']}")
-            print(f"  new:    sha256 {upgrade['new']['sha256']}  {upgrade['new']['source']}")
+            print(f"  new:    sha256 {new['sha256']}  {new['source']}")
             print(f"  walk semantics: checkpoint {upgrade['checkpoint']['walk_semantics_version']} "
                   f"(generation {upgrade['checkpoint']['generation']}, {upgrade['checkpoint']['kind']}), "
-                  f"new executable {upgrade['new']['probe']['walk_semantics_version']}")
+                  + (f"new executable {upgrade['walk_semantics_version']} from bin/executable.json history "
+                     "(rollback; no probe needed)" if rollback else
+                     f"new executable {new['probe']['walk_semantics_version']}"))
             for line in upgrade["live_run_evidence"]:
                 print(f"  refusal with --start while alive: {line}")
             print("  apply by rerunning with --start; it will launch:")
         print(json.dumps(plan, indent=2) if args.json else shlex.join(command))
         return 0
     if upgrade is not None and not args.json:
-        print(f"Executable upgraded to sha256 {executable_hash} (walk semantics "
+        action = "rolled back" if upgrade["reason"] == ROLLBACK_REASON else "upgraded"
+        print(f"Executable {action} to sha256 {executable_hash} (walk semantics "
               f"{upgrade['walk_semantics_version']}); resuming.", flush=True)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     sync_directory(campaign)

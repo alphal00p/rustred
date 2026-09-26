@@ -92,9 +92,18 @@ $ rustred walk-semantics-version
 
 A resume on a different executable digest is compatible only when all three
 values equal the saved manifest's `walk_semantics_version`, `format` and
-`schema`. Executables built before this probe exit 2 (unknown command); the
-production launcher's `--upgrade-executable` refuses them
-([driver guide](shared_owner_campaign_driver.md#resuming-onto-a-semantics-compatible-binary)).
+`schema`. That is necessary, not sufficient: the native resume also requires
+the manifest's request binding (inputs, limits including this executable's
+default limits, and the `Debug` form of the reduction-limit, publication and
+scheduling policies) to equal the new request's, and otherwise refuses with
+`checkpoint request or policy differs; refusing to restart` before touching
+the checkpoint. The probe does not report that binding, so a
+performance-only change to those defaults or types stops existing
+checkpoints from resuming even without a semantics bump. Executables built
+before this probe exit 2 (unknown command); the production launcher's
+`--upgrade-executable` refuses them unless the campaign's own executable
+history lists them (a rollback;
+[driver guide](shared_owner_campaign_driver.md#resuming-onto-a-semantics-compatible-binary)).
 
 ## Generic complete artifact generation
 
