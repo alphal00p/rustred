@@ -31,6 +31,13 @@ different worker count may be tried). Nothing here certifies family closure.
 
 Writes OUT/{baseline,paused,resumed}/{command.json,result.json,events.jsonl,
 stdout,stderr,audit.json} and OUT/report.json; refuses an existing OUT.
+
+`--baseline DIR` reuses the baseline phase of an earlier run of this
+harness (DIR = OLDOUT/baseline): its argv must equal this request apart from
+transport options, and OLDOUT/report.json must record a 0 exit and the
+SHA-256 of the binary under test. Anything else is refused unless
+`--allow-foreign-baseline` is given; the verdict then cannot PASS. The reused
+baseline's audit is written to OUT/baseline-audit.json, never into DIR.
 """
 from __future__ import annotations
 
@@ -52,6 +59,11 @@ PAUSED_EXIT = 4
 ENV_ONE = {"RAYON_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "OMP_THREAD_LIMIT": "1",
            "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "BLIS_NUM_THREADS": "1"}
 PHASES = ("baseline", "paused", "resumed")
+# Options that name where a phase writes, not what it computes (the CP5 store
+# binding excludes the checkpoint location, interval and resume mode too).
+TRANSPORT_OPTIONS = ("--output", "--events", "--stop-file", "--checkpoint", "--resume",
+                     "--checkpoint-interval-seconds")
+TRANSPORT_FLAGS = ("--no-progress",)
 
 
 def module(name):
@@ -117,6 +129,57 @@ def rewrite_command(argv, binary, run_directory, checkpoint, resume=False, worke
     if "--no-progress" not in argv:
         argv.append("--no-progress")
     return argv
+
+
+def request_argv(argv):
+    """The argv without its executable and transport options: what binds the request."""
+    kept, skip = [], False
+    for item in argv[1:]:
+        if skip:
+            skip = False
+        elif item in TRANSPORT_OPTIONS:
+            skip = True
+        elif item not in TRANSPORT_FLAGS:
+            kept.append(item)
+    return kept
+
+
+def baseline_provenance(directory, base, options, tested_sha256):
+    """What is known about a reused baseline directory, and every reason it cannot stand in.
+
+    The digest and exit status are taken only from the report this harness
+    wrote when it ran that baseline: hashing the recorded executable path now
+    could hash a binary rebuilt since.
+    """
+    directory = Path(directory)
+    recorded = read_json(directory / "command.json")
+    provenance = {"reused": str(directory), "command": recorded, "binary_sha256": None, "exit": None}
+    problems = []
+    if not (isinstance(recorded, list) and len(recorded) >= 2 and all(isinstance(item, str) for item in recorded)):
+        problems.append("baseline command.json is missing or not an argv list")
+    else:
+        try:
+            expected = rewrite_command(base, recorded[0], directory, directory / "checkpoint", **options)
+        except ValueError as error:
+            problems.append(f"baseline argv cannot be rebuilt: {error}")
+        else:
+            if request_argv(recorded) != request_argv(expected):
+                problems.append("baseline argv differs from this request")
+    parent = read_json(directory.parent / "report.json")
+    parent = parent if isinstance(parent, dict) else {}
+    phase = parent.get("phases", {}).get("baseline") if isinstance(parent.get("phases"), dict) else None
+    if (parent.get("schema") == SCHEMA and directory.name == "baseline" and isinstance(phase, dict)
+            and "reused" not in phase):
+        provenance["binary_sha256"] = parent.get("binary_sha256")
+        provenance["exit"] = phase.get("exit")
+    if provenance["binary_sha256"] is None:
+        problems.append("no binary digest was recorded when the baseline ran")
+    elif provenance["binary_sha256"] != tested_sha256:
+        problems.append("baseline binary differs from the binary under test")
+    if provenance["exit"] != 0:
+        problems.append("baseline exit status is not a recorded 0")
+    provenance["problems"] = problems
+    return provenance
 
 
 def journal(path, names):
@@ -229,8 +292,13 @@ def compare_counts(baseline_audit, resumed_audit, tolerance):
 def verdict(phases, pause, audits, counts):
     """Overall PASS only when every stage met its criterion; reasons otherwise."""
     reasons = []
-    if phases.get("baseline", {}).get("exit") != 0:
+    baseline = phases.get("baseline", {})
+    if baseline.get("problems"):
+        reasons.append("reused baseline unverified: " + "; ".join(baseline["problems"]))
+    elif baseline.get("exit") != 0:
         reasons.append("baseline did not exit 0")
+    if audits.get("baseline") is not None and audits["baseline"].get("publication_policy") != "ready":
+        reasons.append("baseline is not a Ready walk")
     paused_exit = phases.get("paused", {}).get("exit")
     if paused_exit == 0:
         reasons.append("trigger never fired: the paused run drained to exhaustion")
@@ -272,9 +340,10 @@ def read_json(path):
     return json.loads(path.read_text()) if path.is_file() else None
 
 
-def audit(directory):
+def audit(directory, output=None):
     report = AUDIT.audit_walk(directory)
-    (directory / "audit.json").write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    output = output or directory / "audit.json"
+    output.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
     return report
 
 
@@ -282,8 +351,8 @@ def summary(report):
     if report is None:
         return None
     return {key: report.get(key) for key in
-            ("audit", "native_inspections", "logical_records", "aliases", "events", "violations",
-             "result_sha256", "prepared_seconds", "traversal_seconds", "native_session_seconds")}
+            ("audit", "publication_policy", "native_inspections", "logical_records", "aliases", "events",
+             "violations", "result_sha256", "prepared_seconds", "traversal_seconds", "native_session_seconds")}
 
 
 def parse_replacement(text):
@@ -307,7 +376,9 @@ def main(argv=None) -> int:
                         help="OLD=NEW substring replacement in the argv (e.g. relocated inputs)")
     parser.add_argument("--tolerance", type=float, default=0.02, help="relative tolerance (default 0.02)")
     parser.add_argument("--baseline", type=Path,
-                        help="reuse an existing uninterrupted Ready run directory of the same argv")
+                        help="reuse OLDOUT/baseline of an earlier run of this harness (same argv and binary)")
+    parser.add_argument("--allow-foreign-baseline", action="store_true",
+                        help="run against a --baseline that fails those checks; the verdict cannot PASS")
     args = parser.parse_args(argv)
     cpus = SUPERVISOR.parse_cpu_set(args.cpus)
     if not cpus <= os.sched_getaffinity(0):
@@ -318,12 +389,21 @@ def main(argv=None) -> int:
         parser.error("tolerance must be in (0, 1)")
     if args.output.exists():
         parser.error(f"refusing to overwrite {args.output}")
+    if args.allow_foreign_baseline and args.baseline is None:
+        parser.error("--allow-foreign-baseline needs --baseline")
     base = json.loads(args.command.read_text())
-    out = args.output.resolve()
-    out.mkdir(parents=True)
     options = dict(workers=args.workers, lookahead=args.lookahead,
                    inspection_workers=args.inspection_workers, replacements=args.replace)
-    report = {"schema": SCHEMA, "binary": str(args.binary.resolve()), "binary_sha256": digest(args.binary),
+    binary_sha256 = digest(args.binary)
+    reused = None
+    if args.baseline is not None:
+        reused = baseline_provenance(args.baseline.resolve(), base, options, binary_sha256)
+        if reused["problems"] and not args.allow_foreign_baseline:
+            parser.error("refusing --baseline: " + "; ".join(reused["problems"])
+                         + " (--allow-foreign-baseline runs anyway, without a PASS verdict)")
+    out = args.output.resolve()
+    out.mkdir(parents=True)
+    report = {"schema": SCHEMA, "binary": str(args.binary.resolve()), "binary_sha256": binary_sha256,
               "command_source": str(args.command.resolve()), "cpus": SUPERVISOR.format_cpu_set(cpus),
               "tolerance": args.tolerance, "family_closure_claim": False, "phases": {},
               "scope": "fresh-process pause/resume of one Ready walk; audited local completion only"}
@@ -333,17 +413,19 @@ def main(argv=None) -> int:
     def save():
         (out / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
 
-    if args.baseline is not None:
-        baseline_dir = args.baseline.resolve()
-        phases["baseline"] = {"exit": 0 if (baseline_dir / "result.json").is_file() else None,
-                              "reused": str(baseline_dir)}
+    if reused is not None:
+        baseline_dir = Path(reused["reused"])
+        phases["baseline"] = reused
+        save()
+        if (baseline_dir / "result.json").is_file():
+            audits["baseline"] = audit(baseline_dir, out / "baseline-audit.json")
     else:
         baseline_dir = out / "baseline"
         command = rewrite_command(base, args.binary.resolve(), baseline_dir, baseline_dir / "checkpoint", **options)
         phases["baseline"] = run_phase(command, baseline_dir, cpus, pause=False)
         save()
-    if phases["baseline"]["exit"] == 0:
-        audits["baseline"] = audit(baseline_dir)
+        if phases["baseline"]["exit"] == 0:
+            audits["baseline"] = audit(baseline_dir)
     paused_dir, resumed_dir = out / "paused", out / "resumed"
     checkpoint = paused_dir / "checkpoint"
     command = rewrite_command(base, args.binary.resolve(), paused_dir, checkpoint, **options)

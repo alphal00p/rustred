@@ -263,8 +263,10 @@ campaign or claims closure.
   accepted prefixes and a published hole) and as a `--resume` of that
   checkpoint in a new process. PASS needs the pause evidence (receipt,
   manifest label, journaled trigger), both audits and native inspections and
-  events within 2% of the baseline. The campaign supervisor never passes the
-  variable on.
+  events within 2% of the baseline. `--baseline OLDOUT/baseline` reuses an
+  earlier run's baseline only when its argv matches apart from transport
+  options and `OLDOUT/report.json` records a 0 exit under the same binary
+  SHA-256. The campaign supervisor never passes the variable on.
 - [`compare_walk_records.py`](compare_walk_records.py) compares two reports:
   `--mode strict` (Ordered, old vs new binary) demands identical record
   geometry, native/guard/dependency counters and outcomes apart from timing,

@@ -1,6 +1,9 @@
 """Pure logic of the fresh-process Ready resume gate; no native process is started."""
+import contextlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -135,7 +138,8 @@ class VerdictTests(unittest.TestCase):
     def passing(self):
         phases = {"baseline": {"exit": 0}, "paused": {"exit": 4}, "resumed": {"exit": 0}}
         pause = GATE.pause_evidence(receipt(), manifest(), [trigger()])
-        audits = {"baseline": {"audit": "PASS"}, "resumed": {"audit": "PASS"}}
+        audits = {"baseline": {"audit": "PASS", "publication_policy": "ready"},
+                  "resumed": {"audit": "PASS", "publication_policy": "ready"}}
         counts = {"passed": True, "tolerance": 0.02}
         return phases, pause, audits, counts
 
@@ -152,7 +156,8 @@ class VerdictTests(unittest.TestCase):
 
     def test_drained_before_trigger_is_an_explicit_failure(self):
         phases = {"baseline": {"exit": 0}, "paused": {"exit": 0}}
-        verdict, reasons = GATE.verdict(phases, None, {"baseline": {"audit": "PASS"}, "resumed": None}, None)
+        audits = {"baseline": {"audit": "PASS", "publication_policy": "ready"}, "resumed": None}
+        verdict, reasons = GATE.verdict(phases, None, audits, None)
         self.assertEqual(verdict, "FAIL")
         self.assertEqual(reasons, ["trigger never fired: the paused run drained to exhaustion"])
 
@@ -162,6 +167,94 @@ class VerdictTests(unittest.TestCase):
         verdict, reasons = GATE.verdict(phases, pause, audits, None)
         self.assertEqual(verdict, "FAIL")
         self.assertIn("resumed run was not audited", reasons)
+
+    def test_unverified_or_ordered_baseline_fails(self):
+        phases, pause, audits, counts = self.passing()
+        phases["baseline"] = {"reused": "/x/baseline", "exit": None, "problems": ["baseline argv differs"]}
+        verdict, reasons = GATE.verdict(phases, pause, audits, counts)
+        self.assertEqual((verdict, reasons), ("FAIL", ["reused baseline unverified: baseline argv differs"]))
+        phases, pause, audits, counts = self.passing()
+        phases["baseline"] = {"reused": "/x/baseline", "exit": 0, "problems": []}
+        self.assertEqual(GATE.verdict(phases, pause, audits, counts), ("PASS", []))
+        audits["baseline"]["publication_policy"] = "ordered"
+        self.assertEqual(GATE.verdict(phases, pause, audits, counts), ("FAIL", ["baseline is not a Ready walk"]))
+
+
+class BaselineProvenanceTests(unittest.TestCase):
+    """A reused baseline stands in only for the same request run by the same binary."""
+
+    SHA = "ab" * 32
+
+    def earlier_run(self, root, argv=CONTROL, report=True, sha=SHA, exit_status=0, reused=False, **options):
+        baseline = root / "earlier" / "baseline"
+        baseline.mkdir(parents=True)
+        command = GATE.rewrite_command(argv, "/old/bin/rustred", baseline, baseline / "checkpoint", **options)
+        (baseline / "command.json").write_text(json.dumps(command))
+        if report:
+            phase = {"exit": exit_status}
+            if reused:
+                phase["reused"] = "/elsewhere/baseline"
+            (root / "earlier" / "report.json").write_text(json.dumps(
+                {"schema": GATE.SCHEMA, "binary_sha256": sha, "phases": {"baseline": phase}}))
+        return baseline
+
+    def provenance(self, baseline, **options):
+        return GATE.baseline_provenance(baseline, CONTROL, dict(dict(workers=None, lookahead=None,
+                                        inspection_workers=None, replacements=()), **options), self.SHA)
+
+    def test_harness_baseline_of_the_same_request_and_binary_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            baseline = self.earlier_run(Path(temporary), workers=12)
+            provenance = self.provenance(baseline, workers=12)
+            self.assertEqual(provenance["problems"], [])
+            self.assertEqual((provenance["binary_sha256"], provenance["exit"]), (self.SHA, 0))
+            self.assertEqual(provenance["command"][0], "/old/bin/rustred")
+
+    def test_each_mismatch_is_named(self):
+        cases = {
+            "baseline argv differs from this request": (dict(workers=12), dict(workers=6)),
+            "no binary digest was recorded when the baseline ran": (dict(report=False), {}),
+            "baseline binary differs from the binary under test": (dict(sha="cd" * 32), {}),
+            "baseline exit status is not a recorded 0": (dict(exit_status=1), {}),
+        }
+        for problem, (earlier, options) in cases.items():
+            with self.subTest(problem=problem), tempfile.TemporaryDirectory() as temporary:
+                baseline = self.earlier_run(Path(temporary), **earlier)
+                self.assertIn(problem, self.provenance(baseline, **options)["problems"])
+        with tempfile.TemporaryDirectory() as temporary:
+            # A baseline that was itself reused carries no run-time digest.
+            baseline = self.earlier_run(Path(temporary), reused=True)
+            self.assertIn("no binary digest was recorded when the baseline ran",
+                          self.provenance(baseline)["problems"])
+            (baseline / "command.json").unlink()
+            self.assertIn("baseline command.json is missing or not an argv list",
+                          self.provenance(baseline)["problems"])
+
+    def test_transport_options_do_not_bind_the_request(self):
+        moved = GATE.rewrite_command(CONTROL, "/b", Path("/elsewhere"), Path("/elsewhere/c"), resume=True)
+        here = GATE.rewrite_command(CONTROL, "/a", Path("/here"), Path("/here/c"))
+        self.assertEqual(GATE.request_argv(moved), GATE.request_argv(here))
+        self.assertNotEqual(GATE.request_argv(here),
+                            GATE.request_argv(GATE.rewrite_command(CONTROL, "/a", Path("/here"), Path("/here/c"),
+                                                                   lookahead=16)))
+
+    def test_main_refuses_a_foreign_baseline_before_running_anything(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = self.earlier_run(root, sha="cd" * 32)
+            binary = root / "rustred"
+            binary.write_text("#!/bin/sh\nexit 99\n")
+            binary.chmod(0o755)
+            command = root / "command.json"
+            command.write_text(json.dumps(CONTROL))
+            out = root / "out"
+            arguments = ["--command", str(command), "--binary", str(binary), "--output", str(out),
+                         "--cpus", str(min(os.sched_getaffinity(0))), "--baseline", str(baseline)]
+            stderr = io.StringIO()
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(stderr):
+                GATE.main(arguments)
+            self.assertIn("baseline binary differs from the binary under test", stderr.getvalue())
+            self.assertFalse(out.exists())
 
 
 class JournalTests(unittest.TestCase):
