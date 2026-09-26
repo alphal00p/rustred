@@ -113,13 +113,20 @@ pub(super) fn restore<const N: usize>(
     )?)?;
     let nodes = plain(Section::Nodes)?;
     let flags = sections::read_nodes(&read_section(dir, &nodes.file, nodes.bytes)?, &identity)?;
-    let mut edges = Vec::new();
-    for segment in &s
+    let edge_sections = s
         .edges
         .as_ref()
-        .ok_or("state manifest is missing the edges section")?
-        .segments
-    {
+        .ok_or("state manifest is missing the edges section")?;
+    // One exact allocation: the manifest's segments tile [0, total), so the
+    // per-segment reserves below never grow it (amortized growth could leave
+    // up to twice the pairs reserved while the CSR is built next to them).
+    let mut edges = Vec::new();
+    edges
+        .try_reserve_exact(
+            usize::try_from(edge_sections.total).map_err(|_| "checkpoint segment range")?,
+        )
+        .map_err(|_| "dependency edge allocation")?;
+    for segment in &edge_sections.segments {
         let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
         let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
         sections::read_edges(
