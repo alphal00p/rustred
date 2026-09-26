@@ -601,7 +601,7 @@ fn run<const N: usize>(
                         &state,
                         &inputs,
                         &input_frontiers,
-                        true,
+                        checkpoint::SaveKind::Forced,
                         cancellation,
                         observer,
                     )
@@ -621,7 +621,7 @@ fn run<const N: usize>(
                         state,
                         &inputs,
                         &input_frontiers,
-                        false,
+                        checkpoint::SaveKind::Periodic,
                         cancellation,
                         observer,
                     )? {
@@ -636,7 +636,7 @@ fn run<const N: usize>(
                         &state,
                         &inputs,
                         &input_frontiers,
-                        true,
+                        checkpoint::SaveKind::Final,
                         cancellation,
                         observer,
                     )

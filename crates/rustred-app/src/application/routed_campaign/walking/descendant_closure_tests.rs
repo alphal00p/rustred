@@ -1,5 +1,6 @@
 //! Independent small-graph reference checks for observational coverage only.
 use super::super::checkpoint::{
+    SaveKind,
     manifest::Section,
     test_support::{Fixture, OWNER},
 };
@@ -474,7 +475,14 @@ fn cancelled_pre_save_refresh_persists_a_stale_but_valid_snapshot() {
     let mut store = fixture.open(true).unwrap();
     store.bind_owners(vec![OWNER.into()]).unwrap();
     let saved = store
-        .save_cancellable(&state, &[], &[], true, &AtomicBool::new(true), &|_| {})
+        .save_cancellable(
+            &state,
+            &[],
+            &[],
+            SaveKind::Forced,
+            &AtomicBool::new(true),
+            &|_| {},
+        )
         .unwrap()
         .unwrap();
     assert_eq!(saved["checkpoint"]["generation"], 3);
@@ -483,4 +491,51 @@ fn cancelled_pre_save_refresh_persists_a_stale_but_valid_snapshot() {
     assert_eq!(restored["available"], true, "the monitor was not disabled");
     assert_eq!(restored["snapshot_stale"], true);
     assert_eq!(restored["dependency_edges"], 2);
+}
+
+#[test]
+fn final_and_cancelled_saves_persist_the_log_without_folding_it() {
+    let state = point_state(40);
+    let add = |source: usize, targets: std::ops::Range<usize>| {
+        for target in targets {
+            state.closure.borrow_mut().edge(source, target);
+        }
+    };
+    add(0, 1..40);
+    let fixture = Fixture::save(&state);
+    let layout = || {
+        let closure = state.closure.borrow();
+        (closure.folded_edge_count(), closure.edges.log_len())
+    };
+    assert_eq!(layout(), (39, 0));
+    let save = |kind: SaveKind, cancelled: bool| {
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        store
+            .save_cancellable(&state, &[], &[], kind, &AtomicBool::new(cancelled), &|_| {})
+            .unwrap()
+            .unwrap();
+    };
+    add(1, 2..6); // A log of 4 > 39 / 16 would fold after a continuing save.
+    save(SaveKind::Final, false);
+    assert_eq!(layout(), (39, 4), "the final save persists without folding");
+    add(1, 6..7);
+    save(SaveKind::Forced, true);
+    assert_eq!(
+        layout(),
+        (39, 5),
+        "nor does a save while the run is cancelled"
+    );
+    let edges = &fixture.manifest()["sections"]["edges"];
+    assert_eq!(edges["total"], 44);
+    assert_eq!(edges["segments"].as_array().unwrap().len(), 3);
+    let sorted = |state: &State<1>| {
+        let mut edges: Vec<_> = state.closure.borrow().dependencies().collect();
+        edges.sort_unstable();
+        edges
+    };
+    assert_eq!(sorted(&fixture.resume::<1>().unwrap()), sorted(&state));
+    add(1, 7..8);
+    save(SaveKind::Forced, false);
+    assert_eq!(layout(), (45, 0), "a save the walk continues after folds");
 }
