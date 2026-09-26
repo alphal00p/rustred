@@ -144,41 +144,145 @@ fn records_sidecar_seals_per_generation_and_ignores_unreferenced_tail() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+/// A sidecar whose directory is a regular file: creating its first segment
+/// fails with ENOTDIR, which no privilege bypasses.
+fn blocked_sidecar(dir: &Path) -> Sidecar {
+    let blocker = dir.join("blocker");
+    File::create(&blocker).unwrap();
+    Sidecar::new(blocker, 2)
+}
+/// The failed prefix is never checkpointed.
+fn assert_save_refused(state: &State<1>) {
+    let fixture = Fixture::save(&State::<1>::new(Queue::new(8, None), 0, None));
+    let mut store = fixture.open(true).unwrap();
+    store.bind_owners(vec![OWNER.into()]).unwrap();
+    let error = store.save(state, &[], &[], true, &|_| {}).unwrap_err();
+    assert!(error.contains("failed publication prefix"), "{error}");
+}
+
 #[test]
 fn sidecar_write_failure_sets_publisher_error_not_a_fake_record() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = test_directory();
     let mut queue = Queue::<1>::new(8, None);
     queue.admit(domain(0, Some(0))).unwrap();
     let mut state = State::new(queue, 0, None);
-    *state.records.get_mut() = RecordSink::Sidecar(Sidecar::new(dir.clone(), 2));
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
-    if File::create(dir.join("probe")).is_ok() {
-        eprintln!("record sidecar failure test skipped: directory permissions not enforced");
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::remove_dir_all(dir).unwrap();
-        return;
-    }
+    *state.records.get_mut() = RecordSink::Sidecar(blocked_sidecar(&dir));
     state.commit(0, finished());
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
     let error = state.error.clone().unwrap();
     assert!(
         error.contains("cannot create record sidecar segment"),
         "{error}"
     );
     assert_eq!(state.records.borrow().total(), 0); // No placeholder record.
-    // The sidecar stays failed even once the directory is writable again.
+    // The sidecar stays failed even once its directory is usable: the error
+    // is the stored one, and no segment is created.
+    fs::remove_file(dir.join("blocker")).unwrap();
+    fs::create_dir(dir.join("blocker")).unwrap();
     assert_eq!(state.records.get_mut().push(record(1)).unwrap_err(), error);
-    // And a failed prefix is never checkpointed.
-    let fixture = Fixture::save(&State::<1>::new(Queue::new(8, None), 0, None));
-    let mut store = fixture.open(true).unwrap();
-    store.bind_owners(vec![OWNER.into()]).unwrap();
     assert!(
-        store
-            .save(&state, &[], &[], true, &|_| {})
-            .unwrap_err()
-            .contains("failed publication prefix")
+        !dir.join("blocker")
+            .join(Section::Records.file_name(2))
+            .exists()
     );
+    assert_save_refused(&state);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn sidecar_write_failure_after_a_record_keeps_the_written_prefix() {
+    let dir = test_directory();
+    let mut sidecar = Sidecar::new(dir.clone(), 2);
+    sidecar.push(&record(0)).unwrap();
+    // A read-only handle in place of the segment's writer: the next write
+    // fails with EBADF, which no privilege bypasses.
+    let read_only = File::open(dir.join(Section::Records.file_name(2))).unwrap();
+    sidecar.open.as_mut().unwrap().writer = HashingWriter::new(read_only);
+    let error = sidecar.push(&record(1)).unwrap_err();
+    assert!(error.contains("record sidecar write failed"), "{error}");
+    assert_eq!(sidecar.total(), 1);
+    assert_eq!(read_all(&sidecar.files()), vec![record(0)]);
+    assert_eq!(sidecar.seal(2, 3).unwrap_err(), error);
+    assert_eq!(sidecar.push(&record(2)).unwrap_err(), error);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn failed_seal_keeps_the_open_tail_readable_for_the_failed_report() {
+    let dir = test_directory();
+    let mut sidecar = Sidecar::new(dir.clone(), 2);
+    for id in 0..3 {
+        sidecar.push(&record(id)).unwrap();
+    }
+    sidecar.seal(2, 3).unwrap().unwrap();
+    for id in 3..5 {
+        sidecar.push(&record(id)).unwrap();
+    }
+    // The segment's fsync succeeds, the directory sync cannot open the moved
+    // directory (ENOENT, which no privilege bypasses).
+    let moved = dir.with_extension("moved");
+    fs::rename(&dir, &moved).unwrap();
+    let error = sidecar.seal(3, 4).unwrap_err();
+    fs::rename(&moved, &dir).unwrap();
+    assert!(
+        error.contains("cannot sync checkpoint directory"),
+        "{error}"
+    );
+    // Sealed segment 2 plus the unsealed tail: every committed record, in
+    // order, for the failed run's result.json.
+    assert_eq!(sidecar.total(), 5);
+    assert_eq!(sidecar.closed().len(), 1);
+    assert_eq!(sidecar.generation(), 3);
+    assert_eq!(sidecar.seal(3, 4).unwrap_err(), error);
+    let streamed = Streamed::new(sidecar, Annotations::default());
+    assert_eq!(streamed.total(), 5);
+    let ids: Vec<_> = streamed
+        .collect()
+        .unwrap()
+        .iter()
+        .map(|record| record["id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, [0, 1, 2, 3, 4]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn delegated_record_write_failure_keeps_the_cursor_with_the_ledger() {
+    let dir = test_directory();
+    let mut queue = Queue::with_policy(
+        100,
+        None,
+        SchedulingPolicy::TransferUnreserved {
+            lookahead: NonZeroUsize::new(1).unwrap(),
+        },
+    )
+    .unwrap();
+    queue.admit(domain(2, Some(2))).unwrap();
+    queue.admit(domain(3, Some(3))).unwrap();
+    queue.admit(domain(0, None)).unwrap();
+    let mut state = State::new(queue, 0, None);
+    state.note_native_started(0).unwrap();
+    state.commit(0, finished());
+    *state.records.get_mut() = RecordSink::Sidecar(blocked_sidecar(&dir));
+    let error = state.commit_delegated().unwrap_err();
+    assert!(
+        error.contains("cannot create record sidecar segment"),
+        "{error}"
+    );
+    // The alias is published in the ledger, its record is not written, and
+    // the publisher's cursor follows the ledger.
+    assert_eq!(state.records.borrow().total(), 0);
+    let ledger = state.queue.delegation.as_ref().unwrap();
+    assert_eq!(ledger.published_count(), 2);
+    assert_eq!(state.queue.next, ledger.cursor());
+    // As the callers do: the write error is the run's error, and the final
+    // resolution reports no secondary cursor mismatch.
+    state.error = Some(error.clone());
+    assert_ne!(
+        state.finalize_delegation().0.unwrap()["error"],
+        "delegation final cursor mismatch"
+    );
+    assert_eq!(state.error.as_deref(), Some(error.as_str()));
+    assert_save_refused(&state);
     fs::remove_dir_all(dir).unwrap();
 }
 

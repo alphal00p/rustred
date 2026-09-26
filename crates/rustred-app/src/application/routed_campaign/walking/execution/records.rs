@@ -32,7 +32,10 @@ pub(in super::super) enum RecordSink {
 }
 
 impl RecordSink {
-    /// Allocation that cannot be undone after a publication is checked first.
+    /// Checked before a publication that cannot be undone. Memory reserves
+    /// the slot, so the push that follows cannot fail; a sidecar only checks
+    /// its health, and its write can still fail after the publication: the
+    /// caller then fails the run, and a failed prefix is never checkpointed.
     pub fn reserve_one(&mut self) -> Result<(), String> {
         match self {
             Self::Memory(records) => records
@@ -116,22 +119,20 @@ struct Open {
 
 impl Open {
     /// fsync, digest of the bytes as written, then the directory entry: the
-    /// segment is durable before any manifest can reference it.
-    fn seal(self, directory: &Path, generation: u64, first: usize) -> Result<Segment, String> {
+    /// segment is durable before any manifest can reference it. Borrowed, so
+    /// that a failed seal leaves the tail readable (see `Sidecar::seal`).
+    fn seal(&self, directory: &Path, generation: u64, first: usize) -> Result<Segment, String> {
         self.writer
             .get_ref()
             .sync_all()
             .map_err(|e| format!("cannot sync record segment {}: {e}", self.file))?;
-        let (bytes, blake3) = self
-            .writer
-            .finish()
-            .map_err(|e| format!("cannot finish record segment {}: {e}", self.file))?;
+        let (bytes, blake3) = self.writer.digest();
         File::open(directory)
             .and_then(|directory| directory.sync_all())
             .map_err(|e| format!("cannot sync checkpoint directory: {e}"))?;
         Ok(Segment {
             generation,
-            file: self.file,
+            file: self.file.clone(),
             first: first as u64,
             count: self.count as u64,
             bytes,
@@ -223,14 +224,18 @@ impl Sidecar {
         if generation != self.generation || next <= generation {
             return Err("record sidecar generation disagrees with the checkpoint save".into());
         }
-        let segment = match self.open.take() {
+        let segment = match &self.open {
             None => None,
             Some(open) => match open.seal(&self.directory, generation, self.sealed) {
                 Ok(segment) => Some(segment),
+                // The tail stays open: `files()` still reads every committed
+                // record for the failed run's report, and the failed flag
+                // keeps it out of every manifest.
                 Err(e) => return Err(self.fail(e)),
             },
         };
         if let Some(segment) = &segment {
+            self.open = None;
             self.sealed += segment.count as usize;
             self.closed.push(segment.clone());
         }

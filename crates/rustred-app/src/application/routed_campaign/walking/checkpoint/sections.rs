@@ -158,6 +158,11 @@ impl<W: Write> HashingWriter<W> {
     pub fn get_ref(&self) -> &W {
         &self.inner
     }
+    /// Length and digest of the bytes the inner writer accepted so far; for
+    /// an unbuffered inner writer these are the bytes in the file.
+    pub fn digest(&self) -> (u64, String) {
+        (self.bytes, self.hasher.finalize().to_hex().to_string())
+    }
     pub fn finish(mut self) -> io::Result<(u64, String)> {
         self.inner.flush()?;
         Ok((self.bytes, self.hasher.finalize().to_hex().to_string()))

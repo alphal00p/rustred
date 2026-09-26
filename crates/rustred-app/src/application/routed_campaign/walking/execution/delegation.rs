@@ -69,12 +69,16 @@ impl<const N: usize> State<N> {
             closure.edge(id, to);
             closure.finish(id, false, true);
         }
-        self.records.get_mut().push(record)?;
+        // The ledger and the closure already hold the publication: the cursor
+        // follows them even when the record write fails (as for a native
+        // commit), so the failed run reports the write error, not a cursor
+        // mismatch.
+        let pushed = self.records.get_mut().push(record);
         self.queue.next = ledger.cursor();
         if ready {
             self.streams.initial_published += usize::from(id < self.initial_domain_count);
         }
-        Ok(())
+        pushed
     }
 
     pub(in super::super) fn add_delegation_progress(&self, out: &mut Value) {
