@@ -243,5 +243,13 @@ fn orphan_child_retains_campaign_lock_until_exit() {
     children.0[0].stop().unwrap();
     children.0[0].child.wait().unwrap();
     children.0.clear();
-    checkpoint::acquire_lock(&fixture.0).unwrap();
+    // A sibling test that forked while this process still held the lock
+    // keeps a close-on-exec copy until its own exec, and its pre_exec pins it
+    // to the CPU the fake children share, so that exec can lag this child's
+    // exit. Such copies are transient; a lock the orphan leaked would not be.
+    let started = Instant::now();
+    while let Err(error) = checkpoint::acquire_lock(&fixture.0) {
+        assert!(started.elapsed() < Duration::from_secs(10), "{error:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
