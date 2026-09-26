@@ -418,7 +418,16 @@ fn prepared_retirement_matches_serial_retire_set_layout_and_transfers() {
             );
             assert!(prepared.session.prepared_retirements_applied > 0);
             assert_eq!(prepared.session.prepared_retire_fallbacks, 0);
+            // The second-owner proposals are 16 positions apart: only the
+            // 64-record batches prepare one before an in-batch commit has
+            // created its bucket, and that empty set is counted as trivial.
+            if batch_size == 64 {
+                assert!(prepared.session.prepared_retirements_trivial > 0);
+            } else {
+                assert_eq!(prepared.session.prepared_retirements_trivial, 0);
+            }
             assert_eq!(serial.session.prepared_retirements_applied, 0);
+            assert_eq!(serial.session.prepared_retirements_trivial, 0);
             assert!(serial.containment_retired_candidates > 10);
             if policy != 0 {
                 let (transfers, summary) = ledger_summary(&serial).unwrap();
@@ -470,6 +479,52 @@ fn prepared_retirement_scans_in_batch_admissions_above_the_watermark() {
         box_domain([3, 3], [4, 4]),
         request,
     ] {
+        serial.admit(item).unwrap();
+    }
+    same_state(&serial, &queue);
+    assert_eq!(serial.containment_checks, queue.containment_checks);
+}
+
+#[test]
+fn empty_prepared_set_from_an_absent_bucket_counts_as_trivial_not_applied() {
+    let mut queue = Queue::new(20, None);
+    queue.admit(box_domain([0, 0], [2, 3])).unwrap(); // owner [true, false]
+    let mut first = box_domain([10, 0], [12, 3]);
+    first.owner = [false, true];
+    let mut second = box_domain([20, 0], [22, 3]);
+    second.owner = [false, true];
+    let tokens = parallel_prepare(&queue, &[first.clone(), second.clone()], 1);
+    for token in &tokens {
+        assert_eq!(token.prepared_retire_len(), Some(0), "bucket absent");
+        assert_eq!(token.speculative_work().reverse_checks, 0);
+    }
+    let [one, two] = <[_; 2]>::try_from(tokens).ok().unwrap();
+    // A brand-new bucket has nothing to retire and counts nothing.
+    assert_eq!(queue.admit_prepared(one), Ok((1, true)));
+    let session = queue.session;
+    assert_eq!(
+        (
+            session.prepared_retirements_applied,
+            session.prepared_retirements_trivial,
+            session.prepared_retire_fallbacks
+        ),
+        (0, 0, 0)
+    );
+    // The bucket now exists: the empty snapshot set is applied but decided
+    // nothing, so it counts as trivial and the in-batch ID is compared here.
+    assert_eq!(queue.admit_prepared(two), Ok((2, true)));
+    let session = queue.session;
+    assert_eq!(
+        (
+            session.prepared_retirements_applied,
+            session.prepared_retirements_trivial,
+            session.prepared_retire_fallbacks
+        ),
+        (0, 1, 0)
+    );
+    assert_eq!(session.reverse_callbacks, 1);
+    let mut serial = Queue::new(20, None);
+    for item in [box_domain([0, 0], [2, 3]), first, second] {
         serial.admit(item).unwrap();
     }
     same_state(&serial, &queue);

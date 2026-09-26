@@ -323,7 +323,7 @@ impl<const N: usize> Queue<N> {
         let key = (domain.phase, domain.owner);
         // Helper-prepared reverse retirement set with its snapshot watermark;
         // only a revalidated prepared miss can supply one.
-        let mut prepared_retire: Option<(Vec<usize>, usize)> = None;
+        let mut prepared_retire: Option<(Vec<usize>, usize, bool)> = None;
         if let Some(bucket) = self.by_owner.get(&key) {
             if let Some(id) = bucket.orthant
                 && rank_contains(self.domains[id].rank, domain.rank)
@@ -346,8 +346,9 @@ impl<const N: usize> Queue<N> {
                 }) {
                     self.containment_checks += revalidated.checks; // checked by revalidate
                     if revalidated.found.is_none() {
-                        prepared_retire =
-                            revalidated.retire.map(|set| (set, revalidated.first_new));
+                        prepared_retire = revalidated
+                            .retire
+                            .map(|set| (set, revalidated.first_new, revalidated.retire_trivial));
                     }
                     revalidated.found
                 } else {
@@ -510,12 +511,21 @@ impl<const N: usize> Queue<N> {
             let word = word.expect("unlimited lane word");
             // A brand-new bucket has nothing to retire on either path.
             if prepared.is_some() && !fresh_bucket {
-                if prepared_retire.is_some() {
-                    self.session.prepared_retirements_applied =
-                        self.session.prepared_retirements_applied.saturating_add(1);
-                } else {
-                    self.session.prepared_retire_fallbacks =
-                        self.session.prepared_retire_fallbacks.saturating_add(1);
+                match &prepared_retire {
+                    // An empty set from an absent snapshot bucket decides
+                    // nothing: every ID below is new and compared here.
+                    Some((_, _, true)) => {
+                        self.session.prepared_retirements_trivial =
+                            self.session.prepared_retirements_trivial.saturating_add(1);
+                    }
+                    Some(_) => {
+                        self.session.prepared_retirements_applied =
+                            self.session.prepared_retirements_applied.saturating_add(1);
+                    }
+                    None => {
+                        self.session.prepared_retire_fallbacks =
+                            self.session.prepared_retire_fallbacks.saturating_add(1);
+                    }
                 }
             }
             let summaries = &self.summaries;
@@ -541,7 +551,7 @@ impl<const N: usize> Queue<N> {
                 }
             };
             match prepared_retire.take() {
-                Some((set, first_new)) => bucket.indexed.retire_prepared(
+                Some((set, first_new, _)) => bucket.indexed.retire_prepared(
                     insertion,
                     coordinates,
                     &set,
