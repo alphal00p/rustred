@@ -174,6 +174,7 @@ fn shuffled(order: usize) -> Vec<Domain<2>> {
 
 #[test]
 fn prefilter_toggle_preserves_results_and_persisted_counters_on_proposal_streams() {
+    let mut rejections = SessionCounters::default();
     for (order, workers, batch_size) in [(0, 1, 1), (1, 3, 17), (2, 6, 256)] {
         let stream = shuffled(order);
         let mut filtered = Queue::new(stream.len(), None);
@@ -210,8 +211,11 @@ fn prefilter_toggle_preserves_results_and_persisted_counters_on_proposal_streams
         );
         assert_eq!(serial_unfiltered.session.forward_bit_rejections, 0);
         assert_eq!(serial_unfiltered.session.reverse_bit_rejections, 0);
-        assert!(serial.session.forward_bit_rejections > 0);
-        assert!(serial.session.reverse_bit_rejections > 0);
+        // Whether the tier rejects anything beyond the group/block filters is
+        // order dependent (wide domains first leave only immediate hits), so
+        // only the totals over all orders must show both tiers firing.
+        rejections.forward_bit_rejections += serial.session.forward_bit_rejections;
+        rejections.reverse_bit_rejections += serial.session.reverse_bit_rejections;
         assert_eq!(
             filtered.session.forward_callbacks,
             unfiltered.session.forward_callbacks
@@ -234,6 +238,8 @@ fn prefilter_toggle_preserves_results_and_persisted_counters_on_proposal_streams
             serial.session, filtered.session
         );
     }
+    assert!(rejections.forward_bit_rejections > 0);
+    assert!(rejections.reverse_bit_rejections > 0);
 }
 
 #[test]
