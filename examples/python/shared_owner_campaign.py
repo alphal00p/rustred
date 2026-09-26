@@ -38,6 +38,13 @@ _MONITOR_SPEC = importlib.util.spec_from_file_location(
     "campaign_monitor", Path(__file__).with_name("campaign_monitor.py"))
 MONITOR = importlib.util.module_from_spec(_MONITOR_SPEC)
 _MONITOR_SPEC.loader.exec_module(MONITOR)
+_HEARTBEAT_SPEC = importlib.util.spec_from_file_location(
+    "heartbeat_metrics", Path(__file__).with_name("heartbeat_metrics.py"))
+HEARTBEAT = importlib.util.module_from_spec(_HEARTBEAT_SPEC)
+_HEARTBEAT_SPEC.loader.exec_module(HEARTBEAT)
+# Aggregate outer compute workers admitted by the Python drivers; the native
+# CLI has its own cap, and the permitted CPU affinity always bounds this.
+MAX_WORKERS = 256
 SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
@@ -76,6 +83,34 @@ def positive(text: str) -> int:
     if value <= 0:
         raise argparse.ArgumentTypeError("must be positive")
     return value
+
+
+def parse_cpu_set(text: str) -> set[int]:
+    """CPU IDs from a taskset-style list: "128-177", "0-3,8", "1,2,3"; no duplicates."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("CPU set must be a nonempty comma-separated list of IDs or ID ranges")
+    cpus = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part.isascii():
+            raise ValueError(f"invalid CPU specification: {part!r}")
+        lower, separator, upper = part.partition("-")
+        lower = lower.strip()
+        upper = upper.strip() if separator else lower
+        if not lower.isdecimal() or not upper.isdecimal():
+            raise ValueError(f"invalid CPU specification: {part!r}")
+        first, last = int(lower), int(upper)
+        if last < first:
+            raise ValueError(f"reversed CPU range: {part!r}")
+        for cpu in range(first, last + 1):
+            if cpu in cpus:
+                raise ValueError(f"duplicate CPU ID: {cpu}")
+            cpus.add(cpu)
+    return cpus
+
+
+def format_cpu_set(cpus) -> str:
+    return ",".join(map(str, sorted(cpus)))
 
 
 def nonnegative(text: str) -> int:
@@ -312,7 +347,7 @@ def main() -> int:
     parser.add_argument("--expansion-limits", type=Path,
                         help="optional per-call native expansion JSON policy; parsed by Rust")
     parser.add_argument("--workers", type=positive, default=min(50, len(os.sched_getaffinity(0))))
-    parser.add_argument("--cpus", help="comma-separated permitted CPU IDs; at most --workers")
+    parser.add_argument("--cpus", help="permitted CPU IDs as a comma list or ranges (128-177, 0-3,8); exactly --workers IDs")
     parser.add_argument("--registered-pid", type=positive, action="append", default=[])
     parser.add_argument("--other-workers", type=int, default=0,
                         help="all other concurrent compute workers, including builds")
@@ -399,8 +434,11 @@ def main() -> int:
     DOMAIN.validate_publication_policy(parser, args.publication_policy, args.transfer_unreserved_lookahead,
                                        args.checkpoint is not None or args.resume is not None,
                                        args.apply_subdivision_axis is not None)
-    if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
-        parser.error("aggregate configured compute workers must be between 1 and 50")
+    affinity = os.sched_getaffinity(0)
+    worker_cap = min(MAX_WORKERS, len(affinity))
+    if not 1 <= args.workers <= MAX_WORKERS or args.other_workers < 0 or args.workers + args.other_workers > worker_cap:
+        parser.error(f"aggregate configured compute workers must be between 1 and {MAX_WORKERS}"
+                     f" and within the {len(affinity)} permitted CPUs")
     DOMAIN.validate_inspection_workers(parser, args.workers, args.inspection_workers,
                                        args.max_containment_checks)
     if args.max_memory_bytes <= 0 or args.soft_memory_bytes is not None and not 0 < args.soft_memory_bytes < args.max_memory_bytes:
@@ -411,8 +449,11 @@ def main() -> int:
         parser.error("positive finite sampling interval/objective required")
     if not math.isfinite(args.plain_progress_seconds) or args.plain_progress_seconds < 0.1:
         parser.error("plain progress interval must be finite and at least 0.1 seconds")
-    cpus = set(map(int, args.cpus.split(","))) if args.cpus else set(sorted(os.sched_getaffinity(0))[:args.workers])
-    if len(cpus) != args.workers or not cpus <= os.sched_getaffinity(0):
+    try:
+        cpus = parse_cpu_set(args.cpus) if args.cpus else set(sorted(affinity)[:args.workers])
+    except ValueError as error:
+        parser.error(str(error))
+    if len(cpus) != args.workers or not cpus <= affinity:
         parser.error("CPU set must contain exactly --workers permitted CPU IDs")
     collector = ProcessTreeCollector()
     for pid in args.registered_pid:
@@ -543,6 +584,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, operator_stop)
     started = time.monotonic()
     tail = MONITOR.EventTail(output / "events.jsonl")
+    # Derived rates over the last hour of native heartbeats (two hours retained);
+    # an additive status block, never an ETA.
+    metrics = HEARTBEAT.HeartbeatWindow()
+    tail.observers.append(metrics.observe)
     presenter = MONITOR.Presenter(enabled=not args.no_progress,
                                   plain_seconds=args.plain_progress_seconds)
     last_checkpoint = {"state": "awaiting_first_save", "directory": checkpoint_directory} if checkpoint_directory else None
@@ -584,7 +629,7 @@ def main() -> int:
                   "host_memory_reserve_bytes": host_reserve,
                   "ram_guard_margin_percent": args.ram_guard_margin_percent,
                   "progress": progress, "resources": resources, "checkpoint": last_checkpoint,
-                  "checkpoint_write": writing,
+                  "checkpoint_write": writing, "derived": metrics.derived(),
                   "checkpoint_milestones": list(tail.milestones),
                   "resume_command": resume_command,
                   "stop_reason": stop_reason, "exit_status": exit_status,

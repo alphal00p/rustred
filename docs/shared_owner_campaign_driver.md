@@ -118,7 +118,16 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 `--prepare-from` accepts an existing staged campaign directory, verifies its
 immutable inputs and copies them to a disjoint, nonexistent destination.
 It defaults to `--query-order helpers-first`; `--query-order preserve` is an
-explicit control. It preserves every query object/ID/bound and program payload,
+explicit control. Adding `--queries NEW.json` keeps the copied owner payloads
+and selection but stages the supplied query document instead, after verifying
+it (schema `rustred.owner-domain-queries.json.v2`, every owner mask present in
+the selection, exactly the six native row fields `id`, `owner`, `lower`,
+`upper`, `max_numerator_rank`, `power_bounds`, unique ids); the default order
+is then `preserve`. `--attach FILE` (repeatable) copies planner receipts such
+as `entry-plan-receipt.json` read-only into `inputs/`; the input receipt lists
+each attachment's name, size and SHA-256 and the printed plan records
+`entry_plan_receipt` when that file is attached. Attachments are opaque data,
+never solver input. It preserves every query object/ID/bound and program payload,
 saves the input query bytes as `queries-original.json` when reordering, and
 records the ordering in the input receipt and displayed launch plan.
 The present five-loop input remains 67 owners and 134 explicit requests.
@@ -162,25 +171,37 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 ```
 
 Omit `--start` to prepare and print the exact command without executing it.
-This still freezes the executable and policy. The default policy is at most
-50 permitted CPUs, a requested 500 GB decimal resident-memory ceiling, a 5% RAM guard
-margin, hourly checkpoints, Ordered publication, H256 unreserved transfer,
+This still freezes the executable and policy. The default policy is 50 workers
+(at most 256 and never more than the permitted CPU affinity; `--cpus` accepts
+comma lists and ranges such as `128-177` or `0-3,8`), a requested 500 GB
+decimal resident-memory ceiling, a 5% RAM guard margin, hourly checkpoints,
+Ready publication, H256 unreserved transfer, the native inspector split,
 exact initial-D reuse, finite-axis refinement and degree-64 guard admission.
+The frozen `steering.json` is `rustred.production-steering.v2` and records
+`publication_policy`, `transfer_unreserved_lookahead`, `inspection_workers`
+and `checkpoint_interval_seconds` beside the earlier options; the supervisor
+command is built from those options, and `--inspection-workers N` is added
+only when frozen. v1 steering files remain readable with their recorded
+values (Ordered, lookahead 256, native split).
 Cumulative enumeration work is uncapped (`--unbounded-work`); input admission,
 bounded worker buffers, native scratch and per-operation algebra safeguards
 remain explicit. Physical subdivision is optional, with the paired
 `--apply-subdivision-axis N --apply-subdivision-cut C`; it is not a default
 whole-walker speed claim. The saved input remains data, not topology dispatch.
 
-Experimental `--publication-policy ready` lets completed or partially ready
-sources publish without waiting for an earlier slow source, including within
-one owner. It still uses shared admission and bounded outstanding-work credits
-(H256 in the production preset). New runs use CP4 checkpoints, require
-unreserved-transfer scheduling, and currently rejects physical subdivision.
-Select it only when preparing a **new** campaign; do not attach the current
-Ordered checkpoint or swap its frozen executable. Ordered remains the default.
+Ready publication (`--publication-policy ready`, the default for campaigns
+prepared with the v2 steering) lets completed or partially ready sources
+publish without waiting for an earlier slow source, including within one
+owner. It still uses shared admission and bounded outstanding-work credits
+(H256 in the production preset), requires unreserved-transfer scheduling and
+rejects physical subdivision. `--publication-policy ordered` remains
+selectable and is required for `--apply-subdivision-axis/--cut`. Choose the
+policy only when preparing a **new** campaign; resume refuses a different
+policy, lookahead, inspector count, worker count, CPU set or checkpoint
+interval than the frozen one (only the RAM overrides may differ), and never
+attaches an Ordered checkpoint to a Ready run or swaps the frozen executable.
 See [the implementation and validation record](research/five_loop_ready_publication_2026-09-24.md)
-for the experimental status and measurement boundaries.
+for the measurement boundaries.
 
 After a graceful pause, resume with the same immutable binary and frozen solver
 flags automatically. Each invocation creates a new receipt directory:
@@ -255,9 +276,12 @@ diagnostic mode; production unbounded work removes that stop too. Concrete-only 
 flags and `--expansion-limits` are rejected with `--queries`; symbolic-only
 flags are rejected with `--targets`. The two input flags are mutually exclusive.
 
-CPU IDs must be permitted by the process affinity. Pass all concurrent campaign
-process roots with repeated `--registered-pid`, and their configured compute
-workers (including builds) with `--other-workers`. The sum must not exceed 50.
+CPU IDs must be permitted by the process affinity; `--cpus` accepts comma
+lists and ranges (`128-177`, `0-3,8`) and must name exactly `--workers` IDs.
+Pass all concurrent campaign process roots with repeated `--registered-pid`,
+and their configured compute workers (including builds) with `--other-workers`.
+The sum must not exceed 256 or the number of permitted CPUs, whichever is
+smaller.
 Concurrent external jobs also require `--reserved-other-memory-bytes`, covering
 their full intended memory allowance, not only a low initial sample. Currently
 observed external RSS must fit this reservation before launch.
@@ -272,8 +296,8 @@ remain tracked after reparenting. Children born and reparented between samples
 before first observation can be missed; this is not universal descendant
 capture. Transient unreadable live identities are retained for later retry.
 
-Defaults are at most 50 outer workers, all native/BLAS/Rayon inner pools fixed
-to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
+Defaults are 50 outer workers (at most 256, bounded by the permitted CPUs),
+all native/BLAS/Rayon inner pools fixed to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
 `--max-memory-bytes` accepts any positive byte count, including a higher requested
 ceiling such as 700 GB; there is no fixed numerical RAM maximum. Admission reduces it if
 host/cgroup available RAM minus the host reserve is smaller. The reserve
@@ -318,6 +342,22 @@ bar, not a publication fallback. Sampled actual native CPU occupancy and blocked
 from reserved inspector/admission/coordinator workers. `NO_COLOR` suppresses
 color; redirected output is low-rate plain text, including checkpoint status.
 Resource records expose local completion rates and RSS slope.
+`status.json` additionally carries a `derived` block (schema string unchanged;
+the block is additive) computed from a bounded deque of the last two hours of
+native heartbeats: `completions_per_hour_1h`, `stall_share_5s` and
+`stall_share_20s` (fraction of wall time in heartbeat intervals of at least
+5 s or 20 s with zero completion delta), `pending_growth_per_completion_1h`,
+`rss_bytes_per_discovered_domain`, `coordinator_duty_1h` (delta of
+preparation plus ordered-commit wall over delta wall), `checkpoint_duty`
+(sum of save durations over elapsed), `computing_inspectors_mean_1h` (null
+until the native heartbeat reports `computing_workers`),
+`max_scheduled_finite_rank`, `roots_closed`, `roots_total` and
+`last_checkpoint` (generation, bytes, duration). The dashboard shows them on
+the `Inspectors`, `Rate` and `Checkpoint gen` lines, `unknown` when absent.
+These are measured deltas, not estimates: nothing in the status or dashboard
+is an ETA. `examples/python/heartbeat_metrics.py EVENTS.jsonl [--start S
+--end E --window W]` recomputes the same numbers offline for any elapsed
+window of any `events.jsonl`, tolerating a partially written last line.
 Each resource record also includes per-PID/start CPU deltas and RSS, with the
 supervisor and owned native process labelled separately. Newly observed or
 temporarily unreadable processes have no CPU delta until a fresh baseline is
@@ -352,6 +392,63 @@ stale/dead-supervisor snapshots instead of claiming current activity. There is n
 overwrite or silent continuation of an old receipt. CPU measurements are
 sampled deltas of live registered processes, not a complete GNU-time accounting
 of short-lived children between samples.
+
+## Profiling controls and walk audits
+
+`examples/python/walk_control_matrix.py MATRIX.json --output DIR [--audit]
+[--dry-run] [--case NAME] [--skip-existing]` runs matched controls
+sequentially through this supervisor under `nice -n 5 taskset -c CPUS`. The
+matrix (`rustred.walk-control-matrix.json.v1`) lists cases with `name`,
+`executable`, `manifest`, `queries`, `owner_base`, `workers`, `cpus` (for
+example `"192-197"`), `publication_policy`, `inspection_workers` (or null),
+`native_options` (extra supervisor arguments), `max_memory_bytes` and
+`checkpoint_interval_seconds`; optional `transfer_unreserved_lookahead`
+(256) and `ram_guard_margin_percent` (5). Every case is validated, including
+that its CPUs lie inside the harness's own affinity mask, before anything
+runs. Per case it writes `command.json`, the supervisor `run/` directory and
+`summary.json`: whole-command wall, user/system CPU and max RSS from `wait4`
+of the supervisor (which includes its waited-for native child), the native
+report's `prepared_seconds`/`traversal_seconds`/`elapsed_seconds`, native
+inspections (Apply/Route from `completed_nodes` and `routed_domains`),
+aliases (`scheduled_nodes - completed_nodes`), events, max scheduled finite
+rank, checkpoint save seconds and the last generation from `events.jsonl`,
+peak sampled RSS from `resources.jsonl`, the supervisor receipt and exit
+status. Large reports are scanned head and tail for their top-level scalars
+rather than parsed whole. `RESULTS.md` tabulates the cases and
+`matrix-receipt.json` records executable, manifest and query SHA-256 digests.
+These are single-run measurements on the stated CPUs, not portable timings.
+
+`examples/python/audit_owner_domain_walk.py RUN [--queries Q] [--command
+ARGV.json] [--supervisor-receipt R] [--expect-schema S]` streams `result.json`
+once with bounded memory (record ids, owner/phase, kinds and dependency links
+in arrays) and writes `audit.json`: every alias resolves to a same-phase,
+same-owner completed native representative; Apply statistics have zero
+problems and unsupported-support successors and consistent successor sums;
+Route statistics have zero missing routes and consistent event accounting;
+queue, ledger and worker pool are drained; frontiers are zero; initial-entry
+and partial-anchor obligations are discharged; the input queries are
+preserved verbatim; ordered records are in order or ready records sum their
+accepted events to the committed watermark; the durable checkpoint manifest
+matches the report; the resource receipt shows a clean exit. Violations are
+listed and the exit status is nonzero. The audit checks recorded completion
+and explicit dependencies only, never IBP identities or family termination.
+
+`examples/python/compare_walk_records.py --mode strict|multiset A.json B.json`
+compares two reports while streaming both. Strict mode (Ordered, old versus
+new binary) requires identical completed-record geometry, native/guard/
+dependency counters and outcomes, ignoring only timing fields, checkpoint
+bookkeeping and scheduling diagnostics (`--ignore-top`/`--ignore-record`
+extend the list explicitly). Multiset mode (Ready or cross-policy) requires
+equal multisets of `(phase, owner, lower, upper, rank, power_bounds, outcome)`
+and native inspection counts within `--native-tolerance`; `--shape` chooses
+the outcome component (`discharged`, the default, is independent of whether a
+domain was inspected natively or delegated; `kind` adds the record kind for
+same-policy runs; `geometry` drops it). A difference is a nonzero exit;
+equality is not a closure claim. On the September 26 FG baselines the
+Ordered walk and its repeat compare strictly identical (98,909 records, 0
+differences), whereas Ready records 98,881 logical domains, so the
+cross-policy multisets differ; native counts (98,869 versus 98,841) lie
+within 0.03%.
 
 ## Inputs and API
 

@@ -23,3 +23,6 @@ result-*
 /campaigns/*/checkpoints/
 /campaigns/*/bin/
 /campaigns/*/active-run.json
+
+# local agent worktrees and settings
+.claude/

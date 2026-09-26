@@ -156,8 +156,44 @@ def plan_query_order(query_bytes, query_order):
     return (json.dumps(document, indent=2, allow_nan=False) + "\n").encode("utf-8"), plan
 
 
+RESERVED_INPUT_NAMES = frozenset({"selection.json", "queries.json", "queries-original.json",
+                                  "input-receipt.json", "STAGING_INCOMPLETE", "owners"})
+
+
+def check_attachments(attachments):
+    """Attachments are opaque receipts copied beside the inputs; names must be unique and safe."""
+    paths = [Path(item) for item in attachments]
+    names = set()
+    for path in paths:
+        if not path.is_file():
+            raise ValueError(f"attachment is not a file: {path}")
+        name = path.name
+        if (name in RESERVED_INPUT_NAMES or name.startswith(".") or "/" in name
+                or not name.isprintable() or len(name.encode("utf-8")) > 255):
+            raise ValueError(f"attachment name is reserved or unsafe: {name}")
+        if name in names:
+            raise ValueError(f"duplicate attachment name: {name}")
+        names.add(name)
+    return paths
+
+
+def copy_read_only(source, target):
+    """Copy with a change-under-us check; returns (bytes, sha256)."""
+    before = source.stat()
+    source_hash = digest(source)
+    with source.open("rb") as incoming, target.open("xb") as outgoing:
+        shutil.copyfileobj(incoming, outgoing, 1024 * 1024)
+    after = source.stat()
+    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns) or digest(target) != source_hash:
+        raise ValueError(f"file changed during staging: {source}")
+    target.chmod(0o444)
+    return before.st_size, source_hash
+
+
 def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_rank=None,
-          anchor_max_positive_power=None, anchor_positive_power_owners=None, query_order="preserve"):
+          anchor_max_positive_power=None, anchor_positive_power_owners=None, query_order="preserve",
+          attachments=()):
+    attachments = check_attachments(attachments)
     manifest_bytes = manifest.read_bytes()
     selection = json.loads(manifest_bytes)
     owners = selection.get("owners")
@@ -200,6 +236,11 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
         receipts.append({"mask": row["mask"], "source": str(source), "path": str(relative),
                          "bytes": before.st_size, "sha256": source_hash})
         row["path"] = str(relative)
+    attachment_receipts = []
+    for path in attachments:
+        size, attachment_hash = copy_read_only(path, destination / path.name)
+        attachment_receipts.append({"name": path.name, "path": path.name, "source": str(path.resolve()),
+                                    "bytes": size, "sha256": attachment_hash})
     source_query_hash = hashlib.sha256(original_bytes).hexdigest()
     if digest(queries) != source_query_hash:
         raise ValueError("query source changed during staging")
@@ -225,6 +266,8 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
                "owners": receipts, "query_bytes_unchanged": staged_query_bytes == original_bytes,
                "query_order": query_order,
                "manifest_changes": "owner payload paths only", "family_closure_claim": False}
+    if attachment_receipts:
+        receipt["attachments"] = attachment_receipts
     if anchor_plan is not None:
         receipt["anchor_plan"] = anchor_plan
     if order_plan is not None:
@@ -253,10 +296,12 @@ def main():
                         help="optional positive-power bound for appended anchors; requires anchor rank")
     parser.add_argument("--anchor-positive-power-owners",
                         help="comma-separated selected masks receiving the positive-power bound; default: all selected")
+    parser.add_argument("--attach", type=Path, action="append", default=[], metavar="FILE",
+                        help="copy an opaque receipt (for example entry-plan-receipt.json) read-only beside the inputs")
     args = parser.parse_args()
     try:
         receipt = stage(args.manifest, args.queries, args.destination, args.owner_base,
-                        query_order=args.query_order,
+                        query_order=args.query_order, attachments=args.attach,
                         anchor_max_numerator_rank=args.anchor_max_numerator_rank,
                         anchor_max_positive_power=args.anchor_max_positive_power,
                         anchor_positive_power_owners=(None if args.anchor_positive_power_owners is None else
