@@ -61,16 +61,46 @@ pub(super) struct Edges {
     log: EdgeLog,
 }
 
+/// Targets per bucket of the cache-local counting sort: a bucket's offsets
+/// (256 KiB) and its slice of the source array stay cache resident.
+const BUCKET_SHIFT: u32 = 15;
+
+/// Stable partition of `pairs` by target bucket (insertion order kept within
+/// a bucket), so the counting and scatter passes below touch one bucket's
+/// offsets and sources at a time instead of the whole arrays at random.
+fn partition(nodes: usize, pairs: &[(u32, u32)]) -> Option<Vec<(u32, u32)>> {
+    // Bucket `b` counts into `cursors[b + 1]`; the inclusive prefix sum then
+    // leaves the start of bucket `b` in `cursors[b]`.
+    let mut cursors = vec![0usize; (nodes >> BUCKET_SHIFT) + 2];
+    for &(_, target) in pairs {
+        cursors[(target >> BUCKET_SHIFT) as usize + 1] += 1;
+    }
+    for bucket in 1..cursors.len() {
+        cursors[bucket] += cursors[bucket - 1];
+    }
+    let mut partitioned = Vec::new();
+    partitioned.try_reserve_exact(pairs.len()).ok()?;
+    partitioned.resize(pairs.len(), (0u32, 0u32));
+    for &pair in pairs {
+        let cursor = &mut cursors[(pair.1 >> BUCKET_SHIFT) as usize];
+        partitioned[*cursor] = pair;
+        *cursor += 1;
+    }
+    Some(partitioned)
+}
+
 /// Counting sort of `old` plus `extra` (insertion order) into a CSR over
 /// `nodes` targets; within a target the old sources precede the extra ones,
-/// both in their original order. Peak: the old and the new source arrays.
+/// both in their original order. Peak: the old and the new source arrays
+/// plus one bucket-partitioned copy of `extra`.
 fn build(nodes: usize, old: &Csr, extra: &[(u32, u32)]) -> Option<Csr> {
     let total = old.sources.len().checked_add(extra.len())?;
+    let extra = partition(nodes, extra)?;
     let mut offsets = Vec::new();
     offsets.try_reserve_exact(nodes.checked_add(1)?).ok()?;
     offsets.extend((0..nodes).map(|target| old.incoming(target).len() as u64));
     offsets.push(0);
-    for &(_, target) in extra {
+    for &(_, target) in &extra {
         offsets[target as usize] += 1;
     }
     let mut running = 0u64;
@@ -91,7 +121,7 @@ fn build(nodes: usize, old: &Csr, extra: &[(u32, u32)]) -> Option<Csr> {
         sources[start..start + incoming.len()].copy_from_slice(incoming);
         *offset += incoming.len() as u64;
     }
-    for &(source, target) in extra {
+    for &(source, target) in &extra {
         let cursor = &mut offsets[target as usize];
         sources[*cursor as usize] = source;
         *cursor += 1;
@@ -248,5 +278,66 @@ impl Edges {
         ]
         .into_iter()
         .fold(0usize, usize::saturating_add)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Deterministic pairs over `nodes`, with repeated targets so the order
+    /// within a target is observable.
+    fn random_pairs(nodes: usize, count: usize, seed: u64) -> Vec<(u32, u32)> {
+        let mut state = seed;
+        (0..count)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let word = state >> 11;
+                let source = (word % nodes as u64) as u32;
+                let target = ((word >> 26) % nodes as u64) as u32;
+                (source, target)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn csr_keeps_every_edge_and_its_order_across_buckets() {
+        // Three full target buckets and a partial one. The first part only
+        // touches the lower half, so its CSR covers fewer targets than the
+        // fold; within a target, older sources precede the log's.
+        let nodes = (3 << BUCKET_SHIFT) + 5;
+        let half = nodes / 2;
+        let (first, second): (Vec<_>, Vec<_>) = random_pairs(nodes, 200_000, 7)
+            .into_iter()
+            .partition(|&(source, target)| (source as usize) < half && (target as usize) < half);
+        let all: Vec<_> = first.iter().chain(&second).copied().collect();
+        let mut expected = vec![Vec::new(); nodes];
+        for &(source, target) in &all {
+            expected[target as usize].push(source);
+        }
+        assert!(expected.iter().filter(|sources| sources.len() > 1).count() > 1000);
+        let check = |edges: &Edges| {
+            assert_eq!((edges.len(), edges.log_len()), (all.len(), 0));
+            for (target, sources) in expected.iter().enumerate() {
+                assert_eq!(edges.csr.incoming(target), sources.as_slice(), "{target}");
+            }
+            let mut listed: Vec<_> = edges.iter().collect();
+            let mut original = all.clone();
+            listed.sort_unstable();
+            original.sort_unstable();
+            assert_eq!(listed, original);
+        };
+        // Restore: every persisted pair at once.
+        check(&Edges::from_pairs(nodes, &all).unwrap());
+        // Fold: a CSR over the lower half, then a log across every bucket.
+        let mut folded = Edges::from_pairs(half, &first).unwrap();
+        folded.grow(nodes).unwrap();
+        for &(source, target) in &second {
+            folded.push(source, target).unwrap();
+        }
+        folded.fold(nodes).unwrap();
+        check(&folded);
     }
 }
