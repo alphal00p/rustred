@@ -12,8 +12,36 @@ const BATCH_RECORDS: usize = 256;
 const MIN_ADMISSIONS: usize = 16;
 const MIN_CANDIDATES: usize = 128;
 
+/// Coordinator wall-time breakdown for this execution session. Buckets are
+/// disjoint stretches of the single coordinator thread; preparation and
+/// ordered commit live in `Metrics` itself. `ready_service` is the Ready
+/// reclaim-and-dispatch step run between commit batches.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in super::super) struct Duty {
+    pub dispatch: f64,
+    pub poll: f64,
+    pub publication: f64,
+    pub wait: f64,
+    pub closure_refresh: f64,
+    pub checkpoint: f64,
+    pub progress_json: f64,
+    pub ready_service: f64,
+    pub ready_service_reclaims: usize,
+    pub ready_service_dispatches: usize,
+    pub started: Option<Instant>,
+}
+
+impl Duty {
+    pub fn start(&mut self) {
+        self.started = Some(Instant::now());
+    }
+    pub fn elapsed_seconds(&self) -> Option<f64> {
+        self.started.map(|started| started.elapsed().as_secs_f64())
+    }
+}
 
 pub(super) struct Metrics {
+    pub(in super::super) duty: Duty,
     budget: WorkerBudget,
     batches: usize,
     records: usize,
@@ -44,6 +72,7 @@ impl Default for Metrics {
 impl Metrics {
     pub fn new(budget: WorkerBudget) -> Self {
         Self {
+            duty: Duty::default(),
             budget,
             batches: 0,
             records: 0,
@@ -110,7 +139,31 @@ impl Metrics {
             }
         };
     }
+    pub fn duty_json(&self) -> Value {
+        let duty = &self.duty;
+        json!({
+            "dispatch_seconds":duty.dispatch,
+            "poll_seconds":duty.poll,
+            "preparation_seconds":self.preparation_seconds,
+            "ordered_commit_seconds":self.ordered_commit_seconds,
+            "publication_seconds":duty.publication,
+            "wait_seconds":duty.wait,
+            "closure_refresh_seconds":duty.closure_refresh,
+            "checkpoint_seconds":duty.checkpoint,
+            "progress_json_seconds":duty.progress_json,
+            "ready_service_seconds":duty.ready_service,
+            "ready_service_reclaimed_slots":duty.ready_service_reclaims,
+            "ready_service_dispatches":duty.ready_service_dispatches,
+            "coordinator_elapsed_seconds":duty.elapsed_seconds(),
+            "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint; ready_service_includes_its_own_dispatch; resets_on_resume"
+        })
+    }
     pub fn json(&self) -> Value {
+        let mut value = self.metrics_json();
+        value["coordinator_duty"] = self.duty_json();
+        value
+    }
+    fn metrics_json(&self) -> Value {
         json!({"policy":"immutable_bounded_batch_ordered_commit",
             "counter_scope":"current_execution_session; resets_on_resume",
             "requested_worker_budget":self.budget.requested,
@@ -338,7 +391,7 @@ impl Engine {
         chunk: Vec<Event<N>>,
         cancellation: &AtomicBool,
         producer_stop: &AtomicBool,
-        heartbeat: &mut impl FnMut(&State<N>),
+        heartbeat: &mut impl FnMut(&mut State<N>),
     ) -> Result<(), &'static str> {
         let mut events = chunk.into_iter();
         loop {

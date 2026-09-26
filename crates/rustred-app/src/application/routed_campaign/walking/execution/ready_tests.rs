@@ -6,6 +6,7 @@ use super::super::{
 };
 use super::*;
 use std::num::NonZeroUsize;
+use std::sync::atomic::AtomicUsize;
 
 fn request() -> OwnerDomainWalkRequest {
     let mut r = OwnerDomainWalkRequest::new(super::super::OwnerDomainMatchRequest::new(
@@ -233,6 +234,207 @@ fn ready_changed_parked_prefix_fails_before_any_suffix_admission() {
     assert!(!s.checkpoint_paused);
     assert_eq!(s.queue.domains.len(), admitted);
     assert!(!s.queue.domains.iter().any(|d| d.lower[0] >= 200));
+}
+
+fn ready_request(lookahead: usize) -> OwnerDomainWalkRequest {
+    let mut r = request();
+    r.scheduling_policy = SchedulingPolicy::TransferUnreserved {
+        lookahead: NonZeroUsize::new(lookahead).unwrap(),
+    };
+    r
+}
+fn ready_seed(points: u64, lookahead: usize) -> State<1> {
+    let mut q = Queue::new(usize::MAX, None);
+    q.delegation =
+        Some(Ledger::new_ready(NonZeroUsize::new(lookahead).unwrap(), usize::MAX).unwrap());
+    for n in 0..points {
+        q.admit(point(n)).unwrap();
+    }
+    State::new(q, 0, None)
+}
+fn admissions(first: u64, count: u64) -> Vec<Event<1>> {
+    (0..count)
+        .map(|i| {
+            Event::one(Effect::Admit {
+                domain: point(first + i),
+                successor: true,
+                conditional: false,
+            })
+        })
+        .collect()
+}
+fn spin_until(deadline: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let started = Instant::now();
+    while !done() {
+        if started.elapsed() >= deadline {
+            return false;
+        }
+        std::thread::yield_now();
+    }
+    true
+}
+
+/// One long chunk-heavy ticket and many tiny tickets on three inspector
+/// slots. Before this change a finished tiny ticket kept its slot until the
+/// coordinator polled it, which under Ready never happens inside a chunk
+/// commit. The service step between commit batches now reclaims those slots
+/// into the bounded escrow and dispatches reserved work onto them.
+#[test]
+fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
+    if !symbolica::license::LicenseManager::is_licensed() {
+        return;
+    }
+    // Deterministic mechanism: the heavy stream holds slot 0, both tiny
+    // tickets have finished in their slots, and only service steps run.
+    let request = ready_request(64);
+    let mut state = ready_seed(40, 64);
+    let budget = super::super::worker_budget::WorkerBudget::for_request(&request);
+    assert_eq!((budget.inspection, budget.helpers), (3, 0));
+    state.admission = admission::Metrics::new(budget);
+    let engine = admission::Engine::new(budget).unwrap();
+    let cancel = AtomicBool::new(false);
+    let release = AtomicBool::new(false);
+    let started = AtomicUsize::new(0);
+    let (_, snapshot, _) = parallel::with_ticket_pool_escrow::<1, _>(
+        3,
+        ready_escrow_limits(3),
+        |id, _, stop, emit| {
+            started.fetch_add(1, Ordering::Relaxed);
+            if id == 0 {
+                spin_until(Duration::from_secs(20), || {
+                    release.load(Ordering::Acquire) || stop.load(Ordering::Acquire)
+                });
+                return finished(None);
+            }
+            let _ = emit(Event::one(Effect::Count));
+            finished(None)
+        },
+        |pool| {
+            let mut dispatcher = Dispatcher {
+                next: 0,
+                part: 0,
+                parent_dispatched: false,
+            };
+            let mut streams = publication::ReadyStreams::default();
+            assert_eq!(
+                dispatcher.run(&mut state, pool, &request, &cancel, &mut streams, None),
+                3
+            );
+            assert!(
+                spin_until(
+                    Duration::from_secs(10),
+                    || pool.snapshot()["finished_awaiting_poll"] == 2
+                ),
+                "tiny tickets did not finish"
+            );
+            assert_eq!(pool.snapshot()["occupied_native_slots"], 3);
+            let mut service_steps = 0;
+            engine
+                .commit_chunk(
+                    &mut state,
+                    &request,
+                    admissions(1000, 1000),
+                    &cancel,
+                    &pool.stop,
+                    &mut |state| {
+                        service_steps += 1;
+                        ready_service(
+                            state,
+                            pool,
+                            &mut dispatcher,
+                            &mut streams,
+                            &request,
+                            &cancel,
+                        );
+                    },
+                )
+                .unwrap();
+            assert_eq!(service_steps, 4, "1000 records commit in four batches");
+            let duty = state.admission.duty;
+            assert!(duty.ready_service_reclaims >= 2, "{duty:?}");
+            assert!(duty.ready_service_dispatches >= 2, "{duty:?}");
+            assert!(dispatcher.next > 3 && started.load(Ordering::Relaxed) > 3);
+            let snapshot = pool.snapshot();
+            assert!(snapshot["completed_slots_reclaimed"].as_u64().unwrap() >= 2);
+            assert_eq!(snapshot["completed_escrow_max_entries"], 6);
+            assert_eq!(
+                snapshot["completed_escrow_max_accounted_bytes"],
+                json!(2 * parallel::CHUNK_BYTES * 3)
+            );
+            // Every mid-commit dispatch moved a reserved obligation to Started
+            // and joined the pending set; nothing was published.
+            let ledger = state.queue.delegation.as_ref().unwrap();
+            assert_eq!(ledger.published_count(), 0);
+            assert!((0..dispatcher.next).all(|id| !ledger.can_dispatch(id)));
+            assert!(!streams.is_empty());
+            // Escrowed tickets are still polled in stream order: chunk, then
+            // Finished; the slot they held is free for later dispatch.
+            assert!(matches!(pool.poll(1), Poll::Events(chunk) if chunk.len() == 1));
+            assert!(matches!(pool.poll(1), Poll::Finished(_)));
+            assert!(matches!(pool.poll(1), Poll::Waiting));
+            release.store(true, Ordering::Release);
+            println!("ready_recycling_mechanism duty={duty:?} snapshot={snapshot}");
+        },
+    );
+    assert!(snapshot["first_failure"].is_null(), "{snapshot}");
+
+    // The production loop end to end: the heavy stream waits until the
+    // coordinator has recycled at least one finished slot, then publishes a
+    // four-batch chunk; every obligation is still published exactly once.
+    let request = ready_request(64);
+    let mut state = ready_seed(40, 64);
+    let release = AtomicBool::new(false);
+    run_pool(
+        &mut state,
+        &request,
+        &AtomicBool::new(false),
+        &|_| {},
+        true,
+        &mut |s| {
+            if s.parallel["completed_slots_reclaimed"]
+                .as_u64()
+                .is_some_and(|n| n > 0)
+            {
+                release.store(true, Ordering::Release);
+            }
+            Ok(())
+        },
+        |id, _, stop, emit| {
+            if id == 0 {
+                if !spin_until(Duration::from_secs(20), || {
+                    release.load(Ordering::Acquire) || stop.load(Ordering::Acquire)
+                }) || stop.load(Ordering::Acquire)
+                {
+                    return finished(Some(("no finished slot was recycled", "native_failure")));
+                }
+                for event in admissions(2000, 1000) {
+                    if emit(event).is_break() {
+                        return finished(Some(("cancelled", "cancelled")));
+                    }
+                }
+                return finished(None);
+            }
+            let _ = emit(Event::one(Effect::Count));
+            finished(None)
+        },
+    );
+    assert!(state.error.is_none(), "{:?}", state.error);
+    assert_eq!(state.queue.domains.len(), 1040);
+    assert_eq!(state.published_count(), 1040);
+    assert_eq!(state.records.len(), 1040);
+    assert_eq!(state.queue.next, 1040);
+    assert!(state.streams.active.is_none() && state.streams.parked.is_empty());
+    let parallel = &state.parallel;
+    assert!(parallel["completed_slots_reclaimed"].as_u64().unwrap() > 0);
+    assert_eq!(parallel["completed_escrow_max_entries"], 6);
+    assert_eq!(parallel["completed_escrow_entries"], 0);
+    let duty = &parallel["admission_preparation"]["coordinator_duty"];
+    assert!(duty["coordinator_elapsed_seconds"].as_f64().unwrap() > 0.0);
+    assert!(duty["dispatch_seconds"].as_f64().unwrap() >= 0.0);
+    println!(
+        "ready_recycling_end_to_end duty={duty} reclaimed={}",
+        parallel["completed_slots_reclaimed"]
+    );
 }
 
 #[test]

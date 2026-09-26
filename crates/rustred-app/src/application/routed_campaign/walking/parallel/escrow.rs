@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use super::{Event, Finished, Slot};
 
-#[derive(Clone, Copy)]
-pub(super) struct Limits {
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Limits {
     pub entries: usize,
     pub bytes: usize,
 }

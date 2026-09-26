@@ -278,6 +278,12 @@ fn bit_prefilter_toggle_preserves_engine_results_and_counters() {
     let json = filtered.admission.json();
     assert!(json["prepared_retirements_applied"].as_u64().unwrap() > 0);
     assert_eq!(json["prepared_retire_fallbacks"], 0);
+    assert!(
+        json["coordinator_duty"]["ordered_commit_seconds"]
+            .as_f64()
+            .unwrap()
+            >= 0.0
+    );
     println!(
         "engine_bit_prefilter filtered={} unfiltered={} session={:?}",
         json,
