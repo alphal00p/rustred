@@ -11,7 +11,7 @@ use super::{
     parallel::{self, Failure, Poll},
     physical_parts::{Progress as PhysicalProgress, Ticket},
     power_bounds_json,
-    queue::Queue,
+    queue::{CompactDomain, Queue},
     stats_json,
 };
 use rustred::solver::RoutedCandidateReducer;
@@ -110,7 +110,7 @@ impl<const N: usize> State<N> {
         request: &OwnerDomainWalkRequest,
     ) -> Option<[std::sync::Arc<super::queue::Domain<N>>; 2]> {
         (id < self.initial_domain_count)
-            .then(|| request.apply_subdivision?.parts(&self.queue.domains[id]))
+            .then(|| request.apply_subdivision?.parts(&self.queue.domain(id)))
             .flatten()
     }
     fn publisher_ticket(&self, request: &OwnerDomainWalkRequest) -> Ticket {
@@ -246,8 +246,8 @@ impl<const N: usize> State<N> {
             "initial_entry_domains_published":self.initial_published(),
             "initial_entry_domains_inspected":self.initial_entry_domains_inspected,
             "pending_descendant_domains":self.pending_descendants(),
-            "owner":domain.map(|d| mask(&d.owner)), "phase":domain.map(|d| format!("{:?}", d.phase)),
-            "power_bounds":domain.map(|d| power_bounds_json(d.powers)),
+            "owner":domain.map(|d| mask(&d.owner())), "phase":domain.map(|d| format!("{:?}", d.phase())),
+            "power_bounds":domain.map(|d| power_bounds_json(d.powers())),
             "scheduled_nodes":self.queue.domains.len(), "completed_nodes":self.completed,
             "committed_domains":self.published_count(), "commit_domain":id,
             "contiguous_publication_watermark":self.queue.next,
@@ -330,13 +330,14 @@ impl<const N: usize> State<N> {
             // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
             telemetry["coordinator_duty"] = self.admission.duty_json();
             telemetry["containment_prefilter"] = self.queue.session.json();
+            telemetry["queue_storage"] = self.queue.storage_json();
             telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
         }
         for key in ["first_failure", "non_cancellation_failure"] {
             if let Some(id) = telemetry[key]["domain"]
                 .as_u64()
                 .and_then(|id| usize::try_from(id).ok())
-                && let Some(domain) = self.queue.domains.get(id)
+                && let Some(domain) = self.queue.domains.get(id).map(CompactDomain::expand)
             {
                 let f = &mut telemetry[key];
                 f["owner"] = json!(mask(&domain.owner));
@@ -578,7 +579,7 @@ impl<const N: usize> State<N> {
             );
             super::queue::positive_reuse_trace::set_source(
                 self.queue.next,
-                &self.queue.domains[self.queue.next],
+                &self.queue.domain(self.queue.next),
             );
         }
         let (target, _) = admit(&mut self.queue)?;
@@ -604,7 +605,7 @@ impl<const N: usize> State<N> {
         seconds: f64,
         physical_parts: Option<Vec<Value>>,
     ) {
-        let domain = &self.queue.domains[id];
+        let domain = self.queue.domain(id);
         let partial_scope = match native_stats {
             NativeStats::ApplyPartial(_, scope) => Some(scope),
             _ => None,
@@ -788,7 +789,7 @@ impl<const N: usize> State<N> {
         let parts = request
             .apply_subdivision
             .expect("physical policy")
-            .parts(&self.queue.domains[id])
+            .parts(&self.queue.domain(id))
             .expect("valid physical source partition");
         let source = &parts[usize::from(part)];
         let mut parent_limits = request.applied_limits;
@@ -1011,7 +1012,7 @@ fn run_configured<const N: usize>(
     // is shared across scoped workers and never observes later queue growth.
     let initial = if enabled {
         InitialOrthants::from_initial(
-            &state.queue.domains[..state.initial_domain_count],
+            &state.queue.expand_prefix(state.initial_domain_count),
             cancellation,
         )
     } else {
@@ -1027,7 +1028,7 @@ fn run_configured<const N: usize>(
             state.error = Some("initial D-band reuse requires a protected initial prefix".into());
             return;
         };
-        InitialOverlapIndex::from_initial(&state.queue.domains[..prefix], cancellation)
+        InitialOverlapIndex::from_initial(&state.queue.expand_prefix(prefix), cancellation)
     } else {
         InitialOverlapIndex::empty()
     };
@@ -1243,7 +1244,7 @@ impl Dispatcher {
                             .encode(physical_enabled)
                             .expect("admitted ticket"),
                         ),
-                        phase: Some(state.queue.domains[id].phase),
+                        phase: Some(state.queue.domains[id].phase()),
                         kind: "delegation_dispatch_invariant",
                         detail: "native dispatch has no reserved responsibility".into(),
                     });
@@ -1268,7 +1269,7 @@ impl Dispatcher {
                 }
             };
             let source = parts.as_ref().map_or_else(
-                || state.queue.domains[id].clone(),
+                || state.queue.domain_arc(id),
                 |parts| parts[usize::from(self.part)].clone(),
             );
             if !pool.dispatch(raw, source) {
@@ -1283,7 +1284,7 @@ impl Dispatcher {
             {
                 pool.fail(Failure {
                     id: Some(raw),
-                    phase: Some(state.queue.domains[id].phase),
+                    phase: Some(state.queue.domains[id].phase()),
                     kind: "delegation_native_start",
                     detail: error,
                 });
@@ -1405,7 +1406,7 @@ fn run_pool<const N: usize>(
                 if cancellation.load(Ordering::Acquire) {
                     pool.fail(Failure {
                         id: Some(publisher_raw),
-                        phase: state.queue.domains.get(state.queue.next).map(|d| d.phase),
+                        phase: state.queue.domains.get(state.queue.next).map(|d| d.phase()),
                         kind: "cancelled",
                         detail: "cancelled".into(),
                     });
@@ -1431,7 +1432,7 @@ fn run_pool<const N: usize>(
                                 .encode(physical_enabled)
                                 .expect("admitted ticket"),
                             ),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "delegation_publication",
                             detail: error,
                         });
@@ -1500,7 +1501,7 @@ fn run_pool<const N: usize>(
                         state.error = Some(error.into());
                         pool.fail(Failure {
                             id: Some(publisher_raw),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "publication_context",
                             detail: error.into(),
                         });
@@ -1535,7 +1536,7 @@ fn run_pool<const N: usize>(
                         ) {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
-                                phase: Some(state.queue.domains[id].phase),
+                                phase: Some(state.queue.domains[id].phase()),
                                 kind: if error == "cancelled" {
                                     "cancelled"
                                 } else {
@@ -1548,7 +1549,7 @@ fn run_pool<const N: usize>(
                             if let Err(error) = save(state, maybe_save) {
                                 pool.fail(Failure {
                                     id: Some(publisher_raw),
-                                    phase: Some(state.queue.domains[id].phase),
+                                    phase: Some(state.queue.domains[id].phase()),
                                     kind: "checkpoint_write",
                                     detail: error,
                                 });
@@ -1568,7 +1569,7 @@ fn run_pool<const N: usize>(
                         {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
-                                phase: Some(state.queue.domains[id].phase),
+                                phase: Some(state.queue.domains[id].phase()),
                                 kind: "checkpoint_write",
                                 detail: error,
                             });
@@ -1599,7 +1600,7 @@ fn run_pool<const N: usize>(
                     if let Err(error) = save(state, maybe_save) {
                         pool.fail(Failure {
                             id: Some(publisher_raw),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "checkpoint_write",
                             detail: error,
                         });
@@ -1608,7 +1609,7 @@ fn run_pool<const N: usize>(
                 if state.error.is_some() {
                     pool.fail(Failure {
                         id: Some(publisher_raw),
-                        phase: state.queue.domains.get(id).map(|d| d.phase),
+                        phase: state.queue.domains.get(id).map(|d| d.phase()),
                         kind: "coordinator_accounting",
                         detail: state.error.clone().unwrap(),
                     });
@@ -1727,7 +1728,7 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
         if id == publisher_id && state.error.is_some() {
             state.commit(id, finished);
         } else {
-            let domain = &state.queue.domains[id];
+            let domain = state.queue.domain(id);
             let partial_scope = finished.initial_overlap_scope();
             let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase),
                 "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
@@ -1746,7 +1747,11 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
         }
     }
     if (!state.details.is_empty() || !state.refusals.records.is_empty())
-        && let Some(domain) = state.queue.domains.get(publisher_id)
+        && let Some(domain) = state
+            .queue
+            .domains
+            .get(publisher_id)
+            .map(CompactDomain::expand)
     {
         // A panicked worker has no Finished/stats. Retain already-published
         // diagnostics without inventing a completed inspection or zero stats.
@@ -1856,7 +1861,7 @@ fn serial<const N: usize>(
                     .publisher_ticket(request)
                     .encode(state.physical_enabled)
                     .ok(),
-                phase: state.queue.domains.get(state.queue.next).map(|d| d.phase),
+                phase: state.queue.domains.get(state.queue.next).map(|d| d.phase()),
                 kind: "cancelled",
                 detail: "cancelled".into(),
             });
@@ -1902,7 +1907,7 @@ fn serial<const N: usize>(
             break;
         }
         let domain = ticket.part.map_or_else(
-            || state.queue.domains[id].clone(),
+            || state.queue.domain_arc(id),
             |part| state.parts(id, request).expect("physical partition")[usize::from(part)].clone(),
         );
         observer(state.progress(

@@ -50,7 +50,7 @@ impl<const N: usize> State<N> {
         let to = ledger
             .delegated_to(id)
             .ok_or("publisher has no delegation")?;
-        let domain = &self.queue.domains[id];
+        let domain = self.queue.domains[id].expand();
         self.records.get_mut().reserve_one()?;
         let record = json!({"record_kind":"delegated_not_inspected", "id":id,
             "phase":format!("{:?}", domain.phase), "owner":mask(&domain.owner),

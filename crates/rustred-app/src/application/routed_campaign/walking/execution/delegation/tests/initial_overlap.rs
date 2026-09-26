@@ -159,13 +159,13 @@ fn initial_overlap_cleanup_cannot_discharge_error_free_buffered_residual() {
 fn initial_overlap_native_limits_are_not_reset_or_hidden_by_reuse() {
     let reducer = native_reducer();
     let s = starting();
-    let initial = &s.queue.domains[..1];
-    let index = InitialOverlapIndex::from_initial(initial, &AtomicBool::new(false));
+    let initial = s.queue.expand_prefix(1);
+    let index = InitialOverlapIndex::from_initial(&initial, &AtomicBool::new(false));
     let mut r = enabled_request();
     r.matching.match_limits.max_rules = 0;
     let f = inspection::inspect(
         &reducer,
-        &s.queue.domains[3],
+        &s.queue.domain(3),
         &r,
         &AtomicBool::new(false),
         &InitialOrthants::empty(),

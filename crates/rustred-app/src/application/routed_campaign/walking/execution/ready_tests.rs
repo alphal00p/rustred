@@ -231,7 +231,7 @@ fn ready_changed_parked_prefix_fails_before_any_suffix_admission() {
     );
     assert!(!s.checkpoint_paused);
     assert_eq!(s.queue.domains.len(), admitted);
-    assert!(!s.queue.domains.iter().any(|d| d.lower[0] >= 200));
+    assert!(!s.queue.domains.iter().any(|d| d.lower(0) >= 200));
 }
 
 fn ready_request(lookahead: usize) -> OwnerDomainWalkRequest {

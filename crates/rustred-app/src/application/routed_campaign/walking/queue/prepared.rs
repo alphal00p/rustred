@@ -31,6 +31,14 @@
 //! commit-time `maintenance_len` bound on both paths. A snapshot hit that is
 //! still live never retires and needs no set; a retired winner and a
 //! near-exhausted counter fall back to the full serial path as before.
+//!
+//! Summaries sit in reusable slab slots (`compact::SummarySlab`): retirement
+//! releases a candidate's slot and a later admission may overwrite it. Every
+//! comparison above reads live candidates only (IDs present in the index at
+//! the time of the read), whose slots are never released underneath them;
+//! the one ID that may have been retired since S, a snapshot winner, is
+//! checked for a released slot before its signature is read, which is
+//! exactly the `is_live == false` fallback.
 
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,6 +52,10 @@ pub(in super::super) const PREPARED_RETIRE_LIMIT: usize = 65_536;
 pub(in super::super) struct PreparedAdmission<const N: usize> {
     domain: Domain<N>,
     identity: Arc<()>,
+    /// The compact image and exact-index digest of `domain`, computed on the
+    /// helper so the ordered commit does not hash it again. None only for a
+    /// domain outside the compact range (the commit then refuses it).
+    key: Option<(CompactDomain<N>, Digest)>,
     lookup: Option<PreparedLookup<N>>,
     work: SpeculativeWork,
 }
@@ -83,8 +95,7 @@ impl<const N: usize> PreparedAdmission<N> {
 }
 
 pub(super) struct PreparedLookup<const N: usize> {
-    pub(super) summary: DomainPowerSummary<N>,
-    word: u64,
+    pub(super) query: Query<N>,
     watermark: usize,
     found: Option<usize>,
     checks: usize,
@@ -136,10 +147,14 @@ impl<const N: usize> Queue<N> {
         mut is_cancelled: impl FnMut() -> bool,
     ) -> PreparedAdmission<N> {
         let mut work = SpeculativeWork::default();
-        let lookup = self.prepare_lookup(&domain, &mut is_cancelled, &mut work);
+        let key = CompactDomain::try_from_domain(&domain)
+            .ok()
+            .map(|compact| (compact, self.exact.key(&compact)));
+        let lookup = self.prepare_lookup(&domain, key.as_ref(), &mut is_cancelled, &mut work);
         PreparedAdmission {
             domain,
             identity: Arc::clone(&self.identity),
+            key,
             lookup,
             work,
         }
@@ -148,29 +163,37 @@ impl<const N: usize> Queue<N> {
     fn prepare_lookup(
         &self,
         domain: &Domain<N>,
+        key: Option<&(CompactDomain<N>, Digest)>,
         is_cancelled: &mut impl FnMut() -> bool,
         work: &mut SpeculativeWork,
     ) -> Option<PreparedLookup<N>> {
-        if self.max_checks.is_some() || is_cancelled() || self.exact.contains_key(domain) {
+        if self.max_checks.is_some() || is_cancelled() {
             return None;
         }
-        let summary = DomainPowerSummary::try_new(
-            domain.owner,
-            &domain.lower,
-            &domain.upper,
-            domain.rank,
-            domain.powers,
-        )
-        .ok()?;
-        let word = bits::word(&summary);
+        // An unrepresentable domain is refused by the ordered commit itself.
+        let &(compact, key) = key?;
+        if self.exact.get(key, &compact, &self.domains).is_ok() {
+            return None;
+        }
+        let query = Query::new(
+            DomainPowerSummary::try_new(
+                domain.owner,
+                &domain.lower,
+                &domain.upper,
+                domain.rank,
+                domain.powers,
+            )
+            .ok()?,
+        );
         let prefilter = self.prefilter;
-        let signature = Signature::of(&summary);
-        let coordinates = Coordinates::of(&summary);
+        let stored = self.stored();
+        let signature = Signature::of(&query.core);
+        let coordinates = Coordinates::of(&query.core);
         let (found, retire) = if let Some(bucket) = self.by_owner.get(&(domain.phase, domain.owner))
         {
             if bucket
                 .orthant
-                .is_some_and(|id| rank_contains(self.domains[id].rank, domain.rank))
+                .is_some_and(|id| rank_contains(self.domains[id].rank(), domain.rank))
             {
                 // Commit must still reproduce the ordinary summary preflight
                 // and fresh exact/orthant priority, without a general scan.
@@ -190,11 +213,11 @@ impl<const N: usize> Queue<N> {
                             .checks
                             .checked_add(1)
                             .ok_or("speculative check overflow")?;
-                        let rejected = prefilter.rejects(self.bits[id], word);
+                        let rejected = prefilter.rejects(self.bits[id], query.word);
                         work.forward_bit_rejections = work
                             .forward_bit_rejections
                             .saturating_add(usize::from(rejected));
-                        Ok(!rejected && self.summaries[id].contains(&summary))
+                        Ok(!rejected && stored.contains(id, &query))
                     })
                     .ok()?;
                 let retire = if found.is_none() {
@@ -220,11 +243,11 @@ impl<const N: usize> Queue<N> {
                                     .reverse_checks
                                     .checked_add(1)
                                     .ok_or("speculative check overflow")?;
-                                let rejected = prefilter.rejects(word, self.bits[id]);
+                                let rejected = prefilter.rejects(query.word, self.bits[id]);
                                 work.reverse_bit_rejections = work
                                     .reverse_bit_rejections
                                     .saturating_add(usize::from(rejected));
-                                Ok(!rejected && summary.contains(&self.summaries[id]))
+                                Ok(!rejected && stored.contained_by(id, &query))
                             },
                         )
                         .ok()
@@ -241,8 +264,7 @@ impl<const N: usize> Queue<N> {
             return None;
         }
         Some(PreparedLookup {
-            summary,
-            word,
+            query,
             watermark: self.domains.len(),
             found,
             checks: work.checks,
@@ -257,15 +279,17 @@ impl<const N: usize> Queue<N> {
         &mut self,
         prepared: PreparedAdmission<N>,
     ) -> Result<(usize, bool), &'static str> {
-        let lookup = if Arc::ptr_eq(&self.identity, &prepared.identity) && self.max_checks.is_none()
-        {
+        let same_queue = Arc::ptr_eq(&self.identity, &prepared.identity);
+        let lookup = if same_queue && self.max_checks.is_none() {
             prepared
                 .lookup
                 .filter(|lookup| lookup.watermark <= self.domains.len())
         } else {
             None
         };
-        self.admit_with_lookup(prepared.domain, lookup)
+        // The digest depends only on the domain and this queue's key function.
+        let key = prepared.key.filter(|_| same_queue);
+        self.admit_with_lookup(prepared.domain, lookup, key)
     }
 }
 
@@ -277,7 +301,7 @@ impl<const N: usize> PreparedLookup<N> {
     pub(super) fn revalidate(
         &mut self,
         index: &AggregateIndex,
-        summaries: &[DomainPowerSummary<N>],
+        stored: Stored<'_, N>,
         bits: &[u64],
         prefilter: bits::Prefilter,
         previous_checks: usize,
@@ -288,14 +312,21 @@ impl<const N: usize> PreparedLookup<N> {
         // miss also performs reverse maintenance after this method returns.
         // Near counter exhaustion, preserve the exact old failure prefix by
         // falling back unless both complete alternatives fit without overflow.
+        // The bound counts every admitted ID, released summaries included.
         previous_checks
             .checked_add(self.checks)?
-            .checked_add(summaries.len().checked_mul(2)?)?;
+            .checked_add(stored.summaries.ids().checked_mul(2)?)?;
         if let Some(id) = self.found {
             // Snapshot misses before this minimum remain misses. New IDs are
             // greater, and other retirements cannot introduce an earlier hit.
+            // A winner retired since the snapshot released its summary slot,
+            // which a later admission may already reuse: never read it. It
+            // is exactly the `is_live == false` fallback to the serial scan.
+            if stored.summaries.is_released(id) {
+                return None;
+            }
             return index
-                .is_live(Signature::of(&summaries[id]), id)
+                .is_live(stored.signature(id), id)
                 .then_some(Revalidated {
                     found: Some(id),
                     checks: self.checks,
@@ -306,17 +337,17 @@ impl<const N: usize> PreparedLookup<N> {
         // Every old live ID was tested by the snapshot (or safely filtered).
         // Retirements remove choices; only subsequent admissions can add one.
         let mut checks = self.checks;
-        let word = self.word;
+        let query = &self.query;
         let found = index
             .find_from(
-                Signature::of(&self.summary),
-                Coordinates::of(&self.summary),
+                Signature::of(&query.core),
+                Coordinates::of(&query.core),
                 self.watermark,
                 |id| {
                     checks += 1; // bounded above before this scan
-                    let rejected = prefilter.rejects(bits[id], word);
+                    let rejected = prefilter.rejects(bits[id], query.word);
                     session.forward(rejected);
-                    Ok(!rejected && summaries[id].contains(&self.summary))
+                    Ok(!rejected && stored.contains(id, query))
                 },
             )
             .ok()?;

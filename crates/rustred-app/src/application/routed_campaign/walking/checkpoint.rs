@@ -1925,6 +1925,59 @@ mod tests {
         fixture.rewrite_section::<1>(Section::Index, |buckets| {
             buckets[0][2]["orthant"] = Value::Null;
         });
+        // Each indexed candidate appears once: retiring a repeated ID would
+        // release its compact summary slot twice mid-walk. Live candidates 0
+        // and 2 sit in different signature groups; list 0 in 2's group too.
+        let set_group_of_2 = |buckets: &mut Value, ids: [u64; 2], len: u64| {
+            let indexed = &mut buckets[0][2]["indexed"];
+            let group = indexed["groups"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|group| {
+                    group["blocks"][0]["ids"].as_array().unwrap()[..2].contains(&json!(2))
+                })
+                .unwrap();
+            let old = group["live"].as_u64().unwrap();
+            group["blocks"][0]["ids"][0] = json!(ids[0]);
+            group["blocks"][0]["ids"][1] = json!(ids[1]);
+            group["blocks"][0]["len"] = json!(len);
+            group["live"] = json!(len);
+            indexed["live"] = json!(indexed["live"].as_u64().unwrap() + len - old);
+        };
+        fixture.rewrite_section::<1>(Section::Index, |buckets| set_group_of_2(buckets, [0, 2], 2));
+        assert!(
+            fixture
+                .resume::<1>()
+                .err()
+                .unwrap()
+                .contains("duplicate checkpoint index ID")
+        );
+        fixture.rewrite_section::<1>(Section::Index, |buckets| set_group_of_2(buckets, [2, 0], 1));
+        // An indexed candidate must belong to its bucket's (phase, owner).
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[2]["phase"] = json!("Route");
+        });
+        assert!(
+            fixture
+                .resume::<1>()
+                .err()
+                .unwrap()
+                .contains("invalid checkpoint owner bucket")
+        );
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[2]["phase"] = json!("Apply");
+        });
+        // A transport record outside the compact queue range (finite
+        // coordinates above 65534) is refused explicitly, never truncated.
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([65_535]);
+        });
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains("compact queue range"), "{error}");
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([3]);
+        });
         fixture.rewrite_bytes(Section::Nodes, |bytes| bytes[12] ^= 1); // semantics
         assert!(
             fixture

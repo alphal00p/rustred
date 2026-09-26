@@ -306,6 +306,15 @@ impl AggregateIndex {
         Ok(best)
     }
 
+    /// Every indexed (live) candidate ID, in group/block order.
+    pub(super) fn for_each_id(&self, mut f: impl FnMut(usize)) {
+        for group in &self.groups {
+            for block in &group.blocks {
+                block.ids().iter().for_each(|&id| f(id));
+            }
+        }
+    }
+
     pub(super) fn is_live(&self, signature: Signature, id: usize) -> bool {
         self.positions.get(&signature).is_some_and(|&position| {
             let blocks = &self.groups[position].blocks;

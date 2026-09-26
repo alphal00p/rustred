@@ -83,14 +83,33 @@ impl<const N: usize> LinearSemantic<N> {
     }
 
     pub fn assert_same_state(&self, queue: &Queue<N>) {
-        assert_eq!(self.domains, queue.domains);
-        assert_eq!(self.summaries, queue.summaries);
-        assert_eq!(self.exact, queue.exact);
+        assert!(
+            self.domains
+                .iter()
+                .map(|domain| domain.as_ref().clone())
+                .eq(queue.domains.iter().map(CompactDomain::expand))
+        );
+        assert_eq!(self.exact.len(), queue.exact.len());
+        for (domain, &id) in &self.exact {
+            let compact = CompactDomain::try_from_domain(domain).unwrap();
+            let key = queue.exact.key(&compact);
+            assert_eq!(queue.exact.get(key, &compact, &queue.domains), Ok(id));
+        }
         assert_eq!(self.buckets.len(), queue.by_owner.len());
+        let mut live = vec![false; self.domains.len()];
         for (key, bucket) in &self.buckets {
             let indexed = &queue.by_owner[key];
             assert_eq!(bucket.ids, indexed.candidate_ids());
             assert_eq!(bucket.orthant, indexed.orthant);
+            bucket.ids.iter().for_each(|&id| live[id] = true);
+        }
+        // Exactly the live candidates hold a summary, equal to the native one.
+        assert_eq!(self.summaries.len(), queue.summaries.ids());
+        for (id, summary) in self.summaries.iter().enumerate() {
+            assert_eq!(!queue.summaries.is_released(id), live[id]);
+            if live[id] {
+                assert_eq!(*queue.summaries.get(id), CompactSummary::from_core(summary));
+            }
         }
         assert_eq!(
             queue.next, 0,

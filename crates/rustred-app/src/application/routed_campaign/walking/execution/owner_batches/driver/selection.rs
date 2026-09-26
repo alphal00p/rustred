@@ -87,7 +87,7 @@ pub(super) fn choose<const N: usize>(
             key,
             local_id: id,
             ticket,
-            domain: bucket.state.queue.domains[id].clone(),
+            domain: bucket.state.queue.domain_arc(id),
         });
         walk.last_key = Some(key);
         counts.insert(key, count + 1);

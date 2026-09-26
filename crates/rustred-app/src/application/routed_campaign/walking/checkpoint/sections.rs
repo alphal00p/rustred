@@ -8,12 +8,11 @@ use super::super::{
     diagnostics::{OptionalCounts, OptionalRefusals},
     execution::streams::Streams,
     physical_parts::Progress as PhysicalProgress,
-    queue::{Domain, QueueMetadata, SortedBuckets, StoredBuckets},
+    queue::{CompactDomain, Domain, QueueMetadata, SortedBuckets, StoredBuckets},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, Write};
-use std::sync::Arc;
 
 pub(super) const MAGIC: [u8; 4] = *b"RRW5";
 pub(super) const HEADER_BYTES: usize = 32;
@@ -287,19 +286,37 @@ pub(super) fn read_edges(
     Ok(())
 }
 
-// ---- domains: consecutive bincode records -------------------------------
+// ---- domains: consecutive bincode records of the transport `Domain` ------
+// The queue keeps compact images in RAM; each record is expanded to write and
+// range-checked back into a compact image on read, so the bytes are those of
+// the historical `Domain<N>` encoding.
 pub(super) fn write_domains<const N: usize>(
     out: &mut (impl Write + ?Sized),
     identity: &Identity,
-    domains: &[Arc<Domain<N>>],
+    domains: &[CompactDomain<N>],
     first: usize,
 ) -> Result<(), String> {
-    let count = domains.len().saturating_sub(first);
-    out.write_all(&Header::new(Tag::Domains, identity, count, first)?.encode())
+    let records = domains.get(first..).unwrap_or_default();
+    write_domain_records(
+        out,
+        identity,
+        first,
+        records.iter().map(CompactDomain::expand),
+    )
+}
+/// Any transport records, including ones the compact queue would refuse
+/// (corruption tests write those to exercise the restore validators).
+pub(super) fn write_domain_records<const N: usize>(
+    out: &mut (impl Write + ?Sized),
+    identity: &Identity,
+    first: usize,
+    records: impl ExactSizeIterator<Item = Domain<N>>,
+) -> Result<(), String> {
+    out.write_all(&Header::new(Tag::Domains, identity, records.len(), first)?.encode())
         .map_err(io_error)?;
     let mut out = io::BufWriter::with_capacity(65536, out);
-    for domain in &domains[first..] {
-        bincode::serde::encode_into_std_write(domain.as_ref(), &mut out, bincode_config())
+    for domain in records {
+        bincode::serde::encode_into_std_write(&domain, &mut out, bincode_config())
             .map_err(io_error)?;
     }
     out.flush().map_err(io_error)
@@ -309,7 +326,30 @@ pub(super) fn read_domains<const N: usize>(
     identity: &Identity,
     first: usize,
     count: usize,
+    out: &mut Vec<CompactDomain<N>>,
+) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, |domain| {
+        CompactDomain::restore(&domain)
+    })
+}
+/// The transport records as written, without the compact range check.
+#[cfg(test)]
+pub(super) fn read_domain_records<const N: usize>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
     out: &mut Vec<Domain<N>>,
+) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, Ok)
+}
+fn decode_domains<const N: usize, T>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
+    out: &mut Vec<T>,
+    convert: impl Fn(Domain<N>) -> Result<T, String>,
 ) -> Result<(), String> {
     let header = Header::parse(bytes)?;
     let count = header.expect(Tag::Domains, identity, Some(count), Some(first))?;
@@ -320,7 +360,7 @@ pub(super) fn read_domains<const N: usize>(
             bincode::serde::decode_from_slice(&bytes[offset..], bincode_config())
                 .map_err(|e| format!("invalid checkpoint domain record: {e}"))?;
         offset += used;
-        out.push(domain);
+        out.push(convert(domain)?);
     }
     if offset != bytes.len() {
         return Err("checkpoint domain segment has trailing bytes".into());

@@ -236,8 +236,13 @@ fn initialize<const N: usize>(
     for (key, bucket) in &mut walk.buckets {
         bucket.finish_initial(request)?;
         if request.reuse_initial_d_bands {
-            let index =
-                InitialOverlapIndex::from_initial(&bucket.state.queue.domains, cancellation);
+            let index = InitialOverlapIndex::from_initial(
+                &bucket
+                    .state
+                    .queue
+                    .expand_prefix(bucket.state.queue.domains.len()),
+                cancellation,
+            );
             bucket.state.initial_overlap_report = Some(index.build_report());
             walk.overlaps.insert(*key, index);
         }
