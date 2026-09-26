@@ -378,3 +378,12 @@ pass at every commit; new tests accompany each package. Push to
   700 GB guard; user stops the old run themselves. Branch `fable_5_1` created
   from `main` at `100e990f`; baseline tests 687/0/4; four-family baselines
   recorded with the frozen binary.
+- 2026-09-26 12:28 UTC: at the user's request (credits running out) an interim
+  campaign was launched with the validated 183-query input (plan-v2, seven
+  helpers bounded), the existing Ready policy and the frozen binary
+  `32fdec09...`: `campaigns/five-loop-qcd-feynman-d9d10`, run
+  `20260926T122852.894005Z`, 50 workers on CPUs 128-177, 700 GB guard, 4 h
+  checkpoints, in Zellij tab `fable_5_1`. Packages A, D, E committed; B and C
+  on branches `fable_5_1-sched` / `fable_5_1-ckpt` (pushed, unmerged);
+  single-owner pilot running under `TMP/qcd-feynman-d9d10-pilot-hot-owner/`.
+  Handoff: `FABLE_HANDOFF.md`.
