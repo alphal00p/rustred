@@ -324,3 +324,61 @@ Follow design sections 1, 2, 3, 7 in that order; each is self-contained.
   `local_dispatch_frontier` records means a helper with unbounded positive
   power on an owner with >= 8 active lines (see section 2 of
   `TMP/qcd-feynman-d9d10-input.dcgP73/RESULTS.md`).
+
+## 8. Second session (2026-09-26, 15:25 UTC onward): wave 2, upgrade path, coordinator review
+
+Everything here is measured unless marked as an estimate. No ETA, no closure.
+
+### 8.1 The v2 campaign (read-only monitoring)
+- `campaigns/five-loop-qcd-feynman-d9d10-v2`, run `20260926T151353.794886Z`,
+  binary 102adcc3, W100 Ready on CPUs 28-127. At 6.0 h: frontiers 0, 8/67
+  roots closed, max scheduled rank 18, 13.1M completions, 14.7M pending,
+  RSS 191 GB; pending growth per completion per 30 min window
+  1.44, 0.79, 1.69, 1.00, 0.77, 1.52, 1.92, 1.02, 1.14, 0.79, 0.40.
+- First periodic CP5 save (generation 3, 19:17 UTC): 16.7 GB, 110 s
+  (records 10.5 GB JSONL, edges 3.7 GB, domains 2.0 GB). A ZFS block clone
+  of exactly the files `latest.json` references is in
+  `TMP/v2-checkpoint-copy-gen3/` (provenance in `TMP/v2-checkpoint-copy-gen3.meta/`);
+  it is the fixture for the production restore test (design C 7.1).
+- Coordinator: ~93% busy (commit 47-53%, preparation 22-30%), 4-12 of 67
+  inspectors computing, escrow full; commit cost per request grows with the
+  queue (2.6-2.9 us below 10M domains, 3.8-4.3 us above 20M). Design review:
+  `docs/research/fable51_coordinator_relief_design_2026-09-26.md`.
+- The original `five-loop-dependency-closure` campaign is no longer running
+  (stopped by the user); the interim `five-loop-qcd-feynman-d9d10` still runs.
+
+### 8.2 Landed on `fable_5_1` (pushed at 88ae6fbd, later commits local until the wave-2 merge)
+- `rustred walk-semantics-version` (read-only probe) and
+  `production_saved_owner_campaign.py --resume --upgrade-executable NEW`
+  (dry run without `--start`; with `--start` checks liveness of every run,
+  checkpoint format/semantics against the probe, freezes NEW, rewrites only
+  the executable in `bin/steering.json`, keeps a history for rollback).
+  Procedure: `docs/shared_owner_campaign_driver.md`, section "Resuming onto a
+  semantics-compatible binary".
+- Audit accepts helper-aliased initial queries; the drained single-owner
+  Ordered pilot (`TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/hot-owner-physics-ordered`,
+  5.79M native inspections, max rank 8, 3.8 h at W6, 66.7 GB peak) audits PASS.
+
+### 8.3 Wave 2 branches (each implemented, 3-lens reviewed, 2-vote verified, fixed)
+| Branch | Content | Key measurements |
+|---|---|---|
+| `fable_5_1-c2-sidecar` | C1 records sidecar, ledger/closure restore cross-check | peak RSS FG -74%, BMW -72%; ~9.5 KB -> <=1 KB RSS per committed domain; resume 102adcc3 -> new and rollback new -> 102adcc3 pass |
+| `fable_5_1-c2-compact` | C2 compact domains (96 B) and summaries (176 B slab), digest exact index verified on hit | four-loop + five-loop N=15 Ordered strict identical to 102adcc3 |
+| `fable_5_1-c2-csr` | C3 u32 CSR edges + append log, review #11 | 20M nodes / 400M edges: 4.6 B/edge, refresh 3.0 s vs 87.4 s, restore rebuild 8.7 s |
+| `fable_5_1-b2` | B 1(a) Ready multi-prefix gate (in-process exact test, fresh-process harness on X and five-loop), scheduler review follow-ups, heartbeat duty fix | X identical counts after pause/resume; five-loop +0.20% events |
+Integration branch `fable_5_1-wave2` (merge order C1, C2, C3, B2) is being built
+in `.claude/worktrees/agent-ade877816b107b1cf`; the gates are in the
+integration report (to be added here).
+
+### 8.4 Next (in order)
+1. Integration gates, production restore test on the gen-3 copy, W50
+   five-loop and four-loop profiling (old 102adcc3 vs merged), merge to
+   `fable_5_1`, push.
+2. Pause/resume of the v2 campaign onto the merged binary (user action):
+   Ctrl-C in its pane, wait for exit 4, then the dry run and `--start` of
+   `--resume --upgrade-executable <merged binary>`.
+3. Coordinator relief items 1a/1b (telemetry diet, per-slot wake-ups),
+   then 2 (helper-final hit verdicts) per the design note; measurement
+   protocol M1-M4 first.
+4. C follow-ups (checkpoint review #2 segment compaction, #8, #9, #10, #12,
+   #14-#18), scale tests C 7.2/7.3, hardening of the two timing-flaky tests.
