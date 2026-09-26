@@ -378,18 +378,56 @@ fn exact_index_survives_injected_digest_collisions() {
         assert_eq!(finite.domains, finite_colliding.domains);
         assert_eq!(finite.exact_hits, finite_colliding.exact_hits);
         assert!(reference.exact_hits > 0);
-        // Restore rebuilds the index under the same key function.
-        let mut restored_index = ExactIndex::<2>::new();
-        restored_index.set_key_function(key);
-        for (id, domain) in colliding.domains.iter().enumerate() {
-            let key = restored_index.key(domain);
-            let miss = restored_index
-                .get(key, domain, &colliding.domains)
-                .unwrap_err();
-            restored_index.try_reserve(key, miss).unwrap();
-            restored_index.insert(key, id);
+        // The production restore path rebuilds the index under the same key
+        // function: distinct domains sharing a digest are not duplicates, and
+        // a genuinely repeated domain still is.
+        let image = serde_json::to_value(&colliding).unwrap();
+        let restore = |image: &serde_json::Value| {
+            let mut exact = ExactIndex::new();
+            exact.set_key_function(key);
+            Queue::<2>::restore_image(serde_json::from_value(image.clone()).unwrap(), exact)
+        };
+        let mut restored = restore(&image).unwrap();
+        assert_eq!(restored.domains, colliding.domains);
+        assert_eq!(restored.exact, colliding.exact);
+        let mut repeated = image.clone();
+        let first = repeated[1][0].clone();
+        repeated[1].as_array_mut().unwrap().push(first);
+        let error = restore(&repeated).err().unwrap();
+        assert!(
+            error.contains("duplicate checkpoint exact domain"),
+            "{error}"
+        );
+        // Restored serial and helper-prepared admissions (whose digest the
+        // commit reuses) continue under collisions exactly like uncolliding
+        // serial and prepared references, over seen (exact hit) and new
+        // proposals. A revalidated prepared scan may do more or less work
+        // than a serial one, so prepared counters match the prepared reference.
+        let mut reference_prepared: Queue<2> =
+            serde_json::from_value(serde_json::to_value(&reference).unwrap()).unwrap();
+        for batch in stream[11_000..13_000].chunks(64) {
+            let tokens = parallel_prepare(&colliding, batch, 2);
+            let reference_tokens = parallel_prepare(&reference_prepared, batch, 2);
+            for ((request, token), reference_token) in
+                batch.iter().zip(tokens).zip(reference_tokens)
+            {
+                let expected = reference.admit(request.clone());
+                assert_eq!(restored.admit(request.clone()), expected, "{name}");
+                assert_eq!(colliding.admit_prepared(token), expected, "{name}");
+                assert_eq!(
+                    reference_prepared.admit_prepared(reference_token),
+                    expected,
+                    "{name}"
+                );
+            }
         }
-        assert_eq!(restored_index, colliding.exact);
+        same_state(&restored, &colliding);
+        for (queue, reference) in [(&restored, &reference), (&colliding, &reference_prepared)] {
+            assert_eq!(queue.domains, reference.domains);
+            assert_eq!(queue.exact_hits, reference.exact_hits);
+            assert_eq!(queue.containment_checks, reference.containment_checks);
+            assert_eq!(queue.exact.len(), reference.exact.len());
+        }
     }
 }
 

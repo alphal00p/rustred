@@ -134,6 +134,18 @@ impl<const N: usize> Queue<N> {
         buckets: StoredBuckets,
         ledger: Option<StoredLedger>,
     ) -> Result<Self, String> {
+        Self::restore_with_index(m, domains, buckets, ledger, ExactIndex::new())
+    }
+
+    /// `restore_from_parts` into an empty exact index, whose key function a
+    /// test may have replaced to restore under forced digest collisions.
+    fn restore_with_index(
+        m: Metadata,
+        domains: Vec<CompactDomain<N>>,
+        buckets: StoredBuckets,
+        ledger: Option<StoredLedger>,
+        exact: ExactIndex<N>,
+    ) -> Result<Self, String> {
         if m.next > domains.len()
             || domains.len() > m.max_domains
             || m.containment_retired_candidates > domains.len()
@@ -141,6 +153,7 @@ impl<const N: usize> Queue<N> {
             return Err("invalid checkpoint queue counters".into());
         }
         let mut q = Queue::new(m.max_domains, m.max_checks);
+        q.exact = exact;
         q.exact
             .try_reserve_total(domains.len())
             .map_err(|_| "checkpoint exact index allocation")?;
@@ -259,19 +272,27 @@ impl<const N: usize> Serialize for Queue<N> {
             .serialize(s)
     }
 }
-impl<'de, const N: usize> Deserialize<'de> for Queue<N> {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let (m, domains, buckets, ledger): (
-            Metadata,
-            Vec<Domain<N>>,
-            StoredBuckets,
-            Option<StoredLedger>,
-        ) = Deserialize::deserialize(d)?;
+/// Decoded whole-queue JSON image.
+type Image<const N: usize> = (
+    Metadata,
+    Vec<Domain<N>>,
+    StoredBuckets,
+    Option<StoredLedger>,
+);
+impl<const N: usize> Queue<N> {
+    /// Restore a whole-queue image into `exact` (see `restore_with_index`).
+    pub(super) fn restore_image(image: Image<N>, exact: ExactIndex<N>) -> Result<Self, String> {
+        let (m, domains, buckets, ledger) = image;
         let domains = domains
             .iter()
             .map(CompactDomain::restore)
-            .collect::<Result<_, _>>()
-            .map_err(serde::de::Error::custom)?;
-        Self::restore_from_parts(m, domains, buckets, ledger).map_err(serde::de::Error::custom)
+            .collect::<Result<_, _>>()?;
+        Self::restore_with_index(m, domains, buckets, ledger, exact)
+    }
+}
+impl<'de, const N: usize> Deserialize<'de> for Queue<N> {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Self::restore_image(Deserialize::deserialize(d)?, ExactIndex::new())
+            .map_err(serde::de::Error::custom)
     }
 }
