@@ -7,9 +7,13 @@ representative; Apply/Route native statistics must be internally consistent
 (zero problems, zero missing routes, successor sums); the queue, delegation
 ledger and worker pool must be drained; frontiers must be zero; initial and
 partial-anchor obligations must be discharged; the input queries must be
-preserved. Violations are collected, written to `audit.json` and cause a
-nonzero exit. This checks recorded native completion and explicit dependencies
-only; it does not replay IBP identities or certify family closure.
+preserved: `inputs` follows the query document order, each distinct initial
+record equals the first query naming it (the one that admitted it), and a later
+query may only alias into an earlier same-owner initial record that
+syntactically contains it (helpers-first query documents). Violations are
+collected, written to `audit.json` and cause a nonzero exit. This checks
+recorded native completion and explicit dependencies only; it does not replay
+IBP identities or certify family closure.
 """
 from __future__ import annotations
 
@@ -37,6 +41,7 @@ POOL_ZERO = ("active_workers", "occupied_native_slots", "dispatched_uncommitted_
              "finished_uncommitted_domains", "worker_buffered_events",
              "worker_buffered_logical_bytes", "completed_escrow_entries")
 TOP_ZERO = ("queued_nodes", "frontiers", "failed_nodes", "pending_descendant_domains")
+POWER_FIELDS = ("max_positive_power", "min_power_difference", "max_power_difference")
 
 
 class Stream:
@@ -214,6 +219,71 @@ def check_native_stats(audit, phase, stats, identity):
     return numeric
 
 
+def within(limit, value, sign=1):
+    """Rust `limit.is_none_or(|a| value.is_some_and(|b| sign * b <= sign * a))`; None is unbounded."""
+    return limit is None or (value is not None and sign * value <= sign * limit)
+
+
+def optional(value, low, high):
+    """None, or a JSON integer (not a bool) in [low, high)."""
+    return value is None or (type(value) is int and low <= value < high)
+
+
+def parsed_domain(domain, rank_field, arity):
+    """(lower, upper, rank, powers) as the walker's query parser reads `domain`, or None if it rejects it.
+
+    Mirrors matching/input.rs `parse`: u64 lower and u64-or-null upper bounds of
+    owner arity with lower <= upper, an explicit u32-or-null rank, and power
+    bounds with only the known keys (a missing key is None): a u64
+    max_positive_power and i64 differences with min <= max
+    (`DomainPowerBounds::validate`). Walker records always write every key.
+    """
+    lower, upper, powers = domain.get("lower"), domain.get("upper"), domain.get("power_bounds")
+    if not (rank_field in domain and isinstance(powers, dict) and set(powers) <= set(POWER_FIELDS)
+            and all(isinstance(axis, list) and len(axis) == arity for axis in (lower, upper))):
+        return None
+    rank, (positive, least, most) = domain[rank_field], (powers.get(field) for field in POWER_FIELDS)
+    if not (all(value is not None and optional(value, 0, 2 ** 64) for value in lower)
+            and all(optional(value, 0, 2 ** 64) for value in upper)
+            and all(high is None or low <= high for low, high in zip(lower, upper))
+            and optional(rank, 0, 2 ** 32) and optional(positive, 0, 2 ** 64)
+            and optional(least, -2 ** 63, 2 ** 63) and optional(most, -2 ** 63, 2 ** 63)
+            and (least is None or most is None or least <= most)):
+        return None
+    return lower, upper, rank, (positive, least, most)
+
+
+def alias_contains(record, query):
+    """Whether a later initial query may alias into an earlier admitted initial record.
+
+    Mirrors the walker's syntactic `Domain::contains` (walking/queue.rs): same
+    owner, `rank_contains`, `DomainPowerBounds::contains` and per-axis lower and
+    upper bounds, None meaning unbounded, on a record carrying every walker
+    field and a query the walker's parser accepts (`parsed_domain`). Initial
+    queries pass through the full `Queue::admit`: exact key, the dominant full
+    orthant (the lower=0, upper=None, unconstrained-power special case of this
+    predicate) or general containment, so the target need not be a full
+    orthant. The unlimited lane decides with the stronger `DomainPowerSummary`
+    inclusion; only this sufficient implication is accepted here, so a
+    semantic-only alias (or a query without a `power_bounds` object, which the
+    parser reads as unconstrained) is still reported as a changed query.
+    """
+    owner, powers = record.get("owner"), record.get("power_bounds")
+    if not (isinstance(owner, str) and owner == query.get("owner")
+            and isinstance(powers, dict) and set(powers) == set(POWER_FIELDS)):
+        return False
+    outer, inner = parsed_domain(record, "rank", len(owner)), parsed_domain(query, "max_numerator_rank", len(owner))
+    if outer is None or inner is None:
+        return False
+    (lower, upper, rank, powers), (inner_lower, inner_upper, inner_rank, inner_powers) = outer, inner
+    return (within(rank, inner_rank)
+            and within(powers[0], inner_powers[0])
+            and within(powers[1], inner_powers[1], -1)
+            and within(powers[2], inner_powers[2])
+            and all(bound <= inner for bound, inner in zip(lower, inner_lower))
+            and all(within(bound, inner) for bound, inner in zip(upper, inner_upper)))
+
+
 def locate(run, queries=None, command=None, receipt=None):
     """Find the native argv, query document and resource receipt for one run directory."""
     run = Path(run)
@@ -283,7 +353,9 @@ def _audit(run, located, audit, expect_schema):
     arity = len(queries[0]["owner"])
     check(all(len(query["owner"]) == arity for query in queries), "queries must share one owner arity")
     check(arity <= 62, "owner arity above 62 is not supported by the bounded audit")
-    initial_count = len(queries)
+    # Aliased queries share a record, so the distinct initial records are a
+    # prefix of at most one record per query; retain that bounded prefix.
+    query_count = len(queries)
     owner_phase = GrowingArray("Q", SENTINEL)
     kinds = GrowingArray("B", 0)
     direct = GrowingArray("Q", SENTINEL)
@@ -329,7 +401,7 @@ def _audit(run, located, audit, expect_schema):
         ranks[rank] += 1
         kinds[identity] = code
         owner_phase[identity] = ((int(owner, 2) << 1) | int(phase == "Route")) if valid_owner else SENTINEL
-        if identity < initial_count:
+        if identity < query_count:
             initial[identity] = row
         if code == DELEGATED:
             check(row.get("local_inspection_finished") is False, f"record {identity}: alias claims local inspection")
@@ -376,6 +448,15 @@ def _audit(run, located, audit, expect_schema):
     check(count == len(kinds) and all(kinds[index] != 0 for index in range(len(kinds))),
           "record ids are not a contiguous 0..n-1 set")
     total = len(kinds)
+    # The walker admits queries and records "inputs" in query document order
+    # (checked below); a later query may alias into an admitted record, so the
+    # first query naming a record is the one that admitted it.
+    inputs = top.get("inputs")
+    inputs = [(entry["id"], entry["domain"]) for entry in inputs] if isinstance(inputs, list) else []
+    admitting = {}
+    for query_id, record in inputs:
+        admitting.setdefault(record, query_id)
+    initial_count = len(admitting)
     # Dependency resolution: aliases point forward to completed native records.
     resolved = GrowingArray("Q", SENTINEL)
     resolved.ensure(max(total - 1, 0))
@@ -436,16 +517,23 @@ def _audit(run, located, audit, expect_schema):
     check(top.get("max_scheduled_finite_rank") == finite, "max_scheduled_finite_rank mismatch")
     check(top.get("initial_entry_domains_total") == top.get("initial_entry_domains_inspected")
           == top.get("initial_entry_domains_published") == initial_count, "initial entry obligations not discharged")
-    inputs = top.get("inputs")
-    inputs = {entry["id"]: entry["domain"] for entry in inputs} if isinstance(inputs, list) else {}
-    check(len(inputs) == initial_count and set(inputs) == {query["id"] for query in queries}
-          and set(inputs.values()) == set(initial), "inputs do not map every query to an initial record")
+    mapping = dict(inputs)
+    check(len(inputs) == len(mapping) == query_count and set(mapping) == {query["id"] for query in queries}
+          and all(type(record) is int for record in admitting) and list(admitting) == list(range(initial_count)),
+          "inputs do not map every query to an initial record")
+    check([query_id for query_id, _ in inputs] == [query["id"] for query in queries],
+          "inputs are not in query document order")
+    aliased = 0
     for query in queries:
-        row = initial.get(inputs.get(query["id"]))
+        record = mapping.get(query["id"])
+        row = initial.get(record) if type(record) is int and record < initial_count else None
         if not check(row is not None, f"query {query['id']}: no initial record"):
             continue
         check(row.get("record_kind") == "native_inspection" and row.get("phase") == "Apply",
               f"query {query['id']}: initial record is not an Apply native inspection")
+        if admitting[record] != query["id"] and alias_contains(row, query):
+            aliased += 1
+            continue
         for field in ("owner", "lower", "upper", "power_bounds"):
             check(row.get(field) == query.get(field), f"query {query['id']}: {field} changed")
         check(row.get("rank") == query.get("max_numerator_rank"), f"query {query['id']}: rank changed")
@@ -518,7 +606,8 @@ def _audit(run, located, audit, expect_schema):
         "logical_records": total, "native_inspections": native_count, "native_by_phase": dict(native_phases),
         "logical_by_phase": dict(phases), "record_kinds": dict(kind_counts),
         "aliases": kind_counts["delegated_not_inspected"], "partial_initial_inspections": kind_counts["partial_initial_overlap_inspection"],
-        "initial_queries": initial_count, "out_of_order_records": out_of_order,
+        "initial_queries": query_count, "distinct_initial_records": initial_count, "aliased_queries": aliased,
+        "out_of_order_records": out_of_order,
         "rank_histogram": {str(rank): value for rank, value in sorted(ranks.items(), key=lambda item: (item[0] is None, item[0]))},
         "apply_stats": dict(apply_stats), "route_stats": dict(route_stats),
         "events": top.get("events"), "max_scheduled_finite_rank": top.get("max_scheduled_finite_rank"),
