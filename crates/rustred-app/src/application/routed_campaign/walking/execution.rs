@@ -263,6 +263,22 @@ impl<const N: usize> State<N> {
     pub(super) fn refresh_closure(&self, cancellation: &AtomicBool, force: bool) {
         self.closure.borrow_mut().refresh(cancellation, force);
     }
+    /// The flag that may cut the closure scans behind the final report (the
+    /// final save's and the report's own). A walk that exhausted its worklist
+    /// without pausing or failing annotates every record from that snapshot,
+    /// so a stop request racing its last publication must not leave them
+    /// stale; a pause or an interrupted walk keeps the run's cancellation.
+    pub(super) fn report_cancellation<'a>(&self, cancellation: &'a AtomicBool) -> &'a AtomicBool {
+        static NEVER: AtomicBool = AtomicBool::new(false);
+        if self.error.is_none()
+            && !self.checkpoint_paused
+            && self.published_count() == self.queue.domains.len()
+        {
+            &NEVER
+        } else {
+            cancellation
+        }
+    }
     fn dependency_source(&self) -> usize {
         self.streams
             .active
