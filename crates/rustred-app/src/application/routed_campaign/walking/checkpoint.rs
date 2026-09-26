@@ -1735,6 +1735,16 @@ mod tests {
         fixture.rewrite_section::<1>(Section::Index, |buckets| {
             buckets[0][2]["orthant"] = Value::Null;
         });
+        // A transport record outside the compact queue range (finite
+        // coordinates above 65534) is refused explicitly, never truncated.
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([65_535]);
+        });
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains("compact queue range"), "{error}");
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([3]);
+        });
         fixture.rewrite_bytes(Section::Nodes, |bytes| bytes[12] ^= 1); // semantics
         assert!(
             fixture

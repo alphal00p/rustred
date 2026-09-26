@@ -320,6 +320,29 @@ pub(super) fn read_domains<const N: usize>(
     count: usize,
     out: &mut Vec<CompactDomain<N>>,
 ) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, |domain| {
+        CompactDomain::restore(&domain)
+    })
+}
+/// The transport records as written, without the compact range check.
+#[cfg(test)]
+pub(super) fn read_domain_records<const N: usize>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
+    out: &mut Vec<Domain<N>>,
+) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, Ok)
+}
+fn decode_domains<const N: usize, T>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
+    out: &mut Vec<T>,
+    convert: impl Fn(Domain<N>) -> Result<T, String>,
+) -> Result<(), String> {
     let header = Header::parse(bytes)?;
     let count = header.expect(Tag::Domains, identity, Some(count), Some(first))?;
     let mut offset = HEADER_BYTES;
@@ -329,7 +352,7 @@ pub(super) fn read_domains<const N: usize>(
             bincode::serde::decode_from_slice(&bytes[offset..], bincode_config())
                 .map_err(|e| format!("invalid checkpoint domain record: {e}"))?;
         offset += used;
-        out.push(CompactDomain::restore(&domain)?);
+        out.push(convert(domain)?);
     }
     if offset != bytes.len() {
         return Err("checkpoint domain segment has trailing bytes".into());

@@ -7,7 +7,7 @@ use super::super::{
     OwnerDomainWalkSchedulingPolicy,
     delegation::StoredLedger,
     execution::State,
-    queue::{CompactDomain, Domain, StoredBuckets},
+    queue::{Domain, StoredBuckets},
 };
 use super::manifest::{Manifest, Section, SectionRef, Segment, Segmented};
 use super::sections::{self, HEADER_BYTES, Header, Identity, Tag};
@@ -262,9 +262,11 @@ impl Fixture {
                 self.install(section, file, bytes, buckets.len());
             }
             Section::Domains => {
-                let mut domains: Vec<CompactDomain<N>> = Vec::new();
+                // Raw transport records: an earlier edit may have left the
+                // compact range, and the restore validators must see it.
+                let mut domains: Vec<Domain<N>> = Vec::new();
                 for segment in &files {
-                    sections::read_domains(
+                    sections::read_domain_records(
                         &self.read(&segment.file),
                         &identity,
                         segment.first as usize,
@@ -273,10 +275,8 @@ impl Fixture {
                     )
                     .unwrap();
                 }
-                let expanded: Vec<Domain<N>> = domains.iter().map(CompactDomain::expand).collect();
-                let mut value = serde_json::to_value(&expanded).unwrap();
+                let mut value = serde_json::to_value(&domains).unwrap();
                 edit(&mut value);
-                // Written as transport records: an edit may leave the compact range.
                 let domains: Vec<Domain<N>> = serde_json::from_value(value).unwrap();
                 let count = domains.len();
                 let mut bytes = Vec::new();
