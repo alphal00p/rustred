@@ -68,6 +68,10 @@ pub(super) struct Store {
     last_stamp: Option<ChangeStamp>,
     verify_seconds: f64,
     pending_events: Vec<Value>,
+    /// Label of a diagnostic pause this process triggered; every later save
+    /// of the session repeats it in the manifest metadata (a free-form
+    /// object, so older readers and older manifests are unaffected).
+    diagnostic_pause: Option<&'static str>,
     #[cfg(test)]
     fail_section: Option<Section>,
     #[cfg(test)]
@@ -280,6 +284,7 @@ impl Store {
             last_stamp: None,
             verify_seconds,
             pending_events,
+            diagnostic_pause: None,
             #[cfg(test)]
             fail_section: None,
             #[cfg(test)]
@@ -346,6 +351,10 @@ impl Store {
     }
     pub(super) fn metadata(&self) -> Option<&Value> {
         self.manifest.as_ref().map(|m| &m.metadata)
+    }
+    /// Label every later save of this session as a diagnostic pause.
+    pub(super) fn mark_diagnostic_pause(&mut self, label: &'static str) {
+        self.diagnostic_pause = Some(label);
     }
     fn effective_interval(&self) -> f64 {
         (self.options.interval_seconds as f64).max(20.0 * self.last_save_seconds)
@@ -751,6 +760,9 @@ impl Store {
             "bytes":manifest.total_bytes(),"new_bytes":new_bytes,"section_seconds":section_seconds,
             "started_unix_time":started_unix_time,"save_seconds":started.elapsed().as_secs_f64(),"duration_seconds":started.elapsed().as_secs_f64()});
         merge(&mut metadata, self.identity_metadata(&executable_first));
+        if let Some(label) = self.diagnostic_pause {
+            metadata["diagnostic_pause"] = json!(label);
+        }
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
         self.last_save_seconds = started.elapsed().as_secs_f64();
@@ -1302,6 +1314,51 @@ mod tests {
         );
         drop(store);
         assert_eq!(fixture.manifest()["metadata"]["paused"], false);
+    }
+
+    #[test]
+    fn diagnostic_pause_label_is_optional_metadata_and_never_inherited() {
+        let mut state = ledger_fixture();
+        let fixture = Fixture::save(&state);
+        // Ordinary saves, like every manifest older binaries wrote, carry no label.
+        assert!(
+            fixture.manifest()["metadata"]
+                .get("diagnostic_pause")
+                .is_none()
+        );
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        drop(store.resume::<1>(&|_| {}).unwrap().unwrap());
+        store.mark_diagnostic_pause("ready-multi-prefix");
+        state.checkpoint_paused = true;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            saved["checkpoint"]["diagnostic_pause"],
+            "ready-multi-prefix"
+        );
+        drop(store);
+        assert_eq!(
+            fixture.manifest()["metadata"]["diagnostic_pause"],
+            "ready-multi-prefix"
+        );
+        // A labelled manifest restores; the resuming session saves unlabelled.
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let resumed = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        let saved = store
+            .save(&resumed, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert!(saved["checkpoint"].get("diagnostic_pause").is_none());
+        drop(store);
+        assert!(
+            fixture.manifest()["metadata"]
+                .get("diagnostic_pause")
+                .is_none()
+        );
     }
 
     #[test]

@@ -30,20 +30,32 @@ impl<const N: usize> State<N> {
         out["publication_policy"] = json!("ready_ticket_stream");
         out["ready_stream_contexts"] =
             json!(usize::from(self.streams.active.is_some()) + self.streams.parked.len());
-        out["ready_accepted_source_prefixes"] = json!(
-            usize::from(
-                self.replay
-                    .as_ref()
-                    .is_some_and(|r| r.accepted_events() > 0)
-            ) + self
-                .streams
-                .parked
-                .iter()
-                .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
-                .count()
-        );
+        out["ready_accepted_source_prefixes"] = json!(self.ready_accepted_source_prefixes());
         out["ready_published_holes"] = json!(self.published_count() - self.queue.next);
         out["ready_prefix_tracking_scope"] = json!("checkpoint-enabled native streams only");
+    }
+    /// Unfinished Ready streams (mounted or parked) whose replay context
+    /// already holds accepted events.
+    pub(in super::super) fn ready_accepted_source_prefixes(&self) -> usize {
+        usize::from(
+            self.replay
+                .as_ref()
+                .is_some_and(|r| r.accepted_events() > 0),
+        ) + self
+            .streams
+            .parked
+            .iter()
+            .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
+            .count()
+    }
+    /// The multi-prefix resume gate's state: at least two positive unfinished
+    /// accepted prefixes plus a published record beyond the contiguous
+    /// watermark (a finished hole). A checkpoint of this state is the one the
+    /// Ready resume-to-exhaustion gate must restore.
+    pub(in super::super) fn ready_multi_prefix_hole(&self) -> bool {
+        self.ready()
+            && self.ready_accepted_source_prefixes() >= 2
+            && self.published_count() > self.queue.next
     }
     /// Failure/cancellation without a checkpoint still retains every accepted
     /// source-local diagnostic, never a fictional completed native inspection.

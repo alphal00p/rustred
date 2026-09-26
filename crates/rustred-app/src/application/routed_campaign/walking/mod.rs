@@ -235,6 +235,47 @@ impl OwnerDomainWalkResult {
 /// and the shard supervisor configuration validate against the same bound.
 pub const MAX_WALK_WORKERS: usize = 256;
 
+/// Correctness-gate seam, not a campaign knob: an environment variable keeps
+/// the frozen campaign argv (validated by the launcher) untouched.
+const DIAGNOSTIC_PAUSE_VARIABLE: &str = "RUSTRED_WALK_DIAGNOSTIC_PAUSE";
+
+/// Force-save and cooperatively pause a checkpointed walk the first time its
+/// state reaches a diagnostic trigger. Read once per walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticPause {
+    /// Ready: at least two unfinished accepted prefixes and a finished hole.
+    ReadyMultiPrefix,
+}
+impl DiagnosticPause {
+    fn from_environment() -> Result<Option<Self>, String> {
+        Self::parse(std::env::var_os(DIAGNOSTIC_PAUSE_VARIABLE).as_deref())
+    }
+    /// Unset or empty disables; an unknown value is refused, never ignored.
+    fn parse(value: Option<&std::ffi::OsStr>) -> Result<Option<Self>, String> {
+        match value {
+            None => Ok(None),
+            Some(value) if value.is_empty() => Ok(None),
+            Some(value) if value == Self::ReadyMultiPrefix.name() => {
+                Ok(Some(Self::ReadyMultiPrefix))
+            }
+            Some(value) => Err(format!(
+                "unsupported {DIAGNOSTIC_PAUSE_VARIABLE} value {value:?}; expected {}",
+                Self::ReadyMultiPrefix.name()
+            )),
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::ReadyMultiPrefix => "ready-multi-prefix",
+        }
+    }
+    fn fires<const N: usize>(self, state: &execution::State<N>) -> bool {
+        match self {
+            Self::ReadyMultiPrefix => state.ready_multi_prefix_hole(),
+        }
+    }
+}
+
 pub fn owner_domain_walk_with_progress(
     request: OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
@@ -264,6 +305,15 @@ pub fn owner_domain_walk_with_progress(
                 "checkpointing requires Ordered or Ready publication",
             ));
         }
+    }
+    let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
+    if diagnostic_pause.is_some()
+        && (request.checkpoint.is_none()
+            || request.publication_policy != OwnerDomainWalkPublicationPolicy::Ready)
+    {
+        return Err(AppError::input(format!(
+            "{DIAGNOSTIC_PAUSE_VARIABLE} requires a checkpointed Ready walk"
+        )));
     }
     if request.apply_subdivision.is_some()
         && request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered
@@ -334,6 +384,9 @@ pub fn owner_domain_walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready {
         admitted["publication_policy"] = json!("ready_ticket_stream");
     }
+    if let Some(pause) = diagnostic_pause {
+        admitted["diagnostic_pause"] = json!(pause.name());
+    }
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.matching.max_queries);
         event["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
@@ -341,7 +394,7 @@ pub fn owner_domain_walk_with_progress(
     };
     with_allowances(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
+        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
         _ => unreachable!("admitted arity"),
     }} }
     let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
@@ -408,6 +461,7 @@ fn run<const N: usize>(
     queries: &[matching::input::Query],
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    diagnostic_pause: Option<DiagnosticPause>,
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
     let mut checkpoint = checkpoint::Store::open(request).map_err(AppError::input)?;
@@ -603,6 +657,7 @@ fn run<const N: usize>(
                     observer(event);
                 }
             }
+            let mut diagnostic_paused = false;
             execution::run_checkpointed(
                 &mut state,
                 reducer,
@@ -610,6 +665,29 @@ fn run<const N: usize>(
                 cancellation,
                 observer,
                 &mut |state| {
+                    if let Some(pause) = diagnostic_pause
+                        && !diagnostic_paused
+                        && pause.fires(state)
+                    {
+                        // Persist exactly the triggering state, then pause the
+                        // way a stop request does; the walk's own forced save
+                        // after cancellation carries the same label.
+                        diagnostic_paused = true;
+                        store.mark_diagnostic_pause(pause.name());
+                        if let Some(event) =
+                            store.save(state, &inputs, &input_frontiers, true, observer)?
+                        {
+                            observer(event);
+                        }
+                        let mut event = json!({"event":"diagnostic_pause","operation":"owner_domain_walk",
+                            "diagnostic_pause":pause.name(),"committed_domains":state.published_count(),
+                            "contiguous_publication_watermark":state.queue.next,"committed_events":state.events,
+                            "completed_native_inspections":state.completed,"family_closure_claim":false});
+                        state.add_ready_progress(&mut event);
+                        observer(event);
+                        cancellation.store(true, std::sync::atomic::Ordering::Release);
+                        return Ok(());
+                    }
                     if let Some(event) =
                         store.save(state, &inputs, &input_frontiers, false, observer)?
                     {
@@ -839,6 +917,25 @@ mod policy_tests {
             };
             assert!(error.to_string().contains(expected), "{error}");
         }
+    }
+
+    #[test]
+    fn diagnostic_pause_parses_one_known_trigger_and_refuses_unknown_values() {
+        use std::ffi::OsStr;
+        assert_eq!(DiagnosticPause::parse(None), Ok(None));
+        assert_eq!(DiagnosticPause::parse(Some(OsStr::new(""))), Ok(None));
+        assert_eq!(
+            DiagnosticPause::parse(Some(OsStr::new("ready-multi-prefix"))),
+            Ok(Some(DiagnosticPause::ReadyMultiPrefix))
+        );
+        for value in ["ready", "READY-MULTI-PREFIX", "ready-multi-prefix "] {
+            let error = DiagnosticPause::parse(Some(OsStr::new(value))).unwrap_err();
+            assert!(error.contains(DIAGNOSTIC_PAUSE_VARIABLE), "{error}");
+        }
+        // Only a Ready walk with a finished hole beyond two accepted prefixes
+        // fires; an ordinary Ordered state never does.
+        let state = execution::State::new(Queue::<1>::new(4, None), 0, None);
+        assert!(!DiagnosticPause::ReadyMultiPrefix.fires(&state));
     }
 
     #[test]
