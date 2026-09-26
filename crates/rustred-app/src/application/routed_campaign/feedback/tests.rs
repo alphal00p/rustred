@@ -5,8 +5,8 @@ use rustred::solver::{
     SectorStats, Term,
 };
 use rustred::{family::IntegralFamily, reduction::ReductionLimits, sector::OrderingPolicy};
-mod fixed;
 mod entry;
+mod fixed;
 
 const K1: &str = r#"
 schema="rustred.project.toml.v1"

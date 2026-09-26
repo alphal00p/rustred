@@ -46,8 +46,8 @@ pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, Artifac
 pub(crate) use scope::RootDomainError;
 pub use scope::TotalExcessProofScope;
 pub(crate) use source_port::ReplayedOriginalDomain;
-pub(crate) use source_port::sign_partition_with_limits;
 pub(crate) use source_port::prove_wide_descent_with_limits;
+pub(crate) use source_port::sign_partition_with_limits;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
     SourcePortInstallEvent, SourcePortLimits, SourcePortReplayedRule, SourcePortRuleReplayAudit,
