@@ -266,7 +266,9 @@ campaign or claims closure.
   events within 2% of the baseline. `--baseline OLDOUT/baseline` reuses an
   earlier run's baseline only when its argv matches apart from transport
   options and `OLDOUT/report.json` records a 0 exit under the same binary
-  SHA-256. The campaign supervisor never passes the variable on.
+  SHA-256. Neither campaign supervisor (`shared_owner_campaign.py`,
+  `rustred campaign shards`) passes the variable on, and the walk refuses
+  it on a `--resume`.
 - [`compare_walk_records.py`](compare_walk_records.py) compares two reports:
   `--mode strict` (Ordered, old vs new binary) demands identical record
   geometry, native/guard/dependency counters and outcomes apart from timing,

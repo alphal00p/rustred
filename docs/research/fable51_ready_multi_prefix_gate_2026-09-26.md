@@ -27,10 +27,14 @@ heartbeats) or paused without draining (`TMP/ready-five-loop-prefix-v3.k1nLpy`).
    exits 4 like a stop request. Saves of that session carry
    `metadata.diagnostic_pause` in the CP5 manifest (free-form metadata: schema
    5 and every older manifest are unchanged; a resumed session saves
-   unlabelled). Unknown values, Ordered walks and walks without a checkpoint
-   are refused. An environment variable keeps frozen campaign argv untouched;
-   the campaign supervisor (`shared_owner_campaign.py`) drops it from the
-   native child's environment, so only a harness that runs the executable
+   unlabelled). Unknown values, Ordered walks, walks without a checkpoint and
+   `--resume` runs are refused with an input error: the trigger is a state
+   predicate that a paused checkpoint still satisfies once restored, so a
+   resume with the variable set would pause again at its first checkpoint
+   opportunity. An environment variable keeps frozen campaign argv
+   untouched; both campaign supervisors (`shared_owner_campaign.py` and
+   `rustred campaign shards`) remove it from their native children's
+   environment, so only a harness or operator running the executable
    directly can set it.
 2. **In-process exact test** (`execution/ready_native_multi_tests.rs`),
    described below.
@@ -47,8 +51,13 @@ heartbeats) or paused without draining (`TMP/ready-five-loop-prefix-v3.k1nLpy`).
    `resume_reinspects_unfinished_part: true`), and the pool's
    `returned_inspections` accumulates across sessions. The audit refused every
    resumed walk on those two checks; it now accepts exactly such carried
-   entries on a `--resume` run, requires each carried domain to be published
-   natively, and checks `returned_inspections == native + carried`.
+   entries on a `--resume` run and requires each carried domain to be
+   published natively. A run that never resumed keeps
+   `returned_inspections == native`; a resumed run needs
+   `returned_inspections >= native + carried`, because a result finished but
+   unpolled (or in Ready escrow) at a periodic save is counted as returned
+   there and returned again after a crash and resume; the surplus is
+   reported as `resumed_unpublished_returned_inspections`.
 
 ## In-process test (exact equality under a fixed schedule)
 
@@ -58,12 +67,21 @@ the one-loop native fixture. A scripted wrapper around the unchanged native
 visitor delays only *when* each ticket emits: ticket 0 flushes its whole
 stream as one accepted prefix and stays unfinished, ticket 2 then does the
 same, ticket 1 finishes (the hole); every later ticket emits only when all
-lower IDs are published. The production predicate fires, the state goes
-through the on-disk CP5 store, a fresh `State` restores two parked prefixes
-and the published hole, and resumes to exhaustion. Domains, records without
-timing, `(events, successors, conditional, completed, deduplicated)` and the
-finalized ledger equal the uninterrupted gated baseline exactly. Licensed run
-output (release suite, CPUs 200-211):
+lower IDs are published. The production pause branch
+(`walking/mod.rs::diagnostic_checkpoint`, the function the CLI walk calls at
+every checkpoint opportunity) runs against a real on-disk CP5 store: it
+fires once, labels and force-saves the triggering state, journals one
+`diagnostic_pause` event and cancels; the test then makes the walk's own
+forced save after cancellation (the generation a production resume
+restores, still labelled and `paused`). Both generations, the triggering
+state (copied to a second store) and the post-cancellation state, are
+restored in a fresh `State` with two parked prefixes and the published hole
+and resumed to exhaustion. Domains, records without timing, `(events,
+successors, conditional, completed, deduplicated)` and the finalized ledger
+equal the uninterrupted gated baseline exactly for both. The threshold
+itself (at least two prefixes and a published record beyond the watermark)
+and the refusals (Ordered, no checkpoint, `--resume`) have their own
+license-free unit tests. Licensed run output (release suite, CPUs 200-211):
 
     ready_multi_prefix_gate domains=6 events=2097168 completed=6 paused_published=1 paused_watermark=0
     test ...ready_native_multi_tests::ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline ... ok
@@ -94,6 +112,35 @@ owner preparation, 0.38 s traversal), resumed 311.5 (traversal 206.9); native
 0.013 s. For orientation only (different binary, W, CPUs and load): the
 frozen-binary Ready W50 baseline of the same control recorded 339.4 s whole,
 236.2 s traversal and 981,183 inspections (`TMP/fable51-controls/RESULTS.md`).
+
+### What the fresh-process runs did and did not exercise
+
+The trigger fires at its first opportunity, so both PASS runs paused early.
+From each paused receipt (`paused/result.json`, `delegation` object) and the
+resumed run's `checkpoint_restored` event:
+
+| Run | Watermark | Committed | Prefixes / contexts / holes | Delegated publications | Transferred obligations | Dispatch fence | Restored domains / edges |
+|---|---:|---:|---|---:|---:|---:|---|
+| `x-w6-r2` | 0 | 2 | 2 / 2 / 2 | 0 | 0 | 258 | 656 / 4 |
+| `five-finite-w12` | 0 | 1 | 17 / 17 / 1 | 0 | 622 | 257 | 5,839 / 5,864 |
+| `x-w6` (superseded) | 62 | 65 | 2 / 2 / 3 | 0 | 0 | 321 | 656 / 230 |
+
+So the five-loop run restored 622 transferred obligations and a dispatch
+fence far above the watermark together with 17 parked prefixes, and `x-w6`
+restored parked prefixes above a nonzero watermark. No fresh-process run
+restored delegated (alias) publications together with parked prefixes above
+a nonzero watermark, the regime of a long-running Ready campaign; that
+combination is covered only by the ledger codec unit tests (published
+aliases with holes, without parked streams) and by the cross-version FG
+resume below (39 delegated publications at watermark 60,147, no parked
+prefixes). It remains unverified as one fresh-process state.
+
+All resumes here used the raw CLI `--resume` in a new process, as
+`resume_control.py` does, not the production launcher's `--resume`
+(`shared_owner_campaign.py`) that design §1(a) names: that launcher removes
+the pause variable, so it cannot produce the paused checkpoint. The native
+restore path is the same; the launcher's own resume and executable-upgrade
+logic is covered by its Python tests, not by this gate.
 
 ## Compatibility controls for the same binary
 
