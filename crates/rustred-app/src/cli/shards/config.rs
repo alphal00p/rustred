@@ -1,4 +1,5 @@
 use super::{CliError, bad, checkpoint};
+use crate::application::MAX_WALK_WORKERS;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -59,7 +60,7 @@ impl Config {
         }
         if self.jobs == 0
             || (self.shards != 0 && self.jobs > self.shards)
-            || !(1..=64).contains(&self.workers_per_job)
+            || !(1..=MAX_WALK_WORKERS).contains(&self.workers_per_job)
             || self.total_workers == 0
             || self
                 .jobs
@@ -69,9 +70,9 @@ impl Config {
             || self.max_memory_bytes == 0
             || self.checkpoint_interval_seconds == 0
         {
-            return Err(bad(
-                "require positive jobs, shards zero/omitted for one owner each, 1..64 workers/job, jobs*workers/job <= total_workers <= distinct CPUs, positive RAM and checkpoint interval",
-            ));
+            return Err(bad(format!(
+                "require positive jobs, shards zero/omitted for one owner each, 1..{MAX_WALK_WORKERS} workers/job, jobs*workers/job <= total_workers <= distinct CPUs, positive RAM and checkpoint interval"
+            )));
         }
         if self.cpus.iter().copied().collect::<BTreeSet<_>>().len() != self.cpus.len() {
             return Err(bad("CPU IDs must be distinct"));
@@ -145,6 +146,21 @@ mod tests {
     #[test]
     fn one_worker_ordered_and_exact_total_are_valid() {
         config().validate().unwrap();
+    }
+    #[test]
+    fn workers_per_job_boundary_follows_the_shared_walk_cap() {
+        assert_eq!(MAX_WALK_WORKERS, 256);
+        let mut c = config();
+        c.shards = 1;
+        c.jobs = 1;
+        c.workers_per_job = MAX_WALK_WORKERS;
+        c.total_workers = MAX_WALK_WORKERS;
+        c.cpus = (0..MAX_WALK_WORKERS).collect();
+        c.validate().unwrap();
+        c.workers_per_job = MAX_WALK_WORKERS + 1;
+        c.total_workers = MAX_WALK_WORKERS + 1;
+        c.cpus = (0..=MAX_WALK_WORKERS).collect();
+        assert!(c.validate().is_err());
     }
     #[test]
     fn rejects_oversubscription_duplicates_and_policy_injection() {

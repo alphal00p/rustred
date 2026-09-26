@@ -1,7 +1,12 @@
 use super::{
     ArgError, Command, next_utf8_value, parse_nonnegative_integer, parse_positive_integer,
 };
+use crate::application::MAX_WALK_WORKERS;
 use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf};
+
+/// The argument error is a static string; keep it in step with the shared cap.
+const MAX_WORKERS_MESSAGE: &str = "at most 256 symbolic workers";
+const _: () = assert!(MAX_WALK_WORKERS == 256, "update MAX_WORKERS_MESSAGE");
 
 #[cfg(test)]
 mod campaign_tests;
@@ -402,8 +407,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "at most 1000000 retained frontiers",
         ));
     }
-    if result.workers > 256 {
-        return Err(ArgError::InvalidCombination("at most 256 symbolic workers"));
+    if result.workers > MAX_WALK_WORKERS {
+        return Err(ArgError::InvalidCombination(MAX_WORKERS_MESSAGE));
     }
     if !result.follow_successors
         && [

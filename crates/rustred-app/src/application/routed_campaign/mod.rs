@@ -22,7 +22,7 @@ pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
 pub use walking::{
-    OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
+    MAX_WALK_WORKERS, OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
     OwnerDomainWalkSchedulingPolicy, owner_domain_walk_with_progress,
 };

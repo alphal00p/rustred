@@ -207,6 +207,10 @@ impl OwnerDomainWalkResult {
     }
 }
 
+/// Largest symbolic worker budget one walk accepts; the CLI argument parser
+/// and the shard supervisor configuration validate against the same bound.
+pub const MAX_WALK_WORKERS: usize = 256;
+
 pub fn owner_domain_walk_with_progress(
     request: OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
@@ -216,7 +220,7 @@ pub fn owner_domain_walk_with_progress(
     if request.max_domains == 0
         || request.max_events == 0
         || request.max_frontiers == 0
-        || !(1..=256).contains(&request.workers)
+        || !(1..=MAX_WALK_WORKERS).contains(&request.workers)
         || request.max_containment_checks == Some(0)
         || request.max_route_masks == 0
     {
