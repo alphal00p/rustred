@@ -345,16 +345,26 @@ class SyntheticWalkAuditTests(unittest.TestCase):
             for field in ("total", "inspected", "published"):
                 top[f"initial_entry_domains_{field}"] = 3
 
+        def anchor_after_initial(top):
+            top["domains"][5]["initial_overlap"]["anchor_id"] = 3
+
         root, helper = {"id": "root-a", "domain": 0}, {"id": "helper-b", "domain": 1}
+        two_aliases = [(alias_query("phys-c"), 0), (alias_query("phys-e"), 0)]
         cases = [("query root-a: upper changed", [], None, wider_record),
                  ("initial entry obligations not discharged", [(alias_query("phys-c"), 0)], None,
                   query_count_as_initial),
                  # The first query naming a record admitted it, so it must equal it.
                  ("query phys-c: lower changed", [(alias_query("phys-c"), 0)],
                   [{"id": "phys-c", "domain": 0}, root, helper], None),
-                 # An alias targets an initial record, never a later successor.
+                 ("inputs do not map every query to an initial record", [], [root, helper, root], None),
+                 # An alias targets an initial record, never a later successor,
+                 # even when the query count reaches that successor's id.
                  ("inputs do not map every query to an initial record", [(alias_query("phys-c"), 3)], None, None),
-                 ("query phys-c: no initial record", [(alias_query("phys-c"), 3)], None, None)]
+                 ("query phys-c: no initial record", [(alias_query("phys-c"), 3)], None, None),
+                 ("query phys-d: no initial record", two_aliases + [(alias_query("phys-d"), 3)], None, None),
+                 # Partial anchors are bounded by the distinct records, not the queries.
+                 ("record 5: partial anchor must be an earlier initial record", two_aliases, None,
+                  anchor_after_initial)]
         for fragment, aliases, inputs, mutate in cases:
             with self.subTest(fragment=fragment), tempfile.TemporaryDirectory() as temporary:
                 report = AUDIT.audit_walk(build_aliased_run(Path(temporary), aliases, inputs, mutate))
@@ -407,6 +417,35 @@ class SyntheticWalkAuditTests(unittest.TestCase):
         for changed in queries:
             with self.subTest(query=changed):
                 self.assertFalse(AUDIT.alias_contains(record, changed))
+
+    def test_alias_containment_rejects_malformed_fields(self):
+        record = {"owner": "10", "lower": [1, 0], "upper": [3, None], "rank": None,
+                  "power_bounds": {"max_positive_power": None, "min_power_difference": None, "max_power_difference": None}}
+        inside = alias_query("q", lower=(1, 4), upper=(3, 7), rank=2,
+                             power={"max_positive_power": 9, "min_power_difference": 3, "max_power_difference": 5})
+        self.assertTrue(AUDIT.alias_contains(record, inside))
+        # Each pair is contained when the malformed field is ignored or coerced.
+        pairs = [(dict(record, owner=["1", "0"]), dict(inside, owner=["1", "0"])),
+                 (dict(record, lower=[1]), inside), (record, dict(inside, upper=[3])),
+                 (dict(record, power_bounds=dict(record["power_bounds"], extra=None)), inside),
+                 (record, dict(inside, power_bounds=dict(inside["power_bounds"], extra=None))),
+                 (record, dict(inside, power_bounds=None)),
+                 (record, dict(inside, lower=[True, 4])), (record, dict(inside, lower=[1.0, 4])),
+                 (record, dict(inside, max_numerator_rank=True)),
+                 (record, dict(inside, power_bounds=dict(inside["power_bounds"], max_positive_power=True)))]
+        for outer, query in pairs:
+            with self.subTest(record=outer, query=query):
+                self.assertFalse(AUDIT.alias_contains(outer, query))
+
+    def test_initial_records_are_numbered_in_first_appearance_order(self):
+        # A document admitting helper-b first gives it record 0, never record 1.
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_aliased_run(Path(temporary), [], [{"id": "helper-b", "domain": 1}, {"id": "root-a", "domain": 0}])
+            queries = queries_document()
+            queries["queries"].reverse()
+            (Path(temporary) / "queries.json").write_text(json.dumps(queries, indent=1) + "\n")
+            report = AUDIT.audit_walk(run)
+            self.assertEqual(report["violations"], ["inputs do not map every query to an initial record"])
 
     def test_inputs_must_follow_the_query_document_order(self):
         aliases = [(alias_query("phys-c"), 0)]
