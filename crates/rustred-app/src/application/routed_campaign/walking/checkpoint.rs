@@ -651,6 +651,9 @@ impl Store {
                 segments,
             });
         }
+        // The manifest's effective interval reflects this save's duration so
+        // far; the event below carries the final figure including publication.
+        self.last_save_seconds = started.elapsed().as_secs_f64();
         let executable_first = self
             .manifest
             .as_ref()

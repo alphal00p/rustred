@@ -113,7 +113,13 @@ impl RoutedProgress {
     pub fn observe(&self, event: Value) {
         let checkpoint = matches!(
             event["event"].as_str(),
-            Some("checkpoint_started" | "checkpoint_saved")
+            Some(
+                "checkpoint_started"
+                    | "checkpoint_saved"
+                    | "checkpoint_restored"
+                    | "checkpoint_skipped_unchanged"
+                    | "checkpoint_executable_changed"
+            )
         );
         let milestone = checkpoint.then(|| event.clone());
         *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
