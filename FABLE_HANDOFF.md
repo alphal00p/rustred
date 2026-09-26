@@ -116,8 +116,16 @@ ETA and no closure is claimed anywhere.
   pending 298K and shrinking (-0.18 per completion), max rank 8, 56 GB RSS,
   zero frontiers; the Ready case runs after it
   (`TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/`).
-- Second campaign `campaigns/five-loop-qcd-feynman-d9d10-v2` is PREPARED (not
-  yet started at the time of writing): binary 102adcc3..., v3 inputs
+- Second campaign `campaigns/five-loop-qcd-feynman-d9d10-v2` was STARTED by
+  the user in the `fable_5_1` tab at 2026-09-26 15:13:53 UTC: run
+  `runs/20260926T151353.794886Z`, native PID 1625231, supervisor PID 1624657
+  (boot id `02fd9278-...`). First heartbeats (3.4 min): all 67 roots
+  published, 176,215 inspections, 1.82M pending, **frontiers 0**, 1 root
+  closed, 12 busy cores, 11.2 GB RSS, 67 inspectors / 32 helpers / 1
+  coordinator, effective hard ceiling 566 GB (host headroom while the other
+  runs still held memory; the user cancelled the original campaign at that
+  time). Monitor: `nix develop --command python examples/python/campaign_monitor.py campaigns/five-loop-qcd-feynman-d9d10-v2/runs/20260926T151353.794886Z --once`.
+  Its frozen configuration: binary 102adcc3..., v3 inputs
   (`examples/input/five_loop_qcd_feynman_d9d10/queries.json`, sha 2c714860...,
   183 queries, 54 bounded helpers, zero unresolved pieces), Ready, 100 workers
   on CPUs 28-127 (new split 67 inspectors / 32 helpers / 1 coordinator),
