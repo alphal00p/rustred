@@ -30,6 +30,11 @@ pub(super) struct Counters {
     pub refresh_seconds: f64,
 }
 
+/// Periodic refresh spacing as a multiple of the last scan's wall time: the
+/// coordinator spends at most ~1/multiplier of its wall in closure scans.
+pub(super) const REFRESH_DUTY_MULTIPLIER: f64 = 100.0;
+pub(super) const REFRESH_MIN_INTERVAL_SECONDS: f64 = 5.0;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Node {
@@ -191,13 +196,33 @@ impl Tracker {
         self.changed();
     }
 
-    /// At most one scan per five seconds, and <=~5% refresh duty cycle after a
-    /// costly scan. Dirty older counts remain a monotone conservative bound.
+    /// Minimum spacing between two periodic scans: at least five seconds and
+    /// at least `REFRESH_DUTY_MULTIPLIER` times the last scan's own wall time,
+    /// so a costly scan bounds the periodic refresh duty to about 1%.
+    pub(super) fn refresh_interval(&self) -> Duration {
+        Duration::from_secs_f64(
+            REFRESH_MIN_INTERVAL_SECONDS.max(self.last_refresh_seconds * REFRESH_DUTY_MULTIPLIER),
+        )
+    }
+
+    /// Seconds until the periodic throttle admits another scan; None before
+    /// the first scan. A forced refresh ignores it.
+    fn next_refresh_seconds(&self) -> Option<f64> {
+        self.last_refresh.map(|time| {
+            self.refresh_interval()
+                .saturating_sub(time.elapsed())
+                .as_secs_f64()
+        })
+    }
+
+    /// At most one periodic scan per `refresh_interval`: <= ~1% refresh duty
+    /// after a costly scan. Dirty older counts remain a monotone conservative
+    /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
         if self.unavailable.is_some() || self.revision == self.snapshot_revision {
             return;
         }
-        let interval = Duration::from_secs_f64(5.0_f64.max(self.last_refresh_seconds * 20.0));
+        let interval = self.refresh_interval();
         if !force
             && self
                 .last_refresh
@@ -255,6 +280,16 @@ impl Tracker {
         self.refresh_count = self.refresh_count.saturating_add(1);
         self.refresh_seconds += self.last_refresh_seconds;
         self.last_refresh = Some(Instant::now());
+    }
+
+    /// The periodic refresh throttle, reported under `parallel` so the
+    /// historical `descendant_closure` key set stays byte-comparable between
+    /// binaries.
+    pub fn refresh_policy_json(&self) -> Value {
+        json!({"duty_bound":1.0 / REFRESH_DUTY_MULTIPLIER,
+            "min_interval_seconds":REFRESH_MIN_INTERVAL_SECONDS,
+            "next_refresh_seconds":self.next_refresh_seconds(),
+            "scope":"periodic_refresh_spacing_max(min_interval, last_scan_wall / duty_bound); forced_refreshes_bypass"})
     }
 
     pub fn json(&self, total: usize, initial: usize) -> Value {

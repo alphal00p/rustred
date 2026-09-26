@@ -34,6 +34,94 @@ fn count() -> Event<1> {
 }
 
 #[test]
+fn snapshot_tiers_nest_lean_detailed_and_full_key_sets() {
+    /// The pool keys of a fable_5_1 `domain_started` event (the lean tier).
+    const LEAN: [&str; 33] = [
+        "active_workers",
+        "admission_preparation",
+        "attempted_events",
+        "attempted_native_operations",
+        "attempted_optional_coefficient_refusals",
+        "attempted_predicates",
+        "attempted_rule_checks",
+        "backpressure_seconds",
+        "backpressured_workers",
+        "completed_escrow_accounted_bytes",
+        "completed_escrow_entries",
+        "completed_escrow_events",
+        "completed_escrow_max_accounted_bytes",
+        "completed_escrow_max_entries",
+        "completed_escrow_peak_accounted_bytes",
+        "completed_escrow_peak_entries",
+        "completed_escrow_reserve_fallback",
+        "completed_slots_reclaimed",
+        "dispatched_uncommitted_domains",
+        "finished_uncommitted_domains",
+        "first_failure",
+        "native_attempt_counters_scope",
+        "non_cancellation_failure",
+        "occupied_native_slots",
+        "peak_worker_buffered_logical_bytes",
+        "per_worker_chunk_events",
+        "per_worker_chunk_logical_bytes",
+        "per_worker_chunk_records",
+        "returned_inspections",
+        "worker_buffer_accounting_scope",
+        "worker_buffered_events",
+        "worker_buffered_logical_bytes",
+        "workers",
+    ];
+    const DETAILED_EXTRA: [&str; 4] = [
+        "computing_workers",
+        "finished_awaiting_poll",
+        "heaviest_active_stream",
+        "stream_stall_share",
+    ];
+    const FULL_EXTRA: [&str; 4] = [
+        "slot_backpressure_seconds",
+        "slot_busy_seconds",
+        "slot_idle_seconds",
+        "slot_timing_scope",
+    ];
+    fn keys(value: &Value) -> Vec<&str> {
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        keys
+    }
+    let pool = Pool::<1>::new(3);
+    assert!(pool.dispatch(0, domain(0)));
+    let lean = pool.snapshot_lean();
+    let detailed = pool.snapshot_detailed();
+    let full = pool.snapshot();
+    // `admission_preparation` is added by the coordinator, not the pool.
+    let mut expected: Vec<&str> = LEAN
+        .into_iter()
+        .filter(|k| *k != "admission_preparation")
+        .collect();
+    assert_eq!(keys(&lean), expected);
+    expected.extend(DETAILED_EXTRA);
+    expected.sort_unstable();
+    assert_eq!(keys(&detailed), expected);
+    expected.extend(FULL_EXTRA);
+    expected.sort_unstable();
+    assert_eq!(keys(&full), expected);
+    assert_eq!(full["slot_idle_seconds"].as_array().unwrap().len(), 3);
+    assert_eq!(detailed["computing_workers"], 0); // Dispatched, not yet taken.
+    assert!(detailed["heaviest_active_stream"].is_null());
+    assert_eq!(lean["occupied_native_slots"], 1);
+    for key in LEAN.into_iter().filter(|k| *k != "admission_preparation") {
+        assert_eq!(lean[key], detailed[key], "{key}");
+        assert_eq!(lean[key], full[key], "{key}");
+    }
+    pool.shutdown();
+}
+
+#[test]
 fn cancellation_first_preserves_later_worker_fault_or_panic_after_drain() {
     if !licensed() {
         return;

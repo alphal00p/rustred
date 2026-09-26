@@ -212,7 +212,14 @@ impl<const N: usize> State<N> {
             .ok_or("invalid subdivision count")?;
         Ok(())
     }
+    /// Per-domain notifications (`domain_started`, `domain_delegated`) are the
+    /// coordinator's hottest JSON path: one per admitted domain, usually
+    /// discarded by `--no-progress`. They keep their historical shape; the
+    /// session telemetry objects ride on heartbeat/drain events and the final
+    /// report only. A 50% larger per-domain event measured as +9% traversal
+    /// on the four-loop FG control.
     fn progress(&self, event: &str, id: usize, telemetry: &Value) -> Value {
+        let lean = Self::lean_event(event);
         let domain = self.queue.domains.get(id);
         let mut progress = json!({"event":event, "operation":"owner_domain_walk", "id":id,
             "initial_entry_domains_total":self.initial_domain_count,
@@ -241,7 +248,7 @@ impl<const N: usize> State<N> {
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
             "routed_domains":self.routed, "route_masks":self.route_masks,
-            "parallel":self.enrich(telemetry.clone())});
+            "parallel":self.enrich_with(telemetry.clone(), lean)});
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
@@ -266,7 +273,14 @@ impl<const N: usize> State<N> {
         closure.discovered(self.queue.domains.len());
         closure.edge(self.dependency_source(), target);
     }
-    fn enrich(&self, mut telemetry: Value) -> Value {
+    /// Events emitted once per admitted domain; see `progress`.
+    pub(super) fn lean_event(event: &str) -> bool {
+        matches!(event, "domain_started" | "domain_delegated")
+    }
+    fn enrich(&self, telemetry: Value) -> Value {
+        self.enrich_with(telemetry, false)
+    }
+    fn enrich_with(&self, mut telemetry: Value, lean: bool) -> Value {
         if self.physical_enabled {
             for key in ["first_failure", "non_cancellation_failure"] {
                 if let Some(raw) = telemetry[key]["domain"]
@@ -287,7 +301,17 @@ impl<const N: usize> State<N> {
             telemetry["physical_publisher_part"] =
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
-        telemetry["admission_preparation"] = self.admission.json();
+        telemetry["admission_preparation"] = self.admission.metrics_json(lean);
+        if !lean {
+            // Session telemetry lives under `parallel`, the object the strict
+            // old-vs-new result comparison already ignores; the top level and
+            // `descendant_closure` keep their historical key sets. The duty
+            // breakdown is emitted exactly once, where the campaign monitor
+            // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
+            telemetry["coordinator_duty"] = self.admission.duty_json();
+            telemetry["containment_prefilter"] = self.queue.session.json();
+            telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
+        }
         for key in ["first_failure", "non_cancellation_failure"] {
             if let Some(id) = telemetry[key]["domain"]
                 .as_u64()
@@ -306,6 +330,14 @@ impl<const N: usize> State<N> {
     }
     fn set_parallel(&mut self, snapshot: Value, previous: &Value) {
         self.parallel = self.enrich(snapshot);
+        accumulate_attempts(&mut self.parallel, previous, &mut self.error);
+    }
+    /// Per-domain state update (once per commit and per Finished): the lean
+    /// pool snapshot and no session telemetry objects. Heartbeats and the
+    /// final report install the detailed variant; restore reads only the
+    /// attempt counters, which every tier carries.
+    fn set_parallel_lean(&mut self, snapshot: Value, previous: &Value) {
+        self.parallel = self.enrich_with(snapshot, true);
         accumulate_attempts(&mut self.parallel, previous, &mut self.error);
     }
     fn accept(
@@ -1012,6 +1044,276 @@ fn run_configured<const N: usize>(
     }
 }
 
+/// Progress/observer publication timed into the coordinator duty breakdown.
+fn observe<const N: usize>(
+    state: &mut State<N>,
+    observer: &dyn Fn(Value),
+    event: &str,
+    id: usize,
+    pool: &parallel::Pool<N>,
+) {
+    let started = Instant::now();
+    // Per-domain events: historical keys only. Heartbeats: scalar activity
+    // aggregates. Only the drain events (and the final report) carry the
+    // per-slot timing arrays, so a journaled heartbeat stays small at W = 256.
+    let snapshot = if State::<N>::lean_event(event) {
+        pool.snapshot_lean()
+    } else if event == "domain_draining" {
+        pool.snapshot()
+    } else {
+        pool.snapshot_detailed()
+    };
+    observer(state.progress(event, id, &snapshot));
+    state.admission.duty.progress_json += started.elapsed().as_secs_f64();
+}
+
+/// Checkpoint callback timed into the coordinator duty breakdown.
+fn save<const N: usize>(
+    state: &mut State<N>,
+    maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
+) -> Result<(), String> {
+    let started = Instant::now();
+    let result = maybe_save(state);
+    state.admission.duty.checkpoint += started.elapsed().as_secs_f64();
+    result
+}
+
+/// Closure refresh timed into the coordinator duty breakdown.
+fn refresh<const N: usize>(state: &mut State<N>, cancellation: &AtomicBool, force: bool) {
+    let started = Instant::now();
+    state.refresh_closure(cancellation, force);
+    state.admission.duty.closure_refresh += started.elapsed().as_secs_f64();
+}
+
+/// Publish one delegated (transferred) obligation with its progress event and
+/// checkpoint opportunity, timed into the publication, progress_json and
+/// checkpoint buckets. Returns the wall seconds it took so the caller can
+/// keep them out of its own dispatch bucket.
+fn publish_delegated<const N: usize>(
+    state: &mut State<N>,
+    pool: &parallel::Pool<N>,
+    id: usize,
+    observer: &dyn Fn(Value),
+    maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
+) -> Result<f64, String> {
+    let started = Instant::now();
+    let committed = state.commit_delegated_id(id);
+    state.admission.duty.publication += started.elapsed().as_secs_f64();
+    committed?;
+    observe(state, observer, "domain_delegated", id, pool);
+    save(state, maybe_save)?;
+    Ok(started.elapsed().as_secs_f64())
+}
+
+/// Monotone dispatch cursor shared by the main loop and the Ready service
+/// step that runs between commit batches.
+struct Dispatcher {
+    next: usize,
+    part: u8,
+    parent_dispatched: bool,
+    /// Ready only: unpublished Delegates below the fence that a service step
+    /// stepped over so the Reserved IDs beyond them still reached free slots.
+    /// The main loop publishes them, in ID order, before dispatching further.
+    /// Transient: a paused run resumes from the ledger cursor, which never
+    /// passes an unpublished ID, so nothing here needs persisting.
+    deferred_delegates: Vec<usize>,
+}
+
+impl Dispatcher {
+    fn new(next: usize, part: u8) -> Self {
+        Self {
+            next,
+            part,
+            parent_dispatched: false,
+            deferred_delegates: Vec::new(),
+        }
+    }
+
+    /// Hand reserved work to free slots in admission order. Under Ready a
+    /// delegated ID is published inline only when `publish` supplies the
+    /// observer/checkpoint pair (the main loop); the mid-commit service step
+    /// passes None, defers the Delegate and keeps going, so every publication
+    /// stays in the main loop and a service step only touches
+    /// `native_started` and the Ready pending set. Returns the number of
+    /// native dispatches performed and the wall seconds spent publishing
+    /// Delegates (already charged to their own duty buckets), so the caller
+    /// charges only the remainder to `dispatch`.
+    fn run<const N: usize>(
+        &mut self,
+        state: &mut State<N>,
+        pool: &parallel::Pool<N>,
+        request: &OwnerDomainWalkRequest,
+        cancellation: &AtomicBool,
+        ready_streams: &mut publication::ReadyStreams,
+        mut publish: Option<(
+            &dyn Fn(Value),
+            &mut dyn FnMut(&State<N>) -> Result<(), String>,
+        )>,
+    ) -> (usize, f64) {
+        let physical_enabled = state.physical_enabled;
+        let ready = state.ready();
+        let mut dispatches = 0;
+        let mut nested = 0.0;
+        if let Some((observer, maybe_save)) = publish.as_mut()
+            && !self.deferred_delegates.is_empty()
+        {
+            for id in std::mem::take(&mut self.deferred_delegates) {
+                match publish_delegated(state, pool, id, *observer, &mut **maybe_save) {
+                    Ok(seconds) => nested += seconds,
+                    Err(error) => {
+                        state.error = Some(error);
+                        return (dispatches, nested);
+                    }
+                }
+            }
+        }
+        while self.next < state.queue.domains.len() {
+            if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
+                break;
+            }
+            let id = self.next;
+            if !self.parent_dispatched
+                && let Some(ledger) = &state.queue.delegation
+            {
+                if ready && ledger.is_published(id) {
+                    self.next += 1;
+                    continue;
+                }
+                if id >= ledger.dispatch_fence() {
+                    break;
+                }
+                if ledger.delegated_to(id).is_some() {
+                    if ready {
+                        let Some((observer, maybe_save)) = publish.as_mut() else {
+                            // Service step: publication is the main loop's
+                            // job, but Reserved IDs beyond this Delegate must
+                            // still reach the slots freed a moment ago.
+                            self.deferred_delegates.push(id);
+                            state.admission.duty.ready_service_deferred_delegates += 1;
+                            self.next += 1;
+                            continue;
+                        };
+                        match publish_delegated(state, pool, id, *observer, &mut **maybe_save) {
+                            Ok(seconds) => nested += seconds,
+                            Err(error) => {
+                                state.error = Some(error);
+                                break;
+                            }
+                        }
+                    }
+                    self.next += 1;
+                    continue;
+                }
+                if !ledger.can_dispatch(id) {
+                    pool.fail(Failure {
+                        id: Some(
+                            Ticket {
+                                parent: id,
+                                part: None,
+                            }
+                            .encode(physical_enabled)
+                            .expect("admitted ticket"),
+                        ),
+                        phase: Some(state.queue.domains[id].phase),
+                        kind: "delegation_dispatch_invariant",
+                        detail: "native dispatch has no reserved responsibility".into(),
+                    });
+                    break;
+                }
+            }
+            let parts = state.parts(id, request);
+            let ticket = Ticket {
+                parent: id,
+                part: parts.as_ref().map(|_| self.part),
+            };
+            let raw = match ticket.encode(physical_enabled) {
+                Ok(raw) => raw,
+                Err(error) => {
+                    pool.fail(Failure {
+                        id: None,
+                        phase: None,
+                        kind: "counter_overflow",
+                        detail: error.into(),
+                    });
+                    break;
+                }
+            };
+            let source = parts.as_ref().map_or_else(
+                || state.queue.domains[id].clone(),
+                |parts| parts[usize::from(self.part)].clone(),
+            );
+            if !pool.dispatch(raw, source) {
+                break;
+            }
+            dispatches += 1;
+            if ready {
+                ready_streams.dispatched(raw);
+            }
+            if !self.parent_dispatched
+                && let Err(error) = state.note_native_started(id)
+            {
+                pool.fail(Failure {
+                    id: Some(raw),
+                    phase: Some(state.queue.domains[id].phase),
+                    kind: "delegation_native_start",
+                    detail: error,
+                });
+                break;
+            }
+            self.parent_dispatched = true;
+            if parts.is_some() && self.part == 0 {
+                self.part = 1;
+            } else {
+                self.next += 1;
+                self.part = 0;
+                self.parent_dispatched = false;
+            }
+        }
+        (dispatches, nested)
+    }
+}
+
+/// Ready service step between commit batches: free every finished inspector
+/// slot into escrow and hand out reserved work, so a long chunk commit never
+/// idles the pool. Finished and delegated publication stay in the main loop;
+/// this touches only the ledger's `native_started` and the pending set.
+/// Returns (slots reclaimed, native dispatches).
+fn ready_service<const N: usize>(
+    state: &mut State<N>,
+    pool: &parallel::Pool<N>,
+    dispatcher: &mut Dispatcher,
+    ready_streams: &mut publication::ReadyStreams,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+) -> (usize, usize) {
+    let started = Instant::now();
+    let reclaimed = pool.reclaim_all_finished();
+    // The service step never publishes, so nothing nested is charged elsewhere.
+    let (dispatched, _) = dispatcher.run(state, pool, request, cancellation, ready_streams, None);
+    let duty = &mut state.admission.duty;
+    duty.ready_service += started.elapsed().as_secs_f64();
+    duty.ready_service_reclaims += reclaimed;
+    duty.ready_service_dispatches += dispatched;
+    (reclaimed, dispatched)
+}
+
+/// Ready keeps at most two completed results per inspector parked in escrow,
+/// so recycled slots never accumulate an unbounded reservoir. Both limits
+/// are ceilings, not a promise that 2 x inspectors full results fit: a
+/// byte-full tail chunk charges more than CHUNK_BYTES (spare Vec capacity
+/// plus entry overhead), so the byte cap admits between inspectors and
+/// 2 x inspectors such entries; smaller results always fit up to the entry
+/// cap. A skipped slot shows as finished_awaiting_poll while
+/// completed_escrow_accounted_bytes sits near the cap.
+fn ready_escrow_limits(inspectors: usize) -> parallel::EscrowLimits {
+    parallel::EscrowLimits {
+        entries: inspectors.saturating_mul(2).max(1),
+        bytes: parallel::CHUNK_BYTES
+            .saturating_mul(2)
+            .saturating_mul(inspectors.max(1)),
+    }
+}
+
 // Both publication policies share this one native pool and admission loop.
 // Injecting the native visitor also permits deterministic concurrency tests.
 fn run_pool<const N: usize>(
@@ -1032,6 +1334,7 @@ fn run_pool<const N: usize>(
     let previous_parallel = state.parallel.clone();
     let budget = super::worker_budget::WorkerBudget::for_request(request);
     state.admission = admission::Metrics::new(budget);
+    state.admission.duty.start();
     let admission = match admission::Engine::new(budget) {
         Ok(engine) => engine,
         Err(error) => {
@@ -1041,21 +1344,27 @@ fn run_pool<const N: usize>(
             return;
         }
     };
-    let mut dispatched = state.queue.next;
-    let mut dispatch_part = state
-        .physical_progress
-        .as_ref()
-        .map_or(0, |p| p.completed.len() as u8);
-    let mut parent_dispatched = false;
+    let mut dispatcher = Dispatcher::new(
+        state.queue.next,
+        state
+            .physical_progress
+            .as_ref()
+            .map_or(0, |p| p.completed.len() as u8),
+    );
     let mut started_id = None;
     let mut heartbeat = Instant::now();
     let physical_enabled = state.physical_enabled;
     let ready = state.ready();
     let mut ready_streams = publication::ReadyStreams::default();
+    let escrow = if ready {
+        ready_escrow_limits(budget.inspection)
+    } else {
+        parallel::EscrowLimits::default()
+    };
     let (_, snapshot, mut leftovers) =
-        parallel::with_ticket_pool(budget.inspection, inspect, |pool| {
+        parallel::with_ticket_pool_escrow(budget.inspection, escrow, inspect, |pool| {
             loop {
-                state.refresh_closure(cancellation, false);
+                refresh(state, cancellation, false);
                 let publisher = state.publisher_ticket(request);
                 let publisher_raw = match publisher.encode(physical_enabled) {
                     Ok(id) => id,
@@ -1074,12 +1383,16 @@ fn run_pool<const N: usize>(
                 }
                 if let Some(failure) = pool.failure() {
                     state.error.get_or_insert(failure.detail);
-                    observer(state.progress("domain_progress", state.queue.next, &pool.snapshot()));
+                    let id = state.queue.next;
+                    observe(state, observer, "domain_progress", id, pool);
                     break;
                 }
                 if !ready && state.current_is_delegated() {
                     let id = state.queue.next;
-                    if let Err(error) = state.commit_delegated() {
+                    let started = Instant::now();
+                    let committed = state.commit_delegated();
+                    state.admission.duty.publication += started.elapsed().as_secs_f64();
+                    if let Err(error) = committed {
                         pool.fail(Failure {
                             id: Some(
                                 Ticket {
@@ -1094,8 +1407,8 @@ fn run_pool<const N: usize>(
                             detail: error,
                         });
                     } else {
-                        observer(state.progress("domain_delegated", id, &pool.snapshot()));
-                        if let Err(error) = maybe_save(state) {
+                        observe(state, observer, "domain_delegated", id, pool);
+                        if let Err(error) = save(state, maybe_save) {
                             state.error = Some(error);
                             break;
                         }
@@ -1104,103 +1417,26 @@ fn run_pool<const N: usize>(
                 }
                 // Locally finished later jobs are not committed. Bounded
                 // escrow frees their worker slots without reordering effects.
-                if !ready {
+                // Ready has no head-of-line publisher: every finished slot is
+                // recycled, and the ticket stream polls escrow first.
+                if ready {
+                    pool.reclaim_all_finished();
+                } else {
                     pool.reclaim_finished(publisher_raw);
                 }
-                while dispatched < state.queue.domains.len() {
-                    if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
-                        break;
-                    }
-                    if !parent_dispatched && let Some(ledger) = &state.queue.delegation {
-                        if ready && ledger.is_published(dispatched) {
-                            dispatched += 1;
-                            continue;
-                        }
-                        if dispatched >= ledger.dispatch_fence() {
-                            break;
-                        }
-                        if ledger.delegated_to(dispatched).is_some() {
-                            if ready {
-                                if let Err(error) = state.commit_delegated_id(dispatched) {
-                                    state.error = Some(error);
-                                    break;
-                                }
-                                observer(state.progress(
-                                    "domain_delegated",
-                                    dispatched,
-                                    &pool.snapshot(),
-                                ));
-                                if let Err(error) = maybe_save(state) {
-                                    state.error = Some(error);
-                                    break;
-                                }
-                            }
-                            dispatched += 1;
-                            continue;
-                        }
-                        if !ledger.can_dispatch(dispatched) {
-                            pool.fail(Failure {
-                                id: Some(
-                                    Ticket {
-                                        parent: dispatched,
-                                        part: None,
-                                    }
-                                    .encode(physical_enabled)
-                                    .expect("admitted ticket"),
-                                ),
-                                phase: Some(state.queue.domains[dispatched].phase),
-                                kind: "delegation_dispatch_invariant",
-                                detail: "native dispatch has no reserved responsibility".into(),
-                            });
-                            break;
-                        }
-                    }
-                    let parts = state.parts(dispatched, request);
-                    let ticket = Ticket {
-                        parent: dispatched,
-                        part: parts.as_ref().map(|_| dispatch_part),
-                    };
-                    let raw = match ticket.encode(physical_enabled) {
-                        Ok(raw) => raw,
-                        Err(error) => {
-                            pool.fail(Failure {
-                                id: None,
-                                phase: None,
-                                kind: "counter_overflow",
-                                detail: error.into(),
-                            });
-                            break;
-                        }
-                    };
-                    let source = parts.as_ref().map_or_else(
-                        || state.queue.domains[dispatched].clone(),
-                        |parts| parts[usize::from(dispatch_part)].clone(),
-                    );
-                    if !pool.dispatch(raw, source) {
-                        break;
-                    }
-                    if ready {
-                        ready_streams.dispatched(raw);
-                    }
-                    if !parent_dispatched && let Err(error) = state.note_native_started(dispatched)
-                    {
-                        pool.fail(Failure {
-                            id: Some(raw),
-                            phase: Some(state.queue.domains[dispatched].phase),
-                            kind: "delegation_native_start",
-                            detail: error,
-                        });
-                        break;
-                    }
-                    parent_dispatched = true;
-                    if parts.is_some() && dispatch_part == 0 {
-                        dispatch_part = 1;
-                    } else {
-                        dispatched += 1;
-                        dispatch_part = 0;
-                        parent_dispatched = false;
-                    }
-                }
+                let started = Instant::now();
+                let (_, nested) = dispatcher.run(
+                    state,
+                    pool,
+                    request,
+                    cancellation,
+                    &mut ready_streams,
+                    Some((observer, maybe_save)),
+                );
+                // Delegated publication inside the run is already charged to
+                // publication/progress_json/checkpoint; keep the buckets disjoint.
+                state.admission.duty.dispatch +=
+                    (started.elapsed().as_secs_f64() - nested).max(0.0);
                 if let Some(error) = state.error.clone() {
                     pool.fail(Failure {
                         id: Some(publisher_raw),
@@ -1215,10 +1451,11 @@ fn run_pool<const N: usize>(
                     break;
                 }
                 if !ready && started_id != Some(watermark) {
-                    observer(state.progress("domain_started", watermark, &pool.snapshot()));
+                    observe(state, observer, "domain_started", watermark, pool);
                     started_id = Some(watermark);
                     continue; // observe caller cancellation before publishing
                 }
+                let polled = Instant::now();
                 let (publisher_raw, poll) = if ready {
                     ready_streams
                         .poll(pool)
@@ -1226,6 +1463,7 @@ fn run_pool<const N: usize>(
                 } else {
                     (publisher_raw, pool.poll(publisher_raw))
                 };
+                state.admission.duty.poll += polled.elapsed().as_secs_f64();
                 let publisher = Ticket::decode(publisher_raw, physical_enabled);
                 let id = publisher.parent;
                 if ready && !matches!(poll, Poll::Waiting) {
@@ -1249,13 +1487,19 @@ fn run_pool<const N: usize>(
                             cancellation,
                             &pool.stop,
                             &mut |state| {
+                                if ready {
+                                    ready_service(
+                                        state,
+                                        pool,
+                                        &mut dispatcher,
+                                        &mut ready_streams,
+                                        request,
+                                        cancellation,
+                                    );
+                                }
                                 if heartbeat.elapsed() >= Duration::from_millis(250) {
-                                    state.refresh_closure(cancellation, false);
-                                    observer(state.progress(
-                                        "domain_progress",
-                                        id,
-                                        &pool.snapshot(),
-                                    ));
+                                    refresh(state, cancellation, false);
+                                    observe(state, observer, "domain_progress", id, pool);
                                     heartbeat = Instant::now();
                                 }
                             },
@@ -1271,8 +1515,8 @@ fn run_pool<const N: usize>(
                                 detail: error.into(),
                             });
                         } else {
-                            state.set_parallel(pool.snapshot(), &previous_parallel);
-                            if let Err(error) = maybe_save(state) {
+                            state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
+                            if let Err(error) = save(state, maybe_save) {
                                 pool.fail(Failure {
                                     id: Some(publisher_raw),
                                     phase: Some(state.queue.domains[id].phase),
@@ -1283,13 +1527,15 @@ fn run_pool<const N: usize>(
                         }
                     }
                     Poll::Finished(finished) => {
+                        let started = Instant::now();
                         state.commit_physical(publisher, finished, request);
                         if ready {
                             ready_streams.finished(publisher_raw);
                         }
-                        state.set_parallel(pool.snapshot(), &previous_parallel);
+                        state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
+                        state.admission.duty.publication += started.elapsed().as_secs_f64();
                         if state.error.is_none()
-                            && let Err(error) = maybe_save(state)
+                            && let Err(error) = save(state, maybe_save)
                         {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
@@ -1300,6 +1546,7 @@ fn run_pool<const N: usize>(
                         }
                     }
                     Poll::Waiting => {
+                        let started = Instant::now();
                         if ready {
                             if ready_streams.is_empty() && state.error.is_none() {
                                 state.error = Some(
@@ -1312,13 +1559,15 @@ fn run_pool<const N: usize>(
                         } else {
                             pool.wait(publisher_raw);
                         }
+                        state.admission.duty.wait += started.elapsed().as_secs_f64();
                     }
                 }
                 if heartbeat.elapsed() >= Duration::from_millis(250) {
-                    observer(state.progress("domain_progress", state.queue.next, &pool.snapshot()));
+                    let next = state.queue.next;
+                    observe(state, observer, "domain_progress", next, pool);
                     heartbeat = Instant::now();
-                    state.set_parallel(pool.snapshot(), &previous_parallel);
-                    if let Err(error) = maybe_save(state) {
+                    state.set_parallel(pool.snapshot_detailed(), &previous_parallel);
+                    if let Err(error) = save(state, maybe_save) {
                         pool.fail(Failure {
                             id: Some(publisher_raw),
                             phase: Some(state.queue.domains[id].phase),
@@ -1338,7 +1587,8 @@ fn run_pool<const N: usize>(
             }
             if pool.failure().is_some() {
                 while !pool.wait_drained() {
-                    observer(state.progress("domain_draining", state.queue.next, &pool.snapshot()));
+                    let next = state.queue.next;
+                    observe(state, observer, "domain_draining", next, pool);
                 }
             }
         });

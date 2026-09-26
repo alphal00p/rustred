@@ -88,6 +88,58 @@ fn stale_snapshot_is_a_lower_bound_after_discovery_and_shared_edge_changes() {
 }
 
 #[test]
+fn refresh_interval_bounds_duty_to_one_percent_and_force_bypasses_it() {
+    let mut graph = Tracker::new(2);
+    assert_eq!(graph.refresh_interval(), Duration::from_secs(5));
+    assert_eq!(
+        graph.refresh_policy_json()["next_refresh_seconds"],
+        Value::Null
+    );
+    assert_eq!(graph.refresh_policy_json()["duty_bound"], 0.01);
+    assert_eq!(graph.refresh_policy_json()["min_interval_seconds"], 5.0);
+    // The closure report itself keeps its historical key set.
+    assert!(graph.json(2, 2).get("refresh_duty_bound").is_none());
+    assert!(graph.json(2, 2).get("next_refresh_seconds").is_none());
+    graph.finish(0, true, true);
+    graph.refresh(&AtomicBool::new(false), false); // First scan is never throttled.
+    assert_eq!(graph.refresh_count, 1);
+    // A costly scan spaces the next periodic scan to 100x its wall time.
+    graph.last_refresh_seconds = 0.5;
+    assert_eq!(graph.refresh_interval(), Duration::from_secs(50));
+    let next = graph.refresh_policy_json()["next_refresh_seconds"]
+        .as_f64()
+        .unwrap();
+    assert!(next > 49.0 && next <= 50.0, "{next}");
+    graph.finish(1, true, true);
+    assert_eq!(graph.json(2, 2)["snapshot_stale"], true);
+    graph.refresh(&AtomicBool::new(false), false);
+    assert_eq!(graph.refresh_count, 1, "periodic refresh is throttled");
+    assert_eq!(graph.total_closed, 1);
+    // Cheap scans still keep the five-second floor.
+    graph.last_refresh_seconds = 0.001;
+    assert_eq!(graph.refresh_interval(), Duration::from_secs(5));
+    graph.refresh(&AtomicBool::new(false), false);
+    assert_eq!(graph.refresh_count, 1);
+    // An elapsed interval admits the periodic scan again.
+    graph.last_refresh = Some(Instant::now() - Duration::from_secs(6));
+    assert_eq!(graph.refresh_policy_json()["next_refresh_seconds"], 0.0);
+    graph.refresh(&AtomicBool::new(false), false);
+    assert_eq!(graph.refresh_count, 2);
+    assert_eq!(graph.total_closed, 2);
+    // Force bypasses any throttle, but never a cancellation.
+    graph.discovered(3);
+    graph.finish(2, true, true);
+    graph.last_refresh_seconds = 10.0;
+    graph.refresh(&AtomicBool::new(false), false);
+    assert_eq!(graph.refresh_count, 2);
+    graph.refresh(&AtomicBool::new(true), true);
+    assert_eq!(graph.refresh_count, 2);
+    graph.refresh(&AtomicBool::new(false), true);
+    assert_eq!(graph.refresh_count, 3);
+    assert_eq!(graph.total_closed, 3);
+}
+
+#[test]
 fn allocation_or_bad_edges_disable_monitoring_without_fake_completion() {
     let mut graph = Tracker::new(2);
     graph.edge(0, 2);

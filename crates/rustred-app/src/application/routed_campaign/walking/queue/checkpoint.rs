@@ -151,16 +151,17 @@ impl<const N: usize> Queue<N> {
             }
             domain.powers.validate().map_err(|e| e.to_string())?;
             if m.max_checks.is_none() {
-                q.summaries.push(
-                    DomainPowerSummary::try_new(
-                        domain.owner,
-                        &domain.lower,
-                        &domain.upper,
-                        domain.rank,
-                        domain.powers,
-                    )
-                    .map_err(|e| e.to_string())?,
-                );
+                let summary = DomainPowerSummary::try_new(
+                    domain.owner,
+                    &domain.lower,
+                    &domain.upper,
+                    domain.rank,
+                    domain.powers,
+                )
+                .map_err(|e| e.to_string())?;
+                // Derived filter words are rebuilt, never stored.
+                q.bits.push(bits::word(&summary));
+                q.summaries.push(summary);
             }
             let domain = Arc::new(domain);
             if q.exact.insert(domain.clone(), id).is_some() {

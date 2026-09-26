@@ -4,6 +4,8 @@ use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod bits;
+pub(super) use bits::SessionCounters;
 mod index;
 use index::{AggregateIndex, Coordinates, Signature};
 mod checkpoint;
@@ -11,8 +13,8 @@ pub(super) use checkpoint::{Metadata as QueueMetadata, SortedBuckets, StoredBuck
 #[cfg(test)]
 pub(super) mod positive_reuse_trace;
 mod prepared;
-pub(super) use prepared::PreparedAdmission;
 use prepared::PreparedLookup;
+pub(super) use prepared::{PREPARED_RETIRE_LIMIT, PreparedAdmission, SpeculativeWork};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
@@ -134,6 +136,13 @@ pub(super) struct Queue<const N: usize> {
     /// One immutable native summary per admitted ID in the unlimited lane.
     /// Raw domains, exact keys and scheduling obligations remain unchanged.
     summaries: Vec<DomainPowerSummary<N>>,
+    /// Parallel to `summaries`: the packed necessary-condition word of each
+    /// summary (see `bits`). Rebuilt from the summaries on restore; never
+    /// persisted, so no checkpoint format depends on the bit layout.
+    bits: Vec<u64>,
+    /// Coordinator-side filter telemetry for this process session only.
+    pub(super) session: SessionCounters,
+    prefilter: bits::Prefilter,
     max_domains: usize,
     max_checks: Option<usize>,
     /// Separates immutable lookup preparations from unrelated queue instances.
@@ -190,12 +199,27 @@ impl<const N: usize> Queue<N> {
             exact: HashMap::new(),
             by_owner: HashMap::new(),
             summaries: Vec::new(),
+            bits: Vec::new(),
+            session: SessionCounters::default(),
+            prefilter: bits::Prefilter::new(),
             max_domains,
             max_checks,
             identity: Arc::new(()),
             #[cfg(test)]
             index_work_counters_enabled: true,
         }
+    }
+
+    /// Test seam only: prove that admission results and persisted counters do
+    /// not depend on the bit-signature tier. Not a policy and not persisted.
+    #[cfg(test)]
+    pub fn disable_bit_prefilter(&mut self) {
+        self.prefilter.disable();
+    }
+
+    #[cfg(test)]
+    pub(super) fn bit_words(&self) -> &[u64] {
+        &self.bits
     }
 
     pub fn with_policy(
@@ -260,7 +284,7 @@ impl<const N: usize> Queue<N> {
     fn admit_with_lookup(
         &mut self,
         domain: Domain<N>,
-        prepared: Option<PreparedLookup<N>>,
+        mut prepared: Option<PreparedLookup<N>>,
     ) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
@@ -295,7 +319,12 @@ impl<const N: usize> Queue<N> {
         } else {
             None
         };
+        let word = summary.as_ref().map(bits::word);
+        let prefilter = self.prefilter;
         let key = (domain.phase, domain.owner);
+        // Helper-prepared reverse retirement set with its snapshot watermark;
+        // only a revalidated prepared miss can supply one.
+        let mut prepared_retire: Option<(Vec<usize>, usize)> = None;
         if let Some(bucket) = self.by_owner.get(&key) {
             if let Some(id) = bucket.orthant
                 && rank_contains(self.domains[id].rank, domain.rank)
@@ -305,11 +334,23 @@ impl<const N: usize> Queue<N> {
                 return Ok((id, false));
             }
             let found = if let Some(summary) = &summary {
-                if let Some((found, checks)) = prepared.as_ref().and_then(|lookup| {
-                    lookup.revalidate(&bucket.indexed, &self.summaries, self.containment_checks)
+                let word = word.expect("unlimited lane word");
+                if let Some(revalidated) = prepared.as_mut().and_then(|lookup| {
+                    lookup.revalidate(
+                        &bucket.indexed,
+                        &self.summaries,
+                        &self.bits,
+                        prefilter,
+                        self.containment_checks,
+                        &mut self.session,
+                    )
                 }) {
-                    self.containment_checks += checks; // checked by revalidate
-                    found
+                    self.containment_checks += revalidated.checks; // checked by revalidate
+                    if revalidated.found.is_none() {
+                        prepared_retire =
+                            revalidated.retire.map(|set| (set, revalidated.first_new));
+                    }
+                    revalidated.found
                 } else {
                     bucket
                         .indexed
@@ -318,7 +359,9 @@ impl<const N: usize> Queue<N> {
                                 .containment_checks
                                 .checked_add(1)
                                 .ok_or("domain containment counter overflow")?;
-                            Ok(self.summaries[id].contains(summary))
+                            let rejected = prefilter.rejects(self.bits[id], word);
+                            self.session.forward(rejected);
+                            Ok(!rejected && self.summaries[id].contains(summary))
                         })?
                 }
             } else {
@@ -372,6 +415,9 @@ impl<const N: usize> Queue<N> {
             .map_err(|_| "exact domain index allocation")?;
         if summary.is_some() {
             self.summaries
+                .try_reserve(1)
+                .map_err(|_| "domain summary allocation")?;
+            self.bits
                 .try_reserve(1)
                 .map_err(|_| "domain summary allocation")?;
         }
@@ -449,6 +495,7 @@ impl<const N: usize> Queue<N> {
                 .map_err(|_| "delegation ledger admission invariant")?;
         }
         let domain = Arc::new(domain);
+        let fresh_bucket = new_bucket.is_some();
         if let Some(bucket) = new_bucket {
             self.by_owner.insert(key, bucket);
         }
@@ -461,18 +508,56 @@ impl<const N: usize> Queue<N> {
             // old domains/exact entries. InspectAll retains every FIFO job;
             // optional transfer changes only untouched, unreserved responsibility.
             let summary = summary.as_ref().expect("unlimited lane summary");
-            bucket.indexed.retire(insertion, coordinates, |old| {
-                let retire = summary.contains(&self.summaries[old]);
-                if retire && !domain.contains(&self.domains[old]) {
+            let word = word.expect("unlimited lane word");
+            // A brand-new bucket has nothing to retire on either path.
+            if prepared.is_some() && !fresh_bucket {
+                if prepared_retire.is_some() {
+                    self.session.prepared_retirements_applied =
+                        self.session.prepared_retirements_applied.saturating_add(1);
+                } else {
+                    self.session.prepared_retire_fallbacks =
+                        self.session.prepared_retire_fallbacks.saturating_add(1);
+                }
+            }
+            let summaries = &self.summaries;
+            let bits = &self.bits;
+            let domains = &self.domains;
+            let delegation = &mut self.delegation;
+            let session = &mut self.session;
+            // Exact inclusion of an old candidate, charged as a reverse callback.
+            let mut contains_old = |old: usize| {
+                let rejected = prefilter.rejects(word, bits[old]);
+                session.reverse(rejected);
+                !rejected && summary.contains(&summaries[old])
+            };
+            // Apply-time effects of one retirement, identical on both paths.
+            let mut on_retire = |old: usize| {
+                if !domain.contains(&domains[old]) {
                     extra_retired += 1; // preflighted by the maintenance bound
                 }
-                if retire && let Some(ledger) = &mut self.delegation {
+                if let Some(ledger) = delegation.as_mut() {
                     // Same immutable phase/owner bucket; exact native inclusion
                     // is the authority. Protected work remains a native obligation.
                     let _ = ledger.transfer_retired(old, id);
                 }
-                retire
-            })
+            };
+            match prepared_retire.take() {
+                Some((set, first_new)) => bucket.indexed.retire_prepared(
+                    insertion,
+                    coordinates,
+                    &set,
+                    first_new,
+                    &mut contains_old,
+                    &mut on_retire,
+                ),
+                None => bucket.indexed.retire(insertion, coordinates, |old| {
+                    let retire = contains_old(old);
+                    if retire {
+                        on_retire(old);
+                    }
+                    retire
+                }),
+            }
         } else {
             0
         };
@@ -499,7 +584,8 @@ impl<const N: usize> Queue<N> {
         }
         self.exact.insert(Arc::clone(&domain), id);
         self.domains.push(domain);
-        if let Some(summary) = summary {
+        if let (Some(summary), Some(word)) = (summary, word) {
+            self.bits.push(word);
             self.summaries.push(summary);
         }
         Ok((id, true))

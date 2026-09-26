@@ -398,6 +398,86 @@ impl AggregateIndex {
             })
     }
 
+    /// Read-only twin of `retire` for speculative preparation: the ascending
+    /// IDs that `contains` accepts among the candidates the reverse pass would
+    /// examine (same group and block eligibility). Nothing is mutated and no
+    /// work counter of the queue is charged here. Cancellation checkpoints run
+    /// at every group and block boundary, as in `find_controlled`. More than
+    /// `limit` accepted IDs is an error so a pathological snapshot never holds
+    /// an unbounded helper allocation.
+    pub(super) fn collect_contained(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        limit: usize,
+        mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+        mut contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Vec<usize>, &'static str> {
+        let mut contained = Vec::new();
+        for group in &self.groups {
+            checkpoint()?;
+            let eligible = signature.may_contain(group.signature);
+            #[cfg(test)]
+            self.record_group(eligible);
+            if !eligible {
+                continue;
+            }
+            for block in &group.blocks {
+                checkpoint()?;
+                let eligible = block.may_be_contained(coordinates);
+                #[cfg(test)]
+                self.record_block(eligible);
+                if !eligible {
+                    continue;
+                }
+                for &id in block.ids() {
+                    if contains(id)? {
+                        if contained.len() >= limit {
+                            return Err("prepared retirement set limit");
+                        }
+                        contained
+                            .try_reserve(1)
+                            .map_err(|_| "prepared retirement set allocation")?;
+                        contained.push(id);
+                    }
+                }
+            }
+        }
+        contained.sort_unstable();
+        Ok(contained)
+    }
+
+    /// `retire` with its per-ID decision split between a snapshot-prepared set
+    /// (IDs below `first_new`, sorted ascending) and `contains_new` for IDs
+    /// admitted at or after the snapshot watermark. It runs the very same
+    /// traversal, retain, tail pinning and group removal as `retire`, so the
+    /// resulting layout is identical whenever the prepared set agrees with the
+    /// exact predicate on every examined old ID (see `prepared` for the
+    /// argument). `on_retire` observes each removal in traversal order.
+    pub(super) fn retire_prepared(
+        &mut self,
+        insertion: &Insertion,
+        coordinates: Option<Coordinates<'_>>,
+        prepared: &[usize],
+        first_new: usize,
+        mut contains_new: impl FnMut(usize) -> bool,
+        mut on_retire: impl FnMut(usize),
+    ) -> usize {
+        debug_assert!(prepared.windows(2).all(|pair| pair[0] < pair[1]));
+        debug_assert!(prepared.last().is_none_or(|&last| last < first_new));
+        self.retire(insertion, coordinates, |id| {
+            let retire = if id < first_new {
+                prepared.binary_search(&id).is_ok()
+            } else {
+                contains_new(id)
+            };
+            if retire {
+                on_retire(id);
+            }
+            retire
+        })
+    }
+
     /// Infallible after queue counter/storage preflight. Preserve the insertion
     /// signature's reserved group even if it becomes empty; remove other empty
     /// groups so historical signatures do not accumulate in the hot scan.
@@ -512,6 +592,24 @@ impl AggregateIndex {
     #[cfg(test)]
     pub(super) fn groups(&self) -> usize {
         self.groups.len()
+    }
+
+    /// Exact physical layout: group order, signatures and block contents.
+    #[cfg(test)]
+    pub(super) fn layout(&self) -> Vec<(Signature, Vec<Vec<usize>>)> {
+        self.groups
+            .iter()
+            .map(|group| {
+                (
+                    group.signature,
+                    group
+                        .blocks
+                        .iter()
+                        .map(|block| block.ids().to_vec())
+                        .collect(),
+                )
+            })
+            .collect()
     }
 
     #[cfg(test)]

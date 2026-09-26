@@ -8,7 +8,7 @@ const POLICIES: [OwnerDomainWalkPublicationPolicy; 3] = [
 
 #[test]
 fn automatic_worker_partitions_preserve_both_historical_defaults() {
-    for workers in 1..=64 {
+    for workers in 1..=256 {
         for policy in POLICIES {
             for cap in [None, Some(50)] {
                 let budget = WorkerBudget::new(workers, None, cap, policy);
@@ -18,7 +18,12 @@ fn automatic_worker_partitions_preserve_both_historical_defaults() {
                     4
                 };
                 let helpers = if workers >= threshold && cap.is_none() {
-                    (workers - 1) / 2
+                    let half = (workers - 1) / 2;
+                    if policy == OwnerDomainWalkPublicationPolicy::Ready {
+                        half.min(READY_HELPER_CAP)
+                    } else {
+                        half
+                    }
                 } else {
                     0
                 };
@@ -37,7 +42,7 @@ fn automatic_worker_partitions_preserve_both_historical_defaults() {
 
 #[test]
 fn every_explicit_worker_partition_reserves_exactly_the_configured_total() {
-    for workers in 1..=64 {
+    for workers in 1..=256 {
         let available = if workers == 1 { 1 } else { workers - 1 };
         for inspection in 1..=available {
             for policy in POLICIES {
@@ -68,8 +73,75 @@ fn every_explicit_worker_partition_reserves_exactly_the_configured_total() {
 }
 
 #[test]
+fn ready_large_budgets_cap_helpers_at_32_and_preserve_smaller_defaults() {
+    let ready = OwnerDomainWalkPublicationPolicy::Ready;
+    let ordered = OwnerDomainWalkPublicationPolicy::Ordered;
+    for workers in 1..=64 {
+        let expected = WorkerBudget::new(workers, None, None, ordered);
+        let actual = WorkerBudget::new(workers, None, None, ready);
+        assert_eq!(
+            (actual.inspection, actual.helpers, actual.coordinator),
+            (expected.inspection, expected.helpers, expected.coordinator),
+            "W={workers}: Ready defaults below 65 workers are unchanged"
+        );
+    }
+    for (workers, inspectors) in [(65, 32), (66, 33), (97, 64), (128, 95), (256, 223)] {
+        let budget = WorkerBudget::new(workers, None, None, ready);
+        assert_eq!(
+            (budget.inspection, budget.helpers, budget.coordinator),
+            (inspectors, READY_HELPER_CAP, 1),
+            "W={workers}"
+        );
+        assert_eq!(
+            budget.inspection + budget.helpers + budget.coordinator,
+            workers
+        );
+        let uncapped = WorkerBudget::new(workers, None, None, ordered);
+        assert_eq!(
+            uncapped.helpers,
+            (workers - 1) / 2,
+            "Ordered keeps the half split"
+        );
+    }
+    // Explicit partitions and finite caps are not touched by the Ready cap.
+    let explicit = WorkerBudget::new(200, Some(100), None, ready);
+    assert_eq!((explicit.inspection, explicit.helpers), (100, 99));
+    let capped = WorkerBudget::new(200, None, Some(7), ready);
+    assert_eq!((capped.inspection, capped.helpers), (199, 0));
+}
+
+/// The Ready launcher keeps H = 256 reserved IDs ahead of the inspectors. The
+/// automatic split keeps at least two reserved IDs per inspector through
+/// W = 128 (95 inspectors) and at least four through W = 97 (64 inspectors).
+#[test]
+fn ready_lookahead_covers_inspectors_up_to_128_workers() {
+    const H: usize = 256;
+    let ready = OwnerDomainWalkPublicationPolicy::Ready;
+    let mut max_inspectors = 0;
+    for workers in 1..=128 {
+        let budget = WorkerBudget::new(workers, None, None, ready);
+        max_inspectors = max_inspectors.max(budget.inspection);
+        assert!(
+            H >= 2 * budget.inspection,
+            "W={workers}: {} inspectors exceed half the lookahead",
+            budget.inspection
+        );
+        if workers <= 97 {
+            assert!(
+                H >= 4 * budget.inspection,
+                "W={workers}: {} inspectors exceed a quarter of the lookahead",
+                budget.inspection
+            );
+        }
+    }
+    assert_eq!(max_inspectors, 95);
+    assert_eq!(WorkerBudget::new(97, None, None, ready).inspection * 4, H);
+    assert!(WorkerBudget::new(98, None, None, ready).inspection * 4 > H);
+}
+
+#[test]
 fn malformed_partitions_fail_before_subtraction_or_native_loading() {
-    for workers in 0usize..=64 {
+    for workers in 0usize..=256 {
         for inspection in [0, workers.saturating_add(1), usize::MAX] {
             assert!(validate(workers, Some(inspection), None).is_err());
         }

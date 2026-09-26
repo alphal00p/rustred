@@ -205,3 +205,100 @@ fn empty_containers_never_pass_nonempty_queries_or_retire_nonempty_groups() {
         Some(1)
     );
 }
+
+#[test]
+fn collect_contained_mirrors_retire_and_honors_its_limit() {
+    let fixture = || {
+        let mut index = AggregateIndex::default();
+        for (id, power) in [(0, 1), (1, 3), (2, 1), (3, 5), (4, 2)] {
+            let insertion = index.prepare(signature(power), None).unwrap();
+            index.insert(insertion, id, None);
+        }
+        index
+    };
+    let index = fixture();
+    let contained = |id: usize| Ok(id % 2 == 0);
+    let set = index
+        .collect_contained(signature(4), None, usize::MAX, || Ok(()), contained)
+        .unwrap();
+    assert_eq!(set, [0, 2, 4]);
+    assert_eq!(
+        index.collect_contained(signature(4), None, 2, || Ok(()), contained),
+        Err("prepared retirement set limit")
+    );
+    let mut checkpoints = 0;
+    assert_eq!(
+        index.collect_contained(
+            signature(4),
+            None,
+            usize::MAX,
+            || {
+                checkpoints += 1;
+                if checkpoints > 2 {
+                    Err("cancelled")
+                } else {
+                    Ok(())
+                }
+            },
+            contained
+        ),
+        Err("cancelled")
+    );
+    let mut serial = fixture();
+    let insertion = serial.prepare(signature(4), None).unwrap();
+    let mut serial_retired = Vec::new();
+    let removed = serial.retire(&insertion, None, |id| {
+        let retire = id % 2 == 0;
+        if retire {
+            serial_retired.push(id);
+        }
+        retire
+    });
+    serial.insert(insertion, 5, None);
+    let mut index = fixture();
+    let insertion = index.prepare(signature(4), None).unwrap();
+    let mut prepared_retired = Vec::new();
+    let mut new_checks = Vec::new();
+    let removed_prepared = index.retire_prepared(
+        &insertion,
+        None,
+        &set,
+        5,
+        |id| {
+            new_checks.push(id);
+            false
+        },
+        |id| prepared_retired.push(id),
+    );
+    index.insert(insertion, 5, None);
+    assert_eq!((removed, removed_prepared), (3, 3));
+    assert_eq!(serial_retired, prepared_retired);
+    assert!(
+        new_checks.is_empty(),
+        "no ID at or above the watermark existed"
+    );
+    assert_eq!(index.layout(), serial.layout());
+    assert_eq!(index.ids(), [1, 3, 5]);
+    // IDs above the watermark are decided by the commit-time predicate.
+    let mut late = fixture();
+    let insertion = late.prepare(signature(4), None).unwrap();
+    let mut asked = Vec::new();
+    assert_eq!(
+        late.retire_prepared(
+            &insertion,
+            None,
+            &[0],
+            3,
+            |id| {
+                asked.push(id);
+                id == 4
+            },
+            |_| {}
+        ),
+        2
+    );
+    late.insert(insertion, 5, None);
+    // ID 3 sits in the ineligible power-5 group, so only ID 4 is asked.
+    assert_eq!(asked, [4]);
+    assert_eq!(late.ids(), [1, 2, 3, 5]);
+}

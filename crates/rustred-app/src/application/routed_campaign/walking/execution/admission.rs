@@ -12,12 +12,52 @@ const BATCH_RECORDS: usize = 256;
 const MIN_ADMISSIONS: usize = 16;
 const MIN_CANDIDATES: usize = 128;
 
+/// Coordinator wall-time breakdown for this execution session. Buckets are
+/// disjoint stretches of the single coordinator thread; preparation and
+/// ordered commit live in `Metrics` itself. `ready_service` is the Ready
+/// reclaim-and-dispatch step run between commit batches.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in super::super) struct Duty {
+    pub dispatch: f64,
+    pub poll: f64,
+    pub publication: f64,
+    pub wait: f64,
+    pub closure_refresh: f64,
+    pub checkpoint: f64,
+    pub progress_json: f64,
+    pub ready_service: f64,
+    pub ready_service_reclaims: usize,
+    pub ready_service_dispatches: usize,
+    /// Unpublished Delegates a service step stepped over (published later by
+    /// the main loop); a high count means retirement-heavy Ready traffic.
+    pub ready_service_deferred_delegates: usize,
+    pub started: Option<Instant>,
+}
+
+impl Duty {
+    pub fn start(&mut self) {
+        self.started = Some(Instant::now());
+    }
+    pub fn elapsed_seconds(&self) -> Option<f64> {
+        self.started.map(|started| started.elapsed().as_secs_f64())
+    }
+}
+
 pub(super) struct Metrics {
+    pub(in super::super) duty: Duty,
     budget: WorkerBudget,
     batches: usize,
     records: usize,
     preparations: usize,
     speculative_checks: usize,
+    /// Helper-side reverse comparisons and bit-tier rejections (item B1/B2).
+    speculative_reverse_checks: usize,
+    speculative_forward_bit_rejections: usize,
+    speculative_reverse_bit_rejections: usize,
+    /// Commits whose reverse retirement applied a helper-prepared set, and
+    /// commits with a prepared lookup that retired on the serial scan.
+    prepared_retirements_applied: usize,
+    prepared_retire_fallbacks: usize,
     preparation_seconds: f64,
     ordered_commit_seconds: f64,
     counter_saturated: bool,
@@ -35,15 +75,63 @@ impl Default for Metrics {
 impl Metrics {
     pub fn new(budget: WorkerBudget) -> Self {
         Self {
+            duty: Duty::default(),
             budget,
             batches: 0,
             records: 0,
             preparations: 0,
             speculative_checks: 0,
+            speculative_reverse_checks: 0,
+            speculative_forward_bit_rejections: 0,
+            speculative_reverse_bit_rejections: 0,
+            prepared_retirements_applied: 0,
+            prepared_retire_fallbacks: 0,
             preparation_seconds: 0.0,
             ordered_commit_seconds: 0.0,
             counter_saturated: false,
         }
+    }
+    fn add_speculative(&mut self, work: super::super::queue::SpeculativeWork) {
+        let saturated = &mut self.counter_saturated;
+        Self::add(&mut self.speculative_checks, work.checks, saturated);
+        Self::add(
+            &mut self.speculative_reverse_checks,
+            work.reverse_checks,
+            saturated,
+        );
+        Self::add(
+            &mut self.speculative_forward_bit_rejections,
+            work.forward_bit_rejections,
+            saturated,
+        );
+        Self::add(
+            &mut self.speculative_reverse_bit_rejections,
+            work.reverse_bit_rejections,
+            saturated,
+        );
+    }
+    /// Commit-time outcomes are counted by the queue; fold the delta of one
+    /// ordered commit into this session's admission telemetry.
+    fn add_prepared_retirements(
+        &mut self,
+        before: super::super::queue::SessionCounters,
+        after: super::super::queue::SessionCounters,
+    ) {
+        let saturated = &mut self.counter_saturated;
+        Self::add(
+            &mut self.prepared_retirements_applied,
+            after
+                .prepared_retirements_applied
+                .saturating_sub(before.prepared_retirements_applied),
+            saturated,
+        );
+        Self::add(
+            &mut self.prepared_retire_fallbacks,
+            after
+                .prepared_retire_fallbacks
+                .saturating_sub(before.prepared_retire_fallbacks),
+            saturated,
+        );
     }
     fn add(counter: &mut usize, amount: usize, saturated: &mut bool) {
         *counter = match counter.checked_add(amount) {
@@ -54,8 +142,35 @@ impl Metrics {
             }
         };
     }
-    pub fn json(&self) -> Value {
-        json!({"policy":"immutable_bounded_batch_ordered_commit",
+    pub fn duty_json(&self) -> Value {
+        let duty = &self.duty;
+        json!({
+            "dispatch_seconds":duty.dispatch,
+            "poll_seconds":duty.poll,
+            "preparation_seconds":self.preparation_seconds,
+            "ordered_commit_seconds":self.ordered_commit_seconds,
+            "publication_seconds":duty.publication,
+            "wait_seconds":duty.wait,
+            "closure_refresh_seconds":duty.closure_refresh,
+            "checkpoint_seconds":duty.checkpoint,
+            "progress_json_seconds":duty.progress_json,
+            "ready_service_seconds":duty.ready_service,
+            // Counts, not seconds: nested so a monitor dividing every flat
+            // numeric key by wall time never reads them as a duty share.
+            "ready_service":{"reclaimed_slots":duty.ready_service_reclaims,
+                "dispatches":duty.ready_service_dispatches,
+                "deferred_delegates":duty.ready_service_deferred_delegates},
+            "coordinator_elapsed_seconds":duty.elapsed_seconds(),
+            "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint_and_not_exhaustive; delegated_publication_inside_dispatch_is_charged_to_publication_progress_json_checkpoint; ready_service_includes_its_own_dispatch; resets_on_resume"
+        })
+    }
+    /// The admission counters. The duty breakdown is a sibling object
+    /// (`parallel.coordinator_duty`, see `State::enrich_with`), never nested
+    /// here. `lean` keeps the historical key set for per-domain progress
+    /// events; heartbeats and the final report also carry the filter-tier and
+    /// prepared-retirement counters.
+    pub fn metrics_json(&self, lean: bool) -> Value {
+        let mut value = json!({"policy":"immutable_bounded_batch_ordered_commit",
             "counter_scope":"current_execution_session; resets_on_resume",
             "requested_worker_budget":self.budget.requested,
             "inspection_worker_limit":self.budget.inspection,
@@ -71,7 +186,21 @@ impl Metrics {
             "ordered_commit_wall_seconds":self.ordered_commit_seconds,
             "counter_saturated":self.counter_saturated,
             "timing_scope":"coordinator_wall; preparation_includes_wait_for_all_helpers; commit_excludes_observer",
-            "speculative_work_is_not_admission":true})
+            "speculative_work_is_not_admission":true});
+        if !lean {
+            value["speculative_reverse_checks"] = json!(self.speculative_reverse_checks);
+            value["speculative_forward_bit_rejections"] =
+                json!(self.speculative_forward_bit_rejections);
+            value["speculative_reverse_bit_rejections"] =
+                json!(self.speculative_reverse_bit_rejections);
+            value["prepared_retirements_applied"] = json!(self.prepared_retirements_applied);
+            value["prepared_retire_fallbacks"] = json!(self.prepared_retire_fallbacks);
+            value["prepared_retirement_limit"] = json!(super::super::queue::PREPARED_RETIRE_LIMIT);
+            value["prepared_retirement_scope"] = json!(
+                "helper_prepared_reverse_sets_applied_at_ordered_commit; results_layout_counters_transfers_identical_to_serial"
+            );
+        }
+        value
     }
 }
 
@@ -259,11 +388,7 @@ impl Engine {
             metrics.preparation_seconds += started.elapsed().as_secs_f64();
             for event in &prepared {
                 if let PreparedEvent::Admission { prepared, .. } = event {
-                    Metrics::add(
-                        &mut metrics.speculative_checks,
-                        prepared.speculative_checks(),
-                        &mut metrics.counter_saturated,
-                    );
+                    metrics.add_speculative(prepared.speculative_work());
                 }
             }
             prepared
@@ -279,7 +404,7 @@ impl Engine {
         chunk: Vec<Event<N>>,
         cancellation: &AtomicBool,
         producer_stop: &AtomicBool,
-        heartbeat: &mut impl FnMut(&State<N>),
+        heartbeat: &mut impl FnMut(&mut State<N>),
     ) -> Result<(), &'static str> {
         let mut events = chunk.into_iter();
         loop {
@@ -325,6 +450,7 @@ impl Engine {
         // A token is never authority to commit after cancellation or a
         // producer failure. Every helper has joined before this check.
         let started = Instant::now();
+        let before = state.queue.session;
         let result = (|| {
             for event in prepared {
                 if cancellation.load(Ordering::Acquire) || producer_stop.load(Ordering::Acquire) {
@@ -335,6 +461,9 @@ impl Engine {
             Ok(())
         })();
         state.admission.ordered_commit_seconds += started.elapsed().as_secs_f64();
+        state
+            .admission
+            .add_prepared_retirements(before, state.queue.session);
         result
     }
 }
