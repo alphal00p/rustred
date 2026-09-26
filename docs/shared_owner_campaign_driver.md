@@ -436,12 +436,17 @@ same-owner completed native representative; Apply statistics have zero
 problems and unsupported-support successors and consistent successor sums;
 Route statistics have zero missing routes and consistent event accounting;
 queue, ledger and worker pool are drained; frontiers are zero; initial-entry
-and partial-anchor obligations are discharged; the input queries are
-preserved verbatim; ordered records are in order or ready records sum their
-accepted events to the committed watermark; the durable checkpoint manifest
-matches the report; the resource receipt shows a clean exit. Violations are
-listed and the exit status is nonzero. The audit checks recorded completion
-and explicit dependencies only, never IBP identities or family termination.
+and partial-anchor obligations are discharged over the distinct initial
+records; the input queries are preserved: `inputs` maps every query, in
+document order, to an initial record that equals the first query naming it,
+and a later (helpers-first) query may share it only if the record has the
+same owner and syntactically contains the query, as the walker's
+`Domain::contains` decides (counted as `aliased_queries`); ordered records are
+in order or ready records sum their accepted events to the committed
+watermark; the durable checkpoint manifest matches the report; the resource
+receipt shows a clean exit. Violations are listed and the exit status is
+nonzero. The audit checks recorded completion and explicit dependencies only,
+never IBP identities or family termination.
 
 `examples/python/compare_walk_records.py --mode strict|multiset A.json B.json`
 compares two reports while streaming both. Strict mode (Ordered, old versus
