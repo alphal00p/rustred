@@ -235,11 +235,12 @@ impl<const N: usize> Pool<N> {
     /// Ready policy: every successful, fully flushed, non-running slot is
     /// detached into the bounded escrow regardless of ID order, so finished
     /// streams stop occupying workers until the coordinator polls them.
-    /// Allocation-free; a full store or an oversized charge skips that slot.
-    /// Returns the number of slots freed by this call.
+    /// Allocation-free. Once the store has no room (entry cap or a failed
+    /// reserve) no slot is even charged; a byte-cap miss skips only that
+    /// slot so a smaller result can still fit. Returns the slots freed.
     pub fn reclaim_all_finished(&self) -> usize {
         let mut state = self.lock();
-        if self.stop.load(Ordering::Acquire) || state.shutdown {
+        if self.stop.load(Ordering::Acquire) || state.shutdown || !state.escrow.has_room() {
             return 0;
         }
         let mut reclaimed = 0;
@@ -251,11 +252,17 @@ impl<const N: usize> Pool<N> {
                 continue;
             };
             if !state.escrow.reserve(charge) {
+                if !state.escrow.has_room() {
+                    break;
+                }
                 continue;
             }
             let State { slots, escrow, .. } = &mut *state;
             escrow.insert(id, &mut slots[index], charge);
             reclaimed += 1;
+            if !state.escrow.has_room() {
+                break;
+            }
         }
         reclaimed
     }

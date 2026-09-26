@@ -1246,7 +1246,13 @@ fn ready_service<const N: usize>(
 }
 
 /// Ready keeps at most two completed results per inspector parked in escrow,
-/// so recycled slots never accumulate an unbounded reservoir.
+/// so recycled slots never accumulate an unbounded reservoir. Both limits
+/// are ceilings, not a promise that 2 x inspectors full results fit: a
+/// byte-full tail chunk charges more than CHUNK_BYTES (spare Vec capacity
+/// plus entry overhead), so the byte cap admits between inspectors and
+/// 2 x inspectors such entries; smaller results always fit up to the entry
+/// cap. A skipped slot shows as finished_awaiting_poll while
+/// completed_escrow_accounted_bytes sits near the cap.
 fn ready_escrow_limits(inspectors: usize) -> parallel::EscrowLimits {
     parallel::EscrowLimits {
         entries: inspectors.saturating_mul(2).max(1),

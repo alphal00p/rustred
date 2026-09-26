@@ -92,9 +92,13 @@ impl<const N: usize> Escrow<N> {
             events,
         })
     }
+    /// Whether any further entry can be admitted at all: a failed allocation
+    /// or the entry cap refuses every charge, so callers stop scanning slots.
+    pub fn has_room(&self) -> bool {
+        !self.reserve_failed && self.len() < self.limits.entries
+    }
     pub fn fits(&self, charge: Charge) -> bool {
-        !self.reserve_failed
-            && self.len() < self.limits.entries
+        self.has_room()
             && self.reclaimed < usize::MAX
             && self
                 .bytes
