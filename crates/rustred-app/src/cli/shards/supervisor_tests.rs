@@ -198,6 +198,25 @@ fn successful_exit_without_native_completion_is_incomplete() {
     assert!(finish(&fixture.0, &snapshot, &mut state, &child, exit.code()).is_err());
 }
 
+// Removal is explicit, so it holds whatever the supervisor inherited; the
+// test never sets the variable in this process, where concurrent in-process
+// walks would read it.
+#[test]
+fn native_children_never_inherit_the_diagnostic_pause() {
+    use std::ffi::OsStr;
+    let mut command = Command::new("true");
+    child_environment(&mut command);
+    let environment: BTreeMap<_, _> = command.get_envs().collect();
+    assert_eq!(
+        environment.get(OsStr::new(crate::application::DIAGNOSTIC_PAUSE_VARIABLE)),
+        Some(&None)
+    );
+    assert_eq!(
+        environment.get(OsStr::new("RAYON_NUM_THREADS")),
+        Some(&Some(OsStr::new("1")))
+    );
+}
+
 #[test]
 fn recent_throughput_uses_only_current_attempt_deltas_and_resets_on_regression() {
     let mut previous = None;
@@ -224,5 +243,13 @@ fn orphan_child_retains_campaign_lock_until_exit() {
     children.0[0].stop().unwrap();
     children.0[0].child.wait().unwrap();
     children.0.clear();
-    checkpoint::acquire_lock(&fixture.0).unwrap();
+    // A sibling test that forked while this process still held the lock
+    // keeps a close-on-exec copy until its own exec, and its pre_exec pins it
+    // to the CPU the fake children share, so that exec can lag this child's
+    // exit. Such copies are transient; a lock the orphan leaked would not be.
+    let started = Instant::now();
+    while let Err(error) = checkpoint::acquire_lock(&fixture.0) {
+        assert!(started.elapsed() < Duration::from_secs(10), "{error:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

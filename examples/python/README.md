@@ -248,7 +248,27 @@ campaign or claims closure.
   frontiers; initial and partial-anchor obligations discharged; input queries
   preserved; the durable checkpoint manifest matches the report. Any
   violation gives a nonzero exit. It checks recorded completion, not IBP
-  identities or family termination.
+  identities or family termination. A `--resume` run may report the
+  in-flight attempts its paused session returned but never published
+  (`resume_reinspects_unfinished_part`); each must be published natively in
+  the result, and they are the only allowed uncommitted entries. After a
+  resume the pool's `returned_inspections` must be at least native records
+  plus carried attempts: results that were finished but unpolled at a
+  periodic save, followed by a crash, count once more; the surplus is
+  reported as `resumed_unpublished_returned_inspections`.
+- [`ready_resume_control.py`](ready_resume_control.py) is the fresh-process
+  Ready multi-prefix resume gate: one control argv run as an uninterrupted
+  Ready baseline, as a run with `RUSTRED_WALK_DIAGNOSTIC_PAUSE=ready-multi-prefix`
+  (the walk force-saves and exits 4 at its first state with two unfinished
+  accepted prefixes and a published hole) and as a `--resume` of that
+  checkpoint in a new process. PASS needs the pause evidence (receipt,
+  manifest label, journaled trigger), both audits and native inspections and
+  events within 2% of the baseline. `--baseline OLDOUT/baseline` reuses an
+  earlier run's baseline only when its argv matches apart from transport
+  options and `OLDOUT/report.json` records a 0 exit under the same binary
+  SHA-256. Neither campaign supervisor (`shared_owner_campaign.py`,
+  `rustred campaign shards`) passes the variable on, and the walk refuses
+  it on a `--resume`.
 - [`compare_walk_records.py`](compare_walk_records.py) compares two reports:
   `--mode strict` (Ordered, old vs new binary) demands identical record
   geometry, native/guard/dependency counters and outcomes apart from timing,

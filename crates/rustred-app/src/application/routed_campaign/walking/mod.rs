@@ -288,6 +288,116 @@ impl OwnerDomainWalkResult {
 /// and the shard supervisor configuration validate against the same bound.
 pub const MAX_WALK_WORKERS: usize = 256;
 
+/// Correctness-gate seam, not a campaign knob: an environment variable keeps
+/// the frozen campaign argv (validated by the launcher) untouched. Both
+/// campaign supervisors remove it from their native children's environment.
+pub(crate) const DIAGNOSTIC_PAUSE_VARIABLE: &str = "RUSTRED_WALK_DIAGNOSTIC_PAUSE";
+
+/// Force-save and cooperatively pause a checkpointed walk the first time its
+/// state reaches a diagnostic trigger. Read once per walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticPause {
+    /// Ready: at least two unfinished accepted prefixes and a finished hole.
+    ReadyMultiPrefix,
+}
+impl DiagnosticPause {
+    fn from_environment() -> Result<Option<Self>, String> {
+        Self::parse(std::env::var_os(DIAGNOSTIC_PAUSE_VARIABLE).as_deref())
+    }
+    /// Unset or empty disables; an unknown value is refused, never ignored.
+    fn parse(value: Option<&std::ffi::OsStr>) -> Result<Option<Self>, String> {
+        match value {
+            None => Ok(None),
+            Some(value) if value.is_empty() => Ok(None),
+            Some(value) if value == Self::ReadyMultiPrefix.name() => {
+                Ok(Some(Self::ReadyMultiPrefix))
+            }
+            Some(value) => Err(format!(
+                "unsupported {DIAGNOSTIC_PAUSE_VARIABLE} value {value:?}; expected {}",
+                Self::ReadyMultiPrefix.name()
+            )),
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::ReadyMultiPrefix => "ready-multi-prefix",
+        }
+    }
+    fn fires<const N: usize>(self, state: &execution::State<N>) -> bool {
+        match self {
+            Self::ReadyMultiPrefix => state.ready_multi_prefix_hole(),
+        }
+    }
+    /// Only a fresh checkpointed Ready walk may pause. The trigger is a state
+    /// predicate that a paused checkpoint still satisfies once restored, so a
+    /// `--resume` with the variable set would pause again at its first
+    /// checkpoint opportunity instead of running to exhaustion.
+    fn admit(pause: Option<Self>, request: &OwnerDomainWalkRequest) -> Result<(), String> {
+        if pause.is_none() {
+            return Ok(());
+        }
+        match &request.checkpoint {
+            Some(checkpoint)
+                if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready =>
+            {
+                if checkpoint.resume {
+                    Err(format!(
+                        "{DIAGNOSTIC_PAUSE_VARIABLE} pauses a fresh checkpointed Ready walk only; unset it to --resume"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(format!(
+                "{DIAGNOSTIC_PAUSE_VARIABLE} requires a checkpointed Ready walk"
+            )),
+        }
+    }
+}
+
+/// One checkpoint opportunity of a diagnostic walk: the first time the
+/// trigger holds, persist exactly that state under the label, journal the
+/// trigger and cancel the way a stop request does; the walk's own forced save
+/// after cancellation carries the same label. Taking `pause` makes it fire at
+/// most once per session. Returns whether it fired (the caller then skips its
+/// ordinary interval save).
+fn diagnostic_checkpoint<const N: usize>(
+    pause: &mut Option<DiagnosticPause>,
+    store: &mut checkpoint::Store,
+    state: &execution::State<N>,
+    inputs: &[Value],
+    input_frontiers: &[Value],
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<bool, String> {
+    let Some(pause) = pause.take_if(|pause| pause.fires(state)) else {
+        return Ok(false);
+    };
+    store.mark_diagnostic_pause(pause.name());
+    // Forced like every non-periodic save. The walk cancels right after it
+    // and ends with its own final save, so, like that one, it persists the
+    // edge log without folding it (`SaveKind::Final`); the run's cancellation
+    // is not set yet, so the pre-save closure refresh runs to completion.
+    if let Some(event) = store.save_cancellable(
+        state,
+        inputs,
+        input_frontiers,
+        checkpoint::SaveKind::Final,
+        cancellation,
+        observer,
+    )? {
+        observer(event);
+    }
+    let mut event = json!({"event":"diagnostic_pause","operation":"owner_domain_walk",
+        "diagnostic_pause":pause.name(),"committed_domains":state.published_count(),
+        "contiguous_publication_watermark":state.queue.next,"committed_events":state.events,
+        "completed_native_inspections":state.completed,"family_closure_claim":false});
+    state.add_ready_progress(&mut event);
+    observer(event);
+    cancellation.store(true, std::sync::atomic::Ordering::Release);
+    Ok(true)
+}
+
 pub fn owner_domain_walk_with_progress(
     request: OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
@@ -318,6 +428,8 @@ pub fn owner_domain_walk_with_progress(
             ));
         }
     }
+    let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
+    DiagnosticPause::admit(diagnostic_pause, &request).map_err(AppError::input)?;
     if request.apply_subdivision.is_some()
         && request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered
     {
@@ -387,6 +499,9 @@ pub fn owner_domain_walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready {
         admitted["publication_policy"] = json!("ready_ticket_stream");
     }
+    if let Some(pause) = diagnostic_pause {
+        admitted["diagnostic_pause"] = json!(pause.name());
+    }
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.matching.max_queries);
         event["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
@@ -394,7 +509,7 @@ pub fn owner_domain_walk_with_progress(
     };
     with_allowances(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
+        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
         _ => unreachable!("admitted arity"),
     }} }
     let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
@@ -461,6 +576,7 @@ fn run<const N: usize>(
     queries: &[matching::input::Query],
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    diagnostic_pause: Option<DiagnosticPause>,
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
     let mut checkpoint = checkpoint::Store::open(request).map_err(AppError::input)?;
@@ -666,6 +782,7 @@ fn run<const N: usize>(
                     observer(event);
                 }
             }
+            let mut diagnostic_pause = diagnostic_pause;
             execution::run_checkpointed(
                 &mut state,
                 reducer,
@@ -673,6 +790,17 @@ fn run<const N: usize>(
                 cancellation,
                 observer,
                 &mut |state| {
+                    if diagnostic_checkpoint(
+                        &mut diagnostic_pause,
+                        store,
+                        state,
+                        &inputs,
+                        &input_frontiers,
+                        cancellation,
+                        observer,
+                    )? {
+                        return Ok(());
+                    }
                     if let Some(event) = store.save_cancellable(
                         state,
                         &inputs,
@@ -931,6 +1059,63 @@ mod policy_tests {
                 "Ready publication requires TransferUnreserved scheduling"
             };
             assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn diagnostic_pause_parses_one_known_trigger_and_refuses_unknown_values() {
+        use std::ffi::OsStr;
+        assert_eq!(DiagnosticPause::parse(None), Ok(None));
+        assert_eq!(DiagnosticPause::parse(Some(OsStr::new(""))), Ok(None));
+        assert_eq!(
+            DiagnosticPause::parse(Some(OsStr::new("ready-multi-prefix"))),
+            Ok(Some(DiagnosticPause::ReadyMultiPrefix))
+        );
+        for value in ["ready", "READY-MULTI-PREFIX", "ready-multi-prefix "] {
+            let error = DiagnosticPause::parse(Some(OsStr::new(value))).unwrap_err();
+            assert!(error.contains(DIAGNOSTIC_PAUSE_VARIABLE), "{error}");
+        }
+        // Only a Ready walk with a finished hole beyond two accepted prefixes
+        // fires; an ordinary Ordered state never does.
+        let state = execution::State::new(Queue::<1>::new(4, None), 0, None);
+        assert!(!DiagnosticPause::ReadyMultiPrefix.fires(&state));
+    }
+
+    /// The process environment is never set here: concurrent in-process
+    /// walks of other tests read the same variable.
+    #[test]
+    fn diagnostic_pause_admits_only_a_fresh_checkpointed_ready_walk() {
+        let pause = Some(DiagnosticPause::ReadyMultiPrefix);
+        for ready in [false, true] {
+            for checkpoint in [None, Some(false), Some(true)] {
+                let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+                    String::new(),
+                    String::new(),
+                ));
+                if ready {
+                    request.publication_policy = OwnerDomainWalkPublicationPolicy::Ready;
+                }
+                request.checkpoint = checkpoint.map(|resume| OwnerDomainWalkCheckpointOptions {
+                    resume,
+                    ..OwnerDomainWalkCheckpointOptions::new("unused")
+                });
+                assert_eq!(DiagnosticPause::admit(None, &request), Ok(()));
+                let admitted = DiagnosticPause::admit(pause, &request);
+                match (ready, checkpoint) {
+                    (true, Some(false)) => assert_eq!(admitted, Ok(())),
+                    (true, Some(true)) => {
+                        let error = admitted.unwrap_err();
+                        assert!(error.contains("unset it to --resume"), "{error}");
+                    }
+                    _ => {
+                        let error = admitted.unwrap_err();
+                        assert!(
+                            error.contains("requires a checkpointed Ready walk"),
+                            "{error}"
+                        );
+                    }
+                }
+            }
         }
     }
 

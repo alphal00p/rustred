@@ -162,5 +162,75 @@ class OfflineComputationTests(unittest.TestCase):
                 METRICS.compute(path, start=50, end=10)
 
 
+# Four real heartbeat lines journaled by campaigns/five-loop-qcd-feynman-d9d10-v2
+# (run 20260926T151353.794886Z, binary 102adcc3..., Ready, W100): domain_progress,
+# domain_delegated, domain_progress, domain_delegated. Trimmed only of
+# progress.checkpoint and parallel.{containment_prefilter,closure_refresh_policy}.
+LIVE_FIXTURE = Path(__file__).with_name("fixtures") / "five_loop_ready_w100_heartbeats.jsonl"
+
+
+class LiveHeartbeatFixtureTests(unittest.TestCase):
+    def records(self):
+        return [json.loads(line) for line in LIVE_FIXTURE.read_text().splitlines() if line]
+
+    def test_real_key_paths_lean_and_detailed_events(self):
+        records = self.records()
+        self.assertEqual([record["progress"]["event"] for record in records],
+                         ["domain_progress", "domain_delegated", "domain_progress", "domain_delegated"])
+        for record in records:
+            parallel = record["progress"]["parallel"]
+            detailed = record["progress"]["event"] == "domain_progress"
+            # The one duty object lives at progress.parallel.coordinator_duty,
+            # and only on the periodic domain_progress events.
+            self.assertEqual("coordinator_duty" in parallel, detailed)
+            self.assertEqual("computing_workers" in parallel, detailed)
+            self.assertNotIn("coordinator_duty", record["progress"])
+            self.assertNotIn("coordinator_duty", parallel["admission_preparation"])
+
+    def test_lean_last_heartbeat_keeps_computing_workers_and_duty_breakdown(self):
+        records = self.records()
+        window = METRICS.HeartbeatWindow()
+        for record in records:
+            window.observe(record)
+        derived = window.derived()
+        self.assertEqual(derived["samples_in_window"], 4)
+        latest = records[2]["progress"]["parallel"]
+        self.assertEqual(derived["computing_workers"], latest["computing_workers"])
+        self.assertEqual(derived["active_workers"], records[3]["progress"]["parallel"]["active_workers"])
+        self.assertAlmostEqual(derived["computing_inspectors_mean_1h"],
+                               (records[0]["progress"]["parallel"]["computing_workers"]
+                                + latest["computing_workers"]) / 2)
+        breakdown = derived["coordinator_duty_breakdown_1h"]
+        self.assertIsNotNone(breakdown)
+        earliest = records[0]["progress"]["parallel"]["coordinator_duty"]
+        span = records[2]["elapsed_seconds"] - records[0]["elapsed_seconds"]
+        for key in ("ordered_commit_seconds", "preparation_seconds", "dispatch_seconds", "poll_seconds",
+                    "publication_seconds", "wait_seconds", "progress_json_seconds", "ready_service_seconds"):
+            self.assertAlmostEqual(breakdown[key], (latest["coordinator_duty"][key] - earliest[key]) / span, msg=key)
+        # Coordinator wall tracks heartbeat wall; nested counts and the scope
+        # string are not shares.
+        self.assertAlmostEqual(breakdown["coordinator_elapsed_seconds"], 1.0, delta=0.01)
+        self.assertNotIn("ready_service", breakdown)
+        self.assertNotIn("scope", breakdown)
+        # The lean tail still supplies the lean counters.
+        self.assertEqual(derived["completed_nodes"], records[3]["progress"]["completed_nodes"])
+        self.assertIsNotNone(derived["coordinator_duty_1h"])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            path.write_text(LIVE_FIXTURE.read_text())
+            offline = METRICS.compute(path)
+            for key in ("computing_workers", "coordinator_duty_breakdown_1h", "computing_inspectors_mean_1h"):
+                self.assertEqual(offline[key], derived[key], key)
+
+    def test_single_detailed_sample_gives_no_breakdown(self):
+        records = self.records()
+        window = METRICS.HeartbeatWindow()
+        for record in records[1:]:
+            window.observe(record)
+        derived = window.derived()
+        self.assertIsNone(derived["coordinator_duty_breakdown_1h"])
+        self.assertEqual(derived["computing_workers"], records[2]["progress"]["parallel"]["computing_workers"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -200,13 +200,20 @@ class HeartbeatWindow:
         if selected:
             first, last = selected[0], selected[-1]
             wall = last["elapsed"] - first["elapsed"]
+            # A heartbeat journals the latest native event. Per-domain events
+            # (domain_started/domain_delegated) keep the lean historical key
+            # set without `computing_workers` or `coordinator_duty`; only the
+            # periodic domain_progress events carry them. Use the latest (and
+            # for the breakdown also the earliest) sample that has them.
+            computing_now = next((sample["computing"] for sample in reversed(selected)
+                                  if sample["computing"] is not None), None)
             result.update(samples_in_window=len(selected), window_wall_seconds=wall,
                           first_elapsed_seconds=first["elapsed"], last_elapsed_seconds=last["elapsed"],
                           completed_nodes=last["completed"], pending_nodes=last["pending"],
                           discovered_nodes=last["discovered"], process_rss_bytes=last["rss"],
                           max_scheduled_finite_rank=last["max_rank"],
                           roots_closed=last["roots_closed"], roots_total=last["roots_total"],
-                          computing_workers=last["computing"], active_workers=last["active"])
+                          computing_workers=computing_now, active_workers=last["active"])
             completions = last["completed"] - first["completed"]
             if wall > 0:
                 result["completions_per_hour_1h"] = completions / wall * 3600.0
@@ -222,12 +229,15 @@ class HeartbeatWindow:
                 if first["coordinator_seconds"] is not None and last["coordinator_seconds"] is not None:
                     delta = last["coordinator_seconds"] - first["coordinator_seconds"]
                     result["coordinator_duty_1h"] = delta / wall if delta >= 0 else None
-                if first["coordinator_duty"] and last["coordinator_duty"]:
+                with_duty = [sample for sample in selected if sample["coordinator_duty"]]
+                if len(with_duty) >= 2 and with_duty[-1]["elapsed"] > with_duty[0]["elapsed"]:
+                    start_sample, end_sample = with_duty[0], with_duty[-1]
+                    span = end_sample["elapsed"] - start_sample["elapsed"]
                     breakdown = {}
-                    for key, value in last["coordinator_duty"].items():
-                        start = first["coordinator_duty"].get(key)
+                    for key, value in end_sample["coordinator_duty"].items():
+                        start = start_sample["coordinator_duty"].get(key)
                         if start is not None and value >= start:
-                            breakdown[key] = (value - start) / wall
+                            breakdown[key] = (value - start) / span
                     result["coordinator_duty_breakdown_1h"] = breakdown or None
             if completions > 0 and first["pending"] is not None and last["pending"] is not None:
                 result["pending_growth_per_completion_1h"] = (last["pending"] - first["pending"]) / completions

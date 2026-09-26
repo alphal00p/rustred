@@ -22,7 +22,7 @@ mod producer;
 mod resource_policy;
 mod routed_campaign;
 
-pub(crate) use routed_campaign::guarded_limits_from_json;
+pub(crate) use routed_campaign::{DIAGNOSTIC_PAUSE_VARIABLE, guarded_limits_from_json};
 pub use routed_campaign::{
     MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
     OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,

@@ -483,6 +483,24 @@ fn validate_resume(
     Ok(())
 }
 
+/// Native children run their inner pools single-threaded and never inherit
+/// the walk's diagnostic pause from the operator's shell: a stray export would
+/// pause (Ready) or refuse (Ordered) every shard and stop the whole campaign.
+fn child_environment(command: &mut Command) {
+    for name in [
+        "RAYON_NUM_THREADS",
+        "OMP_NUM_THREADS",
+        "OMP_THREAD_LIMIT",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "SYMBOLICA_HIDE_BANNER",
+    ] {
+        command.env(name, "1");
+    }
+    command.env_remove(crate::application::DIAGNOSTIC_PAUSE_VARIABLE);
+}
+
 fn launch(
     directory: &Path,
     snapshot: &Snapshot,
@@ -565,17 +583,7 @@ fn launch(
     command
         .stdout(File::create(run.join("stdout.log")).map_err(io_error)?)
         .stderr(File::create(run.join("stderr.log")).map_err(io_error)?);
-    for name in [
-        "RAYON_NUM_THREADS",
-        "OMP_NUM_THREADS",
-        "OMP_THREAD_LIMIT",
-        "OPENBLAS_NUM_THREADS",
-        "MKL_NUM_THREADS",
-        "BLIS_NUM_THREADS",
-        "SYMBOLICA_HIDE_BANNER",
-    ] {
-        command.env(name, "1");
-    }
+    child_environment(&mut command);
     resources::configure(&mut command, &cpus, master_lock)?;
     let child = command.spawn().map_err(io_error)?;
     let start_ticks = resources::sample(child.id())

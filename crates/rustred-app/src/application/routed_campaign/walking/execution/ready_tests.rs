@@ -70,7 +70,7 @@ fn prefix(id: usize, changed: bool, emit: &mut dyn FnMut(Event<1>) -> ControlFlo
     }
     true
 }
-fn has_two_prefixes(s: &State<1>) -> bool {
+pub(super) fn has_two_prefixes(s: &State<1>) -> bool {
     let parked = serde_json::to_value(&s.streams).unwrap();
     usize::from(
         s.replay
@@ -131,6 +131,7 @@ fn run_pause() -> (State<1>, Fixture) {
 #[test]
 fn ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefixes() {
     if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
         return;
     }
     let (paused, fixture) = run_pause();
@@ -199,6 +200,7 @@ fn ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefix
 #[test]
 fn ready_changed_parked_prefix_fails_before_any_suffix_admission() {
     if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
         return;
     }
     let (_, fixture) = run_pause();
@@ -576,10 +578,15 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
 #[test]
 fn ready_late_native_fault_after_cancellation_disallows_pause() {
     if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
         return;
     }
     let mut s = seed();
     let cancelled = AtomicBool::new(false);
+    // Cancel only once ticket 0 is inside its visitor. A dispatched slot
+    // whose worker has not yet taken the job returns nothing after the stop
+    // (Pool::take refuses), so under load the late fault could never happen.
+    let running = AtomicBool::new(false);
     run_pool(
         &mut s,
         &request(),
@@ -587,13 +594,14 @@ fn ready_late_native_fault_after_cancellation_disallows_pause() {
         &|_| {},
         true,
         &mut |s| {
-            if s.completed >= 3 {
+            if s.completed >= 3 && running.load(Ordering::Acquire) {
                 cancelled.store(true, Ordering::Release);
             }
             Ok(())
         },
         |id, _, stop, _| {
             if id == 0 {
+                running.store(true, Ordering::Release);
                 let start = Instant::now();
                 while !stop.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(10) {
                     std::thread::yield_now();

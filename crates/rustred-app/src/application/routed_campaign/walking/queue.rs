@@ -395,6 +395,7 @@ impl<const N: usize> Queue<N> {
         // Helper-prepared reverse retirement set with its snapshot watermark;
         // only a revalidated prepared miss can supply one.
         let mut prepared_retire: Option<(Vec<usize>, usize)> = None;
+        let mut trivial_retire = false;
         if let Some(bucket) = self.by_owner.get(&bucket_key) {
             if let Some(id) = bucket.orthant
                 && rank_contains(self.domains[id].rank(), domain.rank)
@@ -422,6 +423,7 @@ impl<const N: usize> Queue<N> {
                     if revalidated.found.is_none() {
                         prepared_retire =
                             revalidated.retire.map(|set| (set, revalidated.first_new));
+                        trivial_retire = revalidated.trivial;
                     }
                     revalidated.found
                 } else {
@@ -585,7 +587,12 @@ impl<const N: usize> Queue<N> {
             let query = query.as_ref().expect("unlimited lane query");
             // A brand-new bucket has nothing to retire on either path.
             if prepared.is_some() && !fresh_bucket {
-                if prepared_retire.is_some() {
+                if prepared_retire.is_some() && trivial_retire {
+                    // The bucket appeared after the snapshot (an earlier
+                    // commit of the batch): the empty set decided nothing.
+                    self.session.prepared_retirements_trivial =
+                        self.session.prepared_retirements_trivial.saturating_add(1);
+                } else if prepared_retire.is_some() {
                     self.session.prepared_retirements_applied =
                         self.session.prepared_retirements_applied.saturating_add(1);
                 } else {
