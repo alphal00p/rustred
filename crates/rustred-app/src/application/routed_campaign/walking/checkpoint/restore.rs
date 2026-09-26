@@ -216,8 +216,11 @@ pub(super) fn restore<const N: usize>(
     state.initial_domain_count = initial_domain_count;
     state.initial_entry_domains_inspected = initial_entry_domains_inspected;
     let edge_count = edges.len();
-    let mut closure = Tracker::from_parts(meta.closure, &flags, edges)?;
+    let closure_started = Instant::now();
+    let mut closure = Tracker::from_parts(meta.closure, &flags, &edges)?;
+    drop(edges);
     closure.restore(state.queue.domains.len(), initial_domain_count)?;
+    let closure_seconds = closure_started.elapsed().as_secs_f64();
     state.closure = std::cell::RefCell::new(closure);
     state.parallel = meta.parallel;
     state.uncommitted = meta.uncommitted;
@@ -226,7 +229,7 @@ pub(super) fn restore<const N: usize>(
     state.validate_restored_streams()?;
     validate_closure_records(&state)?;
     let report = json!({"verify_seconds":verify_seconds,"decode_seconds":decode_seconds,
-        "validate_seconds":validate_started.elapsed().as_secs_f64(),
+        "validate_seconds":validate_started.elapsed().as_secs_f64(),"closure_seconds":closure_seconds,
         "domains":state.queue.domains.len(),"dependency_edges":edge_count,
         "records":state.records.len(),"committed_domains":state.published_count(),
         "committed_events":state.events});
@@ -314,9 +317,9 @@ pub(super) fn validate_closure_records<const N: usize>(state: &State<N>) -> Resu
             return Err("dependency sealed or inspected an unpublished node".into());
         }
     }
-    for edge in closure.dependencies() {
-        required.remove(&edge);
-    }
+    closure.for_each_edge(|source, target| {
+        required.remove(&(source, target));
+    });
     if !required.is_empty() {
         return Err("dependency alias or partial-anchor edge missing".into());
     }

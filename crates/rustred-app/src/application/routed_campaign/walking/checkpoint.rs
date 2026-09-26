@@ -558,10 +558,15 @@ impl Store {
         let domains = state.queue.domains.as_slice();
         let records = state.records.as_slice();
         let domains_plan = plan(previous.and_then(|s| s.domains.as_ref()), domains.len());
+        // Folded edges gave up their insertion order: a retained tiling that
+        // ends inside them (another store's) cannot be extended, only re-tiled.
         let edges_plan = plan(
-            previous.and_then(|s| s.edges.as_ref()),
+            previous
+                .and_then(|s| s.edges.as_ref())
+                .filter(|p| p.total >= closure.folded_edge_count() as u64),
             closure.edge_count(),
         );
+        let edges_total = edges_plan.first + edges_plan.count;
         let records_plan = plan(previous.and_then(|s| s.records.as_ref()), records.len());
         let buckets = state.queue.checkpoint_buckets();
         let ledger = state.queue.checkpoint_ledger();
@@ -753,6 +758,8 @@ impl Store {
         merge(&mut metadata, self.identity_metadata(&executable_first));
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
+        // Every edge is durable in insertion order now; the log may fold.
+        state.closure.borrow_mut().persisted(edges_total);
         self.last_save_seconds = started.elapsed().as_secs_f64();
         self.last_stamp = Some(stamp);
         metadata["duration_seconds"] = json!(self.last_save_seconds);
