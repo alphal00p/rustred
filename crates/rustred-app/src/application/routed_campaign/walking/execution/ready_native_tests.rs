@@ -36,7 +36,7 @@ fn seed() -> State<1> {
     State::new(queue, 0, None)
 }
 
-fn without_timing(mut value: Value) -> Value {
+pub(super) fn without_timing(mut value: Value) -> Value {
     if let Value::Array(records) = &mut value {
         for record in records {
             record.as_object_mut().unwrap().remove("seconds");

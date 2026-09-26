@@ -2018,6 +2018,8 @@ mod closure_tests;
 #[path = "execution/initial_orthants_tests.rs"]
 mod initial_orthants_tests;
 #[cfg(test)]
+mod ready_native_multi_tests;
+#[cfg(test)]
 mod ready_native_tests;
 #[cfg(test)]
 mod ready_tests;
