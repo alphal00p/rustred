@@ -167,7 +167,7 @@ pub(super) enum Poll<const N: usize> {
 }
 impl<const N: usize> Pool<N> {
     #[cfg(test)]
-    fn new(workers: usize) -> Self {
+    pub(super) fn new(workers: usize) -> Self {
         Self::with_limits(workers, EscrowLimits::default())
     }
     fn with_limits(workers: usize, limits: EscrowLimits) -> Self {

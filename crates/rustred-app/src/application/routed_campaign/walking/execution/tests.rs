@@ -600,19 +600,42 @@ fn added<'a>(lean: &Value, detailed: &'a Value) -> Vec<&'a str> {
         .collect()
 }
 
+/// Top-level keys of the frozen binary's Ready events that its Ordered FG
+/// control (`TMP/fable51-controls/baseline-32fdec/fg/events.jsonl`) never
+/// journals.
+const HISTORICAL_READY_ONLY_TOP: [&str; 5] = [
+    "publication_policy",
+    "ready_accepted_source_prefixes",
+    "ready_prefix_tracking_scope",
+    "ready_published_holes",
+    "ready_stream_contexts",
+];
+
+/// An empty walk after initial admission, under a Ready or Ordered
+/// responsibility ledger.
+fn ledger_state(ready: bool) -> State<1> {
+    use super::super::delegation::Ledger;
+    let lookahead = std::num::NonZeroUsize::new(2).unwrap();
+    let mut ledger = if ready {
+        Ledger::new_ready(lookahead, 5)
+    } else {
+        Ledger::new(lookahead, 5)
+    }
+    .unwrap();
+    ledger.begin_initial_admission().unwrap();
+    ledger.finish_initial_admission().unwrap();
+    let mut queue = Queue::<1>::new(5, None);
+    queue.delegation = Some(ledger);
+    State::new(queue, 0, None)
+}
+
 /// Every per-domain event keeps the historical key set exactly, so a new
 /// unconditional field anywhere in `progress`, `metrics_json`, `json_with` or
 /// the closure report fails here; heartbeats add session telemetry only
 /// under `parallel`, and exactly the pinned keys.
 #[test]
 fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry() {
-    use super::super::delegation::Ledger;
-    let mut queue = Queue::<1>::new(5, None);
-    let mut ledger = Ledger::new_ready(std::num::NonZeroUsize::new(2).unwrap(), 5).unwrap();
-    ledger.begin_initial_admission().unwrap();
-    ledger.finish_initial_admission().unwrap();
-    queue.delegation = Some(ledger);
-    let state = State::new(queue, 0, None);
+    let state = ledger_state(true);
     for event in ["domain_started", "domain_delegated"] {
         let lean = state.progress(event, 0, &json!({}));
         assert_eq!(sorted_keys(&lean), HISTORICAL_READY_TOP, "{event}");
@@ -622,6 +645,17 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
             HISTORICAL_ADMISSION
         );
         assert_eq!(sorted_keys(&lean["descendant_closure"]), HISTORICAL_CLOSURE);
+    }
+    // The Ordered walk shares `progress` without the Ready-only keys.
+    let ordered = ledger_state(false);
+    let historical_ordered: Vec<&str> = HISTORICAL_READY_TOP
+        .into_iter()
+        .filter(|key| !HISTORICAL_READY_ONLY_TOP.contains(key))
+        .collect();
+    for event in ["domain_started", "domain_delegated"] {
+        let lean = ordered.progress(event, 0, &json!({}));
+        assert_eq!(sorted_keys(&lean), historical_ordered, "{event}");
+        assert_eq!(sorted_keys(&lean["parallel"]), ["admission_preparation"]);
     }
     let lean = state.progress("domain_started", 0, &json!({}));
     for event in ["domain_progress", "domain_draining"] {
@@ -656,4 +690,76 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
             ]
         );
     }
+}
+
+/// `observe` hands each event kind its pool tier: per-domain events the lean
+/// tier (the frozen binary's 33 `parallel` keys: no activity breakdown, no
+/// per-slot arrays), heartbeats the detailed tier and only the drain events
+/// the per-slot arrays. The tiers' contents are pinned in `parallel/tests.rs`;
+/// this pins which tier each event receives.
+#[test]
+fn observe_attaches_the_lean_pool_tier_to_per_domain_events_only() {
+    let mut state = ledger_state(true);
+    let pool = parallel::Pool::<1>::new(3);
+    let seen = RefCell::new(Vec::new());
+    let events = [
+        "domain_started",
+        "domain_delegated",
+        "domain_progress",
+        "domain_draining",
+    ];
+    for event in events {
+        observe(
+            &mut state,
+            &|value: Value| seen.borrow_mut().push(value),
+            event,
+            0,
+            &pool,
+        );
+    }
+    let with = |tier: Value, coordinator: &[&str]| {
+        let mut keys: Vec<String> = tier.as_object().unwrap().keys().cloned().collect();
+        keys.extend(coordinator.iter().map(|key| key.to_string()));
+        keys.sort_unstable();
+        keys
+    };
+    let lean = ["admission_preparation"];
+    let heartbeat = [
+        "admission_preparation",
+        "closure_refresh_policy",
+        "containment_prefilter",
+        "coordinator_duty",
+    ];
+    let expected = [
+        with(pool.snapshot_lean(), &lean),
+        with(pool.snapshot_lean(), &lean),
+        with(pool.snapshot_detailed(), &heartbeat),
+        with(pool.snapshot(), &heartbeat),
+    ];
+    let seen = seen.into_inner();
+    assert_eq!(seen.len(), events.len());
+    for ((event, observed), expected) in events.iter().zip(&seen).zip(expected) {
+        assert_eq!(observed["event"], *event);
+        assert_eq!(sorted_keys(&observed["parallel"]), expected, "{event}");
+    }
+    for observed in &seen[..2] {
+        assert_eq!(observed["parallel"].as_object().unwrap().len(), 33);
+        assert!(observed["parallel"].get("computing_workers").is_none());
+    }
+    assert!(seen[2]["parallel"]["computing_workers"].is_number());
+    for observed in &seen[..3] {
+        let parallel = observed["parallel"].as_object().unwrap();
+        assert!(
+            parallel.keys().all(|key| !key.starts_with("slot_")),
+            "{}",
+            observed["event"]
+        );
+    }
+    assert_eq!(
+        seen[3]["parallel"]["slot_busy_seconds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
 }
