@@ -100,28 +100,50 @@ def sync_directory(path):
         os.close(descriptor)
 
 
-def copy_executable(directory, source):
+def copy_executable(directory, source, expected=None, check=None):
     """Copy source to directory/rustred-<sha256>, read-only and synced.
 
-    An identical regular file left by an interrupted earlier copy is reused.
+    The bytes are written under a temporary name, synced, digest-checked and
+    passed to check (if given) before they are linked under the final name,
+    so an interrupted or refused copy never occupies it. An existing file of
+    that name is reused only when its digest matches (and check accepts it).
+    expected is the digest the caller already validated, if any.
     """
     if not source.is_file() or not os.access(source, os.X_OK):
         raise ValueError("supplied executable must be an executable file")
     source_hash = digest(source)
+    if expected is not None and source_hash != expected:
+        raise ValueError(f"executable changed since validation (now sha256 {source_hash}, validated {expected})")
     target = directory / ("rustred-" + source_hash)
     if target.is_symlink() or (target.exists() and not target.is_file()):
         raise ValueError(f"frozen executable path is not a regular file: {target}")
-    existed = target.exists()
-    if not existed:
-        with source.open("rb") as incoming, target.open("xb") as outgoing:
-            shutil.copyfileobj(incoming, outgoing, 1024 * 1024)
-            outgoing.flush()
-            os.fsync(outgoing.fileno())
-    if digest(target) != source_hash:
-        raise ValueError(f"existing frozen copy {target} has a different digest" if existed
-                         else "executable changed during freezing")
-    if digest(source) != source_hash:
-        raise ValueError("executable changed during freezing")
+    if target.exists():
+        if digest(target) != source_hash:
+            raise ValueError(f"existing {target} does not match the SHA-256 in its name (the leftover of an "
+                             f"interrupted copy, or a damaged frozen binary); if {directory / 'executable.json'} "
+                             "does not name it, remove it and rerun")
+        if check is not None:
+            check(target)
+    else:
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=directory, prefix="." + target.name + ".",
+                                             delete=False) as outgoing:
+                temporary = Path(outgoing.name)
+                with source.open("rb") as incoming:
+                    shutil.copyfileobj(incoming, outgoing, 1024 * 1024)
+                outgoing.flush()
+                os.fsync(outgoing.fileno())
+            if digest(temporary) != source_hash or digest(source) != source_hash:
+                raise ValueError("executable changed during freezing")
+            temporary.chmod(0o555)
+            if check is not None:
+                check(temporary)
+            os.link(temporary, target)  # Never replaces an existing name.
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        sync_directory(directory)
     target.chmod(0o555)
     with target.open("rb") as stream:
         os.fsync(stream.fileno())
@@ -386,8 +408,8 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
     with checkpoint_lock(checkpoint):
         if checkpoint_identity(checkpoint)["walk_semantics_version"] != upgrade["walk_semantics_version"]:
             raise ValueError("checkpoint walk semantics version changed during the upgrade")
-        target, new_hash = copy_executable(directory, source)
-        if new_hash != upgrade["new"]["sha256"] or str(target.resolve()) != upgrade["new"]["path"]:
+        target, new_hash = copy_executable(directory, source, expected=upgrade["new"]["sha256"])
+        if str(target.resolve()) != upgrade["new"]["path"]:
             raise ValueError("new executable changed since validation")
         if probe_walk_semantics(target) != upgrade["new"]["probe"]:
             raise ValueError("frozen copy of the new executable reports a different walk semantics probe")

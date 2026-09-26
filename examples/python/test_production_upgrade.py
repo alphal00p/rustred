@@ -340,6 +340,45 @@ class ExecutableUpgradeTests(unittest.TestCase):
         self.assertEqual(len(receipt["history"]), 1)
         self.assertEqual(run(self.campaign, "--resume")[0], 0)
 
+    def test_interrupted_or_leftover_copy_never_blocks_a_retry(self):
+        target = self.frozen(self.new)
+        before = snapshot(self.campaign)
+
+        def partial(error):
+            def copy(incoming, outgoing, length):
+                outgoing.write(incoming.read(10))
+                raise error
+            return copy
+
+        with patch.object(PRODUCTION.shutil, "copyfileobj", partial(KeyboardInterrupt())), \
+                self.assertRaises(KeyboardInterrupt):
+            run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--start")
+        self.assertEqual(snapshot(self.campaign), before)
+        with patch.object(PRODUCTION.shutil, "copyfileobj", partial(OSError(28, "No space left on device"))):
+            status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new),
+                                            "--start")
+        self.assertEqual(status, 2)
+        self.assertIn("No space left on device", errors)
+        launch.assert_not_called()
+        self.assertEqual(snapshot(self.campaign), before)
+        # A truncated file under the final name (left by an older launcher) is named, never reused.
+        target.write_bytes(self.new.read_bytes()[:10])
+        before = snapshot(self.campaign)
+        status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--start")
+        self.assertEqual(status, 2)
+        self.assertIn(f"existing {target} does not match the SHA-256 in its name", errors)
+        self.assertIn("remove it and rerun", errors)
+        launch.assert_not_called()
+        self.assertEqual(snapshot(self.campaign), before)
+        target.unlink()
+        status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--start")
+        self.assertIsNone(status, errors)
+        launch.assert_called_once()
+        self.assertEqual(PRODUCTION.digest(target), PRODUCTION.digest(self.new))
+        self.assertEqual(target.stat().st_mode & 0o7777, 0o555)
+        self.assertEqual(sorted(path.name for path in (self.campaign / "bin").iterdir()),
+                         sorted(["executable.json", "steering.json", self.frozen(self.old).name, target.name]))
+
     def test_v1_steering_is_upgraded_in_place_and_keeps_v1_defaults(self):
         _, v2 = self.steering()
         command = [argument for argument in v2["command_arguments"]]
