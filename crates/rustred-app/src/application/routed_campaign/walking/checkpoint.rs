@@ -1044,6 +1044,10 @@ mod tests {
     fn resume_accepts_changed_executable_digest_with_same_semantics_version() {
         let path = test_directory();
         let mut request = request(&path);
+        // The saved state carries a lookahead-1 ledger; the request must agree.
+        request.scheduling_policy = SchedulingPolicy::TransferUnreserved {
+            lookahead: std::num::NonZeroUsize::new(1).unwrap(),
+        };
         let mut store = Store::open_with_identity(&request, "exe-a".into(), 1)
             .unwrap()
             .unwrap();
