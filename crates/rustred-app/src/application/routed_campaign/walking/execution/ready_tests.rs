@@ -425,7 +425,7 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
     assert!(parallel["completed_slots_reclaimed"].as_u64().unwrap() > 0);
     assert_eq!(parallel["completed_escrow_max_entries"], 6);
     assert_eq!(parallel["completed_escrow_entries"], 0);
-    let duty = &parallel["admission_preparation"]["coordinator_duty"];
+    let duty = &parallel["coordinator_duty"];
     assert!(duty["coordinator_elapsed_seconds"].as_f64().unwrap() > 0.0);
     assert!(duty["dispatch_seconds"].as_f64().unwrap() >= 0.0);
     println!(
@@ -528,8 +528,8 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
                 assert_eq!(ledger.published_count(), 2);
             }
             // The main loop publishes the deferred Delegates first, in order.
-            let mut events = Vec::new();
-            let observer = |event: Value| events.push(event["id"].as_u64().unwrap());
+            let events = RefCell::new(Vec::new());
+            let observer = |event: Value| events.borrow_mut().push(event["id"].as_u64().unwrap());
             let mut saves = 0;
             let mut maybe_save = |_: &State<1>| {
                 saves += 1;
@@ -545,7 +545,7 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
             );
             assert_eq!(dispatched, 0, "no free slot: 0, 5 and 6 are running");
             assert!(dispatcher.deferred_delegates.is_empty());
-            assert_eq!(events, [3, 4]);
+            assert_eq!(*events.borrow(), [3, 4]);
             assert_eq!(saves, 2);
             let ledger = state.queue.delegation.as_ref().unwrap();
             assert!(ledger.is_published(3) && ledger.is_published(4));

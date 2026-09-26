@@ -275,7 +275,7 @@ fn replay_retained_admission_grain() {
             .validate_checkpoint()
             .unwrap();
         assert!(state.queue.index_work_counters_disabled_and_zero());
-        let metrics = state.admission.json();
+        let metrics = state.admission.metrics_json(false);
         assert_eq!(metrics["counter_saturated"], false);
         assert_eq!(
             metrics["parallel_batches"].as_u64().unwrap() as usize,

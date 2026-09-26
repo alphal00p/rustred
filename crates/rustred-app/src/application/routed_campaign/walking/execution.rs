@@ -290,6 +290,14 @@ impl<const N: usize> State<N> {
         self.parallel = self.enrich(snapshot);
         accumulate_attempts(&mut self.parallel, previous, &mut self.error);
     }
+    /// Per-domain state update (once per commit and per Finished): the lean
+    /// pool snapshot and no session telemetry objects. Heartbeats and the
+    /// final report install the detailed variant; restore reads only the
+    /// attempt counters, which every tier carries.
+    fn set_parallel_lean(&mut self, snapshot: Value, previous: &Value) {
+        self.parallel = self.enrich_with(snapshot, true);
+        accumulate_attempts(&mut self.parallel, previous, &mut self.error);
+    }
     fn accept(
         &mut self,
         event: Event<N>,
@@ -1441,7 +1449,7 @@ fn run_pool<const N: usize>(
                                 detail: error.into(),
                             });
                         } else {
-                            state.set_parallel(pool.snapshot(), &previous_parallel);
+                            state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
                             if let Err(error) = save(state, maybe_save) {
                                 pool.fail(Failure {
                                     id: Some(publisher_raw),
@@ -1458,7 +1466,7 @@ fn run_pool<const N: usize>(
                         if ready {
                             ready_streams.finished(publisher_raw);
                         }
-                        state.set_parallel(pool.snapshot(), &previous_parallel);
+                        state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
                         state.admission.duty.publication += started.elapsed().as_secs_f64();
                         if state.error.is_none()
                             && let Err(error) = save(state, maybe_save)
