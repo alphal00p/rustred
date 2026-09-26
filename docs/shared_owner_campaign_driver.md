@@ -242,9 +242,10 @@ record the original policy and requested RAM overrides separately; supervisor
 receipts record both requested and host-admitted effective limits.
 
 `campaigns/five-loop-saved/active-run.json` points to the latest requested run.
-The launcher still rejects conflicting native policy overrides and a different executable;
-changing native policy requires a separate campaign. A later Cargo rebuild does
-not replace the frozen executable. `campaign_monitor.py RUN --json` gives one
+The launcher still rejects conflicting native policy overrides and a different executable
+(except a semantics-compatible `--upgrade-executable`, below); changing native
+policy requires a separate campaign. A later Cargo rebuild does not replace the
+frozen executable. `campaign_monitor.py RUN --json` gives one
 read-only machine-readable status; `--once` prints one human-readable snapshot.
 The flake also exposes `campaign-production`, `campaign-monitor`,
 `campaign-stage`, and `campaign` apps. The tested development environment uses
@@ -402,6 +403,69 @@ stale/dead-supervisor snapshots instead of claiming current activity. There is n
 overwrite or silent continuation of an old receipt. CPU measurements are
 sampled deltas of live registered processes, not a complete GNU-time accounting
 of short-lived children between samples.
+
+### Resuming onto a semantics-compatible binary
+
+A paused CP5 campaign may continue on a newer, performance-only executable
+whose walk semantics equal the checkpoint's. The native store accepts a
+different executable digest with the same `WALK_SEMANTICS_VERSION` (emitting
+`checkpoint_executable_changed`) and refuses a different version before
+touching the checkpoint directory. The launcher checks the same condition
+first with the read-only probe `rustred walk-semantics-version`, which prints
+`{"walk_semantics_version":1,"checkpoint_format":"RUSTRED-WALK-CP5","checkpoint_schema":5}`.
+
+Pause first: Ctrl-C (or SIGTERM) to the **Python supervisor** requests the
+cooperative save; wait for the saved checkpoint and the terminal `paused`
+receipt (native exit 4). Never kill the native process. Then build the new
+binary and run the read-only dry run:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable target/release/rustred
+```
+
+It changes nothing and prints the frozen and new SHA-256 digests, the
+checkpoint's walk semantics version (with generation and kind), the new
+executable's probe result, any evidence that the active run is still alive
+and the exact supervisor command it would launch (`--json` prints the full
+plan with an `executable_upgrade` block). Apply and resume with:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/CAMPAIGN --resume \
+  --upgrade-executable target/release/rustred --start
+```
+
+With `--start` the launcher refuses a live run (the `processes.json` and
+`status.json` PID/start-time identities of the run named by `active-run.json`,
+or its `run.pid` before those exist) and holds the native `checkpoint.lock`
+while it freezes the new bytes as `bin/rustred-<sha256>` (mode 0555, synced,
+digest re-checked; the old binary is kept), re-probes that frozen copy,
+rewrites `bin/steering.json` so that only the `--executable` value changes
+(plus an `executable_upgrades` note; mode 0444 again) and finally commits
+`bin/executable.json` as the new receipt with a `history` list of the replaced
+receipts (`replaced_unix_time`, `walk_semantics_version`,
+`reason: "upgrade_executable"`). It then resumes exactly like
+`--resume --start`; RAM overrides combine as usual and every other frozen
+option is unchanged. Later plain `--resume --start` invocations use the
+upgraded binary, and the native run reports `checkpoint_executable_changed`.
+
+Refusals exit 2 and change nothing:
+
+- `--upgrade-executable` without `--resume`, or with `--prepare-from` or `--executable`;
+- the new binary has the frozen digest (plain `--resume` suffices);
+- `checkpoints/main/latest.json` is missing, or is not `RUSTRED-WALK-CP5`
+  schema 5 of kind `state` or `bootstrap`;
+- the new binary has no `walk-semantics-version` probe (every binary built
+  before the probe, including the frozen `rustred-102adcc3…`), or the probe
+  fails, exceeds 60 s or 64 KiB, or does not print one JSON object;
+- a different checkpoint format/schema or walk semantics version: start a new campaign;
+- with `--start`: a live supervisor or native process, or a held `checkpoint.lock`.
+
+If an upgrade is interrupted after the steering rewrite but before the receipt
+commit, a plain `--resume` refuses because steering and receipt name different
+executables; rerunning the same `--upgrade-executable NEW --start` completes it.
 
 ## Profiling controls and walk audits
 
