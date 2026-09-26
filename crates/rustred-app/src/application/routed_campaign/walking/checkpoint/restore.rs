@@ -353,7 +353,9 @@ pub(super) fn validate_ledger_closure<const N: usize>(state: &State<N>) -> Resul
         let matches = match ledger {
             Some(_) => actual == expected,
             // Without a ledger the seal depends on the record's frontiers:
-            // only inspection is per ID, unsealed inspections are aggregated.
+            // only inspection is per ID, and the unsealed inspections are
+            // bounded by the frontier count below. Unlike the former record
+            // scan, this cannot detect a sealed native that kept frontiers.
             None => actual.0 == expected.0 && (expected.0 || !actual.1),
         };
         if !matches {
