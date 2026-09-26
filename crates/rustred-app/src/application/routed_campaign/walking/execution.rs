@@ -29,6 +29,19 @@ mod replay;
 pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
 
+/// Cheap monotone summary of everything a checkpoint would persist. Equal
+/// stamps mean the last saved generation already holds this state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ChangeStamp {
+    pub domains: usize,
+    pub published: usize,
+    pub events: usize,
+    pub closure_revision: u64,
+    pub ledger_reserved_through: usize,
+    pub ledger_transfers: usize,
+    pub records_total: usize,
+}
+
 pub(super) struct State<const N: usize> {
     pub closure: RefCell<super::descendant_closure::Tracker>,
     pub queue: Queue<N>,
@@ -122,6 +135,18 @@ impl<const N: usize> State<N> {
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+        }
+    }
+    pub(super) fn change_stamp(&self) -> ChangeStamp {
+        let ledger = self.queue.delegation.as_ref();
+        ChangeStamp {
+            domains: self.queue.domains.len(),
+            published: self.published_count(),
+            events: self.events,
+            closure_revision: self.closure.borrow().revision(),
+            ledger_reserved_through: ledger.map_or(0, |l| l.reservation_scan()),
+            ledger_transfers: ledger.map_or(0, |l| l.transfers()),
+            records_total: self.records.len(),
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {

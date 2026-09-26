@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod index;
 use index::{AggregateIndex, Coordinates, Signature};
 mod checkpoint;
+pub(super) use checkpoint::{Metadata as QueueMetadata, SortedBuckets, StoredBuckets};
 #[cfg(test)]
 pub(super) mod positive_reuse_trace;
 mod prepared;

@@ -89,6 +89,10 @@ impl<K: Copy + Eq> Ledger<K> {
         self.reserved_through
     }
 
+    pub fn transfers(&self) -> usize {
+        self.transfers
+    }
+
     pub fn outstanding_native(&self) -> usize {
         self.outstanding_native
     }
