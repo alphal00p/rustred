@@ -1102,6 +1102,16 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        // A cooperative stop's interrupted-inspection receipt is state too.
+        resumed
+            .uncommitted
+            .push(json!({"id":3,"committed":false,"error":"cancelled"}));
+        let saved = store
+            .save(&resumed, &[], &[], true, &observe)
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4);
+        assert_eq!(fixture.resume::<1>().unwrap().uncommitted.len(), 1);
     }
 
     #[test]

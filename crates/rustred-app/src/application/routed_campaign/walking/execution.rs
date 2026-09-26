@@ -40,6 +40,9 @@ pub(super) struct ChangeStamp {
     pub ledger_reserved_through: usize,
     pub ledger_transfers: usize,
     pub records_total: usize,
+    /// Interrupted-inspection receipts persisted for the final report; a
+    /// cooperative stop must save them even when nothing else moved.
+    pub uncommitted: usize,
 }
 
 pub(super) struct State<const N: usize> {
@@ -147,6 +150,7 @@ impl<const N: usize> State<N> {
             ledger_reserved_through: ledger.map_or(0, |l| l.reservation_scan()),
             ledger_transfers: ledger.map_or(0, |l| l.transfers()),
             records_total: self.records.len(),
+            uncommitted: self.uncommitted.len(),
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {
