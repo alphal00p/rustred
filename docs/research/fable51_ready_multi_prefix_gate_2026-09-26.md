@@ -176,12 +176,17 @@ per-domain event without those keys (the key path itself,
 uses the latest (and for the breakdown the earliest) sample in the window that
 carries them; tests use four real heartbeat lines of that campaign.
 
-Suite note: with all tests running in parallel on 12 loaded CPUs, two
-pre-existing timing-dependent tests failed in 2 of 3 full runs
-(`cli::shards::supervisor::tests::orphan_child_retains_campaign_lock_until_exit`
-twice, `ready_tests::ready_late_native_fault_after_cancellation_disallows_pause`
-once; 0 of 30 isolated runs each). The Ready one cancelled before its faulting
-inspector had taken its job (`Pool::take` then returns nothing); it now
-cancels only once that inspector runs. The shard-lock test is left to the
-shard-CLI follow-up (suspected, not verified: a concurrently forked sibling holds a copy of the lock
-descriptor for a moment).
+Suite note (release lib suite with the license, CPUs 200-211, host load
+~95-130): five full runs. Before the Ready test fix below: 734/1/4 (shard
+lock test), 733/2/4 (shard lock test and the Ready late-fault test),
+735/0/4; after it (bed99c97): 735/0/4, then 734/1/4 with a wall-clock
+presenter test (`cli::progress::tests::presenter_ticks_without_semantic_callbacks_and_stays_below_configured_rate`).
+Each of these tests passed 30 of 30 isolated runs. The Ready one
+(`ready_tests::ready_late_native_fault_after_cancellation_disallows_pause`)
+cancelled before its faulting inspector had taken its job (`Pool::take` then
+returns nothing and the walk pauses cleanly); it now cancels only once that
+inspector runs. The shard-lock test
+(`cli::shards::supervisor::tests::orphan_child_retains_campaign_lock_until_exit`)
+and the presenter test are timing-dependent tests outside this change, left
+to the shard-CLI follow-up (suspected, not verified, for the lock test: a
+concurrently forked sibling briefly holds a copy of the lock descriptor).
