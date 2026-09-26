@@ -476,6 +476,49 @@ fn prepared_retirement_scans_in_batch_admissions_above_the_watermark() {
     assert_eq!(serial.containment_checks, queue.containment_checks);
 }
 
+/// A prepared lookup made while its phase/owner bucket did not exist yet
+/// carries an empty set that decides nothing: an earlier commit of the same
+/// batch created the bucket, so every retirement is a commit-time decision.
+/// It is counted as trivial, not as an applied helper set.
+#[test]
+fn prepared_set_from_an_absent_bucket_counts_as_trivial_not_applied() {
+    let mut queue = Queue::new(20, None);
+    let request = box_domain([0, 0], [9, 9]);
+    let token = queue.prepare_admission(request.clone(), &AtomicBool::new(false));
+    assert_eq!(token.prepared_retire_len(), Some(0));
+    assert_eq!(queue.admit(box_domain([3, 3], [4, 4])), Ok((0, true)));
+    let before = queue.session;
+    assert_eq!(queue.admit_prepared(token), Ok((1, true)));
+    assert_eq!(queue.containment_retired_candidates, 1);
+    assert_eq!(
+        queue.session.prepared_retirements_trivial,
+        before.prepared_retirements_trivial + 1
+    );
+    assert_eq!(
+        queue.session.prepared_retirements_applied,
+        before.prepared_retirements_applied
+    );
+    assert_eq!(
+        queue.session.prepared_retire_fallbacks,
+        before.prepared_retire_fallbacks
+    );
+    // ID 0 needed its commit-time comparison.
+    assert_eq!(
+        queue.session.reverse_callbacks,
+        before.reverse_callbacks + 1
+    );
+    let mut serial = Queue::new(20, None);
+    for item in [box_domain([3, 3], [4, 4]), request] {
+        serial.admit(item).unwrap();
+    }
+    same_state(&serial, &queue);
+    assert_eq!(serial.containment_checks, queue.containment_checks);
+    assert_eq!(
+        serial.containment_maintenance_checks,
+        queue.containment_maintenance_checks
+    );
+}
+
 #[test]
 fn prepared_retirement_falls_back_for_retired_winners_and_near_counter_exhaustion() {
     // Retired snapshot winner: the fresh scan hits its wider replacement, so

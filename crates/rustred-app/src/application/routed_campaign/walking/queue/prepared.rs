@@ -91,6 +91,9 @@ pub(super) struct PreparedLookup<const N: usize> {
     /// Prepared reverse retirement set (ascending, all below the watermark),
     /// only for a snapshot miss and only while it fitted the limit.
     retire: Option<Vec<usize>>,
+    /// No candidate of this phase/owner existed at the snapshot: the empty
+    /// set above decides nothing, every retirement is a commit-time decision.
+    bucket_absent: bool,
 }
 
 /// Outcome of revalidating a prepared lookup against the commit-time index.
@@ -102,6 +105,8 @@ pub(super) struct Revalidated {
     pub retire: Option<Vec<usize>>,
     /// IDs at or above this watermark are decided at commit time.
     pub first_new: usize,
+    /// The set is empty because the bucket did not exist at the snapshot.
+    pub trivial: bool,
 }
 
 impl<const N: usize> Queue<N> {
@@ -166,8 +171,9 @@ impl<const N: usize> Queue<N> {
         let prefilter = self.prefilter;
         let signature = Signature::of(&summary);
         let coordinates = Coordinates::of(&summary);
-        let (found, retire) = if let Some(bucket) = self.by_owner.get(&(domain.phase, domain.owner))
-        {
+        let bucket = self.by_owner.get(&(domain.phase, domain.owner));
+        let bucket_absent = bucket.is_none();
+        let (found, retire) = if let Some(bucket) = bucket {
             if bucket
                 .orthant
                 .is_some_and(|id| rank_contains(self.domains[id].rank, domain.rank))
@@ -247,6 +253,7 @@ impl<const N: usize> Queue<N> {
             found,
             checks: work.checks,
             retire,
+            bucket_absent,
         })
     }
 
@@ -301,6 +308,7 @@ impl<const N: usize> PreparedLookup<N> {
                     checks: self.checks,
                     retire: None,
                     first_new: self.watermark,
+                    trivial: false,
                 });
         }
         // Every old live ID was tested by the snapshot (or safely filtered).
@@ -329,6 +337,7 @@ impl<const N: usize> PreparedLookup<N> {
             found,
             checks,
             first_new: self.watermark,
+            trivial: self.bucket_absent,
         })
     }
 }
