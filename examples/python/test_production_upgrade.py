@@ -77,8 +77,17 @@ class ExecutableUpgradeTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.campaign = self.root / "campaign"
-        inputs = self.campaign / "inputs"
+        self.old = fake_executable(self.root / "old-rustred")
+        self.campaign = self.prepare(self.root / "campaign", self.old)
+        self.checkpoint = self.campaign / "checkpoints" / "main"
+        self.new = fake_executable(self.root / "new-rustred")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def prepare(self, campaign, executable):
+        """A frozen campaign (one worker) with a saved CP5 state manifest."""
+        inputs = campaign / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "selection.json").write_text("{}")
         (inputs / "queries.json").write_text(json.dumps({
@@ -86,20 +95,16 @@ class ExecutableUpgradeTests(unittest.TestCase):
         (inputs / "input-receipt.json").write_text(json.dumps({
             "selection_sha256": PRODUCTION.digest(inputs / "selection.json"),
             "queries_sha256": PRODUCTION.digest(inputs / "queries.json"), "owners": []}))
-        self.old = fake_executable(self.root / "old-rustred")
-        status, _, errors, _ = run(self.campaign, "--executable", str(self.old), "--workers", "1")
+        status, _, errors, _ = run(campaign, "--executable", str(executable), "--workers", "1")
         self.assertEqual(status, 0, errors)
-        self.checkpoint = self.campaign / "checkpoints" / "main"
-        self.checkpoint.mkdir(parents=True)
-        (self.checkpoint / "latest.json").write_text(json.dumps(manifest()))
-        (self.checkpoint / "checkpoint.lock").touch()
-        self.new = fake_executable(self.root / "new-rustred")
+        checkpoint = campaign / "checkpoints" / "main"
+        checkpoint.mkdir(parents=True)
+        (checkpoint / "latest.json").write_text(json.dumps(manifest()))
+        (checkpoint / "checkpoint.lock").touch()
+        return campaign
 
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def frozen(self, path):
-        return (self.campaign / "bin" / ("rustred-" + PRODUCTION.digest(path))).resolve()
+    def frozen(self, path, campaign=None):
+        return ((campaign or self.campaign) / "bin" / ("rustred-" + PRODUCTION.digest(path))).resolve()
 
     def steering(self):
         path = self.campaign / "bin" / "steering.json"
@@ -186,6 +191,86 @@ class ExecutableUpgradeTests(unittest.TestCase):
                 self.assertEqual(status, 2)
                 self.assertIn(fragment, errors)
                 self.assertEqual(snapshot(self.campaign), changed)
+
+    def test_start_validates_every_frozen_and_ram_option_before_upgrading(self):
+        before = snapshot(self.campaign)
+        for options, fragment in ((("--checkpoint-interval-seconds", "999"), "--checkpoint-interval-seconds differs"),
+                                  (("--workers", "2"), "--workers differs from frozen policy"),
+                                  (("--publication-policy", "ordered"), "--publication-policy differs")):
+            with self.subTest(options=options):
+                status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new),
+                                                "--start", *options)
+                self.assertEqual(status, 2)
+                self.assertIn(fragment, errors)
+                launch.assert_not_called()
+                self.assertEqual(snapshot(self.campaign), before)
+        # A RAM override the frozen command cannot carry is refused before the upgrade, too.
+        path = self.campaign / "bin" / "steering.json"
+        _, policy = self.steering()
+        command = policy["command_arguments"]
+        del command[command.index("--max-memory-bytes"):command.index("--max-memory-bytes") + 2]
+        PRODUCTION.write_json(path, policy)
+        before = snapshot(self.campaign)
+        status, _, errors, launch = run(self.campaign, "--resume", "--upgrade-executable", str(self.new), "--start",
+                                        "--max-memory-bytes", "123")
+        self.assertEqual(status, 2)
+        self.assertIn("must contain exactly one --max-memory-bytes", errors)
+        launch.assert_not_called()
+        self.assertEqual(snapshot(self.campaign), before)
+
+    def test_changes_between_validation_and_the_lock_are_refused_without_mutation(self):
+        """The re-checks under checkpoint.lock, each against a real race after planning."""
+        def rewrite(path, value):
+            PRODUCTION.write_json(path, value)
+
+        def swap_new(campaign, new):
+            fake_executable(new, body=f"# rebuilt\nprint(json.dumps({PROBE!r}))\n")
+
+        def other_receipt(campaign, new):
+            receipt = json.loads((campaign / "bin" / "executable.json").read_text())
+            rewrite(campaign / "bin" / "executable.json", dict(receipt, sha256="0" * 64))
+
+        def other_steering(campaign, new):
+            policy = json.loads((campaign / "bin" / "steering.json").read_text())
+            command = policy["command_arguments"]
+            command[command.index("--executable") + 1] = str(campaign / "bin" / "rustred-elsewhere")
+            rewrite(campaign / "bin" / "steering.json", policy)
+
+        cases = (
+            (lambda campaign, new: rewrite(campaign / "checkpoints/main/latest.json",
+                                           manifest(walk_semantics_version=2)),
+             None, "checkpoint walk semantics version changed during the upgrade"),
+            (swap_new, None, "executable changed since validation"),
+            (other_receipt, None, "frozen executable receipt changed during the upgrade"),
+            (other_steering, None, "refusing to rewrite"),
+            (None, dict(PROBE, walk_semantics_version=2),
+             "frozen copy of the new executable reports a different walk semantics probe"),
+        )
+        real_plan, real_probe = PRODUCTION.plan_executable_upgrade, PRODUCTION.probe_walk_semantics
+        for index, (race, second_probe, fragment) in enumerate(cases):
+            with self.subTest(fragment=fragment):
+                campaign = self.prepare(self.root / f"race-{index}", self.old)
+                new = fake_executable(self.root / f"race-{index}-new")
+                observed = []
+
+                def planned(*arguments):
+                    result = real_plan(*arguments)
+                    if race is not None:
+                        race(campaign, new)
+                    observed.append(snapshot(campaign))
+                    return result
+
+                def probe(executable):
+                    return real_probe(executable) if second_probe is None or not observed else second_probe
+
+                with patch.object(PRODUCTION, "plan_executable_upgrade", planned), \
+                        patch.object(PRODUCTION, "probe_walk_semantics", probe):
+                    status, _, errors, launch = run(campaign, "--resume", "--upgrade-executable", str(new),
+                                                    "--start")
+                self.assertEqual(status, 2, errors)
+                self.assertIn(fragment, errors)
+                launch.assert_not_called()
+                self.assertEqual(snapshot(campaign), observed[0])
 
     def test_live_run_or_held_checkpoint_lock_is_refused_before_mutation(self):
         run_directory = self.campaign / "runs" / "live"

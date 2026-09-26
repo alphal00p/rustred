@@ -398,32 +398,42 @@ def upgraded_steering(policy, upgrade, replaced_unix_time):
 
 
 def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
-    """Mutating half: freeze NEW, rewrite steering, then commit executable.json."""
+    """Mutating half: freeze NEW, rewrite steering, then commit executable.json.
+
+    Every precondition is checked under the lock before the copy, and the
+    copy is probed before it takes its final name, so a refusal here leaves
+    bin/ unchanged.
+    """
     evidence = active_run_liveness(campaign)
     if evidence:
         raise ValueError("the campaign's active run is alive (" + "; ".join(evidence)
                          + "); pause it with Ctrl-C and wait for exit 4 first")
     directory = campaign / "bin"
     receipt_path, steering_path = directory / "executable.json", directory / "steering.json"
+
+    def same_probe(path):
+        if probe_walk_semantics(path) != upgrade["new"]["probe"]:
+            raise ValueError("frozen copy of the new executable reports a different walk semantics probe")
+
     with checkpoint_lock(checkpoint):
         if checkpoint_identity(checkpoint)["walk_semantics_version"] != upgrade["walk_semantics_version"]:
             raise ValueError("checkpoint walk semantics version changed during the upgrade")
-        target, new_hash = copy_executable(directory, source, expected=upgrade["new"]["sha256"])
-        if str(target.resolve()) != upgrade["new"]["path"]:
-            raise ValueError("new executable changed since validation")
-        if probe_walk_semantics(target) != upgrade["new"]["probe"]:
-            raise ValueError("frozen copy of the new executable reports a different walk semantics probe")
+        previous = read_bounded_json(receipt_path, MAX_RECEIPT_BYTES, "executable receipt")
+        if previous.get("sha256") != upgrade["frozen"]["sha256"]:
+            raise ValueError("frozen executable receipt changed during the upgrade")
+        if str((directory / ("rustred-" + upgrade["new"]["sha256"])).resolve()) != upgrade["new"]["path"]:
+            raise ValueError("campaign bin directory moved since validation")
         now = time.time()
         policy = read_bounded_json(steering_path, MAX_RECEIPT_BYTES, "frozen steering")
+        if policy.get("schema") not in STEERING_SCHEMAS:
+            raise ValueError("unknown frozen steering policy")
         upgraded = upgraded_steering(policy, upgrade, now)
+        target, new_hash = copy_executable(directory, source, expected=upgrade["new"]["sha256"], check=same_probe)
         if upgraded is not policy:
             write_json(steering_path, upgraded)
         steering_path.chmod(0o444)
         # executable.json is the commit point; an interruption before it is
         # refused by a plain --resume and completed by rerunning the upgrade.
-        previous = read_bounded_json(receipt_path, MAX_RECEIPT_BYTES, "executable receipt")
-        if previous.get("sha256") != upgrade["frozen"]["sha256"]:
-            raise ValueError("frozen executable receipt changed during the upgrade")
         replaced = {key: value for key, value in previous.items() if key != "history"}
         replaced.update(replaced_unix_time=now, walk_semantics_version=upgrade["walk_semantics_version"],
                         reason=UPGRADE_REASON)
@@ -748,24 +758,32 @@ def main(argv=None):
                          queries_override=args.queries, attachments=args.attach)
         count, size, receipt = verify_inputs(inputs)
         executable, executable_hash = freeze_executable(campaign, args.executable)
+        # Read-only on --resume (steering must exist), so every frozen-option
+        # refusal happens before an upgrade changes anything.
+        policy = frozen_policy(campaign, args, executable, inputs, count, size)
         if args.upgrade_executable is not None:
             upgrade = plan_executable_upgrade(campaign, checkpoint, args.upgrade_executable,
                                               executable, executable_hash)
-            if args.start:
-                apply_executable_upgrade(campaign, checkpoint, upgrade, args.upgrade_executable)
-                executable, executable_hash = freeze_executable(campaign, None)
-        policy = frozen_policy(campaign, args, executable, inputs, count, size)
         steering_sha256 = digest(campaign / "bin" / "steering.json")
         _, steered = steering_executable(policy)
         if steered.resolve() != executable and not (upgrade and str(steered.resolve()) == upgrade["new"]["path"]):
             raise ValueError(f"frozen steering executable {steered} differs from the frozen receipt's {executable} "
                              "(interrupted --upgrade-executable: rerun it; or a moved campaign)")
-        if upgrade is not None and not args.start:
-            # Dry run: show the command the upgrade would launch, change nothing.
+        if upgrade is not None:
             upgrade["steering_sha256_before"] = steering_sha256
             policy = upgraded_steering(policy, upgrade, None)
-            executable_hash = upgrade["new"]["sha256"]
-            steering_sha256 = None  # Only --start rewrites steering.json.
+            effective_supervisor_policy(policy, args)  # RAM overrides, validated before any change.
+            if args.start:
+                apply_executable_upgrade(campaign, checkpoint, upgrade, args.upgrade_executable)
+                executable, executable_hash = freeze_executable(campaign, None)
+                policy = frozen_policy(campaign, args, executable, inputs, count, size)
+                steering_sha256 = digest(campaign / "bin" / "steering.json")
+                if steering_executable(policy)[1].resolve() != executable:
+                    raise ValueError("upgraded steering and receipt name different executables")
+            else:
+                # Dry run: show the command the upgrade would launch, change nothing.
+                executable_hash = upgrade["new"]["sha256"]
+                steering_sha256 = None  # Only --start rewrites steering.json.
         command_arguments, options, ram_overrides = effective_supervisor_policy(policy, args)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
