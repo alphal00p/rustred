@@ -1111,6 +1111,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(saved["checkpoint"]["generation"], 4);
+        drop(store); // Release the directory lock before reopening.
         assert_eq!(fixture.resume::<1>().unwrap().uncommitted.len(), 1);
     }
 
