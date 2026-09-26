@@ -1,7 +1,8 @@
 //! Committed domain records. Non-checkpointed runs keep them in RAM; a
-//! checkpointed run streams each record at commit time into the checkpoint's
-//! append-only `records-<G>.jsonl` segments (one JSON value per line, the CP5
-//! records section) and retains only aggregates.
+//! checkpointed run serializes each record at commit time and appends it, in
+//! batches of whole lines, to the checkpoint's append-only
+//! `records-<G>.jsonl` segments (one JSON value per line, the CP5 records
+//! section), retaining only aggregates and at most one unwritten batch.
 //!
 //! Segment `G` holds the records committed after the previous save and
 //! before the save of generation `G`; the store seals it (fsync, digest) and
@@ -23,6 +24,10 @@ use std::path::{Path, PathBuf};
 
 /// One record line may not exceed this; a longer line is corruption.
 const MAX_RECORD_LINE_BYTES: u64 = 1 << 30;
+/// Committed records reach the open segment in batches of whole lines of
+/// about this size: one write(2) per batch, not per record, on the
+/// coordinator's commit path. A batch not yet written stays readable in RAM.
+const BATCH_BYTES: usize = 64 << 10;
 
 pub(in super::super) enum RecordSink {
     /// Non-checkpointed runs and unit tests.
@@ -103,18 +108,22 @@ pub(in super::super) struct Sidecar {
     /// collides with an orphan; its file is created by the first push.
     generation: u64,
     open: Option<Open>,
-    /// Scratch line reused across records.
-    line: Vec<u8>,
+    /// Serialized whole lines committed after the open segment's `written`
+    /// ones, not yet written (at most about `BATCH_BYTES`), and their count.
+    /// A failed write leaves them here: `files()` still reads them.
+    batch: Vec<u8>,
+    batched: usize,
     /// The first write or seal failure; the sidecar refuses further use.
     failed: Option<String>,
 }
 
 struct Open {
     file: String,
-    /// Unbuffered: each record reaches the file with one write, so the tail
-    /// is always readable and a serialization failure leaves no partial line.
+    /// Unbuffered: bytes reach the file only as whole-line batches, so the
+    /// file holds `written` whole lines (after a failed write, possibly
+    /// followed by a partial batch that no reader consumes).
     writer: HashingWriter<File>,
-    count: usize,
+    written: usize,
 }
 
 impl Open {
@@ -134,7 +143,7 @@ impl Open {
             generation,
             file: self.file.clone(),
             first: first as u64,
-            count: self.count as u64,
+            count: self.written as u64,
             bytes,
             blake3,
         })
@@ -154,7 +163,8 @@ impl Sidecar {
             sealed,
             generation,
             open: None,
-            line: Vec::new(),
+            batch: Vec::new(),
+            batched: 0,
             failed: None,
         }
     }
@@ -171,7 +181,7 @@ impl Sidecar {
         self.sealed
     }
     pub fn total(&self) -> usize {
-        self.sealed + self.open.as_ref().map_or(0, |open| open.count)
+        self.sealed + self.open.as_ref().map_or(0, |open| open.written) + self.batched
     }
     fn healthy(&self) -> Result<(), String> {
         self.failed.clone().map_or(Ok(()), Err)
@@ -182,10 +192,12 @@ impl Sidecar {
     }
     pub fn push(&mut self, record: &Value) -> Result<(), String> {
         self.healthy()?;
-        self.line.clear();
-        serde_json::to_writer(&mut self.line, record)
-            .map_err(|e| format!("record sidecar serialization failed: {e}"))?;
-        self.line.push(b'\n');
+        let start = self.batch.len();
+        if let Err(e) = serde_json::to_writer(&mut self.batch, record) {
+            self.batch.truncate(start);
+            return Err(format!("record sidecar serialization failed: {e}"));
+        }
+        self.batch.push(b'\n');
         if self.open.is_none() {
             let file = Section::Records.file_name(self.generation);
             let created = OpenOptions::new()
@@ -198,20 +210,36 @@ impl Sidecar {
                     self.open = Some(Open {
                         file,
                         writer: HashingWriter::new(handle),
-                        count: 0,
+                        written: 0,
                     })
                 }
-                Err(e) => return Err(self.fail(e)),
+                Err(e) => {
+                    self.batch.truncate(start);
+                    return Err(self.fail(e));
+                }
             }
         }
-        let open = self.open.as_mut().expect("open record segment");
-        if let Err(e) = open.writer.write_all(&self.line) {
-            let error = format!("record sidecar write failed: {e}");
-            return Err(self.fail(error));
+        self.batched += 1;
+        if self.batch.len() >= BATCH_BYTES {
+            self.write_batch()?;
         }
-        open.count += 1;
-        if self.line.capacity() > 1 << 20 {
-            self.line = Vec::new(); // Do not pin one exceptional record's buffer.
+        Ok(())
+    }
+    /// One write of every batched line. On failure the lines stay batched
+    /// (read by `files()` for the failed run's report) and the sidecar
+    /// refuses further use.
+    fn write_batch(&mut self) -> Result<(), String> {
+        let Some(open) = self.open.as_mut().filter(|_| self.batched > 0) else {
+            return Ok(());
+        };
+        if let Err(e) = open.writer.write_all(&self.batch) {
+            return Err(self.fail(format!("record sidecar write failed: {e}")));
+        }
+        open.written += self.batched;
+        self.batched = 0;
+        self.batch.clear();
+        if self.batch.capacity() > 2 * BATCH_BYTES {
+            self.batch = Vec::new(); // Do not pin one exceptional record's buffer.
         }
         Ok(())
     }
@@ -224,6 +252,7 @@ impl Sidecar {
         if generation != self.generation || next <= generation {
             return Err("record sidecar generation disagrees with the checkpoint save".into());
         }
+        self.write_batch()?;
         let segment = match &self.open {
             None => None,
             Some(open) => match open.seal(&self.directory, generation, self.sealed) {
@@ -243,7 +272,8 @@ impl Sidecar {
         Ok(segment)
     }
     /// Read-only view of every committed record: sealed segments (length
-    /// and digest re-verified while reading), then the unsealed tail.
+    /// and digest re-verified while reading), the unsealed tail's written
+    /// lines, then a copy of the unwritten batch.
     pub fn files(&self) -> SidecarFiles {
         let mut parts: Vec<Part> = self
             .closed
@@ -257,13 +287,15 @@ impl Sidecar {
         if let Some(open) = &self.open {
             parts.push(Part {
                 file: open.file.clone(),
-                count: open.count as u64,
+                count: open.written as u64,
                 sealed: None,
             });
         }
         SidecarFiles {
             directory: self.directory.clone(),
             parts,
+            batch: self.batch.clone(),
+            batched: self.batched,
             total: self.total(),
         }
     }
@@ -283,10 +315,14 @@ pub(in super::super) struct Part {
 pub(in super::super) struct SidecarFiles {
     directory: PathBuf,
     parts: Vec<Part>,
+    /// Whole lines committed after the parts, held in RAM.
+    batch: Vec<u8>,
+    batched: usize,
     total: usize,
 }
 
 impl SidecarFiles {
+    /// The record files; `total` also counts the lines still in RAM.
     pub fn parts(&self) -> &[Part] {
         &self.parts
     }
@@ -300,6 +336,10 @@ impl SidecarFiles {
     ) -> Result<(), String> {
         for part in &self.parts {
             read_part(&self.directory, part, &mut visit)?;
+        }
+        // Serialized JSON holds no raw newline.
+        for line in self.batch.split(|&b| b == b'\n').take(self.batched) {
+            visit(line)?;
         }
         Ok(())
     }

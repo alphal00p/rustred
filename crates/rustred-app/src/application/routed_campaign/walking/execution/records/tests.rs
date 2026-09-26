@@ -189,20 +189,47 @@ fn sidecar_write_failure_sets_publisher_error_not_a_fake_record() {
 }
 
 #[test]
-fn sidecar_write_failure_after_a_record_keeps_the_written_prefix() {
+fn records_reach_the_segment_in_batches_and_stay_readable_before() {
+    let dir = test_directory();
+    let mut sidecar = Sidecar::new(dir.clone(), 2);
+    let file = dir.join(Section::Records.file_name(2));
+    sidecar.push(&record(0)).unwrap();
+    // Created by the first push, written only once the batch is full.
+    assert_eq!(fs::metadata(&file).unwrap().len(), 0);
+    assert_eq!(read_all(&sidecar.files()), vec![record(0)]);
+    let large = json!({"id":1,"pad":"x".repeat(BATCH_BYTES)});
+    sidecar.push(&large).unwrap();
+    assert_eq!(fs::read(&file).unwrap(), jsonl(&[record(0), large.clone()]));
+    sidecar.push(&record(2)).unwrap();
+    assert_eq!(sidecar.total(), 3);
+    let all = vec![record(0), large, record(2)];
+    assert_eq!(read_all(&sidecar.files()), all);
+    // The save writes the rest before sealing.
+    let segment = sidecar.seal(2, 3).unwrap().unwrap();
+    assert_eq!(segment.count, 3);
+    assert_eq!(fs::read(&file).unwrap(), jsonl(&all));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn sidecar_write_failure_keeps_the_batch_readable_for_the_failed_report() {
     let dir = test_directory();
     let mut sidecar = Sidecar::new(dir.clone(), 2);
     sidecar.push(&record(0)).unwrap();
+    sidecar.write_batch().unwrap();
     // A read-only handle in place of the segment's writer: the next write
     // fails with EBADF, which no privilege bypasses.
     let read_only = File::open(dir.join(Section::Records.file_name(2))).unwrap();
     sidecar.open.as_mut().unwrap().writer = HashingWriter::new(read_only);
-    let error = sidecar.push(&record(1)).unwrap_err();
+    sidecar.push(&record(1)).unwrap(); // Batched, not yet written.
+    let error = sidecar.seal(2, 3).unwrap_err();
     assert!(error.contains("record sidecar write failed"), "{error}");
-    assert_eq!(sidecar.total(), 1);
-    assert_eq!(read_all(&sidecar.files()), vec![record(0)]);
-    assert_eq!(sidecar.seal(2, 3).unwrap_err(), error);
+    // Record 0 from the file, record 1 from the unwritten batch: every
+    // committed record for the failed run's report.
+    assert_eq!(sidecar.total(), 2);
+    assert_eq!(read_all(&sidecar.files()), vec![record(0), record(1)]);
     assert_eq!(sidecar.push(&record(2)).unwrap_err(), error);
+    assert_eq!(sidecar.seal(2, 3).unwrap_err(), error);
     fs::remove_dir_all(dir).unwrap();
 }
 
