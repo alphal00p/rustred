@@ -130,13 +130,23 @@ pub(super) fn restore<const N: usize>(
             &mut edges,
         )?;
     }
-    let mut domains = Vec::new();
-    for segment in &s
+    let domain_segments = &s
         .domains
         .as_ref()
         .ok_or("state manifest is missing the domains section")?
-        .segments
+        .segments;
+    let mut domains = Vec::new();
+    // Room for the whole compact image up front: segment-by-segment growth
+    // could leave up to twice the needed capacity. Best effort only; the
+    // segment reader reports a genuine allocation failure itself.
+    if let Some(total) = domain_segments
+        .iter()
+        .try_fold(0_u64, |total, s| total.checked_add(s.count))
+        .and_then(|total| usize::try_from(total).ok())
     {
+        let _ = domains.try_reserve_exact(total);
+    }
+    for segment in domain_segments {
         let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
         let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
         sections::read_domains::<N>(

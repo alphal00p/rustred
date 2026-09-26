@@ -315,15 +315,16 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
             original.powers,
         )
         .unwrap();
-        assert_eq!(queue.domains[id].owner, original.owner);
-        assert_eq!(queue.domains[id].phase, original.phase);
+        assert_eq!(queue.domains[id].owner(), original.owner);
+        assert_eq!(queue.domains[id].phase(), original.phase);
+        // A later admission may have retired `id`: rebuild its native summary.
         assert!(
-            queue.summaries[id].contains(&summary),
+            queue.domains[id].native_summary().contains(&summary),
             "returned semantic ID does not contain request"
         );
         assert!(raw.domains[raw_id].contains(original));
         if admitted {
-            assert_eq!(queue.domains[id].as_ref(), original);
+            assert_eq!(&queue.domain(id), original);
         }
         if raw_admitted {
             assert_eq!(raw.domains[raw_id].as_ref(), original);
@@ -334,10 +335,11 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
         "index retirement must not process pending work"
     );
     assert_eq!(queue.domains.len(), queue.exact.len());
-    assert_eq!(queue.domains.len(), queue.summaries.len());
+    assert_eq!(queue.domains.len(), queue.summaries.ids());
     assert_eq!(raw.domains.len(), raw.exact.len());
     for (id, domain) in queue.domains.iter().enumerate() {
-        assert_eq!(queue.exact.get(domain), Some(&id));
+        let key = queue.exact.key(domain);
+        assert_eq!(queue.exact.get(key, domain, &queue.domains), Some(id));
     }
     for (id, domain) in raw.domains.iter().enumerate() {
         assert_eq!(raw.exact.get(domain), Some(&id));

@@ -23,8 +23,8 @@ fn assert_maximal_index(queue: &Queue<2>) {
             for &right in &ids {
                 if left != right {
                     assert!(!semantic_contains(
-                        &queue.domains[left],
-                        &queue.domains[right]
+                        &queue.domain(left),
+                        &queue.domain(right)
                     ));
                 }
             }
@@ -32,11 +32,12 @@ fn assert_maximal_index(queue: &Queue<2>) {
         for historic in queue
             .domains
             .iter()
+            .map(CompactDomain::expand)
             .filter(|d| d.phase == phase && d.owner == owner)
         {
             assert!(
                 ids.iter()
-                    .any(|&id| semantic_contains(&queue.domains[id], historic))
+                    .any(|&id| semantic_contains(&queue.domain(id), &historic))
             );
         }
     }
@@ -68,8 +69,8 @@ fn maximal_candidates_retire_only_index_entries_and_keep_exact_ids_and_pending_w
     // The widening's forward comparison is excluded by its aggregate maximum;
     // exact reverse maintenance and the subsequent fresh-child check remain.
     assert_eq!(queue.containment_checks, 2);
-    assert_eq!(queue.domains[0].as_ref(), &narrow);
-    assert_eq!(queue.domains[1].as_ref(), &broad);
+    assert_eq!(queue.domain(0), narrow);
+    assert_eq!(queue.domain(1), broad);
     assert_maximal_index(&queue);
 }
 
@@ -97,9 +98,9 @@ fn maximal_candidates_keep_high_rank_finite_boxes_beside_lower_rank_orthants() {
 #[test]
 fn maximal_candidates_distinguish_rank_and_coordinate_infinity() {
     let mut queue = Queue::new(8, None);
-    let mut finite_rank = bounded(Some(u32::MAX), 0, u64::MAX);
+    let mut finite_rank = bounded(Some(u32::MAX), 0, MAX_COMPACT_COORDINATE);
     finite_rank.upper[1] = None;
-    let mut unbounded_rank = bounded(None, 0, u64::MAX);
+    let mut unbounded_rank = bounded(None, 0, MAX_COMPACT_COORDINATE);
     unbounded_rank.upper[1] = None;
     assert_eq!(queue.admit(finite_rank.clone()), Ok((0, true)));
     assert_eq!(queue.admit(unbounded_rank.clone()), Ok((1, true)));
@@ -107,7 +108,7 @@ fn maximal_candidates_distinguish_rank_and_coordinate_infinity() {
         queue.by_owner[&(Phase::Apply, finite_rank.owner)].candidate_ids(),
         vec![1]
     );
-    // A genuinely unbounded positive axis is not contained in u64::MAX.
+    // A genuinely unbounded positive axis is not contained in the largest finite coordinate.
     let mut infinite_axis = unbounded_rank.clone();
     infinite_axis.upper[0] = None;
     assert_eq!(queue.admit(infinite_axis), Ok((2, true)));
@@ -234,14 +235,20 @@ fn maximal_candidates_match_naive_fifo_for_overlapping_incomparable_and_expandin
         }
         let (id, is_new) = queue.admit(request.clone()).unwrap();
         assert_eq!(is_new, expected_new);
-        assert!(semantic_contains(&queue.domains[id], &request));
+        assert!(semantic_contains(&queue.domain(id), &request));
         if is_new {
             assert_eq!(id, baseline.len() - 1);
         }
         assert_eq!(queue.domains.len(), baseline.len());
         assert_maximal_index(&queue);
     }
-    assert!(queue.domains.iter().map(Arc::as_ref).eq(baseline.iter()));
+    assert!(
+        queue
+            .domains
+            .iter()
+            .map(CompactDomain::expand)
+            .eq(baseline.iter().cloned())
+    );
     assert_eq!(queue.exact.len(), baseline.len());
     assert_eq!(queue.next, 0);
     assert!(queue.containment_maintenance_checks > 0);

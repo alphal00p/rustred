@@ -143,8 +143,8 @@ fn aggregate_index_matches_linear_semantics_for_infinities_empty_cases_and_ties(
         ([0, 2], [Some(10), Some(4)]),
         ([3, 0], [Some(8), Some(6)]),
         ([4, 2], [Some(5), Some(3)]), // In both earlier incomparable boxes.
-        ([0, 0], [Some(u64::MAX), None]),
-        ([u64::MAX, 0], [None, None]),
+        ([0, 0], [Some(MAX_COMPACT_COORDINATE), None]),
+        ([MAX_COMPACT_COORDINATE, 0], [None, None]),
         ([0, 0], [None, None]),
     ] {
         for rank in [Some(u32::MAX), None] {

@@ -349,9 +349,9 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
             }
         },
         |pool| {
-            assert!(pool.dispatch(0, state.queue.domains[0].clone()));
+            assert!(pool.dispatch(0, state.queue.domain_arc(0)));
             for id in 1..4 {
-                assert!(pool.dispatch(id, state.queue.domains[id].clone()));
+                assert!(pool.dispatch(id, state.queue.domain_arc(id)));
                 let start = Instant::now();
                 while pool.snapshot()["returned_inspections"] != id {
                     assert!(start.elapsed() < Duration::from_secs(5));

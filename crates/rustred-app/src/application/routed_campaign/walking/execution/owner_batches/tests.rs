@@ -68,7 +68,7 @@ fn initial_prepass_and_local_seeding_share_one_comparison_allowance() {
         }
         assert_eq!(original.containment_checks, 1);
         let result = initialize(
-            &original.domains,
+            &original.expand_prefix(original.domains.len()),
             0,
             original.containment_checks,
             &request,
@@ -113,7 +113,7 @@ fn discarded_initial_queries_still_consume_the_comparison_budget() {
     );
     assert_eq!(original.containment_checks, 1);
     let (walk, _) = initialize(
-        &original.domains,
+        &original.expand_prefix(original.domains.len()),
         0,
         original.containment_checks,
         &request,
@@ -150,7 +150,7 @@ fn initial_comparison_remainder_is_shared_across_owner_buckets() {
         }
         assert_eq!(original.containment_checks, 2);
         let result = initialize(
-            &original.domains,
+            &original.expand_prefix(original.domains.len()),
             0,
             original.containment_checks,
             &request,
@@ -194,7 +194,7 @@ fn owner_local_admission_keeps_diagnostics_with_source_and_geometry_at_destinati
         Some(&pool),
     )
     .unwrap();
-    assert_eq!(*walk.buckets[&destination].state.queue.domains[0], target);
+    assert_eq!(walk.buckets[&destination].state.queue.domain(0), target);
     assert_eq!(
         walk.buckets[&source].state.details,
         vec![json!({"kind":"source-control"})]

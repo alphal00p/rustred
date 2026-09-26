@@ -558,7 +558,7 @@ fn run<const N: usize>(
         && let Some(reducer) = &reducer
     {
         let result = execution::owner_batches::run(
-            &queue.domains,
+            &queue.expand_prefix(queue.domains.len()),
             input_frontiers.len(),
             queue.containment_checks,
             reducer,

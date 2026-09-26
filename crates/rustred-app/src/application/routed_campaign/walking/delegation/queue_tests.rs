@@ -37,7 +37,7 @@ fn exact_native_semantic_retirement_installs_forward_responsibility_and_keeps_ra
     assert_eq!(q.containment_semantic_retirements, 1);
     assert_eq!(q.delegation.as_ref().unwrap().delegated_to(1), Some(2));
     assert_eq!(q.admit(narrow.clone()), Ok((1, false)));
-    assert_eq!(q.domains[1].as_ref(), &narrow);
+    assert_eq!(q.domain(1), narrow);
     assert_eq!(q.delegation.as_ref().unwrap().len(), q.domains.len());
     assert_eq!(q.next, 0);
 }

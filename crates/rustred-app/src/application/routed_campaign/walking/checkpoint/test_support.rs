@@ -7,7 +7,7 @@ use super::super::{
     OwnerDomainWalkSchedulingPolicy,
     delegation::StoredLedger,
     execution::State,
-    queue::{Domain, StoredBuckets},
+    queue::{CompactDomain, Domain, StoredBuckets},
 };
 use super::manifest::{Manifest, Section, SectionRef, Segment, Segmented};
 use super::sections::{self, HEADER_BYTES, Header, Identity, Tag};
@@ -16,7 +16,6 @@ use crate::application::atomic_file::write_file_atomically;
 use serde_json::{Value, json};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// Explicitly a test binding, not a claim about a production owner bundle.
 pub(in super::super) const OWNER: &str = "test-only immutable in-memory native fixture";
@@ -263,7 +262,7 @@ impl Fixture {
                 self.install(section, file, bytes, buckets.len());
             }
             Section::Domains => {
-                let mut domains: Vec<Domain<N>> = Vec::new();
+                let mut domains: Vec<CompactDomain<N>> = Vec::new();
                 for segment in &files {
                     sections::read_domains(
                         &self.read(&segment.file),
@@ -274,16 +273,16 @@ impl Fixture {
                     )
                     .unwrap();
                 }
-                let mut value = serde_json::to_value(&domains).unwrap();
+                let expanded: Vec<Domain<N>> = domains.iter().map(CompactDomain::expand).collect();
+                let mut value = serde_json::to_value(&expanded).unwrap();
                 edit(&mut value);
-                let domains: Vec<Arc<Domain<N>>> = serde_json::from_value::<Vec<Domain<N>>>(value)
-                    .unwrap()
-                    .into_iter()
-                    .map(Arc::new)
-                    .collect();
+                // Written as transport records: an edit may leave the compact range.
+                let domains: Vec<Domain<N>> = serde_json::from_value(value).unwrap();
+                let count = domains.len();
                 let mut bytes = Vec::new();
-                sections::write_domains(&mut bytes, &identity, &domains, 0).unwrap();
-                self.install(section, file, bytes, domains.len());
+                sections::write_domain_records(&mut bytes, &identity, 0, domains.into_iter())
+                    .unwrap();
+                self.install(section, file, bytes, count);
             }
             Section::Edges => {
                 let mut edges = Vec::new();

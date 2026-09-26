@@ -26,6 +26,7 @@ fn power_predicates_participate_in_identity_and_dominance_without_dropping_work(
 
 mod aggregate;
 mod bits;
+mod compact;
 mod linear_semantic;
 mod maximal_candidates;
 mod prepared;
@@ -153,7 +154,7 @@ fn pending_inclusion_is_scheduling_reuse_not_completion() {
 fn literal_owner_and_unbounded_tail_are_not_approximated() {
     let mut queue = Queue::new(3, Some(20));
     let mut finite = domain(Some(10));
-    finite.upper[0] = Some(u64::MAX);
+    finite.upper[0] = Some(MAX_COMPACT_COORDINATE);
     assert_eq!(queue.admit(finite), Ok((0, true)));
     assert_eq!(queue.admit(domain(Some(10))), Ok((1, true)));
     let mut other = domain(Some(10));
@@ -211,13 +212,13 @@ fn route_and_apply_obligations_never_subsume_each_other() {
 fn finite_maxima_are_not_infinity_in_either_index() {
     let mut queue = Queue::new(4, Some(100));
     let mut finite = domain(Some(u32::MAX));
-    finite.upper[0] = Some(u64::MAX);
+    finite.upper[0] = Some(MAX_COMPACT_COORDINATE);
     assert_eq!(queue.admit(finite.clone()), Ok((0, true)));
     assert_eq!(queue.admit(domain(Some(u32::MAX))), Ok((1, true)));
     assert_eq!(queue.admit(domain(None)), Ok((2, true)));
     assert_eq!(queue.admit(finite), Ok((0, false)));
     let mut child = domain(None);
-    child.lower[0] = u64::MAX;
+    child.lower[0] = MAX_COMPACT_COORDINATE;
     assert_eq!(queue.admit(child), Ok((2, false)));
     assert_eq!(queue.max_finite_rank, Some(u32::MAX));
     assert_eq!(queue.unbounded_rank_domains, 1);
@@ -233,9 +234,9 @@ fn dominant_orthant_may_reuse_different_valid_id_but_exact_id_stays_stable() {
     assert_eq!(queue.admit(domain(Some(10))), Ok((1, true)));
     let mut child = narrow.clone();
     child.lower[0] = 6;
-    assert!(queue.domains[0].contains(&child));
+    assert!(queue.domain(0).contains(&child));
     assert_eq!(queue.admit(child.clone()), Ok((1, false)));
-    assert!(queue.domains[1].contains(&child));
+    assert!(queue.domain(1).contains(&child));
     assert_eq!(queue.admit(narrow.clone()), Ok((0, false)));
     assert_eq!(queue.admit(domain(Some(11))), Ok((2, true)));
     assert_eq!(queue.admit(child), Ok((2, false)));
@@ -248,16 +249,20 @@ fn dominant_orthant_may_reuse_different_valid_id_but_exact_id_stays_stable() {
 }
 
 #[test]
-fn exact_index_shares_storage_and_never_caches_contained_request_keys() {
+fn exact_index_confirms_digest_hits_and_never_caches_contained_request_keys() {
     let mut queue = Queue::new(2, Some(100));
     let mut narrow = domain(Some(10));
     narrow.lower[0] = 1;
     assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
-    let (indexed, &id) = queue.exact.get_key_value(&narrow).unwrap();
-    assert_eq!(id, 0);
-    assert!(Arc::ptr_eq(indexed, &queue.domains[0]));
-    assert_eq!(Arc::strong_count(indexed), 2);
-    assert_eq!(indexed.lower.as_ptr(), queue.domains[0].lower.as_ptr());
+    // The index holds a digest per admitted ID; the stored domain confirms it.
+    let compact = CompactDomain::try_from_domain(&narrow).unwrap();
+    let key = queue.exact.key(&compact);
+    assert_eq!(queue.exact.get(key, &compact, &queue.domains), Some(0));
+    // A different domain presented under that digest is not a hit.
+    let mut child = narrow.clone();
+    child.lower[0] = 2;
+    let child = CompactDomain::try_from_domain(&child).unwrap();
+    assert_eq!(queue.exact.get(key, &child, &queue.domains), None);
     // General fallback reuse also must not retain arbitrary observed keys.
     for lower in 2..12 {
         let mut child = narrow.clone();
@@ -364,7 +369,7 @@ fn indexed_admission_matches_naive_semantic_fifo_for_mixed_domains() {
             candidate.lower[axis] = lower;
             candidate.upper[axis] = match (seed >> (axis * 8 + 5)) % 4 {
                 0 => None,
-                1 => Some(u64::MAX),
+                1 => Some(MAX_COMPACT_COORDINATE),
                 _ => Some(lower + 3),
             };
         }
@@ -400,13 +405,19 @@ fn indexed_admission_matches_naive_semantic_fifo_for_mixed_domains() {
         }
         let (id, is_new) = queue.admit(request.clone()).unwrap();
         assert_eq!(is_new, expected_new);
-        assert!(semantic_contains(&queue.domains[id], &request));
+        assert!(semantic_contains(&queue.domain(id), &request));
         if is_new {
             assert_eq!(id, baseline.len() - 1);
         }
         assert_eq!(queue.domains.len(), baseline.len());
     }
-    assert!(queue.domains.iter().map(Arc::as_ref).eq(baseline.iter()));
+    assert!(
+        queue
+            .domains
+            .iter()
+            .map(CompactDomain::expand)
+            .eq(baseline.iter().cloned())
+    );
     assert_eq!(queue.exact.len(), baseline.len());
     assert_eq!(queue.next, 0);
     assert!(queue.exact_hits > 0 && queue.orthant_hits > 0);

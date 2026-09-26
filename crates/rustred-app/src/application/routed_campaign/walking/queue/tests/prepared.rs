@@ -11,7 +11,21 @@ fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
 
 pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
     assert_eq!(serial.domains, prepared.domains);
-    assert_eq!(serial.summaries, prepared.summaries);
+    // Summary content per ID; slab slot order may differ (a restored queue
+    // holds its live summaries densely).
+    assert_eq!(serial.summaries.ids(), prepared.summaries.ids());
+    assert_eq!(serial.summaries.live(), prepared.summaries.live());
+    for id in 0..serial.summaries.ids() {
+        let released = serial.summaries.is_released(id);
+        assert_eq!(
+            released,
+            prepared.summaries.is_released(id),
+            "summary of {id}"
+        );
+        if !released {
+            assert_eq!(serial.summaries.get(id), prepared.summaries.get(id));
+        }
+    }
     assert_eq!(serial.bits, prepared.bits);
     assert_eq!(serial.exact, prepared.exact);
     assert_eq!(serial.by_owner.len(), prepared.by_owner.len());
@@ -287,9 +301,9 @@ fn empty_infinite_and_near_counter_exhaustion_tokens_preserve_serial_results() {
     let mut empty = domain(None);
     empty.powers.max_positive_power = Some(0);
     let mut finite_max = domain(Some(u32::MAX));
-    finite_max.upper[0] = Some(u64::MAX);
+    finite_max.upper[0] = Some(MAX_COMPACT_COORDINATE);
     let mut infinite = domain(None);
-    infinite.lower[0] = u64::MAX;
+    infinite.lower[0] = MAX_COMPACT_COORDINATE;
     let stream = [empty, finite_max, infinite, domain(None), domain(Some(5))];
     let tokens = parallel_prepare(&prepared, &stream, 3);
     for (item, token) in stream.into_iter().zip(tokens) {

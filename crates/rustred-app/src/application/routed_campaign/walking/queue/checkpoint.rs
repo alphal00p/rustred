@@ -61,12 +61,13 @@ pub(in super::super) struct Metadata {
     max_domains: usize,
     max_checks: Option<usize>,
 }
-struct Domains<'a, const N: usize>(&'a [Arc<Domain<N>>]);
+/// Serialized as the transport `Domain` records, one expansion at a time.
+struct Domains<'a, const N: usize>(&'a [CompactDomain<N>]);
 impl<const N: usize> Serialize for Domains<'_, N> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut seq = s.serialize_seq(Some(self.0.len()))?;
         for domain in self.0 {
-            seq.serialize_element(domain.as_ref())?;
+            seq.serialize_element(&domain.expand())?;
         }
         seq.end()
     }
@@ -126,9 +127,10 @@ impl<const N: usize> Queue<N> {
         self.delegation.as_ref().map(LedgerRef)
     }
     /// Validate and rebuild lookup structures; never re-admit or reorder.
+    /// Domains arrive already range-checked (`CompactDomain::restore`).
     pub(in super::super) fn restore_from_parts(
         m: Metadata,
-        domains: Vec<Domain<N>>,
+        domains: Vec<CompactDomain<N>>,
         buckets: StoredBuckets,
         ledger: Option<StoredLedger>,
     ) -> Result<Self, String> {
@@ -139,42 +141,26 @@ impl<const N: usize> Queue<N> {
             return Err("invalid checkpoint queue counters".into());
         }
         let mut q = Queue::new(m.max_domains, m.max_checks);
-        q.domains
-            .try_reserve_exact(domains.len())
-            .map_err(|_| "checkpoint domain allocation")?;
         q.exact
-            .try_reserve(domains.len())
+            .try_reserve_total(domains.len())
             .map_err(|_| "checkpoint exact index allocation")?;
-        for (id, domain) in domains.into_iter().enumerate() {
-            if domain.lower.len() != N || domain.upper.len() != N {
-                return Err("checkpoint coordinate arity".into());
-            }
-            domain.powers.validate().map_err(|e| e.to_string())?;
-            if m.max_checks.is_none() {
-                let summary = DomainPowerSummary::try_new(
-                    domain.owner,
-                    &domain.lower,
-                    &domain.upper,
-                    domain.rank,
-                    domain.powers,
-                )
-                .map_err(|e| e.to_string())?;
-                // Derived filter words are rebuilt, never stored.
-                q.bits.push(bits::word(&summary));
-                q.summaries.push(summary);
-            }
-            let domain = Arc::new(domain);
-            if q.exact.insert(domain.clone(), id).is_some() {
+        q.domains = domains;
+        for (id, domain) in q.domains.iter().enumerate() {
+            let key = q.exact.key(domain);
+            if q.exact.get(key, domain, &q.domains).is_some() {
                 return Err("duplicate checkpoint exact domain".into());
             }
-            q.domains.push(domain);
+            q.exact
+                .try_reserve(key)
+                .map_err(|_| "checkpoint exact index allocation")?;
+            q.exact.insert(key, id);
         }
         for (phase, owner, mut bucket) in buckets.0 {
             let owner: [bool; N] = owner.try_into().map_err(|_| "checkpoint bucket arity")?;
             if bucket.ids.iter().chain(bucket.orthant.iter()).any(|&id| {
                 q.domains
                     .get(id)
-                    .is_none_or(|d| d.phase != phase || d.owner != owner)
+                    .is_none_or(|d| d.phase() != phase || d.owner() != owner)
             }) {
                 return Err("invalid checkpoint owner bucket".into());
             }
@@ -183,8 +169,11 @@ impl<const N: usize> Queue<N> {
                 return Err("duplicate checkpoint owner bucket".into());
             }
         }
+        if m.max_checks.is_none() {
+            q.restore_summaries()?;
+        }
         q.delegation = ledger
-            .map(|l| l.restore(q.domains.iter().map(|d| (d.phase, d.owner))))
+            .map(|l| l.restore(q.domains.iter().map(|d| (d.phase(), d.owner()))))
             .transpose()?;
         if q.delegation.as_ref().is_some_and(|l| l.cursor() != m.next) {
             return Err("checkpoint queue/ledger cursor mismatch".into());
@@ -202,6 +191,38 @@ impl<const N: usize> Queue<N> {
         q.max_finite_rank = m.max_finite_rank;
         q.unbounded_rank_domains = m.unbounded_rank_domains;
         Ok(q)
+    }
+}
+impl<const N: usize> Queue<N> {
+    /// Rebuild the unlimited lane's derived geometry after the owner buckets:
+    /// a filter word for every ID and a compact summary slot for each indexed
+    /// candidate only. A retired ID's summary is never read, so it gets none.
+    fn restore_summaries(&mut self) -> Result<(), String> {
+        let count = self.domains.len();
+        let mut live = Vec::new();
+        live.try_reserve_exact(count)
+            .map_err(|_| "checkpoint summary allocation")?;
+        live.resize(count, false);
+        for bucket in self.by_owner.values() {
+            bucket.indexed.for_each_id(|id| live[id] = true);
+        }
+        self.bits
+            .try_reserve_exact(count)
+            .map_err(|_| "checkpoint summary allocation")?;
+        self.summaries
+            .try_reserve_exact(count, live.iter().filter(|&&live| live).count())
+            .map_err(|_| "checkpoint summary allocation")?;
+        for (domain, live) in self.domains.iter().zip(live) {
+            let summary = domain.try_native_summary().map_err(|e| e.to_string())?;
+            // Derived filter words are rebuilt, never stored.
+            self.bits.push(bits::word(&summary));
+            if live {
+                self.summaries.push(CompactSummary::from_core(&summary));
+            } else {
+                self.summaries.push_released();
+            }
+        }
+        Ok(())
     }
 }
 /// Whole-queue JSON image for tests and fixtures; production checkpoints
@@ -225,6 +246,11 @@ impl<'de, const N: usize> Deserialize<'de> for Queue<N> {
             StoredBuckets,
             Option<StoredLedger>,
         ) = Deserialize::deserialize(d)?;
+        let domains = domains
+            .iter()
+            .map(CompactDomain::restore)
+            .collect::<Result<_, _>>()
+            .map_err(serde::de::Error::custom)?;
         Self::restore_from_parts(m, domains, buckets, ledger).map_err(serde::de::Error::custom)
     }
 }

@@ -50,7 +50,7 @@ impl<const N: usize> State<N> {
         let to = ledger
             .delegated_to(id)
             .ok_or("publisher has no delegation")?;
-        let domain = &self.queue.domains[id];
+        let domain = self.queue.domains[id].expand();
         self.records
             .try_reserve(1)
             .map_err(|_| "delegation record allocation")?;

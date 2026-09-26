@@ -60,7 +60,7 @@ fn retain_uncommitted<const N: usize>(
     state
         .error
         .get_or_insert_with(|| walk.error.clone().expect("outer failure"));
-    let domain = &state.queue.domains[id];
+    let domain = state.queue.domain(id);
     let mut record = json!({"id":id,"native_ticket":ticket,"stats":null,
         "phase":format!("{:?}", domain.phase),"owner":mask(&domain.owner),
         "lower":domain.lower,"upper":domain.upper,"rank":domain.rank,

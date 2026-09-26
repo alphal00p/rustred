@@ -1,11 +1,17 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
 use super::delegation::{Ledger, SchedulingPolicy};
 use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 mod bits;
 pub(super) use bits::SessionCounters;
+mod compact;
+pub(super) use compact::CompactDomain;
+#[cfg(test)]
+use compact::{COMPACT_RANGE_ERROR, MAX_COMPACT_COORDINATE};
+use compact::{CompactSummary, Digest, ExactIndex, Query, Stored, SummarySlab};
 mod index;
 use index::{AggregateIndex, Coordinates, Signature};
 mod checkpoint;
@@ -52,7 +58,9 @@ impl<const N: usize> Domain<N> {
     }
 
     /// Sufficient syntactic implication, retained for the explicitly capped
-    /// historical scan and to measure additional semantic reuse.
+    /// historical scan and to measure additional semantic reuse. The queue
+    /// evaluates it as `CompactDomain::contains`; this is the reference form.
+    #[cfg(test)]
     fn contains(&self, other: &Self) -> bool {
         self.phase == other.phase
             && self.owner == other.owner
@@ -103,9 +111,9 @@ impl OwnerBucket {
 }
 
 pub(super) struct Queue<const N: usize> {
-    /// Immutable storage shared with the exact index and an active inspection.
-    /// Cloning a queued handle does not clone its coordinate vectors.
-    pub domains: Vec<Arc<Domain<N>>>,
+    /// Immutable fixed-size image of every admitted domain, indexed by ID.
+    /// `domain`/`domain_arc` expand one into the `Domain` transport type.
+    pub domains: Vec<CompactDomain<N>>,
     pub(super) delegation: Option<Ledger<(Phase, [bool; N])>>,
     pub next: usize,
     pub deduplicated: usize,
@@ -131,14 +139,17 @@ pub(super) struct Queue<const N: usize> {
     pub orthant_hits: usize,
     pub max_finite_rank: Option<u32>,
     pub unbounded_rank_domains: usize,
-    exact: HashMap<Arc<Domain<N>>, usize>,
+    /// Digest-keyed exact index; every hit is confirmed on the stored domain.
+    exact: ExactIndex<N>,
     by_owner: HashMap<(Phase, [bool; N]), OwnerBucket>,
-    /// One immutable native summary per admitted ID in the unlimited lane.
-    /// Raw domains, exact keys and scheduling obligations remain unchanged.
-    summaries: Vec<DomainPowerSummary<N>>,
-    /// Parallel to `summaries`: the packed necessary-condition word of each
-    /// summary (see `bits`). Rebuilt from the summaries on restore; never
-    /// persisted, so no checkpoint format depends on the bit layout.
+    /// Compact native summary of every live lookup candidate in the unlimited
+    /// lane; a candidate's slot is released when it leaves the index. Raw
+    /// domains, exact keys and scheduling obligations remain unchanged.
+    summaries: SummarySlab<N>,
+    /// Indexed by ID like the domains: the packed necessary-condition word of
+    /// each admitted summary (see `bits`). Rebuilt from the summaries on
+    /// restore; never persisted, so no checkpoint format depends on the bit
+    /// layout. Only live candidates' words are ever read.
     bits: Vec<u64>,
     /// Coordinator-side filter telemetry for this process session only.
     pub(super) session: SessionCounters,
@@ -153,6 +164,33 @@ pub(super) struct Queue<const N: usize> {
 }
 
 impl<const N: usize> Queue<N> {
+    /// The admitted domain `id` in its transport form (allocates two vectors).
+    pub fn domain(&self, id: usize) -> Domain<N> {
+        self.domains[id].expand()
+    }
+
+    /// Shared transport handle for an inspection slot or a physical split.
+    pub fn domain_arc(&self, id: usize) -> Arc<Domain<N>> {
+        Arc::new(self.domain(id))
+    }
+
+    /// Transport handles of the first `n` admissions: the bounded initial
+    /// prefix read by the initial-orthant and initial-overlap indexes, or the
+    /// whole queue for the owner-batched handoff.
+    pub fn expand_prefix(&self, n: usize) -> Vec<Arc<Domain<N>>> {
+        self.domains[..n]
+            .iter()
+            .map(|domain| Arc::new(domain.expand()))
+            .collect()
+    }
+
+    fn stored(&self) -> Stored<'_, N> {
+        Stored {
+            domains: &self.domains,
+            summaries: &self.summaries,
+        }
+    }
+
     pub fn containment_limit(&self) -> Option<usize> {
         self.max_checks
     }
@@ -196,9 +234,9 @@ impl<const N: usize> Queue<N> {
             orthant_hits: 0,
             max_finite_rank: None,
             unbounded_rank_domains: 0,
-            exact: HashMap::new(),
+            exact: ExactIndex::new(),
             by_owner: HashMap::new(),
-            summaries: Vec::new(),
+            summaries: SummarySlab::new(),
             bits: Vec::new(),
             session: SessionCounters::default(),
             prefilter: bits::Prefilter::new(),
@@ -253,7 +291,7 @@ impl<const N: usize> Queue<N> {
     /// Finite-cap mode deliberately keeps its existing raw full-scan policy
     /// and performs no reverse maintenance or summary construction work.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
-        self.admit_with_lookup(domain, None)
+        self.admit_with_lookup(domain, None, None)
     }
 
     /// Narrow a destination queue's allowance to its remaining share of a
@@ -281,64 +319,80 @@ impl<const N: usize> Queue<N> {
         result
     }
 
+    /// `key`: the compact image and digest of `domain` when a helper of this
+    /// same queue already computed them (`PreparedAdmission`).
     fn admit_with_lookup(
         &mut self,
         domain: Domain<N>,
         mut prepared: Option<PreparedLookup<N>>,
+        key: Option<(CompactDomain<N>, Digest)>,
     ) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
         #[cfg(test)]
         let observation = positive_reuse_trace::begin(self, &domain);
-        // Borrowed full-domain lookup: hash collisions use full Eq, and no
-        // coordinate vectors or Arc are allocated on this hot path.
-        if let Some(&id) = self.exact.get(&domain) {
+        let (compact, key) = match key {
+            Some(prepared) => prepared,
+            None => {
+                // The compact queue's only refusal: a finite coordinate above 65534.
+                let compact = CompactDomain::try_from_domain(&domain)?;
+                (compact, self.exact.key(&compact))
+            }
+        };
+        debug_assert_eq!(compact.expand(), domain);
+        // Digest lookup confirmed on the stored domain: a digest collision can
+        // cost a comparison, never a wrong hit. Nothing is allocated here.
+        if let Some(id) = self.exact.get(key, &compact, &self.domains) {
             self.exact_hits += 1;
             self.deduplicated += 1;
             return Ok((id, false));
         }
-        let summary = if self.max_checks.is_none() {
+        let query = if self.max_checks.is_none() {
             let builds = self
                 .containment_summary_builds
                 .checked_add(1)
                 .ok_or("domain summary counter overflow")?;
-            let summary = if let Some(prepared) = &prepared {
-                prepared.summary.clone()
+            let query = if let Some(prepared) = &prepared {
+                prepared.query.clone()
             } else {
-                DomainPowerSummary::try_new(
-                    domain.owner,
-                    &domain.lower,
-                    &domain.upper,
-                    domain.rank,
-                    domain.powers,
+                Query::new(
+                    DomainPowerSummary::try_new(
+                        domain.owner,
+                        &domain.lower,
+                        &domain.upper,
+                        domain.rank,
+                        domain.powers,
+                    )
+                    .map_err(summary_error)?,
                 )
-                .map_err(summary_error)?
             };
             self.containment_summary_builds = builds;
-            Some(summary)
+            Some(query)
         } else {
             None
         };
-        let word = summary.as_ref().map(bits::word);
         let prefilter = self.prefilter;
-        let key = (domain.phase, domain.owner);
+        let bucket_key = (domain.phase, domain.owner);
         // Helper-prepared reverse retirement set with its snapshot watermark;
         // only a revalidated prepared miss can supply one.
         let mut prepared_retire: Option<(Vec<usize>, usize)> = None;
-        if let Some(bucket) = self.by_owner.get(&key) {
+        if let Some(bucket) = self.by_owner.get(&bucket_key) {
             if let Some(id) = bucket.orthant
-                && rank_contains(self.domains[id].rank, domain.rank)
+                && rank_contains(self.domains[id].rank(), domain.rank)
             {
                 self.orthant_hits += 1;
                 self.deduplicated += 1;
                 return Ok((id, false));
             }
-            let found = if let Some(summary) = &summary {
-                let word = word.expect("unlimited lane word");
+            let found = if let Some(query) = &query {
+                let stored = Stored {
+                    domains: &self.domains,
+                    summaries: &self.summaries,
+                };
                 if let Some(revalidated) = prepared.as_mut().and_then(|lookup| {
                     lookup.revalidate(
                         &bucket.indexed,
-                        &self.summaries,
+                        stored,
                         &self.bits,
                         prefilter,
                         self.containment_checks,
@@ -352,17 +406,19 @@ impl<const N: usize> Queue<N> {
                     }
                     revalidated.found
                 } else {
-                    bucket
-                        .indexed
-                        .find(Signature::of(summary), Coordinates::of(summary), |id| {
+                    bucket.indexed.find(
+                        Signature::of(&query.core),
+                        Coordinates::of(&query.core),
+                        |id| {
                             self.containment_checks = self
                                 .containment_checks
                                 .checked_add(1)
                                 .ok_or("domain containment counter overflow")?;
-                            let rejected = prefilter.rejects(self.bits[id], word);
+                            let rejected = prefilter.rejects(self.bits[id], query.word);
                             self.session.forward(rejected);
-                            Ok(!rejected && self.summaries[id].contains(summary))
-                        })?
+                            Ok(!rejected && stored.contains(id, query))
+                        },
+                    )?
                 }
             } else {
                 let mut found = None;
@@ -377,7 +433,7 @@ impl<const N: usize> Queue<N> {
                         .containment_checks
                         .checked_add(1)
                         .ok_or("domain containment counter overflow")?;
-                    if self.domains[id].contains(&domain) {
+                    if self.domains[id].contains(&compact) {
                         found = Some(id);
                         break;
                     }
@@ -385,7 +441,7 @@ impl<const N: usize> Queue<N> {
                 found
             };
             if let Some(id) = found {
-                let semantic = summary.is_some() && !self.domains[id].contains(&domain);
+                let semantic = query.is_some() && !self.domains[id].contains(&compact);
                 if semantic {
                     self.containment_semantic_hits = self
                         .containment_semantic_hits
@@ -410,13 +466,9 @@ impl<const N: usize> Queue<N> {
         self.domains
             .try_reserve(1)
             .map_err(|_| "domain allocation")?;
-        self.exact
-            .try_reserve(1)
-            .map_err(|_| "exact domain index allocation")?;
-        if summary.is_some() {
-            self.summaries
-                .try_reserve(1)
-                .map_err(|_| "domain summary allocation")?;
+        self.exact.try_reserve(key)?;
+        if query.is_some() {
+            self.summaries.try_reserve()?;
             self.bits
                 .try_reserve(1)
                 .map_err(|_| "domain summary allocation")?;
@@ -425,9 +477,11 @@ impl<const N: usize> Queue<N> {
         // either index, or rank telemetry. Failed reserves may change capacity,
         // never logical admission state. Occasional native HashMap rehash is
         // O(admitted domains); hash iteration never determines queue semantics.
-        let signature = summary.as_ref().map(Signature::of);
-        let coordinates = summary.as_ref().and_then(Coordinates::of);
-        let (new_bucket, insertion) = if let Some(bucket) = self.by_owner.get_mut(&key) {
+        let signature = query.as_ref().map(|query| Signature::of(&query.core));
+        let coordinates = query
+            .as_ref()
+            .and_then(|query| Coordinates::of(&query.core));
+        let (new_bucket, insertion) = if let Some(bucket) = self.by_owner.get_mut(&bucket_key) {
             let insertion = if let Some(signature) = signature {
                 Some(bucket.indexed.prepare(signature, coordinates)?)
             } else {
@@ -458,14 +512,14 @@ impl<const N: usize> Queue<N> {
             };
             (Some(bucket), insertion)
         };
-        let full_orthant = domain.is_full_orthant();
+        let full_orthant = compact.is_full_orthant();
         // Preflight all reverse comparisons before changing the candidate
         // index or publishing this admission. A failed allocation above or a
         // counter overflow here can only alter reserved capacity/work counters,
         // never retire an obligation's only indexed representative.
         let maintenance = if let Some(signature) = signature {
             self.by_owner
-                .get(&key)
+                .get(&bucket_key)
                 .map_or(Ok(0), |bucket| bucket.indexed.maintenance_len(signature))?
         } else {
             0
@@ -491,15 +545,17 @@ impl<const N: usize> Queue<N> {
             // Last fallible ledger operation before the infallible queue
             // retirement/publication transaction. No observer runs mid-commit.
             ledger
-                .admit_reserved(id, key)
+                .admit_reserved(id, bucket_key)
                 .map_err(|_| "delegation ledger admission invariant")?;
         }
-        let domain = Arc::new(domain);
         let fresh_bucket = new_bucket.is_some();
         if let Some(bucket) = new_bucket {
-            self.by_owner.insert(key, bucket);
+            self.by_owner.insert(bucket_key, bucket);
         }
-        let bucket = self.by_owner.get_mut(&key).expect("reserved owner bucket");
+        let bucket = self
+            .by_owner
+            .get_mut(&bucket_key)
+            .expect("reserved owner bucket");
         let mut extra_retired = 0;
         let retired = if let Some(insertion) = insertion.as_ref() {
             // All retained candidates and the new domain belong to this same
@@ -507,8 +563,7 @@ impl<const N: usize> Queue<N> {
             // containing representative for every retired candidate. Keep the
             // old domains/exact entries. InspectAll retains every FIFO job;
             // optional transfer changes only untouched, unreserved responsibility.
-            let summary = summary.as_ref().expect("unlimited lane summary");
-            let word = word.expect("unlimited lane word");
+            let query = query.as_ref().expect("unlimited lane query");
             // A brand-new bucket has nothing to retire on either path.
             if prepared.is_some() && !fresh_bucket {
                 if prepared_retire.is_some() {
@@ -519,20 +574,30 @@ impl<const N: usize> Queue<N> {
                         self.session.prepared_retire_fallbacks.saturating_add(1);
                 }
             }
-            let summaries = &self.summaries;
+            // A retired candidate's slot is released inside the traversal
+            // while later callbacks still read other live summaries; the two
+            // closures never hold the slab at the same time. No slot is reused
+            // before this admission publishes its own summary below.
+            let summaries = RefCell::new(&mut self.summaries);
             let bits = &self.bits;
             let domains = &self.domains;
             let delegation = &mut self.delegation;
             let session = &mut self.session;
             // Exact inclusion of an old candidate, charged as a reverse callback.
             let mut contains_old = |old: usize| {
-                let rejected = prefilter.rejects(word, bits[old]);
+                let rejected = prefilter.rejects(query.word, bits[old]);
                 session.reverse(rejected);
-                !rejected && summary.contains(&summaries[old])
+                let summaries = summaries.borrow();
+                !rejected
+                    && Stored {
+                        domains,
+                        summaries: &summaries,
+                    }
+                    .contained_by(old, query)
             };
             // Apply-time effects of one retirement, identical on both paths.
             let mut on_retire = |old: usize| {
-                if !domain.contains(&domains[old]) {
+                if !compact.contains(&domains[old]) {
                     extra_retired += 1; // preflighted by the maintenance bound
                 }
                 if let Some(ledger) = delegation.as_mut() {
@@ -540,6 +605,9 @@ impl<const N: usize> Queue<N> {
                     // is the authority. Protected work remains a native obligation.
                     let _ = ledger.transfer_retired(old, id);
                 }
+                // The candidate left the index for good: nothing reads its
+                // summary again, and a later admission may reuse the slot.
+                summaries.borrow_mut().release(old);
             };
             match prepared_retire.take() {
                 Some((set, first_new)) => bucket.indexed.retire_prepared(
@@ -573,7 +641,7 @@ impl<const N: usize> Queue<N> {
         if full_orthant
             && bucket
                 .orthant
-                .is_none_or(|old| rank_contains(domain.rank, self.domains[old].rank))
+                .is_none_or(|old| rank_contains(domain.rank, self.domains[old].rank()))
         {
             bucket.orthant = Some(id);
         }
@@ -582,11 +650,11 @@ impl<const N: usize> Queue<N> {
         } else {
             self.unbounded_rank_domains += 1;
         }
-        self.exact.insert(Arc::clone(&domain), id);
-        self.domains.push(domain);
-        if let (Some(summary), Some(word)) = (summary, word) {
-            self.bits.push(word);
-            self.summaries.push(summary);
+        self.exact.insert(key, id);
+        self.domains.push(compact);
+        if let Some(query) = query {
+            self.bits.push(query.word);
+            self.summaries.push(query.compact);
         }
         Ok((id, true))
     }

@@ -222,7 +222,10 @@ fn native_refined_successor_prefix_survives_checkpoint_resume_w2_w6() {
         prefix.replay = Some(replay::Replay::default());
         prefix.note_native_started(0).unwrap();
         let stop = AtomicBool::new(false);
-        let initial = InitialOrthants::from_initial(&prefix.queue.domains, &stop);
+        let initial = InitialOrthants::from_initial(
+            &prefix.queue.expand_prefix(prefix.queue.domains.len()),
+            &stop,
+        );
         let parts = prefix.parts(0, &request).unwrap();
         let first = inspection::inspect_part(
             &reducer,
@@ -306,7 +309,7 @@ fn split_policy_does_not_apply_to_new_descendant_responsibilities() {
         request
             .apply_subdivision
             .unwrap()
-            .parts(&state.queue.domains[id])
+            .parts(&state.queue.domain(id))
             .is_some()
     );
     assert!(state.parts(id, &request).is_none());
@@ -666,7 +669,10 @@ fn native_mid_stream_part_prefix_resumes_without_readmitting_callbacks() {
         prefix.replay = Some(replay::Replay::default());
         prefix.note_native_started(0).unwrap();
         let stop = AtomicBool::new(false);
-        let initial = InitialOrthants::from_initial(&prefix.queue.domains, &stop);
+        let initial = InitialOrthants::from_initial(
+            &prefix.queue.expand_prefix(prefix.queue.domains.len()),
+            &stop,
+        );
         let parts = prefix.parts(0, &request).unwrap();
         let first = inspection::inspect_part(
             &reducer,
