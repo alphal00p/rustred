@@ -131,23 +131,31 @@ post-admission generation 2 (248 domains) is 41,230 bytes in 5 ms (CP3:
 226,368 bytes). The records section is the remaining cost, which is what
 the wave-2 sidecar removes from the save path.
 
-Stop/resume equivalence (`TMP/fable51-controls/ckpt-wave1-resume`,
+Stop/resume equivalence (`TMP/fable51-controls/ckpt-wave1-resume3`,
 `--checkpoint-interval-seconds 5`, stop file written at 6.0 s): the first
 process saved generations 2 (admission), 3 (periodic) and 4 (cooperative
-stop) and exited with status 4 at 6.37 s; `--resume` restored generation 4,
-skipped the forced post-resume save (unchanged stamp, no new generation),
-finished the walk with exit 0 in 11.9 s and wrote generation 5 (72,420,635
-new bytes, 0.326 s; total 142,709,951 bytes). Generation 2/3 small sections
-were cleaned; the domains/edges/records segments of generations 2-5 tile
-their totals. The resumed `result.json` matches the uninterrupted control
-record for record (98,909 `domains` rows compared after sorting by id) and
-in every counter (completed 98,869, scheduled 98,909, containment checks
-169,509,549, events 2,488,138, successors 2,182,549, status
-`locally_resolved`, `all_scheduled_domains_resolved` true); the only
-differing key is `descendant_closure.retained_storage_estimate_bytes`
-(27,197,608 vs 27,253,800), an allocator-capacity estimate, not walk state.
-Ordered policy only; the Ready equivalence run is a wave-2 scale test.
-Restore phases (`checkpoint_restored`): MEASURED_RESTORE
+stop, 20,735,142 bytes: 19,076 domains, 81,952 edges, 14,075 records and
+the receipts of the eight inspections the stop cancelled) and exited with
+status 4 at 6.73 s. `--resume` verified and restored generation 4 in
+0.238 s (`checkpoint_restored`: verify 0.007 s, decode 0.207 s, validate
+0.031 s, RSS 162 MB), skipped the forced post-resume save
+(`checkpoint_skipped_unchanged`, no new generation), saved generation 5
+periodically and generation 6 at the end (67,074,965 new bytes in 0.372 s;
+142,716,646 bytes total) and exited 0 after 11.75 s. Generation 2/3 small
+sections were cleaned; the domains/edges/records segments of generations
+2-6 tile their totals. The resumed `result.json` matches the uninterrupted
+control record for record (98,909 `domains` rows compared after sorting by
+id) and in every counter (completed 98,869, scheduled 98,909, containment
+checks 169,509,549, events 2,488,138, successors 2,182,549, status
+`locally_resolved`, `all_scheduled_domains_resolved` true). The only
+differing keys are `uncommitted_inspections` (0 vs 8: the persisted
+receipts of the cancelled inspections, which the resumed run re-inspected
+and reports as diagnostics) and the allocator-capacity estimate
+`descendant_closure.retained_storage_estimate_bytes`; neither is walk state.
+An earlier run before the stamp covered `uncommitted` had skipped the
+cooperative-stop save as unchanged, which is why that field is part of the
+stamp. Ordered policy only; the Ready equivalence run is a wave-2 scale
+test.
 
 ## Deferred to wave 2
 
