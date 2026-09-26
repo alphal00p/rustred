@@ -10,6 +10,9 @@ use std::ops::ControlFlow;
 /// Empty log chain; node counts and log lengths stay strictly below it.
 pub(super) const NONE: u32 = u32::MAX;
 
+/// Longest log a u32 chain link can address.
+const LOG_CAP: usize = NONE as usize - 1;
+
 /// Folded edges, incoming by target. `offsets` covers the node count at the
 /// last fold (plus one); later nodes have no folded edges yet.
 #[derive(Default)]
@@ -30,7 +33,8 @@ impl Csr {
 }
 
 /// Edges since the last fold, in insertion order, linked by target (newest
-/// first): 12 B per edge plus 4 B per node for the heads.
+/// first): 12 B per edge plus 4 B per node for the heads, which `grow` keeps
+/// at one entry per node.
 #[derive(Default)]
 struct EdgeLog {
     pairs: Vec<(u32, u32)>,
@@ -167,11 +171,20 @@ impl Edges {
 
     /// Append one edge; endpoints were validated against the node count.
     pub fn push(&mut self, source: u32, target: u32) -> Result<(), ()> {
+        self.push_within(source, target, LOG_CAP)
+    }
+
+    /// `push` with a log of at most `cap` edges. A full log folds first
+    /// instead of refusing the edge: without a checkpoint store nothing else
+    /// folds, and with one the next save re-tiles the edges from zero (its
+    /// retained tiling then ends inside the folded prefix). Only a failed
+    /// fold allocation refuses the edge.
+    fn push_within(&mut self, source: u32, target: u32, cap: usize) -> Result<(), ()> {
+        if self.log.pairs.len() >= cap {
+            self.fold(self.log.heads.len())?;
+        }
         let index = self.log.pairs.len();
-        if index >= NONE as usize - 1
-            || self.log.pairs.try_reserve(1).is_err()
-            || self.log.next.try_reserve(1).is_err()
-        {
+        if self.log.pairs.try_reserve(1).is_err() || self.log.next.try_reserve(1).is_err() {
             return Err(());
         }
         let head = &mut self.log.heads[target as usize];
@@ -339,5 +352,28 @@ mod tests {
         }
         folded.fold(nodes).unwrap();
         check(&folded);
+    }
+
+    #[test]
+    fn a_full_log_folds_instead_of_refusing_an_edge() {
+        let nodes = 7;
+        let pairs = random_pairs(nodes, 100, 11);
+        let mut edges = Edges::default();
+        edges.grow(nodes).unwrap();
+        for (count, &(source, target)) in pairs.iter().enumerate() {
+            edges.push_within(source, target, 8).unwrap();
+            assert_eq!(edges.len(), count + 1);
+            assert!(edges.log_len() <= 8);
+        }
+        assert_eq!(edges.folded(), 96, "each full log of 8 edges folded");
+        edges.fold(nodes).unwrap();
+        for target in 0..nodes {
+            let expected: Vec<_> = pairs
+                .iter()
+                .filter(|pair| pair.1 as usize == target)
+                .map(|pair| pair.0)
+                .collect();
+            assert_eq!(edges.csr.incoming(target), expected.as_slice(), "{target}");
+        }
     }
 }

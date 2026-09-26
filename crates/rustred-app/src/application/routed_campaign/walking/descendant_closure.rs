@@ -48,7 +48,8 @@ struct ScratchUnavailable;
 /// Node flags as bytes (bit0 sealed, bit1 inspected, bit2 closed) and the
 /// edges as a u32 CSR-by-target plus an append log (`edges.rs`). The log is
 /// folded after a checkpoint save persisted it; without a checkpoint store
-/// it is never folded and refresh walks its per-target chains.
+/// it grows at 12 B per edge (refresh walks its per-target chains) and folds
+/// only when its u32 chain links are exhausted.
 pub(super) struct Tracker {
     flags: Vec<u8>,
     edges: edges::Edges,
