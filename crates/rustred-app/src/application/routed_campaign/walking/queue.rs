@@ -184,6 +184,22 @@ impl<const N: usize> Queue<N> {
             .collect()
     }
 
+    /// Reserved bytes of the compact per-ID state: O(1), capacities only.
+    /// The candidate index blocks, ledger and closure are accounted elsewhere.
+    pub fn storage_json(&self) -> serde_json::Value {
+        let domains = self.domains.capacity() * std::mem::size_of::<CompactDomain<N>>();
+        let exact = self.exact.capacity_bytes();
+        let summaries = self.summaries.capacity_bytes();
+        let words = self.bits.capacity() * std::mem::size_of::<u64>();
+        let total = domains + exact + summaries + words;
+        serde_json::json!({"domain_bytes":domains,"exact_index_bytes":exact,
+            "summary_slab_bytes":summaries,"filter_word_bytes":words,"total_bytes":total,
+            "admitted_domains":self.domains.len(),"live_summaries":self.summaries.live(),
+            "bytes_per_admitted_domain":(!self.domains.is_empty())
+                .then(|| total as f64 / self.domains.len() as f64),
+            "scope":"compact per-ID queue state (domain images, digest exact index, summary slab with slot map, filter words); reserved capacities; excludes candidate index blocks, ledger and closure"})
+    }
+
     fn stored(&self) -> Stored<'_, N> {
         Stored {
             domains: &self.domains,

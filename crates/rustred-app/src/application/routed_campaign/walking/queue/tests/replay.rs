@@ -355,7 +355,8 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
             "maintenance_comparisons":queue.containment_maintenance_checks,
             "retirements":queue.containment_retired_candidates,"summary_builds":queue.containment_summary_builds,
             "new_semantic_hits":queue.containment_semantic_hits,"new_semantic_retirements":queue.containment_semantic_retirements,
-            "exact_hits":queue.exact_hits,"orthant_hits":queue.orthant_hits},
+            "exact_hits":queue.exact_hits,"orthant_hits":queue.orthant_hits,
+            "storage":queue.storage_json()},
         "semantic_containment_verified":true,"raw_originals_retained":true,"pending_next":queue.next})
 }
 

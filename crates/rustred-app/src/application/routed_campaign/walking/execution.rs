@@ -310,6 +310,7 @@ impl<const N: usize> State<N> {
             // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
             telemetry["coordinator_duty"] = self.admission.duty_json();
             telemetry["containment_prefilter"] = self.queue.session.json();
+            telemetry["queue_storage"] = self.queue.storage_json();
             telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
         }
         for key in ["first_failure", "non_cancellation_failure"] {

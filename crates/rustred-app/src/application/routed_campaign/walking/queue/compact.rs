@@ -371,6 +371,19 @@ impl<const N: usize> ExactIndex<N> {
             Entry::Occupied(_) => self.overflow.entry(key).or_default().push(id),
         }
     }
+
+    /// Bytes of the reserved table storage (entries plus control bytes; a
+    /// table holds 8/7 buckets per usable slot).
+    pub fn capacity_bytes(&self) -> usize {
+        let buckets = |capacity: usize| capacity / 7 * 8 + capacity % 7;
+        buckets(self.primary.capacity()) * (std::mem::size_of::<(Digest, usize)>() + 1)
+            + buckets(self.overflow.capacity()) * (std::mem::size_of::<(Digest, Vec<usize>)>() + 1)
+            + self
+                .overflow
+                .values()
+                .map(|ids| ids.capacity() * std::mem::size_of::<usize>())
+                .sum::<usize>()
+    }
 }
 
 // `CompactSummary::flags`.
@@ -630,7 +643,6 @@ impl<const N: usize> SummarySlab<N> {
     }
 
     /// Summaries currently held (IDs not released).
-    #[cfg(test)]
     pub fn live(&self) -> usize {
         self.live
     }
@@ -713,6 +725,12 @@ impl<const N: usize> SummarySlab<N> {
         self.entries[slot as usize] = CompactSummary::free_link(self.free);
         self.free = slot;
         self.live -= 1;
+    }
+
+    /// Bytes of the reserved slot map and slab.
+    pub fn capacity_bytes(&self) -> usize {
+        self.slots.capacity() * std::mem::size_of::<u32>()
+            + self.entries.capacity() * std::mem::size_of::<CompactSummary<N>>()
     }
 }
 
