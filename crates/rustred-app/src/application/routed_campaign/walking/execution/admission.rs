@@ -28,6 +28,9 @@ pub(in super::super) struct Duty {
     pub ready_service: f64,
     pub ready_service_reclaims: usize,
     pub ready_service_dispatches: usize,
+    /// Unpublished Delegates a service step stepped over (published later by
+    /// the main loop); a high count means retirement-heavy Ready traffic.
+    pub ready_service_deferred_delegates: usize,
     pub started: Option<Instant>,
 }
 
@@ -154,6 +157,7 @@ impl Metrics {
             "ready_service_seconds":duty.ready_service,
             "ready_service_reclaimed_slots":duty.ready_service_reclaims,
             "ready_service_dispatches":duty.ready_service_dispatches,
+            "ready_service_deferred_delegates":duty.ready_service_deferred_delegates,
             "coordinator_elapsed_seconds":duty.elapsed_seconds(),
             "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint; ready_service_includes_its_own_dispatch; resets_on_resume"
         })

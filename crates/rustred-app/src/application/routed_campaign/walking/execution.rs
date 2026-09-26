@@ -1030,21 +1030,54 @@ fn refresh<const N: usize>(state: &mut State<N>, cancellation: &AtomicBool, forc
     state.admission.duty.closure_refresh += started.elapsed().as_secs_f64();
 }
 
+/// Publish one delegated (transferred) obligation with its progress event and
+/// checkpoint opportunity, timed into the duty buckets.
+fn publish_delegated<const N: usize>(
+    state: &mut State<N>,
+    pool: &parallel::Pool<N>,
+    id: usize,
+    observer: &dyn Fn(Value),
+    maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
+) -> Result<(), String> {
+    let started = Instant::now();
+    let committed = state.commit_delegated_id(id);
+    state.admission.duty.publication += started.elapsed().as_secs_f64();
+    committed?;
+    observe(state, observer, "domain_delegated", id, pool);
+    save(state, maybe_save)
+}
+
 /// Monotone dispatch cursor shared by the main loop and the Ready service
 /// step that runs between commit batches.
 struct Dispatcher {
     next: usize,
     part: u8,
     parent_dispatched: bool,
+    /// Ready only: unpublished Delegates below the fence that a service step
+    /// stepped over so the Reserved IDs beyond them still reached free slots.
+    /// The main loop publishes them, in ID order, before dispatching further.
+    /// Transient: a paused run resumes from the ledger cursor, which never
+    /// passes an unpublished ID, so nothing here needs persisting.
+    deferred_delegates: Vec<usize>,
 }
 
 impl Dispatcher {
+    fn new(next: usize, part: u8) -> Self {
+        Self {
+            next,
+            part,
+            parent_dispatched: false,
+            deferred_delegates: Vec::new(),
+        }
+    }
+
     /// Hand reserved work to free slots in admission order. Under Ready a
     /// delegated ID is published inline only when `publish` supplies the
     /// observer/checkpoint pair (the main loop); the mid-commit service step
-    /// passes None and stops there, so every publication stays in the main
-    /// loop and a service step only touches `native_started` and the Ready
-    /// pending set. Returns the number of native dispatches performed.
+    /// passes None, defers the Delegate and keeps going, so every publication
+    /// stays in the main loop and a service step only touches
+    /// `native_started` and the Ready pending set. Returns the number of
+    /// native dispatches performed.
     fn run<const N: usize>(
         &mut self,
         state: &mut State<N>,
@@ -1060,6 +1093,17 @@ impl Dispatcher {
         let physical_enabled = state.physical_enabled;
         let ready = state.ready();
         let mut dispatches = 0;
+        if let Some((observer, maybe_save)) = publish.as_mut()
+            && !self.deferred_delegates.is_empty()
+        {
+            for id in std::mem::take(&mut self.deferred_delegates) {
+                if let Err(error) = publish_delegated(state, pool, id, *observer, &mut **maybe_save)
+                {
+                    state.error = Some(error);
+                    return dispatches;
+                }
+            }
+        }
         while self.next < state.queue.domains.len() {
             if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
                 break;
@@ -1078,17 +1122,17 @@ impl Dispatcher {
                 if ledger.delegated_to(id).is_some() {
                     if ready {
                         let Some((observer, maybe_save)) = publish.as_mut() else {
-                            break; // Publication is the main loop's job.
+                            // Service step: publication is the main loop's
+                            // job, but Reserved IDs beyond this Delegate must
+                            // still reach the slots freed a moment ago.
+                            self.deferred_delegates.push(id);
+                            state.admission.duty.ready_service_deferred_delegates += 1;
+                            self.next += 1;
+                            continue;
                         };
-                        let started = Instant::now();
-                        let committed = state.commit_delegated_id(id);
-                        state.admission.duty.publication += started.elapsed().as_secs_f64();
-                        if let Err(error) = committed {
-                            state.error = Some(error);
-                            break;
-                        }
-                        observe(state, *observer, "domain_delegated", id, pool);
-                        if let Err(error) = save(state, &mut **maybe_save) {
+                        if let Err(error) =
+                            publish_delegated(state, pool, id, *observer, &mut **maybe_save)
+                        {
                             state.error = Some(error);
                             break;
                         }
@@ -1229,14 +1273,13 @@ fn run_pool<const N: usize>(
             return;
         }
     };
-    let mut dispatcher = Dispatcher {
-        next: state.queue.next,
-        part: state
+    let mut dispatcher = Dispatcher::new(
+        state.queue.next,
+        state
             .physical_progress
             .as_ref()
             .map_or(0, |p| p.completed.len() as u8),
-        parent_dispatched: false,
-    };
+    );
     let mut started_id = None;
     let mut heartbeat = Instant::now();
     let physical_enabled = state.physical_enabled;

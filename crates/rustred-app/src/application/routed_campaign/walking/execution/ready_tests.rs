@@ -282,6 +282,7 @@ fn spin_until(deadline: Duration, mut done: impl FnMut() -> bool) -> bool {
 #[test]
 fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
     if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
         return;
     }
     // Deterministic mechanism: the heavy stream holds slot 0, both tiny
@@ -310,11 +311,7 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
             finished(None)
         },
         |pool| {
-            let mut dispatcher = Dispatcher {
-                next: 0,
-                part: 0,
-                parent_dispatched: false,
-            };
+            let mut dispatcher = Dispatcher::new(0, 0);
             let mut streams = publication::ReadyStreams::default();
             assert_eq!(
                 dispatcher.run(&mut state, pool, &request, &cancel, &mut streams, None),
@@ -435,6 +432,137 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
         "ready_recycling_end_to_end duty={duty} reclaimed={}",
         parallel["completed_slots_reclaimed"]
     );
+}
+
+/// Under Ready, `transfer_retired` turns Unreserved IDs into Delegates and the
+/// reservation sweep passes over them, so unpublished Delegates routinely sit
+/// between the cursor and the next Reserved IDs. A service step must step
+/// over them (publication is the main loop's job) instead of stopping, or a
+/// long chunk commit reclaims slots without ever refilling them.
+#[test]
+fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
+    if !symbolica::license::LicenseManager::is_licensed() {
+        eprintln!("skipped: parallel Symbolica workers require a license");
+        return;
+    }
+    let request = ready_request(3);
+    let mut state = ready_seed(40, 3);
+    let band = Domain {
+        lower: vec![3],
+        upper: vec![Some(4)],
+        ..point(3)
+    };
+    assert_eq!(state.queue.admit(band), Ok((40, true)));
+    {
+        let ledger = state.queue.delegation.as_ref().unwrap();
+        assert_eq!(ledger.delegated_to(3), Some(40));
+        assert_eq!(ledger.delegated_to(4), Some(40));
+        assert_eq!(ledger.dispatch_fence(), 3, "IDs 0..3 reserved by H = 3");
+    }
+    let budget = super::super::worker_budget::WorkerBudget::for_request(&request);
+    assert_eq!((budget.inspection, budget.helpers), (3, 0));
+    state.admission = admission::Metrics::new(budget);
+    let cancel = AtomicBool::new(false);
+    let release = AtomicBool::new(false);
+    let (_, snapshot, _) = parallel::with_ticket_pool_escrow::<1, _>(
+        3,
+        ready_escrow_limits(3),
+        |id, _, stop, _| {
+            if id == 0 {
+                spin_until(Duration::from_secs(20), || {
+                    release.load(Ordering::Acquire) || stop.load(Ordering::Acquire)
+                });
+            }
+            finished(None)
+        },
+        |pool| {
+            let mut dispatcher = Dispatcher::new(0, 0);
+            let mut streams = publication::ReadyStreams::default();
+            assert_eq!(
+                dispatcher.run(&mut state, pool, &request, &cancel, &mut streams, None),
+                3
+            );
+            assert!(spin_until(Duration::from_secs(10), || {
+                pool.snapshot()["finished_awaiting_poll"] == 2
+            }));
+            // Publish tickets 1 and 2 the way the main loop does; each native
+            // publication releases a credit and the sweep reserves 5 and 6,
+            // stepping over the Delegates 3 and 4.
+            for raw in [1_usize, 2] {
+                let Poll::Finished(finished) = pool.poll(raw) else {
+                    panic!("ticket {raw} finished without a chunk");
+                };
+                let ticket = Ticket {
+                    parent: raw,
+                    part: None,
+                };
+                state.activate_stream(ticket, false).unwrap();
+                state.commit_physical(ticket, finished, &request);
+                streams.finished(raw);
+            }
+            assert!(state.error.is_none(), "{:?}", state.error);
+            {
+                let ledger = state.queue.delegation.as_ref().unwrap();
+                assert_eq!(ledger.dispatch_fence(), 7);
+                assert!(ledger.can_dispatch(5) && ledger.can_dispatch(6));
+                assert!(!ledger.is_published(3) && !ledger.is_published(4));
+            }
+            let (reclaimed, dispatched) = ready_service(
+                &mut state,
+                pool,
+                &mut dispatcher,
+                &mut streams,
+                &request,
+                &cancel,
+            );
+            assert_eq!(reclaimed, 0, "both finished slots were polled");
+            assert_eq!(dispatched, 2, "IDs 5 and 6 reach the two free slots");
+            assert_eq!(dispatcher.deferred_delegates, [3, 4]);
+            assert_eq!(dispatcher.next, 7);
+            let duty = state.admission.duty;
+            assert_eq!(duty.ready_service_deferred_delegates, 2);
+            assert_eq!(duty.ready_service_dispatches, 2);
+            {
+                let ledger = state.queue.delegation.as_ref().unwrap();
+                assert!(!ledger.is_published(3) && !ledger.is_published(4));
+                assert_eq!(ledger.published_count(), 2);
+            }
+            // The main loop publishes the deferred Delegates first, in order.
+            let mut events = Vec::new();
+            let observer = |event: Value| events.push(event["id"].as_u64().unwrap());
+            let mut saves = 0;
+            let mut maybe_save = |_: &State<1>| {
+                saves += 1;
+                Ok(())
+            };
+            let dispatched = dispatcher.run(
+                &mut state,
+                pool,
+                &request,
+                &cancel,
+                &mut streams,
+                Some((&observer, &mut maybe_save)),
+            );
+            assert_eq!(dispatched, 0, "no free slot: 0, 5 and 6 are running");
+            assert!(dispatcher.deferred_delegates.is_empty());
+            assert_eq!(events, [3, 4]);
+            assert_eq!(saves, 2);
+            let ledger = state.queue.delegation.as_ref().unwrap();
+            assert!(ledger.is_published(3) && ledger.is_published(4));
+            assert_eq!(ledger.published_count(), 4);
+            assert!(state.admission.duty.publication > 0.0);
+            let delegated: Vec<u64> = state
+                .records
+                .iter()
+                .filter(|record| record["record_kind"] == "delegated_not_inspected")
+                .map(|record| record["id"].as_u64().unwrap())
+                .collect();
+            assert_eq!(delegated, [3, 4]);
+            release.store(true, Ordering::Release);
+        },
+    );
+    assert!(snapshot["first_failure"].is_null(), "{snapshot}");
+    assert!(state.error.is_none(), "{:?}", state.error);
 }
 
 #[test]
