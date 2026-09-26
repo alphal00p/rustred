@@ -1,6 +1,6 @@
 //! Actual shared-pool tests, not a second scheduling model.
 use super::super::{
-    checkpoint::codec,
+    checkpoint::test_support::Fixture,
     delegation::{Ledger, SchedulingPolicy},
     queue::Domain,
 };
@@ -83,12 +83,12 @@ fn has_two_prefixes(s: &State<1>) -> bool {
         .count()
         == 2
 }
-fn run_pause() -> (State<1>, Vec<u8>) {
+fn run_pause() -> (State<1>, Fixture) {
     let request = request();
     let mut state = seed();
     let cancelled = AtomicBool::new(false);
     let start = Instant::now();
-    let mut bytes = Vec::new();
+    let mut fixture = None;
     run_pool(
         &mut state,
         &request,
@@ -99,8 +99,7 @@ fn run_pause() -> (State<1>, Vec<u8>) {
             if s.completed >= 8 && has_two_prefixes(s) {
                 assert_eq!(s.queue.next, 0);
                 assert!(s.published_count() > 3);
-                bytes.clear();
-                codec::write(&mut bytes, s, &[], &[])?;
+                fixture = Some(Fixture::save(s));
                 cancelled.store(true, Ordering::Release);
             }
             Ok(())
@@ -125,8 +124,7 @@ fn run_pause() -> (State<1>, Vec<u8>) {
     );
     assert!(state.error.is_none(), "{:?}", state.error);
     assert!(state.checkpoint_paused);
-    assert!(!bytes.is_empty());
-    (state, bytes)
+    (state, fixture.expect("paused checkpoint fixture"))
 }
 
 #[test]
@@ -134,8 +132,8 @@ fn ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefix
     if !symbolica::license::LicenseManager::is_licensed() {
         return;
     }
-    let (paused, bytes) = run_pause();
-    let mut resumed: State<1> = codec::read::<1>(bytes.as_slice()).unwrap().state;
+    let (paused, fixture) = run_pause();
+    let mut resumed: State<1> = fixture.resume().unwrap();
     assert!(has_two_prefixes(&resumed));
     assert!(resumed.published_count() > 3);
     assert_eq!(resumed.queue.next, 0);
@@ -202,8 +200,8 @@ fn ready_changed_parked_prefix_fails_before_any_suffix_admission() {
     if !symbolica::license::LicenseManager::is_licensed() {
         return;
     }
-    let (_, bytes) = run_pause();
-    let mut s = codec::read::<1>(bytes.as_slice()).unwrap().state;
+    let (_, fixture) = run_pause();
+    let mut s = fixture.resume::<1>().unwrap();
     let parked = serde_json::to_value(&s.streams).unwrap();
     let bad = parked["parked"][0][0]["parent"].as_u64().unwrap() as usize;
     let admitted = s.queue.domains.len();

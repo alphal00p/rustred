@@ -1,6 +1,6 @@
 //! Integration through the actual coordinator admission/publication paths.
 use super::super::{
-    checkpoint::codec,
+    checkpoint::{round_trip_state, test_support::Fixture},
     delegation::{Ledger, SchedulingPolicy},
     queue::Domain,
 };
@@ -170,10 +170,11 @@ fn ready_ticket_parent_not_contiguous_cursor_owns_edges_and_checkpoint_replay() 
         })
     };
     state.accept(make(), &request()).unwrap();
-    let mut bytes = Vec::new();
-    codec::write(&mut bytes, &state, &[], &[]).unwrap();
-    assert!(bytes.starts_with(b"RUSTRED-WALK-CP4\n"));
-    let mut resumed = codec::read::<1>(bytes.as_slice()).unwrap().state;
+    let fixture = Fixture::save(&state);
+    let manifest = fixture.manifest();
+    assert_eq!(manifest["format"], "RUSTRED-WALK-CP5");
+    assert_eq!(manifest["publication_policy"], "ready");
+    let mut resumed = fixture.resume::<1>().unwrap();
     let mut replayed = make();
     assert!(!resumed.filter_replay(&mut replayed).unwrap());
     assert_eq!(refresh(&resumed)["dependency_edges"], 1);
@@ -222,19 +223,25 @@ fn delegated_alias_waits_for_representative_and_old_checkpoint_magic_is_rejected
     state.commit(0, finished());
     state.commit_delegated().unwrap();
     assert_eq!(refresh(&state)["total_closed"], 1);
-    let mut bytes = Vec::new();
-    codec::write(&mut bytes, &state, &[], &[]).unwrap();
-    assert!(bytes.starts_with(b"RUSTRED-WALK-CP3\n"));
-    let mut resumed = codec::read::<1>(bytes.as_slice()).unwrap().state;
+    let fixture = Fixture::save(&state);
+    let manifest = fixture.manifest();
+    assert_eq!(manifest["format"], "RUSTRED-WALK-CP5");
+    assert_eq!(manifest["publication_policy"], "ordered");
+    let mut resumed = fixture.resume::<1>().unwrap();
     resumed.note_native_started(2).unwrap();
     resumed.commit(2, finished());
     assert_eq!(refresh(&resumed)["total_closed"], 3);
-    bytes[b"RUSTRED-WALK-CP".len()] = b'1';
+    // A CP3/CP4 manifest is refused outright, never decoded.
+    let mut old = manifest;
+    old["schema"] = json!(4);
+    old["format"] = json!("RUSTRED-WALK-CP4");
+    fixture.write_manifest(&old);
     assert!(
-        codec::read::<1>(bytes.as_slice())
+        fixture
+            .resume::<1>()
             .err()
             .unwrap()
-            .contains("CP3/CP4")
+            .contains("fresh CP5 campaign")
     );
 }
 
@@ -244,10 +251,8 @@ fn checkpoint_rejects_fictional_seal_and_missing_alias_dependency() {
     queue.admit(point(Phase::Apply, 0)).unwrap();
     let state = State::new(queue, 0, None);
     state.closure.borrow_mut().finish(0, true, true);
-    let mut bytes = Vec::new();
-    codec::write(&mut bytes, &state, &[], &[]).unwrap();
     assert!(
-        codec::read::<1>(bytes.as_slice())
+        round_trip_state(&state)
             .err()
             .unwrap()
             .contains("unpublished node")
@@ -274,10 +279,8 @@ fn checkpoint_rejects_fictional_seal_and_missing_alias_dependency() {
     omitted.finish(0, true, true);
     omitted.finish(1, false, true);
     state.closure = RefCell::new(omitted);
-    let mut bytes = Vec::new();
-    codec::write(&mut bytes, &state, &[], &[]).unwrap();
     assert!(
-        codec::read::<1>(bytes.as_slice())
+        round_trip_state(&state)
             .err()
             .unwrap()
             .contains("edge missing")
@@ -341,8 +344,6 @@ fn partial_initial_inspection_keeps_anchor_frontier_transitively_blocking() {
     assert_eq!(refresh(&state)["initial_closed"], 1);
     assert_eq!(state.closure_json()["total_closed"], 1);
     assert_eq!(state.closure_json()["dependency_edges"], 2);
-    let mut bytes = Vec::new();
-    codec::write(&mut bytes, &state, &[], &[]).unwrap();
-    let restored = codec::read::<1>(bytes.as_slice()).unwrap().state;
+    let restored = round_trip_state(&state).unwrap();
     assert_eq!(refresh(&restored)["total_closed"], 1);
 }
