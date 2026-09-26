@@ -275,6 +275,31 @@ impl DiagnosticPause {
             Self::ReadyMultiPrefix => state.ready_multi_prefix_hole(),
         }
     }
+    /// Only a fresh checkpointed Ready walk may pause. The trigger is a state
+    /// predicate that a paused checkpoint still satisfies once restored, so a
+    /// `--resume` with the variable set would pause again at its first
+    /// checkpoint opportunity instead of running to exhaustion.
+    fn admit(pause: Option<Self>, request: &OwnerDomainWalkRequest) -> Result<(), String> {
+        if pause.is_none() {
+            return Ok(());
+        }
+        match &request.checkpoint {
+            Some(checkpoint)
+                if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready =>
+            {
+                if checkpoint.resume {
+                    Err(format!(
+                        "{DIAGNOSTIC_PAUSE_VARIABLE} pauses a fresh checkpointed Ready walk only; unset it to --resume"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(format!(
+                "{DIAGNOSTIC_PAUSE_VARIABLE} requires a checkpointed Ready walk"
+            )),
+        }
+    }
 }
 
 pub fn owner_domain_walk_with_progress(
@@ -308,14 +333,7 @@ pub fn owner_domain_walk_with_progress(
         }
     }
     let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
-    if diagnostic_pause.is_some()
-        && (request.checkpoint.is_none()
-            || request.publication_policy != OwnerDomainWalkPublicationPolicy::Ready)
-    {
-        return Err(AppError::input(format!(
-            "{DIAGNOSTIC_PAUSE_VARIABLE} requires a checkpointed Ready walk"
-        )));
-    }
+    DiagnosticPause::admit(diagnostic_pause, &request).map_err(AppError::input)?;
     if request.apply_subdivision.is_some()
         && request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered
     {
@@ -937,6 +955,44 @@ mod policy_tests {
         // fires; an ordinary Ordered state never does.
         let state = execution::State::new(Queue::<1>::new(4, None), 0, None);
         assert!(!DiagnosticPause::ReadyMultiPrefix.fires(&state));
+    }
+
+    /// The process environment is never set here: concurrent in-process
+    /// walks of other tests read the same variable.
+    #[test]
+    fn diagnostic_pause_admits_only_a_fresh_checkpointed_ready_walk() {
+        let pause = Some(DiagnosticPause::ReadyMultiPrefix);
+        for ready in [false, true] {
+            for checkpoint in [None, Some(false), Some(true)] {
+                let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+                    String::new(),
+                    String::new(),
+                ));
+                if ready {
+                    request.publication_policy = OwnerDomainWalkPublicationPolicy::Ready;
+                }
+                request.checkpoint = checkpoint.map(|resume| OwnerDomainWalkCheckpointOptions {
+                    resume,
+                    ..OwnerDomainWalkCheckpointOptions::new("unused")
+                });
+                assert_eq!(DiagnosticPause::admit(None, &request), Ok(()));
+                let admitted = DiagnosticPause::admit(pause, &request);
+                match (ready, checkpoint) {
+                    (true, Some(false)) => assert_eq!(admitted, Ok(())),
+                    (true, Some(true)) => {
+                        let error = admitted.unwrap_err();
+                        assert!(error.contains("unset it to --resume"), "{error}");
+                    }
+                    _ => {
+                        let error = admitted.unwrap_err();
+                        assert!(
+                            error.contains("requires a checkpointed Ready walk"),
+                            "{error}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
