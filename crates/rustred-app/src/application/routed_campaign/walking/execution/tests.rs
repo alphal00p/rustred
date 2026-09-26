@@ -470,3 +470,190 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
         );
     }
 }
+
+/// Key sets of a `domain_delegated` event journaled by the frozen pre-wave
+/// binary 32fdec09 (Ready FG control, `TMP/fable51-controls/baseline-32fdec-ready/
+/// fg/events.jsonl`), without the three keys the walk's outer observer adds
+/// (`checkpoint`, `requested_max_queries`, `requested_max_query_bytes`).
+const HISTORICAL_READY_TOP: [&str; 53] = [
+    "commit_domain",
+    "committed_domains",
+    "committed_events",
+    "completed_nodes",
+    "conditional_successors",
+    "containment_candidates",
+    "containment_check_policy",
+    "containment_checks",
+    "containment_index_policy",
+    "containment_maintenance_checks",
+    "containment_retired_candidates",
+    "containment_semantic_hits",
+    "containment_semantic_retirements",
+    "containment_summary_builds",
+    "contiguous_publication_watermark",
+    "deduplication_hits",
+    "delegation",
+    "descendant_closure",
+    "event",
+    "events",
+    "exact_domain_hits",
+    "frontiers",
+    "full_orthant_hits",
+    "id",
+    "initial_entry_domains_inspected",
+    "initial_entry_domains_published",
+    "initial_entry_domains_total",
+    "job_local_reuse_hits",
+    "max_containment_checks",
+    "max_scheduled_finite_rank",
+    "native_processed_nodes",
+    "operation",
+    "owner",
+    "parallel",
+    "partial_initial_inspections",
+    "pending_descendant_domains",
+    "phase",
+    "power_bounds",
+    "pre_admitted_orthant_hits",
+    "publication_policy",
+    "queued_nodes",
+    "ready_accepted_source_prefixes",
+    "ready_prefix_tracking_scope",
+    "ready_published_holes",
+    "ready_stream_contexts",
+    "reuse_initial_d_bands",
+    "route_joint_support_masks_pruned",
+    "route_masks",
+    "routed_domains",
+    "scheduled_nodes",
+    "scheduling_policy",
+    "successors",
+    "unbounded_rank_domains",
+];
+const HISTORICAL_ADMISSION: [&str; 20] = [
+    "batch_record_limit",
+    "coordinator_worker_limit",
+    "counter_saturated",
+    "counter_scope",
+    "inspection_worker_limit",
+    "lookup_worker_limit",
+    "minimum_admissions",
+    "minimum_candidates",
+    "ordered_commit_wall_seconds",
+    "parallel_batches",
+    "policy",
+    "preparation_wall_seconds",
+    "prepared_batch_records",
+    "requested_worker_budget",
+    "speculative_admission_requests",
+    "speculative_check_scope",
+    "speculative_containment_checks",
+    "speculative_work_is_not_admission",
+    "timing_scope",
+    "total_compute_worker_limit",
+];
+const HISTORICAL_CLOSURE: [&str; 23] = [
+    "available",
+    "closed_counts_are_conservative_lower_bounds",
+    "dependency_edges",
+    "family_closure_claim",
+    "graph_revision",
+    "initial_closed",
+    "initial_total",
+    "last_refresh_seconds",
+    "locally_inspected",
+    "method",
+    "reason",
+    "refresh_count",
+    "refresh_scratch_estimate_bytes",
+    "refresh_seconds",
+    "retained_storage_estimate_bytes",
+    "scope",
+    "snapshot_age_seconds",
+    "snapshot_revision",
+    "snapshot_stale",
+    "storage_estimate_scope",
+    "total_closed",
+    "total_domains",
+    "unresolved_domains",
+];
+
+fn sorted_keys(value: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// Keys of `detailed` absent from `lean`; `lean` must be a subset.
+fn added<'a>(lean: &Value, detailed: &'a Value) -> Vec<&'a str> {
+    let lean = sorted_keys(lean);
+    let detailed = sorted_keys(detailed);
+    assert!(lean.iter().all(|key| detailed.contains(key)), "{lean:?}");
+    detailed
+        .into_iter()
+        .filter(|key| !lean.contains(key))
+        .collect()
+}
+
+/// Every per-domain event keeps the historical key set exactly, so a new
+/// unconditional field anywhere in `progress`, `metrics_json`, `json_with` or
+/// the closure report fails here; heartbeats add session telemetry only
+/// under `parallel`, and exactly the pinned keys.
+#[test]
+fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry() {
+    use super::super::delegation::Ledger;
+    let mut queue = Queue::<1>::new(5, None);
+    let mut ledger = Ledger::new_ready(std::num::NonZeroUsize::new(2).unwrap(), 5).unwrap();
+    ledger.begin_initial_admission().unwrap();
+    ledger.finish_initial_admission().unwrap();
+    queue.delegation = Some(ledger);
+    let state = State::new(queue, 0, None);
+    for event in ["domain_started", "domain_delegated"] {
+        let lean = state.progress(event, 0, &json!({}));
+        assert_eq!(sorted_keys(&lean), HISTORICAL_READY_TOP, "{event}");
+        assert_eq!(sorted_keys(&lean["parallel"]), ["admission_preparation"]);
+        assert_eq!(
+            sorted_keys(&lean["parallel"]["admission_preparation"]),
+            HISTORICAL_ADMISSION
+        );
+        assert_eq!(sorted_keys(&lean["descendant_closure"]), HISTORICAL_CLOSURE);
+    }
+    let lean = state.progress("domain_started", 0, &json!({}));
+    for event in ["domain_progress", "domain_draining"] {
+        let detailed = state.progress(event, 0, &json!({}));
+        assert!(added(&lean, &detailed).is_empty(), "{event}");
+        assert!(
+            added(&lean["descendant_closure"], &detailed["descendant_closure"]).is_empty(),
+            "{event}"
+        );
+        assert_eq!(
+            added(&lean["parallel"], &detailed["parallel"]),
+            [
+                "closure_refresh_policy",
+                "containment_prefilter",
+                "coordinator_duty"
+            ]
+        );
+        assert_eq!(
+            added(
+                &lean["parallel"]["admission_preparation"],
+                &detailed["parallel"]["admission_preparation"]
+            ),
+            [
+                "prepared_retire_fallbacks",
+                "prepared_retirement_limit",
+                "prepared_retirement_scope",
+                "prepared_retirements_applied",
+                "prepared_retirements_trivial",
+                "speculative_forward_bit_rejections",
+                "speculative_reverse_bit_rejections",
+                "speculative_reverse_checks"
+            ]
+        );
+    }
+}
