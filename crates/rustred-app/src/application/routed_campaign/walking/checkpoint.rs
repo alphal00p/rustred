@@ -21,6 +21,8 @@ use super::{
     execution::{ChangeStamp, State},
 };
 use crate::application::atomic_file::{write_file_atomically, write_file_atomically_with};
+/// Bound every reader of `latest.json` shares with the store.
+pub use manifest::MAX_MANIFEST_BYTES as OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES;
 use manifest::{FORMAT, Manifest, SCHEMA, Section, SectionRef, Sections, Segment, Segmented};
 pub(super) use restore::Restored;
 use sections::{HashingWriter, Identity};

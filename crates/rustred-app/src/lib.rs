@@ -4,7 +4,8 @@ pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 mod cli;
 
 pub use application::{
-    OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OwnerDomainMatchRequest,
+    OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
     OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,

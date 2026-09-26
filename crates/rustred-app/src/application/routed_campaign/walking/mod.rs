@@ -27,7 +27,9 @@ use serde_json::{Value, json};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
-pub use checkpoint::OwnerDomainWalkCheckpointOptions;
+pub use checkpoint::{
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OwnerDomainWalkCheckpointOptions,
+};
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 
 /// Resume binding for saved walk state. A CP5 checkpoint records this value

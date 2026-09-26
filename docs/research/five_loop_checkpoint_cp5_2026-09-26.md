@@ -159,6 +159,16 @@ test.
 
 ## Deferred to wave 2
 
+Segment-list compaction: every generation that appends to a segmented
+section adds one manifest entry (about 185 bytes) per section and nothing
+merges them, so `latest.json` grows without bound (three entries per
+generation at worst; roughly 30k generations to the shared 16 MiB manifest
+cap, far beyond a campaign at the 4 h cadence, but the bound must exist).
+Wave 2 should merge the tail into one segment at the current generation once
+a section exceeds a fixed segment count, letting the existing cleanup reclaim
+the merged files. The shard supervisor reads `latest.json` under the same
+exported cap as the store (`OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES`).
+
 Records sidecar (`RecordSink`, streaming `result.json`), compact
 `Domain`/`DomainPowerSummary` storage, CSR edges with heads rebuilt on
 restore, the ledger/closure cross-check replacing the record scan, 16-byte
