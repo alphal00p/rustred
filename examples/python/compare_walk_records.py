@@ -34,6 +34,10 @@ _AUDIT_SPEC.loader.exec_module(AUDIT)
 IGNORED_TOP_LEVEL = frozenset({"checkpoint", "parallel", "worker_allocation", "workers",
                                "requested_inspection_workers", "scheduling_policy", "timing_scope",
                                "traversal_timing_boundary", "resume_supported", "domains"})
+# Closure-monitor telemetry driven by wall time (refresh cadence and scratch/storage
+# estimates); the semantic closure keys (edges, revisions, closed counts) stay compared.
+CLOSURE_TELEMETRY = frozenset({"refresh_count", "refresh_scratch_estimate_bytes",
+                               "retained_storage_estimate_bytes"})
 GEOMETRY_FIELDS = ("phase", "owner", "lower", "upper", "rank", "power_bounds")
 KIND_FIELDS = ("record_kind", "responsibility_status", "local_inspection_finished",
                "residual_inspection_finished")
@@ -110,6 +114,9 @@ def compare_top_level(first, second, ignored):
     ignored = IGNORED_TOP_LEVEL | set(ignored)
     left = strip({key: value for key, value in first.items() if key not in ignored})
     right = strip({key: value for key, value in second.items() if key not in ignored})
+    for side in (left, right):
+        if isinstance(side.get("descendant_closure"), dict):
+            side["descendant_closure"] = strip(side["descendant_closure"], CLOSURE_TELEMETRY)
     differences = {}
     for key in sorted(set(left) | set(right)):
         if key not in left or key not in right or left[key] != right[key]:
@@ -148,7 +155,8 @@ def strict_compare(first_path, second_path, ignore_top=(), ignore_record=()):
             "differing_records": differing, "record_examples": examples,
             "top_level_differences": top_differences,
             "ignored": {"top_level": sorted(IGNORED_TOP_LEVEL | set(ignore_top)), "record": sorted(ignored_record),
-                        "timing_keys": "seconds, *_seconds, *_unix_time (recursively)"},
+                        "timing_keys": "seconds, *_seconds, *_unix_time (recursively)",
+                        "closure_telemetry": sorted(CLOSURE_TELEMETRY)},
             "family_closure_claim": False}
 
 

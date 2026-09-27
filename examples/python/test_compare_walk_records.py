@@ -50,6 +50,36 @@ class StrictComparisonTests(unittest.TestCase):
             self.assertEqual(report["a"]["records"], 6)
             self.assertEqual(report["a"]["native_by_phase"], {"Apply": 4, "Route": 1})
 
+    def test_closure_refresh_telemetry_is_ignored_but_closure_counts_are_not(self):
+        def closure_of(top):
+            top["descendant_closure"] = {"available": True, "dependency_edges": 9, "graph_revision": 12,
+                                         "snapshot_revision": 12, "initial_closed": 2, "total_closed": 6,
+                                         "refresh_count": 4, "refresh_seconds": 0.1,
+                                         "retained_storage_estimate_bytes": 99,
+                                         "refresh_scratch_estimate_bytes": 54}
+            return top["descendant_closure"]
+
+        def refreshed_more(top):
+            closure = closure_of(top)
+            closure["refresh_count"] = 19
+            closure["refresh_seconds"] = 4.2
+            closure["retained_storage_estimate_bytes"] = 123
+            closure["refresh_scratch_estimate_bytes"] = 456
+
+        def closed_fewer(top):
+            closure_of(top)["initial_closed"] -= 1
+
+        with tempfile.TemporaryDirectory() as temporary:
+            a = walk(Path(temporary) / "a", mutate=closure_of)
+            b = walk(Path(temporary) / "b", mutate=refreshed_more)
+            c = walk(Path(temporary) / "c", mutate=closed_fewer)
+            report = COMPARE.strict_compare(a, b)
+            self.assertEqual(report["verdict"], "PASS", report)
+            self.assertIn("refresh_count", report["ignored"]["closure_telemetry"])
+            report = COMPARE.strict_compare(a, c)
+            self.assertEqual(report["verdict"], "FAIL")
+            self.assertIn("descendant_closure", report["top_level_differences"])
+
     def test_counter_geometry_and_order_differences_fail_with_examples(self):
         def counter(top):
             top["domains"][3]["stats"]["native_operations"] = 11
