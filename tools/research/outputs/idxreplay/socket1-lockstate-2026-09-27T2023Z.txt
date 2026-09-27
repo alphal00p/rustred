@@ -1,0 +1,30 @@
+# lockstate receipt, start 2026-09-27T20:23:36Z; lock /common/dev/rustred/TMP/locks/socket1.lock inode 12990619 (device 00:2d)
+## /proc/locks lines for the inode (first line = holder, '->' = queued waiters)
+1: FLOCK  ADVISORY  WRITE 954606 00:2d:12990619 0 EOF
+1: -> FLOCK  ADVISORY  WRITE 1191998 00:2d:12990619 0 EOF
+## processes (readable to this user) with the lock file open
+pid 1191891 fd 9 | codex-2  Sun Sep 27 20:13:28 2026 bash /common/dev/rustred/.claude/worktrees/fable51-csr/tools/research/harness/session_socket1.sh /common/dev/rustred/TMP/w0/harness/sessions/planD.txt
+pid 1191998 fd 9 | codex-2  Sun Sep 27 20:13:28 2026 flock -w 14400 9
+pid 1458684 fd 3 | codex-2  Sun Sep 27 20:22:43 2026 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python session.py queueA.json sessionA
+pid 954606 fd 3 | codex-2  Sun Sep 27 19:58:52 2026 flock -w 14400 /common/dev/rustred/TMP/locks/socket1.lock nice -n 5 taskset -c 52-63,308-319 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python session.py queueA.json sessionA
+## socket-1 load over 30 s (busy = total - idle - iowait, in CPUs; this lane runs nothing on these CPUs)
+CPUs 128-255: 67.7 busy of 128 (53%); CPUs 128-227: 53.7 busy of 100 (54%); window 30.0 s
+## running threads (state R) on CPUs 128-255 by user, snapshot 2026-09-27T20:24:26Z
+59 nfink
+20 codex-2
+1 codex-3
+# end 2026-09-27T20:24:29Z
+
+## earlier snapshot in the same fix-round session (interactive commands, output copied verbatim)
+# 2026-09-27T20:21:50Z: grep of /proc/locks for 00:2d:12990619
+328: FLOCK  ADVISORY  WRITE 862959 00:2d:12990619 0 EOF
+328: -> FLOCK  ADVISORY  WRITE 954606 00:2d:12990619 0 EOF
+328:  -> FLOCK  ADVISORY  WRITE 1191998 00:2d:12990619 0 EOF
+# 2026-09-27T20:21:55Z: processes with the lock file open (holder pid 862959 = the exited flock child of 862951; its fd 11 is inherited)
+== 1191891 fd 9: codex-2  Sun Sep 27 20:13:28 2026 bash /common/dev/rustred/.claude/worktrees/fable51-csr/tools/research/harness/session_socket1.sh /common/dev/rustred/TMP/w0/harness/sessions/planD.txt
+== 1191998 fd 9: codex-2  Sun Sep 27 20:13:28 2026 flock -w 14400 9
+== 862951 fd 11: codex-2  Sun Sep 27 19:52:38 2026 bash /common/dev/rustred/.claude/worktrees/agent-ab06981cd80007c75/tools/research/knobs/socket1_session2.sh E-c5f-build-r2 /common/dev/rustred/TMP/w0/knobs/sessions/E-c5f-build-r2.plan
+== 954606 fd 3: codex-2  Sun Sep 27 19:58:52 2026 flock -w 14400 /common/dev/rustred/TMP/locks/socket1.lock nice -n 5 taskset -c 52-63,308-319 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python session.py queueA.json sessionA
+# reading: at 20:21:50Z the knobs lane's socket1_session2.sh (started 19:52:38Z, worktree agent-ab06981cd80007c75) held
+# socket1.lock and two sessions queued (session.py queueA since 19:58:52Z, fable51-csr harness since 20:13:28Z);
+# by 20:23:36Z the knobs session had released and session.py queueA held it, the csr harness still queued.
