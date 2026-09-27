@@ -1,0 +1,1433 @@
+{
+  "queries": [
+    {
+      "id": "owner-anchor-r9-anone-0111100000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 9,
+      "owner": "0111100000",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a16-r9-0111100000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 9,
+      "owner": "0111100000",
+      "power_bounds": {
+        "max_positive_power": 16,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        9,
+        12,
+        12,
+        12,
+        12,
+        9,
+        9,
+        9,
+        9,
+        9
+      ]
+    },
+    {
+      "id": "owner-anchor-r10-anone-0111110000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 10,
+      "owner": "0111110000",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a17-r10-0111110000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 10,
+      "owner": "0111110000",
+      "power_bounds": {
+        "max_positive_power": 17,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        10,
+        12,
+        12,
+        12,
+        12,
+        12,
+        10,
+        10,
+        10,
+        10
+      ]
+    },
+    {
+      "id": "owner-anchor-r9-anone-0111100100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 9,
+      "owner": "0111100100",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a16-r9-0111100100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 9,
+      "owner": "0111100100",
+      "power_bounds": {
+        "max_positive_power": 16,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        9,
+        11,
+        11,
+        11,
+        11,
+        9,
+        9,
+        11,
+        9,
+        9
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-0111100001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111100001",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "conv-d8-a13-r5-0111100001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111100001",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        5,
+        8,
+        8,
+        8,
+        8,
+        5,
+        5,
+        5,
+        5,
+        8
+      ]
+    },
+    {
+      "id": "conv-d7-a11-r4-0111100001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "0111100001",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        4,
+        6,
+        6,
+        6,
+        6,
+        4,
+        4,
+        4,
+        4,
+        6
+      ]
+    },
+    {
+      "id": "owner-anchor-r11-anone-0111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "0111111000",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a18-r11-0111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "0111111000",
+      "power_bounds": {
+        "max_positive_power": 18,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        11,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        11,
+        11,
+        11
+      ]
+    },
+    {
+      "id": "owner-anchor-r3-anone-0111110010",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 3,
+      "owner": "0111110010",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a11-r3-0111110010",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 3,
+      "owner": "0111110010",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        3,
+        5,
+        5,
+        5,
+        5,
+        5,
+        3,
+        3,
+        5,
+        3
+      ]
+    },
+    {
+      "id": "phys-d7-a9-r2-0111110010",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 2,
+      "owner": "0111110010",
+      "power_bounds": {
+        "max_positive_power": 9,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        2,
+        2,
+        3,
+        2
+      ]
+    },
+    {
+      "id": "owner-anchor-r11-anone-0111010101",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "0111010101",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a18-r11-0111010101",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "0111010101",
+      "power_bounds": {
+        "max_positive_power": 18,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        11,
+        12,
+        12,
+        12,
+        11,
+        12,
+        11,
+        12,
+        11,
+        12
+      ]
+    },
+    {
+      "id": "owner-anchor-r2-anone-0111100110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 2,
+      "owner": "0111100110",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a10-r2-0111100110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 2,
+      "owner": "0111100110",
+      "power_bounds": {
+        "max_positive_power": 10,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        2,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2,
+        4,
+        4,
+        2
+      ]
+    },
+    {
+      "id": "phys-d7-a8-r1-0111100110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 1,
+      "owner": "0111100110",
+      "power_bounds": {
+        "max_positive_power": 8,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        2,
+        2,
+        1
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-1111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111000",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a13-r5-1111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111000",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "id": "phys-d7-a11-r4-1111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "1111111000",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "id": "owner-anchor-r11-anone-1111110100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "1111110100",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "nested-d7p-a18-r11-1111110100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 11,
+      "owner": "1111110100",
+      "power_bounds": {
+        "max_positive_power": 18,
+        "max_power_difference": null,
+        "min_power_difference": 7
+      },
+      "upper": [
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-0111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111111100",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a13-r5-0111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111111100",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        5,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        5,
+        5
+      ]
+    },
+    {
+      "id": "phys-d7-a11-r4-0111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "0111111100",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "id": "owner-anchor-r3-anone-0111111001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 3,
+      "owner": "0111111001",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a11-r3-0111111001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 3,
+      "owner": "0111111001",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        3,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        3,
+        3,
+        4
+      ]
+    },
+    {
+      "id": "phys-d7-a9-r2-0111111001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 2,
+      "owner": "0111111001",
+      "power_bounds": {
+        "max_positive_power": 9,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-1111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111100",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a13-r5-1111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111100",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "id": "phys-d7-a11-r4-1111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "1111111100",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4
+      ]
+    },
+    {
+      "id": "owner-anchor-r4-anone-0111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "0111111110",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a12-r4-0111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "0111111110",
+      "power_bounds": {
+        "max_positive_power": 12,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "id": "phys-d7-a10-r3-0111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 3,
+      "owner": "0111111110",
+      "power_bounds": {
+        "max_positive_power": 10,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        3,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-1111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111110",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a13-r5-1111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "1111111110",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        5
+      ]
+    },
+    {
+      "id": "phys-d7-a11-r4-1111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "1111111110",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "owner-anchor-r5-anone-0111111111",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111111111",
+      "power_bounds": {
+        "max_positive_power": null,
+        "max_power_difference": null,
+        "min_power_difference": null
+      },
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "id": "phys-d8-a13-r5-0111111111",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 5,
+      "owner": "0111111111",
+      "power_bounds": {
+        "max_positive_power": 13,
+        "max_power_difference": 8,
+        "min_power_difference": 8
+      },
+      "upper": [
+        5,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "id": "phys-d7-a11-r4-0111111111",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "max_numerator_rank": 4,
+      "owner": "0111111111",
+      "power_bounds": {
+        "max_positive_power": 11,
+        "max_power_difference": 7,
+        "min_power_difference": 7
+      },
+      "upper": [
+        4,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    }
+  ],
+  "schema": "rustred.owner-domain-queries.json.v2"
+}

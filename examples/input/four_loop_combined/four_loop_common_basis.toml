@@ -1,0 +1,78 @@
+schema = "rustred.project.toml.v1"
+
+# External input only: the common four-loop momentum basis A4 of Thomas Luthe,
+# "Fully massive vacuum integrals at 5 loops" (August 2015), Table A.1 (column
+# A4, printed p.111) and eq. (2.26), printed p.24. Ten denominators = the ten
+# independent scalar products at four loops; this is NOT a graph with ten lines.
+#
+# Root sectors (big-endian bit strings, slot 1 first, thesis eq. (2.6)):
+#   1022 = 1111111110  prism, 9 lines;  --nonpositive-indices 9 (zero-based)
+#    511 = 0111111111  K_{3,3}, 9 lines; --nonpositive-indices 0 (zero-based)
+# The two 8-line Vakint parents are contractions of these roots, not roots:
+#   1020 = 1111111100  FG graph, inside 1022
+#    510 = 0111111110  BMW graph (4-spoke wheel), 1022 AND 511; thesis rep. 1011
+# All 16 representative topologies of thesis Table B.1 and the complete
+# labelled worklist route into these two roots; see four_loop_common_manifest.json
+# and four_loop_common_routing_witnesses.json in this directory. The full loop
+# map also transforms every numerator; a denominator permutation is not enough.
+#
+# RustRed convention D_i = q_i^2-1; the thesis uses Euclidean q_i^2+1. Labels and
+# routings agree; numerical phases must be reconciled before comparing values.
+# The family NAME enters RustRed's family fingerprint; do not rename it.
+# The target below is only the corner of root 1022; it does not restrict scope.
+[family]
+name = "four_loop_common_basis"
+loop_momenta = ["k1", "k2", "k3", "k4"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+
+[[family.denominators]]
+id = "D5"
+expression = "(k1-k4)^2-1"
+
+[[family.denominators]]
+id = "D6"
+expression = "(k2-k4)^2-1"
+
+[[family.denominators]]
+id = "D7"
+expression = "(k3-k4)^2-1"
+
+[[family.denominators]]
+id = "D8"
+expression = "(k1-k2)^2-1"
+
+[[family.denominators]]
+id = "D9"
+expression = "(k1-k3)^2-1"
+
+[[family.denominators]]
+id = "D10"
+expression = "(k1-k2-k3)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+numerator = "1"
+
+[metadata]
+description = "Common four-loop vacuum basis (Luthe A4) for the combined four-loop owner run"
+source = "Thomas Luthe, Fully massive vacuum integrals at 5 loops, Table A.1 p.111 (A4), eq. (2.26) p.24, Table B.1 p.115"
+denominator_convention = "q_i^2-1 here; Euclidean q_i^2+1 in the thesis; no numerical-phase equality asserted"
+root_sectors = "1111111110 (1022, nonpositive zero-based 9); 0111111111 (511, nonpositive zero-based 0)"
+coverage = "Input only; no closure or minimal-master claim"

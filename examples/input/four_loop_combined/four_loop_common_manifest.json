@@ -1,0 +1,410 @@
+{
+  "schema": "rustred.offline-family-census.v1",
+  "role": "External research input data only; no production solver dispatch, closure claim, or minimal-master claim.",
+  "source": {
+    "author": "Thomas Luthe",
+    "title": "Fully massive vacuum integrals at 5 loops",
+    "type": "PhD thesis, Bielefeld University",
+    "date": "August 2015",
+    "local_reference": "FOR_REFERENCE_ONLY_DO_NOT_PUSH/TIDE_5loops.pdf",
+    "basis": "Table A.1, printed page 111, column A4; eq. (2.26), printed page 24",
+    "representatives": "Table B.1, printed page 115, 4-loop column rows 1-16; dotted rows 17-19 not included",
+    "scope_and_results": "Section 9.1-9.2, printed pages 100-101 (16 = 10 nonfactorized + 6 factorized; Table 9.1: 680 physical, 281 zero, 63 anti-sectors)"
+  },
+  "family_input": "four_loop_common_basis.toml",
+  "loop_count": 4,
+  "coordinate_count": 10,
+  "sector_convention": "sID = sum_i(bit_i * 2^(10-i)), i=1..10; bit string left-to-right q1..q10; 1 means positive power.",
+  "denominator_convention": {
+    "rustred": "D_i = q_i^2 - 1",
+    "thesis": "D_i = q_i^2 + 1 (Euclidean)"
+  },
+  "momenta": [
+    {
+      "index_one_based": 1,
+      "momentum": "k1"
+    },
+    {
+      "index_one_based": 2,
+      "momentum": "k2"
+    },
+    {
+      "index_one_based": 3,
+      "momentum": "k3"
+    },
+    {
+      "index_one_based": 4,
+      "momentum": "k4"
+    },
+    {
+      "index_one_based": 5,
+      "momentum": "k1-k4"
+    },
+    {
+      "index_one_based": 6,
+      "momentum": "k2-k4"
+    },
+    {
+      "index_one_based": 7,
+      "momentum": "k3-k4"
+    },
+    {
+      "index_one_based": 8,
+      "momentum": "k1-k2"
+    },
+    {
+      "index_one_based": 9,
+      "momentum": "k1-k3"
+    },
+    {
+      "index_one_based": 10,
+      "momentum": "k1-k2-k3"
+    }
+  ],
+  "census": {
+    "representatives": 16,
+    "nonfactorized": 10,
+    "factorized": 6,
+    "max_physical_lines": 9,
+    "top_level_roots": 2
+  },
+  "roots": [
+    {
+      "sector_id": 1022,
+      "sector_bits": "1111111110",
+      "nonpositive_indices_zero_based": [
+        9
+      ],
+      "vakint_family": "H (prism)"
+    },
+    {
+      "sector_id": 511,
+      "sector_bits": "0111111111",
+      "nonpositive_indices_zero_based": [
+        0
+      ],
+      "vakint_family": "X (K33)"
+    }
+  ],
+  "eight_line_vakint_roots": [
+    {
+      "sector_id": 1020,
+      "sector_bits": "1111111100",
+      "vakint_family": "FG",
+      "inside_root": 1022
+    },
+    {
+      "sector_id": 510,
+      "sector_bits": "0111111110",
+      "vakint_family": "BMW (W4); thesis representative 1011",
+      "inside_root": "1022 and 511"
+    }
+  ],
+  "representatives": [
+    {
+      "table_b1_row": 1,
+      "lines": 4,
+      "sector_id": 960,
+      "sector_bits": "1111000000",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 2,
+      "lines": 5,
+      "sector_id": 992,
+      "sector_bits": "1111100000",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 3,
+      "lines": 5,
+      "sector_id": 961,
+      "sector_bits": "1111000001",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "table_b1_row": 4,
+      "lines": 5,
+      "sector_id": 841,
+      "sector_bits": "1101001001",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "table_b1_row": 5,
+      "lines": 6,
+      "sector_id": 1008,
+      "sector_bits": "1111110000",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 6,
+      "lines": 6,
+      "sector_id": 993,
+      "sector_bits": "1111100001",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "table_b1_row": 7,
+      "lines": 6,
+      "sector_id": 978,
+      "sector_bits": "1111010010",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 8,
+      "lines": 6,
+      "sector_id": 952,
+      "sector_bits": "1110111000",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 9,
+      "lines": 7,
+      "sector_id": 1016,
+      "sector_bits": "1111111000",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 10,
+      "lines": 7,
+      "sector_id": 1012,
+      "sector_bits": "1111110100",
+      "factorized": true,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 11,
+      "lines": 7,
+      "sector_id": 1010,
+      "sector_bits": "1111110010",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 12,
+      "lines": 7,
+      "sector_id": 1009,
+      "sector_bits": "1111110001",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "table_b1_row": 13,
+      "lines": 8,
+      "sector_id": 1020,
+      "sector_bits": "1111111100",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 14,
+      "lines": 8,
+      "sector_id": 1011,
+      "sector_bits": "1111110011",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "table_b1_row": 15,
+      "lines": 9,
+      "sector_id": 1022,
+      "sector_bits": "1111111110",
+      "factorized": false,
+      "corner_powers": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0
+      ]
+    },
+    {
+      "table_b1_row": 16,
+      "lines": 9,
+      "sector_id": 511,
+      "sector_bits": "0111111111",
+      "factorized": false,
+      "corner_powers": [
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "representatives_transcription": "Table B.1 rows 1-16 transcribed from the thesis; sector ids, bits, line counts and corner powers are re-checked by the independent routing audit (TMP/c4l-build.wBU9zC/audit); the factorized flags are the thesis asterisks."
+}
