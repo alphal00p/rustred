@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import summarize  # noqa: E402
 
-DEFAULT = ("natives", "mistakes_per_native", "transfers_per_native", "peak_pending",
+DEFAULT = ("natives", "mistakes_per_native", "transfers_per_native", "peak_unreserved", "peak_pending",
            "inspector_cpu", "inspector_ms_per_native", "auc", "cpu50", "wall", "foreign_load")
 
 

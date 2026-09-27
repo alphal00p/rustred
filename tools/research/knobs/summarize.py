@@ -137,6 +137,8 @@ def row(run, horizon=None):
         "transfers_per_native": (m.get("transferred_obligations") / natives) if natives and m.get("transferred_obligations") is not None else None,
         "retired_protected": order.get("retired_protected_initial"),
         "peak_pending": order.get("peak_pending"), "peak_queued_heartbeat": peak_queued,
+        "peak_unreserved": order.get("peak_unreserved"),
+        "aged_reservations": order.get("aged_reservations"),
         "wall": m.get("whole_command_seconds"), "traversal": m.get("traversal_seconds"),
         "inspector_cpu": m.get("inspector_cpu_seconds"),
         "inspector_ms_per_native": m.get("inspector_cpu_ms_per_native"),
