@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::atomic::AtomicBool;
 
-fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
+pub(super) fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
     Domain {
         lower: lower.to_vec(),
         upper: upper.into_iter().map(Some).collect(),
@@ -363,7 +363,7 @@ fn stale_lookup_counter_overflow_falls_back_for_both_forward_and_reverse_work() 
 /// Overlapping boxes with in-batch containment chains: every third proposal
 /// contains its two predecessors, wider bands retire whole runs, and repeated
 /// exact keys and unrelated owners interleave.
-fn overlapping_stream() -> Vec<Domain<2>> {
+pub(super) fn overlapping_stream() -> Vec<Domain<2>> {
     let mut stream = Vec::new();
     for i in 0..60_u64 {
         let base = i * 3;
@@ -385,7 +385,7 @@ fn overlapping_stream() -> Vec<Domain<2>> {
     stream
 }
 
-fn ledger_queue(policy: usize, len: usize) -> Queue<2> {
+pub(super) fn ledger_queue(policy: usize, len: usize) -> Queue<2> {
     let mut queue = Queue::new(len, None);
     let lookahead = std::num::NonZeroUsize::new(2).unwrap();
     queue.delegation = match policy {
@@ -396,7 +396,9 @@ fn ledger_queue(policy: usize, len: usize) -> Queue<2> {
     queue
 }
 
-fn ledger_summary(queue: &Queue<2>) -> Option<(usize, super::super::super::delegation::Summary)> {
+pub(super) fn ledger_summary(
+    queue: &Queue<2>,
+) -> Option<(usize, super::super::super::delegation::Summary)> {
     queue
         .delegation
         .as_ref()

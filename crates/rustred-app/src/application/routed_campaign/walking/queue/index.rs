@@ -257,6 +257,8 @@ impl AggregateIndex {
 
     /// Cancellation checkpoints are uncharged and also visit rejected blocks;
     /// speculative cancellation must not depend on reaching a native callback.
+    /// Blocks wholly below `first_id` are skipped by a binary search: they get
+    /// no checkpoint and never reach `contains` (nor did they before).
     pub(super) fn find_controlled(
         &self,
         signature: Signature,
@@ -274,7 +276,18 @@ impl AggregateIndex {
             if !eligible {
                 continue;
             }
-            for block in &group.blocks {
+            // IDs increase across a group's blocks: skip the blocks wholly
+            // below `first_id` without reading each one. Only a nonempty
+            // block entirely below it moves the search past itself, so no
+            // block holding an ID at or above `first_id` is ever skipped.
+            let skipped = if first_id == 0 {
+                0
+            } else {
+                group
+                    .blocks
+                    .partition_point(|block| block.ids().last().is_some_and(|&id| id < first_id))
+            };
+            for block in &group.blocks[skipped..] {
                 checkpoint()?;
                 let ids = block.ids();
                 if ids.last().is_none_or(|&id| id < first_id) {

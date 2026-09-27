@@ -126,6 +126,20 @@ pub(in super::super) struct SessionCounters {
     pub prepared_retirements_trivial: usize,
     /// Commits that had a prepared lookup but retired with the serial scan.
     pub prepared_retire_fallbacks: usize,
+    /// Helper verdicts committed in O(1) (see `prepared`): exact hits,
+    /// full-orthant hits and containment winners.
+    pub certified_exact: usize,
+    pub certified_orthant: usize,
+    pub certified_contained: usize,
+    /// Orthant/containment verdicts that took the unchanged slow path, by the
+    /// first failed precondition: too many admissions since the snapshot, an
+    /// equal or full-orthant admission in the same bucket since the snapshot,
+    /// counter headroom, and a snapshot winner retired since the snapshot.
+    pub certify_fallback_lag: usize,
+    pub certify_fallback_equal: usize,
+    pub certify_fallback_orthant: usize,
+    pub certify_fallback_headroom: usize,
+    pub certify_fallback_retired: usize,
 }
 
 impl SessionCounters {
@@ -154,6 +168,17 @@ impl SessionCounters {
             "prepared_retirements_applied": self.prepared_retirements_applied,
             "prepared_retirements_trivial": self.prepared_retirements_trivial,
             "prepared_retire_fallbacks": self.prepared_retire_fallbacks,
+            "certified_verdicts": {
+                "exact": self.certified_exact,
+                "orthant": self.certified_orthant,
+                "contained": self.certified_contained,
+                "fallback_admissions_since_snapshot": self.certify_fallback_lag,
+                "fallback_equal_since_snapshot": self.certify_fallback_equal,
+                "fallback_orthant_since_snapshot": self.certify_fallback_orthant,
+                "fallback_counter_headroom": self.certify_fallback_headroom,
+                "fallback_retired_winner": self.certify_fallback_retired,
+                "scope": "prepared_admissions_whose_helper_verdict_was_committed_in_constant_time; fallbacks_took_the_unchanged_slow_path"
+            },
             "counter_scope": "coordinator_commit_path_current_process_session; not_persisted; speculative_helper_work_reported_by_admission_preparation",
             "bit_layout": "0-15 upper=inf per axis; 16-31 lower=0 per axis; 32 A upper=inf; 33 R upper=inf; 34 D lower=-inf; 35 D upper=inf; 36 A lower=0; 37 R lower=0; 38 D lower<=0 or -inf",
             "results_and_persisted_counters_unchanged": true

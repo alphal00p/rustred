@@ -180,6 +180,11 @@ impl<const N: usize> CompactDomain<N> {
             && self.upper.iter().zip(&other.upper).all(|(a, b)| b <= a)
     }
 
+    /// Same phase/owner bucket of the queue index.
+    pub(super) fn same_bucket(&self, other: &Self) -> bool {
+        self.phase == other.phase && self.owner == other.owner
+    }
+
     pub(super) fn is_full_orthant(&self) -> bool {
         self.powers().is_unconstrained()
             && self.lower.iter().all(|&x| x == 0)

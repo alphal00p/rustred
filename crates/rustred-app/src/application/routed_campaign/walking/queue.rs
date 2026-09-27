@@ -4,6 +4,7 @@ use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 mod bits;
 pub(super) use bits::SessionCounters;
@@ -156,12 +157,21 @@ pub(super) struct Queue<const N: usize> {
     prefilter: bits::Prefilter,
     max_domains: usize,
     max_checks: Option<usize>,
-    /// Separates immutable lookup preparations from unrelated queue instances.
-    identity: Arc<()>,
+    /// Separates immutable lookup preparations from unrelated queue instances:
+    /// a process-unique serial number, never reused (a shared reference count
+    /// would cost two contended atomic updates per prepared request).
+    identity: u64,
     /// Test instrumentation preference only, deliberately not persisted.
     #[cfg(test)]
     index_work_counters_enabled: bool,
+    /// Test seam only: commit every prepared admission on the unchanged slow
+    /// path, the reference of the certified-verdict differential tests.
+    #[cfg(test)]
+    certified_verdicts_enabled: bool,
 }
+
+/// Source of `Queue::identity`. Relaxed suffices: only uniqueness matters.
+static NEXT_QUEUE_IDENTITY: AtomicU64 = AtomicU64::new(0);
 
 impl<const N: usize> Queue<N> {
     /// The admitted domain `id` in its transport form (allocates two vectors).
@@ -258,9 +268,11 @@ impl<const N: usize> Queue<N> {
             prefilter: bits::Prefilter::new(),
             max_domains,
             max_checks,
-            identity: Arc::new(()),
+            identity: NEXT_QUEUE_IDENTITY.fetch_add(1, Ordering::Relaxed),
             #[cfg(test)]
             index_work_counters_enabled: true,
+            #[cfg(test)]
+            certified_verdicts_enabled: true,
         }
     }
 
@@ -269,6 +281,13 @@ impl<const N: usize> Queue<N> {
     #[cfg(test)]
     pub fn disable_bit_prefilter(&mut self) {
         self.prefilter.disable();
+    }
+
+    /// Test seam only: disable the certified O(1) commit of helper verdicts,
+    /// so every prepared admission takes the unchanged slow path.
+    #[cfg(test)]
+    pub fn disable_certified_verdicts(&mut self) {
+        self.certified_verdicts_enabled = false;
     }
 
     #[cfg(test)]
