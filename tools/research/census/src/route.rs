@@ -41,6 +41,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
 const NONE: u32 = u32::MAX;
+const CLS: [&str; 3] = ["native", "pending", "delegated"];
 
 // ----------------------------------------------------------------- edges
 /// Exact edge view: creator (first incoming edge) of every domain, transition
@@ -639,7 +640,7 @@ pub fn run(dir: &Path, opts: &Opts) {
     let ctx = Ctx { ck: &ck, n, natives, all, series, wait: opts.num("wait", 30f64), cap: opts.num("cap", 2.0e6f64), samples: opts.num("samples", 20000usize) };
     let mut rng = Rng::new(seed);
     let rows = rows_path.map(|p| std::sync::Mutex::new(std::fs::File::create(p).unwrap()));
-    let write_rows = |sample: &str, sets: &[&str], wn: &[&str], draws: &[Draw]| {
+    let write_rows = |sample: &str, sets: &[&str], wn: &[&str], draws: &[Draw], sname: &dyn Fn(u16) -> String| {
         let Some(f) = &rows else { return };
         let mut f = f.lock().unwrap();
         for d in draws {
@@ -654,7 +655,7 @@ pub fn run(dir: &Path, opts: &Opts) {
                 .collect();
             let w: BTreeMap<&str, f64> = wn.iter().zip(&d.w).map(|(k, v)| (*k, *v)).collect();
             let row = json!({"sample": sample, "id": d.id, "owner": ck.doms[d.id as usize].owner_string(n), "rank": ck.doms[d.id as usize].rank,
-                "stratum": stratum_name(d.stratum), "ht": d.ht, "w": w, "evals": evs});
+                "stratum": sname(d.stratum), "class": CLS[class(d.id as usize)], "ht": d.ht, "w": w, "evals": evs});
             writeln!(f, "{row}").unwrap();
         }
     };
@@ -681,7 +682,7 @@ pub fn run(dir: &Path, opts: &Opts) {
             Draw { id: id as u32, stratum: st, ht, w, evs }
         })
         .collect();
-    write_rows("route_pending", &sets_p, &wn_p, &draws);
+    write_rows("route_pending", &sets_p, &wn_p, &draws, &stratum_name);
     report.insert("route_pending".into(), json!({"population": rpend.len(), "strata": strata.len(),
         "distinct_draws": draws.len(), "coverage": aggregate(&draws, &sets_p, &wn_p, &strata, &stratum_name, &|k| format!("admission_g{}", k / 10))}));
     eprintln!("route: route_pending done ({:.1} s)", t0.elapsed().as_secs_f64());
@@ -705,7 +706,7 @@ pub fn run(dir: &Path, opts: &Opts) {
             Draw { id: id as u32, stratum: st, ht, w, evs }
         })
         .collect();
-    write_rows("route_natives", &sets_h, &wn_h, &draws);
+    write_rows("route_natives", &sets_h, &wn_h, &draws, &stratum_name);
     report.insert("route_natives".into(), json!({"population": rn.len(), "strata": strata.len(),
         "distinct_draws": draws.len(), "coverage": aggregate(&draws, &sets_h, &wn_h, &strata, &stratum_name, &|k| format!("record_g{}", k / 10))}));
     eprintln!("route: route_natives done ({:.1} s)", t0.elapsed().as_secs_f64());
@@ -828,7 +829,7 @@ pub fn run(dir: &Path, opts: &Opts) {
     let phase_name = |k: u16| if k / 10 == 1 { "Route" } else { "Apply" };
     let name_a = |k: u16| format!("{}|admission_g{}", phase_name(k), k % 10);
     let group_a = |k: u16| phase_name(k).to_string();
-    write_rows("all_domains_at_admission", &sets_a, &wn_a, &draws);
+    write_rows("all_domains_at_admission", &sets_a, &wn_a, &draws, &name_a);
     let cov = aggregate(&draws, &sets_a, &wn_a, &strata, &name_a, &group_a);
     eprintln!("route: all_domains_at_admission done ({:.1} s)", t0.elapsed().as_secs_f64());
     // Ancestor chains.
