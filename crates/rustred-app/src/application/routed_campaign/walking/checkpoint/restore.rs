@@ -474,3 +474,86 @@ pub(super) fn validate_ledger_closure<const N: usize>(state: &State<N>) -> Resul
     }
     Ok(())
 }
+
+/// The queue's own sections of a state checkpoint (meta queue counters,
+/// domains, the raw index section), for offline index measurements that do
+/// not need the ledger, closure or records.
+#[cfg(test)]
+pub(in super::super) struct QueueSections<const N: usize> {
+    pub queue: super::super::queue::QueueMetadata,
+    pub domains: Vec<super::super::queue::CompactDomain<N>>,
+    index: Vec<u8>,
+    identity: Identity,
+}
+
+#[cfg(test)]
+impl<const N: usize> QueueSections<N> {
+    pub fn into_parts(
+        self,
+    ) -> (
+        super::super::queue::QueueMetadata,
+        Vec<super::super::queue::CompactDomain<N>>,
+    ) {
+        (self.queue, self.domains)
+    }
+
+    /// A fresh decode of the index section.
+    pub fn buckets(&self) -> Result<super::super::queue::StoredBuckets, String> {
+        sections::read_index(&self.index, &self.identity)
+    }
+
+    /// The index payload decoded as another serde shape of the same bytes.
+    pub fn decode_index_as<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
+        sections::decode_payload(&self.index[sections::HEADER_BYTES..])
+    }
+}
+
+#[cfg(test)]
+pub(in super::super) fn read_queue_sections<const N: usize>(
+    dir: &Path,
+) -> Result<QueueSections<N>, String> {
+    let manifest = super::manifest::read(&dir.join("latest.json"))?;
+    if manifest.arity as usize != N {
+        return Err("checkpoint coordinate arity".into());
+    }
+    let identity = Identity {
+        arity: N,
+        ready: manifest.publication_policy == "ready",
+        semantics: manifest.walk_semantics_version,
+    };
+    let s = &manifest.sections;
+    let plain = |section: Section| {
+        s.plain(section)
+            .ok_or_else(|| format!("state manifest is missing the {} section", section.name()))
+    };
+    let meta = sections::read_meta(&read_section(
+        dir,
+        &plain(Section::Meta)?.file,
+        plain(Section::Meta)?.bytes,
+    )?)?;
+    let mut domains = Vec::new();
+    for segment in &s
+        .domains
+        .as_ref()
+        .ok_or("state manifest is missing the domains section")?
+        .segments
+    {
+        let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
+        let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
+        sections::read_domains::<N>(
+            &read_section(dir, &segment.file, segment.bytes)?,
+            &identity,
+            first,
+            count,
+            &mut domains,
+        )?;
+    }
+    let index = plain(Section::Index)?;
+    let index = read_section(dir, &index.file, index.bytes)?;
+    Ok(QueueSections {
+        queue: meta.queue,
+        domains,
+        index,
+        identity,
+    })
+}

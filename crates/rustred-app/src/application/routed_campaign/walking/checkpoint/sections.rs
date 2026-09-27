@@ -416,6 +416,17 @@ pub(super) fn read_index(bytes: &[u8], identity: &Identity) -> Result<StoredBuck
     Ok(buckets)
 }
 
+/// Decode a section payload (after its header) as any serde shape (tests).
+#[cfg(test)]
+pub(super) fn decode_payload<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    let (value, used): (T, usize) = bincode::serde::decode_from_slice(bytes, bincode_config())
+        .map_err(|e| format!("invalid checkpoint payload: {e}"))?;
+    if used != bytes.len() {
+        return Err("checkpoint payload has trailing bytes".into());
+    }
+    Ok(value)
+}
+
 // ---- records: one JSON object per line ----------------------------------
 pub(super) fn write_records(
     out: &mut (impl Write + ?Sized),
