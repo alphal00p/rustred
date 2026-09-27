@@ -30,7 +30,10 @@ names enter the computation):
    Per-coordinate uppers are A_max - t on active axes and R_max on inactive
    axes in local coordinates (positive local x = n - 1, inactive local y = -n).
 5. One full-orthant helper per owner at the largest root rank precedes the
-   owner's roots (descending R_max). The Rust `entry-domain-plan` command
+   owner's roots (descending R_max). `--helper-bounds-from` replaces the
+   helper rank and positive-power bound of listed owners (for example the
+   hybrid and envelope-sized helper sets of the fable_5_1 next push); an
+   override must still contain every root of its owner. The Rust `entry-domain-plan` command
    counts the finite starting targets per budget group when an executable is
    supplied; the checker script re-derives every number independently.
 
@@ -57,6 +60,7 @@ QUERY_SCHEMA = "rustred.owner-domain-queries.json.v2"
 RECEIPT_SCHEMA = "rustred.renormalization-entry-plan.json.v1"
 CLASSIFICATION_SCHEMA = "rustred.vacuum-skeleton-classification.json.v1"
 WITNESS_SCHEMA = "rustred.vacuum-parent-vertices.json.v1"
+HELPER_BOUNDS_SCHEMA = "rustred.helper-bounds.json.v1"
 ENTRY_SPEC_SCHEMA = "rustred.entry-domain.json.v1"
 ENTRY_PLAN_SCHEMA = "rustred.entry-domain-plan.json.v1"
 ROLE = "offline input planning; native admission remains the coverage authority"
@@ -726,17 +730,35 @@ def query_row(mask, lower, upper, rank, max_positive, d_min, d_max, query_id):
                              "max_power_difference": d_max}}
 
 
-def build_queries(owner_rows, positive_power_owners):
-    """Per owner in selection order: helper first, then roots (descending R_max)."""
+def build_queries(owner_rows, positive_power_owners, helper_bounds=None):
+    """Per owner in selection order: helper first, then roots (descending R_max).
+
+    `helper_bounds` maps an owner mask to an explicit helper
+    {max_numerator_rank, max_positive_power (None = unbounded)}; it takes
+    precedence over `positive_power_owners` and must contain every root.
+    """
+    helper_bounds = helper_bounds or {}
     queries = []
     for row in owner_rows:
         mask = row["owner"]
         roots = row["roots"]
         if not roots:
+            if mask in helper_bounds:
+                raise PlanError(f"owner {mask} has no roots, so it cannot take a helper override")
             row["helper"] = None
             continue
         rank = max(root["R_max"] for root in roots)
         power = max(root["A_max"] for root in roots) if mask in positive_power_owners else None
+        if mask in helper_bounds:
+            override = helper_bounds[mask]
+            root_power = max(root["A_max"] for root in roots)
+            if override["max_numerator_rank"] < rank:
+                raise PlanError(f"owner {mask}: helper override rank {override['max_numerator_rank']} "
+                                f"is below the largest root rank {rank}")
+            if override["max_positive_power"] is not None and override["max_positive_power"] < root_power:
+                raise PlanError(f"owner {mask}: helper override positive power {override['max_positive_power']} "
+                                f"is below the largest root A_max {root_power}")
+            rank, power = override["max_numerator_rank"], override["max_positive_power"]
         helper_id = f"{HELPER_PREFIX}r{rank}-a{'none' if power is None else power}-{mask}"
         row["helper"] = {"id": helper_id, "max_numerator_rank": rank, "max_positive_power": power}
         queries.append(query_row(mask, [0] * len(mask), [None] * len(mask), rank, power, None, None, helper_id))
@@ -816,6 +838,31 @@ def parse_mask_list(text):
         if set(mask) - {"0", "1"}:
             raise PlanError(f"owner mask {mask!r} is not binary")
     return masks
+
+
+def load_helper_bounds(path, masks):
+    """Strict per-owner helper overrides (see HELPER_BOUNDS_SCHEMA)."""
+    document = load_json(path)
+    if not isinstance(document, dict) or document.get("schema") != HELPER_BOUNDS_SCHEMA:
+        raise PlanError(f"--helper-bounds-from must carry schema {HELPER_BOUNDS_SCHEMA}")
+    if set(document) - {"schema", "owners", "provenance"}:
+        raise PlanError(f"helper bounds document has unknown keys {sorted(set(document) - {'schema', 'owners', 'provenance'})}")
+    owners = document.get("owners")
+    if not isinstance(owners, dict) or not owners:
+        raise PlanError("helper bounds must map at least one owner mask")
+    result = {}
+    for mask, bounds in owners.items():
+        if mask not in masks:
+            raise PlanError(f"helper bounds owner {mask} is not a selected owner")
+        if not isinstance(bounds, dict) or set(bounds) != {"max_numerator_rank", "max_positive_power"}:
+            raise PlanError(f"helper bounds for {mask} must have exactly max_numerator_rank and max_positive_power")
+        rank, power = bounds["max_numerator_rank"], bounds["max_positive_power"]
+        if type(rank) is not int or rank < 0:
+            raise PlanError(f"helper bounds for {mask}: max_numerator_rank must be a nonnegative integer")
+        if power is not None and (type(power) is not int or power < 0):
+            raise PlanError(f"helper bounds for {mask}: max_positive_power must be null or a nonnegative integer")
+        result[mask] = {"max_numerator_rank": rank, "max_positive_power": power}
+    return result
 
 
 def parse_difference_set(text):
@@ -906,6 +953,9 @@ def build_parser():
                         help="comma-separated owner masks whose helper gets max_positive_power")
     parser.add_argument("--helper-positive-power-owners-from", type=Path,
                         help="matching-summary.json with helper_positive_power_owners")
+    parser.add_argument("--helper-bounds-from", type=Path,
+                        help=f"{HELPER_BOUNDS_SCHEMA} document: per-owner helper rank and positive-power "
+                             "overrides (null = unbounded); they take precedence and must contain the roots")
     classification = parser.add_mutually_exclusive_group()
     classification.add_argument("--classification", type=Path, help="reuse a classification document")
     classification.add_argument("--classification-fixture", type=Path,
@@ -964,6 +1014,11 @@ def plan(args, argv, progress=None):
     unknown = sorted(positive_power_owners - set(masks))
     if unknown:
         raise PlanError(f"helper positive-power owners are not selected owners: {unknown}")
+    helper_bounds = {}
+    if args.helper_bounds_from is not None:
+        helper_bounds = load_helper_bounds(args.helper_bounds_from, set(masks))
+        input_digests["helper_bounds_from"] = {"path": str(args.helper_bounds_from),
+                                               "sha256": sha256_file(args.helper_bounds_from)}
 
     classification_inputs = {"momenta_sha256": input_digests["momenta"]["sha256"],
                              "parent_witnesses_sha256": input_digests["parent_witnesses"]["sha256"]}
@@ -1023,7 +1078,7 @@ def plan(args, argv, progress=None):
                              "t": entry["t"], "class": klass, "entry_capable": entry["entry_capable"],
                              "factorized": factorized[mask], "V4min": excess,
                              "skeleton_counts_by_V4": entry["skeleton_counts_by_V4"], "roots": roots})
-    queries = build_queries(receipt_rows, positive_power_owners)
+    queries = build_queries(receipt_rows, positive_power_owners, helper_bounds)
     if not queries:
         raise PlanError("no queries were planned (every owner class omitted)")
     groups = budget_groups(receipt_rows)
@@ -1085,9 +1140,11 @@ def plan(args, argv, progress=None):
                 "coordinate_uppers": {"active": "A_max - t", "inactive": "R_max"},
                 "helper": {"lower": 0, "upper": None, "max_numerator_rank": "largest root R_max",
                            "max_positive_power": "largest root A_max for listed owners, else null",
-                           "difference_bounds": None},
+                           "difference_bounds": None,
+                           "override": "helper_bounds entries replace rank and positive power (null = unbounded)"},
             },
             "helper_positive_power_owners": sorted(positive_power_owners),
+            "helper_bounds": {mask: helper_bounds[mask] for mask in sorted(helper_bounds)},
             "id_prefixes": {"helper": HELPER_PREFIX, CLASS_CONNECTED: "phys", "factorized_nested": "nested",
                             "factorized_box": "fact", CLASS_NON_ENTRY: "conv"},
         },
