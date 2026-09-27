@@ -339,6 +339,7 @@ fn partial_initial_state() -> State<1> {
         anchor_id: 0,
         cut: 1,
         residual_powers: Default::default(),
+        g2: None,
     };
     state.commit(
         2,

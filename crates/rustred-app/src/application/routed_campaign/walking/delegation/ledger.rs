@@ -48,6 +48,9 @@ pub struct Ledger<K> {
     initial_admission: bool,
     pub(super) protected_initial_prefix: Option<usize>,
     partial_initial_inspections: usize,
+    /// W0 G2' falsifier (throwaway, never persisted): partial anchors may be
+    /// any committed same-key Native entry, resolved transitively.
+    pub(super) g2_anchors: bool,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -70,6 +73,7 @@ impl<K: Copy + Eq> Ledger<K> {
             initial_admission: false,
             protected_initial_prefix: None,
             partial_initial_inspections: 0,
+            g2_anchors: false,
         })
     }
 
@@ -196,6 +200,44 @@ impl<K: Copy + Eq> Ledger<K> {
         if source.key != self.entries[id].key
             || source.initial_anchor.is_some()
             || matches!(source.responsibility, Responsibility::Delegate { .. })
+        {
+            return Err(Error::InvalidInitialAnchor);
+        }
+        let entry = &mut self.entries[id];
+        if entry.responsibility != Responsibility::Local(Local::Started)
+            || entry.initial_anchor.is_some()
+        {
+            return Err(Error::InvalidNativeState);
+        }
+        entry.initial_anchor =
+            NonZeroUsize::new(anchor.checked_add(1).ok_or(Error::InvalidInitialAnchor)?);
+        self.partial_initial_inspections += 1;
+        Ok(())
+    }
+
+    /// W0 G2' falsifier (throwaway): allow committed-anchor residual links.
+    pub fn enable_g2_anchors(&mut self) {
+        self.g2_anchors = true;
+    }
+
+    /// W0 G2' falsifier (throwaway). Like `record_initial_overlap`, but the
+    /// anchor is any same-key entry already published as a completed Native
+    /// inspection (full or partial) before this job was dispatched; its own
+    /// frontiers/anchor are resolved transitively. No allocation.
+    pub fn record_residual_anchor(&mut self, id: usize, anchor: usize) -> Result<(), Error> {
+        if !self.g2_anchors {
+            return Err(Error::InvalidInitialAnchor);
+        }
+        self.check_publisher(id)?;
+        if anchor == id || anchor >= self.entries.len() {
+            return Err(Error::InvalidInitialAnchor);
+        }
+        let source = &self.entries[anchor];
+        if source.key != self.entries[id].key
+            || !matches!(
+                source.responsibility,
+                Responsibility::Local(Local::Published(NativeOutcome::Completed { .. }))
+            )
         {
             return Err(Error::InvalidInitialAnchor);
         }

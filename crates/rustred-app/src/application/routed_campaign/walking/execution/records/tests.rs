@@ -403,6 +403,7 @@ fn finalization_annotations_from_ledger_and_closure_match_previous_record_mutati
         anchor_id: 0,
         cut: 1,
         residual_powers: Default::default(),
+        g2: None,
     };
     state.commit(
         2,

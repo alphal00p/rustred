@@ -96,6 +96,7 @@ fn partial_finished() -> Finished {
             anchor_id: 0,
             cut: 3,
             residual_powers: powers,
+            g2: None,
         },
     );
     f

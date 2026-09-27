@@ -5,6 +5,7 @@ mod delegation;
 mod descendant_closure;
 mod diagnostics;
 mod execution;
+mod g2;
 mod index_report;
 mod initial_orthants;
 mod initial_overlap;
@@ -1028,6 +1029,9 @@ fn run<const N: usize>(
         document["initial_overlap_limits"] = json!({"max_initial_domains":initial_overlap::MAX_INITIAL_DOMAINS,
             "count_scope":"initial_apply_only",
             "max_logical_entry_bytes":initial_overlap::MAX_ENTRY_BYTES,"container_overhead_and_rss_excluded":true});
+    }
+    if let Some(g2) = &state.g2 {
+        document["w0_g2_donly"] = g2.report();
     }
     drop(state);
     finish_timing(&mut document, started, prepared);

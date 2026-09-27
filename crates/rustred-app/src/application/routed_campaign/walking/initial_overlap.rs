@@ -69,6 +69,8 @@ pub(super) struct InitialOverlapScope {
     pub anchor_id: usize,
     pub cut: i64,
     pub residual_powers: DomainPowerBounds,
+    /// W0 G2' falsifier only (throwaway): a committed-anchor residual plan.
+    pub g2: Option<super::g2::G2Info>,
 }
 
 pub(super) struct InitialOverlapPlan<const N: usize> {
@@ -303,6 +305,7 @@ impl<const N: usize> InitialOverlapIndex<N> {
                     anchor_id: anchor.id,
                     cut: anchor.cut,
                     residual_powers: low,
+                    g2: None,
                 },
                 residual: Domain {
                     phase: domain.phase,

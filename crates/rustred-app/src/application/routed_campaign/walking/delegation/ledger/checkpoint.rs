@@ -186,6 +186,7 @@ impl StoredLedger {
             initial_admission: false,
             protected_initial_prefix: self.protected_initial_prefix,
             partial_initial_inspections: self.partial_initial_inspections,
+            g2_anchors: false,
         };
         ledger.restore_normalize_started()?;
         Ok(ledger)

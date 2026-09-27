@@ -139,7 +139,7 @@ fn owner_retention_cancellation_preserves_all_retained_partial_responsibilities(
             let mut value = finished(0, None);
             value.stats = NativeStats::ApplyPartial(Default::default(),
                 crate::application::routed_campaign::walking::initial_overlap::InitialOverlapScope {
-                    anchor_id: 0, cut: 7, residual_powers: Default::default(),
+                    anchor_id: 0, cut: 7, residual_powers: Default::default(), g2: None,
                 });
             value
         },

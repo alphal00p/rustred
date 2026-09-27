@@ -467,7 +467,7 @@ fn owner_concurrent_global_cap_retains_later_partial_inspection_as_uncommitted()
                 let mut value = finished(0, None);
                 value.stats = NativeStats::ApplyPartial(Default::default(),
                     crate::application::routed_campaign::walking::initial_overlap::InitialOverlapScope {
-                        anchor_id: 0, cut: 7, residual_powers: Default::default(),
+                        anchor_id: 0, cut: 7, residual_powers: Default::default(), g2: None,
                     });
                 value
             }

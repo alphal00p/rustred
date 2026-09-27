@@ -102,6 +102,8 @@ pub(super) struct State<const N: usize> {
     admission: admission::Metrics,
     replay: Option<replay::Replay>,
     pub(super) streams: streams::Streams,
+    /// W0 G2' falsifier (throwaway): Some only with RUSTRED_WALK_G2_DONLY=1.
+    pub(super) g2: Option<std::sync::Arc<super::g2::Store<N>>>,
 }
 impl<const N: usize> State<N> {
     fn parts(
@@ -162,6 +164,7 @@ impl<const N: usize> State<N> {
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+            g2: super::g2::Store::from_env(),
         }
     }
     pub(super) fn change_stamp(&self) -> ChangeStamp {
@@ -661,7 +664,12 @@ impl<const N: usize> State<N> {
         if let Some(ledger) = &mut self.queue.delegation {
             use super::delegation::NativeOutcome;
             if let Some(scope) = partial_scope {
-                if let Err(error) = ledger.record_initial_overlap(id, scope.anchor_id) {
+                let linked = if scope.g2.is_some() {
+                    ledger.record_residual_anchor(id, scope.anchor_id)
+                } else {
+                    ledger.record_initial_overlap(id, scope.anchor_id)
+                };
+                if let Err(error) = linked {
                     self.error.get_or_insert_with(|| error.to_string());
                 }
             }
@@ -735,6 +743,9 @@ impl<const N: usize> State<N> {
                 "residual_power_bounds":power_bounds_json(scope.residual_powers),
                 "coordinates_and_rank_unchanged":true,
                 "authority":"same_snapshot_phase_owner_native_summary"});
+            if let Some(info) = scope.g2 {
+                record["g2_residual_anchor"] = info.json();
+            }
         }
         if let (Some(optional), Some(stats)) = (optional, truncated) {
             record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
@@ -777,6 +788,14 @@ impl<const N: usize> State<N> {
                     .any(|p| p["optional_refusal_provenance_truncated"] == true)
             );
             record["physical_parts"] = Value::Array(parts);
+        }
+        // W0 G2' falsifier: a committed Apply record without error becomes a
+        // candidate anchor for jobs dispatched from now on.
+        if let Some(g2) = self.g2.as_ref()
+            && domain.phase == super::queue::Phase::Apply
+            && self.error.is_none()
+        {
+            record["g2_commit_seq"] = json!(g2.commit(id, &domain));
         }
         if let Err(error) = self.records.get_mut().push(record) {
             self.error.get_or_insert(error);
@@ -1056,6 +1075,22 @@ fn run_configured<const N: usize>(
                 state.initial_overlap_report, super::index_report::Scope::GlobalInitial)}),
         );
     }
+    if state.g2.is_some() {
+        if request.workers == 1 || state.physical_enabled {
+            state.error =
+                Some("W0 G2' falsifier requires a worker pool without Apply subdivision".into());
+            return;
+        }
+        match state.queue.delegation.as_mut() {
+            Some(ledger) => ledger.enable_g2_anchors(),
+            None => {
+                state.error = Some("W0 G2' falsifier requires the responsibility ledger".into());
+                return;
+            }
+        }
+    }
+    let g2 = state.g2.clone();
+    let g2 = g2.as_deref();
     if request.workers == 1 {
         return serial(
             state,
@@ -1081,7 +1116,22 @@ fn run_configured<const N: usize>(
             Some(part) => {
                 inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
             }
-            None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
+            None => match g2 {
+                Some(store) => inspection::inspect_g2(
+                    reducer,
+                    domain,
+                    request,
+                    stop,
+                    &initial,
+                    &overlap,
+                    store,
+                    Ticket::decode(raw, physical_enabled).parent,
+                    emit,
+                ),
+                None => {
+                    inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit)
+                }
+            },
         },
     );
     #[cfg(test)]
@@ -1288,7 +1338,19 @@ impl Dispatcher {
                 || state.queue.domain_arc(id),
                 |parts| parts[usize::from(self.part)].clone(),
             );
+            // W0 G2' falsifier: stamp the committed-anchor count before the
+            // job can start; initial-prefix domains are never planned.
+            let g2_stamped = parts.is_none()
+                && id >= state.initial_domain_count
+                && source.phase == super::queue::Phase::Apply
+                && state.g2.as_ref().is_some_and(|g2| {
+                    g2.note_dispatch(id, &source.owner);
+                    true
+                });
             if !pool.dispatch(raw, source) {
+                if g2_stamped && let Some(g2) = &state.g2 {
+                    g2.forget_dispatch(id);
+                }
                 break;
             }
             dispatches += 1;
@@ -1758,6 +1820,9 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
                     "residual_power_bounds":power_bounds_json(scope.residual_powers),
                     "coordinates_and_rank_unchanged":true,
                     "responsibility_published":false});
+                if let Some(info) = scope.g2 {
+                    record["g2_residual_anchor"] = info.json();
+                }
             }
             state.uncommitted.push(record);
         }

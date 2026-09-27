@@ -222,6 +222,75 @@ pub(super) fn inspect<const N: usize>(
     inspect_options(reducer, domain, request, cancellation, initial, true, emit)
 }
 
+/// W0 G2' falsifier (throwaway): `inspect` with a committed-anchor residual
+/// plan tried after the unchanged initial-overlap plan. The record seconds of
+/// every job planned here include the anchor search, successful or not.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn inspect_g2<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
+    store: &super::g2::Store<N>,
+    id: usize,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let started = Instant::now();
+    if request.reuse_initial_d_bands
+        && let Some(plan) = overlap.plan(domain, cancellation)
+    {
+        // Same as `inspect`: the initial-overlap plan keeps precedence.
+        store.forget_dispatch(id);
+        let mut finished = inspect_options(
+            reducer,
+            &plan.residual,
+            request,
+            cancellation,
+            initial,
+            true,
+            emit,
+        );
+        let NativeStats::Apply(stats) = finished.stats else {
+            unreachable!("Apply-only initial overlap");
+        };
+        finished.stats = NativeStats::ApplyPartial(stats, plan.scope);
+        finished.seconds = started.elapsed().as_secs_f64();
+        return finished;
+    }
+    let mut finished = match store.plan(id, domain, cancellation) {
+        Some(plan) => match &plan.residual {
+            Some(residual) => {
+                let mut finished = inspect_options(
+                    reducer,
+                    residual,
+                    request,
+                    cancellation,
+                    initial,
+                    true,
+                    emit,
+                );
+                let NativeStats::Apply(stats) = finished.stats else {
+                    unreachable!("Apply-only G2' residual");
+                };
+                finished.stats = NativeStats::ApplyPartial(stats, plan.scope);
+                finished
+            }
+            // The anchor contains Q: no native call, no events.
+            None => Finished {
+                stats: NativeStats::ApplyPartial(OwnerAppliedStats::default(), plan.scope),
+                error: None,
+                error_kind: "none",
+                seconds: 0.0,
+            },
+        },
+        None => inspect_options(reducer, domain, request, cancellation, initial, true, emit),
+    };
+    finished.seconds = started.elapsed().as_secs_f64();
+    finished
+}
+
 /// Private cache-off reference seam for tests/controlled experiments. No new
 /// public request/CLI policy or native applicability mode is introduced.
 #[cfg(test)]
