@@ -186,10 +186,15 @@ def main():
     p.add_argument("run", type=Path)
     p.add_argument("--perf", required=True)
     p.add_argument("--skip-perf", action="store_true")
+    p.add_argument("--end", type=float, help="override the end of the measured interval (unix time), "
+                   "e.g. when the run was contaminated before its stop request")
     args = p.parse_args()
     run = args.run
     tl = json.load(open(run / "timeline.json"))
     timeline, windows = tl["timeline"], tl["windows"]
+    if args.end is not None:
+        timeline["measured_end_override_unix_time"] = args.end
+        timeline["stop_request_unix_time"] = min(args.end, timeline.get("stop_request_unix_time") or args.end)
     meta = json.load(open(run / "meta.json"))
     hb = load_jsonl(run / "heartbeats.jsonl")
     duty_rows = [r for r in hb if r.get("coordinator_duty")]
@@ -203,7 +208,7 @@ def main():
     stop = timeline.get("stop_request_unix_time")
     out["timeline"] = {k: (v - launch if isinstance(v, float) and k.endswith("unix_time") else v)
                        for k, v in timeline.items() if k not in ("host_meminfo_after",)}
-    restore = [m for m in tl.get("markers", []) if m["event"] == "checkpoint_restored"]
+    restore = [m for m in tl.get("markers", []) + hb if m.get("event") == "checkpoint_restored" and m.get("restore")]
     if restore:
         out["restore_report"] = restore[0].get("restore")
     # Duty and throughput over the measured interval [T, stop).
@@ -307,6 +312,9 @@ def main():
     if not args.skip_perf:
         perf_out = {}
         for data in sorted(run.glob("perf-*.data")):
+            if data.stat().st_size == 0:
+                perf_out[data.name] = {"empty": True}
+                continue
             entry = perf_flat(args.perf, data)
             if "coordinator" in data.name:
                 entry["attribution"] = perf_attribution.attribute(args.perf, data, role="coordinator")

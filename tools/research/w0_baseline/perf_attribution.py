@@ -67,6 +67,26 @@ BUCKET_RULES = [
     ("coordinator_loop_other", r"execution::run_pool\b|^run_pool @|with_ticket_pool"),
 ]
 COMPILED = [(name, re.compile(rx)) for name, rx in BUCKET_RULES]
+# Attribution classes named by the coordinator relief design note
+# (docs/research/fable51_coordinator_relief_design_2026-09-26.md, section 5 M1),
+# as inclusive shares (a sample counts once per class if any frame matches).
+RELIEF_CLASSES = [
+    ("siphash_hashbrown_probe", r"hashbrown|::sip::|SipHasher|DefaultHasher|RandomState|HashMap"),
+    ("is_live_partition_point", r"is_live|partition_point"),
+    ("domain_summary_contains", r"compact::Stored>::contain|CompactSummary>::contains|CompactDomain>::contains|"
+                                r"DomainPowerSummary|power_domain::geometry|^contain(s|ed_by) @"),
+    ("bit_prefilter_may_contain", r"^may_contain @ .*queue/bits\.rs|queue::bits::"),
+    ("index_blocks_scan", r"queue/index/blocks\.rs|index::blocks::"),
+    ("find_from_retire", r"find_from|AggregateIndex>::retire|^retire @|retire_prepared|find_controlled|AggregateIndex>::find\b"),
+    ("memcpy_memmove", r"^__mem(move|cpy)|^mem(move|cpy)"),
+    ("malloc", r"^_int_malloc|^malloc|__libc_malloc|^__rdl_alloc|^alloc @ std/alloc/src/alloc\.rs|^realloc|_int_realloc"),
+    ("free", r"^_int_free|^cfree|^free|__libc_free|^__rdl_dealloc|^dealloc|malloc_consolidate"),
+    ("tracker_edge", r"descendant_closure::Tracker>::edge|^edge @ .*descendant_closure"),
+    ("blake3_replay", r"blake3|walking::execution::replay|execution/replay\.rs"),
+    ("serde_json_value", r"serde_json|BTreeMap|btree::"),
+    ("futex_sync", r"futex|syscall|Condvar|Mutex|parking_lot|lock_contended"),
+]
+RELIEF_COMPILED = [(name, re.compile(rx)) for name, rx in RELIEF_CLASSES]
 LIBC_ALLOC = re.compile(r"^(_int_|malloc|free|cfree|realloc|calloc|__mem|mem(cpy|move|set|cmp)|__libc_|"
                         r"unlink_chunk|tcache|__rdl_|__rust_(alloc|dealloc|realloc)|alloc::alloc::)")
 
@@ -257,7 +277,31 @@ def attribute(perf, data, role="coordinator", top=30, tids=None, cache=None):
             else:
                 chain = " <- ".join(short(names[0], 70) for names, _ in s["expanded"][:4])
                 unattributed[chain] += 1
+        relief_incl, relief_self = Counter(), Counter()
+        for smp in samples:
+            flat = [x for names, _ in smp["expanded"] for x in names]
+            for cls, rx in RELIEF_COMPILED:
+                if any(rx.search(x) for x in flat):
+                    relief_incl[cls] += 1
+                if flat and rx.search(flat[0]):
+                    relief_self[cls] += 1
+        out["relief_classes_inclusive"] = {k: round(relief_incl[k] / n, 4) for k, _ in RELIEF_CLASSES}
+        out["relief_classes_self"] = {k: round(relief_self[k] / n, 4) for k, _ in RELIEF_CLASSES}
         out["bucket_shares"] = {k: round(v / n, 4) for k, v in buckets.most_common()}
+        # Traversal-loop view: only samples below execution::run_pool (excludes owner
+        # loading, restore, final report serialization in whole-run profiles).
+        loop_rx = re.compile(W + r"execution::run_pool\b|^run_pool @")
+        loop_buckets = Counter()
+        for smp in samples:
+            if any(loop_rx.search(x) for names, _ in smp["expanded"] for x in names):
+                loop_buckets[bucket_of(smp["expanded"])[0] or "unattributed"] += 1
+        m = sum(loop_buckets.values())
+        out["loop_samples_share"] = m / n
+        if m:
+            out["loop_bucket_shares"] = {k: round(v / m, 4) for k, v in loop_buckets.most_common()}
+            out["loop_duty_bucket_share"] = sum(v for k, v in loop_buckets.items()
+                                                if k not in ("unattributed", "coordinator_loop_other",
+                                                             "commit_chunk_other")) / m
         out["attributed_share"] = 1 - buckets.get("unattributed", 0) / n
         out["top_anchors"] = [[round(100 * c / n, 2), b, s] for (b, s), c in anchors.most_common(top)]
         out["top_unattributed_chains"] = [[round(100 * c / n, 2), k] for k, c in unattributed.most_common(15)]
