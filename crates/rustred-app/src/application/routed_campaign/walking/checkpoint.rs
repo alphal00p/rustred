@@ -14,6 +14,8 @@
 //! recorded and reported, never a refusal.
 pub(super) mod manifest;
 pub(super) mod restore;
+#[cfg(all(test, feature = "cli"))]
+mod scale_tests;
 pub(super) mod sections;
 #[cfg(test)]
 pub(super) mod test_support;

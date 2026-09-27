@@ -398,11 +398,11 @@ fn diagnostic_checkpoint<const N: usize>(
     Ok(true)
 }
 
-pub fn owner_domain_walk_with_progress(
-    request: OwnerDomainWalkRequest,
-    cancellation: &AtomicBool,
-    observer: impl Fn(Value),
-) -> Result<OwnerDomainWalkResult, AppError> {
+/// Admission of a walk request before any input is parsed: allowances,
+/// policy combinations, the diagnostic pause and the worker partition. The
+/// host core-budget preflight follows separately: it depends on this
+/// process's affinity and license, not on the request.
+fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPause>, AppError> {
     request.matching.preflight_queries()?;
     if request.max_domains == 0
         || request.max_events == 0
@@ -429,7 +429,7 @@ pub fn owner_domain_walk_with_progress(
         }
     }
     let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
-    DiagnosticPause::admit(diagnostic_pause, &request).map_err(AppError::input)?;
+    DiagnosticPause::admit(diagnostic_pause, request).map_err(AppError::input)?;
     if request.apply_subdivision.is_some()
         && request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered
     {
@@ -461,6 +461,15 @@ pub fn owner_domain_walk_with_progress(
             "initial D-band reuse requires TransferUnreserved scheduling",
         ));
     }
+    Ok(diagnostic_pause)
+}
+
+pub fn owner_domain_walk_with_progress(
+    request: OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    observer: impl Fn(Value),
+) -> Result<OwnerDomainWalkResult, AppError> {
+    let diagnostic_pause = admit_request(&request)?;
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;

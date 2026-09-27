@@ -40,28 +40,8 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
             "event, result and stop paths must differ".into(),
         ));
     }
-    let query_file = File::open(&args.queries)
-        .map_err(|e| CliError::InputIo(format!("{}: {e}", args.queries.display())))?;
-    let query_bytes = read_bounded(query_file, "owner-domain queries", args.max_query_bytes)?;
-    let queries = String::from_utf8(query_bytes)
-        .map_err(|_| CliError::Input("owner-domain queries must be UTF-8".into()))?;
-    let mut request =
-        OwnerDomainMatchRequest::new(read_input(&StreamPath::File(args.manifest))?, queries);
-    request.owner_base = args.owner_base;
-    request.max_queries = args.max_queries;
-    request.max_query_bytes = args.max_query_bytes;
-    request.max_total_pieces = args.max_total_pieces;
-    request.match_limits.max_rules = args.max_rules;
-    request.match_limits.max_terminal_checks = args.max_terminal_checks;
-    request.match_limits.max_predicates = args.max_predicates;
-    request.match_limits.max_pieces = args.max_pieces;
-    request.match_limits.max_cells = args.max_cells;
-    request.match_limits.max_split_operations = args.max_split_operations;
-    request.match_limits.max_coordinate_cells = args.max_coordinate_cells;
-    request.match_limits.max_bounded_refinement_cells = args.max_bounded_refinement_cells;
-    request.match_limits.refinement_axes = args.refinement_axes;
-    request.match_limits.guard_algebra.max_univariate_degree = args.max_guard_univariate_degree;
-    let events: Box<dyn Write + Send> = match args.events {
+    let request = match_request(&args)?;
+    let events: Box<dyn Write + Send> = match args.events.clone() {
         Some(path) => Box::new(
             OpenOptions::new()
                 .write(true)
@@ -78,7 +58,7 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         events,
         io::stderr().is_terminal() && !args.no_progress,
         Arc::clone(&cancellation),
-        args.stop_file,
+        args.stop_file.clone(),
     );
     let walking = args.follow_successors;
     let operation = if walking {
@@ -87,39 +67,7 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         "owner_domain_match"
     };
     let result = if walking {
-        let mut walk = OwnerDomainWalkRequest::new(request);
-        walk.workers = args.workers;
-        walk.inspection_workers = args.inspection_workers;
-        walk.publication_policy = args.publication_policy;
-        walk.max_domains = args.max_domains;
-        walk.max_frontiers = args.max_frontiers;
-        walk.max_events = args.max_successor_events;
-        walk.max_containment_checks = args.max_containment_checks;
-        walk.reuse_initial_d_bands = args.reuse_initial_d_bands;
-        if let Some(lookahead) = args.transfer_unreserved_lookahead {
-            walk.scheduling_policy =
-                OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
-        }
-        walk.route_domain_overcover = args.route_domain_overcover;
-        walk.route_joint_source_support_pruning = args.route_joint_source_support_pruning;
-        walk.max_route_masks = args.max_route_masks;
-        walk.applied_limits.max_boundary_cells = args.max_rhs_cells;
-        walk.applied_limits.max_term_visits = args.max_term_visits;
-        walk.applied_limits.max_native_operations = args.max_native_operations;
-        walk.applied_limits.max_events = args.max_rhs_events;
-        walk.applied_limits.max_shift_groups = args.max_shift_groups;
-        walk.applied_limits.max_sign_splits = args.max_sign_splits;
-        walk.checkpoint = args.checkpoint.clone();
-        walk.apply_subdivision = args.apply_subdivision;
-        walk.applied_limits.cell_refinement = args.apply_cell_refinement_max_cardinality.map_or(
-            rustred::solver::OwnerAppliedCellRefinement::Off,
-            |max_cardinality| rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
-                max_cardinality,
-            },
-        );
-        if args.unbounded_work {
-            walk.disable_work_limits();
-        }
+        let walk = walk_request(request, &args);
         owner_domain_walk_with_progress(walk, &cancellation, |mut event| {
             event["operation"] = json!(operation);
             monitor.observe(event);
@@ -206,6 +154,98 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     .map_err(CliError::OutputIo)?;
     presentation.map_err(|e| CliError::OutputIo(format!("event journal: {e}")))?;
     outcome
+}
+
+/// The matching request the options describe; reads the queries and the
+/// selection manifest, nothing else.
+fn match_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainMatchRequest, CliError> {
+    let query_file = File::open(&args.queries)
+        .map_err(|e| CliError::InputIo(format!("{}: {e}", args.queries.display())))?;
+    let query_bytes = read_bounded(query_file, "owner-domain queries", args.max_query_bytes)?;
+    let queries = String::from_utf8(query_bytes)
+        .map_err(|_| CliError::Input("owner-domain queries must be UTF-8".into()))?;
+    let mut request = OwnerDomainMatchRequest::new(
+        read_input(&StreamPath::File(args.manifest.clone()))?,
+        queries,
+    );
+    request.owner_base = args.owner_base.clone();
+    request.max_queries = args.max_queries;
+    request.max_query_bytes = args.max_query_bytes;
+    request.max_total_pieces = args.max_total_pieces;
+    request.match_limits.max_rules = args.max_rules;
+    request.match_limits.max_terminal_checks = args.max_terminal_checks;
+    request.match_limits.max_predicates = args.max_predicates;
+    request.match_limits.max_pieces = args.max_pieces;
+    request.match_limits.max_cells = args.max_cells;
+    request.match_limits.max_split_operations = args.max_split_operations;
+    request.match_limits.max_coordinate_cells = args.max_coordinate_cells;
+    request.match_limits.max_bounded_refinement_cells = args.max_bounded_refinement_cells;
+    request.match_limits.refinement_axes = args.refinement_axes;
+    request.match_limits.guard_algebra.max_univariate_degree = args.max_guard_univariate_degree;
+    Ok(request)
+}
+
+/// The walk `--follow-successors` runs over `request`.
+fn walk_request(
+    request: OwnerDomainMatchRequest,
+    args: &OwnerDomainMatchArgs,
+) -> OwnerDomainWalkRequest {
+    let mut walk = OwnerDomainWalkRequest::new(request);
+    walk.workers = args.workers;
+    walk.inspection_workers = args.inspection_workers;
+    walk.publication_policy = args.publication_policy;
+    walk.max_domains = args.max_domains;
+    walk.max_frontiers = args.max_frontiers;
+    walk.max_events = args.max_successor_events;
+    walk.max_containment_checks = args.max_containment_checks;
+    walk.reuse_initial_d_bands = args.reuse_initial_d_bands;
+    if let Some(lookahead) = args.transfer_unreserved_lookahead {
+        walk.scheduling_policy = OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
+    }
+    walk.route_domain_overcover = args.route_domain_overcover;
+    walk.route_joint_source_support_pruning = args.route_joint_source_support_pruning;
+    walk.max_route_masks = args.max_route_masks;
+    walk.applied_limits.max_boundary_cells = args.max_rhs_cells;
+    walk.applied_limits.max_term_visits = args.max_term_visits;
+    walk.applied_limits.max_native_operations = args.max_native_operations;
+    walk.applied_limits.max_events = args.max_rhs_events;
+    walk.applied_limits.max_shift_groups = args.max_shift_groups;
+    walk.applied_limits.max_sign_splits = args.max_sign_splits;
+    walk.checkpoint = args.checkpoint.clone();
+    walk.apply_subdivision = args.apply_subdivision;
+    walk.applied_limits.cell_refinement = args.apply_cell_refinement_max_cardinality.map_or(
+        rustred::solver::OwnerAppliedCellRefinement::Off,
+        |max_cardinality| rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+            max_cardinality,
+        },
+    );
+    if args.unbounded_work {
+        walk.disable_work_limits();
+    }
+    walk
+}
+
+/// The walk request an `owner-domain-match --follow-successors` argv (with
+/// its program name) describes, built by the same parser, admission checks
+/// and request construction as the command, without opening any output,
+/// event or stop file. Used by the restore-at-scale test.
+#[cfg(test)]
+pub(crate) fn walk_request_from_argv(
+    argv: Vec<std::ffi::OsString>,
+) -> Result<OwnerDomainWalkRequest, String> {
+    let super::args::Command::OwnerDomainMatch(args) =
+        super::args::parse_args(argv).map_err(|e| e.to_string())?
+    else {
+        return Err("not an owner-domain-match command".into());
+    };
+    if !args.follow_successors {
+        return Err("owner-domain-match argv does not walk (--follow-successors)".into());
+    }
+    OwnerDomainMatchRequest::validate_query_allowances(args.max_queries, args.max_query_bytes)
+        .map_err(str::to_owned)?;
+    preflight_checkpoint_paths(&args).map_err(|e| e.to_string())?;
+    let request = match_request(&args).map_err(|e| e.to_string())?;
+    Ok(walk_request(request, &args))
 }
 
 /// Requested steering must not rebrand Ready's flat-ID v5, its compact paused
