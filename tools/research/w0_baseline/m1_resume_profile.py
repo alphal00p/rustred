@@ -26,8 +26,9 @@ expanded, committed, RSS, coordinator_duty, admission_preparation, slot busy
 sums) to heartbeats.jsonl. It never signals the process except through the
 stop file and the budget SIGKILL.
 
-perf buffers are sized explicitly (-m 32 for fp, -m 256 for DWARF): the
-per-user perf mlock budget (perf_event_mlock_kb x CPUs) is shared with every
+perf buffers are sized explicitly (-m 16 for each fp record, one -m 64 DWARF
+record at a time, each retried with smaller buffers): the
+per-user perf mlock budget (perf_event_mlock_kb = 516 KB here) is shared with every
 other perf session of the same user on the host, and default-size buffers for
 several concurrent records failed with "Permission error mapping pages" in
 run1 (2026-09-27).
@@ -37,6 +38,7 @@ import glob
 import hashlib
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -240,11 +242,25 @@ class EventTail:
         self.sink.flush()
 
 
+def record_cmd(perf_base, pages, options, tids, data, seconds):
+    """perf record with explicit buffer sizes, retried with smaller buffers when the
+    per-user perf mlock budget (516 KB for all of this user's sessions on the host,
+    other lanes included) is exhausted: "Permission error mapping pages"."""
+    base = " ".join(perf_base)
+    tries = " ".join(str(p) for p in pages)
+    return ["bash", "-c",
+            f"for m in {tries}; do {base} record -m $m {options} -t {tids} -o {data} -- sleep {seconds} 2>{data}.err; "
+            f"rc=$?; cat {data}.err >&2; grep -q 'Permission error mapping pages' {data}.err || exit $rc; "
+            f"echo \"retry with smaller buffer after -m $m\" >&2; sleep 1; done; exit $rc"]
+
+
 def pick(threads, cls, count):
     rows = sorted((tid for tid, r in threads.items() if r["class"] == cls),
                   key=lambda t: (len(threads[t]["comm"]), threads[t]["comm"]))
     if len(rows) <= count:
         return rows
+    if count == 1:
+        return [rows[len(rows) // 2]]
     step = (len(rows) - 1) / (count - 1)
     return [rows[round(i * step)] for i in range(count)]
 
@@ -338,6 +354,7 @@ def main():
     proc = subprocess.Popen(argv, stdout=stdout, stderr=stderr, cwd=str(out), env=env,
                             preexec_fn=lambda: os.sched_setaffinity(0, cpus))
     pid = proc.pid
+    (out / "native.pid").write_text(f"{pid}\n")
     timeline = {"launch_unix_time": launch, "pid": pid}
     heartbeats = open(out / "heartbeats.jsonl", "w")
     tail = EventTail(out / "events.jsonl", heartbeats)
@@ -392,95 +409,105 @@ def main():
             timeline["exit_unix_time"] = now
             timeline["exit_code"] = code
             break
-        if tail.restored is not None and "restored_unix_time" not in timeline:
-            timeline["restored_unix_time"] = tail.restored
-            snapshot("restored", threads, status)
-        if tail.first_duty is not None and "traversal_unix_time" not in timeline:
-            timeline["traversal_unix_time"] = tail.first_duty
-            timeline["traversal_native_elapsed"] = tail.last and tail.last.get("elapsed_seconds")
-            snapshot("traversal", threads, status)
-        rss = status.get("VmRSS", 0) * 1024
-        if rss > args.rss_kill_gib * 2**30:
-            timeline["killed"] = f"rss {rss}"
-            proc.send_signal(signal.SIGKILL)
-        elif rss > args.rss_stop_gib * 2**30:
-            request_stop(f"rss_guard_{rss}")
-        if mem.get("MemAvailable", 1 << 62) < args.min_memavail_gib * 2**30:
-            request_stop(f"host_memavailable_{mem.get('MemAvailable')}")
-        if now - launch > args.budget_seconds:
-            timeline["killed"] = "budget"
-            proc.send_signal(signal.SIGKILL)
-        if now - launch > args.budget_seconds - args.save_reserve_seconds:
-            request_stop("budget_save_reserve")
-        t0 = timeline.get("traversal_unix_time")
-        if t0 is not None:
-            if now - t0 >= args.run_seconds:
-                request_stop("run_seconds_elapsed")
-            for tag, offset in list(pending.items()):
-                if now - t0 < offset or stop_reason is not None:
-                    continue
-                del pending[tag]
-                if tag == "numa":
-                    started = time.time()
-                    try:
-                        nodes = {}
-                        for line in open(f"/proc/{pid}/numa_maps"):
-                            for token in line.split()[2:]:
-                                if token.startswith("N") and "=" in token:
-                                    node, pages = token[1:].split("=")
-                                    if node.isdigit():
-                                        nodes[node] = nodes.get(node, 0) + int(pages)
-                        doc = {"pages_by_node": nodes, "seconds": time.time() - started,
-                               "unix_time": started, "status": read_status(pid), "heartbeat": tail.last}
-                    except OSError as error:
-                        doc = {"error": str(error)}
-                    (out / "numa.json").write_text(json.dumps(doc, indent=1))
-                    continue
-                snapshot(f"{tag}-start", threads, status)
-                procs = []
-                win = {"start_unix_time": time.time(), "heartbeat_start": tail.last}
-                if tag == "dwarf":
-                    coord = [pid]
-                    insp = pick(threads, "inspector", 1)
-                    helper = pick(threads, "admission_helper", 1)
-                    win["tids"] = {"coordinator": coord, "inspector": insp, "admission_helper": helper}
-                    for cls, tids in win["tids"].items():
-                        if not tids:
-                            continue
-                        cmd = perf_base + ["record", "-m", "256", "-F", "199", "-e", "cpu-clock:u", "--call-graph", "dwarf,16384",
-                                           "-t", ",".join(map(str, tids)), "-o", str(out / f"perf-dwarf-{cls}.data"),
-                                           "--", "sleep", str(args.dwarf_seconds)]
-                        procs.append(subprocess.Popen(cmd, stdout=open(out / f"perf-dwarf-{cls}.stdout", "w"),
-                                                      stderr=open(out / f"perf-dwarf-{cls}.stderr", "w")))
-                else:
-                    coord = [pid]
-                    insp = pick(threads, "inspector", 4)
-                    helper = pick(threads, "admission_helper", 4)
-                    win["tids"] = {"coordinator": coord, "inspector": insp, "admission_helper": helper}
-                    win["comms"] = {str(t): threads[t]["comm"] for t in coord + insp + helper if t in threads}
-                    for cls, tids in win["tids"].items():
-                        if not tids:
-                            continue
-                        cmd = perf_base + ["record", "-m", "32", "-F", str(args.frequency), "-e", "cpu-clock:u", "--call-graph", "fp",
-                                           "-t", ",".join(map(str, tids)), "-o", str(out / f"perf-{tag}-{cls}.data"),
-                                           "--", "sleep", str(args.window_seconds)]
-                        procs.append(subprocess.Popen(cmd, stdout=open(out / f"perf-{tag}-{cls}.stdout", "w"),
-                                                      stderr=open(out / f"perf-{tag}-{cls}.stderr", "w")))
-                    cmd = perf_base + ["stat", "--per-thread", "-p", str(pid), "-e", STAT_EVENTS, "-x", ",",
-                                       "-o", str(out / f"perf-stat-{tag}.csv"), "--", "sleep", str(args.window_seconds)]
-                    procs.append(subprocess.Popen(cmd, stdout=open(out / f"perf-stat-{tag}.stdout", "w"),
-                                                  stderr=open(out / f"perf-stat-{tag}.stderr", "w")))
-                win["commands"] = [pr.args for pr in procs]
-                windows[tag] = win
-                running.append((tag, procs))
-        for tag, procs in list(running):
-            if all(pr.poll() is not None for pr in procs):
-                running.remove((tag, procs))
-                windows[tag]["end_unix_time"] = time.time()
-                windows[tag]["heartbeat_end"] = tail.last
-                windows[tag]["exit_codes"] = [pr.returncode for pr in procs]
-                snapshot(f"{tag}-end", read_threads(pid), read_status(pid))
-        json.dump({"timeline": timeline, "windows": windows}, open(out / "timeline.json", "w"), indent=1)
+        try:
+            if tail.restored is not None and "restored_unix_time" not in timeline:
+                timeline["restored_unix_time"] = tail.restored
+                snapshot("restored", threads, status)
+            if tail.first_duty is not None and "traversal_unix_time" not in timeline:
+                timeline["traversal_unix_time"] = tail.first_duty
+                timeline["traversal_native_elapsed"] = tail.last and tail.last.get("elapsed_seconds")
+                snapshot("traversal", threads, status)
+            rss = status.get("VmRSS", 0) * 1024
+            if rss > args.rss_kill_gib * 2**30:
+                timeline["killed"] = f"rss {rss}"
+                proc.send_signal(signal.SIGKILL)
+            elif rss > args.rss_stop_gib * 2**30:
+                request_stop(f"rss_guard_{rss}")
+            if mem.get("MemAvailable", 1 << 62) < args.min_memavail_gib * 2**30:
+                request_stop(f"host_memavailable_{mem.get('MemAvailable')}")
+            if now - launch > args.budget_seconds:
+                timeline["killed"] = "budget"
+                proc.send_signal(signal.SIGKILL)
+            if now - launch > args.budget_seconds - args.save_reserve_seconds:
+                request_stop("budget_save_reserve")
+            t0 = timeline.get("traversal_unix_time")
+            if t0 is not None:
+                if now - t0 >= args.run_seconds:
+                    request_stop("run_seconds_elapsed")
+                for tag, offset in list(pending.items()):
+                    if now - t0 < offset or stop_reason is not None:
+                        continue
+                    del pending[tag]
+                    if tag == "numa":
+                        started = time.time()
+                        try:
+                            nodes = {}
+                            for line in open(f"/proc/{pid}/numa_maps"):
+                                for token in line.split()[2:]:
+                                    if token.startswith("N") and "=" in token:
+                                        node, pages = token[1:].split("=")
+                                        if node.isdigit():
+                                            nodes[node] = nodes.get(node, 0) + int(pages)
+                            doc = {"pages_by_node": nodes, "seconds": time.time() - started,
+                                   "unix_time": started, "status": read_status(pid), "heartbeat": tail.last}
+                        except OSError as error:
+                            doc = {"error": str(error)}
+                        (out / "numa.json").write_text(json.dumps(doc, indent=1))
+                        continue
+                    snapshot(f"{tag}-start", threads, status)
+                    procs = []
+                    win = {"start_unix_time": time.time(), "heartbeat_start": tail.last}
+                    if tag == "dwarf":
+                        coord = [pid]
+                        insp = pick(threads, "inspector", 1)
+                        helper = pick(threads, "admission_helper", 1)
+                        win["tids"] = {"coordinator": coord, "inspector": insp, "admission_helper": helper}
+                        # one DWARF record at a time: the per-user budget fits one 256 KB buffer
+                        chain = []
+                        for cls, tids in win["tids"].items():
+                            if not tids:
+                                continue
+                            secs = args.dwarf_seconds if cls == "coordinator" else max(5, args.dwarf_seconds // 2)
+                            chain.append(" ".join(shlex.quote(x) for x in record_cmd(
+                                perf_base, (64, 32, 16), "-F 99 -e cpu-clock:u --call-graph dwarf,8192",
+                                ",".join(map(str, tids)), str(out / f"perf-dwarf-{cls}.data"), secs)))
+                        cmd = ["bash", "-c", " ; ".join(chain)]
+                        procs.append(subprocess.Popen(cmd, stdout=open(out / "perf-dwarf.stdout", "w"),
+                                                      stderr=open(out / "perf-dwarf.stderr", "w")))
+                    else:
+                        coord = [pid]
+                        insp = pick(threads, "inspector", 4)
+                        helper = pick(threads, "admission_helper", 4)
+                        win["tids"] = {"coordinator": coord, "inspector": insp, "admission_helper": helper}
+                        win["comms"] = {str(t): threads[t]["comm"] for t in coord + insp + helper if t in threads}
+                        for cls, tids in win["tids"].items():
+                            if not tids:
+                                continue
+                            cmd = record_cmd(perf_base, (16, 8, 4), f"-F {args.frequency} -e cpu-clock:u --call-graph fp",
+                                             ",".join(map(str, tids)), str(out / f"perf-{tag}-{cls}.data"),
+                                             args.window_seconds)
+                            procs.append(subprocess.Popen(cmd, stdout=open(out / f"perf-{tag}-{cls}.stdout", "w"),
+                                                          stderr=open(out / f"perf-{tag}-{cls}.stderr", "w")))
+                        cmd = perf_base + ["stat", "--per-thread", "-p", str(pid), "-e", STAT_EVENTS, "-x", ",",
+                                           "-o", str(out / f"perf-stat-{tag}.csv"), "--", "sleep", str(args.window_seconds)]
+                        procs.append(subprocess.Popen(cmd, stdout=open(out / f"perf-stat-{tag}.stdout", "w"),
+                                                      stderr=open(out / f"perf-stat-{tag}.stderr", "w")))
+                    win["commands"] = [pr.args for pr in procs]
+                    windows[tag] = win
+                    running.append((tag, procs))
+            for tag, procs in list(running):
+                if all(pr.poll() is not None for pr in procs):
+                    running.remove((tag, procs))
+                    windows[tag]["end_unix_time"] = time.time()
+                    windows[tag]["heartbeat_end"] = tail.last
+                    windows[tag]["exit_codes"] = [pr.returncode for pr in procs]
+                    snapshot(f"{tag}-end", read_threads(pid), read_status(pid))
+            json.dump({"timeline": timeline, "windows": windows}, open(out / "timeline.json", "w"), indent=1)
+        except Exception:  # never lose control of a socket-1 run to a monitoring bug
+            import traceback
+            with open(out / "harness-errors.log", "a") as log:
+                log.write(f"{time.time()}\n{traceback.format_exc()}\n")
+            request_stop("harness_error")
         time.sleep(args.interval)
 
     for tag, procs in running:
