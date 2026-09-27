@@ -587,6 +587,8 @@ impl<const N: usize> State<N> {
     ) -> Result<(), &'static str> {
         self.successors += usize::from(successor);
         self.conditional += usize::from(conditional);
+        #[cfg(feature = "admission-trace")]
+        super::trace::set_source(self.dependency_source());
         #[cfg(test)]
         if super::queue::positive_reuse_trace::enabled() {
             assert!(
@@ -1081,6 +1083,14 @@ fn run_configured<const N: usize>(
             Some(part) => {
                 inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
             }
+            #[cfg(feature = "admission-trace")]
+            None => super::trace::inspection(
+                Ticket::decode(raw, physical_enabled).parent,
+                domain,
+                emit,
+                |emit| inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
+            ),
+            #[cfg(not(feature = "admission-trace"))]
             None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
         },
     );
@@ -1983,6 +1993,19 @@ fn serial<const N: usize>(
                     initial,
                     &mut emit,
                 ),
+                #[cfg(feature = "admission-trace")]
+                None => super::trace::inspection(id, &domain, &mut emit, |emit| {
+                    inspection::inspect(
+                        reducer,
+                        &domain,
+                        request,
+                        cancellation,
+                        initial,
+                        overlap,
+                        emit,
+                    )
+                }),
+                #[cfg(not(feature = "admission-trace"))]
                 None => inspection::inspect(
                     reducer,
                     &domain,

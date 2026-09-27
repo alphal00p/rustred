@@ -15,6 +15,8 @@ mod publication;
 mod queue;
 mod reuse;
 mod routing;
+#[cfg(feature = "admission-trace")]
+mod trace;
 mod work_policy;
 mod worker_budget;
 
@@ -846,6 +848,8 @@ fn run<const N: usize>(
             execution::run(&mut state, reducer, request, cancellation, observer);
         }
     }
+    #[cfg(feature = "admission-trace")]
+    trace::flush();
     state.refresh_closure(state.report_cancellation(cancellation), true);
     if checkpoint.is_some() && (state.checkpoint_paused || reducer.is_none()) {
         // A checkpoint is the state; this receipt must not duplicate the full

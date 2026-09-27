@@ -11,6 +11,8 @@ publish = false
 [features]
 default = ["cli"]
 cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
+# Research-only admission and successor-stream trace (W0.4); never default.
+admission-trace = []
 
 [lib]
 name = "rustred_app"

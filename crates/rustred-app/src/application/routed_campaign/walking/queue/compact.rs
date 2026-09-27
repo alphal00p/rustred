@@ -205,6 +205,26 @@ impl<const N: usize> CompactDomain<N> {
             .expect("an admitted domain's native summary is reproducible")
     }
 
+    /// Bytes of `trace_image`: phase, flags, owner, rank, lower, upper and
+    /// the three power fields.
+    #[cfg(feature = "admission-trace")]
+    pub(in super::super) const TRACE_IMAGE_BYTES: usize = 2 + 4 + 4 + 4 * N + 24;
+
+    /// Research trace only: every field, little-endian, no padding.
+    #[cfg(feature = "admission-trace")]
+    pub(in super::super) fn trace_image(&self, out: &mut Vec<u8>) {
+        out.push(self.phase);
+        out.push(self.flags);
+        out.extend_from_slice(&self.owner.to_le_bytes());
+        out.extend_from_slice(&self.rank.to_le_bytes());
+        for value in self.lower.iter().chain(&self.upper) {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out.extend_from_slice(&self.max_positive_power.to_le_bytes());
+        out.extend_from_slice(&self.min_power_difference.to_le_bytes());
+        out.extend_from_slice(&self.max_power_difference.to_le_bytes());
+    }
+
     /// 64-bit blake3 prefix of the canonical little-endian field bytes
     /// (padding never enters the digest).
     pub(super) fn digest(&self) -> Digest {

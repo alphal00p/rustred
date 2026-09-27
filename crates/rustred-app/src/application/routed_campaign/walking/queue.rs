@@ -335,9 +335,55 @@ impl<const N: usize> Queue<N> {
         result
     }
 
+    /// Research trace wrapper (feature `admission-trace`): records the outcome
+    /// and counter deltas of every admission; the admission itself is
+    /// unchanged.
+    #[cfg(feature = "admission-trace")]
+    fn admit_with_lookup(
+        &mut self,
+        domain: Domain<N>,
+        prepared: Option<PreparedLookup<N>>,
+        key: Option<(CompactDomain<N>, Digest)>,
+    ) -> Result<(usize, bool), &'static str> {
+        use super::trace;
+        let image = CompactDomain::try_from_domain(&domain).ok();
+        let before = (
+            self.containment_checks,
+            self.containment_maintenance_checks,
+            self.containment_retired_candidates,
+            self.exact_hits,
+            self.orthant_hits,
+        );
+        let result = self.admit_with_lookup_untraced(domain, prepared, key);
+        if let Some(image) = image {
+            let maintenance = self.containment_maintenance_checks - before.1;
+            let forward = self.containment_checks - before.0 - maintenance;
+            let retired = self.containment_retired_candidates - before.2;
+            let (kind, target) = match result {
+                Err(_) => (trace::REFUSED, usize::MAX),
+                Ok((id, true)) => (trace::NEW, id),
+                Ok((id, false)) if self.exact_hits > before.3 => (trace::EXACT, id),
+                Ok((id, false)) if self.orthant_hits > before.4 => (trace::ORTHANT, id),
+                Ok((id, false)) => (trace::CONTAINED, id),
+            };
+            trace::admission(kind, target, &image, forward, maintenance, retired);
+        }
+        result
+    }
+
+    #[cfg(not(feature = "admission-trace"))]
+    fn admit_with_lookup(
+        &mut self,
+        domain: Domain<N>,
+        prepared: Option<PreparedLookup<N>>,
+        key: Option<(CompactDomain<N>, Digest)>,
+    ) -> Result<(usize, bool), &'static str> {
+        self.admit_with_lookup_untraced(domain, prepared, key)
+    }
+
     /// `key`: the compact image and digest of `domain` when a helper of this
     /// same queue already computed them (`PreparedAdmission`).
-    fn admit_with_lookup(
+    fn admit_with_lookup_untraced(
         &mut self,
         domain: Domain<N>,
         mut prepared: Option<PreparedLookup<N>>,
