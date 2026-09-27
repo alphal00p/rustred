@@ -173,10 +173,17 @@ pub(super) mod g1 {
 
     pub(in super::super) fn report() -> Value {
         let c = config();
+        let sorted = |set: &HashSet<String>| {
+            let mut v = set.iter().cloned().collect::<Vec<String>>();
+            v.sort();
+            v
+        };
+        let owners = c.owners.as_ref().map(sorted);
+        let exclude = sorted(&c.exclude);
         json!({
             "mode": format!("{:?}", c.mode),
-            "owners": c.owners.as_ref().map(|o| { let mut v: Vec<_> = o.iter().cloned().collect(); v.sort(); v }),
-            "exclude": { let mut v: Vec<_> = c.exclude.iter().cloned().collect(); v.sort(); v },
+            "owners": owners,
+            "exclude": exclude,
             "apply_successor_calls": CALLS.load(Relaxed),
             "widened": WIDENED.load(Relaxed),
             "unchanged_already_widened_shape": UNCHANGED.load(Relaxed),
