@@ -19,11 +19,19 @@ import sys
 from collections import defaultdict
 
 
-def load_natives(run):
+# Fields the analyses read; everything else (counts, stats JSON) is dropped on
+# load so that a 72,000-native K=96 run stays small in memory.
+KEEP = ("i", "id", "pass", "thread", "phase", "stratum", "cpu_ns", "wall_ns", "start_ns", "end_ns",
+        "active_start", "active_end", "voluntary_switches", "involuntary_switches", "minor_faults",
+        "error_kind", "cancel")
+
+
+def load_natives(run, keep=KEEP):
     rows = []
     with open(os.path.join(run, "natives.jsonl")) as f:
         for line in f:
-            rows.append(json.loads(line))
+            r = json.loads(line)
+            rows.append({k: r[k] for k in keep if k in r} if keep else r)
     return rows
 
 
@@ -124,11 +132,11 @@ def concurrency(rows):
     return out
 
 
-def summarize(run):
+def summarize(run, rows=None, conc=None):
     receipt = json.load(open(os.path.join(run, "receipt.json")))
-    rows = load_natives(run)
+    rows = load_natives(run) if rows is None else rows
     k = receipt.get("run", {}).get("threads", 1)
-    conc = concurrency(rows) if rows else []
+    conc = (concurrency(rows) if rows else []) if conc is None else conc
     by_phase = defaultdict(lambda: {"natives": 0, "cpu_s": 0.0, "wall_s": 0.0, "vcsw": 0, "ivcsw": 0,
                                     "minflt": 0, "errors": defaultdict(int)})
     for r in rows:
@@ -162,6 +170,7 @@ def summarize(run):
                 "far_fraction_of_dram_fills": far / (near + far) if near + far else None,
                 "dram_fill_GBps_whole_process": 64 * (near + far) / wall / 1e9 if wall else None,
                 "l2_misses": pstat.get("l2_cache_req_stat.ic_dc_miss_in_l2:u"),
+                "events": pstat,
                 "scope": "user-mode core events for the whole process (prepare included); L1D fills from DRAM count 64-byte lines (demand + L1 prefetch), not L2 prefetches, so the GB/s is a lower bound on DRAM traffic"}
     env = read_env(run)
     return {"run": run, "bin_sha256": env.get("BIN_SHA256"), "cpus": env.get("CPUS"), "numa": env.get("NUMA"),

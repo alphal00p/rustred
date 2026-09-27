@@ -4,7 +4,10 @@
 #   <label> <cpus> <threads> <numa> <alloc> [<extra env assignments>...]
 # where <numa> is none|interleave:<nodes>|bind:<nodes> and <alloc> is
 # glibc|mimalloc; "parallel4 <label> <threads-per-node>" runs four node-bound
-# processes (nodes 4-7, SUBSET r/4) at once. Common environment: BIN, FIXTURE,
+# processes (nodes 4-7, SUBSET r/4) at once; "parallelccd <label> <processes>"
+# runs <processes> processes of 8 threads, process j pinned to the 8 cores of
+# CCX j of socket 1 (CPUs 128+8j..128+8j+7 share one L3; EPYC 9754 = Zen 4c,
+# 2 CCX per CCD) with memory bound to that CCX's node, SUBSET j/<processes>. Common environment: BIN, FIXTURE,
 # ROOT (output root), ORDER (default fixture), PERF (default stat).
 #   session_socket1.sh PLAN_FILE
 set -euo pipefail
@@ -25,8 +28,26 @@ while read -r label cpus threads numa alloc extra; do
   now=$(date +%s)
   if (( now - start > BUDGET )); then echo "budget exhausted before $label" | tee -a "$ROOT/session.log"; break; fi
   remaining=$(( BUDGET - (now - start) ))
-  echo "$(date -u +%FT%TZ) start $label cpus=$cpus K=$threads numa=$numa alloc=$alloc $extra (remaining ${remaining}s)" | tee -a "$ROOT/session.log"
-  if [ "$label" = parallel4 ]; then
+  [ "$label" = waitfile ] || echo "$(date -u +%FT%TZ) start $label cpus=$cpus K=$threads numa=$numa alloc=$alloc $extra (remaining ${remaining}s)" | tee -a "$ROOT/session.log"
+  if [ "$label" = waitfile ]; then
+    # "waitfile <path> <max-seconds>": hold the plan until a binary exists
+    # (or <path>.failed appears)
+    waited=0
+    while [ ! -e "$cpus" ] && [ ! -e "$cpus.failed" ] && (( waited < threads )); do sleep 10; waited=$((waited + 10)); done
+    echo "$(date -u +%FT%TZ) waitfile $cpus exists=$([ -e "$cpus" ] && echo yes || echo no) after ${waited}s" | tee -a "$ROOT/session.log"
+    continue
+  elif [ "$label" = parallelccd ]; then
+    tag=$cpus; procs=$threads
+    pids=()
+    for ((j = 0; j < procs; j++)); do
+      first=$((128 + 8 * j)); node=$((4 + first / 32 - 4))
+      env BIN="$BIN" FIXTURE="$FIXTURE" OUT="$ROOT/$tag/ccd$(printf %02d $j)" CPUS="$first-$((first + 7))" \
+        THREADS=8 NUMA=bind:$node ALLOC=glibc SUBSET=$j/$procs PIN=1 ORDER="${ORDER:-fixture}" PERF="${PERF:-stat}" ${extra:-} \
+        timeout "$remaining" "$HERE/run_harness.sh" < /dev/null >> "$ROOT/session.log" 2>&1 &
+      pids+=($!)
+    done
+    for p in "${pids[@]}"; do wait "$p" || echo "parallelccd member $p failed" | tee -a "$ROOT/session.log"; done
+  elif [ "$label" = parallel4 ]; then
     tag=$cpus; per=$threads
     pids=()
     for r in 0 1 2 3; do
