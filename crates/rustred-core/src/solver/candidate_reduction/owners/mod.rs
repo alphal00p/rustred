@@ -12,8 +12,10 @@ pub use domains::{
     OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats,
     OwnerSuccessorTransition,
 };
+mod factor_census;
 mod feedback;
 mod model;
+pub use factor_census::{FactorCensusLimits, FactorCensusRole, OwnerFactorCensus};
 mod prepare;
 pub(in crate::solver::candidate_reduction) use evaluation::OwnerStep;
 pub use feedback::{

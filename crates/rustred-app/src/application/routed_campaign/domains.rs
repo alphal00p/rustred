@@ -25,6 +25,8 @@ pub struct OwnerDomainScanRequest {
     pub scan_limits: OwnerSuccessorLimits,
     pub max_total_regions: usize,
     pub max_summary_groups: usize,
+    /// Replace the scan by the read-only guard/coefficient factor census.
+    pub factor_census: Option<rustred::solver::FactorCensusLimits>,
 }
 impl OwnerDomainScanRequest {
     pub fn new(selection_json: String, max_numerator_rank: Option<u32>) -> Self {
@@ -36,6 +38,7 @@ impl OwnerDomainScanRequest {
             scan_limits: Default::default(),
             max_total_regions: 20_000_000,
             max_summary_groups: 16_384,
+            factor_census: None,
         }
     }
 }
@@ -160,6 +163,15 @@ fn run<const N: usize>(
     };
     let prepared_seconds = start.elapsed().as_secs_f64();
     let programs = reducer.programs();
+    if let Some(limits) = request.factor_census {
+        return Ok(factor_census(
+            programs,
+            limits,
+            prepared_seconds,
+            start,
+            observer,
+        ));
+    }
     // Every route here has already passed prepare's native map admission.
     let routed: BTreeSet<_> = selection
         .initial_frontier_routes
@@ -313,4 +325,51 @@ fn finish(
         scan_complete: complete,
         document,
     }
+}
+
+/// Read-only census of the installed rules' guard and coefficient
+/// polynomials: Symbolica factors every distinct polynomial and each factor
+/// is classified by its degree in the index and base variables (plan W0.7,
+/// Q3). No scan, walk, proof or cache is produced.
+fn factor_census<const N: usize>(
+    programs: &rustred::solver::CandidateOwnerPrograms<N>,
+    limits: rustred::solver::FactorCensusLimits,
+    prepared_seconds: f64,
+    start: Instant,
+    observer: &impl Fn(Value),
+) -> OwnerDomainScanResult {
+    let started = Instant::now();
+    let census = programs.factor_census(limits);
+    let owners: Vec<Value> = census
+        .iter()
+        .map(|owner| {
+            let roles: BTreeMap<&str, Value> = owner
+                .roles
+                .iter()
+                .map(|(role, t)| {
+                    (*role, json!({"occurrences":t.occurrences, "distinct":t.distinct,
+                        "skipped_above_max_terms":t.skipped, "factorization_failed":t.failed,
+                        "distinct_affine_only":t.distinct_affine_only,
+                        "occurrences_affine_only":t.occurrences_affine_only,
+                        "distinct_index_affine":t.distinct_index_affine,
+                        "occurrences_index_affine":t.occurrences_index_affine,
+                        "distinct_factors":t.distinct_factors, "max_index_degree":t.max_index_degree,
+                        "max_terms_seen":t.max_terms_seen, "examples(occurrences,factor)":t.examples,
+                        "factor_classes(distinct_pairs,occurrence_weighted)":t.factor_classes}))
+                })
+                .collect();
+            json!({"owner":owner.owner, "scan_complete":true, "batches":owner.batches, "rules":owner.rules,
+                "affine_cases":owner.affine_cases, "rhs_terms":owner.rhs_terms, "roles":roles})
+        })
+        .collect();
+    finish(
+        json!({"status":"factor_census", "factor_census":true,
+            "method":"Symbolica Factorize::factor of every distinct rule polynomial; factor classes by degree in index and base variables",
+            "factor_census_limits":{"max_terms":limits.max_terms, "coefficient_numerators":limits.coefficient_numerators},
+            "prepared_seconds":prepared_seconds, "factor_census_seconds":started.elapsed().as_secs_f64(),
+            "installed_owners":programs.owner_count(), "owners":owners}),
+        true,
+        start,
+        observer,
+    )
 }

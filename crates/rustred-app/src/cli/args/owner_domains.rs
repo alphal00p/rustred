@@ -15,6 +15,10 @@ pub(crate) struct OwnerDomainScanArgs {
     pub max_total_regions: usize,
     pub max_summary_groups: usize,
     pub no_progress: bool,
+    /// Read-only guard/coefficient factor census instead of the scan.
+    pub factor_census: bool,
+    pub factor_census_numerators: bool,
+    pub factor_census_max_terms: usize,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -32,6 +36,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_regions: defaults.max_regions,
         max_total_regions: 20_000_000,
         max_summary_groups: 16_384,
+        factor_census: false,
+        factor_census_numerators: false,
+        factor_census_max_terms: 4096,
     };
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
@@ -51,6 +58,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-total-regions" => "--max-total-regions",
             "--max-summary-groups" => "--max-summary-groups",
             "--no-progress" => "--no-progress",
+            "--factor-census" => "--factor-census",
+            "--factor-census-numerators" => "--factor-census-numerators",
+            "--factor-census-max-terms" => "--factor-census-max-terms",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -59,6 +69,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--no-progress" {
             result.no_progress = true;
+            continue;
+        }
+        if name == "--factor-census" {
+            result.factor_census = true;
+            continue;
+        }
+        if name == "--factor-census-numerators" {
+            result.factor_census_numerators = true;
             continue;
         }
         if name == "--unbounded-rank" {
@@ -97,6 +115,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--max-terms-per-owner" => result.max_terms = number,
                     "--max-regions-per-owner" => result.max_regions = number,
                     "--max-total-regions" => result.max_total_regions = number,
+                    "--factor-census-max-terms" => result.factor_census_max_terms = number,
                     _ => result.max_summary_groups = number,
                 }
             }
@@ -171,6 +190,29 @@ mod tests {
             };
             assert_eq!(args.rank, expected);
         }
+    }
+
+    #[test]
+    fn owner_domain_scan_factor_census_flags_parse() {
+        let parse = |s: &str| super::parse(s.split_whitespace().map(OsString::from));
+        let Command::OwnerDomainScan(args) = parse(
+            "--manifest m --output o --unbounded-rank --factor-census --factor-census-max-terms 100",
+        )
+        .unwrap() else {
+            panic!("scan command");
+        };
+        assert!(args.factor_census && !args.factor_census_numerators);
+        assert_eq!(args.factor_census_max_terms, 100);
+        let Command::OwnerDomainScan(args) =
+            parse("--manifest m --output o --unbounded-rank").unwrap()
+        else {
+            panic!("scan command");
+        };
+        assert!(!args.factor_census);
+        assert_eq!(args.factor_census_max_terms, 4096);
+        assert!(
+            parse("--manifest m --output o --unbounded-rank --factor-census-max-terms 0").is_err()
+        );
     }
 
     #[test]
