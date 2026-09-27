@@ -203,6 +203,9 @@ fn restore_without_walking<const N: usize>(
         receipt["executable"]["saver_matches_saved"] = json!(blake3 == manifest.executable);
     }
     receipt["open_events"] = json!(open_events);
+    // The owner payload digests this checkpoint bound (read by analyses that
+    // must re-import the same owners elsewhere, e.g. the W0.3 fixture).
+    receipt["owner_digests"] = json!(manifest.owners);
 
     let started = Instant::now();
     let restored = store

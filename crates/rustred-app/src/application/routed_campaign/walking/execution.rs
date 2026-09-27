@@ -916,7 +916,7 @@ fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
         "route_domains":s.route_domains, "zero_sectors":s.zero_sectors, "missing_routes":s.missing_routes,
         "coordinate_cells":s.coordinate_cells})
 }
-fn native_stats(stats: NativeStats) -> Value {
+pub(super) fn native_stats(stats: NativeStats) -> Value {
     match stats {
         NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => stats_json(s),
         NativeStats::Route(s) => route_stats(s),

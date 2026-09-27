@@ -197,6 +197,41 @@ pub(super) fn inspect<const N: usize>(
     overlap: &InitialOverlapIndex<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
+    // Test-only stream tap for the W0.3 differential proof (reinspection.rs).
+    #[cfg(all(test, feature = "cli"))]
+    if super::reinspection::tap::enabled() {
+        return super::reinspection::tap::record(domain, emit, |emit| {
+            inspect_untapped(
+                reducer,
+                domain,
+                request,
+                cancellation,
+                initial,
+                overlap,
+                emit,
+            )
+        });
+    }
+    inspect_untapped(
+        reducer,
+        domain,
+        request,
+        cancellation,
+        initial,
+        overlap,
+        emit,
+    )
+}
+
+fn inspect_untapped<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
     if request.reuse_initial_d_bands {
         let started = Instant::now();
         if let Some(plan) = overlap.plan(domain, cancellation) {
