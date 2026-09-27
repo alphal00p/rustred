@@ -167,7 +167,7 @@ impl Anchor {
         }
     }
     #[inline]
-    fn hit(&self, n: usize, x: &[u8; MAXN], a: i32, r: i32) -> bool {
+    pub fn hit(&self, n: usize, x: &[u8; MAXN], a: i32, r: i32) -> bool {
         if a > self.amax || r > self.rmax {
             return false;
         }
@@ -481,7 +481,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
 // ------------------------------------------------------------ samples
 /// Sample `k` indices with probability proportional to `w` (with
 /// replacement), returned deduplicated with multiplicities.
-fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
+pub fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     let mut cum = Vec::with_capacity(w.len());
     let mut acc = 0.0;
     for &x in w {
@@ -499,7 +499,7 @@ fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     }
     m.into_iter().collect()
 }
-fn uniform(len: usize, k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
+pub fn uniform(len: usize, k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     let mut m: BTreeMap<usize, usize> = BTreeMap::new();
     if len == 0 {
         return vec![];
@@ -907,7 +907,7 @@ mod tests {
 
 // --------------------------------------------------------- saturation
 /// Draw one uniform point of `d` (finite, nonempty).
-fn draw_point(d: &Dom, n: usize, rng: &mut Rng) -> Option<([u8; MAXN], i32, i32)> {
+pub fn draw_point(d: &Dom, n: usize, rng: &mut Rng) -> Option<([u8; MAXN], i32, i32)> {
     let l = geom::levels(d, n)?;
     let s = Sampler::new(d, n, &l)?;
     let (x, sa, sr) = s.sample(rng);
