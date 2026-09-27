@@ -915,9 +915,13 @@ pub fn saturation(dir: &Path, opts: &Opts) {
         let mut rows = Vec::new();
         for (wi, &(g, lo, hi)) in wins.iter().enumerate() {
             let key = |a: &Anchor| if kind.starts_with("natives") { a.seq } else { a.id };
-            let members: Vec<(u32, usize)> = pool
+            // Buckets in key order, so draws depend on the seed only (not on
+            // the HashMap iteration order).
+            let mut bkeys: Vec<u32> = pool.keys().copied().collect();
+            bkeys.sort_unstable();
+            let members: Vec<(u32, usize)> = bkeys
                 .iter()
-                .flat_map(|(b, v)| v.iter().enumerate().filter(|(_, a)| key(a) >= lo && key(a) < hi).map(move |(i, _)| (*b, i)))
+                .flat_map(|b| pool[b].iter().enumerate().filter(|(_, a)| key(a) >= lo && key(a) < hi).map(move |(i, _)| (*b, i)))
                 .collect();
             let (mut fin, mut inf, mut spts) = (0usize, 0usize, 0f64);
             let wp: Vec<f64> = members
