@@ -529,8 +529,54 @@ def locate(run, queries=None, command=None, receipt=None):
             "resumed": "--resume" in argv}
 
 
+def pair_verifier(audit, result_path, report, verify_report, require_closure):
+    """Bind a `rustred walk-verify-closure` report to the result.json this audit read.
+
+    The verifier binds result.json record by record (content digests) to the
+    checkpoint generation it read and records the file's canonical path, byte
+    length, mtime and blake3. Here the audited file must be that same file
+    (path, length, mtime), its checkpoint generation the verifier's, and the
+    verifier's verdict PASS (with closure required, and every root independently
+    verified, when this audit requires closure).
+    """
+    check = audit.check
+    pairing = {"verify_report": str(verify_report)}
+    try:
+        verifier = read_json(verify_report)
+    except (OSError, ValueError) as error:
+        check(False, f"verifier pairing: unreadable report: {error}")
+        return pairing
+    binding = verifier.get("result_binding")
+    if not check(isinstance(binding, dict), "verifier pairing: the verifier bound no result.json (--no-result?)"):
+        return pairing
+    stat = Path(result_path).stat()
+    generation = (report.get("checkpoint") or {}).get("generation")
+    pairing.update(verifier_verdict=verifier.get("verdict"), verifier_generation=verifier.get("checkpoint", {}).get("generation"),
+                   result_generation=generation, file_blake3=binding.get("file_blake3"),
+                   records_compared=binding.get("records_compared"))
+    check(Path(binding.get("canonical_path", "")) == Path(result_path).resolve(),
+          "verifier pairing: the verifier bound a different result.json")
+    check(binding.get("file_bytes") == stat.st_size and binding.get("file_mtime_unix_ns") == stat.st_mtime_ns,
+          "verifier pairing: result.json changed since the verifier bound it (size or mtime)")
+    check(binding.get("generation_matches") is True and binding.get("generation") == generation
+          and verifier.get("checkpoint", {}).get("generation") == generation,
+          "verifier pairing: checkpoint generation differs between the verifier and this result")
+    check(binding.get("records_mismatched") == 0 and binding.get("records_not_published") == 0
+          and binding.get("duplicate_rows") == 0, "verifier pairing: result rows differ from the verified generation")
+    check(verifier.get("verdict") == "PASS", f"verifier pairing: verifier verdict {verifier.get('verdict')!r} is not PASS")
+    if require_closure:
+        check(verifier.get("closure_required") is True, "verifier pairing: the verifier did not require closure")
+        # The gate (assert_oracle_pass.py): every root independently verified.
+        total = verifier.get("roots_total")
+        check(isinstance(total, int) and total >= 1 and verifier.get("roots_independently_verified") == total,
+              "verifier pairing: not every root is independently verified "
+              f"({verifier.get('roots_independently_verified')!r} of {total!r})")
+    pairing["paired"] = True
+    return pairing
+
+
 def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None, require_closure=False,
-               containment=None, helper_pattern="anchor"):
+               containment=None, helper_pattern="anchor", verify_report=None):
     run = Path(run)
     audit = Audit()
     report = {"audit": "FAIL", "run_directory": str(run), "family_closure_claim": False,
@@ -544,6 +590,9 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
                       publication_policy=located["policy"], resumed=located["resumed"],
                       receipt_path=None if located["receipt"] is None else str(located["receipt"]))
         report.update(_audit(run, located, audit, expect_schema, require_closure, containment, helper_pattern))
+        if verify_report is not None:
+            report["verifier_pairing"] = pair_verifier(audit, run / "result.json", report, verify_report,
+                                                       require_closure)
     except (OSError, ValueError, KeyError, TypeError, IndexError, OverflowError) as error:
         audit.check(False, f"structural: {type(error).__name__}: {error}")
     report["containment_oracle"] = containment.json()
@@ -553,9 +602,14 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
     report["all_local_obligations_discharged"] = report["audit"] == "PASS"
     certification = report.get("certification")
     if isinstance(certification, dict):
-        # Engine-reported closure, re-checked for consistency; an independent
-        # edge-based re-derivation is `rustred walk-verify-closure`.
-        certification["closure_certified"] = report["audit"] == "PASS" and require_closure
+        # Engine-reported closure re-checked for consistency only: this audit
+        # sees no edges. Independent (edge-based, re-inspected) verification
+        # is `rustred walk-verify-closure`; it counts here only when that
+        # report is paired to this very result (--verify-report) and PASSes.
+        certification["engine_closure_consistent"] = report["audit"] == "PASS" and require_closure
+        pairing = report.get("verifier_pairing") or {}
+        certification["independently_verified"] = (certification["engine_closure_consistent"]
+                                                   and pairing.get("paired") is True)
     return report
 
 
@@ -990,13 +1044,15 @@ def main(argv=None) -> int:
     parser.add_argument("--brute-force-point-budget", type=int, default=2_000_000,
                         help="total lattice points the brute-force cross-check may enumerate")
     parser.add_argument("--helper-pattern", default="anchor", help="regex; matching query ids are reported as helpers")
+    parser.add_argument("--verify-report", type=Path,
+                        help="a `rustred walk-verify-closure` report that must be bound to this very result.json")
     parser.add_argument("--output", type=Path, help="audit report path; default RUN/audit.json")
     parser.add_argument("--no-output", action="store_true", help="print only; do not write audit.json")
     args = parser.parse_args(argv)
     started = time.monotonic()
     report = audit_walk(args.run, args.queries, args.command, args.supervisor_receipt, args.expect_schema,
                         args.require_closure, Containment(args.brute_force_max_points, args.brute_force_point_budget),
-                        args.helper_pattern)
+                        args.helper_pattern, args.verify_report)
     report["audit_seconds"] = time.monotonic() - started
     text = json.dumps(report, indent=2, sort_keys=True, allow_nan=False)
     if not args.no_output:

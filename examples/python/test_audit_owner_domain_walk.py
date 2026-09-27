@@ -361,13 +361,58 @@ class SyntheticWalkAuditTests(unittest.TestCase):
             report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
             self.assertEqual(report["audit"], "PASS", report["violations"])
             certification = report["certification"]
-            self.assertTrue(certification["closure_certified"])
+            self.assertTrue(certification["engine_closure_consistent"])
+            self.assertFalse(certification["independently_verified"])
             self.assertEqual(certification["roots"], {"total": 2, "closed": 2})
             self.assertEqual(certification["queries"]["helper"], {"total": 1, "admitting": 1, "closed": 1})
             self.assertEqual(certification["queries"]["physics"], {"total": 3, "admitting": 1, "absorbed": 2, "closed": 3})
             self.assertEqual(report["alias_containment_checks"], 1)
             self.assertEqual(report["partial_anchor_containment_checks"], 1)
             self.assertEqual(report["containment_oracle"]["exact_vs_brute_force_disagreements"], 0)
+
+    def test_verifier_report_must_be_bound_to_the_audited_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_run(Path(temporary))
+            result = run / "result.json"
+            generation = json.loads(result.read_text())["checkpoint"]["generation"]
+
+            def verifier(**change):
+                stat = result.stat()
+                binding = {"canonical_path": str(result.resolve()), "file_bytes": stat.st_size,
+                           "file_mtime_unix_ns": stat.st_mtime_ns, "file_blake3": "0" * 64,
+                           "generation": generation, "generation_matches": True, "records_compared": 6,
+                           "records_mismatched": 0, "records_not_published": 0, "duplicate_rows": 0}
+                report = {"verdict": "PASS", "closure_required": True, "checkpoint": {"generation": generation},
+                          "result_binding": binding, "roots_total": 2, "roots_independently_verified": 2}
+                for key, value in change.items():
+                    if key in binding:
+                        binding[key] = value
+                    else:
+                        report[key] = value
+                path = Path(temporary) / "verify.json"
+                path.write_text(json.dumps(report))
+                return path
+
+            paired = AUDIT.audit_walk(run, require_closure=True, verify_report=verifier())
+            self.assertEqual(paired["audit"], "PASS", paired["violations"])
+            self.assertTrue(paired["verifier_pairing"]["paired"])
+            self.assertTrue(paired["certification"]["independently_verified"])
+            cases = [("changed since the verifier bound it", {"file_bytes": 1}),
+                     ("a different result.json", {"canonical_path": "/elsewhere/result.json"}),
+                     ("checkpoint generation differs", {"generation": generation + 1}),
+                     ("rows differ from the verified generation", {"records_mismatched": 1}),
+                     ("is not PASS", {"verdict": "INCOMPLETE"}),
+                     ("did not require closure", {"closure_required": False}),
+                     ("not every root is independently verified", {"roots_independently_verified": 1}),
+                     ("not every root is independently verified", {"roots_total": None}),
+                     ("bound no result.json", {"result_binding": None})]
+            for fragment, change in cases:
+                with self.subTest(fragment=fragment):
+                    report = AUDIT.audit_walk(run, require_closure=True, verify_report=verifier(**change))
+                    self.assertEqual(report["audit"], "FAIL")
+                    self.assertFalse(report["certification"]["independently_verified"])
+                    self.assertTrue(any(fragment in violation for violation in report["violations"]),
+                                    (fragment, report["violations"]))
 
     def test_ready_alias_whose_representative_streamed_first_is_checked_in_a_second_pass(self):
         with tempfile.TemporaryDirectory() as temporary:
