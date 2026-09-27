@@ -317,11 +317,13 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
     let nd = (ext[7] - ext[6] + 1) as usize;
     let mut dbox = vec![BBox::empty(); nd];
     let t = l.t;
-    let mut test = |x: &[u8; MAXN], sa: i32, sr: i32, cands: &mut Vec<&Anchor>| {
+    let mut grid = Grid::new(&cands, &qa, n);
+    let mut test = |x: &[u8; MAXN], sa: i32, sr: i32, grid: &mut Grid| {
         let a = sa + t;
         let li = sa as usize * lr + sr as usize;
         tot[li] += 1.0;
         let mut hit = false;
+        let cands = grid.cell(x);
         for k in 0..cands.len() {
             if cands[k].hit(n, x, a, sr) {
                 hit = true;
@@ -338,7 +340,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
     };
     let scale;
     if total <= cap {
-        geom::enumerate(q, n, &mut |_, x, sa, sr| test(x, sa, sr, &mut cands));
+        geom::enumerate(q, n, &mut |_, x, sa, sr| test(x, sa, sr, &mut grid));
         ev.exact = true;
         ev.tested = total as usize;
         scale = 1.0;
@@ -346,7 +348,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
         let s = Sampler::new(q, n, &l)?;
         for _ in 0..samples {
             let (x, sa, sr) = s.sample(rng);
-            test(&x, sa, sr, &mut cands);
+            test(&x, sa, sr, &mut grid);
         }
         ev.tested = samples;
         scale = total / samples as f64;
@@ -1171,4 +1173,60 @@ pub fn pilot(dir: &Path, opts: &Opts) {
         eprintln!("pilot: {name} done");
     }
     println!("{}", serde_json::to_string_pretty(&Value::Object(report)).unwrap());
+}
+
+/// Candidate lists bucketed by the query's two widest coordinates, so a
+/// point is tested only against anchors whose range holds its values there.
+struct Grid<'a> {
+    axes: [usize; 2],
+    lo: [u8; 2],
+    dims: [usize; 2],
+    cells: Vec<Vec<&'a Anchor>>,
+}
+impl<'a> Grid<'a> {
+    fn new(cands: &[&'a Anchor], q: &Anchor, n: usize) -> Self {
+        let mut spans: Vec<(usize, usize)> = (0..n).map(|i| ((q.hi[i] - q.lo[i]) as usize + 1, i)).collect();
+        spans.sort_by(|a, b| b.cmp(a));
+        let flat = || Grid { axes: [0, 0], lo: [0, 0], dims: [1, 1], cells: vec![cands.to_vec()] };
+        if cands.len() <= 16 || spans.is_empty() || spans[0].0 < 2 {
+            return flat();
+        }
+        let (i1, i2) = (spans[0].1, if n > 1 && spans[1].0 >= 2 { spans[1].1 } else { spans[0].1 });
+        let two = i1 != i2;
+        let dims = [spans[0].0, if two { spans[1].0 } else { 1 }];
+        let ov = |a: &Anchor, i: usize| -> (usize, usize) {
+            let lo = a.lo[i].max(q.lo[i]);
+            let hi = a.hi[i].min(q.hi[i]);
+            ((lo - q.lo[i]) as usize, (hi - q.lo[i]) as usize)
+        };
+        let entries: usize = cands
+            .iter()
+            .map(|a| {
+                let (l1, h1) = ov(a, i1);
+                let w2 = if two { let (l2, h2) = ov(a, i2); h2 - l2 + 1 } else { 1 };
+                (h1 - l1 + 1) * w2
+            })
+            .sum();
+        let (two, dims) = if entries > 40_000_000 && two { (false, [dims[0], 1]) } else { (two, dims) };
+        let mut cells: Vec<Vec<&Anchor>> = vec![Vec::new(); dims[0] * dims[1]];
+        for &a in cands {
+            let (l1, h1) = ov(a, i1);
+            let (l2, h2) = if two { ov(a, i2) } else { (0, 0) };
+            for v1 in l1..=h1 {
+                for v2 in l2..=h2 {
+                    cells[v1 * dims[1] + v2].push(a);
+                }
+            }
+        }
+        Grid { axes: [i1, if two { i2 } else { i1 }], lo: [q.lo[i1], if two { q.lo[i2] } else { 0 }], dims, cells }
+    }
+    #[inline]
+    fn cell(&mut self, x: &[u8; MAXN]) -> &mut Vec<&'a Anchor> {
+        if self.cells.len() == 1 {
+            return &mut self.cells[0];
+        }
+        let v1 = (x[self.axes[0]] - self.lo[0]) as usize;
+        let v2 = if self.dims[1] > 1 { (x[self.axes[1]] - self.lo[1]) as usize } else { 0 };
+        &mut self.cells[v1 * self.dims[1] + v2]
+    }
 }

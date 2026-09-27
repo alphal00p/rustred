@@ -127,3 +127,38 @@ if __name__ == "__main__":
         saturation(sys.argv[2], sys.argv[3:])
     elif mode == "pilot":
         pilot(sys.argv[2])
+
+
+def owners(rows, sample, aset, top=8):
+    """Per-owner breakdown of one sample / anchor set from the cover rows."""
+    agg = collections.defaultdict(lambda: collections.Counter())
+    for line in open(rows):
+        r = json.loads(line)
+        if r["sample"] != sample:
+            continue
+        e = r["evals"].get(aset)
+        if e is None:
+            continue
+        a = agg[r["owner"]]
+        m = r["mult"]
+        a["draws"] += m
+        pts = e["points"] or 1.0
+        a["full"] += m * (e["uncovered"] == 0)
+        d_res = 0.0 if e["uncovered"] == 0 else e["d_only"][1]
+        a["gate_d"] += m * (d_res <= 0.1 * pts and (e["uncovered"] == 0 or e["d_only"][0] <= 8))
+        h_res = 0.0 if e["uncovered"] == 0 else e["hull"]
+        a["gate_h"] += m * (h_res <= 0.1 * pts)
+        a["unc"] += m * e["uncovered"] / pts
+    total = sum(a["draws"] for a in agg.values())
+    print(f"per owner, {sample} / {aset} (share of draws = share of the sample's weight):")
+    print()
+    print("| owner | share of draws | fully covered | gate D-only | gate hull | mean uncovered fraction |")
+    print("|---|---:|---:|---:|---:|---:|")
+    for o, a in sorted(agg.items(), key=lambda kv: -kv[1]["draws"])[:top]:
+        d = a["draws"]
+        print(f"| {o} | {pct(d / total)} | {pct(a['full'] / d)} | {pct(a['gate_d'] / d)} | {pct(a['gate_h'] / d)} | {pct(a['unc'] / d)} |")
+    print()
+
+
+if __name__ == "__main__" and sys.argv[1] == "owners":
+    owners(sys.argv[2], sys.argv[3], sys.argv[4])
