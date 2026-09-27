@@ -1,0 +1,6 @@
+2026-09-27T14:49:10Z start MemAvailable 816 GiB
+edbe272967c2c9fe9d4cbbefd465c1c51a250610ac019ac1815fef2854bc4312  /common/dev/rustred/TMP/w0/intel/bin/rustred-trace-edbe2729
+pid 823614
+2026-09-27T14:49:15Z first heartbeat after 5 s
+2026-09-27T15:04:16Z stop request
+2026-09-27T15:17:58Z exit 0 after 1728 s
