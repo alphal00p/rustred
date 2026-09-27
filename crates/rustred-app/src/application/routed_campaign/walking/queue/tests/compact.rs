@@ -334,9 +334,9 @@ fn campaign_query_bounds_are_inside_the_compact_range() {
 fn compact_state_size_of_is_within_budget() {
     use std::mem::size_of;
     assert_eq!(size_of::<CompactDomain<15>>(), 96);
-    assert_eq!(size_of::<CompactSummary<15>>(), 176);
+    assert_eq!(size_of::<CompactSummary<15>>(), 92);
     assert!(size_of::<CompactDomain<16>>() <= 104);
-    assert!(size_of::<CompactSummary<16>>() <= 184);
+    assert!(size_of::<CompactSummary<16>>() <= 96);
     // Exact-map entry: 64-bit digest key and the ID.
     assert_eq!(size_of::<(Digest, usize)>(), 16);
     // Transport types, for the record: what one queued ID used to retain
@@ -349,15 +349,14 @@ fn compact_state_size_of_is_within_budget() {
         + size_of::<DomainPowerSummary<15>>()
         + size_of::<(std::sync::Arc<Domain<15>>, usize)>()
         + size_of::<u64>();
+    // Immutable per-ID summary; the filter word lives in the index block.
     let new = size_of::<CompactDomain<15>>()
         + size_of::<CompactSummary<15>>()
-        + size_of::<u32>()
-        + size_of::<(Digest, usize)>()
-        + size_of::<u64>();
+        + size_of::<(Digest, usize)>();
     assert!(size_of::<DomainPowerSummary<15>>() >= 500);
     assert!(2 * new < old, "old {old} B, new {new} B");
     println!(
-        "per-ID payload bytes before allocator/table overhead: old {old}, new {new} (summary slot freed on retirement)"
+        "per-ID payload bytes before allocator/table overhead: old {old}, new {new} (immutable per-ID summary; index blocks excluded)"
     );
 }
 

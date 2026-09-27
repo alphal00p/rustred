@@ -449,7 +449,7 @@ const DIFFERENCE_LOWER_NONE: u8 = 1 << 3;
 const DIFFERENCE_UPPER_NONE: u8 = 1 << 4;
 /// Extrema outside the compact ranges; compare the rebuilt native summary.
 const WIDE: u8 = 1 << 5;
-const INFINITE_EXTREMUM: u32 = u32::MAX;
+const INFINITE_EXTREMUM: u16 = u16::MAX;
 
 /// A present value narrowed to `T`, or the canonical zero with `bit` set in
 /// `flags` for an absent one. None when a present value does not fit.
@@ -463,22 +463,24 @@ fn optional<W, T: TryFrom<W> + Default>(value: Option<W>, bit: u8, flags: &mut u
     }
 }
 
-/// Tight native extrema of one live candidate, 176 bytes at N=15 (the native
-/// `DomainPowerSummary<15>` is about 560 bytes).
+/// Tight native extrema of one admitted domain, 92 bytes at N=15 (the native
+/// `DomainPowerSummary<15>` is about 560 bytes). Kept for every admitted ID,
+/// so the widths are the campaign's needs: coordinates below 65535, A and R
+/// below 2^32, D within i32; anything else is `wide` (exact native fallback).
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) struct CompactSummary<const N: usize> {
-    flags: u8,
     owner: u32,
-    lower: [u32; N],
+    positive_lower: u32,
+    positive_upper: u32,
+    numerator_lower: u32,
+    numerator_upper: u32,
+    difference_lower: i32,
+    difference_upper: i32,
+    lower: [u16; N],
     /// `INFINITE_EXTREMUM` is +infinity; every finite value is smaller.
-    upper: [u32; N],
-    positive_lower: u64,
-    positive_upper: u64,
-    numerator_lower: u64,
-    numerator_upper: u64,
-    difference_lower: i64,
-    difference_upper: i64,
+    upper: [u16; N],
+    flags: u8,
 }
 
 impl<const N: usize> CompactSummary<N> {
@@ -518,9 +520,9 @@ impl<const N: usize> CompactSummary<N> {
         let mut lower = [0; N];
         let mut upper = [INFINITE_EXTREMUM; N];
         for axis in 0..N {
-            lower[axis] = u32::try_from(extrema.lower()[axis]).ok()?;
+            lower[axis] = u16::try_from(extrema.lower()[axis]).ok()?;
             if let Some(value) = extrema.upper()[axis] {
-                upper[axis] = u32::try_from(value)
+                upper[axis] = u16::try_from(value)
                     .ok()
                     .filter(|&v| v != INFINITE_EXTREMUM)?;
             }
@@ -533,9 +535,9 @@ impl<const N: usize> CompactSummary<N> {
             owner,
             lower,
             upper,
-            positive_lower: u64::try_from(a_lower).ok()?,
+            positive_lower: u32::try_from(a_lower).ok()?,
             positive_upper: optional(a_upper, POSITIVE_UPPER_NONE, &mut flags)?,
-            numerator_lower: u64::try_from(r_lower).ok()?,
+            numerator_lower: u32::try_from(r_lower).ok()?,
             numerator_upper: optional(r_upper, NUMERATOR_UPPER_NONE, &mut flags)?,
             difference_lower: optional(d_lower, DIFFERENCE_LOWER_NONE, &mut flags)?,
             difference_upper: optional(d_upper, DIFFERENCE_UPPER_NONE, &mut flags)?,
@@ -563,7 +565,7 @@ impl<const N: usize> CompactSummary<N> {
             return Some(false);
         }
         let none = |summary: &Self, bit: u8| summary.flags & bit != 0;
-        let upper = |bit: u8, container: u64, candidate_value: u64| {
+        let upper = |bit: u8, container: u32, candidate_value: u32| {
             none(self, bit) || (!none(candidate, bit) && candidate_value <= container)
         };
         Some(
@@ -599,8 +601,8 @@ impl<const N: usize> CompactSummary<N> {
             return None;
         }
         let none = |bit: u8| self.flags & bit != 0;
-        let upper = |bit: u8, value: u64| (!none(bit)).then_some(u128::from(value));
-        let signed = |bit: u8, value: i64| (!none(bit)).then_some(i128::from(value));
+        let upper = |bit: u8, value: u32| (!none(bit)).then_some(u128::from(value));
+        let signed = |bit: u8, value: i32| (!none(bit)).then_some(i128::from(value));
         Some(Lanes::build(super::index::LaneSource {
             lower: &|axis| u128::from(self.lower[axis]),
             upper: &|axis| {
@@ -655,7 +657,7 @@ impl<const N: usize> CompactSummary<N> {
             return Some(Signature::Empty);
         }
         let none = |bit: u8| self.flags & bit != 0;
-        let upper = |bit: u8, value: u64| {
+        let upper = |bit: u8, value: u32| {
             if none(bit) {
                 Upper::Infinity
             } else {
@@ -683,8 +685,8 @@ impl<const N: usize> CompactSummary<N> {
             return self.flags == EMPTY;
         };
         let none = |bit: u8| self.flags & bit != 0;
-        let upper = |bit: u8, value: u64| (!none(bit)).then_some(u128::from(value));
-        let signed = |bit: u8, value: i64| (!none(bit)).then_some(i128::from(value));
+        let upper = |bit: u8, value: u32| (!none(bit)).then_some(u128::from(value));
+        let signed = |bit: u8, value: i32| (!none(bit)).then_some(i128::from(value));
         self.flags & EMPTY == 0
             && (0..N).all(|axis| {
                 u64::from(self.lower[axis]) == extrema.lower()[axis]
