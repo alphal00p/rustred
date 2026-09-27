@@ -356,11 +356,12 @@ impl DiagnosticPause {
 }
 
 /// One checkpoint opportunity of a diagnostic walk: the first time the
-/// trigger holds, persist exactly that state under the label, journal the
-/// trigger and cancel the way a stop request does; the walk's own forced save
-/// after cancellation carries the same label. Taking `pause` makes it fire at
-/// most once per session. Returns whether it fired (the caller then skips its
-/// ordinary interval save).
+/// trigger holds, persist exactly that state under the label (its closure
+/// snapshot included, see below), journal the trigger and cancel the way a
+/// stop request does; the walk's own final save after cancellation carries
+/// the same label. Taking `pause` makes it fire at most once per session.
+/// Returns whether it fired (the caller then skips its ordinary interval
+/// save).
 fn diagnostic_checkpoint<const N: usize>(
     pause: &mut Option<DiagnosticPause>,
     store: &mut checkpoint::Store,
@@ -376,8 +377,11 @@ fn diagnostic_checkpoint<const N: usize>(
     store.mark_diagnostic_pause(pause.name());
     // Forced like every non-periodic save. The walk cancels right after it
     // and ends with its own final save, so, like that one, it persists the
-    // edge log without folding it (`SaveKind::Final`); the run's cancellation
-    // is not set yet, so the pre-save closure refresh runs to completion.
+    // edge log without folding it (`SaveKind::Final`). The pre-save closure
+    // refresh is never cut, even when a stop request or a journal failure
+    // has already set the run's cancellation, so the closure snapshot is the
+    // triggering state's unless scratch memory is short (then the previous
+    // snapshot, stale but valid).
     if let Some(event) = store.save_cancellable(
         state,
         inputs,
