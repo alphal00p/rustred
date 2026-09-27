@@ -7,7 +7,8 @@ Scope:
   u32 CSR-by-target edges plus a bounded append log folded after saves.
 - Review finding #11 of
   [`fable51_review_checkpoint_branch_2026-09-26.md`](fable51_review_checkpoint_branch_2026-09-26.md):
-  the pre-save closure refresh is timed and cancellable.
+  the pre-save closure refresh is timed and cancellable. The wave-2 fix
+  round withdrew the cancellability (see "Wave-2 fix round").
 
 Branch `fable_5_1-c2-csr` ("c2" in the branch names means package C,
 wave 2; this is item C3). Commits `8e4503d3`, `f831f8b4`, `06e9fc0e`,
@@ -74,6 +75,9 @@ worktree logs and the benchmark receipts are under
     cancellation or when scratch allocation fails, instead of disabling
     the monitor inside the save. A stale snapshot is valid: closed nodes
     stay closed, and counters match the flags.
+  - Superseded in part by the wave-2 fix round (`67c8125d`): the
+    pre-save scan is again never cut by cancellation, as in 102adcc3.
+    The timing change and the scratch-shortage behaviour stay.
 - **Late stop requests (`114d0303`).** `State::report_cancellation` returns
   a never-set flag when the walk exhausted its worklist without pausing or
   failing, and the run's cancellation otherwise. The final save and the
@@ -134,6 +138,12 @@ Compatibility:
   2. A cancelled periodic or initial save persists a stale-but-valid
      snapshot (`snapshot_revision < revision`). Restore accepts that, both
      here and, per review #11, in the fable_5_1 restore code.
+     - Correction (wave-2 fix round): this item missed the common case.
+       The walk's final save after a stop request also ran with the
+       run's (set) flag, so every paused generation persisted the last
+       throttled snapshot, and every resume control's paused receipt
+       shows it (see "Wave-2 fix round"). `67c8125d` removed the whole
+       item: no save's pre-save scan is cut any more.
   3. A scratch allocation failure in the save path keeps the monitor on
      (102adcc3 disabled it for good).
   4. `save_seconds` now includes the pre-save scan, so the adaptive
@@ -470,6 +480,129 @@ run elapsed 32,878 s, file time 2026-09-27 00:22 UTC) shows:
 
   The other integration gates are recorded separately (`wave2-*`).
 
+## Wave-2 fix round
+
+Review of the merged `fable_5_1-wave2` head, finding "paused checkpoints
+persist a stale closure snapshot, while 102adcc3 always refreshed before
+saving" (confirmed by both verifiers).
+
+- **Cause.** Review #11 let the run's cancellation cut the pre-save scan
+  (`Tracker::scan` checks the flag at node 0). The walk's final save
+  passed `State::report_cancellation`, which is the run's (set) flag
+  whenever `checkpoint_paused`. Every paused generation written after a
+  stop request therefore persisted the last throttled in-loop snapshot:
+  the `nodes-<G>.bin` CLOSED bits and the meta closure `total_closed`,
+  `initial_closed` and `snapshot_revision` differed from what 102adcc3
+  writes for the same state. The exhausted-run gates could not see it,
+  because an exhausted walk gets the never-set flag.
+- **Seen in the merged binary's controls** (`run1/result.json`, the
+  paused receipt, which reports what the paused save persisted):
+  - `rustred-53e672fc` (sha256
+    `53e672fc3c082b2bbe696bd37c5badff346c5191b3cb0b010d80fa70b9534d90`),
+    `wave2-resume-rollback-ord/fg`: graph_revision 478,996,
+    snapshot_revision 113,121, `snapshot_stale` true, total_closed 2,056.
+    `wave2-resume-self/fg` and `wave2-resume-rollback-ready/fg` are
+    stale in the same way.
+  - `rustred-102adcc3`, `wave2-resume-ord/fg`: 475,142 = 475,142,
+    `snapshot_stale` false, total_closed 39,730.
+  - The stop points differ, so these are not same-state pairs.
+- **Fix (`67c8125d`).** `Tracker::refresh_before_save` takes no flag and
+  always scans with a never-set one, for every save kind, as 102adcc3
+  did. Periodic and Forced are included: on an exhausted walk, a
+  periodic save cut after a stop request would capture the final stamp,
+  and the final save would then skip as unchanged. The run's
+  cancellation still suppresses the post-save fold (Final never folds).
+  A scratch shortage still keeps the previous, stale-but-valid snapshot
+  and the monitor on (item 3 above). Compatibility item 2 is withdrawn.
+  - Cost: one uncancellable scan per stop, as in 102adcc3. In the paused
+    flow this is no slower than before the fix: the stop's final save
+    scans once, and a periodic scan that completed leaves it nothing to
+    do. The measured 102adcc3 production scan is 57.3 s at 787M edges
+    (above). The CSR scan at that scale is not measured.
+- **Diagnostic pause (`1d98b623`).** The same finding's twin, on
+  `diagnostic_checkpoint`, is resolved by this fix. Its save now persists
+  the triggering state's closure even with a pending stop request. The
+  comment says so; the gate note corrects the `f919e9be` merge note.
+- **Tests.**
+  - `saves_under_a_stop_request_persist_a_current_closure_snapshot`:
+    Forced and paused Final saves with the flag set persist current
+    closed counts. Restore still accepts a stale-but-valid snapshot,
+    rewritten into the meta section.
+  - `save_path_refresh_is_never_throttled_and_keeps_the_monitor`.
+  - The Ready multi-prefix gate test now resumes a real paused
+    generation and requires a non-stale closure (`001c4278`).
+
+### Fix-round gates (binary `rustred-c3d83cf2`, sha256 `c3d83cf2a87ac768706c869e58cedcc55c5cef95ec6486bb42595a1856c23e0a`)
+
+Head `001c4278`: `fable_5_1-wave2` with `fable_5_1-scale-restore`
+merged (`7f1bf35d`) plus the three fix commits. Built with
+`cargo build --release --locked --offline` (the test build produced the
+same sha256). Worktree logs are under
+`.claude/worktrees/agent-ade877816b107b1cf/TMP/wave2fix/`. Controls ran on
+CPUs 244-249 (102adcc3) and 250-255 (new), the suites on 212-243.
+
+- **(a) fmt.** `cargo fmt --all -- --check` is clean (`fmt.log`).
+- **(b) Rust suites.** `SYMBOLICA_LICENSE` confirmed (`license-set` in
+  each log).
+  - Lib: 777 passed / 0 failed / 6 ignored, twice (`suite-run1.log`,
+    `suite-run2.log`). The sixth ignored test is the scale-restore
+    branch's `restore_copied_production_checkpoint`.
+  - `cli_routed_campaign`: 6 passed (`cli-routed-campaign.log`).
+  - The gate test ran its licensed path with `--nocapture`
+    (`gate-test-nocapture.log`): `ready_multi_prefix_gate domains=6
+    events=2097168 completed=6 paused_published=1 paused_watermark=0`.
+- **(d) Python.** 225 tests OK, 1 skipped (`python-suite.log`).
+- **(e) Four-loop Ordered, strict.** `wave2-ref102-fix/<F>` (102adcc3) vs
+  `wave2-new-fix/<F>` (`compare-strict-vs-ref102-fix.json`): 0 differing
+  records for FG (98,909) and BMW (158,951).
+  - The verdict prints FAIL only for `descendant_closure`. The keys that
+    differ there are timing (`last_refresh_seconds`, `refresh_seconds`,
+    `snapshot_age_seconds`), the two layout estimates and, for BMW only,
+    `refresh_count` (8 vs 7). That count is wall-clock dependent: it
+    counts throttled periodic scans. `dependency_edges`, `graph_revision`,
+    `total_closed` and `initial_closed` are equal.
+  - Checkpoints (`section-digests-vs-ref102-fix.json`, script
+    `TMP/wave2fix/section_digests.py`): both end at generation 3. The
+    domains, edges, index, ledger and nodes digests are identical. The
+    records files differ in bytes only through timing keys: 0 of 98,909
+    (FG) and 0 of 158,951 (BMW) records differ once `seconds`,
+    `*_seconds` and `*_unix_time` are removed. The meta closure counters
+    are equal except `refresh_count`.
+  - Audit PASS on both new runs.
+  - FG Ready: `wave2-new-fix-ready/fg` vs `wave2-ref102-fix-ready/fg`,
+    multiset PASS (98,846 native, 40 delegated, 160 partial on both
+    sides); audit PASS on both.
+  - Wall time (informational; the two binaries ran concurrently on
+    separate CPUs), whole command / traversal s, 102adcc3 -> new: FG
+    17.5 / 13.3 -> 15.5 / 12.2, BMW 41.0 / 36.0 -> 33.0 / 28.1, FG Ready
+    16.5 / 13.0 -> 15.0 / 11.1.
+- **(f) Resume** (FG, stop at 40,000 committed; `report.json`,
+  `compare.json`):
+
+| Label | First -> second | Policy | Committed at stop | first_exit | resume_exit | Compare | Paused receipt (graph / snapshot revision, stale, total_closed) |
+|---|---|---|---:|---:|---:|---|---|
+| `wave2-resume-ord-fix` | 102adcc3 -> c3d83cf2 | Ordered | 60,758 | 4 | 0 | strict: 0 differing records | 471,398 / 471,398, false, 39,506 |
+| `wave2-resume-ready-fix` | 102adcc3 -> c3d83cf2 | Ready | 65,279 | 4 | 0 | multiset PASS vs `wave2-ref102-fix-ready` | 504,014 / 504,014, false, 44,291 |
+| `wave2-resume-rollback-ord-fix` | c3d83cf2 -> 102adcc3 | Ordered | 63,091 | 4 | 0 | strict: 0 differing records | 487,564 / 487,564, false, 42,591 |
+
+  - The strict comparisons print FAIL only for the same keys as the
+    pre-fix `wave2-resume-*` controls: the timing and estimate keys and
+    `refresh_count` in `descendant_closure`, plus
+    `uncommitted_inspections` (162 and 213 entries carried from the
+    paused session on the resumed side, 0 in the uninterrupted
+    reference).
+  - The rollback row is the fix, seen in a fresh process. The paused
+    generation written by the new binary now carries a current snapshot
+    (`snapshot_stale` false, snapshot_revision = graph_revision), as
+    102adcc3's paused generations do. 102adcc3 restored it (generation 3)
+    and finished with 0 differing records.
+  - Inference, not a same-state measurement: the scan is a deterministic
+    function of the sealed flags and the edges. A current snapshot
+    therefore has the CLOSED bits and closed counts that 102adcc3's
+    never-cut scan computes for the same state. No control compared a
+    paused generation byte for byte with 102adcc3 at an identical stop
+    point, because the stop file makes the stop point timing-dependent.
+
 ## Open issues
 
 - **Fold-then-continue on real data.** No control ran a periodic save in
@@ -493,8 +626,13 @@ run elapsed 32,878 s, file time 2026-09-27 00:22 UTC) shows:
   102adcc3 accepts such a segment has not been exercised. Neither case is
   reachable in the production save flow at current scale.
 - **Rollback.** Rollback was measured only with the merged wave-2 binary,
-  not with `9f92cdb9` alone. A stale-but-valid snapshot written by a
-  cancelled save has not been restored by 102adcc3 in a control.
+  not with `9f92cdb9` alone.
+  - Correction: a stale-but-valid snapshot has been restored by 102adcc3.
+    `wave2-resume-rollback-ord/fg` resumed generation 3, written by
+    `rustred-53e672fc` with `snapshot_stale` true (`run1/result.json`:
+    graph_revision 478,996, snapshot_revision 113,121), and exited 0 with
+    0 differing records. Since `67c8125d`, only a save short of scratch
+    memory can write such a snapshot.
 - **Stale binaries.** `rustred-44c4dae7` (defective draft) must not be
   used. `rustred-0b69fd1a` is superseded by `rustred-9f92cdb9`, and the
   merged binary supersedes both.

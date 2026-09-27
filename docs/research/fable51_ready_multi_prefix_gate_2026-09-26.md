@@ -90,6 +90,47 @@ license-free unit tests. Licensed run output (release suite, CPUs 200-211):
 content is small by construction. Heavy native content is covered by the
 fresh-process runs below.)
 
+### After the merge into fable_5_1-wave2 (fix round, `001c4278`)
+
+The description above is the B2 branch's. The C1 and C3 merges changed the
+production save path under the test: `walking::run` attaches the record
+sidecar before the first commit (every save seals a segment), and its save
+after cancellation became `save_cancellable(SaveKind::Final, <run's
+cancellation>)`. The merged test still used an in-memory record sink over a
+`Fixture::save` state manifest and a test-only forced save with a never-set
+flag (wave-2 review finding, confirmed). It now:
+
+- sets the store up as a fresh checkpointed walk does: an empty directory
+  (`Fixture::fresh`), bootstrap, owner binding, `attach_records` on the
+  walk's state and the initial forced save;
+- copies the triggering generation (`latest.json` and every file it
+  references, sealed record segments included; `Fixture::copy_latest`)
+  when the pause fires, instead of saving the state again through a second
+  store, which a sidecar-backed state refuses;
+- makes production's post-cancellation call, `SaveKind::Final` with the
+  run's cancellation set;
+- requires both manifests to tile every committed record from record 0 in
+  sidecar segments present on disk, and both resumed generations to carry
+  an available, non-stale closure snapshot, before the unchanged
+  resume-to-exhaustion equality with the gated baseline.
+
+Licensed run at `001c4278` (release, CPUs 212-243, `--nocapture`; log
+`TMP/wave2fix/gate-test-nocapture.log` in the wave-2 worktree), with the same
+schedule figures as above:
+
+    ready_multi_prefix_gate domains=6 events=2097168 completed=6 paused_published=1 paused_watermark=0
+
+Correction to the merge note of `f919e9be` (not amended): it says the
+diagnostic save's pre-save closure refresh runs to completion because the
+run's cancellation is not set yet, so the triggering state is persisted
+"exactly as B2 intended". The stop-file monitor and a journal failure set
+the same flag, so a stop request racing the triggering publication would
+have cut that refresh under C3's review #11 behaviour and left the previous
+(stale but valid) closure snapshot in the labelled generation. Since
+`67c8125d` no save's pre-save scan is cut by cancellation, so the statement
+holds, except when scratch memory is short (then the previous snapshot is
+persisted, as for every save).
+
 ## Fresh-process gate, binary 63e57c8a
 
 Binary `TMP/fable51-controls/bin/rustred-63e57c8a`, sha256
