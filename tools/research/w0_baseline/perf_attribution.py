@@ -303,6 +303,11 @@ def attribute(perf, data, role="coordinator", top=30, tids=None, cache=None):
                                                 if k not in ("unattributed", "coordinator_loop_other",
                                                              "commit_chunk_other")) / m
         out["attributed_share"] = 1 - buckets.get("unattributed", 0) / n
+        # Gate 0.5 "duty bucket" share: samples in a named duty bucket, i.e. excluding
+        # the loop and commit_chunk bodies outside the timers and unattributed samples.
+        out["duty_bucket_share"] = sum(v for k, v in buckets.items()
+                                       if k not in ("unattributed", "coordinator_loop_other",
+                                                    "commit_chunk_other")) / n
         out["top_anchors"] = [[round(100 * c / n, 2), b, s] for (b, s), c in anchors.most_common(top)]
         out["top_unattributed_chains"] = [[round(100 * c / n, 2), k] for k, c in unattributed.most_common(15)]
     else:

@@ -226,6 +226,11 @@ def main():
                 slices.append({"from_T_seconds": start["observed_unix_time"] - a["observed_unix_time"],
                                "duty": duty_between(start, r), "rate": rate_between(start, r)})
                 start = r
+        # The trailing remainder (run2: 297 s) is kept when it spans at least 2 min.
+        tail = pre_stop[-1]
+        if tail is not start and tail["observed_unix_time"] - start["observed_unix_time"] >= 120:
+            slices.append({"from_T_seconds": start["observed_unix_time"] - a["observed_unix_time"],
+                           "partial": True, "duty": duty_between(start, tail), "rate": rate_between(start, tail)})
         out["slices_5min"] = slices
     for tag, win in windows.items():
         if "end_unix_time" not in win:
@@ -328,6 +333,9 @@ def main():
             else:
                 entry["attribution"] = perf_attribution.attribute(args.perf, data, role="worker")
             perf_out[data.name] = entry
+            # Stand-alone copy, named like run1's hand-made attr-<window>-<class>.json files.
+            attr_path = run / ("attr-" + data.stem[len("perf-"):] + ".json")
+            json.dump(entry["attribution"], open(attr_path, "w"), indent=1)
         out["perf"] = perf_out
     json.dump(out, open(run / "analysis.json", "w"), indent=1)
     print(json.dumps(out, indent=1)[:20000])
