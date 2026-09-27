@@ -4,13 +4,18 @@
 //! the manifests; `meta-<G>.json`, `nodes-<G>.bin`, `ledger-<G>.bin` and
 //! `index-<G>.bin` are rewritten each generation; `domains-<S>.bin`,
 //! `edges-<S>.bin` and `records-<S>.jsonl` are append-only segments that tile
-//! their section, so a save costs O(new state) plus the small sections. Every
-//! digest is computed while writing; resume verifies every referenced file in
-//! parallel before decoding. Resume is bound to the request/policy digest,
+//! their section, so a save costs O(new state) plus the small sections. A
+//! checkpointed walk streams its records into the open `records-<G>.jsonl`
+//! at commit time (`execution/records.rs`); the save seals that segment
+//! instead of writing records from RAM. Every digest is computed while
+//! writing; resume verifies every referenced file in parallel before
+//! decoding. Resume is bound to the request/policy digest,
 //! the owner digests and `WALK_SEMANTICS_VERSION`; the executable digest is
 //! recorded and reported, never a refusal.
 pub(super) mod manifest;
 pub(super) mod restore;
+#[cfg(all(test, feature = "cli"))]
+mod scale_tests;
 pub(super) mod sections;
 #[cfg(test)]
 pub(super) mod test_support;
@@ -18,7 +23,10 @@ pub(super) mod test_support;
 use super::{
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkSchedulingPolicy,
     WALK_SEMANTICS_VERSION,
-    execution::{ChangeStamp, State},
+    execution::{
+        ChangeStamp, State,
+        records::{RecordSink, Sidecar},
+    },
 };
 use crate::application::atomic_file::{write_file_atomically, write_file_atomically_with};
 /// Bound every reader of `latest.json` shares with the store.
@@ -36,9 +44,21 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+
+/// The role of one save. `Periodic` waits for the interval; `Forced` and
+/// `Final` write unless nothing changed. Only a save after which the walk
+/// continues folds the persisted edge log into the CSR: after the final save
+/// the process reports and exits, and a resume rebuilds a folded CSR anyway,
+/// so a fold there would only add an uncancellable allocation spike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SaveKind {
+    Periodic,
+    Forced,
+    Final,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnerDomainWalkCheckpointOptions {
@@ -72,6 +92,10 @@ pub(super) struct Store {
     last_stamp: Option<ChangeStamp>,
     verify_seconds: f64,
     pending_events: Vec<Value>,
+    /// Label of a diagnostic pause this process triggered; every later save
+    /// of the session repeats it in the manifest metadata (a free-form
+    /// object, so older readers and older manifests are unaffected).
+    diagnostic_pause: Option<&'static str>,
     #[cfg(test)]
     fail_section: Option<Section>,
     #[cfg(test)]
@@ -134,6 +158,22 @@ fn write_section(
         Ok(())
     })?;
     digest.ok_or_else(|| "checkpoint section digest missing".into())
+}
+/// Smallest generation above `after` with no section file of ours: orphans
+/// of a failed save or a crashed sidecar keep their generation to themselves.
+pub(super) fn next_free_generation(directory: &Path, after: u64) -> Result<u64, String> {
+    let mut generation = after
+        .checked_add(1)
+        .ok_or("checkpoint generation overflow")?;
+    while Section::ALL
+        .iter()
+        .any(|s| directory.join(s.file_name(generation)).exists())
+    {
+        generation = generation
+            .checked_add(1)
+            .ok_or("checkpoint generation overflow")?;
+    }
+    Ok(generation)
 }
 /// Segments retained from the previous generation plus the new tail.
 struct Plan {
@@ -284,6 +324,7 @@ impl Store {
             last_stamp: None,
             verify_seconds,
             pending_events,
+            diagnostic_pause: None,
             #[cfg(test)]
             fail_section: None,
             #[cfg(test)]
@@ -350,6 +391,10 @@ impl Store {
     }
     pub(super) fn metadata(&self) -> Option<&Value> {
         self.manifest.as_ref().map(|m| &m.metadata)
+    }
+    /// Label every later save of this session as a diagnostic pause.
+    pub(super) fn mark_diagnostic_pause(&mut self, label: &'static str) {
+        self.diagnostic_pause = Some(label);
     }
     fn effective_interval(&self) -> f64 {
         (self.options.interval_seconds as f64).max(20.0 * self.last_save_seconds)
@@ -484,24 +529,42 @@ impl Store {
         errors
     }
     fn next_generation(&self) -> Result<u64, String> {
-        let mut generation = self
-            .manifest
-            .as_ref()
-            .map_or(Some(1), |m| m.generation.checked_add(1))
-            .ok_or("checkpoint generation overflow")?;
-        // Orphans of a failed save keep their generation number to themselves.
-        while Section::ALL.iter().any(|s| {
-            self.options
-                .directory
-                .join(s.file_name(generation))
-                .exists()
-        }) {
-            generation = generation
-                .checked_add(1)
-                .ok_or("checkpoint generation overflow")?;
-        }
-        Ok(generation)
+        next_free_generation(
+            &self.options.directory,
+            self.manifest.as_ref().map_or(0, |m| m.generation),
+        )
     }
+    /// Route committed records into this directory's sidecar before the walk
+    /// commits anything: a fresh walk's empty in-memory sink becomes a sidecar
+    /// whose first segment takes the next free generation; a restored sidecar
+    /// must already belong to this directory.
+    pub(super) fn attach_records<const N: usize>(&self, state: &State<N>) -> Result<(), String> {
+        let mut sink = state.records.borrow_mut();
+        match &mut *sink {
+            RecordSink::Sidecar(sidecar) => {
+                if sidecar.directory() != self.options.directory {
+                    return Err("record sidecar belongs to another checkpoint directory".into());
+                }
+            }
+            RecordSink::Memory(records) => {
+                if self.manifest.as_ref().is_some_and(|m| m.kind == "state") {
+                    return Err(
+                        "saved walk state must be resumed with its record sidecar, not an in-memory prefix"
+                            .into(),
+                    );
+                }
+                let mut sidecar =
+                    Sidecar::new(self.options.directory.clone(), self.next_generation()?);
+                for record in std::mem::take(records) {
+                    sidecar.push(&record)?;
+                }
+                *sink = RecordSink::Sidecar(sidecar);
+            }
+        }
+        Ok(())
+    }
+    /// `save_cancellable` for tests that never cancel.
+    #[cfg(test)]
     pub(super) fn save<const N: usize>(
         &mut self,
         state: &State<N>,
@@ -510,6 +573,28 @@ impl Store {
         force: bool,
         observer: &impl Fn(Value),
     ) -> Result<Option<Value>, String> {
+        let never = AtomicBool::new(false);
+        let kind = if force {
+            SaveKind::Forced
+        } else {
+            SaveKind::Periodic
+        };
+        self.save_cancellable(state, inputs, frontiers, kind, &never, observer)
+    }
+    /// Write one generation when the interval elapsed (or the save is not
+    /// `Periodic`). The run's `cancellation`, once set, suppresses the
+    /// post-save fold of the edge log; it never cuts the pre-save closure
+    /// refresh, whose snapshot the generation persists.
+    pub(super) fn save_cancellable<const N: usize>(
+        &mut self,
+        state: &State<N>,
+        inputs: &[Value],
+        frontiers: &[Value],
+        kind: SaveKind,
+        cancellation: &AtomicBool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<Value>, String> {
+        let force = kind != SaveKind::Periodic;
         if !force && self.last.elapsed().as_secs_f64() < self.effective_interval() {
             return Ok(None);
         }
@@ -532,21 +617,49 @@ impl Store {
             );
             return Ok(None);
         }
-        // Persisted closed counts are current, not a throttled stale snapshot.
-        state
-            .closure
-            .borrow_mut()
-            .refresh(&AtomicBool::new(false), true);
+        // The pre-save scan is part of the save's cost (and of the adaptive
+        // interval). As in 102adcc3, the persisted CLOSED bits and closed
+        // counts are current even while the run is being cancelled: a paused
+        // generation matches the one 102adcc3 writes for the same state. Only
+        // short scratch persists the previous snapshot (stale but valid) and
+        // keeps the monitor enabled.
         let started = Instant::now();
+        state.closure.borrow_mut().refresh_before_save();
         let started_unix_time = unix_time()?;
-        let generation = self.next_generation()?;
         let directory = self.options.directory.clone();
+        // A sidecar's open segment already reserved this save's generation.
+        let generation = match &*state.records.borrow() {
+            RecordSink::Sidecar(sidecar) => {
+                if sidecar.directory() != directory
+                    || self
+                        .manifest
+                        .as_ref()
+                        .is_some_and(|m| sidecar.generation() <= m.generation)
+                {
+                    return Err(
+                        "record sidecar does not belong to this checkpoint generation".into(),
+                    );
+                }
+                sidecar.generation()
+            }
+            RecordSink::Memory(_) => self.next_generation()?,
+        };
         let meta_path = directory.join(Section::Meta.file_name(generation));
         observer(
             json!({"event":"checkpoint_started","operation":"owner_domain_walk",
             "checkpoint_write":{"state":"writing","directory":directory,"generation":generation,"state_path":meta_path,"started_unix_time":started_unix_time},
             "committed_domains":state.published_count(),"contiguous_publication_watermark":state.queue.next,"committed_events":state.events,"family_closure_claim":false}),
         );
+        // Seal the records committed since the previous save; the next
+        // segment takes the next free generation after this one.
+        let seal_started = Instant::now();
+        let sealed = match &mut *state.records.borrow_mut() {
+            RecordSink::Sidecar(sidecar) => {
+                Some(sidecar.seal(generation, next_free_generation(&directory, generation)?)?)
+            }
+            RecordSink::Memory(_) => None,
+        };
+        let seal_seconds = seal_started.elapsed().as_secs_f64();
         let identity = Identity {
             arity: N,
             ready: state.ready(),
@@ -560,13 +673,32 @@ impl Store {
         let closure_ref = state.closure.borrow();
         let closure: &super::descendant_closure::Tracker = &closure_ref;
         let domains = state.queue.domains.as_slice();
-        let records = state.records.as_slice();
+        let records_ref = state.records.borrow();
         let domains_plan = plan(previous.and_then(|s| s.domains.as_ref()), domains.len());
+        // Folded edges gave up their insertion order: a retained tiling that
+        // ends inside them (another store's) cannot be extended, only re-tiled.
         let edges_plan = plan(
-            previous.and_then(|s| s.edges.as_ref()),
+            previous
+                .and_then(|s| s.edges.as_ref())
+                .filter(|p| p.total >= closure.folded_edge_count() as u64),
             closure.edge_count(),
         );
-        let records_plan = plan(previous.and_then(|s| s.records.as_ref()), records.len());
+        let edges_total = edges_plan.first + edges_plan.count;
+        // In-memory records (non-sidecar states in tests) are written from RAM.
+        let (records, records_plan) = match &*records_ref {
+            RecordSink::Memory(records) => (
+                records.as_slice(),
+                plan(previous.and_then(|s| s.records.as_ref()), records.len()),
+            ),
+            RecordSink::Sidecar(sidecar) => (
+                &[][..],
+                Plan {
+                    keep: sidecar.closed().to_vec(),
+                    first: sidecar.sealed_total(),
+                    count: 0,
+                },
+            ),
+        };
         let buckets = state.queue.checkpoint_buckets();
         let ledger = state.queue.checkpoint_ledger();
         let ledger_entries = state.queue.delegation.as_ref().map_or(0, |l| l.len());
@@ -685,6 +817,7 @@ impl Store {
             }
         });
         drop(closure_ref);
+        drop(records_ref);
         let mut written = Vec::new();
         for slot in slots {
             written.push(slot.ok_or("checkpoint section writer did not run")??);
@@ -692,6 +825,10 @@ impl Store {
         let mut new_sections = Sections::default();
         let mut new_bytes = 0u64;
         let mut section_seconds = json!({});
+        if let Some(Some(segment)) = &sealed {
+            new_bytes += segment.bytes;
+            section_seconds[Section::Records.name()] = json!(seal_seconds);
+        }
         for w in &written {
             new_bytes += w.bytes;
             section_seconds[w.section.name()] = json!(w.seconds);
@@ -755,8 +892,17 @@ impl Store {
             "bytes":manifest.total_bytes(),"new_bytes":new_bytes,"section_seconds":section_seconds,
             "started_unix_time":started_unix_time,"save_seconds":started.elapsed().as_secs_f64(),"duration_seconds":started.elapsed().as_secs_f64()});
         merge(&mut metadata, self.identity_metadata(&executable_first));
+        if let Some(label) = self.diagnostic_pause {
+            metadata["diagnostic_pause"] = json!(label);
+        }
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
+        // Every edge is durable in insertion order now; the log may fold,
+        // unless the walk ends after this save (see `SaveKind`) or is being
+        // cancelled towards a pause.
+        if kind != SaveKind::Final && !cancellation.load(Ordering::Relaxed) {
+            state.closure.borrow_mut().persisted(edges_total);
+        }
         self.last_save_seconds = started.elapsed().as_secs_f64();
         self.last_stamp = Some(stamp);
         metadata["duration_seconds"] = json!(self.last_save_seconds);
@@ -854,14 +1000,110 @@ mod tests {
         state.closure.borrow_mut().finish(0, true, true);
         state.closure.borrow_mut().edge(1, 2);
         state.closure.borrow_mut().finish(1, false, true);
-        state
-            .records
-            .push(json!({"id":0,"local_inspection_finished":true,"error":null,"frontiers":[]}));
-        state
-            .records
-            .push(json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}));
+        let records = state.records.get_mut();
+        records
+            .push(json!({"id":0,"local_inspection_finished":true,"error":null,"frontiers":[]}))
+            .unwrap();
+        records
+            .push(json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}))
+            .unwrap();
         state.details.push(json!({"accepted_frontier":3}));
         state
+    }
+
+    /// Resume through a store that stays open, keeping the restored record
+    /// sidecar (`Fixture::resume` reads it back into RAM instead).
+    fn resumed_with_sidecar(fixture: &Fixture) -> (Store, State<1>) {
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let state = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        store.attach_records(&state).unwrap();
+        (store, state)
+    }
+    /// Publish `ledger_fixture`'s representative 2 as the walk would.
+    fn publish_representative(state: &mut State<1>) {
+        let ledger = state.queue.delegation.as_mut().unwrap();
+        ledger.native_started(2).unwrap();
+        ledger
+            .publish_native(
+                2,
+                NativeOutcome::Completed {
+                    unresolved_frontiers: 0,
+                },
+            )
+            .unwrap();
+        state.queue.next = ledger.cursor();
+        state.completed += 1;
+        state.native_records += 1;
+        state.closure.borrow_mut().finish(2, true, true);
+        state
+            .records
+            .get_mut()
+            .push(json!({"id":2,"local_inspection_finished":true,"error":null,"frontiers":[]}))
+            .unwrap();
+    }
+    fn record_ids(fixture: &Fixture) -> Vec<u64> {
+        let state = fixture.resume::<1>().unwrap();
+        let rows = state.records.borrow().snapshot();
+        rows.iter().map(|r| r["id"].as_u64().unwrap()).collect()
+    }
+
+    #[test]
+    fn crashed_sidecar_tail_is_skipped_on_resume_and_removed_by_cleanup() {
+        let fixture = Fixture::save(&ledger_fixture()); // generation 2
+        let (store, mut state) = resumed_with_sidecar(&fixture);
+        publish_representative(&mut state);
+        let orphan = fixture.dir.join(Section::Records.file_name(3));
+        assert!(orphan.exists());
+        drop((store, state)); // Crash: generation 3 is never saved.
+        let (mut store, mut state) = resumed_with_sidecar(&fixture);
+        assert_eq!(state.records.borrow().total(), 2);
+        publish_representative(&mut state);
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4); // 3 is the orphan's.
+        assert!(orphan.exists()); // Not yet below the previous generation.
+        state.events += 1;
+        store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert!(!orphan.exists());
+        drop(store);
+        assert_eq!(record_ids(&fixture), [0, 1, 2]);
+    }
+
+    #[test]
+    fn failed_save_after_sealing_lists_the_segment_in_the_next_generation() {
+        let fixture = Fixture::save(&ledger_fixture());
+        let (mut store, mut state) = resumed_with_sidecar(&fixture);
+        publish_representative(&mut state);
+        store.fail_section = Some(Section::Index);
+        let error = store.save(&state, &[], &[], true, &|_| {}).unwrap_err();
+        assert!(error.contains("injected index section failure"), "{error}");
+        assert_eq!(fixture.manifest()["generation"], 2);
+        assert!(fixture.dir.join(Section::Records.file_name(3)).exists());
+        store.fail_section = None;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["checkpoint"]["generation"], 4);
+        let manifest = fixture.manifest();
+        assert_eq!(manifest["sections"]["records"]["total"], 3);
+        assert_eq!(
+            manifest["sections"]["records"]["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["generation"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            [2, 3]
+        );
+        drop(store);
+        assert_eq!(record_ids(&fixture), [0, 1, 2]);
     }
 
     #[test]
@@ -942,7 +1184,10 @@ mod tests {
         assert_eq!(restored.state.completed, 1);
         assert_eq!(restored.state.events, 7);
         assert_eq!(restored.state.details, state.details);
-        assert_eq!(restored.state.records, state.records);
+        assert_eq!(
+            restored.state.records.borrow().snapshot(),
+            state.records.borrow().snapshot()
+        );
         assert_eq!(restored.inputs, vec![json!({"domain":0})]);
         assert_eq!(restored.report["dependency_edges"], 1);
         // Started was not completed/cancelled; its original responsibility is
@@ -1306,6 +1551,51 @@ mod tests {
         );
         drop(store);
         assert_eq!(fixture.manifest()["metadata"]["paused"], false);
+    }
+
+    #[test]
+    fn diagnostic_pause_label_is_optional_metadata_and_never_inherited() {
+        let mut state = ledger_fixture();
+        let fixture = Fixture::save(&state);
+        // Ordinary saves, like every manifest older binaries wrote, carry no label.
+        assert!(
+            fixture.manifest()["metadata"]
+                .get("diagnostic_pause")
+                .is_none()
+        );
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        drop(store.resume::<1>(&|_| {}).unwrap().unwrap());
+        store.mark_diagnostic_pause("ready-multi-prefix");
+        state.checkpoint_paused = true;
+        let saved = store
+            .save(&state, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            saved["checkpoint"]["diagnostic_pause"],
+            "ready-multi-prefix"
+        );
+        drop(store);
+        assert_eq!(
+            fixture.manifest()["metadata"]["diagnostic_pause"],
+            "ready-multi-prefix"
+        );
+        // A labelled manifest restores; the resuming session saves unlabelled.
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        let resumed = store.resume::<1>(&|_| {}).unwrap().unwrap().state;
+        let saved = store
+            .save(&resumed, &[], &[], true, &|_| {})
+            .unwrap()
+            .unwrap();
+        assert!(saved["checkpoint"].get("diagnostic_pause").is_none());
+        drop(store);
+        assert!(
+            fixture.manifest()["metadata"]
+                .get("diagnostic_pause")
+                .is_none()
+        );
     }
 
     #[test]
@@ -1699,12 +1989,16 @@ mod tests {
             meta["closure"]["inspected"] = json!(1)
         });
         fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["cursor"] = json!(3));
-        assert!(fixture.resume::<1>().is_err());
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains("not a contiguous prefix"), "{error}");
         fixture.rewrite_section::<1>(Section::Ledger, |ledger| ledger["cursor"] = json!(2));
         fixture.rewrite_section::<1>(Section::Records, |records| {
             records.as_array_mut().unwrap().pop();
         });
-        assert!(fixture.resume::<1>().is_err());
+        assert_eq!(
+            fixture.resume::<1>().err().unwrap(),
+            "checkpoint records/publications disagree"
+        );
         fixture.rewrite_section::<1>(Section::Records, |records| {
             records.as_array_mut().unwrap().push(
                 json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}),
@@ -1738,6 +2032,59 @@ mod tests {
         );
         fixture.rewrite_section::<1>(Section::Index, |buckets| {
             buckets[0][2]["orthant"] = Value::Null;
+        });
+        // Each indexed candidate appears once: retiring a repeated ID would
+        // release its compact summary slot twice mid-walk. Live candidates 0
+        // and 2 sit in different signature groups; list 0 in 2's group too.
+        let set_group_of_2 = |buckets: &mut Value, ids: [u64; 2], len: u64| {
+            let indexed = &mut buckets[0][2]["indexed"];
+            let group = indexed["groups"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|group| {
+                    group["blocks"][0]["ids"].as_array().unwrap()[..2].contains(&json!(2))
+                })
+                .unwrap();
+            let old = group["live"].as_u64().unwrap();
+            group["blocks"][0]["ids"][0] = json!(ids[0]);
+            group["blocks"][0]["ids"][1] = json!(ids[1]);
+            group["blocks"][0]["len"] = json!(len);
+            group["live"] = json!(len);
+            indexed["live"] = json!(indexed["live"].as_u64().unwrap() + len - old);
+        };
+        fixture.rewrite_section::<1>(Section::Index, |buckets| set_group_of_2(buckets, [0, 2], 2));
+        assert!(
+            fixture
+                .resume::<1>()
+                .err()
+                .unwrap()
+                .contains("duplicate checkpoint index ID")
+        );
+        fixture.rewrite_section::<1>(Section::Index, |buckets| set_group_of_2(buckets, [2, 0], 1));
+        // An indexed candidate must belong to its bucket's (phase, owner).
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[2]["phase"] = json!("Route");
+        });
+        assert!(
+            fixture
+                .resume::<1>()
+                .err()
+                .unwrap()
+                .contains("invalid checkpoint owner bucket")
+        );
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[2]["phase"] = json!("Apply");
+        });
+        // A transport record outside the compact queue range (finite
+        // coordinates above 65534) is refused explicitly, never truncated.
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([65_535]);
+        });
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains("compact queue range"), "{error}");
+        fixture.rewrite_section::<1>(Section::Domains, |domains| {
+            domains[1]["upper"] = json!([3]);
         });
         fixture.rewrite_bytes(Section::Nodes, |bytes| bytes[12] ^= 1); // semantics
         assert!(

@@ -14,7 +14,7 @@ pub(super) use ledger::{LedgerRef, StoredLedger};
 pub use types::SchedulingPolicy;
 #[cfg(test)]
 pub(super) use types::Summary;
-pub(super) use types::{NativeOutcome, ResolutionStatus};
+pub(super) use types::{NativeOutcome, Resolution, ResolutionStatus};
 
 #[cfg(test)]
 mod initial_overlap_tests;

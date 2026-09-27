@@ -3,16 +3,23 @@
 //! Reverse reachability from unsealed nodes blocks all their ancestors. The
 //! complement includes sealed cycles with no unresolved outgoing dependency;
 //! this is scoped finite worklist coverage, NOT a descent/family certificate.
+mod edges;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-const NONE: usize = usize::MAX;
 const FLAG_SEALED: u8 = 1;
 const FLAG_INSPECTED: u8 = 2;
 const FLAG_CLOSED: u8 = 4;
+
+/// Fold the append log into the CSR once it exceeds 1/16 of the folded
+/// edges (amortized O(1) per edge) or this many edges.
+const FOLD_LOG_FRACTION: usize = 16;
+const FOLD_LOG_EDGES: usize = 64 << 20;
 
 /// Persisted scalar state. Node flags and (source, target) edges travel in
 /// their own checkpoint sections; the incoming lists are rebuilt on restore.
@@ -35,28 +42,17 @@ pub(super) struct Counters {
 pub(super) const REFRESH_DUTY_MULTIPLIER: f64 = 100.0;
 pub(super) const REFRESH_MIN_INTERVAL_SECONDS: f64 = 5.0;
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Node {
-    sealed: bool,
-    inspected: bool,
-    closed: bool,
-    incoming: usize,
-}
+/// The refresh scratch (blocked bitset, u32 stack) could not be reserved.
+struct ScratchUnavailable;
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Edge {
-    source: usize,
-    target: usize,
-    next: usize,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Node flags as bytes (bit0 sealed, bit1 inspected, bit2 closed) and the
+/// edges as a u32 CSR-by-target plus an append log (`edges.rs`). The log is
+/// folded after a checkpoint save persisted it; without a checkpoint store
+/// it grows at 12 B per edge (refresh walks its per-target chains) and folds
+/// only when its u32 chain links are exhausted.
 pub(super) struct Tracker {
-    nodes: Vec<Node>,
-    edges: Vec<Edge>,
+    flags: Vec<u8>,
+    edges: edges::Edges,
     initial: usize,
     unavailable: Option<String>,
     revision: u64,
@@ -66,19 +62,16 @@ pub(super) struct Tracker {
     inspected: usize,
     refresh_count: u64,
     refresh_seconds: f64,
-    #[serde(skip)]
-    open_targets: HashMap<usize, HashSet<usize>>,
-    #[serde(skip)]
+    open_targets: HashMap<u32, HashSet<u32>>,
     last_refresh: Option<Instant>,
-    #[serde(skip)]
     last_refresh_seconds: f64,
 }
 
 impl Tracker {
     pub fn new(initial: usize) -> Self {
         let mut value = Self {
-            nodes: Vec::new(),
-            edges: Vec::new(),
+            flags: Vec::new(),
+            edges: edges::Edges::default(),
             initial,
             unavailable: None,
             revision: 0,
@@ -101,8 +94,8 @@ impl Tracker {
             self.unavailable = Some(reason.to_owned());
         }
         // Release optional monitoring allocations; mathematical state survives.
-        self.nodes = Vec::new();
-        self.edges = Vec::new();
+        self.flags = Vec::new();
+        self.edges = edges::Edges::default();
         self.open_targets = HashMap::new();
     }
 
@@ -118,23 +111,18 @@ impl Tracker {
         if self.unavailable.is_some() {
             return;
         }
-        let Some(extra) = total.checked_sub(self.nodes.len()) else {
+        let Some(extra) = total.checked_sub(self.flags.len()) else {
             self.disable("dependency domain count regressed");
             return;
         };
         if extra == 0 {
             return;
         }
-        if self.nodes.try_reserve(extra).is_err() {
+        if self.flags.try_reserve(extra).is_err() || self.edges.grow(total).is_err() {
             self.disable("dependency node allocation unavailable");
             return;
         }
-        self.nodes.resize_with(total, || Node {
-            sealed: false,
-            inspected: false,
-            closed: false,
-            incoming: NONE,
-        });
+        self.flags.resize(total, 0);
         self.changed();
     }
 
@@ -142,14 +130,16 @@ impl Tracker {
         if self.unavailable.is_some() {
             return;
         }
-        if source >= self.nodes.len() || target >= self.nodes.len() {
+        if source >= self.flags.len() || target >= self.flags.len() {
             self.disable("dependency endpoint outside discovered domain set");
             return;
         }
-        if self.nodes[source].sealed {
+        if self.flags[source] & FLAG_SEALED != 0 {
             self.disable("dependency added after source sealed");
             return;
         }
+        // Node ids fit u32: `discovered` bounds the node count below u32::MAX.
+        let (source, target) = (source as u32, target as u32);
         if !self.open_targets.contains_key(&source) && self.open_targets.try_reserve(1).is_err() {
             self.disable("dependency deduplication allocation unavailable");
             return;
@@ -158,18 +148,11 @@ impl Tracker {
         if targets.contains(&target) {
             return;
         }
-        if targets.try_reserve(1).is_err() || self.edges.try_reserve(1).is_err() {
+        if targets.try_reserve(1).is_err() || self.edges.push(source, target).is_err() {
             self.disable("dependency edge allocation unavailable");
             return;
         }
         targets.insert(target);
-        let index = self.edges.len();
-        self.edges.push(Edge {
-            source,
-            target,
-            next: self.nodes[target].incoming,
-        });
-        self.nodes[target].incoming = index;
         self.changed();
     }
 
@@ -177,21 +160,21 @@ impl Tracker {
         if self.unavailable.is_some() {
             return;
         }
-        let Some(node) = self.nodes.get_mut(id) else {
+        let Some(flag) = self.flags.get_mut(id) else {
             self.disable("dependency completion outside discovered domain set");
             return;
         };
-        if node.sealed {
+        if *flag & FLAG_SEALED != 0 {
             self.disable("dependency node sealed twice");
             return;
         }
-        if inspected && !node.inspected {
-            node.inspected = true;
+        if inspected && *flag & FLAG_INSPECTED == 0 {
+            *flag |= FLAG_INSPECTED;
             self.inspected += 1; // Bounded by allocated node count.
         }
-        node.sealed = success;
         if success {
-            self.open_targets.remove(&id);
+            *flag |= FLAG_SEALED;
+            self.open_targets.remove(&(id as u32));
         }
         self.changed();
     }
@@ -219,8 +202,25 @@ impl Tracker {
     /// after a costly scan. Dirty older counts remain a monotone conservative
     /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
+        if self.scan(cancellation, force).is_err() {
+            self.disable("dependency refresh allocation unavailable");
+        }
+    }
+
+    /// The forced scan before a checkpoint save. As in 102adcc3, the run's
+    /// cancellation never cuts it: the CLOSED bits and closure counters a
+    /// generation persists (the paused one a stop request leaves included)
+    /// are those of a current snapshot. Only missing scratch memory leaves
+    /// the previous snapshot in place: stale but valid (closed nodes stay
+    /// closed), which restore accepts, so the save never gives up the monitor
+    /// it is about to persist (102adcc3 disabled it there).
+    pub fn refresh_before_save(&mut self) {
+        let _ = self.scan(&AtomicBool::new(false), true);
+    }
+
+    fn scan(&mut self, cancellation: &AtomicBool, force: bool) -> Result<(), ScratchUnavailable> {
         if self.unavailable.is_some() || self.revision == self.snapshot_revision {
-            return;
+            return Ok(());
         }
         let interval = self.refresh_interval();
         if !force
@@ -228,50 +228,54 @@ impl Tracker {
                 .last_refresh
                 .is_some_and(|time| time.elapsed() < interval)
         {
-            return;
+            return Ok(());
         }
         let started = Instant::now();
-        let mut blocked = Vec::new();
-        let mut stack = Vec::new();
-        if blocked.try_reserve_exact(self.nodes.len()).is_err()
-            || stack.try_reserve_exact(self.nodes.len()).is_err()
+        let nodes = self.flags.len();
+        let mut blocked: Vec<u64> = Vec::new();
+        let mut stack: Vec<u32> = Vec::new();
+        if blocked.try_reserve_exact(nodes.div_ceil(64)).is_err()
+            || stack.try_reserve_exact(nodes).is_err()
         {
-            self.disable("dependency refresh allocation unavailable");
-            return;
+            return Err(ScratchUnavailable);
         }
-        for (id, node) in self.nodes.iter().enumerate() {
+        blocked.resize(nodes.div_ceil(64), 0);
+        for (id, &flag) in self.flags.iter().enumerate() {
             if id % 1024 == 0 && cancellation.load(Ordering::Relaxed) {
-                return;
+                return Ok(());
             }
-            blocked.push(!node.sealed);
-            if !node.sealed {
-                stack.push(id);
+            if flag & FLAG_SEALED == 0 {
+                blocked[id / 64] |= 1 << (id % 64);
+                stack.push(id as u32);
             }
         }
         let mut work = 0usize;
         while let Some(id) = stack.pop() {
-            let mut edge = self.nodes[id].incoming;
-            while edge != NONE {
+            let visit = self.edges.incoming(id as usize).try_for_each(|source| {
                 if work % 1024 == 0 && cancellation.load(Ordering::Relaxed) {
-                    return;
+                    return ControlFlow::Break(());
                 }
                 work = work.wrapping_add(1);
-                let link = &self.edges[edge];
-                if !blocked[link.source] {
-                    blocked[link.source] = true;
-                    stack.push(link.source);
+                let (word, bit) = (source as usize / 64, 1u64 << (source % 64));
+                if blocked[word] & bit == 0 {
+                    blocked[word] |= bit;
+                    stack.push(source);
                 }
-                edge = link.next;
+                ControlFlow::Continue(())
+            });
+            if visit.is_break() {
+                return Ok(());
             }
         }
         let mut total = 0;
         let mut initial = 0;
         // No mutation until the cancellable scan completed. Closed nodes can
         // never acquire later edges because sources must be unsealed at edge().
-        for (id, node) in self.nodes.iter_mut().enumerate() {
-            node.closed = !blocked[id];
-            total += usize::from(node.closed);
-            initial += usize::from(node.closed && id < self.initial);
+        for (id, flag) in self.flags.iter_mut().enumerate() {
+            let closed = blocked[id / 64] & (1 << (id % 64)) == 0;
+            *flag = (*flag & !FLAG_CLOSED) | u8::from(closed) * FLAG_CLOSED;
+            total += usize::from(closed);
+            initial += usize::from(closed && id < self.initial);
         }
         self.total_closed = total;
         self.initial_closed = initial;
@@ -280,6 +284,7 @@ impl Tracker {
         self.refresh_count = self.refresh_count.saturating_add(1);
         self.refresh_seconds += self.last_refresh_seconds;
         self.last_refresh = Some(Instant::now());
+        Ok(())
     }
 
     /// The periodic refresh throttle, reported under `parallel` so the
@@ -294,7 +299,7 @@ impl Tracker {
 
     pub fn json(&self, total: usize, initial: usize) -> Value {
         let available =
-            self.unavailable.is_none() && self.nodes.len() == total && self.initial == initial;
+            self.unavailable.is_none() && self.flags.len() == total && self.initial == initial;
         json!({"available":available,"initial_total":initial,
             "initial_closed":available.then_some(self.initial_closed),
             "total_domains":total,"total_closed":available.then_some(self.total_closed),
@@ -307,7 +312,8 @@ impl Tracker {
             "last_refresh_seconds":self.last_refresh_seconds,
             "refresh_count":self.refresh_count,"refresh_seconds":self.refresh_seconds,
             "retained_storage_estimate_bytes":self.storage_estimate_bytes(),
-            "refresh_scratch_estimate_bytes":total.saturating_mul(size_of::<bool>() + size_of::<usize>()),
+            "refresh_scratch_estimate_bytes":total.div_ceil(64).saturating_mul(size_of::<u64>())
+                .saturating_add(total.saturating_mul(size_of::<u32>())),
             "storage_estimate_scope":"logical capacities; excludes allocator/hash control bytes; not RSS",
             "method":"reverse_unsealed_reachability_including_sealed_cycles",
             "scope":"discovered_dependency_coverage; not termination, descent, or family certification",
@@ -317,17 +323,16 @@ impl Tracker {
 
     fn storage_estimate_bytes(&self) -> usize {
         let mut bytes = self
-            .nodes
+            .flags
             .capacity()
-            .saturating_mul(size_of::<Node>())
-            .saturating_add(self.edges.capacity().saturating_mul(size_of::<Edge>()))
+            .saturating_add(self.edges.storage_bytes())
             .saturating_add(
                 self.open_targets
                     .capacity()
-                    .saturating_mul(size_of::<(usize, HashSet<usize>)>()),
+                    .saturating_mul(size_of::<(u32, HashSet<u32>)>()),
             );
         for targets in self.open_targets.values() {
-            bytes = bytes.saturating_add(targets.capacity().saturating_mul(size_of::<usize>()));
+            bytes = bytes.saturating_add(targets.capacity().saturating_mul(size_of::<u32>()));
         }
         bytes
     }
@@ -335,19 +340,49 @@ impl Tracker {
     pub fn closed(&self, id: usize) -> Option<bool> {
         self.unavailable
             .is_none()
-            .then(|| self.nodes.get(id).map(|n| n.closed))
+            .then(|| self.flags.get(id).map(|&f| f & FLAG_CLOSED != 0))
             .flatten()
     }
 
     pub fn local_status(&self, id: usize) -> Option<(bool, bool)> {
         self.unavailable
             .is_none()
-            .then(|| self.nodes.get(id).map(|n| (n.inspected, n.sealed)))
+            .then(|| {
+                self.flags
+                    .get(id)
+                    .map(|&f| (f & FLAG_INSPECTED != 0, f & FLAG_SEALED != 0))
+            })
             .flatten()
     }
 
+    /// Every (source, target) edge exactly once, in unspecified order
+    /// (currently folded edges grouped by target, then the unfolded log in
+    /// insertion order). Validation must not depend on the order. Test-only:
+    /// production validation iterates with `try_for_each_edge`.
+    #[cfg(test)]
     pub fn dependencies(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
-        self.edges.iter().map(|edge| (edge.source, edge.target))
+        self.edges
+            .iter()
+            .map(|(source, target)| (source as usize, target as usize))
+    }
+
+    /// `dependencies` as internal iteration (`fold` walks the CSR slices as
+    /// plain loops): every edge exactly once, order unspecified. Test-only
+    /// (the closure tests and the edge benchmark).
+    #[cfg(test)]
+    pub fn for_each_edge(&self, mut visit: impl FnMut(usize, usize)) {
+        self.dependencies()
+            .for_each(|(source, target)| visit(source, target));
+    }
+
+    /// `for_each_edge` that stops at the first `Break` (plain loops over the
+    /// CSR slices, then the log): every edge at most once, order unspecified.
+    pub fn try_for_each_edge<B>(
+        &self,
+        mut visit: impl FnMut(usize, usize) -> ControlFlow<B>,
+    ) -> ControlFlow<B> {
+        self.edges
+            .try_for_each(|source, target| visit(source as usize, target as usize))
     }
 
     pub fn revision(&self) -> u64 {
@@ -355,11 +390,42 @@ impl Tracker {
     }
 
     pub fn node_count(&self) -> usize {
-        self.nodes.len()
+        self.flags.len()
     }
 
     pub fn edge_count(&self) -> usize {
         self.edges.len()
+    }
+
+    /// Edges whose insertion order a fold gave up; a checkpoint tiling that
+    /// ends below this count cannot be extended and must be re-tiled.
+    pub fn folded_edge_count(&self) -> usize {
+        self.edges.folded()
+    }
+
+    /// Checkpoint edge segment `[first, first + count)`: the unpersisted log
+    /// tail in insertion order, or (`first == 0`) a full re-tile.
+    pub fn edge_segment(
+        &self,
+        first: usize,
+        count: usize,
+    ) -> Result<impl Iterator<Item = (u32, u32)> + '_, String> {
+        self.edges.segment(first, count)
+    }
+
+    /// A save made the first `persisted` edges durable in insertion order.
+    /// When that covers the whole log, fold it into the CSR once it outgrew
+    /// `1 / FOLD_LOG_FRACTION` of the folded edges or `FOLD_LOG_EDGES`. The
+    /// fold changes representation only (no revision bump); a failed scratch
+    /// allocation keeps the log.
+    pub fn persisted(&mut self, persisted: usize) {
+        let log = self.edges.log_len();
+        if self.unavailable.is_some() || persisted != self.edges.len() || log == 0 {
+            return;
+        }
+        if log > self.edges.folded() / FOLD_LOG_FRACTION || log > FOLD_LOG_EDGES {
+            let _ = self.edges.fold(self.flags.len());
+        }
     }
 
     pub fn counters(&self) -> Counters {
@@ -378,42 +444,39 @@ impl Tracker {
 
     /// One byte per node: bit0 sealed, bit1 inspected, bit2 closed.
     pub fn node_flags(&self) -> impl Iterator<Item = u8> + '_ {
-        self.nodes.iter().map(|node| {
-            u8::from(node.sealed) * FLAG_SEALED
-                | u8::from(node.inspected) * FLAG_INSPECTED
-                | u8::from(node.closed) * FLAG_CLOSED
-        })
+        self.flags.iter().copied()
     }
 
-    /// Rebuild the incoming lists from the persisted edge order. The caller
-    /// must still run `restore`, which validates counters, deduplication and
-    /// closure consistency; nothing is reconstructed from geometry.
+    /// Rebuild the CSR from the persisted edges (all folded; insertion order
+    /// kept within a target). The caller must still run `restore`, which
+    /// validates counters, deduplication and closure consistency; nothing is
+    /// reconstructed from geometry.
     pub fn from_parts(
         counters: Counters,
         flags: &[u8],
-        edges: impl IntoIterator<Item = (usize, usize)>,
+        edges: &[(u32, u32)],
     ) -> Result<Self, String> {
-        if counters.unavailable.is_some() && !flags.is_empty() {
-            return Err("unavailable dependency monitor retains nodes".into());
-        }
-        let mut nodes = Vec::new();
-        nodes
-            .try_reserve_exact(flags.len())
-            .map_err(|_| "dependency restore allocation")?;
-        for &flag in flags {
-            if flag & !(FLAG_SEALED | FLAG_INSPECTED | FLAG_CLOSED) != 0 {
-                return Err("invalid checkpoint dependency node flags".into());
-            }
-            nodes.push(Node {
-                sealed: flag & FLAG_SEALED != 0,
-                inspected: flag & FLAG_INSPECTED != 0,
-                closed: flag & FLAG_CLOSED != 0,
-                incoming: NONE,
+        if counters.unavailable.is_some() && (!flags.is_empty() || !edges.is_empty()) {
+            return Err(if flags.is_empty() {
+                "invalid checkpoint dependency edge".into()
+            } else {
+                "unavailable dependency monitor retains nodes".into()
             });
         }
-        let mut tracker = Self {
-            nodes,
-            edges: Vec::new(),
+        if flags
+            .iter()
+            .any(|flag| flag & !(FLAG_SEALED | FLAG_INSPECTED | FLAG_CLOSED) != 0)
+        {
+            return Err("invalid checkpoint dependency node flags".into());
+        }
+        let mut stored = Vec::new();
+        stored
+            .try_reserve_exact(flags.len())
+            .map_err(|_| "dependency restore allocation")?;
+        stored.extend_from_slice(flags);
+        Ok(Self {
+            edges: edges::Edges::from_pairs(flags.len(), edges)?,
+            flags: stored,
             initial: counters.initial,
             unavailable: counters.unavailable,
             revision: counters.revision,
@@ -426,36 +489,18 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
-        };
-        for (source, target) in edges {
-            if tracker.unavailable.is_some()
-                || source >= tracker.nodes.len()
-                || target >= tracker.nodes.len()
-            {
-                return Err("invalid checkpoint dependency edge".into());
-            }
-            tracker
-                .edges
-                .try_reserve(1)
-                .map_err(|_| "dependency restore allocation")?;
-            let index = tracker.edges.len();
-            tracker.edges.push(Edge {
-                source,
-                target,
-                next: tracker.nodes[target].incoming,
-            });
-            tracker.nodes[target].incoming = index;
-        }
-        Ok(tracker)
+        })
     }
 
     /// Validate and rebuild only ephemeral dedup state. Never reconstruct
     /// missing historical dependencies from counters or domain geometry.
+    /// Endpoint ranges are checked here again (and in `from_parts`); the
+    /// persisted order itself is authenticated by the segment digests.
     pub fn restore(&mut self, total: usize, initial: usize) -> Result<(), String> {
         if self.unavailable.is_some() {
             return Ok(());
         }
-        if self.nodes.len() != total
+        if self.flags.len() != total
             || self.initial != initial
             || initial > total
             || self.snapshot_revision > self.revision
@@ -465,43 +510,40 @@ impl Tracker {
             return Err("invalid checkpoint dependency inventory".into());
         }
         self.open_targets.clear();
-        let mut heads = Vec::new();
-        heads
-            .try_reserve_exact(total)
-            .map_err(|_| "dependency restore allocation")?;
-        heads.resize(total, NONE);
-        for (index, edge) in self.edges.iter().enumerate() {
-            if edge.source >= total || edge.target >= total || edge.next != heads[edge.target] {
-                return Err("invalid checkpoint dependency edge".into());
-            }
-            heads[edge.target] = index;
-            if !self.nodes[edge.source].sealed {
-                if !self.open_targets.contains_key(&edge.source) {
-                    self.open_targets
-                        .try_reserve(1)
-                        .map_err(|_| "dependency restore allocation")?;
+        let (flags, open_targets) = (&self.flags, &mut self.open_targets);
+        let mut closed_frontier = false;
+        let invalid = self.edges.try_for_each(|source, target| {
+            let (Some(&from), Some(&to)) = (flags.get(source as usize), flags.get(target as usize))
+            else {
+                return ControlFlow::Break("invalid checkpoint dependency edge");
+            };
+            closed_frontier |= from & FLAG_CLOSED != 0 && to & FLAG_CLOSED == 0;
+            if from & FLAG_SEALED == 0 {
+                if !open_targets.contains_key(&source) && open_targets.try_reserve(1).is_err() {
+                    return ControlFlow::Break("dependency restore allocation");
                 }
-                let targets = self.open_targets.entry(edge.source).or_default();
-                targets
-                    .try_reserve(1)
-                    .map_err(|_| "dependency restore allocation")?;
-                if !targets.insert(edge.target) {
-                    return Err("duplicate checkpoint dependency edge".into());
+                let targets = open_targets.entry(source).or_default();
+                if targets.try_reserve(1).is_err() {
+                    return ControlFlow::Break("dependency restore allocation");
+                }
+                if !targets.insert(target) {
+                    return ControlFlow::Break("duplicate checkpoint dependency edge");
                 }
             }
+            ControlFlow::Continue(())
+        });
+        if let ControlFlow::Break(error) = invalid {
+            return Err(error.into());
         }
-        if self
-            .nodes
-            .iter()
-            .enumerate()
-            .any(|(id, n)| n.incoming != heads[id] || n.closed && !n.sealed)
-            || self.inspected != self.nodes.iter().filter(|n| n.inspected).count()
-            || self.total_closed != self.nodes.iter().filter(|n| n.closed).count()
-            || self.initial_closed != self.nodes[..initial].iter().filter(|n| n.closed).count()
+        let count = |flags: &[u8], bit: u8| flags.iter().filter(|&&f| f & bit != 0).count();
+        if closed_frontier
             || self
-                .edges
+                .flags
                 .iter()
-                .any(|e| self.nodes[e.source].closed && !self.nodes[e.target].closed)
+                .any(|&f| f & FLAG_CLOSED != 0 && f & FLAG_SEALED == 0)
+            || self.inspected != count(&self.flags, FLAG_INSPECTED)
+            || self.total_closed != count(&self.flags, FLAG_CLOSED)
+            || self.initial_closed != count(&self.flags[..initial], FLAG_CLOSED)
         {
             return Err("invalid checkpoint dependency closure counters".into());
         }
@@ -515,10 +557,18 @@ impl Tracker {
 mod reference_tests;
 
 #[cfg(test)]
+mod edges_benchmark;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn scan(graph: &mut Tracker) {
         graph.refresh(&AtomicBool::new(false), true);
+    }
+    /// The persisted parts of a tracker, as the checkpoint sections hold them.
+    fn parts(graph: &Tracker) -> (Vec<u8>, Vec<(u32, u32)>) {
+        let edges = graph.edge_segment(0, graph.edge_count()).unwrap().collect();
+        (graph.node_flags().collect(), edges)
     }
     #[test]
     fn chain_branch_shared_and_unrelated_roots() {
@@ -535,7 +585,7 @@ mod tests {
         scan(&mut g);
         assert_eq!(g.initial_closed, 1);
         assert_eq!(g.total_closed, 1);
-        assert_eq!(g.edges.len(), 4);
+        assert_eq!(g.edge_count(), 4);
         g.finish(4, true, true);
         scan(&mut g);
         assert_eq!(g.initial_closed, 3);
@@ -588,23 +638,28 @@ mod tests {
         g.edge(0, 2);
         g.finish(0, true, true);
         scan(&mut g);
-        let flags: Vec<u8> = g.node_flags().collect();
-        let edges: Vec<_> = g.dependencies().collect();
+        let (flags, edges) = parts(&g);
         assert_eq!(flags, [3, 0, 0]);
+        // Unfolded: the log in insertion order.
         assert_eq!(edges, [(0, 1), (1, 2), (0, 2)]);
-        let mut restored = Tracker::from_parts(g.counters(), &flags, edges.clone()).unwrap();
+        let mut restored = Tracker::from_parts(g.counters(), &flags, &edges).unwrap();
         restored.restore(3, 1).unwrap();
-        assert_eq!(restored.nodes[2].incoming, 2);
-        assert_eq!(restored.edges[2].next, 1);
+        // Rebuilt as CSR by target, insertion order within a target.
+        assert_eq!(restored.folded_edge_count(), 3);
+        assert_eq!(restored.edges.incoming(2).collect::<Vec<_>>(), [1, 0]);
+        assert_eq!(
+            restored.dependencies().collect::<Vec<_>>(),
+            [(0, 1), (1, 2), (0, 2)]
+        );
         assert_eq!(restored.total_closed, 0);
         restored.edge(1, 2); // Deduplicated against the rebuilt open set.
-        assert_eq!(restored.edges.len(), 3);
-        assert!(Tracker::from_parts(g.counters(), &[8, 0, 0], edges.clone()).is_err());
-        assert!(Tracker::from_parts(g.counters(), &flags, [(0, 3)]).is_err());
+        assert_eq!(restored.edge_count(), 3);
+        assert!(Tracker::from_parts(g.counters(), &[8, 0, 0], &edges).is_err());
+        assert!(Tracker::from_parts(g.counters(), &flags, &[(0, 3)]).is_err());
         let mut disabled = g.counters();
         disabled.unavailable = Some("test".into());
-        assert!(Tracker::from_parts(disabled, &flags, []).is_err());
-        let mut bad = Tracker::from_parts(g.counters(), &flags, edges.clone()).unwrap();
+        assert!(Tracker::from_parts(disabled, &flags, &[]).is_err());
+        let mut bad = Tracker::from_parts(g.counters(), &flags, &edges).unwrap();
         bad.total_closed = 1;
         assert!(bad.restore(3, 1).is_err());
     }
@@ -614,11 +669,11 @@ mod tests {
         g.discovered(2);
         g.edge(0, 1);
         scan(&mut g);
-        let mut restored: Tracker =
-            serde_json::from_value(serde_json::to_value(&g).unwrap()).unwrap();
+        let (flags, edges) = parts(&g);
+        let mut restored = Tracker::from_parts(g.counters(), &flags, &edges).unwrap();
         restored.restore(2, 1).unwrap();
         restored.edge(0, 1);
-        assert_eq!(restored.edges.len(), 1);
+        assert_eq!(restored.edge_count(), 1);
         restored.finish(0, true, true);
         restored.refresh(&AtomicBool::new(true), true);
         assert_eq!(restored.total_closed, 0);
@@ -627,5 +682,55 @@ mod tests {
         assert_eq!(restored.total_closed, 2);
         restored.edge(0, 1);
         assert!(!restored.json(2, 1)["available"].as_bool().unwrap());
+    }
+    #[test]
+    fn save_path_refresh_is_never_throttled_and_keeps_the_monitor() {
+        let mut g = Tracker::new(1);
+        g.discovered(2);
+        g.edge(0, 1);
+        g.finish(1, true, true);
+        g.refresh(&AtomicBool::new(false), true);
+        assert_eq!((g.refresh_count, g.total_closed), (1, 1));
+        g.finish(0, true, true);
+        g.refresh(&AtomicBool::new(false), false);
+        assert_eq!(g.refresh_count, 1, "the periodic scan is throttled");
+        assert!(g.json(2, 1)["snapshot_stale"].as_bool().unwrap());
+        g.refresh_before_save();
+        assert_eq!(g.refresh_count, 2);
+        assert_eq!(g.total_closed, 2);
+        assert!(!g.json(2, 1)["snapshot_stale"].as_bool().unwrap());
+        assert!(g.unavailable.is_none());
+    }
+    #[test]
+    fn fold_only_after_the_whole_log_was_persisted() {
+        let mut g = Tracker::new(4);
+        g.edge(0, 1);
+        g.edge(0, 2);
+        g.persisted(1); // An unpersisted tail keeps its insertion order.
+        assert_eq!(g.folded_edge_count(), 0);
+        g.persisted(2);
+        assert_eq!(g.folded_edge_count(), 2);
+        let revision = g.revision();
+        g.edge(1, 3);
+        assert!(g.edge_segment(1, 1).is_err(), "inside the folded prefix");
+        assert_eq!(g.edge_segment(2, 1).unwrap().collect::<Vec<_>>(), [(1, 3)]);
+        g.persisted(3); // A log of 1 > 2 / 16 folds.
+        assert_eq!(g.folded_edge_count(), 3);
+        assert_eq!(g.revision(), revision + 1, "a fold is not a graph change");
+        // A large CSR keeps a small log until it outgrows 1/16 of it.
+        let mut big = Tracker::new(64);
+        for target in 1..64 {
+            big.edge(0, target);
+        }
+        big.persisted(63);
+        big.edge(1, 0);
+        big.edge(1, 2);
+        big.edge(1, 3);
+        big.persisted(66);
+        assert_eq!(big.folded_edge_count(), 63);
+        big.edge(1, 4);
+        big.persisted(67);
+        assert_eq!(big.folded_edge_count(), 67);
+        assert!(big.edge_segment(0, 67).unwrap().count() == 67);
     }
 }

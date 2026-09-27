@@ -6,6 +6,8 @@ mod io;
 mod owner_domains;
 mod owner_guarded;
 mod owner_match;
+#[cfg(test)]
+pub(crate) use owner_match::walk_request_from_argv;
 mod progress;
 mod routed;
 mod shards;

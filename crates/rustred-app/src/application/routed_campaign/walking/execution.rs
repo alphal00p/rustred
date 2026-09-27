@@ -11,7 +11,7 @@ use super::{
     parallel::{self, Failure, Poll},
     physical_parts::{Progress as PhysicalProgress, Ticket},
     power_bounds_json,
-    queue::Queue,
+    queue::{CompactDomain, Queue},
     stats_json,
 };
 use rustred::solver::RoutedCandidateReducer;
@@ -25,9 +25,18 @@ mod admission;
 mod delegation;
 pub(super) mod owner_batches;
 mod publication;
+pub(super) mod records;
 mod replay;
 pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
+
+/// Ready only: `State::records_accepted_events` rides in the checkpoint's
+/// free-form progress value, never as a top-level meta key. Every CP5 reader,
+/// including the fable_5_1 binaries whose meta section denies unknown keys,
+/// ignores progress keys it does not know, so a checkpoint written here can
+/// still be resumed by them (executable-history rollback). A checkpoint
+/// without the key (written by those binaries) derives it on restore.
+pub(super) const PROGRESS_ACCEPTED_EVENTS: &str = "records_accepted_events";
 
 /// Cheap summary of the persisted walk state that can change between saves.
 /// Equal stamps mean the retained generation already holds this state.
@@ -56,7 +65,13 @@ pub(super) struct ChangeStamp {
 pub(super) struct State<const N: usize> {
     pub closure: RefCell<super::descendant_closure::Tracker>,
     pub queue: Queue<N>,
-    pub records: Vec<Value>,
+    /// Committed records: in RAM (Memory) or streamed into the checkpoint
+    /// sidecar at commit time; a RefCell like `closure` so that `save(&State)`
+    /// can seal the open segment.
+    pub records: RefCell<records::RecordSink>,
+    /// Ready: sum of `accepted_events` over published native records, the
+    /// aggregate the restore check needs now that no record stays in RAM.
+    pub records_accepted_events: usize,
     pub events: usize,
     pub successors: usize,
     pub conditional: usize,
@@ -95,7 +110,7 @@ impl<const N: usize> State<N> {
         request: &OwnerDomainWalkRequest,
     ) -> Option<[std::sync::Arc<super::queue::Domain<N>>; 2]> {
         (id < self.initial_domain_count)
-            .then(|| request.apply_subdivision?.parts(&self.queue.domains[id]))
+            .then(|| request.apply_subdivision?.parts(&self.queue.domain(id)))
             .flatten()
     }
     fn publisher_ticket(&self, request: &OwnerDomainWalkRequest) -> Ticket {
@@ -117,7 +132,8 @@ impl<const N: usize> State<N> {
         Self {
             closure: RefCell::new(closure),
             queue,
-            records: Vec::new(),
+            records: RefCell::new(records::RecordSink::Memory(Vec::new())),
+            records_accepted_events: 0,
             events: 0,
             successors: 0,
             conditional: 0,
@@ -157,7 +173,7 @@ impl<const N: usize> State<N> {
             closure_revision: self.closure.borrow().revision(),
             ledger_reserved_through: ledger.map_or(0, |l| l.reservation_scan()),
             ledger_transfers: ledger.map_or(0, |l| l.transfers()),
-            records_total: self.records.len(),
+            records_total: self.records.borrow().total(),
             uncommitted: self.uncommitted.len(),
             physical_parts_completed: self
                 .physical_progress
@@ -167,10 +183,14 @@ impl<const N: usize> State<N> {
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {
-        json!({"physical_enabled":self.physical_enabled,
+        let mut metadata = json!({"physical_enabled":self.physical_enabled,
             "replay":self.replay.as_ref().map(replay::Replay::snapshot),
             "physical_inspections_published":self.physical_inspections_published,
-            "subdivided_logical_inspections":self.subdivided_logical_inspections})
+            "subdivided_logical_inspections":self.subdivided_logical_inspections});
+        if self.ready() {
+            metadata[PROGRESS_ACCEPTED_EVENTS] = json!(self.records_accepted_events);
+        }
+        metadata
     }
     #[cfg(test)]
     fn checkpoint_progress(&self) -> Value {
@@ -226,8 +246,8 @@ impl<const N: usize> State<N> {
             "initial_entry_domains_published":self.initial_published(),
             "initial_entry_domains_inspected":self.initial_entry_domains_inspected,
             "pending_descendant_domains":self.pending_descendants(),
-            "owner":domain.map(|d| mask(&d.owner)), "phase":domain.map(|d| format!("{:?}", d.phase)),
-            "power_bounds":domain.map(|d| power_bounds_json(d.powers)),
+            "owner":domain.map(|d| mask(&d.owner())), "phase":domain.map(|d| format!("{:?}", d.phase())),
+            "power_bounds":domain.map(|d| power_bounds_json(d.powers())),
             "scheduled_nodes":self.queue.domains.len(), "completed_nodes":self.completed,
             "committed_domains":self.published_count(), "commit_domain":id,
             "contiguous_publication_watermark":self.queue.next,
@@ -262,6 +282,22 @@ impl<const N: usize> State<N> {
     }
     pub(super) fn refresh_closure(&self, cancellation: &AtomicBool, force: bool) {
         self.closure.borrow_mut().refresh(cancellation, force);
+    }
+    /// The flag that may cut the closure scan behind the final report (the
+    /// checkpoint saves never cut theirs). A walk that exhausted its worklist
+    /// without pausing or failing annotates every record from that snapshot,
+    /// so a stop request racing its last publication must not leave them
+    /// stale; a pause or an interrupted walk keeps the run's cancellation.
+    pub(super) fn report_cancellation<'a>(&self, cancellation: &'a AtomicBool) -> &'a AtomicBool {
+        static NEVER: AtomicBool = AtomicBool::new(false);
+        if self.error.is_none()
+            && !self.checkpoint_paused
+            && self.published_count() == self.queue.domains.len()
+        {
+            &NEVER
+        } else {
+            cancellation
+        }
     }
     fn dependency_source(&self) -> usize {
         self.streams
@@ -310,13 +346,14 @@ impl<const N: usize> State<N> {
             // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
             telemetry["coordinator_duty"] = self.admission.duty_json();
             telemetry["containment_prefilter"] = self.queue.session.json();
+            telemetry["queue_storage"] = self.queue.storage_json();
             telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();
         }
         for key in ["first_failure", "non_cancellation_failure"] {
             if let Some(id) = telemetry[key]["domain"]
                 .as_u64()
                 .and_then(|id| usize::try_from(id).ok())
-                && let Some(domain) = self.queue.domains.get(id)
+                && let Some(domain) = self.queue.domains.get(id).map(CompactDomain::expand)
             {
                 let f = &mut telemetry[key];
                 f["owner"] = json!(mask(&domain.owner));
@@ -558,7 +595,7 @@ impl<const N: usize> State<N> {
             );
             super::queue::positive_reuse_trace::set_source(
                 self.queue.next,
-                &self.queue.domains[self.queue.next],
+                &self.queue.domain(self.queue.next),
             );
         }
         let (target, _) = admit(&mut self.queue)?;
@@ -584,7 +621,7 @@ impl<const N: usize> State<N> {
         seconds: f64,
         physical_parts: Option<Vec<Value>>,
     ) {
-        let domain = &self.queue.domains[id];
+        let domain = self.queue.domain(id);
         let partial_scope = match native_stats {
             NativeStats::ApplyPartial(_, scope) => Some(scope),
             _ => None,
@@ -670,7 +707,14 @@ impl<const N: usize> State<N> {
         if self.ready()
             && let Some(replay) = &self.replay
         {
-            record["accepted_events"] = json!(replay.accepted_events());
+            let accepted = replay.accepted_events();
+            record["accepted_events"] = json!(accepted);
+            if let Some(total) = self.records_accepted_events.checked_add(accepted) {
+                self.records_accepted_events = total;
+            } else {
+                self.error
+                    .get_or_insert_with(|| "record accepted-events counter overflow".into());
+            }
         }
         record["frontiers"] = Value::Array(std::mem::take(&mut self.details));
         if self.queue.delegation.is_some() {
@@ -734,7 +778,9 @@ impl<const N: usize> State<N> {
             );
             record["physical_parts"] = Value::Array(parts);
         }
-        self.records.push(record);
+        if let Err(error) = self.records.get_mut().push(record) {
+            self.error.get_or_insert(error);
+        }
         if self.ready() {
             self.streams.initial_published += usize::from(id < self.initial_domain_count);
             self.queue.next = self
@@ -759,7 +805,7 @@ impl<const N: usize> State<N> {
         let parts = request
             .apply_subdivision
             .expect("physical policy")
-            .parts(&self.queue.domains[id])
+            .parts(&self.queue.domain(id))
             .expect("valid physical source partition");
         let source = &parts[usize::from(part)];
         let mut parent_limits = request.applied_limits;
@@ -982,7 +1028,7 @@ fn run_configured<const N: usize>(
     // is shared across scoped workers and never observes later queue growth.
     let initial = if enabled {
         InitialOrthants::from_initial(
-            &state.queue.domains[..state.initial_domain_count],
+            &state.queue.expand_prefix(state.initial_domain_count),
             cancellation,
         )
     } else {
@@ -998,7 +1044,7 @@ fn run_configured<const N: usize>(
             state.error = Some("initial D-band reuse requires a protected initial prefix".into());
             return;
         };
-        InitialOverlapIndex::from_initial(&state.queue.domains[..prefix], cancellation)
+        InitialOverlapIndex::from_initial(&state.queue.expand_prefix(prefix), cancellation)
     } else {
         InitialOverlapIndex::empty()
     };
@@ -1214,7 +1260,7 @@ impl Dispatcher {
                             .encode(physical_enabled)
                             .expect("admitted ticket"),
                         ),
-                        phase: Some(state.queue.domains[id].phase),
+                        phase: Some(state.queue.domains[id].phase()),
                         kind: "delegation_dispatch_invariant",
                         detail: "native dispatch has no reserved responsibility".into(),
                     });
@@ -1239,7 +1285,7 @@ impl Dispatcher {
                 }
             };
             let source = parts.as_ref().map_or_else(
-                || state.queue.domains[id].clone(),
+                || state.queue.domain_arc(id),
                 |parts| parts[usize::from(self.part)].clone(),
             );
             if !pool.dispatch(raw, source) {
@@ -1254,7 +1300,7 @@ impl Dispatcher {
             {
                 pool.fail(Failure {
                     id: Some(raw),
-                    phase: Some(state.queue.domains[id].phase),
+                    phase: Some(state.queue.domains[id].phase()),
                     kind: "delegation_native_start",
                     detail: error,
                 });
@@ -1376,7 +1422,7 @@ fn run_pool<const N: usize>(
                 if cancellation.load(Ordering::Acquire) {
                     pool.fail(Failure {
                         id: Some(publisher_raw),
-                        phase: state.queue.domains.get(state.queue.next).map(|d| d.phase),
+                        phase: state.queue.domains.get(state.queue.next).map(|d| d.phase()),
                         kind: "cancelled",
                         detail: "cancelled".into(),
                     });
@@ -1402,7 +1448,7 @@ fn run_pool<const N: usize>(
                                 .encode(physical_enabled)
                                 .expect("admitted ticket"),
                             ),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "delegation_publication",
                             detail: error,
                         });
@@ -1471,7 +1517,7 @@ fn run_pool<const N: usize>(
                         state.error = Some(error.into());
                         pool.fail(Failure {
                             id: Some(publisher_raw),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "publication_context",
                             detail: error.into(),
                         });
@@ -1506,7 +1552,7 @@ fn run_pool<const N: usize>(
                         ) {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
-                                phase: Some(state.queue.domains[id].phase),
+                                phase: Some(state.queue.domains[id].phase()),
                                 kind: if error == "cancelled" {
                                     "cancelled"
                                 } else {
@@ -1519,7 +1565,7 @@ fn run_pool<const N: usize>(
                             if let Err(error) = save(state, maybe_save) {
                                 pool.fail(Failure {
                                     id: Some(publisher_raw),
-                                    phase: Some(state.queue.domains[id].phase),
+                                    phase: Some(state.queue.domains[id].phase()),
                                     kind: "checkpoint_write",
                                     detail: error,
                                 });
@@ -1539,7 +1585,7 @@ fn run_pool<const N: usize>(
                         {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
-                                phase: Some(state.queue.domains[id].phase),
+                                phase: Some(state.queue.domains[id].phase()),
                                 kind: "checkpoint_write",
                                 detail: error,
                             });
@@ -1570,7 +1616,7 @@ fn run_pool<const N: usize>(
                     if let Err(error) = save(state, maybe_save) {
                         pool.fail(Failure {
                             id: Some(publisher_raw),
-                            phase: Some(state.queue.domains[id].phase),
+                            phase: Some(state.queue.domains[id].phase()),
                             kind: "checkpoint_write",
                             detail: error,
                         });
@@ -1579,7 +1625,7 @@ fn run_pool<const N: usize>(
                 if state.error.is_some() {
                     pool.fail(Failure {
                         id: Some(publisher_raw),
-                        phase: state.queue.domains.get(id).map(|d| d.phase),
+                        phase: state.queue.domains.get(id).map(|d| d.phase()),
                         kind: "coordinator_accounting",
                         detail: state.error.clone().unwrap(),
                     });
@@ -1698,7 +1744,7 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
         if id == publisher_id && state.error.is_some() {
             state.commit(id, finished);
         } else {
-            let domain = &state.queue.domains[id];
+            let domain = state.queue.domain(id);
             let partial_scope = finished.initial_overlap_scope();
             let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase),
                 "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
@@ -1717,7 +1763,11 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
         }
     }
     if (!state.details.is_empty() || !state.refusals.records.is_empty())
-        && let Some(domain) = state.queue.domains.get(publisher_id)
+        && let Some(domain) = state
+            .queue
+            .domains
+            .get(publisher_id)
+            .map(CompactDomain::expand)
     {
         // A panicked worker has no Finished/stats. Retain already-published
         // diagnostics without inventing a completed inspection or zero stats.
@@ -1827,7 +1877,7 @@ fn serial<const N: usize>(
                     .publisher_ticket(request)
                     .encode(state.physical_enabled)
                     .ok(),
-                phase: state.queue.domains.get(state.queue.next).map(|d| d.phase),
+                phase: state.queue.domains.get(state.queue.next).map(|d| d.phase()),
                 kind: "cancelled",
                 detail: "cancelled".into(),
             });
@@ -1873,7 +1923,7 @@ fn serial<const N: usize>(
             break;
         }
         let domain = ticket.part.map_or_else(
-            || state.queue.domains[id].clone(),
+            || state.queue.domain_arc(id),
             |part| state.parts(id, request).expect("physical partition")[usize::from(part)].clone(),
         );
         observer(state.progress(
@@ -2017,6 +2067,8 @@ mod closure_tests;
 #[cfg(test)]
 #[path = "execution/initial_orthants_tests.rs"]
 mod initial_orthants_tests;
+#[cfg(test)]
+mod ready_native_multi_tests;
 #[cfg(test)]
 mod ready_native_tests;
 #[cfg(test)]

@@ -22,6 +22,13 @@ pub(in super::super) struct Streams {
     pub initial_published: usize,
 }
 
+/// The multi-prefix gate's threshold on plain counts: at least two
+/// unfinished accepted prefixes and a published record beyond the contiguous
+/// watermark.
+pub(super) fn multi_prefix_hole(prefixes: usize, published: usize, watermark: usize) -> bool {
+    prefixes >= 2 && published > watermark
+}
+
 impl<const N: usize> State<N> {
     pub(in super::super) fn add_ready_progress(&self, out: &mut Value) {
         if !self.ready() {
@@ -30,20 +37,35 @@ impl<const N: usize> State<N> {
         out["publication_policy"] = json!("ready_ticket_stream");
         out["ready_stream_contexts"] =
             json!(usize::from(self.streams.active.is_some()) + self.streams.parked.len());
-        out["ready_accepted_source_prefixes"] = json!(
-            usize::from(
-                self.replay
-                    .as_ref()
-                    .is_some_and(|r| r.accepted_events() > 0)
-            ) + self
-                .streams
-                .parked
-                .iter()
-                .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
-                .count()
-        );
+        out["ready_accepted_source_prefixes"] = json!(self.ready_accepted_source_prefixes());
         out["ready_published_holes"] = json!(self.published_count() - self.queue.next);
         out["ready_prefix_tracking_scope"] = json!("checkpoint-enabled native streams only");
+    }
+    /// Unfinished Ready streams (mounted or parked) whose replay context
+    /// already holds accepted events.
+    pub(in super::super) fn ready_accepted_source_prefixes(&self) -> usize {
+        usize::from(
+            self.replay
+                .as_ref()
+                .is_some_and(|r| r.accepted_events() > 0),
+        ) + self
+            .streams
+            .parked
+            .iter()
+            .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
+            .count()
+    }
+    /// The multi-prefix resume gate's state: at least two positive unfinished
+    /// accepted prefixes plus a published record beyond the contiguous
+    /// watermark (a finished hole). A checkpoint of this state is the one the
+    /// Ready resume-to-exhaustion gate must restore.
+    pub(in super::super) fn ready_multi_prefix_hole(&self) -> bool {
+        self.ready()
+            && multi_prefix_hole(
+                self.ready_accepted_source_prefixes(),
+                self.published_count(),
+                self.queue.next,
+            )
     }
     /// Failure/cancellation without a checkpoint still retains every accepted
     /// source-local diagnostic, never a fictional completed native inspection.
@@ -211,12 +233,14 @@ impl<const N: usize> State<N> {
         {
             return Err("unowned ready checkpoint prefix".into());
         }
-        let mut ids = Vec::new();
-        ids.try_reserve_exact(ledger.len())
-            .map_err(|_| "checkpoint record-ID allocation")?;
-        ids.resize(ledger.len(), false);
-        let mut native = 0;
-        let mut accepted = self.replay.as_ref().map_or(0, |r| r.accepted_events());
+        // Published records live in the sidecar; their accepted events are the
+        // running aggregate, their inventory is checked against the ledger.
+        let mut accepted = self.records_accepted_events;
+        if let Some(replay) = &self.replay {
+            accepted = accepted
+                .checked_add(replay.accepted_events())
+                .ok_or("checkpoint accepted-events overflow")?;
+        }
         for (_, context) in &self.streams.parked {
             accepted = accepted
                 .checked_add(
@@ -228,33 +252,8 @@ impl<const N: usize> State<N> {
                 )
                 .ok_or("checkpoint accepted-events overflow")?;
         }
-        for record in &self.records {
-            let id = record["id"]
-                .as_u64()
-                .and_then(|id| usize::try_from(id).ok())
-                .ok_or("ready checkpoint record has no valid ID")?;
-            if id >= ledger.len() || !ledger.is_published(id) || ids[id] {
-                return Err("ready checkpoint record is duplicate or unpublished".into());
-            }
-            ids[id] = true;
-            let delegated = record["record_kind"] == "delegated_not_inspected";
-            if delegated != ledger.delegated_to(id).is_some() {
-                return Err("ready checkpoint record responsibility mismatch".into());
-            }
-            native += usize::from(!delegated);
-            if !delegated {
-                let events = record["accepted_events"]
-                    .as_u64()
-                    .and_then(|n| usize::try_from(n).ok())
-                    .ok_or("ready checkpoint native record has no accepted-events count")?;
-                accepted = accepted
-                    .checked_add(events)
-                    .ok_or("checkpoint accepted-events overflow")?;
-            }
-        }
-        if self.records.len() != ledger.published_count()
-            || native != self.native_records
-            || native != ledger.native_publications()
+        if self.records.borrow().total() != ledger.published_count()
+            || self.native_records != ledger.native_publications()
         {
             return Err("ready checkpoint records/publications disagree".into());
         }

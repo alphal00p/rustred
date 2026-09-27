@@ -187,7 +187,7 @@ fn exact_new_orthant_error_and_uncommitted_cancelled_preparation_are_not_positiv
     let mut q = Queue::new(1, Some(10));
     q.admit(domain::<1>(0, 10)).unwrap();
     let session = Session::start(1, 4).unwrap();
-    set_source(0, &q.domains[0]);
+    set_source(0, &q.domain(0));
     assert_eq!(q.admit(domain::<1>(0, 10)).unwrap(), (0, false)); // Exact.
     assert!(q.admit(domain::<1>(20, 21)).is_err()); // New domain allowance.
     let cancel = AtomicBool::new(true);
@@ -201,7 +201,7 @@ fn exact_new_orthant_error_and_uncommitted_cancelled_preparation_are_not_positiv
     whole.upper[0] = None;
     q.admit(whole).unwrap();
     let session = Session::start(1, 4).unwrap();
-    set_source(0, &q.domains[0]);
+    set_source(0, &q.domain(0));
     assert_eq!(q.admit(domain::<1>(2, 3)).unwrap(), (0, false)); // Orthant.
     let report = session.finish();
     assert_eq!(report["positive_nonexact"]["requests"], 0);
@@ -218,11 +218,11 @@ fn retired_representative_is_metadata_never_cached_authority() {
     let mut q = Queue::new(10, None);
     q.admit(domain::<1>(0, 10)).unwrap();
     let session = Session::start(1, 4).unwrap();
-    set_source(0, &q.domains[0]);
+    set_source(0, &q.domain(0));
     assert_eq!(q.admit(domain::<1>(1, 2)).unwrap(), (0, false));
     assert_eq!(q.admit(domain::<1>(0, 20)).unwrap(), (1, true));
     assert_eq!(q.containment_retired_candidates, 1);
-    set_source(1, &q.domains[1]);
+    set_source(1, &q.domain(1));
     assert_eq!(q.admit(domain::<1>(1, 2)).unwrap(), (1, false)); // Not stale memo ID0.
     let report = session.finish();
     assert_eq!(report["cross_source_hits"]["requests"], 1);
@@ -244,12 +244,12 @@ fn observation_preserves_queue_image_and_forward_charges_without_maintenance() {
         let mut q = Queue::new(10, None);
         q.admit(domain::<1>(0, 10)).unwrap();
         let session = observed.then(|| Session::start(1, 4).unwrap());
-        set_source(0, &q.domains[0]);
+        set_source(0, &q.domain(0));
         let before = q.containment_checks;
         q.admit(domain::<1>(1, 2)).unwrap();
         let first_checks = q.containment_checks - before;
         q.admit(domain::<1>(0, 20)).unwrap(); // Reverse maintenance is not observed.
-        set_source(1, &q.domains[1]);
+        set_source(1, &q.domain(1));
         let before = q.containment_checks;
         let ready = q.prepare_admission(domain::<1>(1, 2), &AtomicBool::new(false));
         q.admit_prepared(ready).unwrap();
@@ -394,7 +394,10 @@ fn measure_real_ordered_positive_reuse() {
             panic!("native spectator failed: {e}")
         }
     };
-    save(&root.join("result.json"), &result.document);
+    save(
+        &root.join("result.json"),
+        &result.clone().into_document().unwrap(),
+    );
     assert!(result.all_scheduled_domains_resolved);
     for (field, expected) in [
         ("completed_nodes", "native"),

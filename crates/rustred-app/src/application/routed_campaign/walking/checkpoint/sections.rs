@@ -8,12 +8,11 @@ use super::super::{
     diagnostics::{OptionalCounts, OptionalRefusals},
     execution::streams::Streams,
     physical_parts::Progress as PhysicalProgress,
-    queue::{Domain, QueueMetadata, SortedBuckets, StoredBuckets},
+    queue::{CompactDomain, Domain, QueueMetadata, SortedBuckets, StoredBuckets},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, Write};
-use std::sync::Arc;
 
 pub(super) const MAGIC: [u8; 4] = *b"RRW5";
 pub(super) const HEADER_BYTES: usize = 32;
@@ -142,7 +141,7 @@ impl Header {
 }
 
 /// Hashes exactly the bytes that reached the inner writer.
-pub(super) struct HashingWriter<W: Write> {
+pub(in super::super) struct HashingWriter<W: Write> {
     inner: W,
     hasher: blake3::Hasher,
     bytes: u64,
@@ -154,6 +153,14 @@ impl<W: Write> HashingWriter<W> {
             hasher: blake3::Hasher::new(),
             bytes: 0,
         }
+    }
+    pub fn get_ref(&self) -> &W {
+        &self.inner
+    }
+    /// Length and digest of the bytes the inner writer accepted so far; for
+    /// an unbuffered inner writer these are the bytes in the file.
+    pub fn digest(&self) -> (u64, String) {
+        (self.bytes, self.hasher.finalize().to_hex().to_string())
     }
     pub fn finish(mut self) -> io::Result<(u64, String)> {
         self.inner.flush()?;
@@ -227,6 +234,7 @@ pub(super) fn read_nodes(bytes: &[u8], identity: &Identity) -> Result<Vec<u8>, S
 }
 
 // ---- edges: (u32 source, u32 target) pairs in insertion order -------------
+// (A re-tile from zero writes the folded edges grouped by target first.)
 pub(super) fn write_edges(
     out: &mut (impl Write + ?Sized),
     identity: &Identity,
@@ -238,9 +246,7 @@ pub(super) fn write_edges(
         .map_err(io_error)?;
     let mut buffer = Vec::with_capacity(65536);
     let mut written = 0usize;
-    for (source, target) in tracker.dependencies().skip(first).take(count) {
-        let source = u32::try_from(source).map_err(|_| "dependency endpoint exceeds u32")?;
-        let target = u32::try_from(target).map_err(|_| "dependency endpoint exceeds u32")?;
+    for (source, target) in tracker.edge_segment(first, count)? {
         buffer.extend_from_slice(&source.to_le_bytes());
         buffer.extend_from_slice(&target.to_le_bytes());
         written += 1;
@@ -259,7 +265,7 @@ pub(super) fn read_edges(
     identity: &Identity,
     first: usize,
     count: usize,
-    out: &mut Vec<(usize, usize)>,
+    out: &mut Vec<(u32, u32)>,
 ) -> Result<(), String> {
     let (count, payload) = fixed_payload(
         bytes,
@@ -274,24 +280,42 @@ pub(super) fn read_edges(
     for pair in payload.chunks_exact(EDGE_BYTES) {
         let source = u32::from_le_bytes(pair[0..4].try_into().expect("four bytes"));
         let target = u32::from_le_bytes(pair[4..8].try_into().expect("four bytes"));
-        out.push((source as usize, target as usize));
+        out.push((source, target));
     }
     Ok(())
 }
 
-// ---- domains: consecutive bincode records -------------------------------
+// ---- domains: consecutive bincode records of the transport `Domain` ------
+// The queue keeps compact images in RAM; each record is expanded to write and
+// range-checked back into a compact image on read, so the bytes are those of
+// the historical `Domain<N>` encoding.
 pub(super) fn write_domains<const N: usize>(
     out: &mut (impl Write + ?Sized),
     identity: &Identity,
-    domains: &[Arc<Domain<N>>],
+    domains: &[CompactDomain<N>],
     first: usize,
 ) -> Result<(), String> {
-    let count = domains.len().saturating_sub(first);
-    out.write_all(&Header::new(Tag::Domains, identity, count, first)?.encode())
+    let records = domains.get(first..).unwrap_or_default();
+    write_domain_records(
+        out,
+        identity,
+        first,
+        records.iter().map(CompactDomain::expand),
+    )
+}
+/// Any transport records, including ones the compact queue would refuse
+/// (corruption tests write those to exercise the restore validators).
+pub(super) fn write_domain_records<const N: usize>(
+    out: &mut (impl Write + ?Sized),
+    identity: &Identity,
+    first: usize,
+    records: impl ExactSizeIterator<Item = Domain<N>>,
+) -> Result<(), String> {
+    out.write_all(&Header::new(Tag::Domains, identity, records.len(), first)?.encode())
         .map_err(io_error)?;
     let mut out = io::BufWriter::with_capacity(65536, out);
-    for domain in &domains[first..] {
-        bincode::serde::encode_into_std_write(domain.as_ref(), &mut out, bincode_config())
+    for domain in records {
+        bincode::serde::encode_into_std_write(&domain, &mut out, bincode_config())
             .map_err(io_error)?;
     }
     out.flush().map_err(io_error)
@@ -301,7 +325,30 @@ pub(super) fn read_domains<const N: usize>(
     identity: &Identity,
     first: usize,
     count: usize,
+    out: &mut Vec<CompactDomain<N>>,
+) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, |domain| {
+        CompactDomain::restore(&domain)
+    })
+}
+/// The transport records as written, without the compact range check.
+#[cfg(test)]
+pub(super) fn read_domain_records<const N: usize>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
     out: &mut Vec<Domain<N>>,
+) -> Result<(), String> {
+    decode_domains(bytes, identity, first, count, out, Ok)
+}
+fn decode_domains<const N: usize, T>(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
+    out: &mut Vec<T>,
+    convert: impl Fn(Domain<N>) -> Result<T, String>,
 ) -> Result<(), String> {
     let header = Header::parse(bytes)?;
     let count = header.expect(Tag::Domains, identity, Some(count), Some(first))?;
@@ -312,7 +359,7 @@ pub(super) fn read_domains<const N: usize>(
             bincode::serde::decode_from_slice(&bytes[offset..], bincode_config())
                 .map_err(|e| format!("invalid checkpoint domain record: {e}"))?;
         offset += used;
-        out.push(domain);
+        out.push(convert(domain)?);
     }
     if offset != bytes.len() {
         return Err("checkpoint domain segment has trailing bytes".into());
@@ -381,6 +428,7 @@ pub(super) fn write_records(
     }
     out.flush().map_err(io_error)
 }
+#[cfg(test)]
 pub(super) fn read_records(bytes: &[u8], count: usize, out: &mut Vec<Value>) -> Result<(), String> {
     out.try_reserve(count).map_err(|_| "record allocation")?;
     let mut seen = 0usize;
@@ -406,6 +454,9 @@ pub(super) struct ProgressRef<'a> {
     pub metadata: Value,
     pub physical_parent: &'a Option<PhysicalProgress>,
 }
+/// The top-level key set is frozen for this format: CP5 binaries of the same
+/// semantics version deny unknown meta keys, and a campaign may roll back to
+/// any of them. New persisted scalars go into the free-form `progress` value.
 #[derive(Serialize)]
 pub(super) struct MetaRef<'a> {
     pub counters: [usize; 12],

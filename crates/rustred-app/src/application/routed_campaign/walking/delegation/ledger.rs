@@ -311,6 +311,27 @@ impl<K: Copy + Eq> Ledger<K> {
         }
     }
 
+    /// Restore cross-check without records: the dependency monitor's
+    /// `(inspected, sealed)` status this entry implies, and the edges it must
+    /// hold (published alias target, initial-overlap anchor). A published
+    /// native is inspected and sealed iff it retained no frontier; a
+    /// published alias is sealed, never inspected; nothing else is either.
+    pub fn closure_expectation(&self, id: usize) -> ((bool, bool), [Option<usize>; 2]) {
+        let Some(entry) = self.entries.get(id) else {
+            return ((false, false), [None, None]);
+        };
+        let anchor = entry.initial_anchor.map(|anchor| anchor.get() - 1);
+        match entry.responsibility {
+            Responsibility::Delegate { to } if entry.delegated_published => {
+                ((false, true), [Some(to), anchor])
+            }
+            Responsibility::Local(Local::Published(NativeOutcome::Completed {
+                unresolved_frontiers,
+            })) => ((true, unresolved_frontiers == 0), [None, anchor]),
+            _ => ((false, false), [None, anchor]),
+        }
+    }
+
     pub fn can_dispatch(&self, id: usize) -> bool {
         !self.halted
             && (self.ready || id < self.dispatch_fence())

@@ -260,7 +260,7 @@ fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_resul
     retain_leftovers(&mut state, &mut leftovers);
     assert_eq!(state.queue.next, 1);
     assert_eq!(state.completed, 0);
-    assert_eq!(state.records.len(), 1);
+    assert_eq!(state.records.borrow().total(), 1);
     assert_eq!(state.uncommitted.len(), 2);
     assert_eq!(state.uncommitted[1]["id"], 2);
     assert_eq!(state.uncommitted[1]["lower"], json!([2]));
@@ -349,9 +349,9 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
             }
         },
         |pool| {
-            assert!(pool.dispatch(0, state.queue.domains[0].clone()));
+            assert!(pool.dispatch(0, state.queue.domain_arc(0)));
             for id in 1..4 {
-                assert!(pool.dispatch(id, state.queue.domains[id].clone()));
+                assert!(pool.dispatch(id, state.queue.domain_arc(id)));
                 let start = Instant::now();
                 while pool.snapshot()["returned_inspections"] != id {
                     assert!(start.elapsed() < Duration::from_secs(5));
@@ -401,7 +401,7 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
     retain_leftovers(&mut state, &mut leftovers);
     assert_eq!(state.queue.next, 2);
     assert_eq!(state.completed, 1); // failed publisher is not completion
-    assert_eq!(state.records.len(), 2);
+    assert_eq!(state.records.borrow().total(), 2);
     assert_eq!(state.uncommitted.len(), 2);
     assert_eq!(state.uncommitted[0]["id"], 2);
     assert_eq!(state.uncommitted[1]["id"], 3);
@@ -469,4 +469,299 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
                 .is_none()
         );
     }
+}
+
+/// Key sets of a `domain_delegated` event journaled by the frozen pre-wave
+/// binary 32fdec09 (Ready FG control, `TMP/fable51-controls/baseline-32fdec-ready/
+/// fg/events.jsonl`), without the three keys the walk's outer observer adds
+/// (`checkpoint`, `requested_max_queries`, `requested_max_query_bytes`).
+const HISTORICAL_READY_TOP: [&str; 53] = [
+    "commit_domain",
+    "committed_domains",
+    "committed_events",
+    "completed_nodes",
+    "conditional_successors",
+    "containment_candidates",
+    "containment_check_policy",
+    "containment_checks",
+    "containment_index_policy",
+    "containment_maintenance_checks",
+    "containment_retired_candidates",
+    "containment_semantic_hits",
+    "containment_semantic_retirements",
+    "containment_summary_builds",
+    "contiguous_publication_watermark",
+    "deduplication_hits",
+    "delegation",
+    "descendant_closure",
+    "event",
+    "events",
+    "exact_domain_hits",
+    "frontiers",
+    "full_orthant_hits",
+    "id",
+    "initial_entry_domains_inspected",
+    "initial_entry_domains_published",
+    "initial_entry_domains_total",
+    "job_local_reuse_hits",
+    "max_containment_checks",
+    "max_scheduled_finite_rank",
+    "native_processed_nodes",
+    "operation",
+    "owner",
+    "parallel",
+    "partial_initial_inspections",
+    "pending_descendant_domains",
+    "phase",
+    "power_bounds",
+    "pre_admitted_orthant_hits",
+    "publication_policy",
+    "queued_nodes",
+    "ready_accepted_source_prefixes",
+    "ready_prefix_tracking_scope",
+    "ready_published_holes",
+    "ready_stream_contexts",
+    "reuse_initial_d_bands",
+    "route_joint_support_masks_pruned",
+    "route_masks",
+    "routed_domains",
+    "scheduled_nodes",
+    "scheduling_policy",
+    "successors",
+    "unbounded_rank_domains",
+];
+const HISTORICAL_ADMISSION: [&str; 20] = [
+    "batch_record_limit",
+    "coordinator_worker_limit",
+    "counter_saturated",
+    "counter_scope",
+    "inspection_worker_limit",
+    "lookup_worker_limit",
+    "minimum_admissions",
+    "minimum_candidates",
+    "ordered_commit_wall_seconds",
+    "parallel_batches",
+    "policy",
+    "preparation_wall_seconds",
+    "prepared_batch_records",
+    "requested_worker_budget",
+    "speculative_admission_requests",
+    "speculative_check_scope",
+    "speculative_containment_checks",
+    "speculative_work_is_not_admission",
+    "timing_scope",
+    "total_compute_worker_limit",
+];
+const HISTORICAL_CLOSURE: [&str; 23] = [
+    "available",
+    "closed_counts_are_conservative_lower_bounds",
+    "dependency_edges",
+    "family_closure_claim",
+    "graph_revision",
+    "initial_closed",
+    "initial_total",
+    "last_refresh_seconds",
+    "locally_inspected",
+    "method",
+    "reason",
+    "refresh_count",
+    "refresh_scratch_estimate_bytes",
+    "refresh_seconds",
+    "retained_storage_estimate_bytes",
+    "scope",
+    "snapshot_age_seconds",
+    "snapshot_revision",
+    "snapshot_stale",
+    "storage_estimate_scope",
+    "total_closed",
+    "total_domains",
+    "unresolved_domains",
+];
+
+fn sorted_keys(value: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// Keys of `detailed` absent from `lean`; `lean` must be a subset.
+fn added<'a>(lean: &Value, detailed: &'a Value) -> Vec<&'a str> {
+    let lean = sorted_keys(lean);
+    let detailed = sorted_keys(detailed);
+    assert!(lean.iter().all(|key| detailed.contains(key)), "{lean:?}");
+    detailed
+        .into_iter()
+        .filter(|key| !lean.contains(key))
+        .collect()
+}
+
+/// Top-level keys of the frozen binary's Ready events that its Ordered FG
+/// control (`TMP/fable51-controls/baseline-32fdec/fg/events.jsonl`) never
+/// journals.
+const HISTORICAL_READY_ONLY_TOP: [&str; 5] = [
+    "publication_policy",
+    "ready_accepted_source_prefixes",
+    "ready_prefix_tracking_scope",
+    "ready_published_holes",
+    "ready_stream_contexts",
+];
+
+/// An empty walk after initial admission, under a Ready or Ordered
+/// responsibility ledger.
+fn ledger_state(ready: bool) -> State<1> {
+    use super::super::delegation::Ledger;
+    let lookahead = std::num::NonZeroUsize::new(2).unwrap();
+    let mut ledger = if ready {
+        Ledger::new_ready(lookahead, 5)
+    } else {
+        Ledger::new(lookahead, 5)
+    }
+    .unwrap();
+    ledger.begin_initial_admission().unwrap();
+    ledger.finish_initial_admission().unwrap();
+    let mut queue = Queue::<1>::new(5, None);
+    queue.delegation = Some(ledger);
+    State::new(queue, 0, None)
+}
+
+/// Every per-domain event keeps the historical key set exactly, so a new
+/// unconditional field anywhere in `progress`, `metrics_json`, `json_with` or
+/// the closure report fails here; heartbeats add session telemetry only
+/// under `parallel`, and exactly the pinned keys.
+#[test]
+fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry() {
+    let state = ledger_state(true);
+    for event in ["domain_started", "domain_delegated"] {
+        let lean = state.progress(event, 0, &json!({}));
+        assert_eq!(sorted_keys(&lean), HISTORICAL_READY_TOP, "{event}");
+        assert_eq!(sorted_keys(&lean["parallel"]), ["admission_preparation"]);
+        assert_eq!(
+            sorted_keys(&lean["parallel"]["admission_preparation"]),
+            HISTORICAL_ADMISSION
+        );
+        assert_eq!(sorted_keys(&lean["descendant_closure"]), HISTORICAL_CLOSURE);
+    }
+    // The Ordered walk shares `progress` without the Ready-only keys.
+    let ordered = ledger_state(false);
+    let historical_ordered: Vec<&str> = HISTORICAL_READY_TOP
+        .into_iter()
+        .filter(|key| !HISTORICAL_READY_ONLY_TOP.contains(key))
+        .collect();
+    for event in ["domain_started", "domain_delegated"] {
+        let lean = ordered.progress(event, 0, &json!({}));
+        assert_eq!(sorted_keys(&lean), historical_ordered, "{event}");
+        assert_eq!(sorted_keys(&lean["parallel"]), ["admission_preparation"]);
+    }
+    let lean = state.progress("domain_started", 0, &json!({}));
+    for event in ["domain_progress", "domain_draining"] {
+        let detailed = state.progress(event, 0, &json!({}));
+        assert!(added(&lean, &detailed).is_empty(), "{event}");
+        assert!(
+            added(&lean["descendant_closure"], &detailed["descendant_closure"]).is_empty(),
+            "{event}"
+        );
+        assert_eq!(
+            added(&lean["parallel"], &detailed["parallel"]),
+            [
+                "closure_refresh_policy",
+                "containment_prefilter",
+                "coordinator_duty",
+                "queue_storage"
+            ]
+        );
+        assert_eq!(
+            added(
+                &lean["parallel"]["admission_preparation"],
+                &detailed["parallel"]["admission_preparation"]
+            ),
+            [
+                "prepared_retire_fallbacks",
+                "prepared_retirement_limit",
+                "prepared_retirement_scope",
+                "prepared_retirements_applied",
+                "prepared_retirements_trivial",
+                "speculative_forward_bit_rejections",
+                "speculative_reverse_bit_rejections",
+                "speculative_reverse_checks"
+            ]
+        );
+    }
+}
+
+/// `observe` hands each event kind its pool tier: per-domain events the lean
+/// tier (the frozen binary's 33 `parallel` keys: no activity breakdown, no
+/// per-slot arrays), heartbeats the detailed tier and only the drain events
+/// the per-slot arrays. The tiers' contents are pinned in `parallel/tests.rs`;
+/// this pins which tier each event receives.
+#[test]
+fn observe_attaches_the_lean_pool_tier_to_per_domain_events_only() {
+    let mut state = ledger_state(true);
+    let pool = parallel::Pool::<1>::new(3);
+    let seen = RefCell::new(Vec::new());
+    let events = [
+        "domain_started",
+        "domain_delegated",
+        "domain_progress",
+        "domain_draining",
+    ];
+    for event in events {
+        observe(
+            &mut state,
+            &|value: Value| seen.borrow_mut().push(value),
+            event,
+            0,
+            &pool,
+        );
+    }
+    let with = |tier: Value, coordinator: &[&str]| {
+        let mut keys: Vec<String> = tier.as_object().unwrap().keys().cloned().collect();
+        keys.extend(coordinator.iter().map(|key| key.to_string()));
+        keys.sort_unstable();
+        keys
+    };
+    let lean = ["admission_preparation"];
+    let heartbeat = [
+        "admission_preparation",
+        "closure_refresh_policy",
+        "containment_prefilter",
+        "coordinator_duty",
+        "queue_storage",
+    ];
+    let expected = [
+        with(pool.snapshot_lean(), &lean),
+        with(pool.snapshot_lean(), &lean),
+        with(pool.snapshot_detailed(), &heartbeat),
+        with(pool.snapshot(), &heartbeat),
+    ];
+    let seen = seen.into_inner();
+    assert_eq!(seen.len(), events.len());
+    for ((event, observed), expected) in events.iter().zip(&seen).zip(expected) {
+        assert_eq!(observed["event"], *event);
+        assert_eq!(sorted_keys(&observed["parallel"]), expected, "{event}");
+    }
+    for observed in &seen[..2] {
+        assert_eq!(observed["parallel"].as_object().unwrap().len(), 33);
+        assert!(observed["parallel"].get("computing_workers").is_none());
+    }
+    assert!(seen[2]["parallel"]["computing_workers"].is_number());
+    for observed in &seen[..3] {
+        let parallel = observed["parallel"].as_object().unwrap();
+        assert!(
+            parallel.keys().all(|key| !key.starts_with("slot_")),
+            "{}",
+            observed["event"]
+        );
+    }
+    assert_eq!(
+        seen[3]["parallel"]["slot_busy_seconds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
 }

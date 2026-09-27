@@ -22,20 +22,21 @@ mod producer;
 mod resource_policy;
 mod routed_campaign;
 
-pub(crate) use routed_campaign::guarded_limits_from_json;
+pub(crate) use routed_campaign::{DIAGNOSTIC_PAUSE_VARIABLE, guarded_limits_from_json};
 pub use routed_campaign::{
     MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
     OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
     OWNER_DOMAIN_WALK_SEMANTICS_VERSION, OwnerDomainMatchRequest, OwnerDomainMatchResult,
     OwnerDomainScanRequest, OwnerDomainScanResult, OwnerDomainWalkApplySubdivision,
-    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
-    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest,
-    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
-    RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
-    RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
-    RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
-    owner_domain_scan_with_progress, owner_domain_walk_with_progress,
-    owner_guarded_apply_with_progress, routed_campaign_with_progress,
+    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    OwnerGuardedApplyRequest, OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult,
+    RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,
+    RoutedEntryWitnessStats, RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination,
+    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
+    owner_domain_match_with_progress, owner_domain_scan_with_progress,
+    owner_domain_walk_with_progress, owner_guarded_apply_with_progress,
+    routed_campaign_with_progress,
 };
 
 pub use candidate_bundle::{

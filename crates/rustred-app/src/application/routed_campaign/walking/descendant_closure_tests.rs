@@ -1,4 +1,11 @@
 //! Independent small-graph reference checks for observational coverage only.
+use super::super::checkpoint::{
+    SaveKind,
+    manifest::Section,
+    test_support::{Fixture, OWNER},
+};
+use super::super::execution::State;
+use super::super::queue::{Domain, Phase, Queue};
 use super::*;
 
 fn reference_closed(start: usize, edges: &[Vec<usize>], sealed: &[bool]) -> bool {
@@ -151,43 +158,91 @@ fn allocation_or_bad_edges_disable_monitoring_without_fake_completion() {
     graph.finish(0, true, true);
     graph.refresh(&AtomicBool::new(false), true);
     assert_eq!(graph.json(3, 2)["available"], false);
-    let mut restored: Tracker =
-        serde_json::from_value(serde_json::to_value(&graph).unwrap()).unwrap();
+    assert_eq!(graph.node_count(), 0);
+    assert_eq!(graph.edge_count(), 0);
+    let mut restored = Tracker::from_parts(graph.counters(), &[], &[]).unwrap();
     restored.restore(3, 2).unwrap();
     assert_eq!(restored.json(3, 2)["available"], false);
 }
 
+/// Checkpoint-section image of a tracker: flag bytes, edge pairs, counters.
+fn image(graph: &Tracker) -> (Vec<u8>, Vec<(u32, u32)>, Value) {
+    let edges = graph.edge_segment(0, graph.edge_count()).unwrap().collect();
+    let counters = serde_json::to_value(graph.counters()).unwrap();
+    (graph.node_flags().collect(), edges, counters)
+}
+
+fn rebuild(flags: &[u8], edges: &[(u32, u32)], counters: &Value) -> Result<Tracker, String> {
+    let counters: Counters = serde_json::from_value(counters.clone()).unwrap();
+    Tracker::from_parts(counters, flags, edges)
+}
+
 #[test]
-fn checkpoint_rejects_corrupt_links_closed_frontier_and_counts() {
+fn checkpoint_rejects_bad_endpoints_duplicates_closed_frontier_and_counts() {
     let mut graph = Tracker::new(1);
-    graph.discovered(3);
+    graph.discovered(4);
     graph.edge(0, 1);
     graph.edge(1, 2);
+    graph.edge(3, 2);
     graph.finish(0, true, true);
+    graph.finish(2, true, true);
     graph.refresh(&AtomicBool::new(false), true);
-    let image = serde_json::to_value(&graph).unwrap();
-    for case in 0..6 {
-        let mut changed = image.clone();
-        match case {
-            0 => changed["edges"][0]["source"] = json!(3),
-            1 => changed["edges"][0]["next"] = json!(0),
-            2 => changed["nodes"][1]["incoming"] = json!(1),
-            3 => changed["nodes"][1]["closed"] = json!(true),
-            4 => changed["initial_closed"] = json!(1),
-            _ => changed["snapshot_revision"] = json!(u64::MAX),
-        }
-        let mut restored: Tracker = serde_json::from_value(changed).unwrap();
-        assert!(restored.restore(3, 1).is_err(), "corruption={case}");
+    let (flags, edges, counters) = image(&graph);
+    assert_eq!(flags, [3, 0, 7, 0]);
+    for case in 0..8 {
+        let (mut flags, mut edges, mut counters) = (flags.clone(), edges.clone(), counters.clone());
+        let expected = match case {
+            0 => {
+                edges[0].0 = 4;
+                "invalid checkpoint dependency edge"
+            }
+            1 => {
+                edges.push((3, 2)); // Node 3 is unsealed: its edges are deduplicated.
+                "duplicate checkpoint dependency edge"
+            }
+            2 => {
+                flags[1] |= FLAG_CLOSED; // Closed but unsealed.
+                "closure counters"
+            }
+            3 => {
+                flags[0] |= FLAG_CLOSED; // Sealed and closed, yet 0 -> 1 is open.
+                counters["total_closed"] = json!(2);
+                counters["initial_closed"] = json!(1);
+                "closure counters"
+            }
+            4 => {
+                counters["total_closed"] = json!(2);
+                "closure counters"
+            }
+            5 => {
+                counters["initial_closed"] = json!(1);
+                "closure counters"
+            }
+            6 => {
+                counters["inspected"] = json!(1);
+                "closure counters"
+            }
+            _ => {
+                counters["snapshot_revision"] = json!(u64::MAX);
+                "dependency inventory"
+            }
+        };
+        let error = rebuild(&flags, &edges, &counters)
+            .and_then(|mut restored| restored.restore(4, 1))
+            .unwrap_err();
+        assert!(error.contains(expected), "corruption={case}: {error}");
     }
-    let mut restored: Tracker = serde_json::from_value(image).unwrap();
-    restored.restore(3, 1).unwrap();
-    restored.restore(3, 1).unwrap(); // Revalidation must rebuild, not duplicate edges.
+    let mut restored = rebuild(&flags, &edges, &counters).unwrap();
+    restored.restore(4, 1).unwrap();
+    restored.restore(4, 1).unwrap(); // Revalidation must rebuild, not duplicate edges.
     restored.edge(1, 2);
-    assert_eq!(restored.edges.len(), 2);
+    restored.edge(3, 2);
+    assert_eq!(restored.edge_count(), 3);
     restored.finish(1, true, true);
-    restored.finish(2, true, true);
+    restored.finish(3, true, true);
     restored.refresh(&AtomicBool::new(false), true);
     assert_eq!(restored.initial_closed, 1);
+    assert_eq!(restored.total_closed, 4);
 }
 
 #[test]
@@ -208,4 +263,247 @@ fn zero_inventory_and_shared_failed_leaf_do_not_report_a_fake_full_bar() {
     assert_eq!(graph.initial_closed, 1);
     assert_eq!(graph.closed(2), Some(true));
     assert_eq!(graph.closed(0), Some(false));
+}
+
+/// Deterministic SplitMix64: random graphs without an RNG dependency.
+struct Mix(u64);
+impl Mix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    fn below(&mut self, bound: usize) -> usize {
+        (self.next() % bound as u64) as usize
+    }
+}
+
+#[test]
+fn csr_refresh_matches_linked_list_reference_after_folds() {
+    // Random graphs with incremental discovery (the CSR then covers fewer
+    // targets than the graph), late edges from failed nodes, late seals, and
+    // at random points a save-path fold, a forced fold or a restore round trip.
+    let mut folds = 0;
+    for seed in 0..300u64 {
+        let mut rng = Mix(seed);
+        let count = 1 + rng.below(48);
+        let initial = 1 + rng.below(count);
+        let mut graph = Tracker::new(initial);
+        let mut discovered = initial;
+        let mut edges = vec![Vec::new(); count];
+        let mut sealed = vec![false; count];
+        for step in 0..count {
+            discovered = (discovered + rng.below(3)).max(step + 1).min(count);
+            graph.discovered(discovered);
+            let mut sources = vec![step];
+            if step > 0 {
+                sources.push(rng.below(step)); // Kept only while unsealed.
+            }
+            for source in sources.into_iter().filter(|&source| !sealed[source]) {
+                for _ in 0..rng.below(6) {
+                    let target = rng.below(discovered);
+                    graph.edge(source, target);
+                    if !edges[source].contains(&target) {
+                        edges[source].push(target);
+                    }
+                }
+            }
+            sealed[step] = rng.below(5) != 0;
+            graph.finish(step, rng.below(3) != 0, sealed[step]);
+            if step > 0 && rng.below(4) == 0 {
+                let other = rng.below(step);
+                if !sealed[other] {
+                    sealed[other] = true;
+                    graph.finish(other, false, true);
+                }
+            }
+            match rng.below(4) {
+                0 => graph.persisted(graph.edge_count()),
+                1 => {
+                    let nodes = graph.node_count();
+                    graph.edges.fold(nodes).unwrap();
+                }
+                2 => {
+                    let (flags, pairs, counters) = image(&graph);
+                    graph = rebuild(&flags, &pairs, &counters).unwrap();
+                    graph.restore(discovered, initial).unwrap();
+                }
+                _ => {}
+            }
+            folds += usize::from(graph.edges.log_len() == 0 && graph.edge_count() > 0);
+            graph.refresh(&AtomicBool::new(false), true);
+            assert!(graph.unavailable.is_none(), "seed={seed}, step={step}");
+            for root in 0..discovered {
+                assert_eq!(
+                    graph.closed(root),
+                    Some(reference_closed(root, &edges, &sealed)),
+                    "seed={seed}, step={step}, root={root}"
+                );
+            }
+            let closed = |range: std::ops::Range<usize>| {
+                range
+                    .filter(|&id| reference_closed(id, &edges, &sealed))
+                    .count()
+            };
+            assert_eq!(graph.total_closed, closed(0..discovered));
+            assert_eq!(graph.initial_closed, closed(0..initial));
+            assert_eq!(
+                graph.edge_count(),
+                edges.iter().map(Vec::len).sum::<usize>()
+            );
+        }
+    }
+    assert!(folds > 1000, "folded states exercised: {folds}");
+}
+
+/// `nodes` distinct point domains, nothing published: the closure is the only
+/// populated walk state, so resume validates it without records.
+fn point_state(nodes: u64) -> State<1> {
+    let mut queue = Queue::<1>::new(64, None);
+    for i in 0..nodes {
+        queue
+            .admit(Domain {
+                phase: Phase::Apply,
+                owner: [true],
+                lower: vec![i],
+                upper: vec![Some(i)],
+                rank: None,
+                powers: Default::default(),
+            })
+            .unwrap();
+    }
+    State::new(queue, 0, None)
+}
+
+#[test]
+fn edge_segments_are_disjoint_prefix_partition_of_the_log() {
+    let state = point_state(8);
+    let batches: [&[(usize, usize)]; 3] = [
+        &[(0, 1), (0, 2), (3, 1)],
+        &[(4, 5), (0, 5)],
+        &[(6, 7), (7, 6), (5, 0)],
+    ];
+    let add = |batch: &[(usize, usize)]| {
+        for &(source, target) in batch {
+            state.closure.borrow_mut().edge(source, target);
+        }
+    };
+    add(batches[0]);
+    let fixture = Fixture::save(&state);
+    // The save persisted the whole log, so it was folded (the CSR was empty).
+    assert_eq!(state.closure.borrow().folded_edge_count(), 3);
+    for batch in &batches[1..] {
+        add(batch);
+        fixture.save_again(&state).unwrap().unwrap();
+        assert_eq!(state.closure.borrow().edges.log_len(), 0);
+    }
+    let manifest = fixture.manifest();
+    assert_eq!(manifest["sections"]["edges"]["total"], 8);
+    let segments = manifest["sections"]["edges"]["segments"]
+        .as_array()
+        .unwrap();
+    assert_eq!(segments.len(), 3);
+    let (mut next, mut persisted) = (0, Vec::new());
+    for (segment, batch) in segments.iter().zip(batches) {
+        assert_eq!(segment["first"], next);
+        assert_eq!(segment["count"], batch.len());
+        next += batch.len();
+        let bytes = std::fs::read(fixture.dir.join(segment["file"].as_str().unwrap())).unwrap();
+        // 32-byte section header, then (u32 source, u32 target) little-endian.
+        persisted.extend(bytes[32..].chunks_exact(8).map(|pair| {
+            let word = |at: usize| u32::from_le_bytes(pair[at..at + 4].try_into().unwrap());
+            (word(0) as usize, word(4) as usize)
+        }));
+    }
+    assert_eq!(persisted, batches.concat(), "insertion order, no overlap");
+    let restored = fixture.resume::<1>().unwrap();
+    let mut rebuilt: Vec<_> = restored.closure.borrow().dependencies().collect();
+    let mut expected = batches.concat();
+    rebuilt.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(rebuilt, expected);
+    assert_eq!(restored.closure.borrow().folded_edge_count(), 8);
+}
+
+#[test]
+fn binary_closure_sections_reject_endpoint_duplicate_closed_unsealed_and_counts() {
+    let state = point_state(3);
+    state.closure.borrow_mut().edge(0, 1);
+    state.closure.borrow_mut().edge(1, 2);
+    let fixture = Fixture::save(&state);
+    let fails = |expected: &str| {
+        let error = fixture.resume::<1>().err().unwrap();
+        assert!(error.contains(expected), "{expected}: {error}");
+    };
+    fixture.rewrite_section::<1>(Section::Edges, |edges| edges[0] = json!([3, 1]));
+    fails("invalid checkpoint dependency edge");
+    fixture.rewrite_section::<1>(Section::Edges, |edges| edges[0] = json!([0, 1]));
+    fixture.rewrite_section::<1>(Section::Edges, |edges| {
+        edges.as_array_mut().unwrap().push(json!([1, 2])); // Node 1 is unsealed.
+    });
+    fails("duplicate checkpoint dependency edge");
+    fixture.rewrite_section::<1>(Section::Edges, |edges| {
+        edges.as_array_mut().unwrap().pop();
+    });
+    fixture.rewrite_section::<1>(Section::Nodes, |flags| flags[1] = json!(FLAG_CLOSED));
+    fails("dependency closure counters");
+    fixture.rewrite_section::<1>(Section::Nodes, |flags| flags[1] = json!(0));
+    fixture.rewrite_section::<1>(Section::Meta, |meta| {
+        meta["closure"]["total_closed"] = json!(1)
+    });
+    fails("dependency closure counters");
+    fixture.rewrite_section::<1>(Section::Meta, |meta| {
+        meta["closure"]["total_closed"] = json!(0)
+    });
+    let restored = fixture.resume::<1>().unwrap();
+    assert_eq!(restored.closure.borrow().edge_count(), 2);
+}
+
+#[test]
+fn final_and_cancelled_saves_persist_the_log_without_folding_it() {
+    let state = point_state(40);
+    let add = |source: usize, targets: std::ops::Range<usize>| {
+        for target in targets {
+            state.closure.borrow_mut().edge(source, target);
+        }
+    };
+    add(0, 1..40);
+    let fixture = Fixture::save(&state);
+    let layout = || {
+        let closure = state.closure.borrow();
+        (closure.folded_edge_count(), closure.edges.log_len())
+    };
+    assert_eq!(layout(), (39, 0));
+    let save = |kind: SaveKind, cancelled: bool| {
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        store
+            .save_cancellable(&state, &[], &[], kind, &AtomicBool::new(cancelled), &|_| {})
+            .unwrap()
+            .unwrap();
+    };
+    add(1, 2..6); // A log of 4 > 39 / 16 would fold after a continuing save.
+    save(SaveKind::Final, false);
+    assert_eq!(layout(), (39, 4), "the final save persists without folding");
+    add(1, 6..7);
+    save(SaveKind::Forced, true);
+    assert_eq!(
+        layout(),
+        (39, 5),
+        "nor does a save while the run is cancelled"
+    );
+    let edges = &fixture.manifest()["sections"]["edges"];
+    assert_eq!(edges["total"], 44);
+    assert_eq!(edges["segments"].as_array().unwrap().len(), 3);
+    let sorted = |state: &State<1>| {
+        let mut edges: Vec<_> = state.closure.borrow().dependencies().collect();
+        edges.sort_unstable();
+        edges
+    };
+    assert_eq!(sorted(&fixture.resume::<1>().unwrap()), sorted(&state));
+    add(1, 7..8);
+    save(SaveKind::Forced, false);
+    assert_eq!(layout(), (45, 0), "a save the walk continues after folds");
 }

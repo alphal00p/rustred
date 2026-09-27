@@ -253,6 +253,123 @@ fn completed_escrow_stop_does_not_reclaim_or_lose_uncommitted_results() {
     assert_eq!(pool.snapshot()["completed_escrow_accounted_bytes"], 0);
 }
 
+/// Ready's variant, synchronous and license-free: every finished successful
+/// slot is detached regardless of ID order (the Ordered variant never takes
+/// the publisher or anything below it), a byte-cap miss skips only that slot,
+/// a full store charges nothing more, and a stopped pool reclaims nothing.
+#[test]
+fn reclaim_all_finished_detaches_every_finished_slot_out_of_id_order() {
+    let pool = Pool::<1>::with_limits(
+        4,
+        EscrowLimits {
+            entries: 8,
+            bytes: 1 << 20,
+        },
+    );
+    for id in 0..4 {
+        assert!(pool.dispatch(id, domain(id as u64)));
+    }
+    complete(&pool, 3, 3, 4);
+    complete(&pool, 0, 0, 1);
+    complete(&pool, 2, 2, 3);
+    pool.reclaim_finished(2);
+    assert_eq!(pool.snapshot()["completed_slots_reclaimed"], 1); // only ID 3
+    // ID 1 was dispatched but never taken: not finished, never charged.
+    assert_eq!(pool.reclaim_all_finished(), 2);
+    let s = pool.snapshot();
+    assert_eq!(s["completed_slots_reclaimed"], 3);
+    assert_eq!(s["completed_escrow_entries"], 3);
+    assert_eq!(s["completed_escrow_max_entries"], 8);
+    assert_eq!(s["occupied_native_slots"], 1);
+    assert_eq!(pool.reclaim_all_finished(), 0);
+    for id in 4..7 {
+        assert!(pool.dispatch(id, domain(id as u64)));
+    }
+    for id in [0, 2, 3] {
+        let Poll::Events(events) = pool.poll(id) else {
+            panic!("escrowed chunk")
+        };
+        assert_eq!(events.iter().map(|e| e.count).sum::<usize>(), id + 1);
+        let Poll::Finished(done) = pool.poll(id) else {
+            panic!("escrowed terminal")
+        };
+        assert_eq!(done.native_operations(), id + 1);
+    }
+    assert_eq!(pool.snapshot()["completed_escrow_entries"], 0);
+    pool.shutdown();
+
+    // Entry cap: the first slot fills the store; the other stays intact and
+    // later calls return before charging anything.
+    let pool = Pool::<1>::with_limits(
+        2,
+        EscrowLimits {
+            entries: 1,
+            bytes: 1 << 20,
+        },
+    );
+    for id in 0..2 {
+        assert!(pool.dispatch(id, domain(id as u64)));
+        complete(&pool, id, id, 2);
+    }
+    assert_eq!(pool.reclaim_all_finished(), 1);
+    assert_eq!(pool.reclaim_all_finished(), 0);
+    let s = pool.snapshot();
+    assert_eq!(s["completed_escrow_entries"], 1);
+    assert_eq!(s["finished_uncommitted_domains"], 2);
+    assert_eq!(s["occupied_native_slots"], 1);
+    for id in 0..2 {
+        assert!(matches!(pool.poll(id), Poll::Events(chunk) if chunk.len() == 1));
+        assert!(matches!(pool.poll(id), Poll::Finished(_)));
+    }
+    pool.shutdown();
+
+    // Byte cap: a larger result that misses it is skipped, a smaller one in a
+    // later slot still fits.
+    let pool = Pool::<1>::with_limits(
+        2,
+        EscrowLimits {
+            entries: 8,
+            bytes: 1 << 20,
+        },
+    );
+    for id in 0..2 {
+        assert!(pool.dispatch(id, domain(id as u64)));
+    }
+    complete(&pool, 0, 0, 5);
+    complete(&pool, 1, 1, 0);
+    {
+        let mut s = pool.lock();
+        let large = Escrow::charge(&s.slots[0]).unwrap().bytes;
+        let small = Escrow::charge(&s.slots[1]).unwrap().bytes;
+        assert!(small < large);
+        s.escrow.limits.bytes = small;
+    }
+    assert_eq!(pool.reclaim_all_finished(), 1);
+    let s = pool.snapshot();
+    assert_eq!(s["completed_escrow_entries"], 1);
+    assert_eq!(s["occupied_native_slots"], 1);
+    assert_eq!(s["worker_buffered_events"], 5); // The skipped slot is intact.
+    assert!(matches!(pool.poll(1), Poll::Finished(_)));
+    assert!(matches!(pool.poll(0), Poll::Events(chunk) if chunk.len() == 1));
+    assert!(matches!(pool.poll(0), Poll::Finished(_)));
+    pool.shutdown();
+
+    // A stopped or shut-down pool reclaims nothing.
+    let pool = Pool::<1>::new(2);
+    assert!(pool.dispatch(0, domain(0)));
+    complete(&pool, 0, 0, 1);
+    pool.fail(Failure {
+        id: Some(0),
+        phase: Some(Phase::Apply),
+        kind: "cancelled",
+        detail: "cancelled".into(),
+    });
+    assert_eq!(pool.reclaim_all_finished(), 0);
+    pool.shutdown();
+    assert_eq!(pool.reclaim_all_finished(), 0);
+    assert_eq!(pool.snapshot()["completed_slots_reclaimed"], 0);
+}
+
 #[test]
 fn completed_escrow_threaded_refill_keeps_canonical_event_order() {
     if !licensed() {

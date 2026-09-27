@@ -119,12 +119,17 @@ impl RoutedProgress {
                     | "checkpoint_restored"
                     | "checkpoint_skipped_unchanged"
                     | "checkpoint_executable_changed"
+                    | "diagnostic_pause"
             )
         );
         let milestone = checkpoint.then(|| event.clone());
-        // A skipped save carries no walk counters: journal it as a milestone
-        // but leave the dashboard's latest progress record in place.
-        if event["event"] != "checkpoint_skipped_unchanged" {
+        // A skipped save carries no walk counters, and a diagnostic pause is a
+        // one-off receipt: journal both as milestones but leave the
+        // dashboard's latest progress record in place.
+        if !matches!(
+            event["event"].as_str(),
+            Some("checkpoint_skipped_unchanged" | "diagnostic_pause")
+        ) {
             *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
         }
         if let Some(event) = milestone {
@@ -620,6 +625,41 @@ mod tests {
         let (_, latest) = monitor.latest.lock().unwrap().clone();
         assert_eq!(latest["event"], "checkpoint_saved");
         monitor.finish().unwrap();
+    }
+
+    #[test]
+    fn diagnostic_pause_is_journaled_but_not_the_latest_progress_record() {
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let monitor = RoutedProgress::start(
+            Box::new(Shared(Arc::clone(&bytes))),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        );
+        monitor.observe(json!({"event":"domain_progress","completed_nodes":7}));
+        monitor.observe(json!({"event":"diagnostic_pause",
+            "diagnostic_pause":"ready-multi-prefix","ready_accepted_source_prefixes":2}));
+        let (_, latest) = monitor.latest.lock().unwrap().clone();
+        assert_eq!(latest["event"], "domain_progress");
+        monitor.finish().unwrap();
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let pauses: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|row| row["event"] == "diagnostic_pause")
+            .collect();
+        assert_eq!(pauses.len(), 1);
+        assert_eq!(pauses[0]["ready_accepted_source_prefixes"], 2);
     }
 
     #[test]

@@ -3,7 +3,10 @@
 //! Preparation validates two genuine checkpoints once; timed runs use their
 //! frozen queue plus complete appended-domain sequence, not original callbacks.
 use super::*;
-use crate::application::routed_campaign::walking::{checkpoint, queue::Domain};
+use crate::application::routed_campaign::walking::{
+    checkpoint,
+    queue::{CompactDomain, Domain},
+};
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
@@ -118,7 +121,7 @@ fn prepare_retained_admission_grain_fixture() {
     assert_eq!(base.queue.containment_limit(), None);
     let proposals: Vec<_> = later.queue.domains[prefix..]
         .iter()
-        .map(|d| d.as_ref().clone())
+        .map(CompactDomain::expand)
         .collect();
     assert_eq!(proposals.len(), 60_154);
     assert!(proposals.len() % BATCH_RECORDS >= MIN_ADMISSIONS);
@@ -258,7 +261,7 @@ fn replay_retained_admission_grain() {
         assert_eq!(state.successors, 0); // Synthetic admission flags, not native counters.
         assert_eq!(state.conditional, 0);
         assert_eq!(state.error, None);
-        assert!(state.records.is_empty() && state.details.is_empty());
+        assert!((state.records.borrow().total() == 0) && state.details.is_empty());
         state
             .queue
             .delegation

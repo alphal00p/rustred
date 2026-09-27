@@ -216,8 +216,8 @@ fn assert_equivalent(a: &State<1>, b: &State<1>) {
         b.queue.unbounded_rank_domains
     );
     assert_eq!(
-        without_seconds(a.records.clone()),
-        without_seconds(b.records.clone())
+        without_seconds(a.records.borrow().snapshot()),
+        without_seconds(b.records.borrow().snapshot())
     );
 }
 

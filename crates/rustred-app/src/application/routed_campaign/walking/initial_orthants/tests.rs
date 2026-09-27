@@ -73,7 +73,10 @@ fn initial_orthants_none_dominates_but_finite_max_is_not_none() {
     queue
         .admit(domain(Phase::Apply, [true, false], Some(u32::MAX)))
         .unwrap();
-    let finite = InitialOrthants::from_initial(&queue.domains, &AtomicBool::new(false));
+    let finite = InitialOrthants::from_initial(
+        &queue.expand_prefix(queue.domains.len()),
+        &AtomicBool::new(false),
+    );
     assert!(finite.contains(Phase::Apply, &[true, false], Some(u32::MAX)));
     assert!(!finite.contains(Phase::Apply, &[true, false], None));
     queue
@@ -82,7 +85,10 @@ fn initial_orthants_none_dominates_but_finite_max_is_not_none() {
     queue
         .admit(domain(Phase::Route, [true, false], Some(3)))
         .unwrap();
-    let all = InitialOrthants::from_initial(&queue.domains, &AtomicBool::new(false));
+    let all = InitialOrthants::from_initial(
+        &queue.expand_prefix(queue.domains.len()),
+        &AtomicBool::new(false),
+    );
     assert!(all.contains(Phase::Apply, &[true, false], None));
     assert!(all.contains(Phase::Route, &[true, false], Some(3)));
     assert!(!all.contains(Phase::Route, &[true, false], Some(4)));
@@ -108,7 +114,7 @@ fn initial_orthants_optional_caps_cancel_and_later_admission_fall_back() {
         (10, payload, 1),
     ] {
         let snapshot = InitialOrthants::with_limits(
-            &queue.domains,
+            &queue.expand_prefix(queue.domains.len()),
             &AtomicBool::new(false),
             max_buckets,
             bytes,
@@ -127,12 +133,18 @@ fn initial_orthants_optional_caps_cancel_and_later_admission_fall_back() {
                 .1
         );
     }
-    let snapshot = InitialOrthants::from_initial(&queue.domains, &AtomicBool::new(false));
+    let snapshot = InitialOrthants::from_initial(
+        &queue.expand_prefix(queue.domains.len()),
+        &AtomicBool::new(false),
+    );
     queue
         .admit(domain(Phase::Apply, [false, true], None))
         .unwrap();
     assert!(!snapshot.contains(Phase::Apply, &[false, true], Some(0)));
-    let cancelled = InitialOrthants::from_initial(&queue.domains, &AtomicBool::new(true));
+    let cancelled = InitialOrthants::from_initial(
+        &queue.expand_prefix(queue.domains.len()),
+        &AtomicBool::new(true),
+    );
     assert!(cancelled.ranks.is_empty());
     let fresh = InitialOrthants::<2>::empty();
     assert!(!fresh.contains(Phase::Apply, &[true, false], Some(0)));

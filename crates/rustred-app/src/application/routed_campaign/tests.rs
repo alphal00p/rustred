@@ -6,6 +6,7 @@ mod guarded_apply;
 mod index_admission;
 mod owner_batches;
 mod power_domains;
+mod record_sidecar;
 
 #[test]
 fn shared_snapshot_exposes_first_failure_while_native_calls_drain() {

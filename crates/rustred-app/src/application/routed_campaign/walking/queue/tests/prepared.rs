@@ -11,7 +11,21 @@ fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
 
 pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
     assert_eq!(serial.domains, prepared.domains);
-    assert_eq!(serial.summaries, prepared.summaries);
+    // Summary content per ID; slab slot order may differ (a restored queue
+    // holds its live summaries densely).
+    assert_eq!(serial.summaries.ids(), prepared.summaries.ids());
+    assert_eq!(serial.summaries.live(), prepared.summaries.live());
+    for id in 0..serial.summaries.ids() {
+        let released = serial.summaries.is_released(id);
+        assert_eq!(
+            released,
+            prepared.summaries.is_released(id),
+            "summary of {id}"
+        );
+        if !released {
+            assert_eq!(serial.summaries.get(id), prepared.summaries.get(id));
+        }
+    }
     assert_eq!(serial.bits, prepared.bits);
     assert_eq!(serial.exact, prepared.exact);
     assert_eq!(serial.by_owner.len(), prepared.by_owner.len());
@@ -287,9 +301,9 @@ fn empty_infinite_and_near_counter_exhaustion_tokens_preserve_serial_results() {
     let mut empty = domain(None);
     empty.powers.max_positive_power = Some(0);
     let mut finite_max = domain(Some(u32::MAX));
-    finite_max.upper[0] = Some(u64::MAX);
+    finite_max.upper[0] = Some(MAX_COMPACT_COORDINATE);
     let mut infinite = domain(None);
-    infinite.lower[0] = u64::MAX;
+    infinite.lower[0] = MAX_COMPACT_COORDINATE;
     let stream = [empty, finite_max, infinite, domain(None), domain(Some(5))];
     let tokens = parallel_prepare(&prepared, &stream, 3);
     for (item, token) in stream.into_iter().zip(tokens) {
@@ -474,6 +488,49 @@ fn prepared_retirement_scans_in_batch_admissions_above_the_watermark() {
     }
     same_state(&serial, &queue);
     assert_eq!(serial.containment_checks, queue.containment_checks);
+}
+
+/// A prepared lookup made while its phase/owner bucket did not exist yet
+/// carries an empty set that decides nothing: an earlier commit of the same
+/// batch created the bucket, so every retirement is a commit-time decision.
+/// It is counted as trivial, not as an applied helper set.
+#[test]
+fn prepared_set_from_an_absent_bucket_counts_as_trivial_not_applied() {
+    let mut queue = Queue::new(20, None);
+    let request = box_domain([0, 0], [9, 9]);
+    let token = queue.prepare_admission(request.clone(), &AtomicBool::new(false));
+    assert_eq!(token.prepared_retire_len(), Some(0));
+    assert_eq!(queue.admit(box_domain([3, 3], [4, 4])), Ok((0, true)));
+    let before = queue.session;
+    assert_eq!(queue.admit_prepared(token), Ok((1, true)));
+    assert_eq!(queue.containment_retired_candidates, 1);
+    assert_eq!(
+        queue.session.prepared_retirements_trivial,
+        before.prepared_retirements_trivial + 1
+    );
+    assert_eq!(
+        queue.session.prepared_retirements_applied,
+        before.prepared_retirements_applied
+    );
+    assert_eq!(
+        queue.session.prepared_retire_fallbacks,
+        before.prepared_retire_fallbacks
+    );
+    // ID 0 needed its commit-time comparison.
+    assert_eq!(
+        queue.session.reverse_callbacks,
+        before.reverse_callbacks + 1
+    );
+    let mut serial = Queue::new(20, None);
+    for item in [box_domain([3, 3], [4, 4]), request] {
+        serial.admit(item).unwrap();
+    }
+    same_state(&serial, &queue);
+    assert_eq!(serial.containment_checks, queue.containment_checks);
+    assert_eq!(
+        serial.containment_maintenance_checks,
+        queue.containment_maintenance_checks
+    );
 }
 
 #[test]

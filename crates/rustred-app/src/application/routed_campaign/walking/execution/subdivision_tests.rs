@@ -111,11 +111,20 @@ fn both_actual_parts_are_required_before_one_parent_publication() {
     assert_eq!(state.initial_entry_domains_inspected, 1);
     state.refresh_closure(&AtomicBool::new(false), true);
     assert_eq!(state.closure_json()["initial_closed"], 1);
-    assert_eq!(state.records[0]["stats"]["optional_original_refusals"], 2);
-    assert_eq!(state.records[0]["optional_refusals"][0]["physical_part"], 0);
-    assert_eq!(state.records[0]["optional_refusals"][1]["physical_part"], 1);
     assert_eq!(
-        state.finalize_delegation().unwrap()["all_ledger_obligations_discharged"],
+        state.records.borrow().snapshot()[0]["stats"]["optional_original_refusals"],
+        2
+    );
+    assert_eq!(
+        state.records.borrow().snapshot()[0]["optional_refusals"][0]["physical_part"],
+        0
+    );
+    assert_eq!(
+        state.records.borrow().snapshot()[0]["optional_refusals"][1]["physical_part"],
+        1
+    );
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["all_ledger_obligations_discharged"],
         true
     );
 }
@@ -159,19 +168,22 @@ fn checkpoint_codec_retains_application_refinement_counts_in_completed_parts() {
     );
     assert_eq!(restored.error, None);
     assert_eq!(
-        restored.records[0]["stats"]["application_refinement_steps"],
+        restored.records.borrow().snapshot()[0]["stats"]["application_refinement_steps"],
         8
     );
     assert_eq!(
-        restored.records[0]["stats"]["application_refinement_cells"],
+        restored.records.borrow().snapshot()[0]["stats"]["application_refinement_cells"],
         18
     );
     assert_eq!(
-        restored.records[0]["physical_parts"][0]["stats"]["application_refinement_steps"],
+        restored.records.borrow().snapshot()[0]["physical_parts"][0]["stats"]["application_refinement_steps"],
         3
     );
     let again = super::super::checkpoint::round_trip_state(&restored).unwrap();
-    assert_eq!(again.records, restored.records);
+    assert_eq!(
+        again.records.borrow().snapshot(),
+        restored.records.borrow().snapshot()
+    );
 }
 
 #[test]
@@ -211,7 +223,7 @@ fn native_refined_successor_prefix_survives_checkpoint_resume_w2_w6() {
         );
         assert_eq!(baseline.error, None);
         assert!(
-            baseline.records[0]["stats"]["application_refinement_cells"]
+            baseline.records.borrow().snapshot()[0]["stats"]["application_refinement_cells"]
                 .as_u64()
                 .unwrap()
                 > 0
@@ -222,7 +234,10 @@ fn native_refined_successor_prefix_survives_checkpoint_resume_w2_w6() {
         prefix.replay = Some(replay::Replay::default());
         prefix.note_native_started(0).unwrap();
         let stop = AtomicBool::new(false);
-        let initial = InitialOrthants::from_initial(&prefix.queue.domains, &stop);
+        let initial = InitialOrthants::from_initial(
+            &prefix.queue.expand_prefix(prefix.queue.domains.len()),
+            &stop,
+        );
         let parts = prefix.parts(0, &request).unwrap();
         let first = inspection::inspect_part(
             &reducer,
@@ -306,7 +321,7 @@ fn split_policy_does_not_apply_to_new_descendant_responsibilities() {
         request
             .apply_subdivision
             .unwrap()
-            .parts(&state.queue.domains[id])
+            .parts(&state.queue.domain(id))
             .is_some()
     );
     assert!(state.parts(id, &request).is_none());
@@ -344,7 +359,8 @@ fn completed_parent_moves_frontiers_once_and_retains_part_provenance() {
             );
         }
     }
-    let parent = &state.records[0];
+    let records = state.records.borrow().snapshot();
+    let parent = &records[0];
     assert_eq!(parent["frontiers"].as_array().unwrap().len(), 2);
     for part in 0..2 {
         assert_eq!(parent["frontiers"][part]["physical_part"], part);
@@ -368,14 +384,23 @@ fn failed_group_cleanup_cannot_publish_success_from_finished_sibling() {
     let mut leftovers = vec![(2, finish(0)), (1, failed)];
     retain_physical_leftovers(&mut state, &mut leftovers, &request);
     assert_eq!(state.queue.next, 1);
-    assert_eq!(state.records.len(), 1);
+    assert_eq!(state.records.borrow().total(), 1);
     assert_eq!(state.completed, 0);
     assert_eq!(
-        state.records[0]["physical_parts"].as_array().unwrap().len(),
+        state.records.borrow().snapshot()[0]["physical_parts"]
+            .as_array()
+            .unwrap()
+            .len(),
         2
     );
-    assert_eq!(state.records[0]["local_classification_discharged"], false);
-    assert_eq!(state.finalize_delegation().unwrap()["native_cancelled"], 1);
+    assert_eq!(
+        state.records.borrow().snapshot()[0]["local_classification_discharged"],
+        false
+    );
+    assert_eq!(
+        state.finalize_delegation().0.unwrap()["native_cancelled"],
+        1
+    );
 }
 
 #[test]
@@ -409,11 +434,14 @@ fn physical_checkpoint_retains_completed_first_part_and_only_replays_second_pref
     );
     assert_eq!(state.queue.next, 1);
     assert_eq!(
-        state.records[0]["physical_parts"].as_array().unwrap().len(),
+        state.records.borrow().snapshot()[0]["physical_parts"]
+            .as_array()
+            .unwrap()
+            .len(),
         2
     );
     assert_eq!(
-        state.records[0]["optional_refusals"]
+        state.records.borrow().snapshot()[0]["optional_refusals"]
             .as_array()
             .unwrap()
             .len(),
@@ -495,10 +523,13 @@ fn assert_native_equivalent(a: &mut State<1>, b: &mut State<1>) {
     assert_eq!(a.queue.next, a.queue.domains.len());
     assert_eq!(b.queue.next, b.queue.domains.len());
     assert_eq!(a.queue.domains, b.queue.domains);
-    assert_eq!(canonical(json!(a.records)), canonical(json!(b.records)));
     assert_eq!(
-        a.finalize_delegation().unwrap(),
-        b.finalize_delegation().unwrap()
+        canonical(json!(a.records.borrow().snapshot())),
+        canonical(json!(b.records.borrow().snapshot()))
+    );
+    assert_eq!(
+        a.finalize_delegation().0.unwrap(),
+        b.finalize_delegation().0.unwrap()
     );
     assert_eq!(
         (
@@ -555,7 +586,10 @@ fn native_subdivision_repeated_on_disk_resume_preserves_parent_and_exact_prefix_
             &mut |_| Ok(()),
         );
         assert_eq!(baseline.error, None);
-        assert_eq!(baseline.records[0]["physical_parts_expected"], 2);
+        assert_eq!(
+            baseline.records.borrow().snapshot()[0]["physical_parts_expected"],
+            2
+        );
 
         let mut interrupted = native_state(&request);
         let mut accepted_prefix = None;
@@ -652,7 +686,7 @@ fn native_mid_stream_part_prefix_resumes_without_readmitting_callbacks() {
         );
         assert_eq!(baseline.error, None);
         assert!(
-            baseline.records[0]["physical_parts"][1]["stats"]["events"]
+            baseline.records.borrow().snapshot()[0]["physical_parts"][1]["stats"]["events"]
                 .as_u64()
                 .unwrap()
                 > 1
@@ -666,7 +700,10 @@ fn native_mid_stream_part_prefix_resumes_without_readmitting_callbacks() {
         prefix.replay = Some(replay::Replay::default());
         prefix.note_native_started(0).unwrap();
         let stop = AtomicBool::new(false);
-        let initial = InitialOrthants::from_initial(&prefix.queue.domains, &stop);
+        let initial = InitialOrthants::from_initial(
+            &prefix.queue.expand_prefix(prefix.queue.domains.len()),
+            &stop,
+        );
         let parts = prefix.parts(0, &request).unwrap();
         let first = inspection::inspect_part(
             &reducer,

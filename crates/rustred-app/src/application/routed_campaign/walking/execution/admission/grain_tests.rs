@@ -141,7 +141,7 @@ fn canonical(state: &State<2>) -> Value {
         parallel.remove(key);
     }
     json!({"queue_metadata":queue[0], "domains":queue[1], "buckets":queue[2], "ledger":queue[3],
-        "progress":progress, "records":state.records, "details":state.details,
+        "progress":progress, "records":state.records.borrow().snapshot(), "details":state.details,
         "refusals":state.refusals, "optional":state.optional,
         "source":state.checkpoint_progress_metadata(), "error":state.error})
 }

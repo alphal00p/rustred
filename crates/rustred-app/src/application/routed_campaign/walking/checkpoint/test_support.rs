@@ -6,7 +6,7 @@ use super::super::{
     OwnerDomainMatchRequest, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
     OwnerDomainWalkSchedulingPolicy,
     delegation::StoredLedger,
-    execution::State,
+    execution::{State, records::RecordSink},
     queue::{Domain, StoredBuckets},
 };
 use super::manifest::{Manifest, Section, SectionRef, Segment, Segmented};
@@ -16,7 +16,6 @@ use crate::application::atomic_file::write_file_atomically;
 use serde_json::{Value, json};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// Explicitly a test binding, not a claim about a production owner bundle.
 pub(in super::super) const OWNER: &str = "test-only immutable in-memory native fixture";
@@ -60,6 +59,29 @@ impl Fixture {
     pub fn save<const N: usize>(state: &State<N>) -> Self {
         Self::save_with(state, Self::request_for(state), &[], &[])
     }
+    /// An empty directory for a fresh walk, as `walking::run` opens it:
+    /// nothing is written; the caller bootstraps, binds, attaches the record
+    /// sidecar and saves through its own store.
+    pub fn fresh<const N: usize>(state: &State<N>) -> Self {
+        let dir = test_directory();
+        let mut request = Self::request_for(state);
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&dir));
+        Self { dir, request }
+    }
+    /// Copy the latest generation (`latest.json` and every file it
+    /// references, sealed record segments included) into a new directory:
+    /// what a process that died right after that save leaves to resume. The
+    /// writing store's lock and open record segment stay behind.
+    pub fn copy_latest(&self) -> Self {
+        let dir = test_directory();
+        for file in self.typed_manifest().files() {
+            fs::copy(self.dir.join(file.file), dir.join(file.file)).unwrap();
+        }
+        fs::copy(self.dir.join("latest.json"), dir.join("latest.json")).unwrap();
+        let mut request = self.request.clone();
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&dir));
+        Self { dir, request }
+    }
     /// Bootstrap, bind a synthetic owner and write generation 2.
     pub fn save_with<const N: usize>(
         state: &State<N>,
@@ -88,12 +110,18 @@ impl Fixture {
         store.bind_owners(vec![OWNER.into()])?;
         store.save(state, &[], &[], true, &|_| {})
     }
+    /// Restore through the real store, then read the restored sidecar back
+    /// into an in-memory sink: the test directory is removed with the
+    /// fixture, while the restored state lives on in the calling test.
     pub fn resume_full<const N: usize>(&self) -> Result<Restored<N>, String> {
         let mut store = self.open(true)?;
         store.bind_owners(vec![OWNER.into()])?;
-        store
+        let mut restored = store
             .resume::<N>(&|_| {})?
-            .ok_or_else(|| "test stateful checkpoint missing".to_owned())
+            .ok_or_else(|| "test stateful checkpoint missing".to_owned())?;
+        let records = restored.state.records.get_mut().snapshot();
+        *restored.state.records.get_mut() = RecordSink::Memory(records);
+        Ok(restored)
     }
     pub fn resume<const N: usize>(&self) -> Result<State<N>, String> {
         Ok(self.resume_full::<N>()?.state)
@@ -263,9 +291,11 @@ impl Fixture {
                 self.install(section, file, bytes, buckets.len());
             }
             Section::Domains => {
+                // Raw transport records: an earlier edit may have left the
+                // compact range, and the restore validators must see it.
                 let mut domains: Vec<Domain<N>> = Vec::new();
                 for segment in &files {
-                    sections::read_domains(
+                    sections::read_domain_records(
                         &self.read(&segment.file),
                         &identity,
                         segment.first as usize,
@@ -276,14 +306,12 @@ impl Fixture {
                 }
                 let mut value = serde_json::to_value(&domains).unwrap();
                 edit(&mut value);
-                let domains: Vec<Arc<Domain<N>>> = serde_json::from_value::<Vec<Domain<N>>>(value)
-                    .unwrap()
-                    .into_iter()
-                    .map(Arc::new)
-                    .collect();
+                let domains: Vec<Domain<N>> = serde_json::from_value(value).unwrap();
+                let count = domains.len();
                 let mut bytes = Vec::new();
-                sections::write_domains(&mut bytes, &identity, &domains, 0).unwrap();
-                self.install(section, file, bytes, domains.len());
+                sections::write_domain_records(&mut bytes, &identity, 0, domains.into_iter())
+                    .unwrap();
+                self.install(section, file, bytes, count);
             }
             Section::Edges => {
                 let mut edges = Vec::new();

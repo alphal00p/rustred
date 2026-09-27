@@ -138,7 +138,7 @@ pub(super) fn finish<const N: usize>(
     let mut records = Vec::new();
     let mut uncommitted = Vec::new();
     for (key, bucket) in &mut walk.buckets {
-        let delegation = bucket.state.finalize_delegation();
+        let (delegation, resolutions) = bucket.state.finalize_delegation();
         all_ledgers &= delegation
             .as_ref()
             .is_none_or(|v| v["all_ledger_obligations_discharged"] == true);
@@ -167,7 +167,10 @@ pub(super) fn finish<const N: usize>(
             );
         }
         owner_reports.push(owner_report);
-        for mut row in std::mem::take(&mut bucket.state.records) {
+        for mut row in bucket.state.records.get_mut().take_memory() {
+            if let Some(by_id) = &resolutions {
+                super::super::delegation::annotate_resolution(&mut row, by_id);
+            }
             row["bucket"] = json!(name);
             records.push(row);
         }

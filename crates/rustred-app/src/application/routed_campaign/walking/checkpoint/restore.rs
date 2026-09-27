@@ -1,15 +1,48 @@
 //! Resume pipeline: every referenced file's length and digest is verified in
 //! parallel before any section is decoded; then the same semantic checks as
-//! the previous single-file codec run over the restored parts.
-use super::super::{descendant_closure::Tracker, execution::State, queue::Queue};
+//! the previous single-file codec run over the restored parts. Records are
+//! never loaded: the record sidecar is reconstructed from the manifest's
+//! segment list and cross-checked through the ledger and closure state.
+use super::super::{
+    descendant_closure::Tracker,
+    execution::{
+        PROGRESS_ACCEPTED_EVENTS, State,
+        records::{self, RecordSink, Sidecar},
+    },
+    queue::Queue,
+};
 use super::manifest::{Manifest, Section};
 use super::sections::{self, Identity};
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::fs::File;
 use std::io::Read;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Instant;
+
+/// Wall seconds of each restore phase, in execution order, for the
+/// `checkpoint_restored` report (`phase_seconds`). A phase that runs once per
+/// segment accumulates.
+#[derive(Default)]
+pub(in super::super) struct Phases(Vec<(&'static str, f64)>);
+impl Phases {
+    pub fn since(&mut self, phase: &'static str, started: Instant) {
+        let seconds = started.elapsed().as_secs_f64();
+        match self.0.iter_mut().find(|(name, _)| *name == phase) {
+            Some((_, total)) => *total += seconds,
+            None => self.0.push((phase, seconds)),
+        }
+    }
+    pub fn json(&self) -> Value {
+        Value::Object(
+            self.0
+                .iter()
+                .map(|&(phase, seconds)| (phase.to_owned(), json!(seconds)))
+                .collect(),
+        )
+    }
+}
 
 pub(in super::super) struct Restored<const N: usize> {
     pub state: State<N>,
@@ -101,25 +134,37 @@ pub(super) fn restore<const N: usize>(
         semantics: manifest.walk_semantics_version,
     };
     let decode_started = Instant::now();
+    let mut phases = Phases::default();
     let s = &manifest.sections;
     let plain = |section: Section| {
         s.plain(section)
             .ok_or_else(|| format!("state manifest is missing the {} section", section.name()))
     };
-    let meta = sections::read_meta(&read_section(
+    let mut meta = sections::read_meta(&read_section(
         dir,
         &plain(Section::Meta)?.file,
         plain(Section::Meta)?.bytes,
     )?)?;
+    phases.since("meta_decode", decode_started);
+    let started = Instant::now();
     let nodes = plain(Section::Nodes)?;
     let flags = sections::read_nodes(&read_section(dir, &nodes.file, nodes.bytes)?, &identity)?;
-    let mut edges = Vec::new();
-    for segment in &s
+    phases.since("nodes_decode", started);
+    let started = Instant::now();
+    let edge_sections = s
         .edges
         .as_ref()
-        .ok_or("state manifest is missing the edges section")?
-        .segments
-    {
+        .ok_or("state manifest is missing the edges section")?;
+    // One exact allocation: the manifest's segments tile [0, total), so the
+    // per-segment reserves below never grow it (amortized growth could leave
+    // up to twice the pairs reserved while the CSR is built next to them).
+    let mut edges = Vec::new();
+    edges
+        .try_reserve_exact(
+            usize::try_from(edge_sections.total).map_err(|_| "checkpoint segment range")?,
+        )
+        .map_err(|_| "dependency edge allocation")?;
+    for segment in &edge_sections.segments {
         let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
         let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
         sections::read_edges(
@@ -130,13 +175,25 @@ pub(super) fn restore<const N: usize>(
             &mut edges,
         )?;
     }
-    let mut domains = Vec::new();
-    for segment in &s
+    phases.since("edges_decode", started);
+    let started = Instant::now();
+    let domain_segments = &s
         .domains
         .as_ref()
         .ok_or("state manifest is missing the domains section")?
-        .segments
+        .segments;
+    let mut domains = Vec::new();
+    // Room for the whole compact image up front: segment-by-segment growth
+    // could leave up to twice the needed capacity. Best effort only; the
+    // segment reader reports a genuine allocation failure itself.
+    if let Some(total) = domain_segments
+        .iter()
+        .try_fold(0_u64, |total, s| total.checked_add(s.count))
+        .and_then(|total| usize::try_from(total).ok())
     {
+        let _ = domains.try_reserve_exact(total);
+    }
+    for segment in domain_segments {
         let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
         let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
         sections::read_domains::<N>(
@@ -147,27 +204,29 @@ pub(super) fn restore<const N: usize>(
             &mut domains,
         )?;
     }
+    phases.since("domains_decode", started);
+    let started = Instant::now();
     let ledger = s
         .ledger
         .as_ref()
         .map(|l| sections::read_ledger(&read_section(dir, &l.file, l.bytes)?, &identity))
         .transpose()?;
+    phases.since("ledger_decode", started);
+    let started = Instant::now();
     let index = plain(Section::Index)?;
     let buckets = sections::read_index(&read_section(dir, &index.file, index.bytes)?, &identity)?;
-    let mut records = Vec::new();
-    for segment in &s
-        .records
-        .as_ref()
-        .ok_or("state manifest is missing the records section")?
-        .segments
-    {
-        let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
-        sections::read_records(
-            &read_section(dir, &segment.file, segment.bytes)?,
-            count,
-            &mut records,
-        )?;
-    }
+    phases.since("index_decode", started);
+    // The sidecar resumes from the manifest's segments; its next segment takes
+    // the next free generation, skipping any orphan of a crash or failed save.
+    let sidecar = Sidecar::restored(
+        dir.to_path_buf(),
+        s.records
+            .as_ref()
+            .ok_or("state manifest is missing the records section")?
+            .segments
+            .clone(),
+        super::next_free_generation(dir, manifest.generation)?,
+    );
     let decode_seconds = decode_started.elapsed().as_secs_f64();
     let validate_started = Instant::now();
     let [
@@ -184,7 +243,7 @@ pub(super) fn restore<const N: usize>(
         initial_domain_count,
         initial_entry_domains_inspected,
     ] = meta.counters;
-    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger)?;
+    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
     if initial_domain_count > queue.domains.len()
         || meta.route_joint_support_masks_pruned > route_masks
         || initial_entry_domains_inspected > initial_domain_count
@@ -198,8 +257,35 @@ pub(super) fn restore<const N: usize>(
     {
         return Err("inconsistent checkpoint publication counters".into());
     }
+    let saved_accepted_events = meta
+        .progress
+        .as_object_mut()
+        .ok_or("invalid checkpoint progress")?
+        .remove(PROGRESS_ACCEPTED_EVENTS)
+        .map(|value| {
+            value
+                .as_u64()
+                .and_then(|total| usize::try_from(total).ok())
+                .ok_or("invalid ready accepted-events aggregate")
+        })
+        .transpose()?;
+    let derived = ready && saved_accepted_events.is_none();
+    let records_accepted_events = match saved_accepted_events {
+        Some(total) if ready => total,
+        Some(0) | None if !ready => 0,
+        Some(_) => return Err("ordered checkpoint carries ready accepted-event accounting".into()),
+        // Written by a binary that keeps no aggregate (before the sidecar, or
+        // an executable-history rollback that saved again): derive it once.
+        None => {
+            let started = Instant::now();
+            let total = derive_accepted_events(&sidecar, native_records)?;
+            phases.since("accepted_events_derivation", started);
+            total
+        }
+    };
     let mut state = State::new(queue, frontiers, None);
-    state.records = records;
+    state.records = std::cell::RefCell::new(RecordSink::Sidecar(sidecar));
+    state.records_accepted_events = records_accepted_events;
     state.details = meta.details;
     state.refusals = meta.refusals;
     state.optional = meta.optional;
@@ -216,19 +302,31 @@ pub(super) fn restore<const N: usize>(
     state.initial_domain_count = initial_domain_count;
     state.initial_entry_domains_inspected = initial_entry_domains_inspected;
     let edge_count = edges.len();
-    let mut closure = Tracker::from_parts(meta.closure, &flags, edges)?;
+    let closure_started = Instant::now();
+    let mut closure = Tracker::from_parts(meta.closure, &flags, &edges)?;
+    drop(edges);
+    phases.since("closure_csr_build", closure_started);
+    let started = Instant::now();
     closure.restore(state.queue.domains.len(), initial_domain_count)?;
+    phases.since("closure_validate", started);
+    let closure_seconds = closure_started.elapsed().as_secs_f64();
     state.closure = std::cell::RefCell::new(closure);
     state.parallel = meta.parallel;
     state.uncommitted = meta.uncommitted;
+    let started = Instant::now();
     state.restore_checkpoint_progress(meta.progress)?;
     state.streams = meta.streams;
     state.validate_restored_streams()?;
-    validate_closure_records(&state)?;
+    phases.since("progress_and_streams", started);
+    let started = Instant::now();
+    validate_ledger_closure(&state)?;
+    phases.since("ledger_closure_cross_check", started);
     let report = json!({"verify_seconds":verify_seconds,"decode_seconds":decode_seconds,
-        "validate_seconds":validate_started.elapsed().as_secs_f64(),
+        "validate_seconds":validate_started.elapsed().as_secs_f64(),"closure_seconds":closure_seconds,
+        "phase_seconds":phases.json(),
         "domains":state.queue.domains.len(),"dependency_edges":edge_count,
-        "records":state.records.len(),"committed_domains":state.published_count(),
+        "records":state.records.borrow().total(),"records_accepted_events_derived":derived,
+        "committed_domains":state.published_count(),
         "committed_events":state.events});
     Ok(Restored {
         state,
@@ -238,84 +336,138 @@ pub(super) fn restore<const N: usize>(
     })
 }
 
-/// Record-based cross-check of the dependency seals against the published
-/// records. Wave 2 replaces the record scan with a ledger/closure check.
-pub(super) fn validate_closure_records<const N: usize>(state: &State<N>) -> Result<(), String> {
-    let closure = state.closure.borrow();
-    if closure.json(state.queue.domains.len(), state.initial_domain_count)["available"] != true {
-        return Ok(()); // Explicitly unavailable monitoring is not a completion claim.
+/// Migration of a Ready checkpoint written before the sidecar kept the
+/// accepted-events aggregate: stream every record segment once, in parallel,
+/// retaining one line per segment reader. Every native record must carry its
+/// count, and the native records must match the persisted native counter.
+fn derive_accepted_events(sidecar: &Sidecar, native_records: usize) -> Result<usize, String> {
+    #[derive(serde::Deserialize)]
+    struct Probe<'a> {
+        #[serde(borrow, default)]
+        record_kind: Option<std::borrow::Cow<'a, str>>,
+        #[serde(default)]
+        accepted_events: Option<usize>,
     }
-    let mut recorded = Vec::new();
-    recorded
-        .try_reserve_exact(state.queue.domains.len())
-        .map_err(|_| "dependency record validation allocation")?;
-    recorded.resize(state.queue.domains.len(), false);
-    let mut required = std::collections::HashSet::new();
-    required
-        .try_reserve(state.records.len())
-        .map_err(|_| "dependency record validation allocation")?;
-    for record in &state.records {
-        let id = record["id"]
-            .as_u64()
-            .and_then(|id| usize::try_from(id).ok())
-            .ok_or("dependency record ID missing")?;
-        if id >= recorded.len()
-            || recorded[id]
-            || !state
-                .queue
-                .delegation
-                .as_ref()
-                .map_or(id < state.queue.next, |ledger| ledger.is_published(id))
-        {
-            return Err("dependency record is duplicate or unpublished".into());
-        }
-        recorded[id] = true;
-        let status = if record["record_kind"] == "delegated_not_inspected" {
-            let target = record["representative_id"]
-                .as_u64()
-                .and_then(|id| usize::try_from(id).ok())
-                .ok_or("dependency alias representative missing")?;
-            if state
-                .queue
-                .delegation
-                .as_ref()
-                .and_then(|l| l.delegated_to(id))
-                != Some(target)
-            {
-                return Err("dependency alias does not match ledger".into());
-            }
-            required.insert((id, target));
-            (false, true)
-        } else {
-            let inspected = record.get("error").is_some_and(Value::is_null)
-                && (record["local_inspection_finished"] == true
-                    || record["residual_inspection_finished"] == true);
-            let frontiers = record["frontiers"]
-                .as_array()
-                .ok_or("dependency native frontier status missing")?;
-            if record["record_kind"] == "partial_initial_overlap_inspection" {
-                let target = record["initial_overlap"]["anchor_id"]
-                    .as_u64()
-                    .and_then(|id| usize::try_from(id).ok())
-                    .ok_or("dependency partial anchor missing")?;
-                if target >= state.initial_domain_count {
-                    return Err("dependency partial anchor outside initial prefix".into());
+    let files = sidecar.files();
+    let (natives, accepted) = files
+        .parts()
+        .par_iter()
+        .map(|part| {
+            let (mut natives, mut accepted) = (0usize, 0usize);
+            records::read_part(sidecar.directory(), part, &mut |line| {
+                let probe: Probe<'_> = serde_json::from_slice(line)
+                    .map_err(|e| format!("invalid checkpoint record line: {e}"))?;
+                if probe.record_kind.as_deref() != Some("delegated_not_inspected") {
+                    let events = probe
+                        .accepted_events
+                        .ok_or("ready checkpoint native record has no accepted-events count")?;
+                    natives += 1;
+                    accepted = accepted
+                        .checked_add(events)
+                        .ok_or("checkpoint accepted-events overflow")?;
                 }
-                required.insert((id, target));
-            }
-            (inspected, inspected && frontiers.is_empty())
+                Ok(())
+            })?;
+            Ok::<_, String>((natives, accepted))
+        })
+        .try_reduce(
+            || (0, 0),
+            |a, b| {
+                Ok((
+                    a.0 + b.0,
+                    a.1.checked_add(b.1)
+                        .ok_or("checkpoint accepted-events overflow")?,
+                ))
+            },
+        )?;
+    if natives != native_records {
+        return Err("ready checkpoint records/publications disagree".into());
+    }
+    Ok(accepted)
+}
+
+/// Checkpoint dependency endpoints are u32 (the edge section's width).
+fn edge_key(source: usize, target: usize) -> Result<u64, String> {
+    let endpoint = |id: usize| u32::try_from(id).map_err(|_| "dependency endpoint exceeds u32");
+    Ok(u64::from(endpoint(source)?) << 32 | u64::from(endpoint(target)?))
+}
+
+/// Ledger/closure cross-check that replaces the former record scan. The
+/// sidecar inventory (record and native counts) never depends on the
+/// dependency monitor and is checked first; the per-ID seal and required
+/// edge checks need an available monitor (an explicitly unavailable one is
+/// not a completion claim).
+pub(super) fn validate_ledger_closure<const N: usize>(state: &State<N>) -> Result<(), String> {
+    let ledger = state.queue.delegation.as_ref();
+    if state.records.borrow().total() != state.published_count()
+        || state.native_records != ledger.map_or(state.queue.next, |l| l.native_publications())
+    {
+        return Err("checkpoint records/publications disagree".into());
+    }
+    let closure = state.closure.borrow();
+    let total = state.queue.domains.len();
+    if closure.json(total, state.initial_domain_count)["available"] != true {
+        return Ok(());
+    }
+    let mut required = std::collections::HashSet::new();
+    let mut unsealed_inspected = 0usize;
+    for id in 0..total {
+        let (expected, edges) = match ledger {
+            Some(ledger) => ledger.closure_expectation(id),
+            None => ((id < state.queue.next, false), [None, None]),
         };
-        if closure.local_status(id) != Some(status) {
-            return Err("dependency seal disagrees with native publication".into());
+        let actual = closure
+            .local_status(id)
+            .ok_or("dependency closure inventory mismatch")?;
+        let matches = match ledger {
+            Some(_) => actual == expected,
+            // Without a ledger the seal depends on the record's frontiers:
+            // only inspection is per ID, and the unsealed inspections are
+            // bounded by the frontier count below. Unlike the former record
+            // scan, this cannot detect a sealed native that kept frontiers.
+            None => actual.0 == expected.0 && (expected.0 || !actual.1),
+        };
+        if !matches {
+            return Err(if expected == (false, false) {
+                "dependency sealed or inspected an unpublished node".into()
+            } else {
+                "dependency seal disagrees with native publication".into()
+            });
+        }
+        unsealed_inspected += usize::from(actual.0 && !actual.1);
+        for (index, target) in edges.into_iter().enumerate() {
+            let Some(target) = target else {
+                continue;
+            };
+            if index == 1 && target >= state.initial_domain_count {
+                return Err("dependency partial anchor outside initial prefix".into());
+            }
+            if required.try_reserve(1).is_err() {
+                return Err("dependency record validation allocation".into());
+            }
+            required.insert(edge_key(id, target)?);
         }
     }
-    for (id, seen) in recorded.iter().enumerate() {
-        if !seen && closure.local_status(id) != Some((false, false)) {
-            return Err("dependency sealed or inspected an unpublished node".into());
-        }
+    if ledger.is_none() && unsealed_inspected > state.frontiers {
+        return Err("dependency seal disagrees with native publication".into());
     }
-    for edge in closure.dependencies() {
-        required.remove(&edge);
+    // Internal iteration over the CSR and the log, stopping once every
+    // required edge was seen (order unspecified; the check does not need one).
+    if !required.is_empty()
+        && let ControlFlow::Break(Err(error)) =
+            closure.try_for_each_edge(|source, target| match edge_key(source, target) {
+                Err(error) => ControlFlow::Break(Err(error)),
+                Ok(key) => {
+                    required.remove(&key);
+                    if required.is_empty() {
+                        ControlFlow::Break(Ok(()))
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                }
+            })
+    {
+        return Err(error);
     }
     if !required.is_empty() {
         return Err("dependency alias or partial-anchor edge missing".into());
