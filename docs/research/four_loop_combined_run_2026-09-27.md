@@ -64,7 +64,7 @@ Full table in the README (section 5). Summary:
 | `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 3/3 drained (25.5-25.9 k); max rank 15, so not a fix by construction; small sample |
 | `four-all-h993r14` | W24: flood (730,570 natives at 900 s) | - | 0/1 (flood moved to two other owners) | - |
 | `four-all-p5` (five-loop generation policy) | W24: 31,717 | - | 2/2, 22.9-23.3 k | not run |
-| `four-all-a19` (box-first envelope) | W6: flood (1 run) | 0/1 | 2/3 | 1/1 |
+| `four-all-a19` (box-first envelope) | W6 and W24: identical flood | 0/1 | 2/3 | 1/1 |
 | `four-all-physics` | - | - | 0/1 (1 h) | - |
 | `four-all-r6anchors` | - | - | 3/3, 12.5-13.4 k | not run |
 
@@ -106,8 +106,9 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
   unbounded. In rep2, the first wide boxes bounded line-2 dots at 1 or 2, which left
   (dots1 >= 1, dots2 >= 2) uncovered, and the point-like chain started there.
 - Ready publishes in completion order, which differs from run to run. Ordered is deterministic:
-  `four-all` takes the draining branch at every width, while `four-all-a19` took the flooding
-  branch in its only Ordered run.
+  `four-all` takes the draining branch at every width, while `four-all-a19` takes the flooding
+  branch at every width tried (Ordered W6 and W24: the first 600,000 committed records are
+  identical, ignoring `seconds`).
 - Session 1's partial-initial-overlap explanation (the old "engine note") is not needed: rep2
   had 0 partial initial inspections. Partial overlaps may add to the race; they are not required
   for it.
@@ -164,11 +165,13 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
      audit PASS and strictly identical to the reference records (30,159 natives, 65,444
      records). For the v3 epoch engine, which changes the records on purpose, use instead:
      drained, audit and verify-closure PASS, identical across widths, natives within ±10 %.
-   - C-4L-R: `four-all` Ready W96 x3, 15-minute cap each. On the legacy engine this arm is
-     diagnostic: a non-drain whose native seconds are dominated by Apply natives at anchor
-     rank + 1 on the V4min-2 connected owners (`0111110010`, `0111111001`) is known behaviour.
-     Any other signature, a frontier or a violation fails. For v3 the arm is required: 3/3
-     drained, identical.
+   - C-4L-R: `four-all` Ready W96 x3, 15-minute cap each, or an early stop once a run passes
+     60,000 natives (every fragmenting run, W6-W96, passed 64-263 k natives by 60 s; no drained
+     run of any variant exceeded 38,173 natives). On the legacy engine this arm is diagnostic: a
+     non-drain whose native seconds are dominated by Apply natives at anchor rank + 1 on the
+     V4min-2 connected owners (`0111110010`, `0111111001`) is known behaviour. Any other
+     signature, a frontier or a violation fails. For v3 the arm is required: 3/3 drained,
+     identical.
    - Keep the per-family FG/BMW/H/X controls as the zero-Route arm.
    - Keep `four-all-physics` as the small, campaign-shaped stress case. A v3 engine that drains
      it within the 1-hour rule would be direct evidence on the five-loop bottleneck.
@@ -179,10 +182,23 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
    every admitted box. The fragmenting runs are recognisable early [M]: 41-58 k natives at 20 s
    and 181-479 k at 120 s, whereas drained runs finish with 22-31 k natives in 9-20 s of
    traversal.
-3. **Five-loop reading** [E]. The five-loop hot owner `011101110111000` (connected, V4min 3,
-   helper rank 3) matches the four-loop flood owner (connected, V4min 2, helper rank 3). Raising
-   helper ranks is not a cure at four loops; it only moves the layer. So the input lever
+3. **Five-loop reading.** The five-loop hot owner `011101110111000` (connected, V4min 3,
+   helper rank 3) resembles the four-loop flood owner (connected, V4min 2, helper rank 3) [E].
+   Raising helper ranks is not a cure at four loops; it only moves the layer. So the input lever
    "raise low helper ranks" from session 1 is weakened. It is not refuted at five loops.
+   Cross-check on the v2 campaign [M]: `tools/records_breakdown.py` over the five committed-records
+   sidecars of the gen-7 clone (45,889,639 records, 27.47 M natives; copies in
+   `TMP/c4l-s2/v2-gen7-records/`, outputs `bd-v2-gen{3..7}.json`, 65 s) gives the following.
+   - Across all owners, only **33.4 %** of Apply natives lie above their owner's helper rank.
+   - For the hot owner (helper rank 3, A <= 13, 63.6 % of native seconds) the figure is
+     **40.7 %**.
+   - The rest lie at or below the helper rank, where 54 of the 67 plan-v3 helpers carry an A
+     bound. [E] These are mostly escapes in A, not in rank; this was not checked domain by
+     domain.
+   [E] So the four-loop mechanism (the layer above the anchor rank, which no box covers) explains
+   at most a third to two fifths of the five-loop Apply work. `four-all`, whose helpers are
+   unbounded in A, does not exercise the A-escape part. That part is exercised only by a variant
+   with A-bounded helpers, which has not been built.
 
 ## Open issues
 

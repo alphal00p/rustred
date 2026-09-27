@@ -283,6 +283,7 @@ socket 1, CPUs 128-223, foreign load 27-78 % where recorded, so **W96 timings ar
 | `four-all-a19` | Ready, W24 | 3 | 2 | 22,846 / 22,847 | 14 | 1 killed at 600 s with >= 1,150,778 natives (exit 124, no result) |
 | `four-all-a19` | Ready, W6 | 1 | 0 | - | - | 2,660,400 natives at 2,539 s; rank-13 flood on `0111110010` |
 | `four-all-a19` | Ordered, W6 | 1 | 0 | - | - | 3,168,826 natives at 3,140 s; rank-13 flood on `0111110010` |
+| `four-all-a19` | Ordered, W24 (180 s cap) | 1 | 0 | - | - | 669,422 natives at 180 s; rank-13 flood on `0111110010`; first 600,000 committed records identical to Ordered W6 (ignoring `seconds`) |
 | `four-all-a19` | Ready, W96 | 1 | 1 | 23,872 (32 partial initial inspections) | 14 | - |
 | `four-all-physics` | Ready, W24 | 1 | 0 | - | - | 2,367,249 natives at 3,600 s (SIGINT, no result); rank-5 flood on `0111110010` and `0111111001` |
 
@@ -350,7 +351,7 @@ first were `[-,0,1,-,0,0,-,-,1,-]` and siblings (line-2 dots <= 1 or 2, line-3 u
 leave (dots1 >= 1, dots2 >= 2) uncovered, and the point-like chain starts there. Ready publishes
 in completion order, so which boxes win differs from run to run; Ordered is deterministic, so
 `four-all` Ordered drained identically at W6, W24 and W96 (30,159), while `four-all-a19`
-Ordered W6 took the flooding branch in its only run. The partial-initial-overlap timing proposed
+Ordered floods identically at W6 and W24 (the first 600,000 committed records agree). The partial-initial-overlap timing proposed
 in session 1 is not needed: rep2 had 0 partial initial inspections.
 
 ### Input-level fixes tested [M]
@@ -377,12 +378,15 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
    identity by: drained, audit and verify-closure PASS, identical results across W6/W24/W96,
    and natives within +-10 % of 30,159 [E: band chosen, not measured].
 2. **C-4L-R (Ready drain at width, diagnostic on the legacy engine):** `four-all` Ready W96 x3,
-   each capped at 15 min. Record drained / not drained and, for a non-drained run, the
-   `tools/records_breakdown.py` signature. On the legacy engine a non-drain whose native seconds
-   are dominated by Apply natives at anchor rank + 1 on the V4min-2 connected owners (`0111110010`,
-   `0111111001`) is known behaviour (3 of 5 runs drained at W96), not a regression; any other
-   signature, a frontier or an audit violation is a failure. For the v3 epoch engine
-   (deterministic by design) it becomes a required arm: 3/3 drained with identical results.
+   each capped at 15 min; a run may be stopped early once it passes 60,000 natives (twice the
+   Ordered reference): every fragmenting run of this lane (W6-W96) passed 64-263 k natives by 60
+   s, and no drained run of any `four-all` variant exceeded 38,173 natives [M]. Record drained /
+   not drained and, for a non-drained run, the `tools/records_breakdown.py` signature. On the
+   legacy engine a non-drain whose native seconds are dominated by Apply natives at anchor rank +
+   1 on the V4min-2 connected owners (`0111110010`, `0111111001`) is known behaviour (3 of 5 runs
+   drained at W96), not a regression; any other signature, a frontier or an audit violation is a
+   failure. For the v3 epoch engine (deterministic by design) it becomes a required arm: 3/3
+   drained with identical results.
 3. **Keep** the per-family FG/BMW/H/X Ordered W6 controls as the zero-Route arm (owner rule:
    "in addition to" the combined run), and keep `four-all-physics` as the small C-HOT-like stress
    case (planner helper ranks as at five loops, same flood).
