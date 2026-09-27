@@ -15,6 +15,7 @@ mod publication;
 mod queue;
 mod reuse;
 mod routing;
+mod verify_closure;
 mod work_policy;
 mod worker_budget;
 
@@ -56,6 +57,10 @@ pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 pub const WALK_SEMANTICS_VERSION: u32 = 1;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
+pub use verify_closure::{
+    OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
+    OwnerDomainWalkVerifyReinspect, owner_domain_walk_verify_closure,
+};
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {

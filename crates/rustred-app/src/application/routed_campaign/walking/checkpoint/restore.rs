@@ -98,7 +98,7 @@ pub(super) fn verify_files(dir: &Path, manifest: &Manifest) -> Result<f64, Strin
     Ok(started.elapsed().as_secs_f64())
 }
 
-fn read_section(dir: &Path, file: &str, bytes: u64) -> Result<Vec<u8>, String> {
+pub(super) fn read_section(dir: &Path, file: &str, bytes: u64) -> Result<Vec<u8>, String> {
     let path = section_path(dir, file)?;
     let mut out = Vec::new();
     out.try_reserve_exact(usize::try_from(bytes).map_err(|_| "checkpoint section size")?)

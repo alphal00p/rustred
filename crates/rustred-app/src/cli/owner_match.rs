@@ -228,8 +228,8 @@ fn walk_request(
 /// The walk request an `owner-domain-match --follow-successors` argv (with
 /// its program name) describes, built by the same parser, admission checks
 /// and request construction as the command, without opening any output,
-/// event or stop file. Used by the restore-at-scale test.
-#[cfg(test)]
+/// event or stop file. Used by the restore-at-scale test and the offline
+/// closure verifier.
 pub(crate) fn walk_request_from_argv(
     argv: Vec<std::ffi::OsString>,
 ) -> Result<OwnerDomainWalkRequest, String> {

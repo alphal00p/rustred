@@ -167,6 +167,7 @@ pub(crate) enum Command {
     CampaignReduce(CampaignReduceArgs),
     CampaignShards(Vec<OsString>),
     CampaignMonitor(Vec<OsString>),
+    WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -279,6 +280,7 @@ pub(crate) fn parse_args(
         "owner-domain-scan" => owner_domains::parse(arguments),
         "owner-domain-match" => owner_match::parse(arguments),
         "owner-guarded-apply" => owner_guarded::parse(arguments),
+        "walk-verify-closure" => super::walk_verify::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -292,14 +294,14 @@ fn reject_trailing(arguments: impl IntoIterator<Item = OsString>) -> Result<(), 
     }
 }
 
-fn next_value(
+pub(super) fn next_value(
     arguments: &mut impl Iterator<Item = OsString>,
     option: &'static str,
 ) -> Result<OsString, ArgError> {
     arguments.next().ok_or(ArgError::MissingValue(option))
 }
 
-fn next_utf8_value(
+pub(super) fn next_utf8_value(
     arguments: &mut impl Iterator<Item = OsString>,
     option: &'static str,
 ) -> Result<String, ArgError> {
@@ -308,7 +310,10 @@ fn next_utf8_value(
         .map_err(ArgError::NonUtf8Option)
 }
 
-fn parse_positive_integer(option: &'static str, value: String) -> Result<usize, ArgError> {
+pub(super) fn parse_positive_integer(
+    option: &'static str,
+    value: String,
+) -> Result<usize, ArgError> {
     value
         .bytes()
         .all(|byte| byte.is_ascii_digit())
@@ -366,6 +371,7 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -683,6 +689,19 @@ walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same
 format, schema and walk semantics version.
+
+`walk-verify-closure` is an offline oracle over one saved CP5 walk
+generation, named by the walk's own owner-domain-match argv (a JSON list, or
+an object with a `command` list). It checks the checkpoint's request binding,
+record/domain parity, the F8 seal rule against the saved seal flags, exact
+alias and partial-anchor inclusion with their dependency edges, re-derives
+dependency closure from the saved edges, and (unless `--reinspect none`)
+re-inspects natives with the exact reference reducer with every walk lever
+off: frontier, error and event counts must match, and every successor must be
+contained in a recorded target of its parent or along that target's alias
+chain. Small cells are also checked by lattice-point enumeration. The report
+(JSON) separates helper roots from physics queries; the exit status is 0 only
+on PASS. `--mutate` injects one engine defect in memory and must FAIL.
 
 Independent starting-owner campaigns (opt-in, Linux):
   rustred campaign shards --config CONFIG.json --directory DIR
