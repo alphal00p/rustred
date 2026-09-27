@@ -43,3 +43,7 @@ path = "../../examples/rust/spired_generate_k6.rs"
 [[example]]
 name = "spired-generate-four-loop-h"
 path = "../../examples/rust/spired_generate_four_loop_h.rs"
+
+[[example]]
+name = "wv-family-automorphisms"
+path = "../../tools/research/wv/family_automorphisms.rs"
