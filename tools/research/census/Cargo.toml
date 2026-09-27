@@ -1,0 +1,21 @@
+[package]
+name = "census"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Read-only work-volume census of RustRed CP5 walk checkpoints (W0.7)"
+
+# Standalone: not a member of the RustRed workspace.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+memmap2 = "0.9"
+rustc-hash = "2"
+
+[profile.release]
+opt-level = 3
+debug = 1
+codegen-units = 16
