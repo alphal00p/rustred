@@ -632,7 +632,8 @@ fn ledger_state(ready: bool) -> State<1> {
 /// Every per-domain event keeps the historical key set exactly, so a new
 /// unconditional field anywhere in `progress`, `metrics_json`, `json_with` or
 /// the closure report fails here; heartbeats add session telemetry only
-/// under `parallel`, and exactly the pinned keys.
+/// under `parallel`, and exactly the pinned keys (on a Ready ledger these
+/// include the W0.8 `dispatch_order` telemetry).
 #[test]
 fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry() {
     let state = ledger_state(true);
@@ -671,6 +672,7 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
                 "closure_refresh_policy",
                 "containment_prefilter",
                 "coordinator_duty",
+                "dispatch_order",
                 "queue_storage"
             ]
         );
@@ -725,11 +727,14 @@ fn observe_attaches_the_lean_pool_tier_to_per_domain_events_only() {
         keys
     };
     let lean = ["admission_preparation"];
+    // The Ready ledger's dispatch-order telemetry (W0.8 knob) rides on the
+    // heartbeat and drain tiers only.
     let heartbeat = [
         "admission_preparation",
         "closure_refresh_policy",
         "containment_prefilter",
         "coordinator_duty",
+        "dispatch_order",
         "queue_storage",
     ];
     let expected = [

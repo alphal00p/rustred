@@ -338,14 +338,17 @@ impl<const N: usize> State<N> {
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
         telemetry["admission_preparation"] = self.admission.metrics_json(lean);
-        if let Some(ledger) = self.queue.delegation.as_ref().filter(|l| l.is_ready()) {
-            let mut order = ledger.order_json();
-            if let Some(boost) = self.closure.borrow().boost_json() {
-                order["closure_boost"] = boost;
-            }
-            telemetry["dispatch_order"] = order;
-        }
         if !lean {
+            // Ready dispatch-order telemetry (W0.8 knob) is session telemetry:
+            // heartbeats and the final report carry it, the per-domain events
+            // keep the frozen binary's key set.
+            if let Some(ledger) = self.queue.delegation.as_ref().filter(|l| l.is_ready()) {
+                let mut order = ledger.order_json();
+                if let Some(boost) = self.closure.borrow().boost_json() {
+                    order["closure_boost"] = boost;
+                }
+                telemetry["dispatch_order"] = order;
+            }
             // Session telemetry lives under `parallel`, the object the strict
             // old-vs-new result comparison already ignores; the top level and
             // `descendant_closure` keep their historical key sets. The duty
