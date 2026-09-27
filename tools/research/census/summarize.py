@@ -5,6 +5,8 @@ usage: summarize.py cover OUT-cover.json [OUT-cover-rows.jsonl]
        summarize.py potential OUT-potential.json
        summarize.py saturation OUT-saturation.json [owner ...]
        summarize.py pilot OUT-pilot.json
+       summarize.py owners OUT-cover-rows.jsonl SAMPLE ANCHOR_SET [TOP]
+       summarize.py cost OUT-cost.json [TOP]
 """
 import collections
 import json
@@ -44,25 +46,27 @@ def cover(path, rows=None):
     if rows:
         by = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
         inexact = collections.Counter()
+        unevaluated = collections.Counter()
         draws = collections.Counter()
         for line in open(rows):
             r = json.loads(line)
             for aset, e in r["evals"].items():
-                if e is None:
-                    continue
                 key = (r["sample"], aset)
                 draws[key] += r["mult"]
+                if e is None:
+                    unevaluated[key] += r["mult"]
+                    continue
                 if not e["exact"]:
                     inexact[key] += r["mult"]
                 if e["uncovered"] > 0:
                     by[key]["d_only"][e["d_only"][0]] += r["mult"]
                     by[key]["ar"][e["ar"][0]] += r["mult"]
-        print("| sample / anchor set | sampled-point (inexact) draws | D-only pieces of partial residuals | A/R pieces of partial residuals |")
-        print("|---|---:|---|---|")
+        print("| sample / anchor set | sampled-point (inexact) draws | unevaluated (infinite) draws | D-only pieces of partial residuals | A/R pieces of partial residuals |")
+        print("|---|---:|---:|---|---|")
         for key in sorted(draws):
             dh = dict(sorted(by[key]["d_only"].items()))
             ah = dict(sorted(by[key]["ar"].items()))
-            print(f"| {key[0]} / {key[1]} | {pct(inexact[key] / draws[key])} | {dh} | {ah} |")
+            print(f"| {key[0]} / {key[1]} | {pct(inexact[key] / draws[key])} | {pct(unevaluated[key] / draws[key])} | {dh} | {ah} |")
         print()
 
 
@@ -105,15 +109,37 @@ def pilot(path):
         if isinstance(v, dict) and "all" in v:
             print(f"**{k}**")
             print()
-            print("| scope | draws | fully covered | gate hull | gate D-only | mean uncovered fraction | projected rel. cost hull [E] |")
-            print("|---|---:|---:|---:|---:|---:|---:|")
+            print("| scope | draws | fully covered | gate hull | gate D-only | mean uncovered fraction | projected rel. cost hull [E] | unevaluated (infinite) |")
+            print("|---|---:|---:|---:|---:|---:|---:|---:|")
             for scope, s in v.items():
                 proj = s.get("projected_relative_cost_hull[E]")
                 print(f"| {scope} | {s['draws']:.0f} | {pct(s['fully_covered_share'])} | {pct(s['gate_hull_share'])} | {pct(s['gate_d_only_share'])} | "
-                      f"{pct(s['mean_uncovered_fraction'])} | {proj:.3f} |")
+                      f"{pct(s['mean_uncovered_fraction'])} | {proj:.3f} | {pct(s.get('unevaluated_share(infinite)'))} |")
             print()
         elif not isinstance(v, dict) or k.startswith("exact"):
             print(f"- {k}: {json.dumps(v)}")
+    print()
+
+
+def cost(path, top=8):
+    """Per-owner cost exponents: per-native OLS of ln(seconds) on ln(points)
+    vs the plan's estimator (n-weighted LS of ln(mean seconds) on ln(mean
+    points) over decade bins with >= 10 natives), on all sizes and < 1e5 points."""
+    d = json.load(open(path))
+    p = d["pooled"]
+    print(f"source `{path}`; Apply seconds {d['apply_seconds']:.0f}; pooled OLS b {p['cost_exponent']:.3f} (r2 {p['r2']:.2f}, n {p['n']}), "
+          f"pooled bin-mean WLS b {p.get('cost_exponent_binmean_wls', float('nan')):.3f}")
+    print()
+    f = lambda x: "-" if x is None or x != x else f"{x:.2f}"
+    print("| owner | Apply s share | natives | OLS b (r2) | bin-mean WLS b | OLS b, pts < 1e5 | bin-mean WLS b, pts < 1e5 | top-decade b | max decade | OLS b by gen | bin-mean b by gen |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|")
+    for o in d["owners"][:top]:
+        g = o.get("cost_exponent_by_gen[b,r2,n,b_binmean_wls]", {})
+        lt = o.get("cost_exponent_ols_pts_lt_1e5[b,r2,n]", [None, None, None])
+        print(f"| {o['owner']} | {pct(o['seconds_share'])} | {o['natives']} | {f(o['cost_exponent'])} ({f(o['cost_r2'])}) | "
+              f"{f(o.get('cost_exponent_binmean_wls'))} | {f(lt[0])} | {f(o.get('cost_exponent_binmean_wls_pts_lt_1e5'))} | "
+              f"{f(o['top_decade_exponent'])} | {max(int(k) for k in o['decades']) if o['decades'] else '-'} | "
+              f"{', '.join(f'g{k} {f(v[0])}' for k, v in g.items())} | {', '.join(f'g{k} {f(v[3])}' for k, v in g.items())} |")
     print()
 
 
@@ -127,21 +153,27 @@ if __name__ == "__main__":
         saturation(sys.argv[2], sys.argv[3:])
     elif mode == "pilot":
         pilot(sys.argv[2])
+    elif mode == "cost":
+        cost(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 8)
 
 
 def owners(rows, sample, aset, top=8):
-    """Per-owner breakdown of one sample / anchor set from the cover rows."""
+    """Per-owner breakdown of one sample / anchor set from the cover rows.
+    Unevaluated (infinite) queries count as not covered, gates failed and
+    uncovered fraction 1 (the same conservative rule as `census cover`)."""
     agg = collections.defaultdict(lambda: collections.Counter())
     for line in open(rows):
         r = json.loads(line)
-        if r["sample"] != sample:
+        if r["sample"] != sample or aset not in r["evals"]:
             continue
-        e = r["evals"].get(aset)
-        if e is None:
-            continue
+        e = r["evals"][aset]
         a = agg[r["owner"]]
         m = r["mult"]
         a["draws"] += m
+        if e is None:
+            a["uneval"] += m
+            a["unc"] += m
+            continue
         pts = e["points"] or 1.0
         a["full"] += m * (e["uncovered"] == 0)
         d_res = 0.0 if e["uncovered"] == 0 else e["d_only"][1]
@@ -152,13 +184,13 @@ def owners(rows, sample, aset, top=8):
     total = sum(a["draws"] for a in agg.values())
     print(f"per owner, {sample} / {aset} (share of draws = share of the sample's weight):")
     print()
-    print("| owner | share of draws | fully covered | gate D-only | gate hull | mean uncovered fraction |")
-    print("|---|---:|---:|---:|---:|---:|")
+    print("| owner | share of draws | fully covered | gate D-only | gate hull | mean uncovered fraction | unevaluated |")
+    print("|---|---:|---:|---:|---:|---:|---:|")
     for o, a in sorted(agg.items(), key=lambda kv: -kv[1]["draws"])[:top]:
         d = a["draws"]
-        print(f"| {o} | {pct(d / total)} | {pct(a['full'] / d)} | {pct(a['gate_d'] / d)} | {pct(a['gate_h'] / d)} | {pct(a['unc'] / d)} |")
+        print(f"| {o} | {pct(d / total)} | {pct(a['full'] / d)} | {pct(a['gate_d'] / d)} | {pct(a['gate_h'] / d)} | {pct(a['unc'] / d)} | {pct(a['uneval'] / d)} |")
     print()
 
 
 if __name__ == "__main__" and sys.argv[1] == "owners":
-    owners(sys.argv[2], sys.argv[3], sys.argv[4])
+    owners(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]) if len(sys.argv) > 5 else 8)

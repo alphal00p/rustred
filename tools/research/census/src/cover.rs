@@ -340,7 +340,11 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
     };
     let scale;
     if total <= cap {
-        geom::enumerate(q, n, &mut |_, x, sa, sr| test(x, sa, sr, &mut grid));
+        // A finite domain with an effective coordinate bound above 62 cannot
+        // be enumerated: report it as unevaluated (never as covered).
+        if !geom::enumerate(q, n, &mut |_, x, sa, sr| test(x, sa, sr, &mut grid)) {
+            return None;
+        }
         ev.exact = true;
         ev.tested = total as usize;
         scale = 1.0;
@@ -687,7 +691,17 @@ pub fn run(dir: &Path, opts: &Opts) {
                     s.w += w;
                     s.n += 1;
                     let Some(ev) = ev else {
+                        // Unevaluated (infinite) queries count conservatively: no
+                        // coverage, full residual, full cost, gate failed.
                         s.skipped_w += w;
+                        s.unc_frac_w += w;
+                        for vn in ["exact_pointwise", "d_only", "ar_c2", "hull", "hull_c2", "hull_per_d_run"] {
+                            let e = s.voc.entry(vn).or_default();
+                            e[1] += w;
+                            e[2] += w;
+                            e[3] += w;
+                            e[4] += w;
+                        }
                         continue;
                     };
                     s.evaluated += 1;
@@ -855,6 +869,18 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 500, "{checked}");
+    }
+    /// A finite domain that cannot be enumerated (a coordinate above 62) is
+    /// unevaluated, never reported as covered.
+    #[test]
+    fn non_enumerable_domain_is_unevaluated() {
+        let n = 2;
+        let mut q = Dom { owner: 0b01, phase: 0, rank: INF8, amax: NONE16, dmin: DLO_NONE, dmax: DHI_NONE, ..Default::default() };
+        q.hi[0] = 70;
+        q.hi[1] = 0;
+        assert_eq!(geom::points(&q, n), Some(71));
+        let mut rng = Rng::new(1);
+        assert!(evaluate(&q, n, &[], &|_| true, 1e9, 0, &mut rng).is_none());
     }
     #[test]
     fn sampler_is_uniform_enough() {
@@ -1145,29 +1171,35 @@ pub fn pilot(dir: &Path, opts: &Opts) {
                 (q.owner, mult, evaluate(q, n, pool, &|_| true, cap, samples, &mut rng))
             })
             .collect();
-        let mut agg: BTreeMap<&str, [f64; 6]> = BTreeMap::new(); // [draws, full, gate hull, gate d_only, mean uncovered frac, proj cost hull]
+        let mut agg: BTreeMap<&str, [f64; 7]> = BTreeMap::new(); // [draws, full, gate hull, gate d_only, mean uncovered frac, proj cost hull, unevaluated]
         for (owner, mult, ev) in &res {
             let w = *mult as f64;
             for key in ["all", if Some(*owner) == hot { "hot" } else { "other" }] {
                 let e = agg.entry(key).or_default();
                 e[0] += w;
-                if let Some(ev) = ev {
-                    let rf = |p: f64| if ev.points > 0.0 { p / ev.points } else { 0.0 };
-                    e[1] += w * (ev.uncovered == 0.0) as u8 as f64;
-                    let hull = if ev.uncovered == 0.0 { 0.0 } else { ev.hull.points };
-                    let donly = if ev.uncovered == 0.0 { (0usize, 0.0) } else { (ev.d_only.pieces, ev.d_only.points) };
-                    e[2] += w * (rf(hull) <= 0.1) as u8 as f64;
-                    e[3] += w * (rf(donly.1) <= 0.1 && donly.0 <= 8) as u8 as f64;
-                    e[4] += w * rf(ev.uncovered);
-                    let pq = law.predict_binned(*owner, ev.points);
-                    e[5] += w * if hull > 0.0 { (law.predict_binned(*owner, hull) / pq).min(1.0) } else { 0.0 };
-                }
+                let Some(ev) = ev else {
+                    // Unevaluated (infinite) queries count conservatively: not
+                    // covered, gates failed, full residual, full cost.
+                    e[4] += w;
+                    e[5] += w;
+                    e[6] += w;
+                    continue;
+                };
+                let rf = |p: f64| if ev.points > 0.0 { p / ev.points } else { 0.0 };
+                e[1] += w * (ev.uncovered == 0.0) as u8 as f64;
+                let hull = if ev.uncovered == 0.0 { 0.0 } else { ev.hull.points };
+                let donly = if ev.uncovered == 0.0 { (0usize, 0.0) } else { (ev.d_only.pieces, ev.d_only.points) };
+                e[2] += w * (rf(hull) <= 0.1) as u8 as f64;
+                e[3] += w * (rf(donly.1) <= 0.1 && donly.0 <= 8) as u8 as f64;
+                e[4] += w * rf(ev.uncovered);
+                let pq = law.predict_binned(*owner, ev.points);
+                e[5] += w * if hull > 0.0 { (law.predict_binned(*owner, hull) / pq).min(1.0) } else { 0.0 };
             }
         }
         let v: BTreeMap<&str, Value> = agg
             .iter()
             .map(|(k2, e)| (*k2, json!({"draws": e[0], "fully_covered_share": e[1] / e[0], "gate_hull_share": e[2] / e[0],
-                "gate_d_only_share": e[3] / e[0], "mean_uncovered_fraction": e[4] / e[0], "projected_relative_cost_hull[E]": e[5] / e[0]})))
+                "gate_d_only_share": e[3] / e[0], "mean_uncovered_fraction": e[4] / e[0], "projected_relative_cost_hull[E]": e[5] / e[0], "unevaluated_share(infinite)": e[6] / e[0]})))
             .collect();
         report.insert(name.to_string(), json!(v));
         eprintln!("pilot: {name} done");
