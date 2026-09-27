@@ -28,7 +28,8 @@
 //! [RUSTRED_HARNESS_THREADS=K] [RUSTRED_HARNESS_SINK=count|digest|dump] \
 //! [RUSTRED_HARNESS_ORDER=fixture|shuffle:<seed>|cost:<natives.jsonl>] \
 //! [RUSTRED_HARNESS_SUBSET=<r>/<m>] [RUSTRED_HARNESS_LIMIT=<n>] \
-//! [RUSTRED_HARNESS_PASSES=<p>] [RUSTRED_HARNESS_PIN=1] \
+//! [RUSTRED_HARNESS_PASSES=<p>] [RUSTRED_HARNESS_PIN=1] [RUSTRED_HARNESS_REPLICAS=<G>] \
+//! [RUSTRED_HARNESS_REPLICA_HOME=<cpu>] \
 //! [RUSTRED_HARNESS_CANCEL_FRACTION=<f> (needs ORDER=cost:...)] \
 //! [RUSTRED_HARNESS_TAP=<tap.jsonl> (needs SINK=digest)] \
 //! [RUSTRED_HARNESS_{MANIFEST,OWNER_BASE,QUERIES}=<identical copies>] \
@@ -48,6 +49,7 @@ use super::{
     limits_json, mask, power_bounds_json,
     queue::{Domain, Phase},
 };
+use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -549,58 +551,126 @@ fn run_fixture<const N: usize>(
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
-    let mut bind = |owners: Vec<String>| {
-        if owners == digests {
-            Ok(())
-        } else {
-            Err("owner payload digests differ from the fixture's checkpoint binding".to_owned())
-        }
+    let prepare_one = |never: &AtomicBool| -> Result<RoutedCandidateReducer<N>, String> {
+        let mut bind = |owners: Vec<String>| {
+            if owners == digests {
+                Ok(())
+            } else {
+                Err("owner payload digests differ from the fixture's checkpoint binding".to_owned())
+            }
+        };
+        prepare::prepare_with_fingerprints::<N>(
+            &load,
+            &selection,
+            load_limits,
+            never,
+            &|_: Value| {},
+            Some(&mut bind),
+        )
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "preparation cancelled".to_owned())
     };
+    // Initial prefix -> the two read-only indexes, as run_configured builds them.
+    let build_indexes =
+        |never: &AtomicBool| -> Result<(InitialOrthants<N>, InitialOverlapIndex<N>), String> {
+            let initial_domains: Vec<Arc<Domain<N>>> = fixture["initial_domains"]
+                .as_array()
+                .ok_or("fixture has no initial domains")?
+                .iter()
+                .map(|d| serde_json::from_value::<Domain<N>>(d.clone()).map(Arc::new))
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            let initial_count = fixture["initial_domain_count"].as_u64().ok_or("count")? as usize;
+            if initial_domains.len() < initial_count {
+                return Err("fixture initial prefix is short".into());
+            }
+            let initial = InitialOrthants::from_initial(&initial_domains[..initial_count], never);
+            let overlap = if request.reuse_initial_d_bands {
+                let prefix = fixture["overlap_prefix"]
+                    .as_u64()
+                    .ok_or("D-band reuse needs the protected initial prefix")?
+                    as usize;
+                if prefix > initial_domains.len() {
+                    return Err("overlap prefix exceeds the fixture's initial domains".into());
+                }
+                InitialOverlapIndex::from_initial(&initial_domains[..prefix], never)
+            } else {
+                InitialOverlapIndex::empty()
+            };
+            Ok((initial, overlap))
+        };
+    // W0.3 contention probe (RUSTRED_HARNESS_REPLICAS=G, default 1): G fully
+    // independent copies of everything an inspection reads (reducer from its
+    // own owner import, and the initial indexes), each prepared on a thread
+    // pinned to the first CPU of its worker group (NUMA first touch); worker k
+    // uses copy k*G/K. No reference-counted or otherwise written state of the
+    // owner programs is then shared between groups (Symbolica polynomials
+    // clone and drop the Arc of their shared PolynomialContext on every
+    // zero()/clone()/unify_variables(), see the W0.3 note).
+    // RUSTRED_HARNESS_REPLICA_HOME=<cpu> prepares every copy on that CPU
+    // instead (placement control: copies still private to their group, but
+    // first-touched on one node).
+    let replica_home: Option<usize> = env("RUSTRED_HARNESS_REPLICA_HOME")
+        .map(|c| c.parse().map_err(|_| "REPLICA_HOME"))
+        .transpose()?;
+    let replica_count: usize = env("RUSTRED_HARNESS_REPLICAS")
+        .map_or(Ok(1), |p| p.parse())
+        .map_err(|_| "REPLICAS")?;
+    let threads_requested: usize = env("RUSTRED_HARNESS_THREADS")
+        .map_or(Ok(1), |p| p.parse())
+        .map_err(|_| "THREADS")?;
+    if replica_count == 0 || replica_count > threads_requested.max(1) {
+        return Err("REPLICAS must be in 1..=THREADS".into());
+    }
+    let replica_cpus = affinity();
+    let replica_pin = env("RUSTRED_HARNESS_PIN").is_some_and(|v| v == "1")
+        && replica_cpus.len() >= threads_requested;
     let never = AtomicBool::new(false);
-    let reducer = prepare::prepare_with_fingerprints::<N>(
-        &load,
-        &selection,
-        load_limits,
-        &never,
-        &|_: Value| {},
-        Some(&mut bind),
-    )
-    .map_err(|e| e.to_string())?
-    .ok_or("preparation cancelled")?;
+    #[allow(clippy::type_complexity)]
+    let replicas: Vec<(
+        RoutedCandidateReducer<N>,
+        InitialOrthants<N>,
+        InitialOverlapIndex<N>,
+    )> = if replica_count == 1 && replica_home.is_none() {
+        let reducer = prepare_one(&never)?;
+        let (initial, overlap) = build_indexes(&never)?;
+        vec![(reducer, initial, overlap)]
+    } else {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..replica_count)
+                .map(|g| {
+                    let cpu = replica_home.or_else(|| {
+                        replica_pin.then(|| replica_cpus[g * threads_requested / replica_count])
+                    });
+                    let (prepare_one, build_indexes) = (&prepare_one, &build_indexes);
+                    scope.spawn(move || {
+                        if let Some(cpu) = cpu {
+                            pin_to(cpu);
+                        }
+                        let never = AtomicBool::new(false);
+                        let reducer = prepare_one(&never)?;
+                        let (initial, overlap) = build_indexes(&never)?;
+                        Ok::<_, String>((reducer, initial, overlap))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("replica preparation panicked"))
+                .collect::<Result<Vec<_>, String>>()
+        })?
+    };
     receipt["timings"]["prepare_seconds"] = json!(phase.elapsed().as_secs_f64());
     receipt["memory"]["after_prepare_rss_kib"] = json!(status_kib("VmRSS:"));
-
-    // Initial prefix -> the two read-only indexes, as run_configured builds them.
+    receipt["replicas"] = json!({"count":replica_count,
+        "pinned_prepare":replica_home.is_some() || (replica_pin && replica_count > 1),
+        "home_cpu":replica_home,
+        "worker_to_replica":"k * replicas / threads"});
     let phase = Instant::now();
-    let initial_domains: Vec<Arc<Domain<N>>> = fixture["initial_domains"]
-        .as_array()
-        .ok_or("fixture has no initial domains")?
-        .iter()
-        .map(|d| serde_json::from_value::<Domain<N>>(d.clone()).map(Arc::new))
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
-    let initial_count = fixture["initial_domain_count"].as_u64().ok_or("count")? as usize;
-    if initial_domains.len() < initial_count {
-        return Err("fixture initial prefix is short".into());
-    }
-    let initial = InitialOrthants::from_initial(&initial_domains[..initial_count], &never);
-    let overlap = if request.reuse_initial_d_bands {
-        let prefix = fixture["overlap_prefix"]
-            .as_u64()
-            .ok_or("D-band reuse needs the protected initial prefix")?
-            as usize;
-        if prefix > initial_domains.len() {
-            return Err("overlap prefix exceeds the fixture's initial domains".into());
-        }
-        InitialOverlapIndex::from_initial(&initial_domains[..prefix], &never)
-    } else {
-        InitialOverlapIndex::empty()
-    };
     receipt["initial_overlap_index"] = super::index_report::render(
-        Some(overlap.build_report()),
+        Some(replicas[0].2.build_report()),
         super::index_report::Scope::GlobalInitial,
     );
-    drop(initial_domains);
 
     // Jobs, subset, order, limit, passes.
     let mut jobs: Vec<Job<N>> = Vec::new();
@@ -718,7 +788,9 @@ fn run_fixture<const N: usize>(
         let handles: Vec<_> = (0..threads)
             .map(|k| {
                 let (jobs, next, active, slots, costs) = (&jobs, &next, &active, &slots, &costs);
-                let (reducer, request, initial, overlap) = (&reducer, &request, &initial, &overlap);
+                let replica = &replicas[k * replicas.len() / threads];
+                let (reducer, request, initial, overlap) =
+                    (&replica.0, &request, &replica.1, &replica.2);
                 let sink_mode = sink_mode.as_str();
                 let cpu = pin.then(|| cpus[k]);
                 scope.spawn(move || -> Result<Value, String> {
