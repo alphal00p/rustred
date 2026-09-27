@@ -702,8 +702,11 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
                 "prepared_retirements_applied",
                 "prepared_retirements_trivial",
                 "speculative_forward_bit_rejections",
+                "speculative_forward_exact_tests",
+                "speculative_kernel",
                 "speculative_reverse_bit_rejections",
-                "speculative_reverse_checks"
+                "speculative_reverse_checks",
+                "speculative_reverse_exact_tests"
             ]
         );
     }
