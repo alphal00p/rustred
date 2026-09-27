@@ -169,6 +169,25 @@ impl CostLaw {
     }
 }
 
+/// Weighted least-squares slope of ln(mean seconds) on ln(mean points) over
+/// decade bins (decade, n, sum points, sum seconds) with n >= 10, mean
+/// seconds > 0 and decade < `below`; weight n. NaN with fewer than 2 bins.
+fn binmean_wls(bins: impl Iterator<Item = (i32, usize, f64, f64)>, below: i32) -> f64 {
+    let v: Vec<(f64, f64, f64)> = bins
+        .filter(|&(k, n, p, s)| k < below && n >= 10 && p > 0.0 && s > 0.0)
+        .map(|(_, n, p, s)| (n as f64, (p / n as f64).ln(), (s / n as f64).ln()))
+        .collect();
+    if v.len() < 2 {
+        return f64::NAN;
+    }
+    let w: f64 = v.iter().map(|e| e.0).sum();
+    let mx = v.iter().map(|e| e.0 * e.1).sum::<f64>() / w;
+    let my = v.iter().map(|e| e.0 * e.2).sum::<f64>() / w;
+    let sxx: f64 = v.iter().map(|e| e.0 * (e.1 - mx) * (e.1 - mx)).sum();
+    let sxy: f64 = v.iter().map(|e| e.0 * (e.1 - mx) * (e.2 - my)).sum();
+    sxy / sxx
+}
+
 pub fn cost(dir: &Path, opts: &Opts) {
     let ck = util::load(dir, opts, true);
     let n = ck.n;
@@ -184,6 +203,8 @@ pub fn cost(dir: &Path, opts: &Opts) {
         xs: Vec<(f64, f64)>,
         dec: BTreeMap<i32, (usize, f64, f64, f64)>,
         gen: BTreeMap<u8, Vec<(f64, f64)>>,
+        /// Decade bins per record generation: (n, sum points, sum seconds).
+        gdec: BTreeMap<u8, BTreeMap<i32, (usize, f64, f64)>>,
     }
     let mut by: HashMap<(u8, u16), O> = HashMap::new();
     for r in &ck.recs {
@@ -209,6 +230,10 @@ pub fn cost(dir: &Path, opts: &Opts) {
         e.1 += s.points;
         e.2 += r.seconds as f64;
         e.3 += r.successors as f64;
+        let g = o.gdec.entry(r.gen).or_default().entry(dec).or_default();
+        g.0 += 1;
+        g.1 += s.points;
+        g.2 += r.seconds as f64;
         if r.seconds > 0.0 {
             let p = (s.points.ln(), (r.seconds as f64).ln());
             o.xy.push(p);
@@ -239,14 +264,22 @@ pub fn cost(dir: &Path, opts: &Opts) {
         } else {
             f64::NAN
         };
-        let gens: BTreeMap<u8, (f64, f64, usize)> = o
+        let gens: BTreeMap<u8, (f64, f64, usize, f64)> = o
             .gen
             .iter()
             .map(|(g, v)| {
                 let (b, _, r2, m) = ols(v);
-                (*g, (b, r2, m))
+                let bw = o.gdec.get(g).map_or(f64::NAN, |d| binmean_wls(d.iter().map(|(k, e)| (*k, e.0, e.1, e.2)), i32::MAX));
+                (*g, (b, r2, m, bw))
             })
             .collect();
+        // The plan's estimator (lens tool perfskeptic/slopes.py): weighted
+        // least squares of ln(mean seconds) on ln(mean points) over decade
+        // bins with >= 10 natives, weight = natives per bin.
+        let binmean = binmean_wls(o.dec.iter().map(|(k, e)| (*k, e.0, e.1, e.2)), i32::MAX);
+        let binmean_lt5 = binmean_wls(o.dec.iter().map(|(k, e)| (*k, e.0, e.1, e.2)), 5);
+        let lt5: Vec<(f64, f64)> = o.xy.iter().copied().filter(|p| p.0 < 5.0 * std::f64::consts::LN_10).collect();
+        let (b_lt5, _, r2_lt5, m_lt5) = ols(&lt5);
         let dec: BTreeMap<i32, Value> = o
             .dec
             .iter()
@@ -261,14 +294,26 @@ pub fn cost(dir: &Path, opts: &Opts) {
             "seconds_share": o.seconds / total_apply, "points": o.points, "successors": o.succ,
             "cost_exponent": b, "cost_intercept": a, "cost_r2": r2, "fit_n": m,
             "succ_exponent": bs, "succ_r2": r2s, "top_decade_exponent": top,
-            "cost_exponent_by_gen[b,r2,n]": gens, "decades": dec,
+            "cost_exponent_by_gen[b,r2,n,b_binmean_wls]": gens, "decades": dec,
+            "cost_exponent_binmean_wls": binmean, "cost_exponent_binmean_wls_pts_lt_1e5": binmean_lt5,
+            "cost_exponent_ols_pts_lt_1e5[b,r2,n]": [b_lt5, r2_lt5, m_lt5],
         }));
     }
     let (b, a, r2, m) = ols(&pooled);
+    let mut pdec: BTreeMap<i32, (usize, f64, f64)> = BTreeMap::new();
+    for (_, o) in &rows {
+        for (k, e) in &o.dec {
+            let p = pdec.entry(*k).or_default();
+            p.0 += e.0;
+            p.1 += e.1;
+            p.2 += e.2;
+        }
+    }
+    let pb = binmean_wls(pdec.iter().map(|(k, e)| (*k, e.0, e.1, e.2)), i32::MAX);
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"apply_seconds": total_apply,
-            "pooled": {"cost_exponent": b, "intercept": a, "r2": r2, "n": m}, "owners": out}))
+            "pooled": {"cost_exponent": b, "intercept": a, "r2": r2, "n": m, "cost_exponent_binmean_wls": pb}, "owners": out}))
         .unwrap()
     );
 }
@@ -476,4 +521,29 @@ pub fn compose(dir: &Path, opts: &Opts) {
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
     let _ = sums.par_iter().count();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::binmean_wls;
+    /// Exact power law on bin means: slope recovered; bins with < 10 natives
+    /// and bins at or above the cut are ignored.
+    #[test]
+    fn binmean_wls_recovers_power_law() {
+        let bins: Vec<(i32, usize, f64, f64)> = (0..6)
+            .map(|k| {
+                let n = if k == 5 { 3 } else { 100 + 10 * k as usize };
+                let p = 10f64.powi(k) * 3.0;
+                (k, n, p * n as f64, 0.01 * p.powf(0.8) * n as f64)
+            })
+            .collect();
+        let b = binmean_wls(bins.iter().copied(), i32::MAX);
+        assert!((b - 0.8).abs() < 1e-9, "{b}");
+        let mut skew = bins.clone();
+        skew[5].1 = 3; // still excluded
+        skew[4].3 *= 10.0;
+        let b4 = binmean_wls(skew.iter().copied(), 4);
+        assert!((b4 - 0.8).abs() < 1e-9, "{b4}");
+        assert!(binmean_wls(bins.iter().copied().take(1), i32::MAX).is_nan());
+    }
 }
