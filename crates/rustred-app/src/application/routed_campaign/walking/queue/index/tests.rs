@@ -11,9 +11,9 @@ fn signature(a: u128) -> Signature {
     }
 }
 
-fn add(index: &mut AggregateIndex, signature: Signature, id: usize) {
+fn add(index: &mut AggregateIndex<2>, signature: Signature, id: usize) {
     let insertion = index.prepare(signature, None).unwrap();
-    index.insert(insertion, id, None);
+    index.insert_plain(insertion, id, None);
 }
 
 #[test]
@@ -88,27 +88,29 @@ fn necessary_filter_has_no_false_negatives_for_small_native_geometries() {
 
 #[test]
 fn minimum_id_survives_group_swap_removal_and_same_signature_replacement() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     for id in 0..3 {
         add(&mut index, signature(id as u128 + 1), id);
     }
     // Retire group 0; swap_remove moves ID 2's group ahead of ID 1's group.
     let insertion = index.prepare(signature(4), None).unwrap();
-    assert_eq!(index.retire(&insertion, None, |id| id == 0), 1);
-    index.insert(insertion, 3, None);
-    assert_eq!(index.groups[0].blocks[0].ids(), [2]);
+    assert_eq!(index.retire_each(&insertion, None, |id| id == 0), 1);
+    index.insert_plain(insertion, 3, None);
+    assert_eq!(index.block_ids(0, 0), [2]);
     assert_eq!(
-        index.find(signature(0), None, |_| Ok(true)).unwrap(),
+        index.find_each(signature(0), None, |_| Ok(true)).unwrap(),
         Some(1)
     );
     assert_eq!(
-        index.find(Signature::Empty, None, |_| Ok(true)).unwrap(),
+        index
+            .find_each(Signature::Empty, None, |_| Ok(true))
+            .unwrap(),
         Some(1)
     );
 
     let insertion = index.prepare(signature(2), None).unwrap();
-    assert_eq!(index.retire(&insertion, None, |id| id == 1), 1);
-    index.insert(insertion, 4, None); // Reserved empty same-signature group survives.
+    assert_eq!(index.retire_each(&insertion, None, |id| id == 1), 1);
+    index.insert_plain(insertion, 4, None); // Reserved empty same-signature group survives.
     assert_eq!(index.ids(), [2, 3, 4]);
     assert_eq!(index.live, 3);
     assert_eq!(index.groups(), 3);
@@ -120,12 +122,12 @@ fn minimum_id_survives_group_swap_removal_and_same_signature_replacement() {
 
 #[test]
 fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     add(&mut index, signature(1), 0);
     add(&mut index, signature(3), 1);
     assert_eq!(
         index
-            .find(signature(2), None, |id| {
+            .find_each(signature(2), None, |id| {
                 assert_eq!(id, 1);
                 Ok(false)
             })
@@ -135,13 +137,13 @@ fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
     assert_eq!(index.maintenance_len(signature(2)).unwrap(), 1);
     let insertion = index.prepare(signature(2), None).unwrap();
     assert_eq!(
-        index.retire(&insertion, None, |id| {
+        index.retire_each(&insertion, None, |id| {
             assert_eq!(id, 0);
             true
         }),
         1
     );
-    index.insert(insertion, 2, None);
+    index.insert_plain(insertion, 2, None);
     assert_eq!(index.ids(), [1, 2]);
     let work = index.work();
     assert_eq!(work.groups_visited, 6);
@@ -150,7 +152,7 @@ fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
 
 #[test]
 fn failed_storage_preflight_keeps_group_keys_membership_and_ids() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     add(&mut index, signature(1), 0);
     // A nonfull fixed-size tail now requires no reservation. A new group still
     // preflights the group vector, hash index and block vector.
@@ -185,11 +187,11 @@ fn failed_storage_preflight_keeps_group_keys_membership_and_ids() {
 
 #[test]
 fn empty_containers_never_pass_nonempty_queries_or_retire_nonempty_groups() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     add(&mut index, Signature::Empty, 0);
     assert_eq!(
         index
-            .find(signature(1), None, |_| panic!(
+            .find_each(signature(1), None, |_| panic!(
                 "empty container cannot match"
             ))
             .unwrap(),
@@ -198,10 +200,12 @@ fn empty_containers_never_pass_nonempty_queries_or_retire_nonempty_groups() {
     add(&mut index, signature(1), 1);
     assert_eq!(index.maintenance_len(Signature::Empty).unwrap(), 1);
     let insertion = index.prepare(signature(2), None).unwrap();
-    assert_eq!(index.retire(&insertion, None, |id| id == 0), 1);
-    index.insert(insertion, 2, None);
+    assert_eq!(index.retire_each(&insertion, None, |id| id == 0), 1);
+    index.insert_plain(insertion, 2, None);
     assert_eq!(
-        index.find(Signature::Empty, None, |_| Ok(true)).unwrap(),
+        index
+            .find_each(Signature::Empty, None, |_| Ok(true))
+            .unwrap(),
         Some(1)
     );
 }
@@ -209,26 +213,26 @@ fn empty_containers_never_pass_nonempty_queries_or_retire_nonempty_groups() {
 #[test]
 fn collect_contained_mirrors_retire_and_honors_its_limit() {
     let fixture = || {
-        let mut index = AggregateIndex::default();
+        let mut index = AggregateIndex::<2>::default();
         for (id, power) in [(0, 1), (1, 3), (2, 1), (3, 5), (4, 2)] {
             let insertion = index.prepare(signature(power), None).unwrap();
-            index.insert(insertion, id, None);
+            index.insert_plain(insertion, id, None);
         }
         index
     };
     let index = fixture();
     let contained = |id: usize| Ok(id % 2 == 0);
     let set = index
-        .collect_contained(signature(4), None, usize::MAX, || Ok(()), contained)
+        .collect_contained_each(signature(4), None, usize::MAX, || Ok(()), contained)
         .unwrap();
     assert_eq!(set, [0, 2, 4]);
     assert_eq!(
-        index.collect_contained(signature(4), None, 2, || Ok(()), contained),
+        index.collect_contained_each(signature(4), None, 2, || Ok(()), contained),
         Err("prepared retirement set limit")
     );
     let mut checkpoints = 0;
     assert_eq!(
-        index.collect_contained(
+        index.collect_contained_each(
             signature(4),
             None,
             usize::MAX,
@@ -247,19 +251,19 @@ fn collect_contained_mirrors_retire_and_honors_its_limit() {
     let mut serial = fixture();
     let insertion = serial.prepare(signature(4), None).unwrap();
     let mut serial_retired = Vec::new();
-    let removed = serial.retire(&insertion, None, |id| {
+    let removed = serial.retire_each(&insertion, None, |id| {
         let retire = id % 2 == 0;
         if retire {
             serial_retired.push(id);
         }
         retire
     });
-    serial.insert(insertion, 5, None);
+    serial.insert_plain(insertion, 5, None);
     let mut index = fixture();
     let insertion = index.prepare(signature(4), None).unwrap();
     let mut prepared_retired = Vec::new();
     let mut new_checks = Vec::new();
-    let removed_prepared = index.retire_prepared(
+    let removed_prepared = index.retire_prepared_each(
         &insertion,
         None,
         &set,
@@ -270,7 +274,7 @@ fn collect_contained_mirrors_retire_and_honors_its_limit() {
         },
         |id| prepared_retired.push(id),
     );
-    index.insert(insertion, 5, None);
+    index.insert_plain(insertion, 5, None);
     assert_eq!((removed, removed_prepared), (3, 3));
     assert_eq!(serial_retired, prepared_retired);
     assert!(
@@ -284,7 +288,7 @@ fn collect_contained_mirrors_retire_and_honors_its_limit() {
     let insertion = late.prepare(signature(4), None).unwrap();
     let mut asked = Vec::new();
     assert_eq!(
-        late.retire_prepared(
+        late.retire_prepared_each(
             &insertion,
             None,
             &[0],
@@ -297,7 +301,7 @@ fn collect_contained_mirrors_retire_and_honors_its_limit() {
         ),
         2
     );
-    late.insert(insertion, 5, None);
+    late.insert_plain(insertion, 5, None);
     // ID 3 sits in the ineligible power-5 group, so only ID 4 is asked.
     assert_eq!(asked, [4]);
     assert_eq!(late.ids(), [1, 2, 3, 5]);

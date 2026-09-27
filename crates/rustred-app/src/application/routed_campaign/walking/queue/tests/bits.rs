@@ -249,7 +249,7 @@ fn restored_queue_rebuilds_bit_words_and_keeps_admitting_identically() {
     for item in &stream[..stream.len() / 2] {
         queue.admit(item.clone()).unwrap();
     }
-    let expected_words: Vec<u64> = queue.bit_words().to_vec();
+    let expected_words: Vec<u64> = queue.bit_words();
     assert_eq!(expected_words.len(), queue.domains.len());
     assert!(expected_words.iter().any(|&w| w != 0));
     let state = super::super::super::execution::State::new(queue, 0, None);

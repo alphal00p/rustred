@@ -1,6 +1,6 @@
 //! Compact storage is an encoding, not a policy: every predicate and every
 //! admission result must equal the one computed on the transport types.
-use super::super::compact::{Digest, ExactIndex, Query, Stored, SummarySlab};
+use super::super::compact::{Digest, ExactIndex, Query, Stored};
 use super::prepared::{parallel_prepare, same_state};
 use super::*;
 
@@ -112,17 +112,16 @@ fn summary<const N: usize>(d: &Domain<N>) -> Option<DomainPowerSummary<N>> {
 fn stored_pair<const N: usize>(
     a: &Domain<N>,
     b: &Domain<N>,
-) -> (Vec<CompactDomain<N>>, SummarySlab<N>) {
+) -> (Vec<CompactDomain<N>>, Vec<CompactSummary<N>>) {
     let domains: Vec<_> = [a, b]
         .iter()
         .map(|d| CompactDomain::try_from_domain(d).unwrap())
         .collect();
-    let mut slab = SummarySlab::new();
-    for d in [a, b] {
-        slab.try_reserve().unwrap();
-        slab.push(CompactSummary::from_core(&summary(d).unwrap()));
-    }
-    (domains, slab)
+    let summaries = [a, b]
+        .iter()
+        .map(|d| CompactSummary::from_core(&summary(d).unwrap()))
+        .collect();
+    (domains, summaries)
 }
 
 #[derive(Default, Debug)]
@@ -171,20 +170,40 @@ fn differential<const N: usize>(pairs: usize, seed: u64) -> Tally {
         let native = [sa.contains(&sb), sb.contains(&sa)];
         tally.contained += usize::from(native[0]) + usize::from(native[1]);
         if !ca.is_wide() && !cb.is_wide() {
-            assert_eq!(ca.contains(&cb), native[0], "{a:?} vs {b:?}");
-            assert_eq!(cb.contains(&ca), native[1], "{b:?} vs {a:?}");
+            assert_eq!(ca.contains(&cb), Some(native[0]), "{a:?} vs {b:?}");
+            assert_eq!(cb.contains(&ca), Some(native[1]), "{b:?} vs {a:?}");
+        } else {
+            // Release check (A1): a wide side never takes the compact path.
+            assert_eq!(ca.contains(&cb), None);
+            assert_eq!(cb.contains(&ca), None);
         }
-        // The production view, including the rebuilt-native wide fallback.
-        let (domains, slab) = stored_pair(&a, &b);
+        // The production view, including the rebuilt-native wide fallback and
+        // the explicit phase/owner check of every positive (A1): a candidate
+        // of another bucket is never a positive, not even for an empty query.
+        let (domains, summaries) = stored_pair(&a, &b);
         let stored = Stored {
             domains: &domains,
-            summaries: &slab,
+            summaries: &summaries,
         };
-        let (qa, qb) = (Query::new(sa.clone()), Query::new(sb.clone()));
-        assert_eq!(stored.contains(0, &qb), native[0]);
-        assert_eq!(stored.contained_by(1, &qa), native[0]);
-        assert_eq!(stored.contains(1, &qa), native[1]);
-        assert_eq!(stored.contained_by(0, &qb), native[1]);
+        let (qa, qb) = (
+            Query::new(sa.clone(), a.phase),
+            Query::new(sb.clone(), b.phase),
+        );
+        let same = a.phase == b.phase && a.owner == b.owner;
+        assert_eq!(stored.contains(0, &qb), same && native[0]);
+        assert_eq!(stored.contained_by(1, &qa), same && native[0]);
+        assert_eq!(stored.contains(1, &qa), same && native[1]);
+        assert_eq!(stored.contained_by(0, &qb), same && native[1]);
+        // Kernel images agree between the admission and the restore paths.
+        for (d, s, q) in [
+            (&domains[0], &summaries[0], &qa),
+            (&domains[1], &summaries[1], &qb),
+        ] {
+            assert_eq!(
+                super::super::compact::stored_image(d, s).unwrap(),
+                q.image()
+            );
+        }
         assert_eq!(stored.signature(0), Signature::of(&sa));
         assert_eq!(stored.signature(1), Signature::of(&sb));
         // Raw syntactic containment and the orthant predicate, too.
@@ -278,7 +297,7 @@ fn coordinates_above_the_compact_range_are_refused_without_publishing() {
         assert_eq!(queue.admit(above), Err(COMPACT_RANGE_ERROR));
         assert_eq!(queue.domains.len(), 1);
         assert_eq!(queue.exact.len(), 1);
-        assert_eq!(queue.summaries.ids(), usize::from(max_checks.is_none()));
+        assert_eq!(queue.summaries.len(), usize::from(max_checks.is_none()));
         assert_eq!((queue.deduplicated, queue.containment_checks), (0, 0));
         assert_eq!(queue.admit(ok), Ok((0, false)));
     }
@@ -455,12 +474,12 @@ fn retired_summary_slots_are_released_and_never_read_by_revalidate() {
         let tokens = parallel_prepare(&prepared, std::slice::from_ref(&request), workers);
         for queue in [&mut serial, &mut prepared] {
             assert_eq!(queue.admit(container.clone()), Ok((1, true)));
-            assert!(queue.summaries.is_released(0));
-            assert_eq!(queue.summaries.live(), 1);
+            assert!(!queue.is_indexed(0));
+            assert_eq!(queue.containment_candidate_count(), 1);
             assert_eq!(queue.admit(unrelated.clone()), Ok((2, true)));
-            // ID 2 reused the slot ID 0 released: no slab growth.
-            assert_eq!(queue.summaries.slots_allocated(), 2);
-            assert_eq!(queue.summaries.live(), 2);
+            // Summaries are per ID and immutable: the retired ID keeps its own.
+            assert_eq!(queue.summaries.len(), 3);
+            assert_eq!(queue.containment_candidate_count(), 2);
         }
         for token in tokens {
             let expected = serial.admit(request.clone());
@@ -472,10 +491,10 @@ fn retired_summary_slots_are_released_and_never_read_by_revalidate() {
     }
 }
 
-/// Released slots are recycled across a long overlapping stream, and a
-/// restored queue holds summaries for exactly the live candidates.
+/// Every admitted ID keeps its immutable summary across a long overlapping
+/// stream, and a restored queue rebuilds the same summaries and index kernel.
 #[test]
-fn summary_slab_recycles_retired_slots_and_restores_only_live_candidates() {
+fn immutable_summaries_and_index_kernel_survive_restore() {
     let stream = super::aggregate::complete_proposals();
     let mut queue = Queue::new(stream.len(), None);
     for request in &stream {
@@ -483,28 +502,27 @@ fn summary_slab_recycles_retired_slots_and_restores_only_live_candidates() {
     }
     let live = queue.containment_candidate_count();
     assert!(queue.containment_retired_candidates > 0);
-    assert_eq!(queue.summaries.ids(), queue.domains.len());
-    assert_eq!(queue.summaries.live(), live);
-    assert!(
-        queue.summaries.slots_allocated() < queue.domains.len(),
-        "retired slots were reused"
+    assert_eq!(queue.summaries.len(), queue.domains.len());
+    assert_eq!(
+        (0..queue.domains.len())
+            .filter(|&id| queue.is_indexed(id))
+            .count(),
+        live
     );
     let image = serde_json::to_string(&queue).unwrap();
     let restored: Queue<2> = serde_json::from_str(&image).unwrap();
     assert_eq!(restored.domains, queue.domains);
     assert_eq!(restored.exact, queue.exact);
+    assert_eq!(restored.summaries, queue.summaries);
     assert_eq!(restored.bit_words(), queue.bit_words());
-    assert_eq!(restored.summaries.live(), live);
-    assert_eq!(restored.summaries.slots_allocated(), live);
-    for id in 0..queue.domains.len() {
-        assert_eq!(
-            restored.summaries.is_released(id),
-            queue.summaries.is_released(id)
-        );
-        if !queue.summaries.is_released(id) {
-            assert_eq!(restored.summaries.get(id), queue.summaries.get(id));
-        }
+    assert_eq!(restored.containment_candidate_count(), live);
+    for (key, bucket) in &queue.by_owner {
+        let other = &restored.by_owner[key];
+        assert_eq!(bucket.indexed.layout(), other.indexed.layout());
+        assert_eq!(bucket.indexed.kernel_image(), other.indexed.kernel_image());
     }
+    // The image round-trips byte for byte (stale dead slots included).
+    assert_eq!(serde_json::to_string(&restored).unwrap(), image);
     // The restored queue continues exactly like the original.
     let mut original = queue;
     let mut restored = restored;

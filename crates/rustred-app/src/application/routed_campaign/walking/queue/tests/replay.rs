@@ -123,7 +123,7 @@ fn read_records<'de, A: SeqAccess<'de>>(mut seq: A, prefix: usize) -> Result<Inp
 struct RawIndex<const N: usize> {
     domains: Vec<Arc<Domain<N>>>,
     exact: HashMap<Arc<Domain<N>>, usize>,
-    buckets: HashMap<(Phase, [bool; N]), OwnerBucket>,
+    buckets: HashMap<(Phase, [bool; N]), OwnerBucket<N>>,
     comparisons: usize,
     maintenance: usize,
     retired: usize,
@@ -335,7 +335,7 @@ fn run<const N: usize>(input: &Input, semantic_first: bool) -> Value {
         "index retirement must not process pending work"
     );
     assert_eq!(queue.domains.len(), queue.exact.len());
-    assert_eq!(queue.domains.len(), queue.summaries.ids());
+    assert_eq!(queue.domains.len(), queue.summaries.len());
     assert_eq!(raw.domains.len(), raw.exact.len());
     for (id, domain) in queue.domains.iter().enumerate() {
         let key = queue.exact.key(domain);

@@ -16,10 +16,10 @@
 //!   stored as a `wide` marker; comparisons involving it rebuild the native
 //!   summary from the queued domain, so no input is ever approximated.
 //!
-//! Summaries of live lookup candidates sit in a slab with an ID -> slot map.
-//! Retiring a candidate from the index releases its slot for reuse; a
-//! released ID's slot is never read again (see `PreparedLookup::revalidate`).
-use super::index::{Lower, Signature, Upper};
+//! Summaries are per ID and immutable: every admitted ID of the unlimited lane
+//! keeps its summary for good, whether its candidate is live, retired or
+//! aliased, so any reader may read any admitted ID (v3 design §3.1).
+use super::index::{Lanes, Lower, Signature, Upper};
 use super::{Domain, Phase};
 use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::collections::HashMap;
@@ -180,6 +180,17 @@ impl<const N: usize> CompactDomain<N> {
             && self.upper.iter().zip(&other.upper).all(|(a, b)| b <= a)
     }
 
+    /// The (phase, owner) bucket key, compared explicitly by every positive
+    /// (A1): summary containment ignores phase and accepts an empty
+    /// candidate before it compares owners.
+    pub(super) fn same_bucket(&self, phase: u8, owner: u32) -> bool {
+        self.phase == phase && self.owner == owner
+    }
+
+    pub(super) fn bucket_code(&self) -> (u8, u32) {
+        (self.phase, self.owner)
+    }
+
     pub(super) fn is_full_orthant(&self) -> bool {
         self.powers().is_unconstrained()
             && self.lower.iter().all(|&x| x == 0)
@@ -203,6 +214,37 @@ impl<const N: usize> CompactDomain<N> {
     pub(super) fn native_summary(&self) -> DomainPowerSummary<N> {
         self.try_native_summary()
             .expect("an admitted domain's native summary is reproducible")
+    }
+
+    /// Decode the `trace_image` bytes of the research admission trace (W0.4
+    /// `admission-trace` feature); None unless the image is canonical.
+    #[cfg(test)]
+    pub(in super::super) fn from_trace_image(b: &[u8]) -> Option<Self> {
+        if b.len() != 34 + 4 * N {
+            return None;
+        }
+        let u32_at = |p: usize| u32::from_le_bytes(b[p..p + 4].try_into().expect("four bytes"));
+        let u64_at = |p: usize| u64::from_le_bytes(b[p..p + 8].try_into().expect("eight bytes"));
+        let mut at = 10;
+        let mut coordinate = || {
+            let value = u16::from_le_bytes([b[at], b[at + 1]]);
+            at += 2;
+            value
+        };
+        let lower = std::array::from_fn(|_| coordinate());
+        let upper = std::array::from_fn(|_| coordinate());
+        let image = Self {
+            phase: b[0],
+            flags: b[1],
+            owner: u32_at(2),
+            rank: u32_at(6),
+            lower,
+            upper,
+            max_positive_power: u64_at(10 + 4 * N),
+            min_power_difference: u64_at(18 + 4 * N) as i64,
+            max_power_difference: u64_at(26 + 4 * N) as i64,
+        };
+        (Self::try_from_domain(&image.expand()).ok() == Some(image)).then_some(image)
     }
 
     /// 64-bit blake3 prefix of the canonical little-endian field bytes
@@ -407,8 +449,6 @@ const DIFFERENCE_LOWER_NONE: u8 = 1 << 3;
 const DIFFERENCE_UPPER_NONE: u8 = 1 << 4;
 /// Extrema outside the compact ranges; compare the rebuilt native summary.
 const WIDE: u8 = 1 << 5;
-/// A released slab slot; `positive_lower` links the next free slot.
-const FREE: u8 = 1 << 6;
 const INFINITE_EXTREMUM: u32 = u32::MAX;
 
 /// A present value narrowed to `T`, or the canonical zero with `bit` set in
@@ -507,43 +547,103 @@ impl<const N: usize> CompactSummary<N> {
         self.flags & WIDE != 0
     }
 
-    /// `DomainPowerSummary::contains` on the compact fields; neither side may
-    /// be wide.
+    /// `DomainPowerSummary::contains` on the compact fields, or None when
+    /// either side is wide (a release check, A1: the caller then compares
+    /// the rebuilt native summaries). Like the native predicate it ignores
+    /// phase and accepts an empty candidate before comparing owners.
     #[inline]
-    pub fn contains(&self, candidate: &Self) -> bool {
-        debug_assert!(!self.is_wide() && !candidate.is_wide());
-        debug_assert!((self.flags | candidate.flags) & FREE == 0);
+    pub fn contains(&self, candidate: &Self) -> Option<bool> {
+        if (self.flags | candidate.flags) & WIDE != 0 {
+            return None;
+        }
         if candidate.flags & EMPTY != 0 {
-            return true;
+            return Some(true);
         }
         if self.flags & EMPTY != 0 {
-            return false;
+            return Some(false);
         }
         let none = |summary: &Self, bit: u8| summary.flags & bit != 0;
         let upper = |bit: u8, container: u64, candidate_value: u64| {
             none(self, bit) || (!none(candidate, bit) && candidate_value <= container)
         };
-        self.owner == candidate.owner
-            && self.positive_lower <= candidate.positive_lower
-            && upper(
-                POSITIVE_UPPER_NONE,
-                self.positive_upper,
-                candidate.positive_upper,
-            )
-            && self.numerator_lower <= candidate.numerator_lower
-            && upper(
-                NUMERATOR_UPPER_NONE,
-                self.numerator_upper,
-                candidate.numerator_upper,
-            )
-            && (none(self, DIFFERENCE_LOWER_NONE)
-                || (!none(candidate, DIFFERENCE_LOWER_NONE)
-                    && candidate.difference_lower >= self.difference_lower))
-            && (none(self, DIFFERENCE_UPPER_NONE)
-                || (!none(candidate, DIFFERENCE_UPPER_NONE)
-                    && candidate.difference_upper <= self.difference_upper))
-            && self.lower.iter().zip(&candidate.lower).all(|(a, b)| a <= b)
-            && self.upper.iter().zip(&candidate.upper).all(|(a, b)| b <= a)
+        Some(
+            self.owner == candidate.owner
+                && self.positive_lower <= candidate.positive_lower
+                && upper(
+                    POSITIVE_UPPER_NONE,
+                    self.positive_upper,
+                    candidate.positive_upper,
+                )
+                && self.numerator_lower <= candidate.numerator_lower
+                && upper(
+                    NUMERATOR_UPPER_NONE,
+                    self.numerator_upper,
+                    candidate.numerator_upper,
+                )
+                && (none(self, DIFFERENCE_LOWER_NONE)
+                    || (!none(candidate, DIFFERENCE_LOWER_NONE)
+                        && candidate.difference_lower >= self.difference_lower))
+                && (none(self, DIFFERENCE_UPPER_NONE)
+                    || (!none(candidate, DIFFERENCE_UPPER_NONE)
+                        && candidate.difference_upper <= self.difference_upper))
+                && self.lower.iter().zip(&candidate.lower).all(|(a, b)| a <= b)
+                && self.upper.iter().zip(&candidate.upper).all(|(a, b)| b <= a),
+        )
+    }
+
+    /// The kernel lanes of this summary (the same construction as
+    /// `Lanes::of_core` on the native summary it encodes). None for an empty
+    /// or a wide summary; a wide one takes its lanes from the native form.
+    pub fn lanes(&self) -> Option<Lanes<N>> {
+        if self.flags & (EMPTY | WIDE) != 0 {
+            return None;
+        }
+        let none = |bit: u8| self.flags & bit != 0;
+        let upper = |bit: u8, value: u64| (!none(bit)).then_some(u128::from(value));
+        let signed = |bit: u8, value: i64| (!none(bit)).then_some(i128::from(value));
+        Some(Lanes::build(super::index::LaneSource {
+            lower: &|axis| u128::from(self.lower[axis]),
+            upper: &|axis| {
+                (self.upper[axis] != INFINITE_EXTREMUM).then_some(u128::from(self.upper[axis]))
+            },
+            positive: (
+                u128::from(self.positive_lower),
+                upper(POSITIVE_UPPER_NONE, self.positive_upper),
+            ),
+            numerator: (
+                u128::from(self.numerator_lower),
+                upper(NUMERATOR_UPPER_NONE, self.numerator_upper),
+            ),
+            difference: (
+                signed(DIFFERENCE_LOWER_NONE, self.difference_lower),
+                signed(DIFFERENCE_UPPER_NONE, self.difference_upper),
+            ),
+        }))
+    }
+
+    /// `bits::word` of the native summary this compact image encodes; None
+    /// for a wide summary.
+    pub fn word(&self) -> Option<u64> {
+        if self.is_wide() {
+            return None;
+        }
+        if self.flags & EMPTY != 0 {
+            return Some(0);
+        }
+        let none = |bit: u8| self.flags & bit != 0;
+        let mut word = 0_u64;
+        for axis in 0..N.min(super::bits::MAX_ARITY) {
+            word |= u64::from(self.upper[axis] == INFINITE_EXTREMUM) << axis;
+            word |= u64::from(self.lower[axis] == 0) << (super::bits::MAX_ARITY + axis);
+        }
+        word |= u64::from(none(POSITIVE_UPPER_NONE)) << 32;
+        word |= u64::from(none(NUMERATOR_UPPER_NONE)) << 33;
+        word |= u64::from(none(DIFFERENCE_LOWER_NONE)) << 34;
+        word |= u64::from(none(DIFFERENCE_UPPER_NONE)) << 35;
+        word |= u64::from(self.positive_lower == 0) << 36;
+        word |= u64::from(self.numerator_lower == 0) << 37;
+        word |= u64::from(none(DIFFERENCE_LOWER_NONE) || self.difference_lower <= 0) << 38;
+        Some(word)
     }
 
     /// `Signature::of` the native summary; None for a wide summary.
@@ -605,163 +705,56 @@ impl<const N: usize> CompactSummary<N> {
                 signed(DIFFERENCE_UPPER_NONE, self.difference_upper),
             ) == extrema.power_difference()
     }
-
-    fn free_link(next: u32) -> Self {
-        Self {
-            flags: FREE,
-            positive_lower: u64::from(next),
-            ..Self::ZERO
-        }
-    }
-
-    fn next_free(&self) -> u32 {
-        debug_assert!(self.flags & FREE != 0);
-        self.positive_lower as u32
-    }
 }
 
-const RELEASED: u32 = u32::MAX;
-const NO_FREE_SLOT: u32 = u32::MAX;
-
-/// Compact summaries of the live lookup candidates. `slots[id]` locates the
-/// summary of an indexed ID; retirement from the candidate index releases the
-/// slot onto an intrusive free list (no allocation) for the next admission.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct SummarySlab<const N: usize> {
-    slots: Vec<u32>,
-    entries: Vec<CompactSummary<N>>,
-    free: u32,
-    live: usize,
-}
-
-impl<const N: usize> SummarySlab<N> {
-    pub fn new() -> Self {
-        Self {
-            slots: Vec::new(),
-            entries: Vec::new(),
-            free: NO_FREE_SLOT,
-            live: 0,
-        }
-    }
-
-    /// IDs that ever received a summary (every admitted ID in the unlimited
-    /// lane, none in the finite-cap lane).
-    pub fn ids(&self) -> usize {
-        self.slots.len()
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
-    }
-
-    /// Summaries currently held (IDs not released).
-    pub fn live(&self) -> usize {
-        self.live
-    }
-
-    /// Allocated slots, live or free.
-    #[cfg(test)]
-    pub fn slots_allocated(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_released(&self, id: usize) -> bool {
-        self.slots[id] == RELEASED
-    }
-
-    /// The summary of a live candidate. A released ID has no summary: its slot
-    /// may already hold another ID's, so callers check `is_released` first
-    /// whenever the ID might have been retired (only `revalidate` can).
-    #[inline]
-    pub fn get(&self, id: usize) -> &CompactSummary<N> {
-        let slot = self.slots[id];
-        debug_assert_ne!(slot, RELEASED, "released summary slot read");
-        // RELEASED is never a valid index: entries stay below u32::MAX.
-        &self.entries[slot as usize]
-    }
-
-    /// Reserve for one `push`, so publication is infallible.
-    pub fn try_reserve(&mut self) -> Result<(), &'static str> {
-        self.slots
-            .try_reserve(1)
-            .map_err(|_| "domain summary allocation")?;
-        if self.free == NO_FREE_SLOT {
-            if self.entries.len() >= RELEASED as usize {
-                return Err("domain summary slot range");
-            }
-            self.entries
-                .try_reserve(1)
-                .map_err(|_| "domain summary allocation")?;
-        }
-        Ok(())
-    }
-
-    /// Restore: exact room for `ids` further IDs of which `live` hold a summary.
-    pub fn try_reserve_exact(&mut self, ids: usize, live: usize) -> Result<(), &'static str> {
-        if self.entries.len().saturating_add(live) >= RELEASED as usize {
-            return Err("domain summary slot range");
-        }
-        self.slots
-            .try_reserve_exact(ids)
-            .map_err(|_| "domain summary allocation")?;
-        self.entries
-            .try_reserve_exact(live)
-            .map_err(|_| "domain summary allocation")
-    }
-
-    /// Store the next ID's summary, reusing the most recently released slot.
-    pub fn push(&mut self, summary: CompactSummary<N>) {
-        let slot = if self.free != NO_FREE_SLOT {
-            let slot = self.free;
-            self.free = self.entries[slot as usize].next_free();
-            self.entries[slot as usize] = summary;
-            slot
-        } else {
-            let slot = self.entries.len() as u32; // bounded by try_reserve
-            self.entries.push(summary);
-            slot
-        };
-        self.slots.push(slot);
-        self.live += 1;
-    }
-
-    /// Restore: the next ID is not an indexed candidate and holds no summary.
-    pub fn push_released(&mut self) {
-        self.slots.push(RELEASED);
-    }
-
-    /// The ID left the candidate index for good; infallible.
-    pub fn release(&mut self, id: usize) {
-        let slot = std::mem::replace(&mut self.slots[id], RELEASED);
-        debug_assert_ne!(slot, RELEASED, "summary slot released twice");
-        self.entries[slot as usize] = CompactSummary::free_link(self.free);
-        self.free = slot;
-        self.live -= 1;
-    }
-
-    /// Bytes of the reserved slot map and slab.
-    pub fn capacity_bytes(&self) -> usize {
-        self.slots.capacity() * std::mem::size_of::<u32>()
-            + self.entries.capacity() * std::mem::size_of::<CompactSummary<N>>()
-    }
-}
-
-/// Query side of one admission: its native summary (block filters, bit word,
-/// the rare wide comparison) and the compact image compared on the hot path.
+/// Query side of one admission: its native summary (block filters, the rare
+/// wide comparison), the compact image compared on the hot path, and the
+/// kernel's word and lanes. `bucket` is the query's (phase, owner) code.
 #[derive(Clone)]
 pub(super) struct Query<const N: usize> {
     pub core: DomainPowerSummary<N>,
     pub compact: CompactSummary<N>,
     pub word: u64,
+    pub lanes: Option<Lanes<N>>,
+    pub bucket: (u8, u32),
 }
 
 impl<const N: usize> Query<N> {
-    pub fn new(core: DomainPowerSummary<N>) -> Self {
+    pub fn new(core: DomainPowerSummary<N>, phase: Phase) -> Self {
+        let compact = CompactSummary::from_core(&core);
         Self {
-            compact: CompactSummary::from_core(&core),
+            lanes: compact.lanes().or_else(|| Lanes::of_core(&core)),
             word: super::bits::word(&core),
+            bucket: (
+                match phase {
+                    Phase::Apply => 0,
+                    Phase::Route => 1,
+                },
+                owner_bits(core.owner()),
+            ),
+            compact,
             core,
+        }
+    }
+
+    /// The kernel word and lanes this query is stored with when admitted.
+    pub fn image(&self) -> (u64, Option<Lanes<N>>) {
+        (self.word, self.lanes)
+    }
+}
+
+/// The kernel word and lanes of an admitted ID, rebuilt from its immutable
+/// summary (a wide one from its native summary): exactly what `Query::image`
+/// gave at its admission.
+pub(super) fn stored_image<const N: usize>(
+    domain: &CompactDomain<N>,
+    summary: &CompactSummary<N>,
+) -> Result<(u64, Option<Lanes<N>>), String> {
+    match summary.word() {
+        Some(word) => Ok((word, summary.lanes())),
+        None => {
+            let core = domain.try_native_summary().map_err(|e| e.to_string())?;
+            Ok((super::bits::word(&core), Lanes::of_core(&core)))
         }
     }
 }
@@ -770,36 +763,36 @@ impl<const N: usize> Query<N> {
 #[derive(Clone, Copy)]
 pub(super) struct Stored<'a, const N: usize> {
     pub domains: &'a [CompactDomain<N>],
-    pub summaries: &'a SummarySlab<N>,
+    pub summaries: &'a [CompactSummary<N>],
 }
 
 impl<const N: usize> Stored<'_, N> {
-    /// Exact native inclusion `stored[id] ⊇ query` of a live candidate.
+    /// Exact native inclusion `stored[id] ⊇ query` within the query's
+    /// (phase, owner) bucket (A1: a candidate of another bucket is never a
+    /// positive, even for an empty query).
     #[inline]
     pub fn contains(&self, id: usize, query: &Query<N>) -> bool {
-        let stored = self.summaries.get(id);
-        if !stored.is_wide() && !query.compact.is_wide() {
-            stored.contains(&query.compact)
-        } else {
-            self.domains[id].native_summary().contains(&query.core)
-        }
+        let (phase, owner) = query.bucket;
+        self.domains[id].same_bucket(phase, owner)
+            && self.summaries[id]
+                .contains(&query.compact)
+                .unwrap_or_else(|| self.domains[id].native_summary().contains(&query.core))
     }
 
-    /// Exact native inclusion `query ⊇ stored[id]` of a live candidate.
+    /// Exact native inclusion `query ⊇ stored[id]` within the query's bucket.
     #[inline]
     pub fn contained_by(&self, id: usize, query: &Query<N>) -> bool {
-        let stored = self.summaries.get(id);
-        if !stored.is_wide() && !query.compact.is_wide() {
-            query.compact.contains(stored)
-        } else {
-            query.core.contains(&self.domains[id].native_summary())
-        }
+        let (phase, owner) = query.bucket;
+        self.domains[id].same_bucket(phase, owner)
+            && query
+                .compact
+                .contains(&self.summaries[id])
+                .unwrap_or_else(|| query.core.contains(&self.domains[id].native_summary()))
     }
 
-    /// `Signature::of` the native summary of a live candidate.
+    /// `Signature::of` the native summary of an admitted ID.
     pub fn signature(&self, id: usize) -> Signature {
-        self.summaries
-            .get(id)
+        self.summaries[id]
             .signature()
             .unwrap_or_else(|| Signature::of(&self.domains[id].native_summary()))
     }

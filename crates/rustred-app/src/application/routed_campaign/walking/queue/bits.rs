@@ -1,6 +1,6 @@
 //! Packed necessary-condition words tested before `DomainPowerSummary::contains`.
 //!
-//! One `u64` per indexed candidate records, for every implication that exact
+//! One `u64` per indexed candidate (stored inline in its index block) records, for every implication that exact
 //! inclusion forces, a one-bit "the candidate side has this property" flag
 //! whose container side must then hold as well. A single subset test rejects
 //! most comparisons before the O(N) tight-extrema comparison runs. The word is
@@ -70,6 +70,8 @@ pub(super) fn word<const N: usize>(summary: &DomainPowerSummary<N>) -> u64 {
 }
 
 /// Necessary condition for `container.contains(candidate)`; never sufficient.
+/// (The kernel evaluates it on whole blocks; this is the per-pair reference.)
+#[cfg(test)]
 #[inline]
 pub(super) fn may_contain(container: u64, candidate: u64) -> bool {
     candidate & !container == 0
@@ -96,15 +98,14 @@ impl Prefilter {
         self.enabled = false;
     }
 
-    /// True when the bit tier alone proves `container` cannot contain
-    /// `candidate`. The caller has already charged the comparison.
+    /// Whether the kernel prefilter (bit words and lanes) runs; always true
+    /// in production.
     #[inline]
-    pub fn rejects(self, container: u64, candidate: u64) -> bool {
+    pub fn enabled(self) -> bool {
         #[cfg(test)]
-        if !self.enabled {
-            return false;
-        }
-        !may_contain(container, candidate)
+        return self.enabled;
+        #[cfg(not(test))]
+        true
     }
 }
 
@@ -135,6 +136,20 @@ impl SessionCounters {
         self.forward_bit_rejections = self
             .forward_bit_rejections
             .saturating_add(usize::from(rejected));
+    }
+
+    /// `count` forward callbacks rejected by the kernel prefilter, `words` of
+    /// them by the bit word.
+    #[inline]
+    pub fn forward_run(&mut self, count: usize, words: usize) {
+        self.forward_callbacks = self.forward_callbacks.saturating_add(count);
+        self.forward_bit_rejections = self.forward_bit_rejections.saturating_add(words);
+    }
+
+    #[inline]
+    pub fn reverse_run(&mut self, count: usize, words: usize) {
+        self.reverse_callbacks = self.reverse_callbacks.saturating_add(count);
+        self.reverse_bit_rejections = self.reverse_bit_rejections.saturating_add(words);
     }
 
     #[inline]

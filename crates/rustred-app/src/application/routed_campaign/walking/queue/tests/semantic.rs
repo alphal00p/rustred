@@ -17,7 +17,7 @@ fn equivalent_power_descriptions_reuse_pending_domain_without_rewriting_raw_keys
     assert_eq!(queue.admit(d), Ok((0, false)));
     assert_eq!(queue.containment_semantic_hits, 1);
     assert_eq!(queue.containment_summary_builds, 2);
-    assert_eq!(queue.summaries.ids(), 1);
+    assert_eq!(queue.summaries.len(), 1);
     assert_eq!(queue.domain(0), a);
     assert_eq!(queue.exact.len(), 1);
     assert_eq!(queue.next, 0);
@@ -35,9 +35,10 @@ fn implicit_rank_reuse_and_reverse_retirement_preserve_exact_ids() {
     assert_eq!(queue.admit(domain(Some(5))), Ok((1, true)));
     assert_eq!(queue.containment_semantic_retirements, 1);
     assert_eq!(queue.containment_retired_candidates, 1);
-    assert_eq!(queue.summaries.ids(), 2);
-    // The retired candidate released its summary slot; its domain stays.
-    assert_eq!(queue.summaries.live(), 1);
+    assert_eq!(queue.summaries.len(), 2);
+    // The retired candidate left the index; its domain and summary stay.
+    assert_eq!(queue.containment_candidate_count(), 1);
+    assert!(!queue.is_indexed(0) && queue.is_indexed(1));
     assert_eq!(queue.domains.len(), 2);
     assert_eq!(queue.next, 0);
     assert_eq!(queue.admit(narrow), Ok((0, false))); // raw exact ID retained
@@ -73,7 +74,7 @@ fn malformed_summary_is_not_reused_even_through_an_orthant_shortcut() {
         Err("inverted domain summary difference bounds")
     );
     assert_eq!(queue.domains.len(), 1);
-    assert_eq!(queue.summaries.ids(), 1);
+    assert_eq!(queue.summaries.len(), 1);
     assert_eq!(queue.containment_summary_builds, 1);
     assert_eq!(queue.orthant_hits, 0);
     assert_eq!(queue.next, 0);
@@ -95,7 +96,7 @@ fn semantic_counter_failure_never_publishes_or_retires_work() {
         vec![0]
     );
     assert_eq!(queue.domains.len(), 1);
-    assert_eq!(queue.summaries.ids(), 1);
+    assert_eq!(queue.summaries.len(), 1);
     assert_eq!(queue.next, 0);
     queue.containment_semantic_retirements = 0;
     let mut equivalent = old.clone();
@@ -196,6 +197,6 @@ fn semantic_queue_admission_matches_independent_finite_point_sets() {
             .map(CompactDomain::expand)
             .eq(baseline.iter().map(|(d, _)| d.clone()))
     );
-    assert_eq!(queue.summaries.ids(), queue.domains.len());
+    assert_eq!(queue.summaries.len(), queue.domains.len());
     assert!(queue.containment_semantic_hits > 0);
 }

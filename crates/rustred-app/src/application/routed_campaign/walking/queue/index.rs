@@ -1,5 +1,13 @@
 //! Necessary aggregate filters; native summary inclusion remains authoritative.
 //! Groups contain lookup candidates only, never own queued obligations.
+//!
+//! Every scan visits the logical candidates of the historical layout in the
+//! historical order (groups in vector order, blocks in ID order, IDs in
+//! order, the minimum-ID early exit) and reports each of them to a visitor:
+//! a run the struct-of-arrays prefilter rejected (`blocks`), or one candidate
+//! for the exact predicate. The set, order and count of logical candidates,
+//! and therefore every persisted counter, are those of the per-ID callback
+//! scan this kernel replaced.
 
 use rustred::solver::DomainPowerSummary;
 use std::collections::HashMap;
@@ -7,8 +15,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod blocks;
-use blocks::Block;
-pub(super) use blocks::Coordinates;
+use blocks::{AxisEnvelope, BLOCK_SIZE, BlockBox, Meta, range_mask};
+pub(super) use blocks::{Coordinates, Entry, LaneSource, Lanes, Probe};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum Upper {
@@ -74,7 +82,7 @@ impl Signature {
     }
 
     /// A necessary condition only: Q subset C implies this test for (C,Q).
-    fn may_contain(self, other: Self) -> bool {
+    pub(super) fn may_contain(self, other: Self) -> bool {
         match (self, other) {
             (_, Self::Empty) => true,
             (Self::Empty, Self::Nonempty { .. }) => false,
@@ -94,19 +102,160 @@ impl Signature {
     }
 }
 
-impl AggregateIndex {
-    pub(super) fn restore_positions(&mut self, domain_count: usize) -> Result<(), String> {
-        self.positions.clear();
+/// Receives a scan's logical candidates in order.
+pub(super) trait Visit {
+    /// Consecutive candidates the prefilter rejected; bit j of `word` is set
+    /// when `run[j]` failed the bit word (the rest failed only the lanes).
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str>;
+    /// One candidate that passed the prefilter: its exact predicate.
+    fn test(&mut self, id: usize) -> Result<bool, &'static str>;
+}
+
+/// The infallible visitor of reverse retirement.
+pub(super) trait Retire {
+    fn rejected(&mut self, run: &[u32], word: u32);
+    fn test(&mut self, id: usize) -> bool;
+}
+
+/// Every candidate is tested (an unfiltered probe never rejects).
+#[cfg(test)]
+pub(super) struct Each<F>(pub F);
+
+#[cfg(test)]
+impl<F: FnMut(usize) -> Result<bool, &'static str>> Visit for Each<F> {
+    fn rejected(&mut self, _: &[u32], _: u32) -> Result<(), &'static str> {
+        Ok(())
+    }
+    fn test(&mut self, id: usize) -> Result<bool, &'static str> {
+        (self.0)(id)
+    }
+}
+
+#[cfg(test)]
+impl<F: FnMut(usize) -> bool> Retire for Each<F> {
+    fn rejected(&mut self, _: &[u32], _: u32) {}
+    fn test(&mut self, id: usize) -> bool {
+        (self.0)(id)
+    }
+}
+
+/// A scan's receiver of rejected runs and exact tests (`Visit` or `Retire`).
+trait Sink {
+    type Error;
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), Self::Error>;
+    fn test(&mut self, id: usize) -> Result<bool, Self::Error>;
+}
+
+struct Fallible<'a, V>(&'a mut V);
+
+impl<V: Visit> Sink for Fallible<'_, V> {
+    type Error = &'static str;
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str> {
+        self.0.rejected(run, word)
+    }
+    fn test(&mut self, id: usize) -> Result<bool, &'static str> {
+        self.0.test(id)
+    }
+}
+
+struct Infallible<'a, V>(&'a mut V);
+
+impl<V: Retire> Sink for Infallible<'_, V> {
+    type Error = std::convert::Infallible;
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), Self::Error> {
+        self.0.rejected(run, word);
+        Ok(())
+    }
+    fn test(&mut self, id: usize) -> Result<bool, Self::Error> {
+        Ok(self.0.test(id))
+    }
+}
+
+/// Walk the slots of `pass` (ascending) within `start..end`, reporting the
+/// rejected runs between them to `sink`. Returns the first slot whose test
+/// succeeded when `stop_at_hit`, and the mask of successful slots.
+#[inline]
+fn visit_slots<S: Sink>(
+    ids: &[u32; BLOCK_SIZE],
+    words: u32,
+    pass: u32,
+    start: usize,
+    end: usize,
+    stop_at_hit: bool,
+    sink: &mut S,
+) -> Result<(Option<usize>, u32), S::Error> {
+    let mut pending = pass & range_mask(start, end);
+    let mut at = start;
+    let mut hits = 0;
+    while pending != 0 {
+        let slot = pending.trailing_zeros() as usize;
+        pending &= pending - 1;
+        if slot > at {
+            sink.rejected(&ids[at..slot], (!words & range_mask(at, slot)) >> at)?;
+        }
+        at = slot + 1;
+        if sink.test(ids[slot] as usize)? {
+            hits |= 1 << slot;
+            if stop_at_hit {
+                return Ok((Some(slot), hits));
+            }
+        }
+    }
+    if end > at {
+        sink.rejected(&ids[at..end], (!words & range_mask(at, end)) >> at)?;
+    }
+    Ok((None, hits))
+}
+
+/// The CP5 image of one persisted block.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename = "Block")]
+struct StoredBlock {
+    ids: [usize; BLOCK_SIZE],
+    len: usize,
+    envelope: Vec<AxisEnvelope>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename = "Group")]
+struct StoredGroup {
+    signature: Signature,
+    blocks: Vec<StoredBlock>,
+    live: usize,
+}
+
+/// The CP5 image of an index, decoded before it is validated and rebuilt.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "AggregateIndex")]
+pub(super) struct StoredIndex {
+    groups: Vec<StoredGroup>,
+    live: usize,
+}
+
+impl StoredIndex {
+    pub(super) fn is_empty(&self) -> bool {
+        self.groups.is_empty() && self.live == 0
+    }
+
+    /// Structural validation (the historical `restore_positions` checks).
+    pub(super) fn validate(&self, domain_count: usize) -> Result<(), String> {
+        let mut signatures = std::collections::HashSet::new();
         let mut live = 0usize;
-        for (position, group) in self.groups.iter().enumerate() {
-            if self.positions.insert(group.signature, position).is_some() {
+        for group in &self.groups {
+            if !signatures.insert(group.signature) {
                 return Err("duplicate checkpoint index signature".into());
             }
             let mut count = 0usize;
             let mut previous = None;
             for block in &group.blocks {
-                block.validate(domain_count)?;
-                for &id in block.ids() {
+                if block.len > BLOCK_SIZE
+                    || block.ids[..block.len]
+                        .iter()
+                        .any(|&id| id >= domain_count || id >= u32::MAX as usize)
+                {
+                    return Err("invalid checkpoint coordinate block".into());
+                }
+                for &id in &block.ids[..block.len] {
                     if previous.is_some_and(|old| old >= id) {
                         return Err("unordered checkpoint index IDs".into());
                     }
@@ -126,35 +275,64 @@ impl AggregateIndex {
         }
         Ok(())
     }
+
+    /// Every indexed ID, in group/block order.
+    pub(super) fn for_each_id(&self, mut f: impl FnMut(usize)) {
+        for group in &self.groups {
+            for block in &group.blocks {
+                block.ids[..block.len].iter().for_each(|&id| f(id));
+            }
+        }
+    }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Group {
+struct Group<const N: usize> {
     signature: Signature,
-    /// Increasing immutable IDs within and across blocks; no duplicates.
-    blocks: Vec<Block>,
+    /// Sequential block rows, parallel to `blocks`; increasing immutable IDs
+    /// within and across blocks, no duplicates.
+    meta: Vec<Meta<N>>,
+    blocks: Vec<BlockBox<N>>,
     /// Preserve the aggregate-only index's O(1) maintenance preflight per group.
     live: usize,
 }
 
 /// Prepared insertion owns new storage until all queue preflights succeed.
-pub(super) struct Insertion {
+pub(super) struct Insertion<const N: usize> {
     signature: Signature,
-    new_group: Option<Group>,
+    new_group: Option<Group<N>>,
     /// Prepared before responsibility mutation, or None when the existing tail
     /// has room and must be pinned through reverse retirement.
-    new_block: Option<Block>,
+    new_block: Option<(Meta<N>, BlockBox<N>)>,
+    /// Exact envelope storage for a narrow tail that the new coordinates
+    /// widen beyond the narrow codes.
+    spare_envelope: Option<Box<[AxisEnvelope]>>,
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-pub(super) struct AggregateIndex {
-    groups: Vec<Group>,
-    #[serde(skip)]
+impl<const N: usize> Insertion<N> {
+    #[cfg(test)]
+    pub(super) fn has_new_block(&self) -> bool {
+        self.new_block.is_some()
+    }
+}
+
+pub(super) struct AggregateIndex<const N: usize> {
+    groups: Vec<Group<N>>,
     positions: HashMap<Signature, usize>,
     live: usize,
     #[cfg(test)]
-    #[serde(skip)]
     work: WorkCounters,
+}
+
+impl<const N: usize> Default for AggregateIndex<N> {
+    fn default() -> Self {
+        Self {
+            groups: Vec::new(),
+            positions: HashMap::new(),
+            live: 0,
+            #[cfg(test)]
+            work: WorkCounters::default(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -228,19 +406,65 @@ struct BlockStorage {
     envelope_capacity_bytes: usize,
 }
 
-impl AggregateIndex {
+/// Reserved bytes of the index storage: group vectors, sequential block rows
+/// and boxed blocks (allocator and hash-map overhead excluded).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct IndexBytes {
+    pub blocks: usize,
+    pub rows: usize,
+    pub live: usize,
+    pub lossy: usize,
+}
+
+impl<const N: usize> AggregateIndex<N> {
     #[cfg(test)]
     pub(super) fn set_work_counters_enabled(&mut self, enabled: bool) {
         self.work.enabled = enabled;
     }
 
-    pub(super) fn find(
-        &self,
-        signature: Signature,
-        coordinates: Option<Coordinates<'_>>,
-        contains: impl FnMut(usize) -> Result<bool, &'static str>,
-    ) -> Result<Option<usize>, &'static str> {
-        self.find_from(signature, coordinates, 0, contains)
+    /// Rebuild a validated CP5 image. `entry` supplies the word and lanes of
+    /// each live ID; group order, block partition, envelopes and stale slots
+    /// are kept exactly.
+    pub(super) fn restore(
+        stored: StoredIndex,
+        domain_count: usize,
+        mut entry: impl FnMut(usize) -> Result<(u64, Option<Lanes<N>>), String>,
+    ) -> Result<Self, String> {
+        stored.validate(domain_count)?;
+        let mut index = Self::default();
+        index
+            .groups
+            .try_reserve_exact(stored.groups.len())
+            .map_err(|_| "checkpoint index allocation")?;
+        for (position, group) in stored.groups.into_iter().enumerate() {
+            let mut meta = Vec::new();
+            let mut blocks = Vec::new();
+            meta.try_reserve_exact(group.blocks.len())
+                .map_err(|_| "checkpoint index allocation")?;
+            blocks
+                .try_reserve_exact(group.blocks.len())
+                .map_err(|_| "checkpoint index allocation")?;
+            for block in &group.blocks {
+                let (row, storage) = Meta::restore(
+                    &block.ids,
+                    block.len,
+                    &block.envelope,
+                    domain_count,
+                    &mut entry,
+                )?;
+                meta.push(row);
+                blocks.push(storage);
+            }
+            index.positions.insert(group.signature, position);
+            index.groups.push(Group {
+                signature: group.signature,
+                meta,
+                blocks,
+                live: group.live,
+            });
+        }
+        index.live = stored.live;
+        Ok(index)
     }
 
     /// Admission IDs are monotone within each group; skip the immutable prefix
@@ -248,11 +472,11 @@ impl AggregateIndex {
     pub(super) fn find_from(
         &self,
         signature: Signature,
-        coordinates: Option<Coordinates<'_>>,
+        probe: &Probe<'_, N>,
         first_id: usize,
-        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+        visit: &mut impl Visit,
     ) -> Result<Option<usize>, &'static str> {
-        self.find_controlled(signature, coordinates, first_id, || Ok(()), contains)
+        self.find_controlled(signature, probe, first_id, || Ok(()), visit)
     }
 
     /// Cancellation checkpoints are uncharged and also visit rejected blocks;
@@ -260,12 +484,12 @@ impl AggregateIndex {
     pub(super) fn find_controlled(
         &self,
         signature: Signature,
-        coordinates: Option<Coordinates<'_>>,
+        probe: &Probe<'_, N>,
         first_id: usize,
         mut checkpoint: impl FnMut() -> Result<(), &'static str>,
-        mut contains: impl FnMut(usize) -> Result<bool, &'static str>,
+        visit: &mut impl Visit,
     ) -> Result<Option<usize>, &'static str> {
-        let mut best = None;
+        let mut best: Option<usize> = None;
         for group in &self.groups {
             checkpoint()?;
             let eligible = group.signature.may_contain(signature);
@@ -274,32 +498,46 @@ impl AggregateIndex {
             if !eligible {
                 continue;
             }
-            for block in &group.blocks {
+            // IDs increase across blocks: the blocks wholly below `first_id`
+            // form a prefix (an empty block is never counted in it).
+            let skip = group
+                .meta
+                .partition_point(|meta| (meta.last as usize) < first_id);
+            for (meta, block) in group.meta[skip..].iter().zip(&group.blocks[skip..]) {
                 checkpoint()?;
-                let ids = block.ids();
-                if ids.last().is_none_or(|&id| id < first_id) {
+                if meta.len == 0 || (meta.last as usize) < first_id {
                     continue;
                 }
                 // Group order may change during retirement. Minimum admission
                 // ID, not hash/vector traversal order, determines the result.
-                if best.is_some_and(|best| ids[0] >= best) {
+                if best.is_some_and(|best| meta.first as usize >= best) {
                     break;
                 }
-                let eligible = block.may_contain(coordinates);
+                let eligible = meta.may_contain(probe);
                 #[cfg(test)]
                 self.record_block(eligible);
                 if !eligible {
                     continue;
                 }
-                let start = ids.partition_point(|&id| id < first_id);
-                for &id in &ids[start..] {
-                    if best.is_some_and(|best| id >= best) {
-                        break;
-                    }
-                    if contains(id)? {
-                        best = Some(id);
-                        break;
-                    }
+                let block = &block[0];
+                let len = meta.len as usize;
+                let ids = &block.ids;
+                let start = if first_id <= meta.first as usize {
+                    0
+                } else {
+                    ids[..len].partition_point(|&id| (id as usize) < first_id)
+                };
+                let end = best.map_or(len, |best| {
+                    ids[..len].partition_point(|&id| (id as usize) < best)
+                });
+                if start >= end {
+                    continue;
+                }
+                let (words, pass) = block.forward(probe, len);
+                let (hit, _) =
+                    visit_slots(ids, words, pass, start, end, true, &mut Fallible(visit))?;
+                if let Some(slot) = hit {
+                    best = Some(ids[slot] as usize);
                 }
             }
         }
@@ -307,22 +545,29 @@ impl AggregateIndex {
     }
 
     /// Every indexed (live) candidate ID, in group/block order.
+    #[cfg(test)]
     pub(super) fn for_each_id(&self, mut f: impl FnMut(usize)) {
         for group in &self.groups {
-            for block in &group.blocks {
-                block.ids().iter().for_each(|&id| f(id));
+            for (meta, block) in group.meta.iter().zip(&group.blocks) {
+                block[0].ids[..meta.len as usize]
+                    .iter()
+                    .for_each(|&id| f(id as usize));
             }
         }
     }
 
     pub(super) fn is_live(&self, signature: Signature, id: usize) -> bool {
+        let Ok(id) = u32::try_from(id) else {
+            return false;
+        };
         self.positions.get(&signature).is_some_and(|&position| {
-            let blocks = &self.groups[position].blocks;
-            let block =
-                blocks.partition_point(|block| block.ids().last().is_some_and(|&last| last < id));
-            blocks
-                .get(block)
-                .is_some_and(|block| block.ids().binary_search(&id).is_ok())
+            let group = &self.groups[position];
+            let block = group.meta.partition_point(|meta| meta.last < id);
+            group.meta.get(block).is_some_and(|meta| {
+                group.blocks[block][0].ids[..meta.len as usize]
+                    .binary_search(&id)
+                    .is_ok()
+            })
         })
     }
 
@@ -330,7 +575,7 @@ impl AggregateIndex {
         &mut self,
         signature: Signature,
         coordinates: Option<Coordinates<'_>>,
-    ) -> Result<Insertion, &'static str> {
+    ) -> Result<Insertion<N>, &'static str> {
         self.prepare_with(signature, coordinates, || Ok(()))
     }
 
@@ -341,21 +586,31 @@ impl AggregateIndex {
         signature: Signature,
         coordinates: Option<Coordinates<'_>>,
         mut checkpoint: impl FnMut() -> Result<(), &'static str>,
-    ) -> Result<Insertion, &'static str> {
+    ) -> Result<Insertion<N>, &'static str> {
         self.live
             .checked_add(1)
             .ok_or("candidate index count overflow")?;
+        let mut spare_envelope = None;
         let (new_group, new_block) = if let Some(&position) = self.positions.get(&signature) {
             let group = &mut self.groups[position];
-            if group.blocks.last().is_some_and(Block::has_room) {
+            if let Some(tail) = group.meta.last().filter(|meta| meta.has_room()) {
+                if tail.needs_wide_storage(coordinates) {
+                    checkpoint()?;
+                    let coordinates = coordinates.expect("coordinates that need storage");
+                    spare_envelope = Some(Meta::<N>::wide_storage(coordinates)?);
+                }
                 (None, None)
             } else {
                 checkpoint()?;
                 group
+                    .meta
+                    .try_reserve(1)
+                    .map_err(|_| "coordinate block allocation")?;
+                group
                     .blocks
                     .try_reserve(1)
                     .map_err(|_| "coordinate block allocation")?;
-                (None, Some(Block::prepare(coordinates, &mut checkpoint)?))
+                (None, Some(Meta::prepare(coordinates, &mut checkpoint)?))
             }
         } else {
             checkpoint()?;
@@ -366,15 +621,19 @@ impl AggregateIndex {
             self.positions
                 .try_reserve(1)
                 .map_err(|_| "aggregate group index allocation")?;
+            let mut meta = Vec::new();
             let mut blocks = Vec::new();
             checkpoint()?;
+            meta.try_reserve(1)
+                .map_err(|_| "coordinate block allocation")?;
             blocks
                 .try_reserve(1)
                 .map_err(|_| "coordinate block allocation")?;
-            let block = Block::prepare(coordinates, &mut checkpoint)?;
+            let block = Meta::prepare(coordinates, &mut checkpoint)?;
             (
                 Some(Group {
                     signature,
+                    meta,
                     blocks,
                     live: 0,
                 }),
@@ -385,6 +644,7 @@ impl AggregateIndex {
             signature,
             new_group,
             new_block,
+            spare_envelope,
         })
     }
 
@@ -408,7 +668,7 @@ impl AggregateIndex {
     }
 
     /// Read-only twin of `retire` for speculative preparation: the ascending
-    /// IDs that `contains` accepts among the candidates the reverse pass would
+    /// IDs that the visitor accepts among the candidates the reverse pass would
     /// examine (same group and block eligibility). Nothing is mutated and no
     /// work counter of the queue is charged here. Cancellation checkpoints run
     /// at every group and block boundary, as in `find_controlled`. More than
@@ -417,10 +677,10 @@ impl AggregateIndex {
     pub(super) fn collect_contained(
         &self,
         signature: Signature,
-        coordinates: Option<Coordinates<'_>>,
+        probe: &Probe<'_, N>,
         limit: usize,
         mut checkpoint: impl FnMut() -> Result<(), &'static str>,
-        mut contains: impl FnMut(usize) -> Result<bool, &'static str>,
+        visit: &mut impl Visit,
     ) -> Result<Vec<usize>, &'static str> {
         let mut contained = Vec::new();
         for group in &self.groups {
@@ -431,24 +691,30 @@ impl AggregateIndex {
             if !eligible {
                 continue;
             }
-            for block in &group.blocks {
+            for (meta, block) in group.meta.iter().zip(&group.blocks) {
                 checkpoint()?;
-                let eligible = block.may_be_contained(coordinates);
+                let eligible = meta.may_be_contained(probe);
                 #[cfg(test)]
                 self.record_block(eligible);
-                if !eligible {
+                if !eligible || meta.len == 0 {
                     continue;
                 }
-                for &id in block.ids() {
-                    if contains(id)? {
-                        if contained.len() >= limit {
-                            return Err("prepared retirement set limit");
-                        }
-                        contained
-                            .try_reserve(1)
-                            .map_err(|_| "prepared retirement set allocation")?;
-                        contained.push(id);
+                let block = &block[0];
+                let len = meta.len as usize;
+                let (words, pass) = block.reverse(probe, len);
+                let (_, hits) =
+                    visit_slots(&block.ids, words, pass, 0, len, false, &mut Fallible(visit))?;
+                let mut hits = hits;
+                while hits != 0 {
+                    let slot = hits.trailing_zeros() as usize;
+                    hits &= hits - 1;
+                    if contained.len() >= limit {
+                        return Err("prepared retirement set limit");
                     }
+                    contained
+                        .try_reserve(1)
+                        .map_err(|_| "prepared retirement set allocation")?;
+                    contained.push(block.ids[slot] as usize);
                 }
             }
         }
@@ -463,28 +729,54 @@ impl AggregateIndex {
     /// resulting layout is identical whenever the prepared set agrees with the
     /// exact predicate on every examined old ID (see `prepared` for the
     /// argument). `on_retire` observes each removal in traversal order.
+    /// `visit_new` sees the prefilter rejections of IDs at or above
+    /// `first_new` only (the old IDs are decided by the set).
     pub(super) fn retire_prepared(
         &mut self,
-        insertion: &Insertion,
-        coordinates: Option<Coordinates<'_>>,
+        insertion: &Insertion<N>,
+        probe: &Probe<'_, N>,
         prepared: &[usize],
         first_new: usize,
-        mut contains_new: impl FnMut(usize) -> bool,
+        visit_new: &mut impl Retire,
         mut on_retire: impl FnMut(usize),
     ) -> usize {
         debug_assert!(prepared.windows(2).all(|pair| pair[0] < pair[1]));
         debug_assert!(prepared.last().is_none_or(|&last| last < first_new));
-        self.retire(insertion, coordinates, |id| {
-            let retire = if id < first_new {
-                prepared.binary_search(&id).is_ok()
-            } else {
-                contains_new(id)
-            };
-            if retire {
-                on_retire(id);
+        struct Split<'a, V, F> {
+            prepared: &'a [usize],
+            first_new: usize,
+            visit_new: &'a mut V,
+            on_retire: F,
+        }
+        impl<V: Retire, F: FnMut(usize)> Retire for Split<'_, V, F> {
+            fn rejected(&mut self, run: &[u32], word: u32) {
+                let old = run.partition_point(|&id| (id as usize) < self.first_new);
+                if old < run.len() {
+                    self.visit_new.rejected(&run[old..], word >> old);
+                }
             }
-            retire
-        })
+            fn test(&mut self, id: usize) -> bool {
+                let retire = if id < self.first_new {
+                    self.prepared.binary_search(&id).is_ok()
+                } else {
+                    self.visit_new.test(id)
+                };
+                if retire {
+                    (self.on_retire)(id);
+                }
+                retire
+            }
+        }
+        self.retire(
+            insertion,
+            probe,
+            &mut Split {
+                prepared,
+                first_new,
+                visit_new,
+                on_retire: &mut on_retire,
+            },
+        )
     }
 
     /// Infallible after queue counter/storage preflight. Preserve the insertion
@@ -492,9 +784,9 @@ impl AggregateIndex {
     /// groups so historical signatures do not accumulate in the hot scan.
     pub(super) fn retire(
         &mut self,
-        insertion: &Insertion,
-        coordinates: Option<Coordinates<'_>>,
-        mut contains: impl FnMut(usize) -> bool,
+        insertion: &Insertion<N>,
+        probe: &Probe<'_, N>,
+        visit: &mut impl Retire,
     ) -> usize {
         let mut removed = 0;
         let mut position = 0;
@@ -506,8 +798,8 @@ impl AggregateIndex {
             self.record_group(eligible);
             let group = &mut self.groups[position];
             if eligible {
-                for block in &mut group.blocks {
-                    let eligible = block.may_be_contained(coordinates);
+                for (meta, block) in group.meta.iter_mut().zip(&mut group.blocks) {
+                    let eligible = meta.may_be_contained(probe);
                     #[cfg(test)]
                     if self.work.enabled {
                         self.work.blocks_visited.fetch_add(1, Ordering::Relaxed);
@@ -515,23 +807,42 @@ impl AggregateIndex {
                             .blocks_rejected
                             .fetch_add(usize::from(!eligible), Ordering::Relaxed);
                     }
-                    if eligible {
-                        let previous = block.ids().len();
-                        block.retain(|id| !contains(id));
-                        removed += previous - block.ids().len();
-                        group.live -= previous - block.ids().len();
+                    if !eligible || meta.len == 0 {
+                        continue;
+                    }
+                    let block = &mut block[0];
+                    let len = meta.len as usize;
+                    let (words, pass) = block.reverse(probe, len);
+                    let Ok((_, hits)) = visit_slots(
+                        &block.ids,
+                        words,
+                        pass,
+                        0,
+                        len,
+                        false,
+                        &mut Infallible(visit),
+                    );
+                    if hits != 0 {
+                        let gone = meta.retain(block, !hits);
+                        removed += gone;
+                        group.live -= gone;
                     }
                 }
                 let pin_tail =
                     group.signature == insertion.signature && insertion.new_block.is_none();
-                let old_len = group.blocks.len();
-                let mut block_position = 0;
-                group.blocks.retain(|block| {
-                    block_position += 1;
-                    !block.ids().is_empty() || (pin_tail && block_position == old_len)
-                });
+                let old_len = group.meta.len();
+                let mut kept = 0;
+                for read in 0..old_len {
+                    if group.meta[read].len != 0 || (pin_tail && read + 1 == old_len) {
+                        group.meta.swap(kept, read);
+                        group.blocks.swap(kept, read);
+                        kept += 1;
+                    }
+                }
+                group.meta.truncate(kept);
+                group.blocks.truncate(kept);
             }
-            if group.blocks.is_empty() && group.signature != insertion.signature {
+            if group.meta.is_empty() && group.signature != insertion.signature {
                 let key = group.signature;
                 self.groups.swap_remove(position);
                 self.positions.remove(&key);
@@ -549,18 +860,15 @@ impl AggregateIndex {
         removed
     }
 
-    pub(super) fn insert(
-        &mut self,
-        mut insertion: Insertion,
-        id: usize,
-        coordinates: Option<Coordinates<'_>>,
-    ) {
+    pub(super) fn insert(&mut self, mut insertion: Insertion<N>, entry: Entry<'_, N>) {
+        let spare = insertion.spare_envelope.take();
         if let Some(mut group) = insertion.new_group.take() {
-            let mut block = insertion
+            let (mut meta, mut block) = insertion
                 .new_block
                 .take()
                 .expect("preallocated new group block");
-            block.insert(id, coordinates);
+            meta.push(&mut block[0], entry, spare);
+            group.meta.push(meta);
             group.blocks.push(block);
             group.live = 1;
             self.positions
@@ -569,31 +877,45 @@ impl AggregateIndex {
         } else {
             let position = self.positions[&insertion.signature];
             let group = &mut self.groups[position];
-            if let Some(block) = insertion.new_block.take() {
+            if let Some((meta, block)) = insertion.new_block.take() {
+                group.meta.push(meta);
                 group.blocks.push(block);
             }
-            group
-                .blocks
-                .last_mut()
-                .expect("reserved tail block")
-                .insert(id, coordinates);
+            let meta = group.meta.last_mut().expect("reserved tail block");
+            let block = group.blocks.last_mut().expect("reserved tail block");
+            meta.push(&mut block[0], entry, spare);
             group.live += 1; // bounded by checked global live + 1
         }
         self.live += 1; // checked by prepare before any retirement
     }
 
+    /// Reserved storage of the index (see `IndexBytes`).
+    pub(super) fn storage(&self) -> IndexBytes {
+        let mut bytes = IndexBytes {
+            rows: self.groups.capacity() * std::mem::size_of::<Group<N>>(),
+            live: self.live,
+            ..IndexBytes::default()
+        };
+        for group in &self.groups {
+            bytes.rows += group.meta.capacity() * std::mem::size_of::<Meta<N>>()
+                + group.blocks.capacity() * std::mem::size_of::<BlockBox<N>>()
+                + group
+                    .meta
+                    .iter()
+                    .map(Meta::envelope_capacity_bytes)
+                    .sum::<usize>();
+            bytes.blocks += group.blocks.len() * std::mem::size_of::<blocks::Block<N>>();
+            for (meta, block) in group.meta.iter().zip(&group.blocks) {
+                bytes.lossy += block[0].lossy(meta.len as usize).count_ones() as usize;
+            }
+        }
+        bytes
+    }
+
     #[cfg(test)]
     pub(super) fn ids(&self) -> Vec<usize> {
-        let mut ids: Vec<_> = self
-            .groups
-            .iter()
-            .flat_map(|group| {
-                group
-                    .blocks
-                    .iter()
-                    .flat_map(|block| block.ids().iter().copied())
-            })
-            .collect();
+        let mut ids = Vec::new();
+        self.for_each_id(|id| ids.push(id));
         ids.sort_unstable();
         ids
     }
@@ -612,9 +934,15 @@ impl AggregateIndex {
                 (
                     group.signature,
                     group
-                        .blocks
+                        .meta
                         .iter()
-                        .map(|block| block.ids().to_vec())
+                        .zip(&group.blocks)
+                        .map(|(meta, block)| {
+                            block[0].ids[..meta.len as usize]
+                                .iter()
+                                .map(|&id| id as usize)
+                                .collect()
+                        })
                         .collect(),
                 )
             })
@@ -627,17 +955,26 @@ impl AggregateIndex {
         BlockStorage {
             live_ids: self.live,
             blocks,
-            id_slots: blocks * blocks::BLOCK_SIZE,
+            id_slots: blocks * BLOCK_SIZE,
             block_capacity_bytes: self
                 .groups
                 .iter()
-                .map(|group| group.blocks.capacity() * std::mem::size_of::<Block>())
+                .map(|group| {
+                    group.blocks.capacity() * std::mem::size_of::<BlockBox<N>>()
+                        + group.blocks.len() * std::mem::size_of::<blocks::Block<N>>()
+                })
                 .sum(),
             envelope_capacity_bytes: self
                 .groups
                 .iter()
-                .flat_map(|group| &group.blocks)
-                .map(Block::envelope_capacity_bytes)
+                .map(|group| {
+                    group.meta.capacity() * std::mem::size_of::<Meta<N>>()
+                        + group
+                            .meta
+                            .iter()
+                            .map(Meta::envelope_capacity_bytes)
+                            .sum::<usize>()
+                })
                 .sum(),
         }
     }
@@ -672,6 +1009,241 @@ impl AggregateIndex {
             blocks_visited: self.work.blocks_visited.load(Ordering::Relaxed),
             blocks_rejected: self.work.blocks_rejected.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// The pre-kernel per-candidate callback API over an unfiltered probe: the
+/// index-level tests exercise traversal, charging order and layout with it.
+#[cfg(test)]
+impl<const N: usize> AggregateIndex<N> {
+    pub(super) fn find_each(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
+        self.find_from_each(signature, coordinates, 0, contains)
+    }
+
+    pub(super) fn find_from_each(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        first_id: usize,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
+        self.find_controlled_each(signature, coordinates, first_id, || Ok(()), contains)
+    }
+
+    pub(super) fn find_controlled_each(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        first_id: usize,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
+        self.find_controlled(
+            signature,
+            &Probe::unfiltered(coordinates),
+            first_id,
+            checkpoint,
+            &mut Each(contains),
+        )
+    }
+
+    pub(super) fn collect_contained_each(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        limit: usize,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Vec<usize>, &'static str> {
+        self.collect_contained(
+            signature,
+            &Probe::unfiltered(coordinates),
+            limit,
+            checkpoint,
+            &mut Each(contains),
+        )
+    }
+
+    pub(super) fn retire_each(
+        &mut self,
+        insertion: &Insertion<N>,
+        coordinates: Option<Coordinates<'_>>,
+        contains: impl FnMut(usize) -> bool,
+    ) -> usize {
+        self.retire(
+            insertion,
+            &Probe::unfiltered(coordinates),
+            &mut Each(contains),
+        )
+    }
+
+    pub(super) fn retire_prepared_each(
+        &mut self,
+        insertion: &Insertion<N>,
+        coordinates: Option<Coordinates<'_>>,
+        prepared: &[usize],
+        first_new: usize,
+        contains_new: impl FnMut(usize) -> bool,
+        on_retire: impl FnMut(usize),
+    ) -> usize {
+        self.retire_prepared(
+            insertion,
+            &Probe::unfiltered(coordinates),
+            prepared,
+            first_new,
+            &mut Each(contains_new),
+            on_retire,
+        )
+    }
+
+    /// Insert without lanes (an escaped candidate) and with word 0.
+    pub(super) fn insert_plain(
+        &mut self,
+        insertion: Insertion<N>,
+        id: usize,
+        coordinates: Option<Coordinates<'_>>,
+    ) {
+        self.insert(
+            insertion,
+            Entry {
+                id,
+                coordinates,
+                word: 0,
+                lanes: None,
+            },
+        );
+    }
+
+    pub(super) fn block_ids(&self, group: usize, block: usize) -> Vec<usize> {
+        let group = &self.groups[group];
+        group.blocks[block][0].ids[..group.meta[block].len as usize]
+            .iter()
+            .map(|&id| id as usize)
+            .collect()
+    }
+
+    /// Every block's live kernel data (ID, word, lanes) and OR/AND words, in
+    /// layout order.
+    #[allow(clippy::type_complexity)]
+    pub(super) fn kernel_image(&self) -> Vec<(Vec<(u32, u64, Option<Lanes<N>>)>, (u64, u64))> {
+        self.groups
+            .iter()
+            .flat_map(|group| group.meta.iter().zip(&group.blocks))
+            .map(|(meta, block)| {
+                let block = &block[0];
+                (
+                    (0..meta.len as usize)
+                        .map(|slot| block.entry(slot))
+                        .collect(),
+                    block.block_words(),
+                )
+            })
+            .collect()
+    }
+
+    /// The kernel on every live slot of every block, both directions:
+    /// `f(id, (forward word, forward pass), (reverse word, reverse pass),
+    /// lossy or escaped)`. Group and envelope filters are bypassed.
+    pub(super) fn sweep(
+        &self,
+        probe: &Probe<'_, N>,
+        mut f: impl FnMut(usize, (bool, bool), (bool, bool), bool),
+    ) {
+        for group in &self.groups {
+            for (meta, block) in group.meta.iter().zip(&group.blocks) {
+                let block = &block[0];
+                let len = meta.len as usize;
+                let (fw, fp) = block.forward(probe, len);
+                let (rw, rp) = block.reverse(probe, len);
+                let inexact = block.lossy(len) | block.escaped(len);
+                for slot in 0..len {
+                    let bit = 1 << slot;
+                    f(
+                        block.ids[slot] as usize,
+                        (fw & bit != 0, fp & bit != 0),
+                        (rw & bit != 0, rp & bit != 0),
+                        inexact & bit != 0,
+                    );
+                }
+            }
+        }
+    }
+
+    pub(super) fn block_lens(&self, group: usize) -> Vec<usize> {
+        self.groups[group]
+            .meta
+            .iter()
+            .map(|meta| meta.len as usize)
+            .collect()
+    }
+}
+
+/// The CP5 image, written from the live layout without an intermediate copy.
+impl<const N: usize> serde::Serialize for AggregateIndex<N> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeSeq, SerializeStruct};
+        struct Blocks<'a, const N: usize>(&'a Group<N>);
+        struct BlockImage<'a, const N: usize>(&'a Meta<N>, &'a blocks::Block<N>);
+        struct Envelope<'a, const N: usize>(&'a Meta<N>);
+        struct Groups<'a, const N: usize>(&'a [Group<N>]);
+        struct GroupImage<'a, const N: usize>(&'a Group<N>);
+        impl<const N: usize> serde::Serialize for Envelope<'_, N> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let axes = self.0.envelope_axes();
+                let mut seq = s.serialize_seq(Some(axes.len()))?;
+                for axis in axes {
+                    seq.serialize_element(&axis)?;
+                }
+                seq.end()
+            }
+        }
+        impl<const N: usize> serde::Serialize for BlockImage<'_, N> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let ids: [usize; BLOCK_SIZE] =
+                    std::array::from_fn(|slot| self.1.ids[slot] as usize);
+                let mut image = s.serialize_struct("Block", 3)?;
+                image.serialize_field("ids", &ids)?;
+                image.serialize_field("len", &(self.0.len as usize))?;
+                image.serialize_field("envelope", &Envelope(self.0))?;
+                image.end()
+            }
+        }
+        impl<const N: usize> serde::Serialize for Blocks<'_, N> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let mut seq = s.serialize_seq(Some(self.0.meta.len()))?;
+                for (meta, block) in self.0.meta.iter().zip(&self.0.blocks) {
+                    seq.serialize_element(&BlockImage(meta, &block[0]))?;
+                }
+                seq.end()
+            }
+        }
+        impl<const N: usize> serde::Serialize for GroupImage<'_, N> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let mut image = s.serialize_struct("Group", 3)?;
+                image.serialize_field("signature", &self.0.signature)?;
+                image.serialize_field("blocks", &Blocks(self.0))?;
+                image.serialize_field("live", &self.0.live)?;
+                image.end()
+            }
+        }
+        impl<const N: usize> serde::Serialize for Groups<'_, N> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let mut seq = s.serialize_seq(Some(self.0.len()))?;
+                for group in self.0 {
+                    seq.serialize_element(&GroupImage(group))?;
+                }
+                seq.end()
+            }
+        }
+        let mut image = s.serialize_struct("AggregateIndex", 2)?;
+        image.serialize_field("groups", &Groups(&self.groups))?;
+        image.serialize_field("live", &self.live)?;
+        image.end()
     }
 }
 

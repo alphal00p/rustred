@@ -32,13 +32,14 @@
 //! still live never retires and needs no set; a retired winner and a
 //! near-exhausted counter fall back to the full serial path as before.
 //!
-//! Summaries sit in reusable slab slots (`compact::SummarySlab`): retirement
-//! releases a candidate's slot and a later admission may overwrite it. Every
-//! comparison above reads live candidates only (IDs present in the index at
-//! the time of the read), whose slots are never released underneath them;
-//! the one ID that may have been retired since S, a snapshot winner, is
-//! checked for a released slot before its signature is read, which is
-//! exactly the `is_live == false` fallback.
+//! Summaries are immutable per ID and never released, so a snapshot winner
+//! retired since S still has its summary: its signature is read and the
+//! `is_live == false` fallback decides.
+//!
+//! The struct-of-arrays kernel keeps these properties: its words and lanes
+//! are functions of the immutable summaries and only reject candidates that
+//! the exact predicate would reject, so the prepared sets, the forward scans
+//! and every charged candidate are those of the per-ID callback scan.
 
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -189,11 +190,11 @@ impl<const N: usize> Queue<N> {
                 domain.powers,
             )
             .ok()?,
+            domain.phase,
         );
-        let prefilter = self.prefilter;
         let stored = self.stored();
         let signature = Signature::of(&query.core);
-        let coordinates = Coordinates::of(&query.core);
+        let probe = self.probe(&query);
         let bucket = self.by_owner.get(&(domain.phase, domain.owner));
         let bucket_absent = bucket.is_none();
         let (found, retire) = if let Some(bucket) = bucket {
@@ -214,17 +215,18 @@ impl<const N: usize> Queue<N> {
                 };
                 let found = bucket
                     .indexed
-                    .find_controlled(signature, coordinates, 0, checkpoint, |id| {
-                        work.checks = work
-                            .checks
-                            .checked_add(1)
-                            .ok_or("speculative check overflow")?;
-                        let rejected = prefilter.rejects(self.bits[id], query.word);
-                        work.forward_bit_rejections = work
-                            .forward_bit_rejections
-                            .saturating_add(usize::from(rejected));
-                        Ok(!rejected && stored.contains(id, &query))
-                    })
+                    .find_controlled(
+                        signature,
+                        &probe,
+                        0,
+                        checkpoint,
+                        &mut Speculative {
+                            work: &mut *work,
+                            reverse: false,
+                            stored,
+                            query: &query,
+                        },
+                    )
                     .ok()?;
                 let retire = if found.is_none() {
                     // A miss commits a new candidate, so prepare the reverse
@@ -241,19 +243,14 @@ impl<const N: usize> Queue<N> {
                         .indexed
                         .collect_contained(
                             signature,
-                            coordinates,
+                            &probe,
                             PREPARED_RETIRE_LIMIT,
                             checkpoint,
-                            |id| {
-                                work.reverse_checks = work
-                                    .reverse_checks
-                                    .checked_add(1)
-                                    .ok_or("speculative check overflow")?;
-                                let rejected = prefilter.rejects(query.word, self.bits[id]);
-                                work.reverse_bit_rejections = work
-                                    .reverse_bit_rejections
-                                    .saturating_add(usize::from(rejected));
-                                Ok(!rejected && stored.contained_by(id, &query))
+                            &mut Speculative {
+                                work: &mut *work,
+                                reverse: true,
+                                stored,
+                                query: &query,
                             },
                         )
                         .ok()
@@ -266,6 +263,7 @@ impl<const N: usize> Queue<N> {
             // No candidate of this phase/owner existed at the snapshot.
             (None, Some(Vec::new()))
         };
+        drop(probe);
         if is_cancelled() {
             return None;
         }
@@ -304,13 +302,11 @@ impl<const N: usize> PreparedLookup<N> {
     /// Return None to use the original serial lookup. In particular, overflow
     /// risk from discarded/stale speculative comparisons must not move a
     /// public failure earlier than ordinary lookup would have produced it.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn revalidate(
         &mut self,
-        index: &AggregateIndex,
+        index: &AggregateIndex<N>,
         stored: Stored<'_, N>,
-        bits: &[u64],
-        prefilter: bits::Prefilter,
+        filter: bool,
         previous_checks: usize,
         session: &mut SessionCounters,
     ) -> Option<Revalidated> {
@@ -319,19 +315,15 @@ impl<const N: usize> PreparedLookup<N> {
         // miss also performs reverse maintenance after this method returns.
         // Near counter exhaustion, preserve the exact old failure prefix by
         // falling back unless both complete alternatives fit without overflow.
-        // The bound counts every admitted ID, released summaries included.
+        // The bound counts every admitted ID.
         previous_checks
             .checked_add(self.checks)?
-            .checked_add(stored.summaries.ids().checked_mul(2)?)?;
+            .checked_add(stored.summaries.len().checked_mul(2)?)?;
         if let Some(id) = self.found {
             // Snapshot misses before this minimum remain misses. New IDs are
             // greater, and other retirements cannot introduce an earlier hit.
-            // A winner retired since the snapshot released its summary slot,
-            // which a later admission may already reuse: never read it. It
-            // is exactly the `is_live == false` fallback to the serial scan.
-            if stored.summaries.is_released(id) {
-                return None;
-            }
+            // A winner retired since the snapshot keeps its immutable summary;
+            // `is_live == false` falls back to the serial scan.
             return index
                 .is_live(stored.signature(id), id)
                 .then_some(Revalidated {
@@ -346,16 +338,22 @@ impl<const N: usize> PreparedLookup<N> {
         // Retirements remove choices; only subsequent admissions can add one.
         let mut checks = self.checks;
         let query = &self.query;
+        let probe = Probe::new(
+            Coordinates::of(&query.core),
+            query.word,
+            query.lanes,
+            filter,
+        );
         let found = index
             .find_from(
                 Signature::of(&query.core),
-                Coordinates::of(&query.core),
+                &probe,
                 self.watermark,
-                |id| {
-                    checks += 1; // bounded above before this scan
-                    let rejected = prefilter.rejects(bits[id], query.word);
-                    session.forward(rejected);
-                    Ok(!rejected && stored.contains(id, query))
+                &mut Revalidation {
+                    checks: &mut checks,
+                    session,
+                    stored,
+                    query,
                 },
             )
             .ok()?;
@@ -370,5 +368,68 @@ impl<const N: usize> PreparedLookup<N> {
             first_new: self.watermark,
             trivial: self.bucket_absent,
         })
+    }
+}
+
+/// Helper-side visitor: every completed forward or reverse callback of a
+/// speculative preparation, rejections included.
+struct Speculative<'a, const N: usize> {
+    work: &'a mut SpeculativeWork,
+    reverse: bool,
+    stored: Stored<'a, N>,
+    query: &'a Query<N>,
+}
+
+impl<const N: usize> Speculative<'_, N> {
+    fn charge(&mut self, count: usize, words: usize) -> Result<(), &'static str> {
+        let (checks, rejections) = if self.reverse {
+            (
+                &mut self.work.reverse_checks,
+                &mut self.work.reverse_bit_rejections,
+            )
+        } else {
+            (&mut self.work.checks, &mut self.work.forward_bit_rejections)
+        };
+        *checks = checks
+            .checked_add(count)
+            .ok_or("speculative check overflow")?;
+        *rejections = rejections.saturating_add(words);
+        Ok(())
+    }
+}
+
+impl<const N: usize> Visit for Speculative<'_, N> {
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str> {
+        self.charge(run.len(), word.count_ones() as usize)
+    }
+    fn test(&mut self, id: usize) -> Result<bool, &'static str> {
+        self.charge(1, 0)?;
+        Ok(if self.reverse {
+            self.stored.contained_by(id, self.query)
+        } else {
+            self.stored.contains(id, self.query)
+        })
+    }
+}
+
+/// Commit-time forward scan above the snapshot watermark.
+struct Revalidation<'a, const N: usize> {
+    checks: &'a mut usize,
+    session: &'a mut SessionCounters,
+    stored: Stored<'a, N>,
+    query: &'a Query<N>,
+}
+
+impl<const N: usize> Visit for Revalidation<'_, N> {
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str> {
+        *self.checks += run.len(); // bounded above before this scan
+        self.session
+            .forward_run(run.len(), word.count_ones() as usize);
+        Ok(())
+    }
+    fn test(&mut self, id: usize) -> Result<bool, &'static str> {
+        *self.checks += 1;
+        self.session.forward(false);
+        Ok(self.stored.contains(id, self.query))
     }
 }

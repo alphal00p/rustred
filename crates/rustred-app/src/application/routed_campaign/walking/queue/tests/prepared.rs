@@ -11,22 +11,13 @@ fn box_domain(lower: [u64; 2], upper: [u64; 2]) -> Domain<2> {
 
 pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
     assert_eq!(serial.domains, prepared.domains);
-    // Summary content per ID; slab slot order may differ (a restored queue
-    // holds its live summaries densely).
-    assert_eq!(serial.summaries.ids(), prepared.summaries.ids());
-    assert_eq!(serial.summaries.live(), prepared.summaries.live());
-    for id in 0..serial.summaries.ids() {
-        let released = serial.summaries.is_released(id);
-        assert_eq!(
-            released,
-            prepared.summaries.is_released(id),
-            "summary of {id}"
-        );
-        if !released {
-            assert_eq!(serial.summaries.get(id), prepared.summaries.get(id));
-        }
-    }
-    assert_eq!(serial.bits, prepared.bits);
+    // Immutable per-ID summaries and the index's inline kernel data.
+    assert_eq!(serial.summaries, prepared.summaries);
+    assert_eq!(
+        serial.containment_candidate_count(),
+        prepared.containment_candidate_count()
+    );
+    assert_eq!(serial.bit_words(), prepared.bit_words());
     assert_eq!(serial.exact, prepared.exact);
     assert_eq!(serial.by_owner.len(), prepared.by_owner.len());
     for (key, bucket) in &serial.by_owner {
@@ -35,6 +26,7 @@ pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>)
         // Physical layout too: the prepared reverse pass must retain, pin and
         // remove exactly what the serial pass does, in the same order.
         assert_eq!(bucket.indexed.layout(), other.indexed.layout());
+        assert_eq!(bucket.indexed.kernel_image(), other.indexed.kernel_image());
         assert_eq!(bucket.orthant, other.orthant);
     }
     assert_eq!(serial.next, prepared.next);
