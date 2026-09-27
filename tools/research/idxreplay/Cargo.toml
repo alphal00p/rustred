@@ -1,0 +1,16 @@
+[package]
+name = "idxreplay"
+version = "0.1.0"
+edition = "2024"
+description = "Offline CP5 admission-index replay (W0.4): layouts, policies, units, thinning, threads, lag"
+publish = false
+
+# Standalone: not a member of the rustred workspace, no dependencies.
+[workspace]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+debug = "line-tables-only"
+codegen-units = 1

@@ -1,0 +1,49 @@
+records 7767543
+AGG delegated_not_inspected|Apply|connected count=161168 seconds=0.0 successors=0 points=3.7475e6 inf=0 pieces=0
+AGG delegated_not_inspected|Apply|factorized count=165546 seconds=0.0 successors=0 points=5.7518e7 inf=0 pieces=0
+AGG delegated_not_inspected|Apply|non-entry count=509680 seconds=0.0 successors=0 points=2.9318e7 inf=0 pieces=0
+AGG delegated_not_inspected|Route|route count=1140155 seconds=0.0 successors=0 points=6.5516e7 inf=0 pieces=0
+AGG native_inspection|Apply|connected count=605121 seconds=890.1 successors=32385907 points=1.1824e7 inf=0 pieces=2176624
+AGG native_inspection|Apply|factorized count=383245 seconds=1953.8 successors=62450295 points=1.6516e8 inf=0 pieces=6121087
+AGG native_inspection|Apply|non-entry count=1383854 seconds=7388.4 successors=239770858 points=9.8702e7 inf=0 pieces=12072885
+AGG native_inspection|Route|route count=3418774 seconds=44.5 successors=13556603 points=2.2263e8 inf=0 pieces=0
+OWN 000011001001011|Apply|native_inspection non-entry count=382895 seconds=3826.2 successors=94577262 points=2.5279e7 inf=0 pieces=3244978
+OWN 010111011000001|Apply|native_inspection non-entry count=439425 seconds=1712.0 successors=69638322 points=2.0941e7 inf=0 pieces=3284757
+OWN 101010000110001|Apply|native_inspection non-entry count=152590 seconds=780.0 successors=26262791 points=3.5266e7 inf=0 pieces=2848852
+OWN 011001000001111|Apply|native_inspection factorized count=220589 seconds=582.2 successors=21922366 points=2.1437e7 inf=0 pieces=1891392
+OWN 001100101110000|Apply|native_inspection factorized count=88055 seconds=578.4 successors=19377970 points=5.0113e7 inf=0 pieces=1594381
+OWN 000010011001001|Apply|native_inspection factorized count=39960 seconds=569.1 successors=14187511 points=8.3130e7 inf=0 pieces=1889877
+OWN 001000100101111|Apply|native_inspection non-entry count=140215 seconds=549.9 successors=24111073 points=1.1192e7 inf=0 pieces=1512181
+OWN 111000010101001|Apply|native_inspection connected count=525070 seconds=547.5 successors=20549715 points=7.5310e6 inf=0 pieces=1555494
+OWN 111000100011101|Apply|native_inspection non-entry count=268729 seconds=520.3 successors=25181410 points=6.0233e6 inf=0 pieces=1182117
+OWN 111001000001111|Apply|native_inspection connected count=70199 seconds=215.6 successors=9547401 points=4.2102e6 inf=0 pieces=601375
+OWN 010100101110000|Apply|native_inspection factorized count=23680 seconds=173.1 successors=5242284 points=9.4040e6 inf=0 pieces=569039
+OWN 011101110111000|Apply|native_inspection connected count=9852 seconds=127.0 successors=2288791 points=8.2943e4 inf=0 pieces=19755
+OWN 001001011101001|Apply|native_inspection factorized count=10961 seconds=51.0 successors=1720164 points=1.0796e6 inf=0 pieces=176398
+OWN 000011001001010|Route|native_inspection - count=141725 seconds=1.8 successors=606923 points=3.6716e6 inf=0 pieces=0
+OWN 000010001001011|Route|native_inspection - count=106106 seconds=1.8 successors=614273 points=2.8744e6 inf=0 pieces=0
+OWN 111000000011101|Route|native_inspection - count=83807 seconds=1.7 successors=610831 points=9.6407e5 inf=0 pieces=0
+OWN 010101011000001|Route|native_inspection - count=61432 seconds=1.5 successors=565550 points=1.8810e6 inf=0 pieces=0
+OWN 111000100011100|Route|native_inspection - count=124900 seconds=1.5 successors=435743 points=1.1496e6 inf=0 pieces=0
+OWN 010110011000001|Route|native_inspection - count=73277 seconds=1.4 successors=483465 points=2.0704e6 inf=0 pieces=0
+OWN 011001000001011|Route|native_inspection - count=84465 seconds=1.4 successors=446109 points=4.4683e6 inf=0 pieces=0
+OWN 111000010001001|Route|native_inspection - count=85991 seconds=1.3 successors=388915 points=1.1124e6 inf=0 pieces=0
+OWN 111000010101000|Route|native_inspection - count=88777 seconds=1.1 successors=364838 points=4.9714e5 inf=0 pieces=0
+OWN 011001000001110|Route|native_inspection - count=91052 seconds=1.1 successors=322202 points=3.6264e6 inf=0 pieces=0
+OWN 110000010101001|Route|native_inspection - count=78837 seconds=1.1 successors=358354 points=5.1332e5 inf=0 pieces=0
+OWN 010111011000000|Route|native_inspection - count=132484 seconds=1.0 successors=239849 points=1.4655e6 inf=0 pieces=0
+OWN 111000010100001|Route|native_inspection - count=82775 seconds=1.0 successors=312262 points=7.9175e5 inf=0 pieces=0
+OWN 000011000001011|Route|native_inspection - count=53562 seconds=1.0 successors=370370 points=3.1288e6 inf=0 pieces=0
+OWN 001000100101110|Route|native_inspection - count=89356 seconds=1.0 successors=279164 points=2.0356e6 inf=0 pieces=0
+OWN 001000100101011|Route|native_inspection - count=96086 seconds=0.9 successors=223555 points=2.5721e6 inf=0 pieces=0
+OWN 110000100011101|Route|native_inspection - count=57294 seconds=0.8 successors=249467 points=8.2628e5 inf=0 pieces=0
+OWN 011001000000111|Route|native_inspection - count=48373 seconds=0.8 successors=231759 points=2.7996e6 inf=0 pieces=0
+OWN 000011001000011|Route|native_inspection - count=50476 seconds=0.8 successors=275115 points=2.3034e6 inf=0 pieces=0
+OWN 011000010101001|Route|native_inspection - count=42931 seconds=0.7 successors=251964 points=3.3922e5 inf=0 pieces=0
+OWN 010011011000001|Route|native_inspection - count=66801 seconds=0.7 successors=191245 points=1.9991e6 inf=0 pieces=0
+OWN 000111011000001|Route|native_inspection - count=46461 seconds=0.7 successors=188959 points=1.7049e6 inf=0 pieces=0
+OWN 010111010000001|Route|native_inspection - count=88016 seconds=0.7 successors=129987 points=3.0714e6 inf=0 pieces=0
+OWN 111000100011001|Route|native_inspection - count=84848 seconds=0.7 successors=130063 points=8.3081e5 inf=0 pieces=0
+OWN 111000000101001|Route|native_inspection - count=52291 seconds=0.7 successors=186766 points=7.0815e5 inf=0 pieces=0
+OWN 101000010101001|Route|native_inspection - count=38626 seconds=0.6 successors=213755 points=2.0978e5 inf=0 pieces=0
+OWN 111001000001110|Route|native_inspection - count=47741 seconds=0.6 successors=188715 points=1.0722e6 inf=0 pieces=0

@@ -1,0 +1,14 @@
+[package]
+name = "lens-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only CP5 checkpoint lenses of the fable_5_1 next-push review (std only)"
+publish = false
+
+# Standalone: not a member of the rustred workspace; each file in src/bin is one tool.
+[workspace]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3

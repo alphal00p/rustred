@@ -1,0 +1,19 @@
+u8-lane escapes: coord>254 0 aggregate out of u8/i8 0 of nonempty 74156033
+check: live ids whose tight signature != stored group signature: 0; stored envelope violations: 0
+id-order                   live 100.0% MISS  : found 0.000 super-env      77 block-env     652 tested   16890 [p50 5847 p90 44479 p99 142478] total-work(env+tested)   17620 wall 794.8 us/q
+id-order                   live 100.0% HIT-ff: found 1.000 super-env      14 block-env     216 tested    5582 [p50 1281 p90 14768 p99 63171] total-work(env+tested)    5811 wall 258.7 us/q
+id-order                   live  25.0% MISS  : found 0.000 super-env      68 block-env     170 tested    6760 [p50 2398 p90 18143 p99 56638] total-work(env+tested)    6998 wall 366.1 us/q
+id-order                   live  25.0% HIT-ff: found 0.503 super-env      39 block-env     127 tested    5033 [p50 1180 p90 13232 p99 54966] total-work(env+tested)    5199 wall 274.0 us/q
+finite-pattern+lex-lower   live 100.0% MISS  : found 0.000 super-env      77 block-env     604 tested    9933 [p50 4368 p90 26246 p99 70833] total-work(env+tested)   10614 wall 506.4 us/q
+finite-pattern+lex-lower   live 100.0% HIT-ff: found 1.000 super-env      14 block-env     195 tested    3241 [p50 965 p90 8789 p99 31543] total-work(env+tested)    3449 wall 170.0 us/q
+finite-pattern+lex-lower   live  25.0% MISS  : found 0.000 super-env      68 block-env     169 tested    4615 [p50 1935 p90 12241 p99 34328] total-work(env+tested)    4852 wall 234.7 us/q
+finite-pattern+lex-lower   live  25.0% HIT-ff: found 0.503 super-env      39 block-env     126 tested    3361 [p50 977 p90 9158 p99 32262] total-work(env+tested)    3525 wall 174.5 us/q
+morton(lower)              live 100.0% MISS  : found 0.000 super-env      77 block-env     645 tested   11426 [p50 5136 p90 30475 p99 77763] total-work(env+tested)   12148 wall 574.8 us/q
+morton(lower)              live 100.0% HIT-ff: found 1.000 super-env      14 block-env     210 tested    3613 [p50 1074 p90 9923 p99 34089] total-work(env+tested)    3837 wall 185.0 us/q
+morton(lower)              live  25.0% MISS  : found 0.000 super-env      68 block-env     170 tested    5473 [p50 2258 p90 14898 p99 38792] total-work(env+tested)    5711 wall 269.6 us/q
+morton(lower)              live  25.0% HIT-ff: found 0.503 super-env      39 block-env     127 tested    3950 [p50 1088 p90 10933 p99 37535] total-work(env+tested)    4115 wall 197.1 us/q
+morton(lower,-upper)       live 100.0% MISS  : found 0.000 super-env      77 block-env     633 tested   10361 [p50 3289 p90 29118 p99 88703] total-work(env+tested)   11071 wall 513.7 us/q
+morton(lower,-upper)       live 100.0% HIT-ff: found 1.000 super-env      14 block-env     204 tested    3615 [p50 813 p90 9262 p99 41170] total-work(env+tested)    3833 wall 175.9 us/q
+morton(lower,-upper)       live  25.0% MISS  : found 0.000 super-env      68 block-env     170 tested    5046 [p50 1693 p90 13833 p99 43007] total-work(env+tested)    5284 wall 271.3 us/q
+morton(lower,-upper)       live  25.0% HIT-ff: found 0.503 super-env      39 block-env     126 tested    3863 [p50 915 p90 9971 p99 42303] total-work(env+tested)    4028 wall 211.3 us/q
+done
