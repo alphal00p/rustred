@@ -15,6 +15,8 @@
 pub(super) mod manifest;
 pub(super) mod restore;
 #[cfg(all(test, feature = "cli"))]
+mod root_blockers_tests;
+#[cfg(all(test, feature = "cli"))]
 mod scale_tests;
 pub(super) mod sections;
 #[cfg(test)]
