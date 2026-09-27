@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # W0.7 census batch (receipt run). Read-only on every input; outputs go to $OUT.
 # usage: w0_batch.sh CENSUS_BIN OUT [RUSTRED_BIN]
+#        W0_ONLY=q3 w0_batch.sh - OUT RUSTRED_BIN   (only the Q3 step, e.g. into an existing receipt)
 # Inputs (block clones, never written): gen3/gen6/gen7 clones of the v2
 # checkpoint under the lane worktree TMP, the four-loop controls of
 # TMP/fable51-controls/census-4l-4a17f9c7, the C-5F control
@@ -9,8 +10,12 @@
 # guard/coefficient factor census (owner-domain-scan --factor-census, plain
 # and with numerators) runs on the v2 selection manifest (read-only).
 # Run it pinned, e.g. nice -n 19 taskset -c 16-31,272-287 w0_batch.sh ...
+# A BIN.build.txt next to a binary (build commit and tree state) is copied
+# into the receipt.
 set -euo pipefail
-bin=$(realpath "$1"); out=$2; rbin=${3:+$(realpath "$3")}
+only=${W0_ONLY:-}
+bin=$1; [[ $only == q3 ]] || bin=$(realpath "$1")
+out=$2; rbin=${3:+$(realpath "$3")}
 wt=/common/dev/rustred/.claude/worktrees/fable51-compact
 ctl=/common/dev/rustred/TMP/fable51-controls
 pilot=/common/dev/rustred/TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/hot-owner-physics-ordered/run/result.json
@@ -27,10 +32,12 @@ series() { # heartbeat series "elapsed committed_domains" of a run's events.json
   grep '"event":"heartbeat"' "$1" | /run/current-system/sw/bin/jq -r \
     'select(.progress.committed_domains != null) | "\(.elapsed_seconds) \(.progress.committed_domains)"'
 }
+run() { local o=$1; shift; local t0=$SECONDS; "$bin" "$@" > "$o.json" 2> "$o.err"; echo "$o: $(tail -1 "$o.err") (wall $((SECONDS - t0)) s)"; }
+census_steps() {
 [[ -s v2-series.txt ]] || series "$v2run/events.jsonl" > v2-series.txt
 sha256sum "$bin" > census-bin.sha256
+[[ -f $bin.build.txt ]] && cp "$bin.build.txt" census-build.txt
 { echo "worktree HEAD $(git -C "$wt" rev-parse HEAD)"; git -C "$wt" status --porcelain --untracked-files=no; } > census-git.txt
-run() { local o=$1; shift; local t0=$SECONDS; "$bin" "$@" > "$o.json" 2> "$o.err"; echo "$o: $(tail -1 "$o.err") (wall $((SECONDS - t0)) s)"; }
 # Five-loop v2 checkpoints.
 for g in 3 6 7; do
   ck=$wt/TMP/gen$g
@@ -68,9 +75,13 @@ run pilot/pilot-cover cover "$pilot" --k 4000 --series pilot/series.txt --wait 3
 run pilot/pilot-cover-hot2 cover "$pilot" --k 4000 --series pilot/series.txt --wait 30 --hot $hot2 --rows pilot/pilot-cover-hot2-rows.jsonl
 run pilot/v2g7-vs-pilot pilot "$wt/TMP/gen7" --pilot "$pilot" --k 4000 --hot $hot
 run pilot/v2g7-vs-pilot-hot2 pilot "$wt/TMP/gen7" --pilot "$pilot" --k 4000 --hot $hot2
+}
+[[ $only == q3 ]] || census_steps
 # Q3 guard/coefficient factor census on the v2 selection (read-only).
 if [[ -n $rbin ]]; then
+  { echo "worktree HEAD $(git -C "$wt" rev-parse HEAD)"; git -C "$wt" status --porcelain --untracked-files=no; } > q3/git.txt
   sha256sum "$rbin" > q3/rustred-bin.sha256
+  [[ -f $rbin.build.txt ]] && cp "$rbin.build.txt" q3/rustred-build.txt
   for mode in plain numerators; do
     extra=(); [[ $mode == numerators ]] && extra=(--factor-census-numerators)
     t0=$SECONDS
