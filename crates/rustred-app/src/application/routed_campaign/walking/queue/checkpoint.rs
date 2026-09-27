@@ -2,6 +2,7 @@
 //! CP5 persists the parts separately: scalar metadata (JSON), immutable domain
 //! records (append-only segments), owner buckets sorted by (phase, owner) so
 //! their bytes are deterministic, and the responsibility ledger.
+use super::super::checkpoint::restore::Phases;
 use super::super::delegation::{LedgerRef, StoredLedger};
 use super::*;
 use serde::ser::SerializeSeq;
@@ -133,8 +134,9 @@ impl<const N: usize> Queue<N> {
         domains: Vec<CompactDomain<N>>,
         buckets: StoredBuckets,
         ledger: Option<StoredLedger>,
+        phases: &mut Phases,
     ) -> Result<Self, String> {
-        Self::restore_with_index(m, domains, buckets, ledger, ExactIndex::new())
+        Self::restore_with_index(m, domains, buckets, ledger, ExactIndex::new(), phases)
     }
 
     /// `restore_from_parts` into an empty exact index, whose key function a
@@ -145,6 +147,7 @@ impl<const N: usize> Queue<N> {
         buckets: StoredBuckets,
         ledger: Option<StoredLedger>,
         exact: ExactIndex<N>,
+        phases: &mut Phases,
     ) -> Result<Self, String> {
         if m.next > domains.len()
             || domains.len() > m.max_domains
@@ -152,6 +155,7 @@ impl<const N: usize> Queue<N> {
         {
             return Err("invalid checkpoint queue counters".into());
         }
+        let started = std::time::Instant::now();
         let mut q = Queue::new(m.max_domains, m.max_checks);
         q.exact = exact;
         q.exact
@@ -168,6 +172,8 @@ impl<const N: usize> Queue<N> {
                 .map_err(|_| "checkpoint exact index allocation")?;
             q.exact.insert(key, id);
         }
+        phases.since("domains_exact_index", started);
+        let started = std::time::Instant::now();
         for (phase, owner, mut bucket) in buckets.0 {
             let owner: [bool; N] = owner.try_into().map_err(|_| "checkpoint bucket arity")?;
             if bucket.ids.iter().chain(bucket.orthant.iter()).any(|&id| {
@@ -182,13 +188,18 @@ impl<const N: usize> Queue<N> {
                 return Err("duplicate checkpoint owner bucket".into());
             }
         }
+        phases.since("index_owner_buckets", started);
         if m.max_checks.is_none() {
+            let started = std::time::Instant::now();
             let indexed = q.indexed_ids()?;
             q.restore_summaries(indexed)?;
+            phases.since("index_summaries", started);
         }
+        let started = std::time::Instant::now();
         q.delegation = ledger
             .map(|l| l.restore(q.domains.iter().map(|d| (d.phase(), d.owner()))))
             .transpose()?;
+        phases.since("ledger_restore", started);
         if q.delegation.as_ref().is_some_and(|l| l.cursor() != m.next) {
             return Err("checkpoint queue/ledger cursor mismatch".into());
         }
@@ -287,7 +298,7 @@ impl<const N: usize> Queue<N> {
             .iter()
             .map(CompactDomain::restore)
             .collect::<Result<_, _>>()?;
-        Self::restore_with_index(m, domains, buckets, ledger, exact)
+        Self::restore_with_index(m, domains, buckets, ledger, exact, &mut Phases::default())
     }
 }
 impl<'de, const N: usize> Deserialize<'de> for Queue<N> {

@@ -21,6 +21,29 @@ use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Instant;
 
+/// Wall seconds of each restore phase, in execution order, for the
+/// `checkpoint_restored` report (`phase_seconds`). A phase that runs once per
+/// segment accumulates.
+#[derive(Default)]
+pub(in super::super) struct Phases(Vec<(&'static str, f64)>);
+impl Phases {
+    pub fn since(&mut self, phase: &'static str, started: Instant) {
+        let seconds = started.elapsed().as_secs_f64();
+        match self.0.iter_mut().find(|(name, _)| *name == phase) {
+            Some((_, total)) => *total += seconds,
+            None => self.0.push((phase, seconds)),
+        }
+    }
+    pub fn json(&self) -> Value {
+        Value::Object(
+            self.0
+                .iter()
+                .map(|&(phase, seconds)| (phase.to_owned(), json!(seconds)))
+                .collect(),
+        )
+    }
+}
+
 pub(in super::super) struct Restored<const N: usize> {
     pub state: State<N>,
     pub inputs: Vec<Value>,
@@ -111,6 +134,7 @@ pub(super) fn restore<const N: usize>(
         semantics: manifest.walk_semantics_version,
     };
     let decode_started = Instant::now();
+    let mut phases = Phases::default();
     let s = &manifest.sections;
     let plain = |section: Section| {
         s.plain(section)
@@ -121,8 +145,12 @@ pub(super) fn restore<const N: usize>(
         &plain(Section::Meta)?.file,
         plain(Section::Meta)?.bytes,
     )?)?;
+    phases.since("meta_decode", decode_started);
+    let started = Instant::now();
     let nodes = plain(Section::Nodes)?;
     let flags = sections::read_nodes(&read_section(dir, &nodes.file, nodes.bytes)?, &identity)?;
+    phases.since("nodes_decode", started);
+    let started = Instant::now();
     let edge_sections = s
         .edges
         .as_ref()
@@ -147,6 +175,8 @@ pub(super) fn restore<const N: usize>(
             &mut edges,
         )?;
     }
+    phases.since("edges_decode", started);
+    let started = Instant::now();
     let domain_segments = &s
         .domains
         .as_ref()
@@ -174,13 +204,18 @@ pub(super) fn restore<const N: usize>(
             &mut domains,
         )?;
     }
+    phases.since("domains_decode", started);
+    let started = Instant::now();
     let ledger = s
         .ledger
         .as_ref()
         .map(|l| sections::read_ledger(&read_section(dir, &l.file, l.bytes)?, &identity))
         .transpose()?;
+    phases.since("ledger_decode", started);
+    let started = Instant::now();
     let index = plain(Section::Index)?;
     let buckets = sections::read_index(&read_section(dir, &index.file, index.bytes)?, &identity)?;
+    phases.since("index_decode", started);
     // The sidecar resumes from the manifest's segments; its next segment takes
     // the next free generation, skipping any orphan of a crash or failed save.
     let sidecar = Sidecar::restored(
@@ -208,7 +243,7 @@ pub(super) fn restore<const N: usize>(
         initial_domain_count,
         initial_entry_domains_inspected,
     ] = meta.counters;
-    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger)?;
+    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
     if initial_domain_count > queue.domains.len()
         || meta.route_joint_support_masks_pruned > route_masks
         || initial_entry_domains_inspected > initial_domain_count
@@ -241,7 +276,12 @@ pub(super) fn restore<const N: usize>(
         Some(_) => return Err("ordered checkpoint carries ready accepted-event accounting".into()),
         // Written by a binary that keeps no aggregate (before the sidecar, or
         // an executable-history rollback that saved again): derive it once.
-        None => derive_accepted_events(&sidecar, native_records)?,
+        None => {
+            let started = Instant::now();
+            let total = derive_accepted_events(&sidecar, native_records)?;
+            phases.since("accepted_events_derivation", started);
+            total
+        }
     };
     let mut state = State::new(queue, frontiers, None);
     state.records = std::cell::RefCell::new(RecordSink::Sidecar(sidecar));
@@ -265,17 +305,25 @@ pub(super) fn restore<const N: usize>(
     let closure_started = Instant::now();
     let mut closure = Tracker::from_parts(meta.closure, &flags, &edges)?;
     drop(edges);
+    phases.since("closure_csr_build", closure_started);
+    let started = Instant::now();
     closure.restore(state.queue.domains.len(), initial_domain_count)?;
+    phases.since("closure_validate", started);
     let closure_seconds = closure_started.elapsed().as_secs_f64();
     state.closure = std::cell::RefCell::new(closure);
     state.parallel = meta.parallel;
     state.uncommitted = meta.uncommitted;
+    let started = Instant::now();
     state.restore_checkpoint_progress(meta.progress)?;
     state.streams = meta.streams;
     state.validate_restored_streams()?;
+    phases.since("progress_and_streams", started);
+    let started = Instant::now();
     validate_ledger_closure(&state)?;
+    phases.since("ledger_closure_cross_check", started);
     let report = json!({"verify_seconds":verify_seconds,"decode_seconds":decode_seconds,
         "validate_seconds":validate_started.elapsed().as_secs_f64(),"closure_seconds":closure_seconds,
+        "phase_seconds":phases.json(),
         "domains":state.queue.domains.len(),"dependency_edges":edge_count,
         "records":state.records.borrow().total(),"records_accepted_events_derived":derived,
         "committed_domains":state.published_count(),
