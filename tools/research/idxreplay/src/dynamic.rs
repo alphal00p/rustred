@@ -488,10 +488,12 @@ pub fn run_pipeline(
         best.insert(j.id, j);
     }
     let mut kept_classified = Vec::new();
+    let mut lag_hist = [0u64; LAG_BOUNDS.len() + 1];
     for k in [1usize, 4, 16, 64] {
         let mut per_phase = [Tally::default(), Tally::default()];
         let mut unjoined_jobs = 0u64;
         let mut unjoined_events = 0u64;
+        let mut native_seconds = [0f64; 2];
         for (&id, j) in &best {
             let outcomes = pipeline::join(j, recs, wm, src.get(&id));
             if outcomes.is_none() {
@@ -501,16 +503,32 @@ pub fn run_pipeline(
             }
             let mut v = Vec::new();
             let ph = j.parent.phase as usize;
+            native_seconds[ph.min(1)] += j.seconds;
             pipeline::classify(j, outcomes.as_deref(), ctx, k, &mut per_phase[ph.min(1)], &mut v);
+            if k == 16 {
+                for c in &v {
+                    if c.tier == pipeline::LAYER_HIT
+                        && let Some(o) = c.outcome
+                    {
+                        let age = o.watermark.saturating_sub(o.target) as u64;
+                        let b = LAG_BOUNDS.iter().position(|&x| age < x).unwrap_or(LAG_BOUNDS.len());
+                        lag_hist[b] += c.count;
+                    }
+                }
+            }
             if k == 64 {
                 kept_classified.push((id, v));
             }
         }
         let mut all = per_phase[0].clone();
         all.add(&per_phase[1]);
-        for (name, t) in [("all", &all), ("apply-jobs", &per_phase[0]), ("route-jobs", &per_phase[1])] {
+        let secs = [native_seconds[0] + native_seconds[1], native_seconds[0], native_seconds[1]];
+        for (si, (name, t)) in [("all", &all), ("apply-jobs", &per_phase[0]), ("route-jobs", &per_phase[1])].into_iter().enumerate() {
             let tot = t.total().max(1) as f64;
             let mut j = Json::new()
+                .f("native_seconds", secs[si])
+                .f("native_ms_per_job", 1000.0 * secs[si] / t.jobs.max(1) as f64)
+                .f("requests_per_job", t.total() as f64 / t.jobs.max(1) as f64)
                 .s("kind", "pipeline")
                 .s("label", label)
                 .u("mru_k", k as u64)
@@ -531,7 +549,17 @@ pub fn run_pipeline(
             out.line(j.done());
         }
     }
+    let tot: u64 = lag_hist.iter().sum();
+    let mut j = Json::new().s("kind", "stale-lag-requests").s("label", label).u("layer_hit_requests_k16", tot);
+    let mut cum = 0;
+    for (i, b) in LAG_BOUNDS.iter().enumerate() {
+        cum += lag_hist[i];
+        j = j.f(&format!("stale_share_lag_lt_{b}"), cum as f64 / tot.max(1) as f64);
+    }
+    out.line(j.done());
     kept_classified
 }
+
+const LAG_BOUNDS: [u64; 8] = [64, 1024, 4096, 16384, 65536, 262_144, 1_048_576, 4_194_304];
 
 pub fn _unused(_: Outcome) {}

@@ -110,3 +110,93 @@ pub fn now() -> String {
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
     format!("{}", t.as_secs())
 }
+
+fn parse_list(s: &str) -> Vec<usize> {
+    let mut v = Vec::new();
+    for part in s.trim().split(',').filter(|p| !p.is_empty()) {
+        if let Some((a, b)) = part.split_once('-') {
+            v.extend(a.parse::<usize>().unwrap()..=b.parse::<usize>().unwrap());
+        } else {
+            v.push(part.parse().unwrap());
+        }
+    }
+    v
+}
+
+/// CPUs this process may run on, and their SMT siblings outside that set.
+pub fn allowed_cpus() -> (Vec<usize>, Vec<usize>) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let own = status
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
+        .map(parse_list)
+        .unwrap_or_default();
+    let mut sib = Vec::new();
+    for &c in &own {
+        if let Ok(s) = std::fs::read_to_string(format!("/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list")) {
+            for x in parse_list(&s) {
+                if !own.contains(&x) && !sib.contains(&x) {
+                    sib.push(x);
+                }
+            }
+        }
+    }
+    (own, sib)
+}
+
+/// (busy, total) jiffies summed over `cpus` from /proc/stat.
+pub fn cpu_jiffies(cpus: &[usize]) -> (u64, u64) {
+    let stat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
+    let (mut busy, mut total) = (0u64, 0u64);
+    for l in stat.lines() {
+        let Some(rest) = l.strip_prefix("cpu") else { continue };
+        let mut it = rest.split_whitespace();
+        let Some(id) = it.next().and_then(|s| s.parse::<usize>().ok()) else { continue };
+        if !cpus.contains(&id) {
+            continue;
+        }
+        let v: Vec<u64> = it.map(|x| x.parse().unwrap_or(0)).collect();
+        let t: u64 = v.iter().take(8).sum();
+        let idle = v.get(3).copied().unwrap_or(0) + v.get(4).copied().unwrap_or(0);
+        busy += t - idle;
+        total += t;
+    }
+    (busy, total)
+}
+
+/// utime + stime of this process in jiffies.
+pub fn self_jiffies() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let after = s.rsplit_once(')').map(|x| x.1).unwrap_or("");
+    let f: Vec<&str> = after.split_whitespace().collect();
+    f.get(11).and_then(|x| x.parse::<u64>().ok()).unwrap_or(0) + f.get(12).and_then(|x| x.parse::<u64>().ok()).unwrap_or(0)
+}
+
+/// Foreign load monitor: busy share of the allowed CPUs not due to this
+/// process, and busy share of their SMT siblings.
+pub struct LoadMon {
+    own: Vec<usize>,
+    sib: Vec<usize>,
+    a: (u64, u64),
+    s: (u64, u64),
+    me: u64,
+}
+impl LoadMon {
+    pub fn start() -> Self {
+        let (own, sib) = allowed_cpus();
+        let a = cpu_jiffies(&own);
+        let s = cpu_jiffies(&sib);
+        LoadMon { own, sib, a, s, me: self_jiffies() }
+    }
+    /// (foreign busy fraction on own CPUs, busy fraction on SMT siblings)
+    pub fn stop(&self) -> (f64, f64) {
+        let a = cpu_jiffies(&self.own);
+        let s = cpu_jiffies(&self.sib);
+        let me = self_jiffies() - self.me;
+        let da = (a.0 - self.a.0) as f64;
+        let ta = (a.1 - self.a.1).max(1) as f64;
+        let ds = (s.0 - self.s.0) as f64;
+        let ts = (s.1 - self.s.1).max(1) as f64;
+        (((da - me as f64) / ta).max(0.0), if self.sib.is_empty() { 0.0 } else { ds / ts })
+    }
+}

@@ -80,7 +80,22 @@ $B dynamic --trace TMP/w0/intel/trace-4l/fg --label 4l-fg --out dynamic.jsonl
 $B streams --ckpt $CK --gen 00000000000000000007 --trace TMP/w0/intel/g7-trace-resume/trace --out streams.jsonl
 # stale-miss rate vs lag from all committed edges
 $B lag --ckpt $CK --out lag.jsonl
+# markdown tables for RESULTS.md (static|thin|threads|dynamic|pipeline|streams|lag|ratios)
+python tools/research/idxreplay/tables.py pipeline_k 1,16,64 streams.jsonl
+python tools/research/idxreplay/tables.py ratios static.jsonl threads.jsonl streams.jsonl
+# gate 0.4(b) projection [E] of the admission share of worker CPU at N = 1G
+python tools/research/idxreplay/project.py streams.jsonl --alpha 0.44,0.65,0.69,0.73,0.82 \
+   [--thread-sweep threads.jsonl --threads 90] [--native-scale 3.75] [--k 64] [--cheap-ns 300]
 ```
+
+Since v4 (close-out, 2026-09-27) the `streams`/`dynamic` pipeline rows carry
+`native_seconds`, `native_ms_per_job` (sum of the jobs' physical-call wall
+seconds from the trace job headers) and `requests_per_job`; a
+`stale-lag-requests` row gives the container age of layer-hit requests at
+MRU k=16; `static` rows carry `foreign_busy_own_cpus` and `busy_smt_siblings`
+(busy share of the process's allowed CPUs not due to the process, and of their
+SMT siblings, from `/proc/stat`), and `--skip-stats 1` skips the one-thread
+stats pass. `project.py` needs a v4 `streams` output (or `--native-ms`).
 
 ## rtool (serde): point-set lenses on walk records
 
