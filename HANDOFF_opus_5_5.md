@@ -34,6 +34,74 @@ stays false until a ledger drains and the oracles certify it.
    PASS; 0.33x inspections on the drained hot-owner closure).
 5. **Next**: finish W0 (section 9.1), bring the D1-D8 decision memo to the owner, then execute W1-W5.
 
+### 0.1 Addendum 2026-09-27 ~21:20 UTC: directives from the Fable 5.1 audit (binding for every later agent)
+
+The owner had Claude Fable 5.1 audit this handoff: `FABLE_5_1_CRITIQUE.md` (repo root; read its sections 1-5 and 7
+before designing, gating or summarizing anything). Its lane-level [M] figures re-derive; its criticism targets the
+summary layers and the inherited plan. The following are in force, overriding conflicting text below and in the master
+plan / v3 note until those are amended:
+1. **Native scaling (critique 2.1).** The remote share of memory fills tracks the slowdown exactly (about 0% at K<=24
+   and in node-bound processes, 63% at K=96, 81% interleaved), so "NUMA placement does not help" is true only of
+   interleaving. Untested and first in line: in-process per-node replication of read-shared data (owner programs: the
+   hot owner's `.rrbin` is 817 MB, the 67 owners 1.28 GB, first-touched by the loading thread; 89.4% of the M1 heap
+   sat on node 4). The within-node 1.46x at K=24 survives in p4 (1.42x). W2.0 records the process/placement decision
+   in cost order: in-process per-node replicas; node-bound inspector processes; shared-memory snapshot segments. S2
+   job/result types are byte-serialized regardless. No "layers interleaved over nodes 4-7" without measurement.
+   3.75x is a plausible LOWER bound for an epoch inspector (it adds per-successor lookup work).
+2. **Gates in useful-work units (THR-2, RAM-1, BASE-1, SOUND-2).** "Native work" = natives x per-class K=1 cost (or
+   instructions in native frames), never raw inspector-thread CPU; add "inspector CPU per native <= 1.3-1.5x the
+   harness K=1 value" and an IPC clause to P-IMP and launch (B). P-IMP ">= 5x" names its matched window and
+   denominator (M1 run2 full window with its slice spread). Memory gates use the MARGINAL RSS/domain fitted over the
+   second half of every >= 40-min pilot plus restore VmHWM within the guard, not the import-dominated average.
+   "Closure trajectory no worse" means per-root open-cone counts at matched natives.
+3. **Work volume is first-class (TERM-1/2).** Add launch criterion (H): pending growth per completion and discovered
+   domains per native at matched discovered domains vs the comparator. Every lever gate reports scheduled domains,
+   peak pending, pending growth per completion and new points per native, not only inspector-seconds. Schedule an
+   early env-gated D-only G2' falsifier on the legacy engine (merged-Native anchors, residual re-inspected, anchor
+   edges; D-only cuts need <= 2 pieces, no C2) on C-5F and C-HOT-sub r1a12 within the 1-h rule, and a Route-side
+   coverage census (Route is 74% of domains, 72% of native-pending). Present D2 as a three-way choice (none / G2' /
+   general union) with the census numbers (pending Apply fully covered: 55.4% by gen-7 natives vs 79.5% by all
+   domains).
+4. **Errata (use the corrected values).** Union-only residual inspections: C-5F 0.521x, C-HOT-sub r1a12 0.423x,
+   r2a11 0.394x, C-HOT 0.328x (0.346x/0.288x are the theta=0.4 dense-cell rows). Gen-7 restore 567 s / 598 s incl.
+   the 108 s verify (launch to restored 570/600 s). RAM: 0.3 KB/domain is unsupported; measured legacy marginals
+   0.5-1.1 KB/domain (late window ~0.5), restore VmHWM 0.64 KB/domain; 600 GB holds ~0.75-1.2G domains. Native scaling
+   WAS measured at K=96 (section 11 is stale). C-HOT is audit-only (CP3). ~1e8 positive inclusions (3.8e9 contains()
+   calls). Successor events 25.08M/25.46M (28.4M counts admitted successors). There are two C-HOT-sub boxes: r1a12
+   (falsify; 1.02M natives; drains at W12) and s2/r2a12 (knobs; 2.12M natives; drains at W48): every gate names its
+   box. mimalloc compiled ratios 0.897/0.929/1.002/0.900. The restored-baseline "denser index" reading is refuted.
+   The governing notes' 700 GB guard, CPUs 28-177, W150/136 inspectors and the unrescaled 5-20x band are stale.
+5. **Inputs.** I1b is DROPPED (four-loop BMW I1b does not drain; five-loop I1b does more work per native; its
+   reinterpreted gate cannot fail); it is not brought to the owner. Inputs v4 = I1 (L* owners; a domain-count lever
+   bounded to ~16.5% of gen-7 Apply CPU) + I2 (a memory/index lever, ~0 CPU on current evidence) + I4 frontier stop,
+   plus an in-flight stop on any Apply edge from an L* owner into a non-L* mask.
+6. **Oracles.** Every gate script asserts `verdict == PASS` AND `roots_independently_verified == roots_total`; the
+   oracle branch is merged before any W1 gate is accepted. Before any W4.2 code: an independent exact
+   "Q subset of residual union anchors" predicate (lattice.rs, independent of C2) and G2' mutations; the F10 reference
+   runs with N1/N4 off.
+7. **Controls.** four-all is an ADDITION to the per-family FG/BMW/H/X controls, not a replacement: Ordered four-all is
+   an identity oracle; Ready four-all is judged statistically (n >= 5), never as a binary drain gate. The five-loop
+   controls invert the gen-7 cost mix (owner 011101110111000 is 0.3-1.3% of their Apply CPU vs 64% in gen 7): report
+   lever gates per owner class and add aged (gen-7 resume) pilots. Replace the 10% void rule by a mandatory recorder
+   (foreign busy CPUs, schedstat run delay, instructions per native) in every metrics file; state n and a noise
+   floor for Ready gates.
+8. **Epoch design items W2.0 must settle:** F7 vs A2 (amend the design); a per-ID attempt counter (a head that trips
+   the RAM guard must not loop save/resume forever); a rolling replay oracle (event-count-only refresh; record
+   snapshot versions per job and merge order per epoch); the CP6 cut while merges continue (chunked/COW sections or a
+   pause; saves reuse the last completed refresher result); `--epoch-resolve merge` is a diagnostic, not a fallback;
+   summaries for ALL IDs (~86 GB at 1G) or live-only plus recompute; first-found bias (prefer sealed/oldest verified
+   containers); merge-helper count at 1G; the admission-share projection (18-47% at 1G before a 2.0-2.6x thread
+   factor) already exceeds the 25% trigger, so W3.2 moves into W2.
+9. **Governance.** D9 for the owner: an MVP ladder with time-boxes and abandon rules: MVP-A = legacy 4a17f9c7 +
+   `[profile.campaign]` + mimalloc + I1/I2 inputs + frontier stop + 600 GB guard (still coordinator-bound);
+   MVP-B = epoch S2-S4 lockstep + CP6 + kernel (no W3/W4); the full plan. The W2 comparator is the legacy engine with
+   the SoA kernel on a 25-min gen-7 resume vs M1 run2 at a matched window; continue W2 only if the S2/S4 skeleton beats
+   it by >= 1.5x. Ask the owner explicitly about the launch-(F) items (cpuset exclusivity for socket 1, an ARC cap,
+   the host reserve): only the off-pool item was waived. Publish a merge order; "frozen legacy" = binary 4a17f9c7 plus
+   strict identity. Write up results before starting new runs.
+10. The interim campaign directory holds six refused fresh-start receipts (10:56 and 12:07 UTC, from the owner's
+    Zellij session); its paused gen-8 state is intact.
+
 ---
 
 ## 1. The goal (owner directive, verbatim intent)
