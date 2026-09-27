@@ -509,12 +509,37 @@ impl Blockers {
     }
 }
 
-/// One forward BFS from `root` (see module docs for the three modes).
-fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> Value {
+/// Per BFS level of a full walk: node count, unsealed count and id
+/// quantiles. Ready reserves in id order, so ids growing with depth show one
+/// level admitted per pass of the reservation scan.
+fn levels<const N: usize>(g: &Graph<N>, order: &[u32], starts: &[usize]) -> Vec<Value> {
+    starts
+        .iter()
+        .enumerate()
+        .map(|(depth, &start)| {
+            let end = starts.get(depth + 1).copied().unwrap_or(order.len());
+            let mut ids = order[start..end].to_vec();
+            let unsealed = ids
+                .iter()
+                .filter(|&&id| g.flags[id as usize] & SEALED == 0)
+                .count();
+            let middle = ids.len() / 2;
+            let p50 = *ids.select_nth_unstable(middle).1;
+            json!({"depth":depth,"nodes":ids.len(),"unsealed":unsealed,
+                "id_min":ids.iter().min(),"id_p50":p50,"id_max":ids.iter().max()})
+        })
+        .collect()
+}
+
+/// One forward BFS from `root` (see module docs for the three modes). A
+/// projected walk also returns the bitset of the nodes it expanded.
+fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> (Value, Option<Vec<u64>>) {
     let started = Instant::now();
     let n = g.flags.len();
     let mut seen = vec![0u64; n.div_ceil(64)];
+    let mut expanded = (mode == Walk::Projected).then(|| vec![0u64; n.div_ceil(64)]);
     let mut order: Vec<u32> = vec![root as u32];
+    let mut starts = vec![0usize];
     seen[root / 64] |= 1 << (root % 64);
     let (mut head, mut depth, mut level_end) = (0usize, 0u32, 1usize);
     let mut blockers = Blockers::default();
@@ -526,6 +551,7 @@ fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> Value {
         if head == level_end {
             depth += 1;
             level_end = order.len();
+            starts.push(head);
         }
         let id = order[head] as usize;
         head += 1;
@@ -554,6 +580,9 @@ fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> Value {
         if unsealed {
             blockers.add(g, id, depth);
         }
+        if let Some(expanded) = expanded.as_mut() {
+            expanded[id / 64] |= 1 << (id % 64);
+        }
         let targets = g.out.of(id);
         edges += targets.len() as u64;
         for &target in targets {
@@ -565,7 +594,8 @@ fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> Value {
             }
         }
     }
-    json!({"mode":mode.name(),"visited":order.len(),"expanded_edges":edges,"max_depth":depth,
+    let levels = (mode == Walk::Full).then(|| levels(g, &order, &starts));
+    let value = json!({"mode":mode.name(),"visited":order.len(),"expanded_edges":edges,"max_depth":depth,
         "visited_classes":CLASS_NAMES.iter().zip(visited_classes).map(|(k, v)| (k.to_string(), json!(v)))
             .collect::<serde_json::Map<_, _>>(),
         "stopped":stopped,"stopped_unsealed":stopped_unsealed,
@@ -573,7 +603,8 @@ fn walk<const N: usize>(g: &Graph<N>, root: usize, mode: Walk) -> Value {
         "absorbed_by_comparison_root":(mode == Walk::Projected).then(|| absorbed.iter()
             .map(|(id, [nodes, unsealed])| json!({"comparison_root":id,"nodes":nodes,"unsealed":unsealed}))
             .collect::<Vec<_>>()),
-        "blockers":blockers.json(g),"seconds":seconds(started)})
+        "levels":levels,"blockers":blockers.json(g),"seconds":seconds(started)});
+    (value, expanded)
 }
 
 /// Roots whose every transitively required root has no blocker of its own.
@@ -765,6 +796,7 @@ impl RestoredAnalysis for RootBlockers {
             .collect();
         let next = AtomicUsize::new(0);
         let results = Mutex::new(vec![Value::Null; tasks.len()]);
+        let union = Mutex::new(vec![0u64; n.div_ceil(64)]);
         std::thread::scope(|scope| {
             for _ in 0..self.threads.max(1) {
                 scope.spawn(|| {
@@ -773,13 +805,31 @@ impl RestoredAnalysis for RootBlockers {
                         let Some(&(root, mode)) = tasks.get(task) else {
                             break;
                         };
-                        let value = walk(&graph, root, mode);
+                        let (value, expanded) = walk(&graph, root, mode);
+                        if let Some(expanded) = expanded {
+                            let mut union = union.lock().expect("projection union");
+                            for (word, bits) in union.iter_mut().zip(expanded) {
+                                *word |= bits;
+                            }
+                        }
                         results.lock().expect("walk results")[task] = value;
                     }
                 });
             }
         });
         let mut results = results.into_inner().expect("walk results").into_iter();
+        let union = union.into_inner().expect("projection union");
+        let (mut kept, mut kept_unsealed) = (0u64, 0u64);
+        let mut kept_unsealed_classes = [0u64; CLASS_NAMES.len()];
+        for id in 0..n {
+            if union[id / 64] >> (id % 64) & 1 == 1 {
+                kept += 1;
+                if flags[id] & SEALED == 0 {
+                    kept_unsealed += 1;
+                    kept_unsealed_classes[classes.code(id, initial)] += 1;
+                }
+            }
+        }
         timings.insert("walks_seconds".into(), json!(seconds(phase)));
         receipt["memory"]["after_walks"] = memory();
 
@@ -956,6 +1006,8 @@ impl RestoredAnalysis for RootBlockers {
             "private_decomposition_predicts_closed":listed(&private_prediction),
             "projection_predicts_closed":listed(&projected_prediction),
             "comparison_closed":comparison_closed,"context_other_unclosed_roots":context,
+            "projection_union":{"expanded_nodes":kept,"unsealed":kept_unsealed,
+                "nodes":n,"unsealed_total":unsealed},
             "timings":timings.clone()});
         receipt["root_blockers"] = json!({
             "schema":"rustred.root-closure-blockers.v1",
@@ -987,6 +1039,10 @@ impl RestoredAnalysis for RootBlockers {
                 "syntactic_only_containment":{"checkpoint":syntactic_gaps[0],"comparison":syntactic_gaps[1]},
                 "ledger":ledger.map(|l| json!({"cursor":l.cursor(),"reservation_scan":l.reservation_scan(),
                     "outstanding_native":l.outstanding_native(),"published":l.published_count()}))},
+            "projection_union":{"expanded_nodes":kept,"unsealed":kept_unsealed,
+                "unsealed_by_class":named(&CLASS_NAMES, &kept_unsealed_classes),
+                "nodes_outside":n as u64 - kept,"unsealed_outside":unsealed - kept_unsealed,
+                "scope":"union over roots of the nodes a projected walk expanded: what remains of this graph when every node contained in a comparison initial domain is replaced by that domain; the comparison run's own inspection of its larger initial domains is not modelled"},
             "closed_roots":closed_ids,
             "private_decomposition_predicts_closed":listed(&private_prediction),
             "private_decomposition_reproduces_closed_flags":private_prediction == closed,
