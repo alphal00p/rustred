@@ -86,6 +86,9 @@ python tools/research/idxreplay/tables.py ratios static.jsonl threads.jsonl stre
 # gate 0.4(b) projection [E] of the admission share of worker CPU at N = 1G
 python tools/research/idxreplay/project.py streams.jsonl --alpha 0.44,0.65,0.69,0.73,0.82 \
    [--thread-sweep threads.jsonl --threads 90] [--native-scale 3.75] [--k 64] [--cheap-ns 300]
+# per-class exponents (a= then applies to the parts not overridden, here the hits)
+python tools/research/idxreplay/project.py streams.jsonl --alpha 0.0,0.46,0.69 \
+   --class-alpha miss_scans=0.46,reverse=0.50
 ```
 
 Since v4 (close-out, 2026-09-27) the `streams`/`dynamic` pipeline rows carry

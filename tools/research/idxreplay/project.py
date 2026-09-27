@@ -20,7 +20,11 @@ f        thread factor: 1, a scalar (--thread-factor), or per (layout, set)
          (--thread-sweep FILE --threads T: cpu_ns_per_tested at T threads over
          1 thread, `throughput` rows).
 alpha    growth exponent of the per-request scan cost with the index size;
-         the same alpha is applied to every scanned class.
+         the same alpha is applied to every scanned class unless
+         --class-alpha overrides it per cost part (keys: hits, miss_scans,
+         reverse for the pipeline designs; forward_contained, forward_new,
+         reverse for today's engine), e.g. the layout's own thinning
+         exponents: --class-alpha hits=0.03,miss_scans=0.46,reverse=0.50.
 cheap_ns CPU per request resolved in a cheap tier (exact-job, self, Local,
          MRU, exact-store, helper) [E, not measured].
 Share of worker CPU = A / (A + native CPU per native); native CPU per native
@@ -30,7 +34,8 @@ gate-0.3 in-process contention factor at 96 threads).
 
 Usage: project.py STREAMS.jsonl [--k 16] [--native-ms X] [--native-scale S]
                   [--thread-factor F | --thread-sweep FILE --threads T]
-                  [--alpha 0.44,0.65,0.82] [--n1 1e9] [--cheap-ns 100] [--json OUT]
+                  [--alpha 0.44,0.65,0.82] [--class-alpha hits=A,miss_scans=B,reverse=C]
+                  [--n1 1e9] [--cheap-ns 100] [--json OUT]
 """
 import argparse
 import json
@@ -65,6 +70,7 @@ def main():
     p.add_argument("--thread-sweep", default=None)
     p.add_argument("--threads", type=int, default=90)
     p.add_argument("--alpha", default="0.44,0.65,0.82")
+    p.add_argument("--class-alpha", default=None, help="per cost part alpha overrides, e.g. hits=0.03,miss_scans=0.46,reverse=0.50")
     p.add_argument("--n0", type=float, default=74156033)
     p.add_argument("--n1", type=float, default=1e9)
     p.add_argument("--cheap-ns", type=float, default=100.0, help="CPU ns per cheap-tier request [E]")
@@ -87,6 +93,11 @@ def main():
     miss = pa["share_miss"] * req_per_job
     cheap = pa["cheap_share"] * req_per_job
     alphas = [float(x) for x in a.alpha.split(",")]
+    class_alpha = {}
+    if a.class_alpha:
+        for kv in a.class_alpha.split(","):
+            k, v = kv.split("=")
+            class_alpha[k.strip()] = float(v)
     scale = a.n1 / a.n0
 
     if a.thread_sweep:
@@ -111,6 +122,7 @@ def main():
     print(
         f"[{a.tag}] k={a.k} jobs {jobs:,}  requests/job {req_per_job:.1f}  cheap {cheap:.1f}  layer-hit {layer_hit:.2f}"
         f"  miss {miss:.2f}  native ms/job {native_ms:.3f} (scale {a.native_scale})  threads: {tf_label}  cheap {a.cheap_ns:.0f} ns"
+        + (f"  class alpha overrides {class_alpha} (a= applies to the other parts)" if class_alpha else "")
     )
 
     designs = [
@@ -123,13 +135,14 @@ def main():
     ]
     results = []
 
-    def report(name, scan_us, fixed_us, parts, lay, hitset):
+    def report(name, scan_parts, fixed_us, parts, lay, hitset):
+        scan_us = sum(scan_parts.values())
         a0 = scan_us + fixed_us
         share0 = a0 / (a0 + 1000 * native_ms)
         line = f"  {name:36} 74M {a0 / 1000:7.3f} ms/native = {100 * share0:5.1f}%"
         at1 = {}
         for al in alphas:
-            a1 = scan_us * scale**al + fixed_us
+            a1 = sum(v * scale ** class_alpha.get(k, al) for k, v in scan_parts.items()) + fixed_us
             s1 = a1 / (a1 + 1000 * native_ms)
             at1[al] = (a1 / 1000, s1)
             line += f" | a={al}: {a1 / 1000:6.2f} ms {100 * s1:5.1f}%"
@@ -142,6 +155,7 @@ def main():
                 "hit_set": hitset,
                 "k": a.k,
                 "threads": tf_label,
+                "class_alpha": class_alpha,
                 "native_ms": native_ms,
                 "cheap_ns": a.cheap_ns,
                 "parts_us_74M": parts,
@@ -160,7 +174,8 @@ def main():
             print(f"  {name}: missing costs")
             continue
         parts = {"hits": layer_hit * h, "miss_scans": miss * m, "reverse": miss * rv, "cheap": cheap * a.cheap_ns / 1000.0}
-        report(name, parts["hits"] + parts["miss_scans"] + parts["reverse"], parts["cheap"], parts, lay, hitset)
+        scan = {c: parts[c] for c in ("hits", "miss_scans", "reverse")}
+        report(name, scan, parts["cheap"], parts, lay, hitset)
 
     # Today's engine: every committed request scans the index (min-ID), no
     # pipeline; forward checks from the engine's counters priced at the L0
@@ -175,7 +190,7 @@ def main():
             "forward_new": inp["engine_forward_checks_new"] / njobs * fm,
             "reverse": inp["new"] / njobs * rv,
         }
-        report("today's engine (counters x L0 cost)", sum(parts.values()), 0.0, parts, "l0-stored", "engine")
+        report("today's engine (counters x L0 cost)", dict(parts), 0.0, parts, "l0-stored", "engine")
 
     if a.json:
         with open(a.json, "a") as f:
