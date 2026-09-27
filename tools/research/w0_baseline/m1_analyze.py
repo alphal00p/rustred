@@ -260,13 +260,20 @@ def main():
                     ss_tot = sum((y - my) ** 2 for y in ys)
                     ram["fit_after_T+60s"] = {"bytes_per_domain": slope, "r2": 1 - ss_res / ss_tot if ss_tot else None,
                                               "points": len(fit), "discovered_range": [min(xs), max(xs)]}
-        hwm = [s["status"].get("VmHWM") for s in samples if s.get("status")]
+        # Samples taken while the native exits carry a reduced status (run2: the
+        # second-to-last has only Threads, the last is empty); skip missing fields.
+        hwm = [s["status"]["VmHWM"] for s in samples
+               if s.get("status") and s["status"].get("VmHWM") is not None]
         if hwm:
             ram["peak_vmhwm_bytes"] = max(hwm) * 1024
-        rss_restore = [s for s in samples if s.get("status") and timeline.get("restored_unix_time")
+        rss_restore = [s for s in samples if s.get("status") and s["status"].get("VmRSS") is not None
+                       and timeline.get("restored_unix_time")
                        and s["unix_time"] <= timeline["restored_unix_time"] + 5]
         if rss_restore:
-            ram["rss_at_restore_bytes"] = rss_restore[-1]["status"].get("VmRSS", 0) * 1024
+            ram["rss_at_restore_bytes"] = rss_restore[-1]["status"]["VmRSS"] * 1024
+        ram["status_samples_without_vm_fields"] = sum(
+            1 for s in samples if isinstance(s.get("status"), dict)
+            and (s["status"].get("VmHWM") is None or s["status"].get("VmRSS") is None))
         mem = [s["mem_available"] for s in samples if s.get("mem_available")]
         if mem:
             ram["host_memavailable_min_bytes"] = min(mem)
