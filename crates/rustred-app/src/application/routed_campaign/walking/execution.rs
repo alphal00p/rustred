@@ -344,7 +344,10 @@ impl<const N: usize> State<N> {
             // `descendant_closure` keep their historical key sets. The duty
             // breakdown is emitted exactly once, where the campaign monitor
             // (heartbeat_metrics.py) reads `progress.parallel.coordinator_duty`.
-            telemetry["coordinator_duty"] = self.admission.duty_json();
+            let mut duty = self.admission.duty_json();
+            // Nested: the kernel scans run inside ordered_commit_seconds.
+            duty["admission_kernel"] = self.queue.session.kernel_json();
+            telemetry["coordinator_duty"] = duty;
             telemetry["containment_prefilter"] = self.queue.session.json();
             telemetry["queue_storage"] = self.queue.storage_json();
             telemetry["closure_refresh_policy"] = self.closure.borrow().refresh_policy_json();

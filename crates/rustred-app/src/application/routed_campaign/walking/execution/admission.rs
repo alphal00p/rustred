@@ -54,6 +54,10 @@ pub(super) struct Metrics {
     speculative_reverse_checks: usize,
     speculative_forward_bit_rejections: usize,
     speculative_reverse_bit_rejections: usize,
+    /// Helper-side kernel attribution: exact tests and index-scan wall time.
+    speculative_forward_tests: usize,
+    speculative_reverse_tests: usize,
+    speculative_scan_nanos: u64,
     /// Disjoint: commits whose reverse retirement applied a helper-prepared
     /// set, commits whose prepared set was trivially empty (bucket absent at
     /// the snapshot, every ID decided at commit), and commits with a
@@ -87,6 +91,9 @@ impl Metrics {
             speculative_reverse_checks: 0,
             speculative_forward_bit_rejections: 0,
             speculative_reverse_bit_rejections: 0,
+            speculative_forward_tests: 0,
+            speculative_reverse_tests: 0,
+            speculative_scan_nanos: 0,
             prepared_retirements_applied: 0,
             prepared_retirements_trivial: 0,
             prepared_retire_fallbacks: 0,
@@ -113,6 +120,17 @@ impl Metrics {
             work.reverse_bit_rejections,
             saturated,
         );
+        Self::add(
+            &mut self.speculative_forward_tests,
+            work.forward_tests,
+            saturated,
+        );
+        Self::add(
+            &mut self.speculative_reverse_tests,
+            work.reverse_tests,
+            saturated,
+        );
+        self.speculative_scan_nanos = self.speculative_scan_nanos.saturating_add(work.scan_nanos);
     }
     /// Commit-time outcomes are counted by the queue; fold the delta of one
     /// ordered commit into this session's admission telemetry.
@@ -204,6 +222,19 @@ impl Metrics {
                 json!(self.speculative_forward_bit_rejections);
             value["speculative_reverse_bit_rejections"] =
                 json!(self.speculative_reverse_bit_rejections);
+            value["speculative_forward_exact_tests"] = json!(self.speculative_forward_tests);
+            value["speculative_reverse_exact_tests"] = json!(self.speculative_reverse_tests);
+            let candidates = self
+                .speculative_checks
+                .saturating_add(self.speculative_reverse_checks);
+            value["speculative_kernel"] = json!({
+                "kernel": "struct_of_arrays_u8_lanes_v1",
+                "scan_wall_seconds_summed_over_helpers": self.speculative_scan_nanos as f64 * 1e-9,
+                "candidates": candidates,
+                "ns_per_candidate": (candidates > 0)
+                    .then(|| self.speculative_scan_nanos as f64 / candidates as f64),
+                "scope": "helper_thread_wall_of_forward_plus_reverse_index_scans_per_preparation; summed_over_helpers; includes_exact_predicate; excludes_summary_construction"
+            });
             value["prepared_retirements_applied"] = json!(self.prepared_retirements_applied);
             value["prepared_retirements_trivial"] = json!(self.prepared_retirements_trivial);
             value["prepared_retire_fallbacks"] = json!(self.prepared_retire_fallbacks);

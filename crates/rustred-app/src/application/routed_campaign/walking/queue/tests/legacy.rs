@@ -448,7 +448,7 @@ impl<const N: usize> Legacy<'_, N> {
                         .checked_add(1)
                         .ok_or("domain containment counter overflow")?;
                     let (rejected, contained) = self.forward_verdict(id, query);
-                    session.forward(rejected);
+                    session.forward_run(1, usize::from(rejected));
                     Ok(contained)
                 },
             )

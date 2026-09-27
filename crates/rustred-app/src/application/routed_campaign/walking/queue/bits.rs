@@ -127,15 +127,49 @@ pub(in super::super) struct SessionCounters {
     pub prepared_retirements_trivial: usize,
     /// Commits that had a prepared lookup but retired with the serial scan.
     pub prepared_retire_fallbacks: usize,
+    /// Kernel attribution (coordinator scans only): forward lookups and
+    /// reverse retirements that ran an index scan, the candidates of theirs
+    /// that reached the exact predicate, and the scans' wall nanoseconds.
+    /// `callbacks - bit_rejections - tests` were rejected by the u8 lanes.
+    pub forward_scans: usize,
+    pub forward_tests: usize,
+    pub forward_scan_nanos: u64,
+    pub reverse_scans: usize,
+    pub reverse_tests: usize,
+    pub reverse_scan_nanos: u64,
 }
 
 impl SessionCounters {
+    /// One forward candidate that reached the exact predicate.
     #[inline]
-    pub fn forward(&mut self, rejected: bool) {
+    pub fn forward_test(&mut self) {
         self.forward_callbacks = self.forward_callbacks.saturating_add(1);
-        self.forward_bit_rejections = self
-            .forward_bit_rejections
-            .saturating_add(usize::from(rejected));
+        self.forward_tests = self.forward_tests.saturating_add(1);
+    }
+
+    /// One reverse candidate that reached the exact predicate.
+    #[inline]
+    pub fn reverse_test(&mut self) {
+        self.reverse_callbacks = self.reverse_callbacks.saturating_add(1);
+        self.reverse_tests = self.reverse_tests.saturating_add(1);
+    }
+
+    /// One coordinator forward scan and its wall time.
+    #[inline]
+    pub fn forward_scan(&mut self, started: std::time::Instant) {
+        self.forward_scans = self.forward_scans.saturating_add(1);
+        self.forward_scan_nanos = self
+            .forward_scan_nanos
+            .saturating_add(started.elapsed().as_nanos() as u64);
+    }
+
+    /// One coordinator reverse retirement scan and its wall time.
+    #[inline]
+    pub fn reverse_scan(&mut self, started: std::time::Instant) {
+        self.reverse_scans = self.reverse_scans.saturating_add(1);
+        self.reverse_scan_nanos = self
+            .reverse_scan_nanos
+            .saturating_add(started.elapsed().as_nanos() as u64);
     }
 
     /// `count` forward callbacks rejected by the kernel prefilter, `words` of
@@ -152,14 +186,6 @@ impl SessionCounters {
         self.reverse_bit_rejections = self.reverse_bit_rejections.saturating_add(words);
     }
 
-    #[inline]
-    pub fn reverse(&mut self, rejected: bool) {
-        self.reverse_callbacks = self.reverse_callbacks.saturating_add(1);
-        self.reverse_bit_rejections = self
-            .reverse_bit_rejections
-            .saturating_add(usize::from(rejected));
-    }
-
     pub fn json(&self) -> Value {
         json!({
             "forward_callbacks": self.forward_callbacks,
@@ -169,9 +195,54 @@ impl SessionCounters {
             "prepared_retirements_applied": self.prepared_retirements_applied,
             "prepared_retirements_trivial": self.prepared_retirements_trivial,
             "prepared_retire_fallbacks": self.prepared_retire_fallbacks,
+            "forward_lane_rejections": self.forward_lane_rejections(),
+            "forward_exact_tests": self.forward_tests,
+            "reverse_lane_rejections": self.reverse_lane_rejections(),
+            "reverse_exact_tests": self.reverse_tests,
             "counter_scope": "coordinator_commit_path_current_process_session; not_persisted; speculative_helper_work_reported_by_admission_preparation",
             "bit_layout": "0-15 upper=inf per axis; 16-31 lower=0 per axis; 32 A upper=inf; 33 R upper=inf; 34 D lower=-inf; 35 D upper=inf; 36 A lower=0; 37 R lower=0; 38 D lower<=0 or -inf",
             "results_and_persisted_counters_unchanged": true
+        })
+    }
+
+    fn forward_lane_rejections(&self) -> usize {
+        self.forward_callbacks
+            .saturating_sub(self.forward_bit_rejections)
+            .saturating_sub(self.forward_tests)
+    }
+
+    fn reverse_lane_rejections(&self) -> usize {
+        self.reverse_callbacks
+            .saturating_sub(self.reverse_bit_rejections)
+            .saturating_sub(self.reverse_tests)
+    }
+
+    /// Kernel attribution for `parallel.coordinator_duty.admission_kernel`:
+    /// scans, candidates per scan and wall ns per check-equivalent (one
+    /// logical candidate, the `containment_checks` unit) on the coordinator.
+    pub fn kernel_json(&self) -> Value {
+        let per = |numerator: f64, denominator: usize| {
+            (denominator > 0).then(|| numerator / denominator as f64)
+        };
+        json!({
+            "kernel": "struct_of_arrays_u8_lanes_v1",
+            "forward_scans": self.forward_scans,
+            "forward_candidates": self.forward_callbacks,
+            "forward_word_rejections": self.forward_bit_rejections,
+            "forward_lane_rejections": self.forward_lane_rejections(),
+            "forward_exact_tests": self.forward_tests,
+            "forward_scan_seconds": self.forward_scan_nanos as f64 * 1e-9,
+            "forward_candidates_per_scan": per(self.forward_callbacks as f64, self.forward_scans),
+            "forward_ns_per_candidate": per(self.forward_scan_nanos as f64, self.forward_callbacks),
+            "reverse_scans": self.reverse_scans,
+            "reverse_candidates": self.reverse_callbacks,
+            "reverse_word_rejections": self.reverse_bit_rejections,
+            "reverse_lane_rejections": self.reverse_lane_rejections(),
+            "reverse_exact_tests": self.reverse_tests,
+            "reverse_scan_seconds": self.reverse_scan_nanos as f64 * 1e-9,
+            "reverse_candidates_per_scan": per(self.reverse_callbacks as f64, self.reverse_scans),
+            "reverse_ns_per_candidate": per(self.reverse_scan_nanos as f64, self.reverse_callbacks),
+            "scope": "coordinator_ordered_commit_scans_this_process_session; wall_ns; inside ordered_commit_seconds (not a disjoint duty bucket); reverse candidates exclude IDs decided by a helper-prepared set; helper-side work is admission_preparation.speculative_*; not_persisted"
         })
     }
 }

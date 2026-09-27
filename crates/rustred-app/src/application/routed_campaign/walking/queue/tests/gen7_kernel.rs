@@ -389,6 +389,7 @@ struct ReverseCharge<'a> {
     query: &'a Query<N>,
     checks: usize,
     rejections: usize,
+    tests: usize,
 }
 
 impl super::super::index::Visit for ReverseCharge<'_> {
@@ -399,6 +400,7 @@ impl super::super::index::Visit for ReverseCharge<'_> {
     }
     fn test(&mut self, id: usize) -> Result<bool, &'static str> {
         self.checks += 1;
+        self.tests += 1;
         Ok(self.stored.contained_by(id, self.query))
     }
 }
@@ -454,17 +456,22 @@ fn gen7_kernel_differential_and_cost() {
     let sections = read_queue_sections::<N>(std::path::Path::new(&dir)).unwrap();
     let old_buckets: legacy::Buckets = sections.decode_index_as().unwrap();
     let stored_buckets = sections.buckets().unwrap();
-    let (metadata, domains) = sections.into_parts();
+    let metadata: QueueMetadata =
+        serde_json::from_value(serde_json::to_value(&sections.queue).unwrap()).unwrap();
     mark("decode", &mut since);
     let queue = Queue::<N>::restore_from_parts(
         metadata,
-        domains,
+        sections.domains.clone(),
         stored_buckets,
         None,
         &mut Phases::default(),
     )
     .unwrap();
     mark("restore_new_layout", &mut since);
+    // CP5: the restored kernel writes the index section byte for byte.
+    let index_section_identical = sections.index_round_trips(&queue).unwrap();
+    drop(sections);
+    mark("index_reencode", &mut since);
     let ids = queue.domains.len();
     // Independent native derivation of every ID's historical word, and the
     // check of the kernel image rebuilt from the immutable summary.
@@ -608,6 +615,11 @@ fn gen7_kernel_differential_and_cost() {
         Arm::default(),
         Arm::default(),
     );
+    // Filter breakdown of the timed new-kernel arms: forward (callbacks,
+    // word rejections, exact tests) and reverse (candidates, word
+    // rejections, exact tests); lane rejections are the remainder.
+    let mut new_fwd_filter = SessionCounters::default();
+    let (mut rev_candidates, mut rev_words, mut rev_tests) = (0_usize, 0_usize, 0_usize);
     let stored = queue.stored();
     for repeat in 0..2 {
         for (c, chunk) in timed_requests.chunks(250).enumerate() {
@@ -619,7 +631,7 @@ fn gen7_kernel_differential_and_cost() {
                             let Some(bucket) = queue.by_owner.get(&r.key) else {
                                 continue;
                             };
-                            let (mut checks, mut session) = (0, SessionCounters::default());
+                            let mut checks = 0;
                             let probe = Probe::new(
                                 Coordinates::of(&r.query.core),
                                 r.query.word,
@@ -634,7 +646,7 @@ fn gen7_kernel_differential_and_cost() {
                                     0,
                                     &mut Charged {
                                         checks: &mut checks,
-                                        session: &mut session,
+                                        session: &mut new_fwd_filter,
                                         stored,
                                         query: &r.query,
                                     },
@@ -668,6 +680,7 @@ fn gen7_kernel_differential_and_cost() {
                                 query: &r.query,
                                 checks: 0,
                                 rejections: 0,
+                                tests: 0,
                             };
                             let set = bucket
                                 .indexed
@@ -682,6 +695,9 @@ fn gen7_kernel_differential_and_cost() {
                             a.requests += 1;
                             a.checks += visit.checks;
                             a.hits += set.len();
+                            rev_candidates += visit.checks;
+                            rev_words += visit.rejections;
+                            rev_tests += visit.tests;
                         }
                     });
                 } else {
@@ -755,6 +771,7 @@ fn gen7_kernel_differential_and_cost() {
         "live_candidates": queue.containment_candidate_count(),
         "wide_summaries": wide_summaries,
         "image_mismatches": image_mismatches,
+        "index_section_byte_identical": index_section_identical,
         "storage": storage,
         "trace": trace,
         "requests": {"total": requests.len(), "traced": traced, "by_kind": tally.by_kind},
@@ -780,6 +797,18 @@ fn gen7_kernel_differential_and_cost() {
             "hit_ratio": ratio(&old_fwd_hit, &new_fwd_hit),
             "miss_ratio": ratio(&old_fwd_miss, &new_fwd_miss),
             "foreign_load": foreign,
+            "new_filter": {
+                "forward_candidates": new_fwd_filter.forward_callbacks,
+                "forward_word_rejections": new_fwd_filter.forward_bit_rejections,
+                "forward_lane_rejections": new_fwd_filter.forward_callbacks
+                    - new_fwd_filter.forward_bit_rejections - new_fwd_filter.forward_tests,
+                "forward_exact_tests": new_fwd_filter.forward_tests,
+                "reverse_candidates": rev_candidates,
+                "reverse_word_rejections": rev_words,
+                "reverse_lane_rejections": rev_candidates - rev_words - rev_tests,
+                "reverse_exact_tests": rev_tests,
+                "scope": "timed interleaved arms, both repeats",
+            },
         },
         "phases_seconds": phases,
         "total_seconds": started.elapsed().as_secs_f64(),
@@ -787,6 +816,7 @@ fn gen7_kernel_differential_and_cost() {
     std::fs::write(&out_path, serde_json::to_string_pretty(&receipt).unwrap()).unwrap();
     println!("{}", serde_json::to_string_pretty(&receipt).unwrap());
     assert_eq!(image_mismatches, 0);
+    assert!(index_section_identical);
     assert_eq!(tally.mismatches, 0, "{:?}", tally.examples);
     assert_eq!(old_fwd.checks, new_fwd.checks);
     assert_eq!(old_rev.checks, new_rev.checks);

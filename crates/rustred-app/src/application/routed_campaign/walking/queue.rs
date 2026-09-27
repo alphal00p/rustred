@@ -480,7 +480,8 @@ impl<const N: usize> Queue<N> {
                         query.lanes,
                         filter,
                     );
-                    bucket.indexed.find_from(
+                    let started = std::time::Instant::now();
+                    let found = bucket.indexed.find_from(
                         Signature::of(&query.core),
                         &probe,
                         0,
@@ -490,7 +491,9 @@ impl<const N: usize> Queue<N> {
                             stored,
                             query,
                         },
-                    )?
+                    )?;
+                    self.session.forward_scan(started);
+                    found
                 }
             } else {
                 let mut found = None;
@@ -678,7 +681,8 @@ impl<const N: usize> Queue<N> {
                 },
                 query,
             };
-            match prepared_retire.take() {
+            let started = std::time::Instant::now();
+            let removed = match prepared_retire.take() {
                 Some((set, first_new)) => bucket.indexed.retire_prepared(
                     insertion,
                     &probe,
@@ -695,7 +699,9 @@ impl<const N: usize> Queue<N> {
                         on_retire,
                     },
                 ),
-            }
+            };
+            self.session.reverse_scan(started);
+            removed
         } else {
             0
         };
@@ -762,7 +768,7 @@ impl<const N: usize> Visit for Charged<'_, N> {
             .checks
             .checked_add(1)
             .ok_or("domain containment counter overflow")?;
-        self.session.forward(false);
+        self.session.forward_test();
         Ok(self.stored.contains(id, self.query))
     }
 }
@@ -781,7 +787,7 @@ impl<const N: usize> Retire for Reverse<'_, N> {
             .reverse_run(run.len(), word.count_ones() as usize);
     }
     fn test(&mut self, id: usize) -> bool {
-        self.session.reverse(false);
+        self.session.reverse_test();
         self.stored.contained_by(id, self.query)
     }
 }

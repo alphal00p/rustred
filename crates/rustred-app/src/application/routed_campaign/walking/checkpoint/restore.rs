@@ -488,18 +488,16 @@ pub(in super::super) struct QueueSections<const N: usize> {
 
 #[cfg(test)]
 impl<const N: usize> QueueSections<N> {
-    pub fn into_parts(
-        self,
-    ) -> (
-        super::super::queue::QueueMetadata,
-        Vec<super::super::queue::CompactDomain<N>>,
-    ) {
-        (self.queue, self.domains)
-    }
-
     /// A fresh decode of the index section.
     pub fn buckets(&self) -> Result<super::super::queue::StoredBuckets, String> {
         sections::read_index(&self.index, &self.identity)
+    }
+
+    /// Whether `queue` writes this index section byte for byte (CP5).
+    pub fn index_round_trips(&self, queue: &Queue<N>) -> Result<bool, String> {
+        let mut bytes = Vec::new();
+        sections::write_index(&mut bytes, &self.identity, &queue.checkpoint_buckets())?;
+        Ok(bytes == self.index)
     }
 
     /// The index payload decoded as another serde shape of the same bytes.

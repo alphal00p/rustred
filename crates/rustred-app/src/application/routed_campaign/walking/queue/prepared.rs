@@ -70,6 +70,11 @@ pub(in super::super) struct SpeculativeWork {
     pub reverse_checks: usize,
     pub forward_bit_rejections: usize,
     pub reverse_bit_rejections: usize,
+    /// Candidates that reached the exact predicate (the rest were rejected
+    /// by the bit word or the u8 lanes), and the index scans' wall time.
+    pub forward_tests: usize,
+    pub reverse_tests: usize,
+    pub scan_nanos: u64,
 }
 
 impl<const N: usize> PreparedAdmission<N> {
@@ -195,6 +200,7 @@ impl<const N: usize> Queue<N> {
         let stored = self.stored();
         let signature = Signature::of(&query.core);
         let probe = self.probe(&query);
+        let started = std::time::Instant::now();
         let bucket = self.by_owner.get(&(domain.phase, domain.owner));
         let bucket_absent = bucket.is_none();
         let (found, retire) = if let Some(bucket) = bucket {
@@ -264,6 +270,9 @@ impl<const N: usize> Queue<N> {
             (None, Some(Vec::new()))
         };
         drop(probe);
+        work.scan_nanos = work
+            .scan_nanos
+            .saturating_add(started.elapsed().as_nanos() as u64);
         if is_cancelled() {
             return None;
         }
@@ -344,6 +353,7 @@ impl<const N: usize> PreparedLookup<N> {
             query.lanes,
             filter,
         );
+        let started = std::time::Instant::now();
         let found = index
             .find_from(
                 Signature::of(&query.core),
@@ -351,12 +361,13 @@ impl<const N: usize> PreparedLookup<N> {
                 self.watermark,
                 &mut Revalidation {
                     checks: &mut checks,
-                    session,
+                    session: &mut *session,
                     stored,
                     query,
                 },
             )
             .ok()?;
+        session.forward_scan(started);
         Some(Revalidated {
             retire: if found.is_none() {
                 self.retire.take()
@@ -404,6 +415,12 @@ impl<const N: usize> Visit for Speculative<'_, N> {
     }
     fn test(&mut self, id: usize) -> Result<bool, &'static str> {
         self.charge(1, 0)?;
+        let tests = if self.reverse {
+            &mut self.work.reverse_tests
+        } else {
+            &mut self.work.forward_tests
+        };
+        *tests = tests.saturating_add(1);
         Ok(if self.reverse {
             self.stored.contained_by(id, self.query)
         } else {
@@ -429,7 +446,7 @@ impl<const N: usize> Visit for Revalidation<'_, N> {
     }
     fn test(&mut self, id: usize) -> Result<bool, &'static str> {
         *self.checks += 1;
-        self.session.forward(false);
+        self.session.forward_test();
         Ok(self.stored.contains(id, self.query))
     }
 }
