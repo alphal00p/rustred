@@ -11,7 +11,7 @@ PROFILE=${2:-release}
 FLAGS=${3:-}
 WT=/common/dev/rustred/.claude/worktrees/agent-ab06981cd80007c75
 OUT=${OUT:-/common/dev/rustred/TMP/w0/knobs/bin}
-LOCK=/common/dev/rustred/TMP/locks/build-0.lock
+LOCK=${BUILD_LOCK:-/common/dev/rustred/TMP/locks/build-2.lock}
 mkdir -p "$OUT" "$WT/TMP"
 if [[ -n "$FLAGS" ]]; then
   TARGET="$WT/target-$(echo "$FLAGS" | tr -c 'a-zA-Z0-9' '_' | sed 's/_*$//')"
@@ -26,7 +26,7 @@ while :; do
 done
 cd "$WT"
 start=$(date +%s)
-flock -w 14400 "$LOCK" nice -n 5 taskset -c "${BUILD_CPUS:-118-127,256-263}" env \
+flock -w 14400 "$LOCK" nice -n 5 taskset -c "${BUILD_CPUS:-44-51,300-307}" env \
   TMPDIR="$WT/TMP" CARGO_TARGET_DIR="$TARGET" RUSTFLAGS="$FLAGS" \
   nix develop --command cargo build --profile "$PROFILE" --locked --offline \
   -p rustred-app --bin rustred
