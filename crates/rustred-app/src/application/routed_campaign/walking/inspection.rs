@@ -21,6 +21,174 @@ use super::{
 
 pub(super) const DETAIL_LIMIT: usize = 4096;
 
+/// W0.9 falsifier (THROWAWAY, branch `fable_5_1-v3-widen`): G1 hull widening
+/// of Apply successors, selected by `RUSTRED_W0_G1_WIDEN=finite|all`.
+///
+/// W(S) = {same phase and owner, box [0, inf)^N, R <= Rmax(S), A <= Amax(S),
+/// Dmin(S) <= D <= Dmax(S)} with the tight extrema of `DomainPowerSummary`.
+/// No axis is ever tightened: an infinite extremum stays infinite, and an
+/// extremum that does not fit the public u32/u64/i64 field becomes None.
+/// `finite` keeps S unchanged when Amax(S) is infinite; `all` widens anyway.
+/// Optional `RUSTRED_W0_G1_OWNERS` / `RUSTRED_W0_G1_EXCLUDE` restrict the
+/// widened owners (comma-separated masks). S subset W(S) is checked in
+/// release; a violation aborts the process.
+pub(super) mod g1 {
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    use rustred::solver::{DomainPowerBounds, DomainPowerSummary};
+    use serde_json::{Value, json};
+
+    use super::super::queue::{Domain, Phase};
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Mode {
+        Off,
+        Finite,
+        All,
+    }
+    struct Config {
+        mode: Mode,
+        owners: Option<HashSet<String>>,
+        exclude: HashSet<String>,
+    }
+    fn masks(name: &str) -> Option<HashSet<String>> {
+        std::env::var(name).ok().map(|v| {
+            v.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+    }
+    fn config() -> &'static Config {
+        static CONFIG: OnceLock<Config> = OnceLock::new();
+        CONFIG.get_or_init(|| {
+            let mode = match std::env::var("RUSTRED_W0_G1_WIDEN").as_deref() {
+                Err(_) | Ok("") | Ok("off") => Mode::Off,
+                Ok("finite") => Mode::Finite,
+                Ok("all") => Mode::All,
+                Ok(other) => panic!("RUSTRED_W0_G1_WIDEN={other}: expected off|finite|all"),
+            };
+            let config = Config {
+                mode,
+                owners: masks("RUSTRED_W0_G1_OWNERS"),
+                exclude: masks("RUSTRED_W0_G1_EXCLUDE").unwrap_or_default(),
+            };
+            if mode != Mode::Off {
+                eprintln!(
+                    "W0.9 G1 widening ACTIVE: mode={mode:?} owners={:?} exclude={:?}",
+                    config.owners, config.exclude
+                );
+            }
+            config
+        })
+    }
+
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    static WIDENED: AtomicU64 = AtomicU64::new(0);
+    static UNCHANGED: AtomicU64 = AtomicU64::new(0);
+    static SKIPPED_UNBOUNDED_A: AtomicU64 = AtomicU64::new(0);
+    static SKIPPED_OWNER: AtomicU64 = AtomicU64::new(0);
+    static SKIPPED_EMPTY_OR_ERROR: AtomicU64 = AtomicU64::new(0);
+    static ORTHANT_REUSE_AFTER_WIDENING: AtomicU64 = AtomicU64::new(0);
+
+    pub(in super::super) fn note_orthant_reuse() {
+        ORTHANT_REUSE_AFTER_WIDENING.fetch_add(1, Relaxed);
+    }
+
+    pub(in super::super) fn active() -> bool {
+        config().mode != Mode::Off
+    }
+
+    /// Returns W(S) or S itself; never a domain that fails to contain S.
+    pub(in super::super) fn widen<const N: usize>(domain: Domain<N>) -> Domain<N> {
+        let config = config();
+        if config.mode == Mode::Off || domain.phase != Phase::Apply {
+            return domain;
+        }
+        CALLS.fetch_add(1, Relaxed);
+        if config.owners.is_some() || !config.exclude.is_empty() {
+            let mask = super::super::mask(&domain.owner);
+            if config.owners.as_ref().is_some_and(|o| !o.contains(&mask))
+                || config.exclude.contains(&mask)
+            {
+                SKIPPED_OWNER.fetch_add(1, Relaxed);
+                return domain;
+            }
+        }
+        let Ok(summary) = DomainPowerSummary::try_new(
+            domain.owner,
+            &domain.lower,
+            &domain.upper,
+            domain.rank,
+            domain.powers,
+        ) else {
+            SKIPPED_EMPTY_OR_ERROR.fetch_add(1, Relaxed);
+            return domain;
+        };
+        let Some(extrema) = summary.extrema() else {
+            SKIPPED_EMPTY_OR_ERROR.fetch_add(1, Relaxed);
+            return domain;
+        };
+        let (_, a_upper) = extrema.positive_power();
+        let (_, r_upper) = extrema.numerator_rank();
+        let (d_lower, d_upper) = extrema.power_difference();
+        if a_upper.is_none() && config.mode == Mode::Finite {
+            SKIPPED_UNBOUNDED_A.fetch_add(1, Relaxed);
+            return domain;
+        }
+        let widened = Domain {
+            phase: domain.phase,
+            owner: domain.owner,
+            lower: vec![0; N],
+            upper: vec![None; N],
+            rank: r_upper.and_then(|r| u32::try_from(r).ok()),
+            powers: DomainPowerBounds {
+                max_positive_power: a_upper.and_then(|a| u64::try_from(a).ok()),
+                min_power_difference: d_lower.and_then(|d| i64::try_from(d).ok()),
+                max_power_difference: d_upper.and_then(|d| i64::try_from(d).ok()),
+            },
+        };
+        if widened == domain {
+            UNCHANGED.fetch_add(1, Relaxed);
+            return domain;
+        }
+        let container = DomainPowerSummary::try_new(
+            widened.owner,
+            &widened.lower,
+            &widened.upper,
+            widened.rank,
+            widened.powers,
+        )
+        .unwrap_or_else(|e| panic!("W0.9 G1: widened domain invalid: {e}"));
+        assert!(
+            container.contains(&summary),
+            "W0.9 G1: widened domain does not contain its successor"
+        );
+        WIDENED.fetch_add(1, Relaxed);
+        widened
+    }
+
+    pub(in super::super) fn report() -> Value {
+        let c = config();
+        json!({
+            "mode": format!("{:?}", c.mode),
+            "owners": c.owners.as_ref().map(|o| { let mut v: Vec<_> = o.iter().cloned().collect(); v.sort(); v }),
+            "exclude": { let mut v: Vec<_> = c.exclude.iter().cloned().collect(); v.sort(); v },
+            "apply_successor_calls": CALLS.load(Relaxed),
+            "widened": WIDENED.load(Relaxed),
+            "unchanged_already_widened_shape": UNCHANGED.load(Relaxed),
+            "skipped_unbounded_a": SKIPPED_UNBOUNDED_A.load(Relaxed),
+            "skipped_owner_filter": SKIPPED_OWNER.load(Relaxed),
+            "skipped_empty_or_error": SKIPPED_EMPTY_OR_ERROR.load(Relaxed),
+            "orthant_reuse_after_widening": ORTHANT_REUSE_AFTER_WIDENING.load(Relaxed),
+            "scope": "process counters over native Apply successor events (including uncommitted/cancelled); throwaway W0.9 falsifier"
+        })
+    }
+}
+
 /// Bounded formatting even if a backend supplies a very large message. The
 /// visible suffix makes truncation explicit; it never changes failure status.
 pub(super) fn debug(value: &impl fmt::Debug) -> String {
@@ -342,10 +510,19 @@ fn inspect_native<const N: usize>(
                         if let Some(target) = initial.target(Phase::Apply, child.target_sector, child.target_rank_limit) {
                             return emit(Event::one(Effect::PreAdmittedOrthantReuse { target, successor: true, conditional }));
                         }
-                        Effect::Admit { successor: true, conditional, domain: Domain {
+                        let exact = Domain {
                             phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
                             upper: child.target_upper.to_vec(), rank: child.target_rank_limit,
-                            powers: child.target_power_bounds } }
+                            powers: child.target_power_bounds };
+                        // W0.9 falsifier: S is not pre-admitted; admit W(S) ⊇ S.
+                        let domain = if g1::active() { g1::widen(exact) } else { exact };
+                        if g1::active()
+                            && let Some(target) = initial.target(Phase::Apply, &domain.owner, domain.rank)
+                        {
+                            g1::note_orthant_reuse();
+                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { target, successor: true, conditional }));
+                        }
+                        Effect::Admit { successor: true, conditional, domain }
                     } else if request.route_domain_overcover {
                         if let Some(target) = initial.target(Phase::Route, child.target_sector, child.target_rank_limit) {
                             return emit(Event::one(Effect::PreAdmittedOrthantReuse { target, successor: true, conditional }));

@@ -577,6 +577,7 @@ fn finish_timing(document: &mut Value, started: Instant, prepared: f64) {
     document["prepared_seconds"] = json!(prepared);
     document["traversal_seconds"] = json!(elapsed - prepared);
     document["elapsed_seconds"] = json!(elapsed);
+    document["w0_g1_widening"] = inspection::g1::report();
     document["traversal_timing_boundary"] = json!(
         "after_owner_preparation_through_initial_admission_walk_report_and_queue_cleanup; excludes_owner_unload_and_output_write"
     );
