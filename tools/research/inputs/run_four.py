@@ -38,8 +38,38 @@ KEYS = ("traversal_seconds", "prepared_seconds", "elapsed_seconds", "completed_n
         "native_processed_nodes", "frontiers")
 
 
+def result_metrics(path):
+    """Top-level counters of a (possibly GB-sized) result.json: head and tail only."""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        head = f.read(min(size, 4_000_000)).decode("utf-8", "replace")
+        f.seek(max(0, size - 4_000_000))
+        tail = f.read().decode("utf-8", "replace")
+    out = {}
+    for key in KEYS + ("initial_closed", "initial_total"):
+        for blob in (tail, head):
+            # top-level keys are indented by two spaces in the pretty-printed document
+            m = re.search(r'\n  "%s": ([0-9.]+|null)' % key, blob) or re.search(r'"%s": ([0-9.]+|null)' % key, blob)
+            if m:
+                out[key] = m.group(1)
+                break
+    return out
+
+
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def cpu_busy(cpus):
+    """Summed busy and total jiffies of the given CPUs from /proc/stat."""
+    busy = total = 0
+    for line in open("/proc/stat"):
+        name, *fields = line.split()
+        if name.startswith("cpu") and name[3:].isdigit() and int(name[3:]) in cpus:
+            values = list(map(int, fields))
+            total += sum(values[:8])
+            busy += sum(values[:8]) - values[3] - values[4]
+    return busy, total
 
 
 def cpu_list(spec):
@@ -59,6 +89,8 @@ def main(argv=None):
     p.add_argument("--binary", type=Path, default=ROOT / "TMP/fable51-controls/bin/rustred-4a17f9c7")
     p.add_argument("--cp5hop", type=Path)
     p.add_argument("--owners-txt", type=Path)
+    p.add_argument("--max-seconds", type=float, default=600.0,
+                   help="write the stop file after this many seconds (cooperative stop, checkpoint saved)")
     args = p.parse_args(argv)
     out = ROOT / "TMP/w0/inputs/four/runs" / args.label / args.family
     if out.exists():
@@ -88,14 +120,20 @@ def main(argv=None):
     env["TMPDIR"] = str(ROOT / "TMP")
     cpus = cpu_list(args.cpus)
     peak = {"rss": 0}
+    busy0, total0 = cpu_busy(set(cpus))
     start = time.time()
     with open(out / "stdout", "wb") as so, open(out / "stderr", "wb") as se:
         proc = subprocess.Popen(["nice", "-n", "5"] + argv_, cwd=ROOT, env=env, stdout=so, stderr=se,
                                 preexec_fn=lambda: os.sched_setaffinity(0, cpus))
         stop = threading.Event()
 
+        capped = {"at": None}
+
         def poll():
             while not stop.is_set():
+                if capped["at"] is None and time.time() - start > args.max_seconds:
+                    (out / "stop-request.json").write_text('{"reason":"run_four time cap"}\n')
+                    capped["at"] = round(time.time() - start, 1)
                 try:
                     for line in open(f"/proc/{proc.pid}/status"):
                         if line.startswith("VmRSS:"):
@@ -105,25 +143,26 @@ def main(argv=None):
                 time.sleep(0.5)
         watcher = threading.Thread(target=poll)
         watcher.start()
-        code = proc.wait()
+        _, status, usage = os.wait4(proc.pid, 0)
+        code = os.waitstatus_to_exitcode(status)
+        proc.returncode = code
         stop.set()
         watcher.join()
     wall = time.time() - start
+    busy1, total1 = cpu_busy(set(cpus))
+    hz = os.sysconf("SC_CLK_TCK")
+    own = usage.ru_utime + usage.ru_stime
+    busy_seconds = (busy1 - busy0) / hz
+    metrics_load = {"own_cpu_seconds": round(own, 2), "cpuset_busy_seconds": round(busy_seconds, 2),
+                    "foreign_cpu_seconds": round(max(0.0, busy_seconds - own), 2),
+                    "foreign_share_of_cpuset": round(max(0.0, busy_seconds - own) / (len(cpus) * wall), 4) if wall else None}
     metrics = {"family": args.family, "label": args.label, "binary": str(args.binary),
                "binary_sha256": sha256(args.binary), "queries": str(queries), "queries_sha256": sha256(queries),
                "exit_code": code, "whole_command_seconds": round(wall, 3), "cpus": args.cpus,
-               "peak_rss_bytes": peak["rss"]}
+               "peak_rss_bytes": peak["rss"], "time_cap_seconds": args.max_seconds,
+               "stop_requested_at_seconds": capped["at"], **metrics_load}
     if (out / "result.json").exists():
-        with open(out / "result.json", "rb") as f:
-            head = f.read(4_000_000).decode("utf-8", "replace")
-        for key in KEYS:
-            m = re.search(r'"%s": ([0-9.]+|null)' % key, head)
-            if m:
-                metrics[key] = m.group(1)
-        m = re.search(r'"initial_closed": ([0-9]+)', head)
-        metrics["initial_closed"] = m.group(1) if m else None
-        m = re.search(r'"initial_total": ([0-9]+)', head)
-        metrics["initial_total"] = m.group(1) if m else None
+        metrics.update(result_metrics(out / "result.json"))
     latest = out / "checkpoint/latest.json"
     if args.cp5hop and args.owners_txt and latest.exists():
         gen = json.loads(latest.read_text())["generation"]

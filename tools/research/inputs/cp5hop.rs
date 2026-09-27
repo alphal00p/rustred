@@ -286,6 +286,14 @@ fn main() {
             writeln!(w, "{}	{}	{}	{}	{}	{}	{}	{}	{}", mask_str(*m, arity), r_h, a_h.map(|a| a as i64).unwrap_or(-1), e[0], e[1], e[2], e[3], e[4], e[5]).unwrap();
         }
     }
+    // phase census: domains and inspected domains per phase
+    let mut by_phase = [[0u64; 2]; 2];
+    for (id, i) in infos.iter().enumerate() {
+        let p = (i.phase as usize).min(1);
+        by_phase[p][0] += 1;
+        by_phase[p][1] += ((flags[id] >> 1) & 1) as u64;
+    }
     let mut w = fs::File::create(format!("{out}/summary.json")).unwrap();
-    writeln!(w, "{{\"checkpoint\":\"{dir}\",\"generation\":{gen},\"domains\":{total},\"edges\":{edges_total},\"hop_sources\":{hop_sources},\"hop_rows\":{}}}", hop.len()).unwrap();
+    writeln!(w, "{{\"checkpoint\":\"{dir}\",\"generation\":{gen},\"domains\":{total},\"edges\":{edges_total},\"hop_sources\":{hop_sources},\"hop_rows\":{},\"apply_domains\":{},\"apply_inspected\":{},\"route_domains\":{},\"route_inspected\":{}}}",
+        hop.len(), by_phase[0][0], by_phase[0][1], by_phase[1][0], by_phase[1][1]).unwrap();
 }
