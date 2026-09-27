@@ -1,0 +1,73 @@
+# 2026-09-27T20:02:28Z project.py sha256 821797b344b2709a; input streams-g7-v4.jsonl sha256 fff559e5c95f375f
+[t1] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: 1 thread  cheap 100 ns
+  pipeline + L0 min-ID                 74M   7.755 ms/native =  59.7% | a=0.44:  24.32 ms  82.3% | a=0.65:  41.98 ms  88.9% | a=0.69:  46.59 ms  89.9% | a=0.73:  51.69 ms  90.8% | a=0.82:  65.33 ms  92.6%
+  pipeline + L0 first-found            74M   5.246 ms/native =  50.0% | a=0.44:  16.44 ms  75.8% | a=0.65:  28.37 ms  84.4% | a=0.69:  31.48 ms  85.7% | a=0.73:  34.93 ms  87.0% | a=0.82:  44.14 ms  89.4%
+  pipeline + SoA-id min-ID             74M   0.922 ms/native =  15.0% | a=0.44:   2.85 ms  35.3% | a=0.65:   4.91 ms  48.4% | a=0.69:   5.45 ms  51.0% | a=0.73:   6.05 ms  53.6% | a=0.82:   7.64 ms  59.3%
+  pipeline + SoA-id first-found        74M   0.528 ms/native =   9.2% | a=0.44:   1.62 ms  23.6% | a=0.65:   2.78 ms  34.7% | a=0.69:   3.08 ms  37.0% | a=0.73:   3.42 ms  39.5% | a=0.82:   4.31 ms  45.1%
+  pipeline + SoA-pattern min-ID        74M   1.657 ms/native =  24.0% | a=0.44:   5.16 ms  49.6% | a=0.65:   8.90 ms  62.9% | a=0.69:   9.88 ms  65.3% | a=0.73:  10.96 ms  67.6% | a=0.82:  13.84 ms  72.5%
+  pipeline + SoA-pattern first-found   74M   0.351 ms/native =   6.3% | a=0.44:   1.06 ms  16.8% | a=0.65:   1.82 ms  25.8% | a=0.69:   2.02 ms  27.8% | a=0.73:   2.23 ms  29.9% | a=0.82:   2.82 ms  35.0%
+  today's engine (counters x L0 cost)  74M  17.155 ms/native =  76.6% | a=0.44:  53.89 ms  91.1% | a=0.65:  93.07 ms  94.7% | a=0.69: 103.27 ms  95.2% | a=0.73: 114.60 ms  95.6% | a=0.82: 144.83 ms  96.5%
+[t48] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: per-set factors, 48 vs 1 threads (static-g7-threads.jsonl)  cheap 100 ns
+  pipeline + L0 min-ID                 74M  12.163 ms/native =  69.9% | a=0.44:  38.17 ms  87.9% | a=0.65:  65.90 ms  92.6% | a=0.69:  73.12 ms  93.3% | a=0.73:  81.14 ms  93.9% | a=0.82: 102.54 ms  95.1%
+  pipeline + L0 first-found            74M   8.379 ms/native =  61.5% | a=0.44:  26.28 ms  83.4% | a=0.65:  45.37 ms  89.6% | a=0.69:  50.34 ms  90.6% | a=0.73:  55.86 ms  91.4% | a=0.82:  70.59 ms  93.1%
+  pipeline + SoA-id min-ID             74M   1.890 ms/native =  26.5% | a=0.44:   5.90 ms  52.9% | a=0.65:  10.17 ms  66.0% | a=0.69:  11.28 ms  68.3% | a=0.73:  12.52 ms  70.5% | a=0.82:  15.81 ms  75.1%
+  pipeline + SoA-id first-found        74M   0.992 ms/native =  15.9% | a=0.44:   3.08 ms  37.0% | a=0.65:   5.30 ms  50.3% | a=0.69:   5.87 ms  52.9% | a=0.73:   6.52 ms  55.4% | a=0.82:   8.23 ms  61.1%
+  pipeline + SoA-pattern min-ID        74M   3.243 ms/native =  38.2% | a=0.44:  10.14 ms  65.9% | a=0.65:  17.50 ms  77.0% | a=0.69:  19.42 ms  78.8% | a=0.73:  21.55 ms  80.4% | a=0.82:  27.23 ms  83.9%
+  pipeline + SoA-pattern first-found   74M   0.670 ms/native =  11.3% | a=0.44:   2.06 ms  28.3% | a=0.65:   3.55 ms  40.4% | a=0.69:   3.94 ms  42.9% | a=0.73:   4.36 ms  45.4% | a=0.82:   5.51 ms  51.3%
+  today's engine (counters x L0 cost)  74M  26.544 ms/native =  83.5% | a=0.44:  83.39 ms  94.1% | a=0.65: 144.01 ms  96.5% | a=0.69: 159.80 ms  96.8% | a=0.73: 177.32 ms  97.1% | a=0.82: 224.11 ms  97.7%
+[t90] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: per-set factors, 90 vs 1 threads (static-g7-threads.jsonl)  cheap 100 ns
+  pipeline + L0 min-ID                 74M  14.354 ms/native =  73.3% | a=0.44:  45.05 ms  89.6% | a=0.65:  77.79 ms  93.7% | a=0.69:  86.31 ms  94.3% | a=0.73:  95.78 ms  94.8% | a=0.82: 121.04 ms  95.9%
+  pipeline + L0 first-found            74M  10.004 ms/native =  65.6% | a=0.44:  31.39 ms  85.7% | a=0.65:  54.19 ms  91.2% | a=0.69:  60.13 ms  92.0% | a=0.73:  66.72 ms  92.7% | a=0.82:  84.32 ms  94.1%
+  pipeline + SoA-id min-ID             74M   2.616 ms/native =  33.3% | a=0.44:   8.18 ms  60.9% | a=0.65:  14.11 ms  72.9% | a=0.69:  15.65 ms  74.9% | a=0.73:  17.36 ms  76.8% | a=0.82:  21.94 ms  80.7%
+  pipeline + SoA-id first-found        74M   1.278 ms/native =  19.6% | a=0.44:   3.97 ms  43.1% | a=0.65:   6.85 ms  56.7% | a=0.69:   7.60 ms  59.2% | a=0.73:   8.43 ms  61.7% | a=0.82:  10.65 ms  67.0%
+  pipeline + SoA-pattern min-ID        74M   4.708 ms/native =  47.3% | a=0.44:  14.75 ms  73.8% | a=0.65:  25.45 ms  82.9% | a=0.69:  28.24 ms  84.4% | a=0.73:  31.34 ms  85.7% | a=0.82:  39.60 ms  88.3%
+  pipeline + SoA-pattern first-found   74M   0.842 ms/native =  13.8% | a=0.44:   2.60 ms  33.2% | a=0.65:   4.48 ms  46.1% | a=0.69:   4.97 ms  48.7% | a=0.73:   5.51 ms  51.3% | a=0.82:   6.96 ms  57.0%
+  today's engine (counters x L0 cost)  74M  31.303 ms/native =  85.7% | a=0.44:  98.34 ms  94.9% | a=0.65: 169.82 ms  97.0% | a=0.69: 188.44 ms  97.3% | a=0.73: 209.11 ms  97.6% | a=0.82: 264.28 ms  98.1%
+[tf2.4] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: scalar factor 2.4  cheap 100 ns
+  pipeline + L0 min-ID                 74M  18.585 ms/native =  78.0% | a=0.44:  58.34 ms  91.8% | a=0.65: 100.74 ms  95.1% | a=0.69: 111.78 ms  95.5% | a=0.73: 124.04 ms  95.9% | a=0.82: 156.76 ms  96.8%
+  pipeline + L0 first-found            74M  12.563 ms/native =  70.6% | a=0.44:  39.42 ms  88.3% | a=0.65:  68.07 ms  92.9% | a=0.69:  75.53 ms  93.5% | a=0.73:  83.81 ms  94.1% | a=0.82: 105.92 ms  95.3%
+  pipeline + SoA-id min-ID             74M   2.185 ms/native =  29.4% | a=0.44:   6.82 ms  56.6% | a=0.65:  11.77 ms  69.2% | a=0.69:  13.05 ms  71.4% | a=0.73:  14.48 ms  73.4% | a=0.82:  18.30 ms  77.7%
+  pipeline + SoA-id first-found        74M   1.240 ms/native =  19.1% | a=0.44:   3.85 ms  42.4% | a=0.65:   6.64 ms  55.9% | a=0.69:   7.37 ms  58.4% | a=0.73:   8.17 ms  60.9% | a=0.82:  10.32 ms  66.3%
+  pipeline + SoA-pattern min-ID        74M   3.949 ms/native =  43.0% | a=0.44:  12.36 ms  70.2% | a=0.65:  21.34 ms  80.3% | a=0.69:  23.67 ms  81.9% | a=0.73:  26.27 ms  83.4% | a=0.82:  33.19 ms  86.4%
+  pipeline + SoA-pattern first-found   74M   0.816 ms/native =  13.5% | a=0.44:   2.52 ms  32.5% | a=0.65:   4.34 ms  45.3% | a=0.69:   4.81 ms  47.9% | a=0.73:   5.34 ms  50.5% | a=0.82:   6.74 ms  56.3%
+  today's engine (counters x L0 cost)  74M  41.171 ms/native =  88.7% | a=0.44: 129.34 ms  96.1% | a=0.65: 223.36 ms  97.7% | a=0.69: 247.85 ms  97.9% | a=0.73: 275.03 ms  98.1% | a=0.82: 347.60 ms  98.5%
+[tf2.6] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: scalar factor 2.6  cheap 100 ns
+  pipeline + L0 min-ID                 74M  20.132 ms/native =  79.3% | a=0.44:  63.20 ms  92.3% | a=0.65: 109.13 ms  95.4% | a=0.69: 121.10 ms  95.9% | a=0.73: 134.37 ms  96.2% | a=0.82: 169.82 ms  97.0%
+  pipeline + L0 first-found            74M  13.608 ms/native =  72.2% | a=0.44:  42.71 ms  89.1% | a=0.65:  73.74 ms  93.4% | a=0.69:  81.82 ms  94.0% | a=0.73:  90.79 ms  94.5% | a=0.82: 114.74 ms  95.6%
+  pipeline + SoA-id min-ID             74M   2.365 ms/native =  31.1% | a=0.44:   7.39 ms  58.5% | a=0.65:  12.75 ms  70.9% | a=0.69:  14.14 ms  73.0% | a=0.73:  15.69 ms  75.0% | a=0.82:  19.82 ms  79.1%
+  pipeline + SoA-id first-found        74M   1.342 ms/native =  20.4% | a=0.44:   4.17 ms  44.3% | a=0.65:   7.19 ms  57.9% | a=0.69:   7.98 ms  60.4% | a=0.73:   8.85 ms  62.8% | a=0.82:  11.18 ms  68.1%
+  pipeline + SoA-pattern min-ID        74M   4.276 ms/native =  44.9% | a=0.44:  13.39 ms  71.9% | a=0.65:  23.11 ms  81.5% | a=0.69:  25.64 ms  83.0% | a=0.73:  28.45 ms  84.4% | a=0.82:  35.96 ms  87.3%
+  pipeline + SoA-pattern first-found   74M   0.882 ms/native =  14.4% | a=0.44:   2.73 ms  34.2% | a=0.65:   4.70 ms  47.3% | a=0.69:   5.21 ms  49.9% | a=0.73:   5.78 ms  52.4% | a=0.82:   7.30 ms  58.2%
+  today's engine (counters x L0 cost)  74M  44.602 ms/native =  89.5% | a=0.44: 140.12 ms  96.4% | a=0.65: 241.97 ms  97.9% | a=0.69: 268.51 ms  98.1% | a=0.73: 297.95 ms  98.3% | a=0.82: 376.56 ms  98.6%
+[t90-native3.75] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 19.648 (scale 3.75)  threads: per-set factors, 90 vs 1 threads (static-g7-threads.jsonl)  cheap 100 ns
+  pipeline + L0 min-ID                 74M  14.354 ms/native =  42.2% | a=0.44:  45.05 ms  69.6% | a=0.65:  77.79 ms  79.8% | a=0.69:  86.31 ms  81.5% | a=0.73:  95.78 ms  83.0% | a=0.82: 121.04 ms  86.0%
+  pipeline + L0 first-found            74M  10.004 ms/native =  33.7% | a=0.44:  31.39 ms  61.5% | a=0.65:  54.19 ms  73.4% | a=0.69:  60.13 ms  75.4% | a=0.73:  66.72 ms  77.3% | a=0.82:  84.32 ms  81.1%
+  pipeline + SoA-id min-ID             74M   2.616 ms/native =  11.8% | a=0.44:   8.18 ms  29.4% | a=0.65:  14.11 ms  41.8% | a=0.69:  15.65 ms  44.3% | a=0.73:  17.36 ms  46.9% | a=0.82:  21.94 ms  52.8%
+  pipeline + SoA-id first-found        74M   1.278 ms/native =   6.1% | a=0.44:   3.97 ms  16.8% | a=0.65:   6.85 ms  25.8% | a=0.69:   7.60 ms  27.9% | a=0.73:   8.43 ms  30.0% | a=0.82:  10.65 ms  35.1%
+  pipeline + SoA-pattern min-ID        74M   4.708 ms/native =  19.3% | a=0.44:  14.75 ms  42.9% | a=0.65:  25.45 ms  56.4% | a=0.69:  28.24 ms  59.0% | a=0.73:  31.34 ms  61.5% | a=0.82:  39.60 ms  66.8%
+  pipeline + SoA-pattern first-found   74M   0.842 ms/native =   4.1% | a=0.44:   2.60 ms  11.7% | a=0.65:   4.48 ms  18.6% | a=0.69:   4.97 ms  20.2% | a=0.73:   5.51 ms  21.9% | a=0.82:   6.96 ms  26.2%
+  today's engine (counters x L0 cost)  74M  31.303 ms/native =  61.4% | a=0.44:  98.34 ms  83.3% | a=0.65: 169.82 ms  89.6% | a=0.69: 188.44 ms  90.6% | a=0.73: 209.11 ms  91.4% | a=0.82: 264.28 ms  93.1%
+[t1-k64] k=64 jobs 273,070  requests/job 225.6  cheap 200.5  layer-hit 21.93  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: 1 thread  cheap 100 ns
+  pipeline + L0 min-ID                 74M   7.214 ms/native =  57.9% | a=0.44:  22.62 ms  81.2% | a=0.65:  39.05 ms  88.2% | a=0.69:  43.33 ms  89.2% | a=0.73:  48.07 ms  90.2% | a=0.82:  60.75 ms  92.1%
+  pipeline + L0 first-found            74M   5.015 ms/native =  48.9% | a=0.44:  15.71 ms  75.0% | a=0.65:  27.12 ms  83.8% | a=0.69:  30.09 ms  85.2% | a=0.73:  33.38 ms  86.4% | a=0.82:  42.19 ms  89.0%
+  pipeline + SoA-id min-ID             74M   0.850 ms/native =  14.0% | a=0.44:   2.63 ms  33.4% | a=0.65:   4.52 ms  46.3% | a=0.69:   5.02 ms  48.9% | a=0.73:   5.57 ms  51.5% | a=0.82:   7.03 ms  57.3%
+  pipeline + SoA-id first-found        74M   0.505 ms/native =   8.8% | a=0.44:   1.54 ms  22.8% | a=0.65:   2.65 ms  33.6% | a=0.69:   2.94 ms  35.9% | a=0.73:   3.26 ms  38.4% | a=0.82:   4.12 ms  44.0%
+  pipeline + SoA-pattern min-ID        74M   1.479 ms/native =  22.0% | a=0.44:   4.60 ms  46.8% | a=0.65:   7.94 ms  60.2% | a=0.69:   8.80 ms  62.7% | a=0.73:   9.77 ms  65.1% | a=0.82:  12.34 ms  70.2%
+  pipeline + SoA-pattern first-found   74M   0.335 ms/native =   6.0% | a=0.44:   1.01 ms  16.2% | a=0.65:   1.73 ms  24.8% | a=0.69:   1.92 ms  26.8% | a=0.73:   2.12 ms  28.8% | a=0.82:   2.68 ms  33.8%
+  today's engine (counters x L0 cost)  74M  17.155 ms/native =  76.6% | a=0.44:  53.89 ms  91.1% | a=0.65:  93.07 ms  94.7% | a=0.69: 103.27 ms  95.2% | a=0.73: 114.60 ms  95.6% | a=0.82: 144.83 ms  96.5%
+[t1-cheap300] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: 1 thread  cheap 300 ns
+  pipeline + L0 min-ID                 74M   7.795 ms/native =  59.8% | a=0.44:  24.36 ms  82.3% | a=0.65:  42.02 ms  88.9% | a=0.69:  46.63 ms  89.9% | a=0.73:  51.73 ms  90.8% | a=0.82:  65.37 ms  92.6%
+  pipeline + L0 first-found            74M   5.286 ms/native =  50.2% | a=0.44:  16.48 ms  75.9% | a=0.65:  28.41 ms  84.4% | a=0.69:  31.52 ms  85.7% | a=0.73:  34.97 ms  87.0% | a=0.82:  44.18 ms  89.4%
+  pipeline + SoA-id min-ID             74M   0.961 ms/native =  15.5% | a=0.44:   2.89 ms  35.6% | a=0.65:   4.95 ms  48.6% | a=0.69:   5.49 ms  51.2% | a=0.73:   6.09 ms  53.7% | a=0.82:   7.68 ms  59.4%
+  pipeline + SoA-id first-found        74M   0.568 ms/native =   9.8% | a=0.44:   1.66 ms  24.0% | a=0.65:   2.82 ms  35.0% | a=0.69:   3.12 ms  37.3% | a=0.73:   3.46 ms  39.7% | a=0.82:   4.35 ms  45.4%
+  pipeline + SoA-pattern min-ID        74M   1.696 ms/native =  24.5% | a=0.44:   5.20 ms  49.8% | a=0.65:   8.94 ms  63.1% | a=0.69:   9.91 ms  65.4% | a=0.73:  11.00 ms  67.7% | a=0.82:  13.88 ms  72.6%
+  pipeline + SoA-pattern first-found   74M   0.391 ms/native =   6.9% | a=0.44:   1.10 ms  17.4% | a=0.65:   1.86 ms  26.2% | a=0.69:   2.06 ms  28.2% | a=0.73:   2.27 ms  30.3% | a=0.82:   2.86 ms  35.3%
+  today's engine (counters x L0 cost)  74M  17.155 ms/native =  76.6% | a=0.44:  53.89 ms  91.1% | a=0.65:  93.07 ms  94.7% | a=0.69: 103.27 ms  95.2% | a=0.73: 114.60 ms  95.6% | a=0.82: 144.83 ms  96.5%
+[t90-cheap300] k=16 jobs 273,070  requests/job 225.6  cheap 197.4  layer-hit 25.02  miss 3.21  native ms/job 5.239 (scale 1.0)  threads: per-set factors, 90 vs 1 threads (static-g7-threads.jsonl)  cheap 300 ns
+  pipeline + L0 min-ID                 74M  14.394 ms/native =  73.3% | a=0.44:  45.09 ms  89.6% | a=0.65:  77.82 ms  93.7% | a=0.69:  86.35 ms  94.3% | a=0.73:  95.82 ms  94.8% | a=0.82: 121.08 ms  95.9%
+  pipeline + L0 first-found            74M  10.044 ms/native =  65.7% | a=0.44:  31.43 ms  85.7% | a=0.65:  54.23 ms  91.2% | a=0.69:  60.17 ms  92.0% | a=0.73:  66.76 ms  92.7% | a=0.82:  84.36 ms  94.2%
+  pipeline + SoA-id min-ID             74M   2.656 ms/native =  33.6% | a=0.44:   8.22 ms  61.1% | a=0.65:  14.14 ms  73.0% | a=0.69:  15.69 ms  75.0% | a=0.73:  17.40 ms  76.9% | a=0.82:  21.98 ms  80.8%
+  pipeline + SoA-id first-found        74M   1.318 ms/native =  20.1% | a=0.44:   4.01 ms  43.4% | a=0.65:   6.89 ms  56.8% | a=0.69:   7.64 ms  59.3% | a=0.73:   8.47 ms  61.8% | a=0.82:  10.68 ms  67.1%
+  pipeline + SoA-pattern min-ID        74M   4.747 ms/native =  47.5% | a=0.44:  14.79 ms  73.8% | a=0.65:  25.49 ms  83.0% | a=0.69:  28.28 ms  84.4% | a=0.73:  31.38 ms  85.7% | a=0.82:  39.64 ms  88.3%
+  pipeline + SoA-pattern first-found   74M   0.881 ms/native =  14.4% | a=0.44:   2.64 ms  33.5% | a=0.65:   4.52 ms  46.3% | a=0.69:   5.01 ms  48.9% | a=0.73:   5.55 ms  51.4% | a=0.82:   7.00 ms  57.2%
+  today's engine (counters x L0 cost)  74M  31.303 ms/native =  85.7% | a=0.44:  98.34 ms  94.9% | a=0.65: 169.82 ms  97.0% | a=0.69: 188.44 ms  97.3% | a=0.73: 209.11 ms  97.6% | a=0.82: 264.28 ms  98.1%

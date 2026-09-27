@@ -1,0 +1,30 @@
+decoded 74156033 domains in 13.4s
+projected in 39.9s
+gen 00000000000000000007: domains 74156033 buckets 8040 groups 459075 blocks 1993524 live 37907667; checks: signature mismatches 0, owner/phase mismatches 0, stored-envelope violations 0, projection clamps 0, u8-lane saturating summaries 0, empty summaries 0, distinct raw digests 74156033
+world ready in 49.8s
+frac 1024/1024: live 37907667; layouts built in 21.8s; soa blocks 1514924 entries 37907667
+frac 512/1024: live 18954422; layouts built in 11.1s; soa blocks 893684 entries 18954422
+frac 256/1024: live 9477183; layouts built in 7.8s; soa blocks 559592 entries 9477183
+	Command being timed: "/common/dev/rustred/TMP/w0/intel/bin/idxreplay-v1 static --ckpt /common/dev/rustred/.claude/worktrees/fable51-py/TMP/gen7 --gen 00000000000000000007 --samples 20000 --fracs 1024,512,256 --threads 1 --seconds 6 --label g7-static-1t --out static-g7-1t.jsonl"
+	User time (seconds): 506.24
+	System time (seconds): 70.08
+	Percent of CPU this job got: 113%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 8:26.36
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 34766280
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 133
+	Minor (reclaiming a frame) page faults: 23561365
+	Voluntary context switches: 4629
+	Involuntary context switches: 2767
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 245
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

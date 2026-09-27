@@ -1,0 +1,32 @@
+| layout | request set | threads | requests/s | CPU ns / tested candidate | CPU µs / request | candidates tested / request |
+|---|---|---:|---:|---:|---:|---:|
+| l0-stored | miss | 1 | 772 | 114.02 | 1,271.5 | 11,152 |
+| l0-stored | hit-firstfound | 1 | 2,188 | 83.05 | 447.9 | 5,394 |
+| l0-stored | hit-minid | 1 | 1,138 | 74.78 | 863.6 | 11,549 |
+| l0-stored | reverse | 1 | 1,409 | 61.69 | 698.3 | 11,320 |
+| l0-stored | word-only | 1 | 2,520 | 34.86 | 390.1 | 11,190 |
+| soa-id | miss | 1 | 10,166 | 10.94 | 97.0 | 8,859 |
+| soa-id | hit-firstfound | 1 | 21,437 | 10.28 | 46.0 | 4,473 |
+| soa-id | hit-minid | 1 | 7,817 | 13.06 | 125.8 | 9,627 |
+| soa-id | reverse | 1 | 12,891 | 8.31 | 76.4 | 9,195 |
+| soa-id | word-only | 1 | 17,873 | 6.22 | 55.1 | 8,861 |
+| soa-pattern | miss | 1 | 17,445 | 10.98 | 56.4 | 5,134 |
+| soa-pattern | hit-firstfound | 1 | 38,598 | 9.75 | 25.4 | 2,606 |
+| soa-pattern | hit-minid | 1 | 15,731 | 9.51 | 62.6 | 6,583 |
+| soa-pattern | reverse | 1 | 34,049 | 12.46 | 28.9 | 2,318 |
+| soa-pattern | word-only | 1 | 30,197 | 6.36 | 32.6 | 5,131 |
+| l0-stored | miss | 18 | 17,908 | 86.36 | 966.3 | 11,190 |
+| l0-stored | hit-firstfound | 18 | 41,611 | 78.32 | 423.3 | 5,404 |
+| l0-stored | hit-minid | 18 | 18,049 | 84.07 | 965.8 | 11,489 |
+| l0-stored | reverse | 18 | 21,091 | 75.12 | 836.3 | 11,133 |
+| l0-stored | word-only | 18 | 28,894 | 54.64 | 612.0 | 11,200 |
+| soa-id | miss | 18 | 160,775 | 12.39 | 109.9 | 8,872 |
+| soa-id | hit-firstfound | 18 | 388,637 | 9.97 | 44.6 | 4,473 |
+| soa-id | hit-minid | 18 | 147,604 | 12.04 | 115.9 | 9,623 |
+| soa-id | reverse | 18 | 188,669 | 10.14 | 93.1 | 9,185 |
+| soa-id | word-only | 18 | 270,723 | 7.20 | 63.8 | 8,871 |
+| soa-pattern | miss | 18 | 239,268 | 14.38 | 73.8 | 5,134 |
+| soa-pattern | hit-firstfound | 18 | 614,791 | 11.00 | 28.7 | 2,606 |
+| soa-pattern | hit-minid | 18 | 196,809 | 13.43 | 88.4 | 6,582 |
+| soa-pattern | reverse | 18 | 403,938 | 18.65 | 43.2 | 2,317 |
+| soa-pattern | word-only | 18 | 366,984 | 9.25 | 47.5 | 5,133 |

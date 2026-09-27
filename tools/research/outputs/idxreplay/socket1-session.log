@@ -1,0 +1,4 @@
+2026-09-27T14:49:10Z socket1 lock acquired; MemAvailable 816 GiB
+2026-09-27T15:17:58Z phase 1 done after 1728 s
+2026-09-27T15:27:04Z phase 2 exit 0 after 2274 s
+2026-09-27T15:27:04Z socket1 lock released after 2274 s
