@@ -462,38 +462,6 @@ fn binary_closure_sections_reject_endpoint_duplicate_closed_unsealed_and_counts(
 }
 
 #[test]
-fn cancelled_pre_save_refresh_persists_a_stale_but_valid_snapshot() {
-    let state = point_state(3);
-    state.closure.borrow_mut().edge(0, 1);
-    let fixture = Fixture::save(&state);
-    let report = |state: &State<1>| state.closure.borrow().json(3, 3);
-    assert_eq!(
-        report(&fixture.resume::<1>().unwrap())["snapshot_stale"],
-        false
-    );
-    state.closure.borrow_mut().edge(1, 2);
-    let mut store = fixture.open(true).unwrap();
-    store.bind_owners(vec![OWNER.into()]).unwrap();
-    let saved = store
-        .save_cancellable(
-            &state,
-            &[],
-            &[],
-            SaveKind::Forced,
-            &AtomicBool::new(true),
-            &|_| {},
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(saved["checkpoint"]["generation"], 3);
-    drop(store);
-    let restored = report(&fixture.resume::<1>().unwrap());
-    assert_eq!(restored["available"], true, "the monitor was not disabled");
-    assert_eq!(restored["snapshot_stale"], true);
-    assert_eq!(restored["dependency_edges"], 2);
-}
-
-#[test]
 fn final_and_cancelled_saves_persist_the_log_without_folding_it() {
     let state = point_state(40);
     let add = |source: usize, targets: std::ops::Range<usize>| {

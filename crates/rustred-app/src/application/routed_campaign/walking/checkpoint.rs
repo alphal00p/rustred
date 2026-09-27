@@ -582,8 +582,9 @@ impl Store {
         self.save_cancellable(state, inputs, frontiers, kind, &never, observer)
     }
     /// Write one generation when the interval elapsed (or the save is not
-    /// `Periodic`). The run's `cancellation` shortens the pre-save closure
-    /// refresh and, once set, suppresses the post-save fold of the edge log.
+    /// `Periodic`). The run's `cancellation`, once set, suppresses the
+    /// post-save fold of the edge log; it never cuts the pre-save closure
+    /// refresh, whose snapshot the generation persists.
     pub(super) fn save_cancellable<const N: usize>(
         &mut self,
         state: &State<N>,
@@ -617,11 +618,13 @@ impl Store {
             return Ok(None);
         }
         // The pre-save scan is part of the save's cost (and of the adaptive
-        // interval). Persisted closed counts are current unless the run is
-        // being cancelled or scratch is short; then the previous snapshot,
-        // stale but valid, is persisted and the monitor stays enabled.
+        // interval). As in 102adcc3, the persisted CLOSED bits and closed
+        // counts are current even while the run is being cancelled: a paused
+        // generation matches the one 102adcc3 writes for the same state. Only
+        // short scratch persists the previous snapshot (stale but valid) and
+        // keeps the monitor enabled.
         let started = Instant::now();
-        state.closure.borrow_mut().refresh_before_save(cancellation);
+        state.closure.borrow_mut().refresh_before_save();
         let started_unix_time = unix_time()?;
         let directory = self.options.directory.clone();
         // A sidecar's open segment already reserved this save's generation.

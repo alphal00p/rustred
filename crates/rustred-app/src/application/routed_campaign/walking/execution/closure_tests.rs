@@ -507,24 +507,73 @@ fn exhausted_walk_reports_a_current_closure_despite_a_late_stop_request() {
     assert_eq!(report["snapshot_stale"], false);
     assert_eq!(report["total_closed"], 2);
     assert_eq!(state.closure.borrow().closed(0), Some(true));
-    // So does the final save, which persists that snapshot.
+    // So does the final save, which persists that snapshot: a save's scan
+    // is never cut, whatever the run's cancellation says.
     let mut resumed = fixture.resume::<1>().unwrap();
     resumed.commit(1, finished());
     let mut store = fixture.open(true).unwrap();
     store.bind_owners(vec![OWNER.into()]).unwrap();
     store
-        .save_cancellable(
-            &resumed,
-            &[],
-            &[],
-            SaveKind::Final,
-            resumed.report_cancellation(&stop),
-            &|_| {},
-        )
+        .save_cancellable(&resumed, &[], &[], SaveKind::Final, &stop, &|_| {})
         .unwrap()
         .unwrap();
     drop(store);
     let persisted = fixture.resume::<1>().unwrap().closure_json();
     assert_eq!(persisted["snapshot_stale"], false);
     assert_eq!(persisted["total_closed"], 2);
+}
+
+#[test]
+fn saves_under_a_stop_request_persist_a_current_closure_snapshot() {
+    // 102adcc3 scanned before every save with a never-set flag, so a stop
+    // request must not change what a generation persists; least of all the
+    // paused generation that the walk's final save writes.
+    let mut queue = Queue::new(10, None);
+    for value in [0, 5, 6] {
+        queue.admit(point(Phase::Apply, value)).unwrap();
+    }
+    let mut state = State::new(queue, 0, None);
+    admit(&mut state, point(Phase::Apply, 1)); // 0 -> 3 keeps 0 and 3 open.
+    let fixture = Fixture::save(&state);
+    let stop = AtomicBool::new(true);
+    let save = |state: &State<1>, kind| {
+        let mut store = fixture.open(true).unwrap();
+        store.bind_owners(vec![OWNER.into()]).unwrap();
+        store
+            .save_cancellable(state, &[], &[], kind, &stop, &|_| {})
+            .unwrap()
+            .expect("the state changed since the previous generation");
+    };
+    let closed = |report: &Value| {
+        (
+            report["snapshot_stale"].clone(),
+            report["total_closed"].clone(),
+            report["initial_closed"].clone(),
+        )
+    };
+    state.commit(0, finished());
+    state.commit(1, finished());
+    // The in-loop refresh is cut by the stop request: stale in memory.
+    state.refresh_closure(&stop, true);
+    assert_eq!(state.closure_json()["snapshot_stale"], true);
+    save(&state, SaveKind::Forced);
+    let persisted = fixture.resume::<1>().unwrap().closure_json();
+    assert_eq!(closed(&persisted), (json!(false), json!(1), json!(1)));
+    state.commit(2, finished());
+    state.checkpoint_paused = true;
+    assert!(std::ptr::eq(state.report_cancellation(&stop), &stop));
+    save(&state, SaveKind::Final);
+    let persisted = fixture.resume::<1>().unwrap().closure_json();
+    assert_eq!(closed(&persisted), (json!(false), json!(2), json!(2)));
+    assert_eq!(fixture.manifest()["metadata"]["paused"], true);
+
+    // A save short of scratch memory keeps the previous snapshot; restore
+    // accepts such a stale-but-valid one (closed nodes stay closed).
+    fixture.rewrite_section::<1>(Section::Meta, |meta| {
+        let revision = meta["closure"]["revision"].as_u64().unwrap();
+        meta["closure"]["snapshot_revision"] = json!(revision - 1);
+    });
+    let restored = fixture.resume::<1>().unwrap().closure_json();
+    assert_eq!(restored["available"], true);
+    assert_eq!(closed(&restored), (json!(true), json!(2), json!(2)));
 }

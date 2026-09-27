@@ -207,12 +207,15 @@ impl Tracker {
         }
     }
 
-    /// The forced scan before a checkpoint save. Cancellation or missing
-    /// scratch memory leaves the previous snapshot in place: stale but valid
-    /// (closed nodes stay closed), which restore accepts, so the save never
-    /// gives up the monitor it is about to persist.
-    pub fn refresh_before_save(&mut self, cancellation: &AtomicBool) {
-        let _ = self.scan(cancellation, true);
+    /// The forced scan before a checkpoint save. As in 102adcc3, the run's
+    /// cancellation never cuts it: the CLOSED bits and closure counters a
+    /// generation persists (the paused one a stop request leaves included)
+    /// are those of a current snapshot. Only missing scratch memory leaves
+    /// the previous snapshot in place: stale but valid (closed nodes stay
+    /// closed), which restore accepts, so the save never gives up the monitor
+    /// it is about to persist (102adcc3 disabled it there).
+    pub fn refresh_before_save(&mut self) {
+        let _ = self.scan(&AtomicBool::new(false), true);
     }
 
     fn scan(&mut self, cancellation: &AtomicBool, force: bool) -> Result<(), ScratchUnavailable> {
@@ -681,19 +684,21 @@ mod tests {
         assert!(!restored.json(2, 1)["available"].as_bool().unwrap());
     }
     #[test]
-    fn save_path_refresh_never_disables_and_honours_cancellation() {
+    fn save_path_refresh_is_never_throttled_and_keeps_the_monitor() {
         let mut g = Tracker::new(1);
         g.discovered(2);
         g.edge(0, 1);
         g.finish(1, true, true);
+        g.refresh(&AtomicBool::new(false), true);
+        assert_eq!((g.refresh_count, g.total_closed), (1, 1));
         g.finish(0, true, true);
-        g.refresh_before_save(&AtomicBool::new(true));
-        assert_eq!(g.refresh_count, 0, "a cancelled pre-save scan does nothing");
-        assert_eq!(g.total_closed, 0);
+        g.refresh(&AtomicBool::new(false), false);
+        assert_eq!(g.refresh_count, 1, "the periodic scan is throttled");
         assert!(g.json(2, 1)["snapshot_stale"].as_bool().unwrap());
-        g.refresh_before_save(&AtomicBool::new(false));
-        assert_eq!(g.refresh_count, 1);
+        g.refresh_before_save();
+        assert_eq!(g.refresh_count, 2);
         assert_eq!(g.total_closed, 2);
+        assert!(!g.json(2, 1)["snapshot_stale"].as_bool().unwrap());
         assert!(g.unavailable.is_none());
     }
     #[test]

@@ -283,8 +283,8 @@ impl<const N: usize> State<N> {
     pub(super) fn refresh_closure(&self, cancellation: &AtomicBool, force: bool) {
         self.closure.borrow_mut().refresh(cancellation, force);
     }
-    /// The flag that may cut the closure scans behind the final report (the
-    /// final save's and the report's own). A walk that exhausted its worklist
+    /// The flag that may cut the closure scan behind the final report (the
+    /// checkpoint saves never cut theirs). A walk that exhausted its worklist
     /// without pausing or failing annotates every record from that snapshot,
     /// so a stop request racing its last publication must not leave them
     /// stale; a pause or an interrupted walk keeps the run's cancellation.

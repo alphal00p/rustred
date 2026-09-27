@@ -830,7 +830,7 @@ fn run<const N: usize>(
                         &inputs,
                         &input_frontiers,
                         checkpoint::SaveKind::Final,
-                        state.report_cancellation(cancellation),
+                        cancellation,
                         observer,
                     )
                     .map_err(AppError::input)?
