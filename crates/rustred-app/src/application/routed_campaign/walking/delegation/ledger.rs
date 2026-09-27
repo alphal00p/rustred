@@ -5,7 +5,9 @@ mod checkpoint;
 mod order;
 #[cfg(test)]
 mod order_tests;
-pub(in super::super) use order::{DISPATCH_ORDER_ENV, DispatchOrder, support_volume_priority};
+pub(in super::super) use order::{
+    DISPATCH_ORDER_ENV, DispatchOrder, age_bound_from_env, support_volume_priority,
+};
 use order::{OrderStats, Prioritized};
 #[cfg(test)]
 mod ready_tests;
@@ -125,6 +127,16 @@ impl<K: Copy + Eq> Ledger<K> {
         self.order
     }
 
+    /// Starvation bound of support-then-volume and depth-first (see
+    /// `AGE_BOUND_ENV`); ignored by FIFO and closure boost.
+    pub fn set_age_bound(&mut self, bound: Option<usize>) {
+        self.prioritized.age_bound = bound;
+    }
+
+    pub fn age_bound(&self) -> Option<usize> {
+        self.prioritized.age_bound
+    }
+
     /// Ready with a non-FIFO order: the dispatcher takes reserved IDs from
     /// `take_reserved` and publishes transferred aliases from
     /// `take_transferred` instead of walking IDs in order.
@@ -165,7 +177,9 @@ impl<K: Copy + Eq> Ledger<K> {
     }
 
     pub fn order_json(&self) -> serde_json::Value {
-        self.stats.json(self.order, self.native_publications)
+        let mut value = self.stats.json(self.order, self.native_publications);
+        value["age_bound"] = serde_json::json!(self.prioritized.age_bound);
+        value
     }
 
     pub fn reservation_scan(&self) -> usize {
@@ -621,6 +635,24 @@ impl<K: Copy + Eq> Ledger<K> {
         let unreserved =
             |id: usize| entries[id].responsibility == Responsibility::Local(Local::Unreserved);
         let p = &mut self.prioritized;
+        if let Some(bound) = p.age_bound
+            && matches!(
+                self.order,
+                DispatchOrder::SupportVolume | DispatchOrder::DepthFirst
+            )
+        {
+            while p.fifo_scan < entries.len() && !unreserved(p.fifo_scan) {
+                p.fifo_scan += 1;
+            }
+            if p.fifo_scan < entries.len()
+                && p.fifo_scan.saturating_add(bound).saturating_add(1) < entries.len()
+            {
+                let id = p.fifo_scan;
+                p.fifo_scan += 1;
+                self.stats.aged_reservations += 1;
+                return Some(id);
+            }
+        }
         match self.order {
             DispatchOrder::SupportVolume => {
                 while let Some((_, Reverse(id))) = p.heap.pop() {

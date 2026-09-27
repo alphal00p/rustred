@@ -26,7 +26,7 @@ while :; do
 done
 cd "$WT"
 start=$(date +%s)
-flock -w 14400 "$LOCK" nice -n 5 taskset -c 118-127,256-263 env \
+flock -w 14400 "$LOCK" nice -n 5 taskset -c "${BUILD_CPUS:-118-127,256-263}" env \
   TMPDIR="$WT/TMP" CARGO_TARGET_DIR="$TARGET" RUSTFLAGS="$FLAGS" \
   nix develop --command cargo build --profile "$PROFILE" --locked --offline \
   -p rustred-app --bin rustred

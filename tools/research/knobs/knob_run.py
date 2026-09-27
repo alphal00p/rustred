@@ -256,6 +256,7 @@ def main():
     env.update(extra_env)
     json.dump({"argv": argv, "env": extra_env, "cpus": args.cpus, "nice": args.nice},
               open(out / "command.json", "w"), indent=1)
+    json.dump(argv, open(out / "argv.json", "w"), indent=1)
     cpus = cpu_list(args.cpus)
     stderr = open(out / "stderr", "w")
     stdout = open(out / "stdout", "w")

@@ -685,6 +685,10 @@ fn run<const N: usize>(
             })?
             .set_dispatch_order(dispatch_order)
             .map_err(AppError::input)?;
+        let age_bound = delegation::age_bound_from_env().map_err(AppError::input)?;
+        if let Some(ledger) = queue.delegation.as_mut() {
+            ledger.set_age_bound(age_bound);
+        }
     }
     if request.reuse_initial_d_bands && restored.is_none() {
         queue

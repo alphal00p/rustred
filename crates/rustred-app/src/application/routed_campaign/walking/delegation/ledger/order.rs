@@ -13,6 +13,23 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
 pub(in super::super::super) const DISPATCH_ORDER_ENV: &str = "RUSTRED_WALK_DISPATCH_ORDER";
+/// Starvation bound of the priority orders: when the oldest Unreserved ID
+/// trails the newest admission by more than this many IDs, it is reserved
+/// first (FIFO fallback). Unset: no bound.
+pub(in super::super::super) const AGE_BOUND_ENV: &str = "RUSTRED_WALK_ORDER_AGE_BOUND";
+
+pub(in super::super::super) fn age_bound_from_env() -> Result<Option<usize>, String> {
+    match std::env::var(AGE_BOUND_ENV) {
+        Ok(value) if value.trim().is_empty() => Ok(None),
+        Ok(value) => value
+            .trim()
+            .parse::<usize>()
+            .map(Some)
+            .map_err(|error| format!("{AGE_BOUND_ENV}={value:?}: {error}")),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(format!("{AGE_BOUND_ENV}: {error}")),
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in super::super::super) enum DispatchOrder {
@@ -83,8 +100,10 @@ pub(in super::super::super) fn support_volume_priority(support: usize, log2_volu
 pub(super) struct Prioritized {
     pub heap: BinaryHeap<(u64, Reverse<usize>)>,
     pub stack: Vec<usize>,
-    /// ClosureBoost base order: ID-ordered scan over Unreserved entries.
+    /// ClosureBoost base order and the age-bound fallback: ID-ordered scan
+    /// over Unreserved entries.
     pub fifo_scan: usize,
+    pub age_bound: Option<usize>,
     pub boost: VecDeque<usize>,
     boosted: Vec<u64>,
     /// Reserved IDs not yet handed to a worker, in reservation order.
@@ -128,6 +147,8 @@ pub(super) struct OrderStats {
     pub boost_pushed: usize,
     pub boost_reserved: usize,
     pub boost_rounds: usize,
+    /// Reservations taken by the age-bound FIFO fallback.
+    pub aged_reservations: usize,
 }
 
 impl OrderStats {
@@ -154,7 +175,7 @@ impl OrderStats {
             "unreserved":self.unreserved,"peak_unreserved":self.peak_unreserved,
             "peak_pending":self.peak_pending,"reservations":self.reservations,
             "boost_pushed":self.boost_pushed,"boost_reserved":self.boost_reserved,
-            "boost_rounds":self.boost_rounds,
+            "boost_rounds":self.boost_rounds,"aged_reservations":self.aged_reservations,
             "scope":"this_process_session; mistakes = reverse retirements of IDs already Reserved, Started or Published; measurement knob, not persisted"})
     }
 }

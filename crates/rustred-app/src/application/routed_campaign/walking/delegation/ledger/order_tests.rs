@@ -198,3 +198,18 @@ fn support_volume_priority_orders_support_before_volume() {
         support_volume_priority(4, 0.0)
     );
 }
+
+#[test]
+fn age_bound_reserves_the_oldest_pending_id_once_it_trails_too_far() {
+    let mut ledger = ready(1, DispatchOrder::SupportVolume);
+    ledger.set_age_bound(Some(2));
+    // Priorities favour the newest IDs; 0 is reserved at its own admission.
+    for priority in [0, 1, 2, 3, 4, 5] {
+        admit(&mut ledger, priority);
+    }
+    // After 0: ID 1 trails the newest (5) by more than 2 -> aged fallback,
+    // then 2 (still > 2 behind), then 3 is within the bound -> priority (5, 4, 3).
+    assert_eq!(drain(&mut ledger), vec![0, 1, 2, 5, 4, 3]);
+    assert_eq!(ledger.order_json()["aged_reservations"], 2);
+    assert_eq!(ledger.order_json()["age_bound"], 2);
+}
