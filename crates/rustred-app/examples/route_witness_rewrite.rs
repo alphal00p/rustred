@@ -39,8 +39,13 @@ fn rational_parts(r: &Rational) -> (i128, i128) {
 }
 
 fn from_ints(rows: &[Vec<i64>]) -> M {
-    Matrix::from_nested_vec(rows.iter().map(|r| r.iter().map(|&x| Rational::from(x)).collect()).collect(), Q)
-        .expect("matrix shape")
+    Matrix::from_nested_vec(
+        rows.iter()
+            .map(|r| r.iter().map(|&x| Rational::from(x)).collect())
+            .collect(),
+        Q,
+    )
+    .expect("matrix shape")
 }
 
 fn to_ints(m: &M) -> Option<Vec<Vec<i64>>> {
@@ -89,7 +94,9 @@ fn parse_momentum(text: &str, loops: usize) -> Vec<i64> {
 
 fn row_times(v: &[i64], m: &[Vec<i64>]) -> Vec<i64> {
     let n = m[0].len();
-    (0..n).map(|j| v.iter().zip(m).map(|(a, row)| a * row[j]).sum()).collect()
+    (0..n)
+        .map(|j| v.iter().zip(m).map(|(a, row)| a * row[j]).sum())
+        .collect()
 }
 
 fn mat_mul(a: &[Vec<i64>], b: &[Vec<i64>]) -> Vec<Vec<i64>> {
@@ -109,7 +116,6 @@ fn quad(q: &[i64]) -> Vec<i64> {
 }
 
 struct Owner {
-    active: Vec<usize>,
     /// Loop automorphisms as integer matrices (identity first).
     auts: Vec<Vec<Vec<i64>>>,
     complete: bool,
@@ -117,7 +123,9 @@ struct Owner {
 
 /// All loop maps M (integer, det +-1) with v_i M = +-v_pi(i) on the active lines.
 fn automorphisms(slots: &[Vec<i64>], active: &[usize], loops: usize) -> (Vec<Vec<Vec<i64>>>, bool) {
-    let identity: Vec<Vec<i64>> = (0..loops).map(|i| (0..loops).map(|j| (i == j) as i64).collect()).collect();
+    let identity: Vec<Vec<i64>> = (0..loops)
+        .map(|i| (0..loops).map(|j| (i == j) as i64).collect())
+        .collect();
     // greedy basis of active lines (Symbolica rank)
     let mut basis: Vec<usize> = Vec::new();
     for &i in active {
@@ -139,7 +147,9 @@ fn automorphisms(slots: &[Vec<i64>], active: &[usize], loops: usize) -> (Vec<Vec
     let mut coef: Vec<(Vec<i128>, i128, usize)> = Vec::new(); // (numerators, denominator, last nonzero basis index)
     for &i in active {
         let ci = &from_ints(&[slots[i].clone()]) * &binv;
-        let parts: Vec<(i128, i128)> = (0..loops as u32).map(|j| rational_parts(&ci[(0, j)])).collect();
+        let parts: Vec<(i128, i128)> = (0..loops as u32)
+            .map(|j| rational_parts(&ci[(0, j)]))
+            .collect();
         let den = parts.iter().fold(1i128, |acc, &(_, d)| lcm(acc, d));
         let nums: Vec<i128> = parts.iter().map(|&(n, d)| n * (den / d)).collect();
         let last = nums.iter().rposition(|&x| x != 0).unwrap_or(0);
@@ -152,7 +162,13 @@ fn automorphisms(slots: &[Vec<i64>], active: &[usize], loops: usize) -> (Vec<Vec
     }
     let mut found: Vec<Vec<Vec<i64>>> = vec![identity.clone()];
     let mut assign: Vec<(usize, i64)> = Vec::new();
-    fn image(nums: &[i128], den: i128, assign: &[(usize, i64)], slots: &[Vec<i64>], loops: usize) -> Option<Vec<i64>> {
+    fn image(
+        nums: &[i128],
+        den: i128,
+        assign: &[(usize, i64)],
+        slots: &[Vec<i64>],
+        loops: usize,
+    ) -> Option<Vec<i64>> {
         let mut acc = vec![0i128; loops];
         for (m, &(j, s)) in assign.iter().enumerate() {
             if nums[m] == 0 {
@@ -162,16 +178,34 @@ fn automorphisms(slots: &[Vec<i64>], active: &[usize], loops: usize) -> (Vec<Vec
                 acc[c] += nums[m] * s as i128 * slots[j][c] as i128;
             }
         }
-        acc.iter().map(|&x| if x % den == 0 { i64::try_from(x / den).ok() } else { None }).collect()
+        acc.iter()
+            .map(|&x| {
+                if x % den == 0 {
+                    i64::try_from(x / den).ok()
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
     #[allow(clippy::too_many_arguments)]
     fn search(
-        k: usize, loops: usize, active: &[usize], slots: &[Vec<i64>], coef: &[(Vec<i128>, i128, usize)],
-        lookup: &HashMap<Vec<i64>, usize>, binv: &M, assign: &mut Vec<(usize, i64)>, found: &mut Vec<Vec<Vec<i64>>>,
+        k: usize,
+        loops: usize,
+        active: &[usize],
+        slots: &[Vec<i64>],
+        coef: &[(Vec<i128>, i128, usize)],
+        lookup: &HashMap<Vec<i64>, usize>,
+        binv: &M,
+        assign: &mut Vec<(usize, i64)>,
+        found: &mut Vec<Vec<Vec<i64>>>,
         identity: &[Vec<i64>],
     ) {
         if k == loops {
-            let target: Vec<Vec<i64>> = assign.iter().map(|&(j, s)| slots[j].iter().map(|x| s * x).collect()).collect();
+            let target: Vec<Vec<i64>> = assign
+                .iter()
+                .map(|&(j, s)| slots[j].iter().map(|x| s * x).collect())
+                .collect();
             let m = binv * &from_ints(&target);
             let Some(mi) = to_ints(&m) else { return };
             let det = m.det().expect("square");
@@ -202,16 +236,39 @@ fn automorphisms(slots: &[Vec<i64>], active: &[usize], loops: usize) -> (Vec<Vec
                     if *last != k {
                         return true;
                     }
-                    image(nums, *den, assign, slots, loops).is_some_and(|img| lookup.contains_key(&img))
+                    image(nums, *den, assign, slots, loops)
+                        .is_some_and(|img| lookup.contains_key(&img))
                 });
                 if ok {
-                    search(k + 1, loops, active, slots, coef, lookup, binv, assign, found, identity);
+                    search(
+                        k + 1,
+                        loops,
+                        active,
+                        slots,
+                        coef,
+                        lookup,
+                        binv,
+                        assign,
+                        found,
+                        identity,
+                    );
                 }
                 assign.pop();
             }
         }
     }
-    search(0, loops, active, slots, &coef, &lookup, &binv, &mut assign, &mut found, &identity);
+    search(
+        0,
+        loops,
+        active,
+        slots,
+        &coef,
+        &lookup,
+        &binv,
+        &mut assign,
+        &mut found,
+        &identity,
+    );
     (found, true)
 }
 
@@ -231,21 +288,33 @@ fn main() {
         .unwrap()
         .lines()
         .skip(1)
-        .filter_map(|l| l.split_once('\t').map(|(m, w)| (m.to_owned(), w.trim().parse().unwrap())))
+        .filter_map(|l| {
+            l.split_once('\t')
+                .map(|(m, w)| (m.to_owned(), w.trim().parse().unwrap()))
+        })
         .collect();
     let loops = manifest["loop_count"].as_u64().unwrap() as usize;
     let mut momenta: Vec<(u64, Vec<i64>)> = manifest["momenta"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|m| (m["index_one_based"].as_u64().unwrap(), parse_momentum(m["momentum"].as_str().unwrap(), loops)))
+        .map(|m| {
+            (
+                m["index_one_based"].as_u64().unwrap(),
+                parse_momentum(m["momentum"].as_str().unwrap(), loops),
+            )
+        })
         .collect();
     momenta.sort();
     let slots: Vec<Vec<i64>> = momenta.into_iter().map(|(_, v)| v).collect();
     let n = slots.len();
     // basis change: x Q = quad(w) with Q rows = quad(slot_i); integer Qs = D Q^{-1}
     let q_rows: Vec<Vec<i64>> = slots.iter().map(|s| quad(s)).collect();
-    assert_eq!(q_rows[0].len(), n, "line squares must form a basis of the scalar products");
+    assert_eq!(
+        q_rows[0].len(),
+        n,
+        "line squares must form a basis of the scalar products"
+    );
     let qinv = from_ints(&q_rows).inv().expect("line squares are a basis");
     let mut den = 1i128;
     for i in 0..n as u32 {
@@ -254,27 +323,63 @@ fn main() {
         }
     }
     let qs: Vec<Vec<i128>> = (0..n as u32)
-        .map(|i| (0..n as u32).map(|j| { let (a, b) = rational_parts(&qinv[(i, j)]); a * (den / b) }).collect())
+        .map(|i| {
+            (0..n as u32)
+                .map(|j| {
+                    let (a, b) = rational_parts(&qinv[(i, j)]);
+                    a * (den / b)
+                })
+                .collect()
+        })
         .collect();
     let expand = |w: &[i64]| -> Vec<i128> {
         let y = quad(w);
-        (0..n).map(|j| y.iter().zip(&qs).map(|(&a, row)| a as i128 * row[j]).sum()).collect()
+        (0..n)
+            .map(|j| y.iter().zip(&qs).map(|(&a, row)| a as i128 * row[j]).sum())
+            .collect()
     };
     // owners
     let mut owners: BTreeMap<String, Owner> = BTreeMap::new();
     for o in selection["owners"].as_array().unwrap() {
         let mask = o["mask"].as_str().unwrap().to_owned();
-        let active: Vec<usize> = mask.chars().enumerate().filter(|(_, c)| *c == '1').map(|(i, _)| i).collect();
+        let active: Vec<usize> = mask
+            .chars()
+            .enumerate()
+            .filter(|(_, c)| *c == '1')
+            .map(|(i, _)| i)
+            .collect();
         let (auts, complete) = automorphisms(&slots, &active, loops);
-        eprintln!("owner {mask} t={} automorphisms {} {}", active.len(), auts.len(), if complete { "" } else { "(active span < loops: identity only)" });
-        owners.insert(mask, Owner { active, auts, complete });
+        eprintln!(
+            "owner {mask} t={} automorphisms {} {}",
+            active.len(),
+            auts.len(),
+            if complete {
+                ""
+            } else {
+                "(active span < loops: identity only)"
+            }
+        );
+        owners.insert(mask, Owner { auts, complete });
     }
     let parse_matrix = |v: &Value| -> Vec<Vec<i64>> {
-        v.as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(|x| x.as_str().unwrap().parse().unwrap()).collect()).collect()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                r.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_str().unwrap().parse().unwrap())
+                    .collect()
+            })
+            .collect()
     };
-    let mut report = String::from("source_mask\towner_mask\ttraffic\tautomorphisms\tsaved_support\tsaved_terms\tbest_support\tbest_terms\tbest_index\tchanged\n");
+    let mut report = String::from(
+        "source_mask\towner_mask\ttraffic\tautomorphisms\tsaved_support\tsaved_terms\tbest_support\tbest_terms\tbest_index\tchanged\n",
+    );
     let (mut w_total, mut w_saved, mut w_best) = (0f64, 0f64, 0f64);
-    let (mut changed, mut routes_done, mut unweighted_saved, mut unweighted_best) = (0usize, 0usize, 0usize, 0usize);
+    let (mut changed, mut routes_done, mut unweighted_saved, mut unweighted_best) =
+        (0usize, 0usize, 0usize, 0usize);
     let routes = selection["initial_frontier_routes"].as_array_mut().unwrap();
     for route in routes.iter_mut() {
         if !route["requires_transport"].as_bool().unwrap() {
@@ -285,8 +390,9 @@ fn main() {
         let owner = &owners[&owner_mask];
         let a_s = parse_matrix(&route["source_to_representative"]);
         let a_o = parse_matrix(&route["owner_to_representative"]);
-        let t_route = to_ints(&(&from_ints(&a_s) * &from_ints(&a_o).inv().expect("owner map invertible")))
-            .expect("composed witness must be integral");
+        let t_route =
+            to_ints(&(&from_ints(&a_s) * &from_ints(&a_o).inv().expect("owner map invertible")))
+                .expect("composed witness must be integral");
         let src_active: Vec<bool> = source.chars().map(|c| c == '1').collect();
         let own_active: Vec<bool> = owner_mask.chars().map(|c| c == '1').collect();
         let evaluate = |t: &[Vec<i64>]| -> Option<(u32, u32)> {
@@ -296,7 +402,10 @@ fn main() {
                 let w = row_times(&slots[j], t);
                 if src_active[j] {
                     // must be +- an owner active line
-                    let ok = (0..n).any(|i| own_active[i] && (slots[i] == w || slots[i].iter().zip(&w).all(|(a, b)| *a == -b)));
+                    let ok = (0..n).any(|i| {
+                        own_active[i]
+                            && (slots[i] == w || slots[i].iter().zip(&w).all(|(a, b)| *a == -b))
+                    });
                     if !ok {
                         return None;
                     }
@@ -312,7 +421,8 @@ fn main() {
             }
             Some((support.iter().filter(|&&b| b).count() as u32, terms))
         };
-        let saved = evaluate(&t_route).expect("saved witness maps source actives onto owner actives");
+        let saved =
+            evaluate(&t_route).expect("saved witness maps source actives onto owner actives");
         let mut best = (saved.0, saved.1, 0usize);
         let mut best_t = t_route.clone();
         for (index, m) in owner.auts.iter().enumerate().skip(1) {
@@ -337,14 +447,34 @@ fn main() {
             // exact check with Symbolica: new_as * inv(a_o) == best_t
             let back = to_ints(&(&from_ints(&new_as) * &from_ints(&a_o).inv().unwrap())).unwrap();
             assert_eq!(back, best_t, "rewrite must reproduce the chosen witness");
-            route["source_to_representative"] =
-                json!(new_as.iter().map(|r| r.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>());
+            route["source_to_representative"] = json!(
+                new_as
+                    .iter()
+                    .map(|r| r.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            );
         }
-        report.push_str(&format!("{source}\t{owner_mask}\t{weight}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            owner.auts.len(), saved.0, saved.1, best.0, best.1, best.2, (best.2 != 0) as u8));
+        report.push_str(&format!(
+            "{source}\t{owner_mask}\t{weight}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            owner.auts.len(),
+            saved.0,
+            saved.1,
+            best.0,
+            best.1,
+            best.2,
+            (best.2 != 0) as u8
+        ));
     }
-    let incomplete: Vec<&String> = owners.iter().filter(|(_, o)| !o.complete).map(|(m, _)| m).collect();
-    fs::write(&args[4], serde_json::to_string_pretty(&selection).unwrap() + "\n").unwrap();
+    let incomplete: Vec<&String> = owners
+        .iter()
+        .filter(|(_, o)| !o.complete)
+        .map(|(m, _)| m)
+        .collect();
+    fs::write(
+        &args[4],
+        serde_json::to_string_pretty(&selection).unwrap() + "\n",
+    )
+    .unwrap();
     fs::write(&args[5], report).unwrap();
     let summary = json!({
         "schema": "rustred.route-witness-rewrite.v1",
@@ -357,6 +487,10 @@ fn main() {
         "owners_without_full_active_span": incomplete,
         "authority": "candidate witnesses only; native symmetry::verify and integral_transport::compile at load remain the proof",
     });
-    fs::write(&args[6], serde_json::to_string_pretty(&summary).unwrap() + "\n").unwrap();
+    fs::write(
+        &args[6],
+        serde_json::to_string_pretty(&summary).unwrap() + "\n",
+    )
+    .unwrap();
     println!("{summary}");
 }
