@@ -415,3 +415,9 @@ pass at every commit; new tests accompany each package. Push to
   `docs/research/fable51_next_push_master_plan_2026-09-27.md` (27-agent review); owner answers:
   600 GB RAM cap for the ultimate 100-core campaign, CPUs may be reserved, zroot errors accepted,
   no own CAS (latest Symbolica first), complete four-loop run in every validation. W0 started.
+- 2026-09-27 ~21:35 UTC: owner answers after the Fable 5.1 audit (`FABLE_5_1_CRITIQUE.md`, handoff section 0.1):
+  socket 1 stays SHARED at launch (no cpuset; foreign load recorded in every receipt); NO ZFS ARC cap (ARC
+  shrinks under pressure); host MemAvailable save-and-stop floor raised from 20 GB to 50 GB; FULL PLAN, GATED:
+  the W2 epoch skeleton (S2/S4) must beat the legacy engine + SoA kernel comparator (25-min gen-7 resume, matched
+  window vs M1 run2) by >= 1.5x, otherwise fall back to MVP-B (epoch core without W3/W4) or MVP-A (legacy +
+  campaign profile + mimalloc + I1/I2 inputs + frontier stop) and report to the owner. I1b dropped (evidence).

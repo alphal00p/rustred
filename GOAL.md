@@ -4834,3 +4834,7 @@ pilots deliver their intel within one hour; the ultimate campaign runs on 100 co
 algebra system: triple-check first that the need is covered by the latest Symbolica (vendored and
 upstream dev); validate every change on the complete four-loop run (all four families FG, BMW, H,
 X at the A <= 19, R <= 12, D >= 7 saved-cover envelope) as well as on five-loop pilots.
+
+Owner answers 2026-09-27 ~21:35 UTC (after the Fable 5.1 audit `FABLE_5_1_CRITIQUE.md`): socket 1 shared at
+launch (no cpuset), no ZFS ARC cap, host MemAvailable save-and-stop floor 50 GB, full plan gated on the epoch
+skeleton beating the legacy + SoA-kernel comparator by >= 1.5x (else MVP-B / MVP-A fallback, reported to the owner).

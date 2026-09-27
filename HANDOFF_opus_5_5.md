@@ -101,6 +101,11 @@ plan / v3 note until those are amended:
    strict identity. Write up results before starting new runs.
 10. The interim campaign directory holds six refused fresh-start receipts (10:56 and 12:07 UTC, from the owner's
     Zellij session); its paused gen-8 state is intact.
+11. **Owner answers (2026-09-27 ~21:35 UTC)** to the audit's governance items: socket 1 stays SHARED at launch (no
+    cpuset; record foreign load); NO ZFS ARC cap; host MemAvailable save-and-stop floor 50 GB (was 20 GB); FULL
+    PLAN, GATED: continue W2 only if the S2/S4 epoch skeleton beats the legacy + SoA-kernel comparator (25-min gen-7
+    resume vs M1 run2, matched window) by >= 1.5x; otherwise fall back to MVP-B, then MVP-A, and report. Launch
+    criterion (F) is thereby settled (shared host, no ARC cap, 600 GB cap, 50 GB host floor).
 
 ---
 
