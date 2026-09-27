@@ -2,6 +2,8 @@
 """Markdown tables from idxreplay JSONL outputs (W0.4 RESULTS.md).
 
 Usage: tables.py static|thin|threads|dynamic|pipeline|streams|lag FILE...
+       tables.py pipeline_k 1,16,64 FILE...
+       tables.py ratios FILE...   (per-set CPU/candidate ratios, today over SoA)
 """
 import json
 import math
@@ -76,15 +78,21 @@ def dynamic(paths):
         print(f"| {d['label']} | {d['joined_requests']:,} | {d['layer_requests']:,} | {d['forward_candidates_today_all_commits']:,} | {d['forward_candidates_pipeline_minid']:,} | {d['forward_candidates_pipeline_firstfound']:,} |")
 
 
-def pipeline(paths):
+def pipeline(paths, ks=()):
     tiers = ["exact-job", "self", "local", "mru", "exact-store", "helper", "layer-hit", "miss"]
-    print("| trace | scope | MRU k | jobs | requests | " + " | ".join(tiers) + " | cheap tiers | MRU tests / request |")
-    print("|---|---|---:|---:|---:|" + "---:|" * len(tiers) + "---:|---:|")
+    print("| trace | scope | MRU k | jobs | requests | requests / job | native ms / job | " + " | ".join(tiers) + " | cheap tiers | MRU tests / request |")
+    print("|---|---|---:|---:|---:|---:|---:|" + "---:|" * len(tiers) + "---:|---:|")
     for d in rows(paths, "pipeline"):
-        if d["requests"] == 0:
+        if d["requests"] == 0 or (ks and d["mru_k"] not in ks):
             continue
         sh = " | ".join(f"{100*d['share_'+t]:.1f}%" for t in tiers)
-        print(f"| {d['label']} | {d['scope']} | {d['mru_k']} | {d['jobs']:,} | {d['requests']:,} | {sh} | {100*d['cheap_share']:.1f}% | {d['mru_tests_per_req']:.2f} |")
+        nm = f"{d['native_ms_per_job']:.3f}" if "native_ms_per_job" in d else "-"
+        print(f"| {d['label']} | {d['scope']} | {d['mru_k']} | {d['jobs']:,} | {d['requests']:,} | {d['requests']/max(d['jobs'],1):,.1f} | {nm} | {sh} | {100*d['cheap_share']:.1f}% | {d['mru_tests_per_req']:.2f} |")
+
+
+def pipeline_k(paths):
+    """pipeline_k K1,K2 FILE...: pipeline table restricted to the given MRU k."""
+    pipeline(paths[1:], [int(k) for k in paths[0].split(",")])
 
 
 def streams(paths):
@@ -96,6 +104,13 @@ def streams(paths):
     print("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
     for d in rows(paths, "streams-layer-cost"):
         print(f"| {d['class']} | {d['layout']} | {d['set']} | {d['n']:,} | {d['found_frac']:.3f} | {fmt(d['tested_per_q'])} | {d['tested_p50']:,} | {d['tested_p99']:,} | {d['cpu_ns_per_q']/1000:,.1f} | {d['cpu_ns_per_tested']:.2f} |")
+    for d in rows(paths, "stale-lag-requests"):
+        ks = [k for k in d if k.startswith("stale_share_lag_lt_")]
+        print()
+        print(f"layer-hit requests at MRU k=16: {d['layer_hit_requests_k16']:,} (container age = commit watermark minus container ID)")
+        print("| lag L < (new IDs) | " + " | ".join(f"{int(k.split('_lt_')[1]):,}" for k in ks) + " |")
+        print("|---|" + "---:|" * len(ks))
+        print("| stale share of layer-hit requests | " + " | ".join(f"{100*d[k]:.2f}%" for k in ks) + " |")
 
 
 def lag(paths):
@@ -108,6 +123,32 @@ def lag(paths):
     for d in rows(paths, "lag-segment"):
         ks = [k for k in d if k.startswith("stale_share_lag_lt_")][:-1]
         print(f"| {d['segment'].split('/')[-1]} ({d['hit_edges']:,} hit edges) | " + " | ".join(f"{100*d[k]:.2f}%" for k in ks) + " |")
+
+
+def ratios(paths):
+    """CPU ns per tested candidate, today's layout (l0-stored) over each SoA layout,
+    per request set and thread count, from `stats` (1 thread, marked s) and
+    `throughput` rows at 100% live, and from `streams-layer-cost` rows (real streams)."""
+    sets = ["miss", "hit-minid", "hit-firstfound", "reverse", "word-only"]
+    print("| source | threads | layout | " + " | ".join(sets) + " | range (all sets) | range (forward: miss, hits) |")
+    print("|---|---|---|" + "---:|" * len(sets) + "---|---|")
+    for p in paths:
+        name = p.rsplit("/", 1)[-1]
+        by = {}
+        for d in rows([p]):
+            if d.get("kind") in ("stats", "throughput") and d.get("frac", 1024) == 1024:
+                th = f"{d['threads']}" + ("s" if d["kind"] == "stats" else "")
+                by.setdefault(th, {})[(d["layout"], d["set"])] = d["cpu_ns_per_tested"]
+            elif d.get("kind") == "streams-layer-cost":
+                by.setdefault("1 (real streams)", {})[(d["layout"], d["set"])] = d["cpu_ns_per_tested"]
+        for th, m in by.items():
+            for lay in ("soa-id", "soa-pattern"):
+                rs = {st: m[("l0-stored", st)] / m[(lay, st)] for st in sets if ("l0-stored", st) in m and (lay, st) in m}
+                if not rs:
+                    continue
+                cells = " | ".join(f"{rs[st]:.2f}" if st in rs else "-" for st in sets)
+                fw = [rs[st] for st in ("miss", "hit-minid", "hit-firstfound") if st in rs]
+                print(f"| {name} | {th} | {lay} | {cells} | {min(rs.values()):.1f}-{max(rs.values()):.1f}x | {min(fw):.1f}-{max(fw):.1f}x |")
 
 
 if __name__ == "__main__":

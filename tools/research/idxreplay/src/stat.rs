@@ -3,7 +3,7 @@ use crate::Args;
 use crate::ckpt::{FLAG_INSPECTED, T};
 use crate::l0::{self, L0};
 use crate::soa::{self, Order, SQuery, Soa};
-use crate::util::{Json, Rng, fit, kept, quantiles, thread_cpu_ns};
+use crate::util::{Json, LoadMon, Rng, fit, kept, quantiles, thread_cpu_ns};
 use crate::world::World;
 use std::io::Write;
 use std::path::Path;
@@ -180,7 +180,8 @@ fn rec_json(j: Json, r: &Rec, n: u64, cpu_ns: u64) -> Json {
 }
 
 /// Stats pass: one thread, every query once, per-query distributions.
-pub fn stats_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bool) -> (Rec, u64, Vec<u64>, Vec<(usize, u64, u64)>) {
+pub fn stats_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bool) -> (Rec, u64, Vec<u64>, Vec<(usize, u64, u64)>, (f64, f64)) {
+    let mon = LoadMon::start();
     let mut tot = Rec::default();
     let mut per = Vec::with_capacity(qs.len());
     let mut per_bucket = Vec::with_capacity(qs.len());
@@ -192,12 +193,14 @@ pub fn stats_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bool) -
         tot.add(&r);
     }
     let cpu = thread_cpu_ns() - c0;
-    (tot, cpu, per, per_bucket)
+    let (f, s) = mon.stop();
+    (tot, cpu, per, per_bucket, (f, s))
 }
 
 /// Throughput pass: `threads` threads cycle through the queries for
 /// `seconds`; returns (records, CPU ns summed over threads, wall seconds).
-pub fn throughput_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bool, threads: usize, seconds: f64) -> (Rec, u64, u64, f64) {
+pub fn throughput_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bool, threads: usize, seconds: f64) -> (Rec, u64, u64, f64, (f64, f64)) {
+    let mon = LoadMon::start();
     let cpu_total = AtomicU64::new(0);
     let queries = AtomicU64::new(0);
     let start = Instant::now();
@@ -232,7 +235,7 @@ pub fn throughput_pass(layout: &Layout, set: Set, qs: &[Q], t: &[T], exclude: bo
     for r in &recs {
         tot.add(r);
     }
-    (tot, cpu_total.load(Ordering::Relaxed), queries.load(Ordering::Relaxed), wall)
+    (tot, cpu_total.load(Ordering::Relaxed), queries.load(Ordering::Relaxed), wall, mon.stop())
 }
 
 pub fn make_q(w: &World, id: u32) -> Option<Q> {
@@ -372,8 +375,8 @@ pub fn run(args: &Args) {
         }
         layouts.push(("soa-id".into(), Layout::Soa(&sid)));
         layouts.push(("soa-pattern".into(), Layout::Soa(&spat)));
-        // Outcome agreement between layouts (found/not found) on hits.
-        for (name, layout) in &layouts {
+        // Stats pass (one thread, every request once) unless --skip-stats 1.
+        for (name, layout) in layouts.iter().filter(|_| args.get("skip-stats").is_none()) {
             for (set, qs, excl) in [
                 (Set::Miss, &misses, true),
                 (Set::HitMin, &hits, false),
@@ -381,7 +384,7 @@ pub fn run(args: &Args) {
                 (Set::Reverse, &misses, true),
                 (Set::WordOnly, &misses, true),
             ] {
-                let (rec, cpu, per, per_bucket) = stats_pass(layout, set, qs, &w.t, excl);
+                let (rec, cpu, per, per_bucket, (foreign, sib)) = stats_pass(layout, set, qs, &w.t, excl);
                 let (p50, p90, p99, max) = quantiles(per);
                 let j = Json::new()
                     .s("kind", "stats")
@@ -393,7 +396,7 @@ pub fn run(args: &Args) {
                     .s("layout", name)
                     .s("set", set.name())
                     .u("threads", 1);
-                let j = rec_json(j, &rec, qs.len() as u64, cpu).u("tested_p50", p50).u("tested_p90", p90).u("tested_p99", p99).u("tested_max", max);
+                let j = rec_json(j, &rec, qs.len() as u64, cpu).u("tested_p50", p50).u("tested_p90", p90).u("tested_p99", p99).u("tested_max", max).f("foreign_busy_own_cpus", foreign).f("busy_smt_siblings", sib);
                 out.line(j.done());
                 if frac >= 1024 && set == Set::Miss {
                     miss_by_bucket.push((name.clone(), per_bucket));
@@ -412,7 +415,7 @@ pub fn run(args: &Args) {
                     (Set::Reverse, &misses, true),
                     (Set::WordOnly, &misses, true),
                 ] {
-                    let (rec, cpu, nq, wall) = throughput_pass(layout, set, qs, &w.t, excl, th, seconds);
+                    let (rec, cpu, nq, wall, (foreign, sib)) = throughput_pass(layout, set, qs, &w.t, excl, th, seconds);
                     let j = Json::new()
                         .s("kind", "throughput")
                         .s("label", &label)
@@ -424,7 +427,9 @@ pub fn run(args: &Args) {
                         .u("threads", th as u64)
                         .f("wall_s", wall)
                         .f("queries_per_s", nq as f64 / wall)
-                        .f("tested_per_s", rec.tested as f64 / wall);
+                        .f("tested_per_s", rec.tested as f64 / wall)
+                        .f("foreign_busy_own_cpus", foreign)
+                        .f("busy_smt_siblings", sib);
                     out.line(rec_json(j, &rec, nq, cpu).done());
                 }
             }
