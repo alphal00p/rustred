@@ -296,6 +296,14 @@ Strict record comparisons (`examples/python/compare_walk_records.py --mode stric
 four-all/result.json`, SHA-256 `6fbe2e96dbe004a6a94e8b4dc3b9c3c3c656436da0db4143a3cff8846b05def9`,
 65,444 logical records, 30,159 natives.
 
+Closure verification [M]: `rustred walk-verify-closure --require-closure` with full re-inspection
+(oracle-branch verifier `TMP/w0/oracle/bin/rustred-89558210`, SHA-256 `89558210dda816d3...`,
+22 threads on CPUs 52-63,308-319; reports `TMP/c4l-s2/verify/*.json`) passes on five drained runs:
+Ordered W24 and W96 and Ready W96 (w96, rep3, rep4). In each, all 32 initial records (26 physics
+roots) are certified and independently verified, every native is re-inspected (21,730-30,159),
+there are 0 uncovered successors among 2.01-2.18 M, and there are 0 exact-vs-brute-force
+containment disagreements. Each check takes 126-163 s.
+
 Details of the drained `four-all` runs:
 - Zero frontiers, errors and violations; every ledger obligation discharged; maximum scheduled
   finite rank 14; 0 partial initial inspections.
@@ -373,7 +381,8 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
 
 1. **C-4L-O (identity, required):** `four-all` Ordered at W6 and W24 (W96 when socket 1 is
    free). Pass = drained, audit PASS, 0 frontiers, and strict record identity with the
-   reference above (30,159 natives, 65,444 records). Measured width-invariant at W6/W24/W96.
+   reference above (30,159 natives, 65,444 records), plus `walk-verify-closure --require-closure`
+   with full re-inspection PASS (about 2-3 min). Measured width-invariant at W6/W24/W96.
    For an engine change that intentionally changes records (the v3 epoch engine), replace
    identity by: drained, audit and verify-closure PASS, identical results across W6/W24/W96,
    and natives within +-10 % of 30,159 [E: band chosen, not measured].

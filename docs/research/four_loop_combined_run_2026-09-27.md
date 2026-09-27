@@ -68,9 +68,13 @@ Full table in the README (section 5). Summary:
 | `four-all-physics` | - | - | 0/1 (1 h) | - |
 | `four-all-r6anchors` | - | - | 3/3, 12.5-13.4 k | not run |
 
-Drained runs have 0 frontiers and pass the audit; 98-99 % of their natives are Route
-inspections, and the non-entry banana owner takes 71-86 % of native seconds over about 20
-natives. W96 rows ran on socket 1 with 27-78 % foreign load, so their timings are void.
+Drained runs have 0 frontiers and pass the audit. The closure verifier
+(`walk-verify-closure --require-closure`, full re-inspection, oracle binary 89558210) passes on
+Ordered W24 and W96 and on three Ready W96 runs. In all of them, 32/32 initial records are
+independently verified, 0 successors are uncovered and there are 0 containment disagreements
+(`TMP/c4l-s2/verify/`). In drained runs, 98-99 % of natives are Route inspections, and the
+non-entry banana owner takes 71-86 % of native seconds over about 20 natives. W96 rows ran on
+socket 1 with 27-78 % foreign load, so their timings are void.
 
 ## The fragmenting mode
 
@@ -163,7 +167,8 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 1. **Recommended C-4L gate** (README section 5).
    - C-4L-O, required: `four-all` Ordered at W6 and W24 (W96 when socket 1 is free), drained,
      audit PASS and strictly identical to the reference records (30,159 natives, 65,444
-     records). For the v3 epoch engine, which changes the records on purpose, use instead:
+     records), plus `walk-verify-closure --require-closure` with full re-inspection. For the v3
+     epoch engine, which changes the records on purpose, use instead:
      drained, audit and verify-closure PASS, identical across widths, natives within ±10 %.
    - C-4L-R: `four-all` Ready W96 x3, 15-minute cap each, or an early stop once a run passes
      60,000 natives (every fragmenting run, W6-W96, passed 64-263 k natives by 60 s; no drained
