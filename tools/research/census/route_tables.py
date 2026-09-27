@@ -208,7 +208,7 @@ def metrics(d):
     rows = []
     for f in sorted(os.listdir(d)):
         if f.endswith(".metrics.txt"):
-            m = dict(l.rstrip("\n").split(" ", 1) for l in open(os.path.join(d, f)) if " " in l)
+            m = dict(l.rstrip("\n").rsplit(" ", 1) for l in open(os.path.join(d, f)) if " " in l)
             rows.append([f[:-12], m.get("wall_s"), m.get("user_sys_s"), m.get("max_rss_kb"), m.get("foreign_busy_cpus_avg"),
                          m.get("schedstat_run_delay_s(last sample, summed over threads)")])
     print(table(["step", "wall s", "user+sys s", "max RSS kB", "foreign busy CPUs (avg)", "run delay s"], rows))
@@ -282,16 +282,19 @@ def main():
         print("### RAM view (gen 7)")
         print()
         ram(j, t)
-    s = load(d, "gen7-route-saturation.json")
-    if s is not None:
-        print("### Route point-space saturation (gen 7 checkpoint)")
-        print()
-        saturation(s)
+    for name in ["gen7-route-saturation.json", "sat-rc3/gen7-route-saturation.json", "sat-rc3/gen7-route-saturation-seed2.json"]:
+        s = load(d, name)
+        if s is not None:
+            print(f"### Route point-space saturation (gen 7 checkpoint; {name})")
+            print()
+            saturation(s)
     for step in ["gen6", "gen3", "c5f"]:
         route_step(d, step, full=False)
     print("### Run metrics")
     print()
     metrics(d)
+    if os.path.isdir(os.path.join(d, "sat-rc3")):
+        metrics(os.path.join(d, "sat-rc3"))
 
 
 if __name__ == "__main__":
