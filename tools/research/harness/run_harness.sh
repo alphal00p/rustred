@@ -7,7 +7,7 @@
 #   SINK ORDER SUBSET LIMIT PASSES PIN CANCEL TAP  -> RUSTRED_HARNESS_*
 #   NUMA     none | interleave:<nodes> | bind:<nodes>   (numactl)
 #   ALLOC    glibc | mimalloc | census          (LD_PRELOAD)
-#   PERF     none | stat | record-fp | record-dwarf
+#   PERF     none | stat | record-fp | record-dwarf | strace-futex
 #   NICE     default 5
 # Writes OUT/{receipt.json,natives.jsonl,run.env,procstat.before,procstat.after,
 # perf*.txt|perf.data}. Foreign load is judged afterwards from the /proc/stat
@@ -57,6 +57,7 @@ case "$PERF" in
   stat) perf=("$PERF_BIN" stat -x, -o "$stage/perfstat.csv" -e "$events" --) ;;
   record-fp) perf=("$PERF_BIN" record -F "${PERF_FREQ:-499}" -g --call-graph fp -o "$stage/perf.data" --) ;;
   record-dwarf) perf=("$PERF_BIN" record -F "${PERF_FREQ:-99}" --call-graph dwarf,16384 -o "$stage/perf.data" --) ;;
+  strace-futex) perf=("${STRACE_BIN:-/nix/store/qcl66q3nnbd9g6273qp258nnxmb7vwfg-strace-7.1/bin/strace}" -f --seccomp-bpf -e trace=futex -c -o "$stage/strace-futex.txt" --) ;;
   *) echo "unknown PERF $PERF" >&2; exit 2 ;;
 esac
 {
