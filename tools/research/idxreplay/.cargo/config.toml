@@ -1,0 +1,3 @@
+[build]
+rustflags = ["-C", "target-cpu=znver4", "-C", "force-frame-pointers=yes"]
+target-dir = "target"

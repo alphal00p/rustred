@@ -1,0 +1,28 @@
+gen 00000000000000000007 nodes 74156033 buckets 8040 live 37907667
+top buckets by live: phase owner live groups blocks new_ids_last_segment
+  0 111001100111001 live 1100679 groups 432 blocks 58860 new_last_seg 195402
+  0 110110111101001 live 895565 groups 381 blocks 42536 new_last_seg 254120
+  0 111000100111001 live 684925 groups 425 blocks 32219 new_last_seg 84030
+  1 110110111001001 live 537089 groups 406 blocks 23906 new_last_seg 111726
+  0 111010111100011 live 532566 groups 318 blocks 23920 new_last_seg 215966
+  0 111001100101101 live 513585 groups 389 blocks 25893 new_last_seg 141399
+  0 011101111111100 live 431874 groups 222 blocks 17808 new_last_seg 73007
+  0 011101110111000 live 431052 groups 393 blocks 23205 new_last_seg 115926
+  0 010011111101011 live 403867 groups 345 blocks 19966 new_last_seg 0
+  0 111100011111100 live 370915 groups 287 blocks 16761 new_last_seg 178562
+  1 110110111101000 live 366480 groups 409 blocks 16359 new_last_seg 72999
+  0 111000100011101 live 343967 groups 339 blocks 15326 new_last_seg 4960
+top buckets by new IDs in last segment (miss share), total 5282303:
+  0 110110111101001 new 254120 (4.8%) live 895565 groups 381
+  0 111010111100011 new 215966 (4.1%) live 532566 groups 318
+  0 111001100111001 new 195402 (3.7%) live 1100679 groups 432
+  0 111100011111100 new 178562 (3.4%) live 370915 groups 287
+  0 111001100101101 new 141399 (2.7%) live 513585 groups 389
+  0 110001011101011 new 121687 (2.3%) live 252166 groups 414
+  0 011101110111000 new 115926 (2.2%) live 431052 groups 393
+  1 110110111001001 new 111726 (2.1%) live 537089 groups 406
+miss-weighted mean bucket live size 269539
+miss_pool 4155081 hit_pool 26118532
+MISS proxies n=20000: mean eligible-group candidates 57228, blocks visited 504, candidates tested (block-pruned, raw coords) 11200 [p50 4120 p90 28919 p99 95756], eligible groups 72.8, unexpectedly found container 0
+HIT proxies (min-ID) n=20000: found 0.000; mean eligible-group candidates 0, blocks visited 0, candidates tested 0 [p50 0 p90 0 p99 0]
+HIT proxies (first-found) n=20000: found 0.000; mean eligible-group candidates 0, blocks visited 0, candidates tested 0 [p50 0 p90 0 p99 0]

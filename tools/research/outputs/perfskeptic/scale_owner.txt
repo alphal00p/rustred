@@ -1,0 +1,117 @@
+records 7767543
+SCALE 000010011001001|factorized log10pts=0 n=8902 mean_points=5.1 mean_pieces=1.3 mean_successors=1.3 mean_seconds=0.0002 succ_per_point=0.248 points_per_piece=4.0 sec_share=1.9865
+SCALE 000010011001001|factorized log10pts=1 n=11974 mean_points=32.1 mean_pieces=4.9 mean_successors=8.3 mean_seconds=0.0009 succ_per_point=0.259 points_per_piece=6.6 sec_share=10.6344
+SCALE 000010011001001|factorized log10pts=2 n=10834 mean_points=384.9 mean_pieces=32.5 mean_successors=99.1 mean_seconds=0.0069 succ_per_point=0.258 points_per_piece=11.8 sec_share=74.5075
+SCALE 000010011001001|factorized log10pts=3 n=6356 mean_points=3429.6 mean_pieces=121.7 mean_successors=831.8 mean_seconds=0.0339 succ_per_point=0.243 points_per_piece=28.2 sec_share=215.5599
+SCALE 000010011001001|factorized log10pts=4 n=1824 mean_points=25134.5 mean_pieces=350.9 mean_successors=3837.8 mean_seconds=0.1327 succ_per_point=0.153 points_per_piece=71.6 sec_share=242.0729
+SCALE 000010011001001|factorized log10pts=5 n=70 mean_points=155510.5 mean_pieces=771.2 mean_successors=10219.2 mean_seconds=0.3475 succ_per_point=0.066 points_per_piece=201.7 sec_share=24.3236
+SCALE 000011001001011|non-entry log10pts=0 n=163017 mean_points=5.3 mean_pieces=1.5 mean_successors=20.0 mean_seconds=0.0007 succ_per_point=3.788 points_per_piece=3.6 sec_share=109.1320
+SCALE 000011001001011|non-entry log10pts=1 n=196758 mean_points=25.3 mean_pieces=3.8 mean_successors=72.3 mean_seconds=0.0024 succ_per_point=2.861 points_per_piece=6.7 sec_share=467.3043
+SCALE 000011001001011|non-entry log10pts=2 n=19088 mean_points=295.3 mean_pieces=38.4 mean_successors=816.6 mean_seconds=0.0265 succ_per_point=2.765 points_per_piece=7.7 sec_share=505.8489
+SCALE 000011001001011|non-entry log10pts=3 n=3814 mean_points=2712.0 mean_pieces=282.2 mean_successors=8926.4 mean_seconds=0.3324 succ_per_point=3.291 points_per_piece=9.6 sec_share=1267.7880
+SCALE 000011001001011|non-entry log10pts=4 n=218 mean_points=15886.0 mean_pieces=2104.7 mean_successors=125937.8 mean_seconds=6.7711 succ_per_point=7.928 points_per_piece=7.5 sec_share=1476.1021
+SCALE 001000100101111|non-entry log10pts=0 n=61045 mean_points=5.2 mean_pieces=1.6 mean_successors=21.6 mean_seconds=0.0006 succ_per_point=4.170 points_per_piece=3.3 sec_share=35.3337
+SCALE 001000100101111|non-entry log10pts=1 n=62184 mean_points=25.9 mean_pieces=4.3 mean_successors=65.6 mean_seconds=0.0016 succ_per_point=2.535 points_per_piece=6.0 sec_share=96.9720
+SCALE 001000100101111|non-entry log10pts=2 n=14913 mean_points=316.6 mean_pieces=44.1 mean_successors=638.8 mean_seconds=0.0146 succ_per_point=2.018 points_per_piece=7.2 sec_share=217.9872
+SCALE 001000100101111|non-entry log10pts=3 n=2061 mean_points=2127.8 mean_pieces=230.0 mean_successors=4275.8 mean_seconds=0.0932 succ_per_point=2.010 points_per_piece=9.3 sec_share=192.1591
+SCALE 001000100101111|non-entry log10pts=4 n=12 mean_points=13241.2 mean_pieces=1206.2 mean_successors=30814.9 mean_seconds=0.6165 succ_per_point=2.327 points_per_piece=11.0 sec_share=7.3985
+SCALE 001001011101001|factorized log10pts=0 n=4316 mean_points=5.3 mean_pieces=1.7 mean_successors=12.5 mean_seconds=0.0005 succ_per_point=2.338 points_per_piece=3.1 sec_share=2.1158
+SCALE 001001011101001|factorized log10pts=1 n=4305 mean_points=25.4 mean_pieces=4.3 mean_successors=36.7 mean_seconds=0.0013 succ_per_point=1.444 points_per_piece=5.9 sec_share=5.4499
+SCALE 001001011101001|factorized log10pts=2 n=2210 mean_points=339.3 mean_pieces=55.1 mean_successors=526.4 mean_seconds=0.0157 succ_per_point=1.551 points_per_piece=6.2 sec_share=34.7003
+SCALE 001001011101001|factorized log10pts=3 n=130 mean_points=1518.3 mean_pieces=220.7 mean_successors=2655.3 mean_seconds=0.0673 succ_per_point=1.749 points_per_piece=6.9 sec_share=8.7487
+SCALE 001100101110000|factorized log10pts=0 n=18655 mean_points=5.1 mean_pieces=1.4 mean_successors=4.7 mean_seconds=0.0003 succ_per_point=0.931 points_per_piece=3.6 sec_share=6.2650
+SCALE 001100101110000|factorized log10pts=1 n=39726 mean_points=35.0 mean_pieces=3.7 mean_successors=23.2 mean_seconds=0.0009 succ_per_point=0.664 points_per_piece=9.4 sec_share=37.6972
+SCALE 001100101110000|factorized log10pts=2 n=21615 mean_points=313.8 mean_pieces=21.8 mean_successors=166.8 mean_seconds=0.0058 succ_per_point=0.532 points_per_piece=14.4 sec_share=124.4833
+SCALE 001100101110000|factorized log10pts=3 n=6960 mean_points=3199.6 mean_pieces=100.0 mean_successors=1388.0 mean_seconds=0.0391 succ_per_point=0.434 points_per_piece=32.0 sec_share=272.0677
+SCALE 001100101110000|factorized log10pts=4 n=1098 mean_points=17737.9 mean_pieces=230.4 mean_successors=4638.6 mean_seconds=0.1254 succ_per_point=0.262 points_per_piece=77.0 sec_share=137.7174
+SCALE 001100101110000|factorized log10pts=5 n=1 mean_points=100100.0 mean_pieces=307.0 mean_successors=7040.0 mean_seconds=0.1932 succ_per_point=0.070 points_per_piece=326.1 sec_share=0.1932
+SCALE 010100101110000|factorized log10pts=0 n=6660 mean_points=5.7 mean_pieces=1.4 mean_successors=3.0 mean_seconds=0.0003 succ_per_point=0.532 points_per_piece=4.2 sec_share=1.9806
+SCALE 010100101110000|factorized log10pts=1 n=9897 mean_points=28.3 mean_pieces=3.6 mean_successors=14.5 mean_seconds=0.0008 succ_per_point=0.512 points_per_piece=7.8 sec_share=7.9208
+SCALE 010100101110000|factorized log10pts=2 n=5079 mean_points=381.6 mean_pieces=39.5 mean_successors=234.0 mean_seconds=0.0100 succ_per_point=0.613 points_per_piece=9.7 sec_share=50.6832
+SCALE 010100101110000|factorized log10pts=3 n=1918 mean_points=2913.8 mean_pieces=151.8 mean_successors=1759.2 mean_seconds=0.0517 succ_per_point=0.604 points_per_piece=19.2 sec_share=99.1725
+SCALE 010100101110000|factorized log10pts=4 n=126 mean_points=12377.0 mean_pieces=257.2 mean_successors=4097.4 mean_seconds=0.1057 succ_per_point=0.331 points_per_piece=48.1 sec_share=13.3145
+SCALE 010111011000001|non-entry log10pts=0 n=208125 mean_points=5.2 mean_pieces=1.7 mean_successors=23.3 mean_seconds=0.0007 succ_per_point=4.441 points_per_piece=3.1 sec_share=147.3952
+SCALE 010111011000001|non-entry log10pts=1 n=195281 mean_points=26.7 mean_pieces=5.5 mean_successors=103.2 mean_seconds=0.0027 succ_per_point=3.871 points_per_piece=4.9 sec_share=519.3650
+SCALE 010111011000001|non-entry log10pts=2 n=33469 mean_points=261.0 mean_pieces=38.8 mean_successors=785.0 mean_seconds=0.0183 succ_per_point=3.007 points_per_piece=6.7 sec_share=613.5214
+SCALE 010111011000001|non-entry log10pts=3 n=2521 mean_points=2197.4 mean_pieces=218.1 mean_successors=6925.0 mean_seconds=0.1615 succ_per_point=3.151 points_per_piece=10.1 sec_share=407.1565
+SCALE 010111011000001|non-entry log10pts=4 n=29 mean_points=12794.9 mean_pieces=715.1 mean_successors=31908.8 mean_seconds=0.8476 succ_per_point=2.494 points_per_piece=17.9 sec_share=24.5813
+SCALE 011001000001111|factorized log10pts=0 n=104039 mean_points=5.2 mean_pieces=1.5 mean_successors=14.5 mean_seconds=0.0004 succ_per_point=2.783 points_per_piece=3.5 sec_share=44.8831
+SCALE 011001000001111|factorized log10pts=1 n=88774 mean_points=26.7 mean_pieces=4.1 mean_successors=42.8 mean_seconds=0.0012 succ_per_point=1.603 points_per_piece=6.4 sec_share=102.8801
+SCALE 011001000001111|factorized log10pts=2 n=23311 mean_points=302.9 mean_pieces=31.8 mean_successors=339.4 mean_seconds=0.0092 succ_per_point=1.121 points_per_piece=9.5 sec_share=215.3353
+SCALE 011001000001111|factorized log10pts=3 n=4374 mean_points=2348.8 mean_pieces=137.4 mean_successors=1886.7 mean_seconds=0.0477 succ_per_point=0.803 points_per_piece=17.1 sec_share=208.4386
+SCALE 011001000001111|factorized log10pts=4 n=91 mean_points=13116.2 mean_pieces=282.7 mean_successors=4999.0 mean_seconds=0.1175 succ_per_point=0.381 points_per_piece=46.4 sec_share=10.6913
+SCALE 011101110111000|connected log10pts=0 n=9851 mean_points=2.3 mean_pieces=1.3 mean_successors=197.7 mean_seconds=0.0119 succ_per_point=85.090 points_per_piece=1.8 sec_share=117.6492
+SCALE 011101110111000|connected log10pts=4 n=1 mean_points=60060.0 mean_pieces=7255.0 mean_successors=341687.0 mean_seconds=9.3200 succ_per_point=5.689 points_per_piece=8.3 sec_share=9.3200
+SCALE 101010000110001|non-entry log10pts=0 n=50115 mean_points=5.3 mean_pieces=1.5 mean_successors=7.9 mean_seconds=0.0004 succ_per_point=1.477 points_per_piece=3.5 sec_share=20.6641
+SCALE 101010000110001|non-entry log10pts=1 n=70860 mean_points=28.3 mean_pieces=5.1 mean_successors=31.8 mean_seconds=0.0012 succ_per_point=1.123 points_per_piece=5.6 sec_share=86.8255
+SCALE 101010000110001|non-entry log10pts=2 n=24124 mean_points=343.1 mean_pieces=37.8 mean_successors=280.3 mean_seconds=0.0090 succ_per_point=0.817 points_per_piece=9.1 sec_share=217.2278
+SCALE 101010000110001|non-entry log10pts=3 n=7120 mean_points=2703.7 mean_pieces=186.5 mean_successors=1979.0 mean_seconds=0.0544 succ_per_point=0.732 points_per_piece=14.5 sec_share=387.3869
+SCALE 101010000110001|non-entry log10pts=4 n=371 mean_points=14729.9 mean_pieces=464.4 mean_successors=7442.3 mean_seconds=0.1831 succ_per_point=0.505 points_per_piece=31.7 sec_share=67.9439
+SCALE 111000010101001|connected log10pts=0 n=431071 mean_points=3.9 mean_pieces=1.6 mean_successors=18.3 mean_seconds=0.0005 succ_per_point=4.724 points_per_piece=2.4 sec_share=225.5591
+SCALE 111000010101001|connected log10pts=1 n=83612 mean_points=23.3 mean_pieces=5.9 mean_successors=75.6 mean_seconds=0.0019 succ_per_point=3.250 points_per_piece=3.9 sec_share=162.0973
+SCALE 111000010101001|connected log10pts=2 n=9749 mean_points=280.1 mean_pieces=33.3 mean_successors=526.2 mean_seconds=0.0127 succ_per_point=1.878 points_per_piece=8.4 sec_share=123.7512
+SCALE 111000010101001|connected log10pts=3 n=638 mean_points=1860.3 mean_pieces=84.8 mean_successors=1910.9 mean_seconds=0.0565 succ_per_point=1.027 points_per_piece=21.9 sec_share=36.0428
+SCALE 111000100011101|non-entry log10pts=0 n=174211 mean_points=4.8 mean_pieces=1.6 mean_successors=32.0 mean_seconds=0.0007 succ_per_point=6.695 points_per_piece=3.0 sec_share=129.8972
+SCALE 111000100011101|non-entry log10pts=1 n=85875 mean_points=25.4 mean_pieces=5.4 mean_successors=106.0 mean_seconds=0.0022 succ_per_point=4.171 points_per_piece=4.7 sec_share=189.9807
+SCALE 111000100011101|non-entry log10pts=2 n=8274 mean_points=273.7 mean_pieces=40.4 mean_successors=845.5 mean_seconds=0.0163 succ_per_point=3.089 points_per_piece=6.8 sec_share=134.7019
+SCALE 111000100011101|non-entry log10pts=3 n=365 mean_points=1876.1 mean_pieces=272.7 mean_successors=9079.6 mean_seconds=0.1687 succ_per_point=4.840 points_per_piece=6.9 sec_share=61.5754
+SCALE 111000100011101|non-entry log10pts=4 n=4 mean_points=14730.0 mean_pieces=2464.5 mean_successors=49497.0 mean_seconds=1.0479 succ_per_point=3.360 points_per_piece=6.0 sec_share=4.1917
+SCALE 111001000001111|connected log10pts=0 n=28274 mean_points=5.8 mean_pieces=1.6 mean_successors=20.9 mean_seconds=0.0006 succ_per_point=3.626 points_per_piece=3.6 sec_share=15.8763
+SCALE 111001000001111|connected log10pts=1 n=34806 mean_points=30.7 mean_pieces=5.9 mean_successors=74.7 mean_seconds=0.0019 succ_per_point=2.429 points_per_piece=5.2 sec_share=66.5044
+SCALE 111001000001111|connected log10pts=2 n=6497 mean_points=296.9 mean_pieces=38.7 mean_successors=634.9 mean_seconds=0.0137 succ_per_point=2.138 points_per_piece=7.7 sec_share=88.8557
+SCALE 111001000001111|connected log10pts=3 n=620 mean_points=1643.1 mean_pieces=158.2 mean_successors=3511.0 mean_seconds=0.0699 succ_per_point=2.137 points_per_piece=10.4 sec_share=43.3580
+SCALE 111001000001111|connected log10pts=4 n=2 mean_points=14616.0 mean_pieces=1295.0 mean_successors=27649.5 mean_seconds=0.5273 succ_per_point=1.892 points_per_piece=11.3 sec_share=1.0547
+SCALE ALL log10pts=0 n=1268281 mean_points=4.7 mean_pieces=1.6 mean_successors=21.7 mean_seconds=0.0007 succ_per_point=4.609 points_per_piece=3.0 sec_share=858.7378
+SCALE ALL log10pts=1 n=884052 mean_points=26.6 mean_pieces=4.8 mean_successors=72.2 mean_seconds=0.0020 succ_per_point=2.714 points_per_piece=5.6 sec_share=1753.6318
+SCALE ALL log10pts=2 n=179163 mean_points=307.0 mean_pieces=35.7 mean_successors=498.7 mean_seconds=0.0134 succ_per_point=1.624 points_per_piece=8.6 sec_share=2401.6037
+SCALE ALL log10pts=3 n=36877 mean_points=2780.5 mean_pieces=164.6 mean_successors=2929.6 mean_seconds=0.0868 succ_per_point=1.054 points_per_piece=16.9 sec_share=3199.4541
+SCALE ALL log10pts=4 n=3776 mean_points=20572.2 mean_pieces=433.6 mean_successors=11962.4 mean_seconds=0.5282 succ_per_point=0.581 points_per_piece=47.4 sec_share=1994.3883
+SCALE ALL log10pts=5 n=71 mean_points=154730.0 mean_pieces=764.6 mean_successors=10174.4 mean_seconds=0.3453 succ_per_point=0.066 points_per_piece=202.4 sec_share=24.5168
+AGG delegated_not_inspected|Apply|connected count=161168 seconds=0.0 successors=0 points=3.7475e6 inf=0 pieces=0
+AGG delegated_not_inspected|Apply|factorized count=165546 seconds=0.0 successors=0 points=5.7518e7 inf=0 pieces=0
+AGG delegated_not_inspected|Apply|non-entry count=509680 seconds=0.0 successors=0 points=2.9318e7 inf=0 pieces=0
+AGG delegated_not_inspected|Route|route count=1140155 seconds=0.0 successors=0 points=6.5516e7 inf=0 pieces=0
+AGG native_inspection|Apply|connected count=605121 seconds=890.1 successors=32385907 points=1.1824e7 inf=0 pieces=2176624
+AGG native_inspection|Apply|factorized count=383245 seconds=1953.8 successors=62450295 points=1.6516e8 inf=0 pieces=6121087
+AGG native_inspection|Apply|non-entry count=1383854 seconds=7388.4 successors=239770858 points=9.8702e7 inf=0 pieces=12072885
+AGG native_inspection|Route|route count=3418774 seconds=44.5 successors=13556603 points=2.2263e8 inf=0 pieces=0
+OWN 000011001001011|Apply|native_inspection non-entry count=382895 seconds=3826.2 successors=94577262 points=2.5279e7 inf=0 pieces=3244978
+OWN 010111011000001|Apply|native_inspection non-entry count=439425 seconds=1712.0 successors=69638322 points=2.0941e7 inf=0 pieces=3284757
+OWN 101010000110001|Apply|native_inspection non-entry count=152590 seconds=780.0 successors=26262791 points=3.5266e7 inf=0 pieces=2848852
+OWN 011001000001111|Apply|native_inspection factorized count=220589 seconds=582.2 successors=21922366 points=2.1437e7 inf=0 pieces=1891392
+OWN 001100101110000|Apply|native_inspection factorized count=88055 seconds=578.4 successors=19377970 points=5.0113e7 inf=0 pieces=1594381
+OWN 000010011001001|Apply|native_inspection factorized count=39960 seconds=569.1 successors=14187511 points=8.3130e7 inf=0 pieces=1889877
+OWN 001000100101111|Apply|native_inspection non-entry count=140215 seconds=549.9 successors=24111073 points=1.1192e7 inf=0 pieces=1512181
+OWN 111000010101001|Apply|native_inspection connected count=525070 seconds=547.5 successors=20549715 points=7.5310e6 inf=0 pieces=1555494
+OWN 111000100011101|Apply|native_inspection non-entry count=268729 seconds=520.3 successors=25181410 points=6.0233e6 inf=0 pieces=1182117
+OWN 111001000001111|Apply|native_inspection connected count=70199 seconds=215.6 successors=9547401 points=4.2102e6 inf=0 pieces=601375
+OWN 010100101110000|Apply|native_inspection factorized count=23680 seconds=173.1 successors=5242284 points=9.4040e6 inf=0 pieces=569039
+OWN 011101110111000|Apply|native_inspection connected count=9852 seconds=127.0 successors=2288791 points=8.2943e4 inf=0 pieces=19755
+OWN 001001011101001|Apply|native_inspection factorized count=10961 seconds=51.0 successors=1720164 points=1.0796e6 inf=0 pieces=176398
+OWN 000011001001010|Route|native_inspection - count=141725 seconds=1.8 successors=606923 points=3.6716e6 inf=0 pieces=0
+OWN 000010001001011|Route|native_inspection - count=106106 seconds=1.8 successors=614273 points=2.8744e6 inf=0 pieces=0
+OWN 111000000011101|Route|native_inspection - count=83807 seconds=1.7 successors=610831 points=9.6407e5 inf=0 pieces=0
+OWN 010101011000001|Route|native_inspection - count=61432 seconds=1.5 successors=565550 points=1.8810e6 inf=0 pieces=0
+OWN 111000100011100|Route|native_inspection - count=124900 seconds=1.5 successors=435743 points=1.1496e6 inf=0 pieces=0
+OWN 010110011000001|Route|native_inspection - count=73277 seconds=1.4 successors=483465 points=2.0704e6 inf=0 pieces=0
+OWN 011001000001011|Route|native_inspection - count=84465 seconds=1.4 successors=446109 points=4.4683e6 inf=0 pieces=0
+OWN 111000010001001|Route|native_inspection - count=85991 seconds=1.3 successors=388915 points=1.1124e6 inf=0 pieces=0
+OWN 111000010101000|Route|native_inspection - count=88777 seconds=1.1 successors=364838 points=4.9714e5 inf=0 pieces=0
+OWN 011001000001110|Route|native_inspection - count=91052 seconds=1.1 successors=322202 points=3.6264e6 inf=0 pieces=0
+OWN 110000010101001|Route|native_inspection - count=78837 seconds=1.1 successors=358354 points=5.1332e5 inf=0 pieces=0
+OWN 010111011000000|Route|native_inspection - count=132484 seconds=1.0 successors=239849 points=1.4655e6 inf=0 pieces=0
+OWN 111000010100001|Route|native_inspection - count=82775 seconds=1.0 successors=312262 points=7.9175e5 inf=0 pieces=0
+OWN 000011000001011|Route|native_inspection - count=53562 seconds=1.0 successors=370370 points=3.1288e6 inf=0 pieces=0
+OWN 001000100101110|Route|native_inspection - count=89356 seconds=1.0 successors=279164 points=2.0356e6 inf=0 pieces=0
+OWN 001000100101011|Route|native_inspection - count=96086 seconds=0.9 successors=223555 points=2.5721e6 inf=0 pieces=0
+OWN 110000100011101|Route|native_inspection - count=57294 seconds=0.8 successors=249467 points=8.2628e5 inf=0 pieces=0
+OWN 011001000000111|Route|native_inspection - count=48373 seconds=0.8 successors=231759 points=2.7996e6 inf=0 pieces=0
+OWN 000011001000011|Route|native_inspection - count=50476 seconds=0.8 successors=275115 points=2.3034e6 inf=0 pieces=0
+OWN 011000010101001|Route|native_inspection - count=42931 seconds=0.7 successors=251964 points=3.3922e5 inf=0 pieces=0
+OWN 010011011000001|Route|native_inspection - count=66801 seconds=0.7 successors=191245 points=1.9991e6 inf=0 pieces=0
+OWN 000111011000001|Route|native_inspection - count=46461 seconds=0.7 successors=188959 points=1.7049e6 inf=0 pieces=0
+OWN 010111010000001|Route|native_inspection - count=88016 seconds=0.7 successors=129987 points=3.0714e6 inf=0 pieces=0
+OWN 111000100011001|Route|native_inspection - count=84848 seconds=0.7 successors=130063 points=8.3081e5 inf=0 pieces=0
+OWN 111000000101001|Route|native_inspection - count=52291 seconds=0.7 successors=186766 points=7.0815e5 inf=0 pieces=0
+OWN 101000010101001|Route|native_inspection - count=38626 seconds=0.6 successors=213755 points=2.0978e5 inf=0 pieces=0
+OWN 111001000001110|Route|native_inspection - count=47741 seconds=0.6 successors=188715 points=1.0722e6 inf=0 pieces=0
