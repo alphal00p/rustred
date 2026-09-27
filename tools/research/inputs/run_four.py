@@ -10,6 +10,7 @@ Apply envelope and owner-level transitions.
 
 Usage (inside `nix develop`):
   run_four.py --family bmw --label NAME --cpus 100-105 [--queries Q.json]
+              [--manifest SEL.json] [--workers N] [--policy ready|ordered]
               [--binary BIN] [--cp5hop BIN] [--owners-txt OWNERS]
 Writes TMP/w0/inputs/four/runs/<label>/<family>/.
 """
@@ -91,6 +92,7 @@ def main(argv=None):
     p.add_argument("--queries", type=Path)
     p.add_argument("--manifest", type=Path, help="replace the selection manifest (owner base unchanged)")
     p.add_argument("--workers", type=int, help="replace --workers")
+    p.add_argument("--policy", choices=("ready", "ordered"), help="replace --publication-policy")
     p.add_argument("--out-root", type=Path, default=ROOT / "TMP/w0/inputs/four/runs")
     p.add_argument("--binary", type=Path, default=ROOT / "TMP/fable51-controls/bin/rustred-4a17f9c7")
     p.add_argument("--cp5hop", type=Path)
@@ -122,6 +124,8 @@ def main(argv=None):
         set_opt("--manifest", args.manifest)
     if args.workers:
         set_opt("--workers", args.workers)
+    if args.policy:
+        set_opt("--publication-policy", args.policy)
     queries = Path(argv_[argv_.index("--queries") + 1])
     if args.queries:
         queries = args.queries
