@@ -63,7 +63,7 @@ for s in $steps; do
     gen7-sat) run gen7-route-saturation route-saturation "$wt/TMP/gen7" --draws 4000 ;;
     gen6) run gen6-route route "$wt/TMP/gen6" --series v2-series.txt --wait 30 --per 200 --kc 2000 --rows gen6-route-rows.jsonl ;;
     gen3) run gen3-route route "$wt/TMP/gen3" --series v2-series.txt --wait 30 --per 200 --kc 2000 --rows gen3-route-rows.jsonl ;;
-    c5f) run c5f-route route "$wt/TMP/ctl/c5f" --per 300 --kc 2000 --rows c5f-route-rows.jsonl ;;
+    c5f) cp -n /common/dev/rustred/TMP/w0/census/receipt-v4/c5f/series.txt c5f-series.txt; run c5f-route route "$wt/TMP/ctl/c5f" --series c5f-series.txt --wait 1 --per 300 --kc 2000 --rows c5f-route-rows.jsonl ;;
     *) echo "unknown step $s" >&2; exit 2 ;;
   esac
 done
