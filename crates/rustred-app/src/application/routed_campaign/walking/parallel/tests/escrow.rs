@@ -193,7 +193,7 @@ fn completed_escrow_byte_cap_and_optional_reserve_fallback_leave_slot_intact() {
             let charge = Escrow::charge(&s.slots[1]).unwrap();
             let chunk = s.slots[1].chunk.as_ref().unwrap();
             // Actual Vec spare capacity participates in the admission charge.
-            assert!(charge.bytes >= chunk.capacity() * size_of::<Event<1>>());
+            assert!(charge.bytes >= chunk.events.capacity() * size_of::<Event<1>>());
             s.escrow.limits.bytes = if reserve_fallback {
                 charge.bytes
             } else {

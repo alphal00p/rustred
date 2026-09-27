@@ -4,9 +4,9 @@ use super::inspection::Effect;
 use super::inspection::{Event, Finished};
 use super::queue::{Domain, Phase};
 use serde_json::{Value, json};
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Deref};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
 mod escrow;
@@ -39,13 +39,87 @@ impl Failure {
             "kind":self.kind, "detail":self.detail})
     }
 }
+/// One cache line (two on CPUs that prefetch pairs) per contended word. The
+/// stop flag is read on every committed record and helper lookup while the
+/// inspectors update the buffer counters on every emitted event, and the
+/// pool mutex is taken by all of them; sharing a line would turn each read
+/// into a coherence miss. Scheduling only.
+#[repr(align(128))]
+#[derive(Default)]
+pub(super) struct Padded<T>(T);
+impl<T> Deref for Padded<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// A published chunk with the totals its Emitter accumulated while filling
+/// it: `count` is the sum of `Event::count`, `weight` the sum of
+/// `Event::weight` (which does not depend on the count, so merged runs keep
+/// their first event's weight). The escrow charge taken under the pool lock
+/// and the coordinator's buffer release use them instead of re-walking up to
+/// CHUNK_RECORDS events.
+pub(super) struct Chunk<const N: usize> {
+    pub events: Vec<Event<N>>,
+    pub count: usize,
+    pub weight: usize,
+}
+impl<const N: usize> Chunk<N> {
+    fn totals(events: &[Event<N>]) -> (usize, usize) {
+        (
+            events.iter().map(|event| event.count).sum(),
+            events.iter().map(Event::weight).sum(),
+        )
+    }
+}
+
+/// Session synchronization counters, kept under the pool lock (no extra
+/// shared atomics). Telemetry only.
+#[derive(Default)]
+struct SyncCounters {
+    /// Targeted condvar notifications to a parked inspector: a dispatch into
+    /// its slot or the poll of its published chunk.
+    inspector_wakeups: u64,
+    /// Such state changes whose inspector was not parked (no notification).
+    inspector_wakeups_skipped: u64,
+    /// Inspectors parked at those points: what the former shared `work`
+    /// condvar's `notify_all` woke each time.
+    shared_condvar_wakeups: u64,
+    /// Stop/failure/shutdown broadcasts to every slot.
+    broadcasts: u64,
+    coordinator_wakeups: u64,
+    coordinator_wakeups_skipped: u64,
+    coordinator_lock: LockWait,
+    inspector_lock: LockWait,
+}
+#[derive(Default)]
+struct LockWait {
+    acquisitions: u64,
+    contended: u64,
+    wait_seconds: f64,
+}
+impl LockWait {
+    fn json(&self) -> Value {
+        json!({"acquisitions":self.acquisitions, "contended":self.contended,
+            "wait_seconds":self.wait_seconds})
+    }
+}
+#[derive(Clone, Copy)]
+enum Role {
+    Coordinator,
+    Inspector,
+}
+
 struct Slot<const N: usize> {
     id: Option<usize>,
     phase: Option<Phase>,
     job: Option<Arc<Domain<N>>>,
     running: bool,
-    chunk: Option<Vec<Event<N>>>,
+    chunk: Option<Chunk<N>>,
     finished: Option<Finished>,
+    /// Its inspector waits on this slot's condvar (in `take` or `publish`).
+    parked: bool,
     /// Telemetry only: wall time of the current stream, whether the worker is
     /// parked in publish backpressure, events published by the current
     /// stream, and cumulative busy/backpressure/idle seconds of this slot.
@@ -66,6 +140,7 @@ impl<const N: usize> Default for Slot<N> {
             running: false,
             chunk: None,
             finished: None,
+            parked: false,
             started: None,
             blocked: false,
             stream_events: 0,
@@ -126,8 +201,43 @@ struct State<const N: usize> {
     non_cancellation_failure: Option<Failure>,
     shutdown: bool,
     totals: Totals,
+    /// Inspectors parked on their slot condvars, and coordinator-side
+    /// waiters on `changed`: a notifier signals only when someone waits.
+    parked: usize,
+    changed_waiters: usize,
+    sync: SyncCounters,
 }
 impl<const N: usize> State<N> {
+    fn park(&mut self, slot: usize) {
+        self.slots[slot].parked = true;
+        self.parked += 1;
+    }
+    fn unpark(&mut self, slot: usize) {
+        self.slots[slot].parked = false;
+        self.parked -= 1;
+    }
+    /// A job or chunk slot changed for `slot`'s inspector: whether it is
+    /// parked and must be notified (after the lock is released).
+    fn wakes(&mut self, slot: usize) -> bool {
+        self.sync.shared_condvar_wakeups += self.parked as u64;
+        if self.slots[slot].parked {
+            self.sync.inspector_wakeups += 1;
+            true
+        } else {
+            self.sync.inspector_wakeups_skipped += 1;
+            false
+        }
+    }
+    /// Whether a producer-side change must notify `changed`.
+    fn wakes_coordinator(&mut self) -> bool {
+        if self.changed_waiters > 0 {
+            self.sync.coordinator_wakeups += 1;
+            true
+        } else {
+            self.sync.coordinator_wakeups_skipped += 1;
+            false
+        }
+    }
     fn next_reclaimable(&self, publisher: usize) -> Option<usize> {
         self.slots
             .iter()
@@ -150,15 +260,28 @@ enum SnapshotTier {
     Full,
 }
 
-pub(super) struct Pool<const N: usize> {
-    state: Mutex<State<N>>,
-    work: Condvar,
-    changed: Condvar,
-    pub stop: AtomicBool,
+/// Written by every inspector on every emitted event.
+#[derive(Default)]
+struct Counters {
     attempted: AtomicUsize,
     buffered_events: AtomicUsize,
     buffered_bytes: AtomicUsize,
     peak_bytes: AtomicUsize,
+}
+
+pub(super) struct Pool<const N: usize> {
+    state: Padded<Mutex<State<N>>>,
+    /// One condvar per slot. Its inspector parks there for a job (`take`) or
+    /// for its published chunk to be polled (`publish`), so a dispatch or a
+    /// poll wakes exactly that inspector, and only when it is parked; a stop
+    /// broadcasts to all of them.
+    work: Box<[Padded<Condvar>]>,
+    changed: Padded<Condvar>,
+    pub stop: Padded<AtomicBool>,
+    /// Set under the lock together with the first failure, so `failure()`
+    /// answers without the lock until one exists.
+    failed: Padded<AtomicBool>,
+    counters: Padded<Counters>,
 }
 pub(super) enum Poll<const N: usize> {
     Events(Vec<Event<N>>),
@@ -172,25 +295,59 @@ impl<const N: usize> Pool<N> {
     }
     fn with_limits(workers: usize, limits: EscrowLimits) -> Self {
         Self {
-            state: Mutex::new(State {
+            state: Padded(Mutex::new(State {
                 slots: (0..workers).map(|_| Slot::default()).collect(),
                 escrow: Escrow::new(limits),
                 failure: None,
                 non_cancellation_failure: None,
                 shutdown: false,
                 totals: Totals::default(),
-            }),
-            work: Condvar::new(),
-            changed: Condvar::new(),
-            stop: AtomicBool::new(false),
-            attempted: AtomicUsize::new(0),
-            buffered_events: AtomicUsize::new(0),
-            buffered_bytes: AtomicUsize::new(0),
-            peak_bytes: AtomicUsize::new(0),
+                parked: 0,
+                changed_waiters: 0,
+                sync: SyncCounters::default(),
+            })),
+            work: (0..workers).map(|_| Padded::default()).collect(),
+            changed: Padded::default(),
+            stop: Padded::default(),
+            failed: Padded::default(),
+            counters: Padded::default(),
         }
     }
-    fn lock(&self) -> std::sync::MutexGuard<'_, State<N>> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    /// Coordinator-side acquisition (also tests and the rare shared paths).
+    fn lock(&self) -> MutexGuard<'_, State<N>> {
+        self.lock_as(Role::Coordinator)
+    }
+    /// Uncontended acquisitions cost one extra CAS; only a contended one
+    /// reads the clock.
+    fn lock_as(&self, role: Role) -> MutexGuard<'_, State<N>> {
+        let (mut state, waited) = match self.state.try_lock() {
+            Ok(state) => (state, None),
+            Err(TryLockError::Poisoned(error)) => (error.into_inner(), None),
+            Err(TryLockError::WouldBlock) => {
+                let started = Instant::now();
+                let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                (state, Some(started.elapsed().as_secs_f64()))
+            }
+        };
+        let wait = match role {
+            Role::Coordinator => &mut state.sync.coordinator_lock,
+            Role::Inspector => &mut state.sync.inspector_lock,
+        };
+        wait.acquisitions += 1;
+        if let Some(seconds) = waited {
+            wait.contended += 1;
+            wait.wait_seconds += seconds;
+        }
+        state
+    }
+    /// Wake every parked thread: stop, failure and shutdown only.
+    fn broadcast(&self, mut state: MutexGuard<'_, State<N>>) {
+        state.sync.broadcasts += 1;
+        drop(state);
+        for work in &self.work {
+            work.notify_all();
+        }
+        self.changed.notify_all();
     }
     pub fn fail(&self, failure: Failure) {
         let mut state = self.lock();
@@ -204,13 +361,17 @@ impl<const N: usize> Pool<N> {
         }
         if state.failure.is_none() {
             state.failure = Some(failure);
+            self.failed.store(true, Ordering::Release);
         }
         self.stop.store(true, Ordering::Release);
-        drop(state);
-        self.work.notify_all();
-        self.changed.notify_all();
+        self.broadcast(state);
     }
+    /// Lock-free while no failure has been recorded: the coordinator asks on
+    /// every loop iteration and dispatched ID.
     pub fn failure(&self) -> Option<Failure> {
+        if !self.failed.load(Ordering::Acquire) {
+            return None;
+        }
         self.lock().failure.clone()
     }
     /// Detach only later successful terminals, never publish their effects.
@@ -271,18 +432,22 @@ impl<const N: usize> Pool<N> {
         if self.stop.load(Ordering::Acquire) || state.shutdown {
             return false;
         }
-        let Some(slot) = state.slots.iter_mut().find(|s| s.id.is_none()) else {
+        let Some(index) = state.slots.iter().position(|s| s.id.is_none()) else {
             return false;
         };
+        let slot = &mut state.slots[index];
         slot.id = Some(id);
         slot.phase = Some(domain.phase);
         slot.job = Some(domain);
+        let wake = state.wakes(index);
         drop(state);
-        self.work.notify_all();
+        if wake {
+            self.work[index].notify_one();
+        }
         true
     }
     fn take(&self, slot: usize) -> Option<(usize, Arc<Domain<N>>)> {
-        let mut state = self.lock();
+        let mut state = self.lock_as(Role::Inspector);
         loop {
             if state.shutdown || self.stop.load(Ordering::Acquire) {
                 return None;
@@ -293,22 +458,34 @@ impl<const N: usize> Pool<N> {
                 current.stream_started();
                 return Some((current.id.expect("assigned slot"), job));
             }
-            state = self.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state.park(slot);
+            state = self.work[slot]
+                .wait(state)
+                .unwrap_or_else(|e| e.into_inner());
+            state.unpark(slot);
         }
     }
-    fn unbuffer(&self, events: &[Event<N>]) {
-        self.buffered_events.fetch_sub(
-            events.iter().map(|e| e.count).sum::<usize>(),
-            Ordering::Relaxed,
-        );
-        self.buffered_bytes.fetch_sub(
-            events.iter().map(Event::weight).sum::<usize>(),
-            Ordering::Relaxed,
-        );
+    fn unbuffer(&self, events: usize, bytes: usize) {
+        self.counters
+            .buffered_events
+            .fetch_sub(events, Ordering::Relaxed);
+        self.counters
+            .buffered_bytes
+            .fetch_sub(bytes, Ordering::Relaxed);
     }
-    fn publish(&self, slot: usize, chunk: Vec<Event<N>>) -> bool {
-        let events: usize = chunk.iter().map(|event| event.count).sum();
-        let mut state = self.lock();
+    /// Rare paths (drain, shutdown) that hold a bare chunk.
+    fn unbuffer_events(&self, events: &[Event<N>]) {
+        let (count, weight) = Chunk::totals(events);
+        self.unbuffer(count, weight);
+    }
+    fn publish(&self, slot: usize, chunk: Chunk<N>) -> bool {
+        #[cfg(test)]
+        assert_eq!(
+            Chunk::totals(&chunk.events),
+            (chunk.count, chunk.weight),
+            "emitter totals"
+        );
+        let mut state = self.lock_as(Role::Inspector);
         let started = Instant::now();
         let waits = state.slots[slot].chunk.is_some();
         if waits {
@@ -319,7 +496,11 @@ impl<const N: usize> Pool<N> {
             && !self.stop.load(Ordering::Acquire)
             && !state.shutdown
         {
-            state = self.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state.park(slot);
+            state = self.work[slot]
+                .wait(state)
+                .unwrap_or_else(|e| e.into_inner());
+            state.unpark(slot);
         }
         if waits {
             state.totals.waiting -= 1;
@@ -330,34 +511,43 @@ impl<const N: usize> Pool<N> {
         }
         if self.stop.load(Ordering::Acquire) || state.shutdown {
             drop(state);
-            self.unbuffer(&chunk);
+            self.unbuffer(chunk.count, chunk.weight);
             return false;
         }
-        state.slots[slot].stream_events = state.slots[slot].stream_events.saturating_add(events);
+        state.slots[slot].stream_events = state.slots[slot]
+            .stream_events
+            .saturating_add(chunk.count);
         state.slots[slot].chunk = Some(chunk);
+        let wake = state.wakes_coordinator();
         drop(state);
-        self.changed.notify_one();
+        if wake {
+            self.changed.notify_one();
+        }
         true
     }
     pub fn poll(&self, id: usize) -> Poll<N> {
         let mut state = self.lock();
         if let Some(chunk) = state.escrow.take_chunk(id) {
             drop(state);
-            self.unbuffer(&chunk);
-            return Poll::Events(chunk);
+            self.unbuffer(chunk.count, chunk.weight);
+            return Poll::Events(chunk.events);
         }
         if let Some(finished) = state.escrow.take_finished(id) {
             return Poll::Finished(finished);
         }
-        let Some(slot) = state.slots.iter_mut().find(|s| s.id == Some(id)) else {
+        let Some(index) = state.slots.iter().position(|s| s.id == Some(id)) else {
             return Poll::Waiting;
         };
-        if let Some(chunk) = slot.chunk.take() {
+        if let Some(chunk) = state.slots[index].chunk.take() {
+            let wake = state.wakes(index);
             drop(state);
-            self.unbuffer(&chunk);
-            self.work.notify_all();
-            return Poll::Events(chunk);
+            self.unbuffer(chunk.count, chunk.weight);
+            if wake {
+                self.work[index].notify_one();
+            }
+            return Poll::Events(chunk.events);
         }
+        let slot = &mut state.slots[index];
         if let Some(finished) = slot.finished.take() {
             slot.id = None;
             slot.phase = None;
@@ -366,7 +556,7 @@ impl<const N: usize> Pool<N> {
         Poll::Waiting
     }
     pub fn wait(&self, id: usize) {
-        let guard = self.lock();
+        let mut guard = self.lock();
         if self.stop.load(Ordering::Acquire)
             || guard.escrow.contains(id)
             || guard
@@ -380,17 +570,19 @@ impl<const N: usize> Pool<N> {
         {
             return;
         }
-        let _ = self
+        guard.changed_waiters += 1;
+        let (mut guard, _) = self
             .changed
             .wait_timeout(guard, Duration::from_millis(100))
             .unwrap_or_else(|e| e.into_inner());
+        guard.changed_waiters -= 1;
     }
     /// Ready-stream publication waits only when none of its active tickets
     /// has data. Readiness and waiting use the same mutex, avoiding a lost
     /// notification between the coordinator's nonblocking scan and this wait.
     /// Unrelated tickets/notifications cannot make the coordinator busy-spin.
     pub fn wait_for_any_stream(&self, ids: &[usize]) -> bool {
-        let guard = self.lock();
+        let mut guard = self.lock();
         if ids.is_empty() {
             return false;
         }
@@ -403,26 +595,30 @@ impl<const N: usize> Pool<N> {
         let waiting = |state: &mut State<N>| {
             !self.stop.load(Ordering::Acquire) && !state.shutdown && !ready(state)
         };
-        let (guard, _) = self
+        guard.changed_waiters += 1;
+        let (mut guard, _) = self
             .changed
             .wait_timeout_while(guard, Duration::from_millis(100), waiting)
             .unwrap_or_else(|error| error.into_inner());
+        guard.changed_waiters -= 1;
         !self.stop.load(Ordering::Acquire) && !guard.shutdown && ready(&guard)
     }
 
     pub fn wait_drained(&self) -> bool {
-        let guard = self.lock();
+        let mut guard = self.lock();
         if !guard.slots.iter().any(|s| s.running) {
             return true;
         }
-        let (guard, _) = self
+        guard.changed_waiters += 1;
+        let (mut guard, _) = self
             .changed
             .wait_timeout(guard, Duration::from_millis(250))
             .unwrap_or_else(|e| e.into_inner());
+        guard.changed_waiters -= 1;
         !guard.slots.iter().any(|s| s.running)
     }
     fn finish(&self, slot: usize, finished: Finished) {
-        let mut state = self.lock();
+        let mut state = self.lock_as(Role::Inspector);
         let (rules, predicates, optional) = match finished.stats {
             super::inspection::NativeStats::Apply(s)
             | super::inspection::NativeStats::ApplyPartial(s, _) => (
@@ -456,6 +652,7 @@ impl<const N: usize> Pool<N> {
         state.slots[slot].running = false;
         state.slots[slot].stream_ended();
         state.slots[slot].finished = Some(finished);
+        let wake = state.wakes_coordinator();
         drop(state);
         if next.is_none() {
             self.fail(Failure {
@@ -465,7 +662,9 @@ impl<const N: usize> Pool<N> {
                 detail: "attempted inspection counters overflow".into(),
             });
         }
-        self.changed.notify_one();
+        if wake {
+            self.changed.notify_one();
+        }
     }
     /// Everything, including the per-slot timing arrays (3 x W numbers): the
     /// drain events and the final report only.
@@ -490,14 +689,14 @@ impl<const N: usize> Pool<N> {
             "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count() + state.escrow.len(),
             "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count() + state.escrow.len(),
             "backpressured_workers":state.totals.waiting, "backpressure_seconds":state.totals.wait_seconds,
-            "attempted_events":self.attempted.load(Ordering::Relaxed),
+            "attempted_events":self.counters.attempted.load(Ordering::Relaxed),
             "returned_inspections":state.totals.returned, "attempted_native_operations":state.totals.native,
             "attempted_rule_checks":state.totals.rules, "attempted_predicates":state.totals.predicates,
             "attempted_optional_coefficient_refusals":state.totals.optional,
             "native_attempt_counters_scope":"returned_inspections_including_uncommitted_and_cancelled",
-            "worker_buffered_events":self.buffered_events.load(Ordering::Relaxed),
-            "worker_buffered_logical_bytes":self.buffered_bytes.load(Ordering::Relaxed),
-            "peak_worker_buffered_logical_bytes":self.peak_bytes.load(Ordering::Relaxed),
+            "worker_buffered_events":self.counters.buffered_events.load(Ordering::Relaxed),
+            "worker_buffered_logical_bytes":self.counters.buffered_bytes.load(Ordering::Relaxed),
+            "peak_worker_buffered_logical_bytes":self.counters.peak_bytes.load(Ordering::Relaxed),
             "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_records":CHUNK_RECORDS,
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
             "first_failure":state.failure.as_ref().map(Failure::json),
@@ -526,6 +725,18 @@ impl<const N: usize> Pool<N> {
             } else {
                 blocked as f64 / running as f64
             });
+            // Nested: counts and seconds, never a flat heartbeat key.
+            let sync = &state.sync;
+            snapshot["pool_sync"] = json!({
+                "scope":"this_pool_session; inspectors_park_on_their_slot_condvar",
+                "inspector_wakeups":sync.inspector_wakeups,
+                "inspector_wakeups_skipped_not_parked":sync.inspector_wakeups_skipped,
+                "shared_condvar_equivalent_wakeups":sync.shared_condvar_wakeups,
+                "broadcasts":sync.broadcasts,
+                "coordinator_wakeups":sync.coordinator_wakeups,
+                "coordinator_wakeups_skipped_not_waiting":sync.coordinator_wakeups_skipped,
+                "coordinator_lock":sync.coordinator_lock.json(),
+                "inspector_lock":sync.inspector_lock.json()});
         }
         if tier >= SnapshotTier::Full {
             snapshot["slot_busy_seconds"] =
@@ -573,7 +784,7 @@ impl<const N: usize> Pool<N> {
             .collect();
         for (id, entry) in state.escrow.drain() {
             if let Some(chunk) = entry.chunk {
-                self.unbuffer(&chunk);
+                self.unbuffer_events(&chunk);
             }
             finished.push((id, entry.finished));
         }
@@ -581,18 +792,20 @@ impl<const N: usize> Pool<N> {
     }
     fn shutdown(&self) {
         self.stop.store(true, Ordering::Release);
-        self.lock().shutdown = true;
-        self.work.notify_all();
-        self.changed.notify_all();
+        let mut state = self.lock();
+        state.shutdown = true;
+        self.broadcast(state);
     }
     fn clear_buffers(&self) {
         let mut state = self.lock();
         for slot in &mut state.slots {
-            if let Some(c) = slot.chunk.take() {
-                self.unbuffer(&c);
+            if let Some(chunk) = slot.chunk.take() {
+                self.unbuffer(chunk.count, chunk.weight);
             }
         }
-        state.escrow.clear_chunks(|chunk| self.unbuffer(chunk));
+        state
+            .escrow
+            .clear_chunks(|chunk| self.unbuffer_events(chunk));
     }
 }
 
@@ -610,14 +823,17 @@ impl<const N: usize> Emitter<'_, N> {
         if self.chunk.is_empty() {
             return true;
         }
-        self.bytes = 0;
-        self.events = 0;
-        self.pool
-            .publish(self.slot, std::mem::take(&mut self.chunk))
+        let chunk = Chunk {
+            events: std::mem::take(&mut self.chunk),
+            count: std::mem::take(&mut self.events),
+            weight: std::mem::take(&mut self.bytes),
+        };
+        self.pool.publish(self.slot, chunk)
     }
     fn emit(&mut self, event: Event<N>) -> ControlFlow<()> {
         if self
             .pool
+            .counters
             .attempted
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
                 v.checked_add(event.count)
@@ -656,6 +872,7 @@ impl<const N: usize> Emitter<'_, N> {
             return ControlFlow::Break(());
         }
         self.pool
+            .counters
             .buffered_events
             .fetch_add(event.count, Ordering::Relaxed);
         self.events += event.count;
@@ -664,13 +881,12 @@ impl<const N: usize> Emitter<'_, N> {
         {
             last.count += event.count;
         } else {
-            self.pool
-                .buffered_bytes
-                .fetch_add(weight, Ordering::Relaxed);
+            let counters = &self.pool.counters;
+            counters.buffered_bytes.fetch_add(weight, Ordering::Relaxed);
             self.bytes += weight;
             self.chunk.push(event);
-            self.pool.peak_bytes.fetch_max(
-                self.pool.buffered_bytes.load(Ordering::Relaxed),
+            counters.peak_bytes.fetch_max(
+                counters.buffered_bytes.load(Ordering::Relaxed),
                 Ordering::Relaxed,
             );
         }
@@ -682,8 +898,9 @@ impl<const N: usize> Emitter<'_, N> {
     }
 }
 impl<const N: usize> Drop for Emitter<'_, N> {
+    /// The unflushed tail's totals are the Emitter's own.
     fn drop(&mut self) {
-        self.pool.unbuffer(&self.chunk);
+        self.pool.unbuffer(self.events, self.bytes);
     }
 }
 

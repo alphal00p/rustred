@@ -3,7 +3,7 @@
 //! so each holds at most one published chunk; no running stream is accumulated.
 use std::collections::HashMap;
 
-use super::{Event, Finished, Slot};
+use super::{Chunk, Event, Finished, Slot};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
@@ -71,16 +71,17 @@ impl<const N: usize> Escrow<N> {
         if !Self::eligible(slot) {
             return None;
         }
-        let mut payload = 0usize;
-        let mut events = 0usize;
-        let mut spare = 0usize;
-        if let Some(chunk) = &slot.chunk {
-            for event in chunk {
-                payload = payload.checked_add(event.weight())?;
-                events = events.checked_add(event.count)?;
-            }
-            spare = (chunk.capacity() - chunk.len()).checked_mul(size_of::<Event<N>>())?;
-        }
+        // The Emitter's totals, equal to the per-event sums (checked in test
+        // builds by `Pool::publish`): no walk of the chunk under the lock.
+        let (payload, events, spare) = match &slot.chunk {
+            Some(chunk) => (
+                chunk.weight,
+                chunk.count,
+                (chunk.events.capacity() - chunk.events.len())
+                    .checked_mul(size_of::<Event<N>>())?,
+            ),
+            None => (0, 0, 0),
+        };
         let chunk_bytes = payload.checked_add(spare)?;
         Some(Charge {
             // Includes entry metadata and Vec spare storage. HashMap spare
@@ -124,7 +125,7 @@ impl<const N: usize> Escrow<N> {
         self.entries.insert(
             id,
             Entry {
-                chunk: slot.chunk.take(),
+                chunk: slot.chunk.take().map(|chunk| chunk.events),
                 finished: slot.finished.take().expect("admitted finished escrow"),
                 charge,
             },
@@ -138,9 +139,14 @@ impl<const N: usize> Escrow<N> {
         slot.id = None;
         slot.phase = None;
     }
-    pub fn take_chunk(&mut self, id: usize) -> Option<Vec<Event<N>>> {
+    /// The chunk with its charged totals (the Emitter's).
+    pub fn take_chunk(&mut self, id: usize) -> Option<Chunk<N>> {
         let entry = self.entries.get_mut(&id)?;
-        let chunk = entry.chunk.take()?;
+        let chunk = Chunk {
+            events: entry.chunk.take()?,
+            count: entry.charge.events,
+            weight: entry.charge.payload,
+        };
         self.bytes -= entry.charge.chunk_bytes;
         self.payload -= entry.charge.payload;
         self.events -= entry.charge.events;

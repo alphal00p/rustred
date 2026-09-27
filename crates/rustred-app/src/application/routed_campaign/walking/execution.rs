@@ -16,7 +16,7 @@ use super::{
 };
 use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -37,6 +37,43 @@ pub(super) use delegation::scheduling_policy_json;
 /// still be resumed by them (executable-history rollback). A checkpoint
 /// without the key (written by those binaries) derives it on restore.
 pub(super) const PROGRESS_ACCEPTED_EVENTS: &str = "records_accepted_events";
+
+/// When the checkpoint callback can next write a generation, as its owner
+/// announces it through `State::save_hint`. Telemetry only: it lets `save`
+/// skip refreshing a stale `parallel` object that no call would persist.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum SaveHint {
+    /// Unknown callback (tests, diagnostic pauses): any call may write.
+    #[default]
+    Any,
+    /// A periodic save cannot write before this instant.
+    NotBefore(Instant),
+    /// The callback never writes (a walk without checkpoints).
+    Never,
+}
+impl SaveHint {
+    fn may_write(self, now: Instant) -> bool {
+        match self {
+            Self::Any => true,
+            Self::NotBefore(earliest) => now >= earliest,
+            Self::Never => false,
+        }
+    }
+}
+
+/// Pool-session bookkeeping of `State::parallel` (telemetry only). Per-domain
+/// points (every commit batch and Finished) no longer install a pool
+/// snapshot, except the session's first; later ones mark `parallel` stale
+/// until a heartbeat, a save that can write, or the final report installs a
+/// fresh one.
+#[derive(Default)]
+struct ParallelTelemetry {
+    /// `parallel` as the session started (restored from a checkpoint or
+    /// left by an earlier session): its attempt counters are added on top.
+    previous: Value,
+    stale: bool,
+    first_installed: bool,
+}
 
 /// Cheap summary of the persisted walk state that can change between saves.
 /// Equal stamps mean the retained generation already holds this state.
@@ -102,6 +139,8 @@ pub(super) struct State<const N: usize> {
     admission: admission::Metrics,
     replay: Option<replay::Replay>,
     pub(super) streams: streams::Streams,
+    parallel_telemetry: ParallelTelemetry,
+    pub(super) save_hint: Cell<SaveHint>,
 }
 impl<const N: usize> State<N> {
     fn parts(
@@ -162,6 +201,8 @@ impl<const N: usize> State<N> {
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+            parallel_telemetry: ParallelTelemetry::default(),
+            save_hint: Cell::new(SaveHint::default()),
         }
     }
     pub(super) fn change_stamp(&self) -> ChangeStamp {
@@ -369,13 +410,33 @@ impl<const N: usize> State<N> {
         self.parallel = self.enrich(snapshot);
         accumulate_attempts(&mut self.parallel, previous, &mut self.error);
     }
-    /// Per-domain state update (once per commit and per Finished): the lean
-    /// pool snapshot and no session telemetry objects. Heartbeats and the
-    /// final report install the detailed variant; restore reads only the
-    /// attempt counters, which every tier carries.
-    fn set_parallel_lean(&mut self, snapshot: Value, previous: &Value) {
-        self.parallel = self.enrich_with(snapshot, true);
-        accumulate_attempts(&mut self.parallel, previous, &mut self.error);
+    /// Pool sessions: install a pool snapshot as `parallel`, on top of the
+    /// session's starting attempt counters. Heartbeats and the final report
+    /// install the detailed tiers; per-domain points and saves the lean one
+    /// (no session telemetry objects). Restore reads only the attempt
+    /// counters, which every tier carries.
+    fn install_parallel(&mut self, snapshot: Value, lean: bool) {
+        self.parallel = self.enrich_with(snapshot, lean);
+        accumulate_attempts(
+            &mut self.parallel,
+            &self.parallel_telemetry.previous,
+            &mut self.error,
+        );
+        self.parallel_telemetry.stale = false;
+    }
+    /// Per-domain telemetry point (once per commit and per Finished). Only
+    /// the session's first installs the lean pool snapshot; the others just
+    /// mark `parallel` stale. Nothing reads it before the next heartbeat
+    /// (every 250 ms), a save that can write (see `save`) or the final
+    /// report, and each of those installs a fresh snapshot first.
+    fn touch_parallel(&mut self, pool: &parallel::Pool<N>) {
+        if self.parallel_telemetry.first_installed {
+            self.parallel_telemetry.stale = true;
+            self.admission.duty.parallel_deferred += 1;
+        } else {
+            self.parallel_telemetry.first_installed = true;
+            self.install_parallel(pool.snapshot_lean(), true);
+        }
     }
     fn accept(
         &mut self,
@@ -942,6 +1003,8 @@ fn run_with_initial_orthants<const N: usize>(
     observer: &impl Fn(Value),
     enabled: bool,
 ) {
+    // Its no-op callback never writes a `parallel` object.
+    state.save_hint.set(SaveHint::Never);
     run_configured(
         state,
         reducer,
@@ -1091,6 +1154,10 @@ fn run_configured<const N: usize>(
 }
 
 /// Progress/observer publication timed into the coordinator duty breakdown.
+/// `domain_delegated` (one per delegated publication, about 30 us of JSON
+/// each) is throttled: the session's first, then at most one per
+/// `admission::DELEGATED_PROGRESS_CADENCE`; the observer keeps only the
+/// latest event and samples it once per second.
 fn observe<const N: usize>(
     state: &mut State<N>,
     observer: &dyn Fn(Value),
@@ -1099,6 +1166,9 @@ fn observe<const N: usize>(
     pool: &parallel::Pool<N>,
 ) {
     let started = Instant::now();
+    if event == "domain_delegated" && !state.admission.duty.delegated_progress_due(started) {
+        return;
+    }
     // Per-domain events: historical keys only. Heartbeats: scalar activity
     // aggregates. Only the drain events (and the final report) carry the
     // per-slot timing arrays, so a journaled heartbeat stays small at W = 256.
@@ -1113,12 +1183,18 @@ fn observe<const N: usize>(
     state.admission.duty.progress_json += started.elapsed().as_secs_f64();
 }
 
-/// Checkpoint callback timed into the coordinator duty breakdown.
+/// Checkpoint callback timed into the coordinator duty breakdown. A stale
+/// `parallel` is refreshed first whenever the callback may write it.
 fn save<const N: usize>(
     state: &mut State<N>,
+    pool: &parallel::Pool<N>,
     maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
 ) -> Result<(), String> {
     let started = Instant::now();
+    if state.parallel_telemetry.stale && state.save_hint.get().may_write(started) {
+        state.install_parallel(pool.snapshot_lean(), true);
+        state.admission.duty.parallel_save_refreshes += 1;
+    }
     let result = maybe_save(state);
     state.admission.duty.checkpoint += started.elapsed().as_secs_f64();
     result
@@ -1147,7 +1223,7 @@ fn publish_delegated<const N: usize>(
     state.admission.duty.publication += started.elapsed().as_secs_f64();
     committed?;
     observe(state, observer, "domain_delegated", id, pool);
-    save(state, maybe_save)?;
+    save(state, pool, maybe_save)?;
     Ok(started.elapsed().as_secs_f64())
 }
 
@@ -1377,7 +1453,10 @@ fn run_pool<const N: usize>(
     ) -> Finished
     + Sync,
 ) {
-    let previous_parallel = state.parallel.clone();
+    state.parallel_telemetry = ParallelTelemetry {
+        previous: state.parallel.clone(),
+        ..ParallelTelemetry::default()
+    };
     let budget = super::worker_budget::WorkerBudget::for_request(request);
     state.admission = admission::Metrics::new(budget);
     state.admission.duty.start();
@@ -1454,7 +1533,7 @@ fn run_pool<const N: usize>(
                         });
                     } else {
                         observe(state, observer, "domain_delegated", id, pool);
-                        if let Err(error) = save(state, maybe_save) {
+                        if let Err(error) = save(state, pool, maybe_save) {
                             state.error = Some(error);
                             break;
                         }
@@ -1561,8 +1640,8 @@ fn run_pool<const N: usize>(
                                 detail: error.into(),
                             });
                         } else {
-                            state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
-                            if let Err(error) = save(state, maybe_save) {
+                            state.touch_parallel(pool);
+                            if let Err(error) = save(state, pool, maybe_save) {
                                 pool.fail(Failure {
                                     id: Some(publisher_raw),
                                     phase: Some(state.queue.domains[id].phase()),
@@ -1578,10 +1657,10 @@ fn run_pool<const N: usize>(
                         if ready {
                             ready_streams.finished(publisher_raw);
                         }
-                        state.set_parallel_lean(pool.snapshot_lean(), &previous_parallel);
+                        state.touch_parallel(pool);
                         state.admission.duty.publication += started.elapsed().as_secs_f64();
                         if state.error.is_none()
-                            && let Err(error) = save(state, maybe_save)
+                            && let Err(error) = save(state, pool, maybe_save)
                         {
                             pool.fail(Failure {
                                 id: Some(publisher_raw),
@@ -1612,8 +1691,8 @@ fn run_pool<const N: usize>(
                     let next = state.queue.next;
                     observe(state, observer, "domain_progress", next, pool);
                     heartbeat = Instant::now();
-                    state.set_parallel(pool.snapshot_detailed(), &previous_parallel);
-                    if let Err(error) = save(state, maybe_save) {
+                    state.install_parallel(pool.snapshot_detailed(), false);
+                    if let Err(error) = save(state, pool, maybe_save) {
                         pool.fail(Failure {
                             id: Some(publisher_raw),
                             phase: Some(state.queue.domains[id].phase()),
@@ -1643,7 +1722,7 @@ fn run_pool<const N: usize>(
     {
         state.error = Some(detail.to_owned());
     }
-    state.set_parallel(snapshot, &previous_parallel);
+    state.install_parallel(snapshot, false);
     if state
         .error
         .as_deref()

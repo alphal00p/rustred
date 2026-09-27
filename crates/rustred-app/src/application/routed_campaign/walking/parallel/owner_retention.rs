@@ -59,10 +59,13 @@ impl<const N: usize> Pool<N> {
         let waiting = |state: &mut State<N>| {
             !self.stop.load(Ordering::Acquire) && !state.shutdown && !ready(state)
         };
-        let (state, _) = self
+        let mut state = self.lock();
+        state.changed_waiters += 1;
+        let (mut state, _) = self
             .changed
-            .wait_timeout_while(self.lock(), Duration::from_millis(100), waiting)
+            .wait_timeout_while(state, Duration::from_millis(100), waiting)
             .unwrap_or_else(|error| error.into_inner());
+        state.changed_waiters -= 1;
         !self.stop.load(Ordering::Acquire) && !state.shutdown && ready(&state)
     }
 }

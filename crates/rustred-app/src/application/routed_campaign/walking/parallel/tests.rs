@@ -71,10 +71,11 @@ fn snapshot_tiers_nest_lean_detailed_and_full_key_sets() {
         "worker_buffered_logical_bytes",
         "workers",
     ];
-    const DETAILED_EXTRA: [&str; 4] = [
+    const DETAILED_EXTRA: [&str; 5] = [
         "computing_workers",
         "finished_awaiting_poll",
         "heaviest_active_stream",
+        "pool_sync",
         "stream_stall_share",
     ];
     const FULL_EXTRA: [&str; 4] = [
