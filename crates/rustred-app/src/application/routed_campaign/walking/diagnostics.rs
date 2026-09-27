@@ -35,7 +35,7 @@ impl OptionalCounts {
     }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct OptionalRefusals {
     pub records: Vec<Value>,
     seen_original: bool,

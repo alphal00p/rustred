@@ -628,16 +628,12 @@ impl<const N: usize> State<N> {
         };
         let native_cancelled = error_kind == "cancelled";
         self.error = self.error.take().or(native_error);
-        let (stats, optional, truncated) = match native_stats {
+        let refusals = match native_stats {
             NativeStats::Apply(stats) | NativeStats::ApplyPartial(stats, _) => {
                 if let Err(error) = self.optional.add(stats) {
                     self.error.get_or_insert_with(|| error.into());
                 }
-                (
-                    stats_json(stats),
-                    Some(std::mem::take(&mut self.refusals)),
-                    Some(stats),
-                )
+                Some(std::mem::take(&mut self.refusals))
             }
             NativeStats::Route(stats) => {
                 self.routed += 1;
@@ -651,7 +647,7 @@ impl<const N: usize> State<N> {
                     self.error
                         .get_or_insert_with(|| "joint support mask counter overflow".into());
                 }
-                (route_stats(stats), None, None)
+                None
             }
         };
         // Capture real frontiers before moving the per-inspection details.
@@ -699,16 +695,17 @@ impl<const N: usize> State<N> {
         self.completed += usize::from(self.error.is_none());
         self.initial_entry_domains_inspected +=
             usize::from(id < self.initial_domain_count && self.error.is_none());
-        let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase), "owner":mask(&domain.owner),
-            "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
-            "power_bounds":power_bounds_json(domain.powers),
-            "local_inspection_finished":self.error.is_none(), "stats":stats, "seconds":seconds,
-            "error":self.error});
+        // The record is written straight to its line (records::typed): no
+        // `Value` tree on the coordinator. Its `error` and
+        // `local_inspection_finished` predate the accepted-events update; the
+        // ledger flags follow it, as in the former in-place `json!` record.
+        let error = self.error.clone();
+        let mut accepted_events = None;
         if self.ready()
             && let Some(replay) = &self.replay
         {
             let accepted = replay.accepted_events();
-            record["accepted_events"] = json!(accepted);
+            accepted_events = Some(accepted);
             if let Some(total) = self.records_accepted_events.checked_add(accepted) {
                 self.records_accepted_events = total;
             } else {
@@ -716,68 +713,25 @@ impl<const N: usize> State<N> {
                     .get_or_insert_with(|| "record accepted-events counter overflow".into());
             }
         }
-        record["frontiers"] = Value::Array(std::mem::take(&mut self.details));
-        if self.queue.delegation.is_some() {
-            record["record_kind"] = json!("native_inspection");
-            record["local_classification_discharged"] =
-                json!(self.error.is_none() && frontier_count == 0);
-        }
-        if let Some(scope) = partial_scope {
-            record["record_kind"] = json!("partial_initial_overlap_inspection");
-            record["native_inspection_scope"] = json!("low_D_residual_only");
-            record["local_inspection_finished"] = json!(false);
-            record["residual_inspection_finished"] = json!(self.error.is_none());
-            // Filled from the typed ledger at finalization, never inferred from
-            // residual Finished alone or the existence of an initial anchor.
-            record["local_classification_discharged"] = json!(false);
-            record["initial_overlap"] = json!({"anchor_id":scope.anchor_id,"cut":scope.cut,
-                "covered_slice":"original_intersect_D_ge_cut",
-                "residual_power_bounds":power_bounds_json(scope.residual_powers),
-                "coordinates_and_rank_unchanged":true,
-                "authority":"same_snapshot_phase_owner_native_summary"});
-        }
-        if let (Some(optional), Some(stats)) = (optional, truncated) {
-            record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
-            record["optional_refusal_provenance_scope"] = json!("first_per_phase_per_query");
-            record["optional_refusals"] = Value::Array(optional.records);
-        } else {
-            record["conservative_route_overcover"] = json!(true);
-        }
-        if let Some(parts) = physical_parts {
+        if physical_parts.is_some() {
             self.subdivided_logical_inspections += 1;
-            record["record_kind"] = json!("subdivided_native_inspection");
-            record["native_inspection_scope"] = json!("disjoint_exact_source_partition");
-            record["stats_scope"] = json!("checked_sum_of_actual_physical_calls");
-            record["physical_inspections"] = json!(parts.len());
-            record["physical_parts_expected"] = json!(2);
-            record["unreturned_physical_parts"] = json!(
-                (0..2)
-                    .filter(|part| !parts.iter().any(|p| p["part"] == *part))
-                    .collect::<Vec<_>>()
-            );
-            record["physical_seconds_sum"] = json!(seconds);
-            record["physical_seconds_scope"] =
-                json!("sum_of_physical_call_wall_seconds; not_parent_wall_or_CPU");
-            record["seconds"] = Value::Null;
-            record["optional_refusal_provenance_scope"] =
-                json!("first_per_phase_per_physical_part");
-            record["optional_refusals"] = json!(
-                parts
-                    .iter()
-                    .flat_map(|p| p["optional_refusals"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .cloned())
-                    .collect::<Vec<_>>()
-            );
-            record["optional_refusal_provenance_truncated"] = json!(
-                parts
-                    .iter()
-                    .any(|p| p["optional_refusal_provenance_truncated"] == true)
-            );
-            record["physical_parts"] = Value::Array(parts);
         }
+        let inputs = records::typed::NativeInputs {
+            id,
+            domain,
+            error,
+            error_free: self.error.is_none(),
+            stats: native_stats,
+            seconds,
+            accepted_events,
+            frontiers: std::mem::take(&mut self.details),
+            delegation: self.queue.delegation.is_some(),
+            refusals,
+            physical_parts,
+        };
+        #[cfg(test)]
+        records::typed::legacy::check_native(&inputs);
+        let record = records::typed::native(inputs);
         if let Err(error) = self.records.get_mut().push(record) {
             self.error.get_or_insert(error);
         }

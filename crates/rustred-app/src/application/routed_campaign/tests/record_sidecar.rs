@@ -48,9 +48,18 @@ fn streaming_result_json_equals_materialized_document() {
         checkpointed.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
             fixture.directory.join(format!("checkpoint-{label}")),
         ));
+        walking::record_variants_seen::take();
         let streamed =
             owner_domain_walk_with_progress(checkpointed, &AtomicBool::new(false), |_| {}).unwrap();
         assert!(streamed.records.is_streamed(), "{label}");
+        // Every sidecar line was compared with the former json! record.
+        use walking::record_variants_seen::{
+            ACCEPTED_EVENTS, DELEGATED, DELEGATION_LEDGER, NATIVE,
+        };
+        let seen = walking::record_variants_seen::take();
+        let expected =
+            NATIVE | DELEGATED | DELEGATION_LEDGER | if ready { ACCEPTED_EVENTS } else { 0 };
+        assert_eq!(seen & expected, expected, "{label}: {seen:#b}");
         assert!(streamed.document["domains"].is_null());
         assert_eq!(
             streamed.all_scheduled_domains_resolved,

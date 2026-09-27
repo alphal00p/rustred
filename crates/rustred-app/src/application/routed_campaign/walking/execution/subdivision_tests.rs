@@ -70,6 +70,7 @@ fn refusal(part: u8) -> Event<1> {
 #[test]
 fn both_actual_parts_are_required_before_one_parent_publication() {
     let (mut state, request) = setup();
+    super::super::record_variants_seen::take();
     state.accept(refusal(0), &request).unwrap();
     state.commit_physical(
         Ticket {
@@ -123,6 +124,10 @@ fn both_actual_parts_are_required_before_one_parent_publication() {
         state.records.borrow().snapshot()[0]["optional_refusals"][1]["physical_part"],
         1
     );
+    // The subdivided parent's line and Value equal the former json! record's.
+    let seen = super::super::record_variants_seen::take();
+    use super::super::record_variants_seen::{REFUSALS, SUBDIVIDED};
+    assert_eq!(seen & (SUBDIVIDED | REFUSALS), SUBDIVIDED | REFUSALS);
     assert_eq!(
         state.finalize_delegation().0.unwrap()["all_ledger_obligations_discharged"],
         true

@@ -2,6 +2,7 @@ use super::*;
 use crate::application::routed_campaign::walking::{
     initial_orthants::InitialOrthants,
     initial_overlap::{InitialOverlapIndex, InitialOverlapScope},
+    record_variants_seen,
 };
 
 fn starting() -> State<1> {
@@ -42,8 +43,20 @@ fn initial_overlap_actual_native_residual_and_alias_match_across_workers() {
         let mut s = starting();
         let mut r = enabled_request();
         r.workers = workers;
+        record_variants_seen::take();
         execution::run(&mut s, &reducer, &r, &AtomicBool::new(false), &|_| {});
         assert!(s.error.is_none(), "{workers}: {:?}", s.error);
+        // Its partial, native and delegated records were compared, line and
+        // Value, with the former json! records.
+        let seen = record_variants_seen::take();
+        for flag in [
+            record_variants_seen::PARTIAL,
+            record_variants_seen::NATIVE,
+            record_variants_seen::DELEGATED,
+            record_variants_seen::DELEGATION_LEDGER,
+        ] {
+            assert_ne!(seen & flag, 0, "{workers}: {seen:#b}");
+        }
         assert_eq!(s.frontiers, 0);
         assert_eq!(s.queue.domains.len(), 4);
         assert_eq!(s.native_records, 3);

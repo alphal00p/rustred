@@ -52,13 +52,14 @@ impl<const N: usize> State<N> {
             .ok_or("publisher has no delegation")?;
         let domain = self.queue.domains[id].expand();
         self.records.get_mut().reserve_one()?;
-        let record = json!({"record_kind":"delegated_not_inspected", "id":id,
-            "phase":format!("{:?}", domain.phase), "owner":mask(&domain.owner),
-            "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
-            "power_bounds":power_bounds_json(domain.powers),
-            "representative_id":to, "local_inspection_finished":false,
-            "responsibility_status":"pending",
-            "containment_authority":"same_snapshot_phase_owner_native_summary"});
+        // Written straight to its line (records::typed), no `Value` tree.
+        let record = super::records::typed::DelegatedRecord {
+            id,
+            domain,
+            representative: to,
+        };
+        #[cfg(test)]
+        super::records::typed::legacy::check_delegated(&record);
         let publication = ledger
             .publish_delegated(id)
             .map_err(|error| error.to_string())?;

@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+pub(super) use typed::Line;
 
 /// One record line may not exceed this; a longer line is corruption.
 const MAX_RECORD_LINE_BYTES: u64 = 1 << 30;
@@ -50,14 +51,15 @@ impl RecordSink {
         }
     }
     /// Append one committed record. A failure is the publisher's error; no
-    /// placeholder record is ever written in its place.
-    pub fn push(&mut self, record: Value) -> Result<(), String> {
+    /// placeholder record is ever written in its place. The sidecar writes
+    /// the record's line directly; only the Memory sink builds its `Value`.
+    pub fn push(&mut self, record: impl Line) -> Result<(), String> {
         match self {
             Self::Memory(records) => {
                 records
                     .try_reserve(1)
                     .map_err(|_| "record allocation".to_owned())?;
-                records.push(record);
+                records.push(record.into_value()?);
                 Ok(())
             }
             Self::Sidecar(sidecar) => sidecar.push(&record),
@@ -190,7 +192,7 @@ impl Sidecar {
         self.failed.get_or_insert_with(|| error.clone());
         error
     }
-    pub fn push(&mut self, record: &Value) -> Result<(), String> {
+    pub fn push(&mut self, record: &impl Serialize) -> Result<(), String> {
         self.healthy()?;
         let start = self.batch.len();
         if let Err(e) = serde_json::to_writer(&mut self.batch, record) {
@@ -524,6 +526,8 @@ impl Serialize for Domains<'_> {
         SerializeSeq::end(sequence)
     }
 }
+
+pub(in super::super) mod typed;
 
 #[cfg(test)]
 mod tests;

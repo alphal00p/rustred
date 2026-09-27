@@ -1161,7 +1161,13 @@ fn owner_domain_walk_missing_route_stays_frontier_not_terminal() {
     let mut selection: Value = serde_json::from_str(&request.matching.selection_json).unwrap();
     selection["initial_frontier_routes"] = json!([]);
     request.matching.selection_json = selection.to_string();
+    walking::record_variants_seen::take();
     let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    // The Route record and its frontier went through the typed line, checked
+    // against the former json! record.
+    let seen = walking::record_variants_seen::take();
+    use walking::record_variants_seen::{FRONTIERS, ROUTE};
+    assert_eq!(seen & (ROUTE | FRONTIERS), ROUTE | FRONTIERS, "{seen:#b}");
     assert!(!result.all_scheduled_domains_resolved);
     assert_eq!(result.document["recursive_worklist_exhausted"], true);
     assert_eq!(result.document["frontiers"], 1);

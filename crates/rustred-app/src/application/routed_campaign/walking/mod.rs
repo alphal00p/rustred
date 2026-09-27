@@ -54,6 +54,10 @@ pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 /// Transport changes (file layout, section codecs, digests, compaction,
 /// scheduling of saves) do not bump this value.
 pub const WALK_SEMANTICS_VERSION: u32 = 1;
+/// Test builds: the committed-record variants whose typed line this thread
+/// compared with the former `json!` record (see `execution::records::typed`).
+#[cfg(test)]
+pub(super) use execution::records::typed::legacy::seen as record_variants_seen;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
 
