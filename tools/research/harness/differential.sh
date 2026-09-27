@@ -24,7 +24,7 @@ case "$FAM" in
     export RUSTRED_HARNESS_MANIFEST=$RET/selection.json RUSTRED_HARNESS_OWNER_BASE=$RET ;;
   *) echo "unknown family $FAM" >&2; exit 2 ;;
 esac
-OUT=$ROOT/$FAM
+FAMDIR=$ROOT/$FAM; OUT=$FAMDIR
 mkdir -p "$OUT"
 export RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 SYMBOLICA_HIDE_BANNER=1
 sha=$(sha256sum "$BIN" | cut -d' ' -f1)
@@ -43,8 +43,8 @@ env RUSTRED_CHECKPOINT_RESTORE_DIRECTORY="$OUT/walk/checkpoint" \
   > "$OUT/extract.stdout" 2> "$OUT/extract.stderr"
 t2=$(date +%s.%N)
 unset RUSTRED_HARNESS_MANIFEST RUSTRED_HARNESS_OWNER_BASE
-BIN=$BIN FIXTURE="$OUT/fixture.json" OUT="$OUT/reinspect" CPUS="$CPUS" THREADS=$K SINK=digest \
-  TAP="$OUT/walk/tap.jsonl" PERF=none "$HERE/run_harness.sh"
+BIN=$BIN FIXTURE="$FAMDIR/fixture.json" OUT="$FAMDIR/reinspect" CPUS="$CPUS" THREADS=$K SINK=digest \
+  TAP="$FAMDIR/walk/tap.jsonl" PERF=none "$HERE/run_harness.sh"
 t3=$(date +%s.%N)
 printf '{"tap_walk_seconds":%s,"extract_seconds":%s,"reinspect_seconds":%s}\n' \
   "$(awk "BEGIN{print $t1-$t0}")" "$(awk "BEGIN{print $t2-$t1}")" "$(awk "BEGIN{print $t3-$t2}")" > "$OUT/timings.json"
