@@ -370,15 +370,60 @@ Integration branch `fable_5_1-wave2` (merge order C1, C2, C3, B2) is being built
 in `.claude/worktrees/agent-ade877816b107b1cf`; the gates are in the
 integration report (to be added here).
 
-### 8.4 Next (in order)
-1. Integration gates, production restore test on the gen-3 copy, W50
-   five-loop and four-loop profiling (old 102adcc3 vs merged), merge to
-   `fable_5_1`, push.
-2. Pause/resume of the v2 campaign onto the merged binary (user action):
-   Ctrl-C in its pane, wait for exit 4, then the dry run and `--start` of
-   `--resume --upgrade-executable <merged binary>`.
-3. Coordinator relief items 1a/1b (telemetry diet, per-slot wake-ups),
-   then 2 (helper-final hit verdicts) per the design note; measurement
-   protocol M1-M4 first.
-4. C follow-ups (checkpoint review #2 segment compaction, #8, #9, #10, #12,
-   #14-#18), scale tests C 7.2/7.3, hardening of the two timing-flaky tests.
+### 8.4 Wave 2 merged into `fable_5_1` (2026-09-27 ~02:45 UTC)
+- Integration `fable_5_1-wave2` (merges C1, C2, C3, B2, the restore-at-scale
+  test, review fix round) merged at 66ede259. Main-tree gates: fmt clean,
+  lib 777/0/6, `cli_routed_campaign` 6/6, Python 225 OK (1 opt-in skip).
+- Canonical binary: `TMP/fable51-controls/bin/rustred-4a17f9c7`
+  (sha256 `4a17f9c7c0447713370a1aed2e54c9a04251106a9183fd1b8a86dc5d1abb395e`,
+  built from 66ede259 in the main tree); probe prints walk semantics
+  version 1. FG Ordered strict vs 102adcc3: 0 differing records, audit
+  PASS; resume 102adcc3 -> 4a17f9c7 (FG Ordered): exits 4 / 0, 0 differing
+  records (`TMP/fable51-controls/final-4a17f9c7*`).
+- Integration gates (binary 53e672fc / c3d83cf2, same sources): four-loop
+  Ordered strict identical with identical checkpoint section digests;
+  resume 102adcc3 -> new and rollback new -> 102adcc3 for Ordered and
+  Ready; Ready multi-prefix fresh-process gate on X.
+- Production restore at scale (`docs/research/fable51_restore_at_scale_2026-09-27.md`):
+  the live campaign's generation-3 checkpoint (28.8M domains, 16.9M
+  records, 468M edges; 142.8 GB live RSS at save) restores under the
+  merged code in 164 s with 11.0 GB RSS after restore (18.5 GB peak),
+  every validation passing; the clone is unchanged afterwards.
+- Profiling (`docs/research/fable51_wave2_profiling_2026-09-27.md`):
+  five-loop W50 Ordered traversal -5.8..-9.4% (beyond repeat spread),
+  identical inspections/containment; Ready difference not established;
+  peak RSS -57%; four-loop FG/BMW traversal -5..-10%; coordinator commit
+  per record -16..-18%.
+- Strict comparisons now ignore the wall-clock closure refresh telemetry
+  (`refresh_count`, scratch/storage estimates), see 1b13efa4.
+
+### 8.5 Moving the v2 campaign onto the new binary (user action)
+1. Pause: focus the campaign pane in Zellij tab `fable_5_1` and press
+   Ctrl-C once; the supervisor asks the native walker for a cooperative
+   stop, which runs the pre-save closure scan and writes a final CP5
+   generation with 102adcc3, then exits 4. Wait for the pane to report
+   the paused exit (several minutes at this size; do not press Ctrl-C again).
+2. Dry run (changes nothing):
+   `cd /common/dev/rustred && nix develop --command python examples/python/production_saved_owner_campaign.py --campaign-directory campaigns/five-loop-qcd-feynman-d9d10-v2 --resume --upgrade-executable TMP/fable51-controls/bin/rustred-4a17f9c7`
+   It must show frozen 102adcc3..., new 4a17f9c7..., checkpoint and
+   executable walk semantics version 1, and no live run.
+3. Upgrade and resume (same command plus `--start`, in the same pane):
+   `env TMPDIR=$PWD/TMP nix develop --command python examples/python/production_saved_owner_campaign.py --campaign-directory campaigns/five-loop-qcd-feynman-d9d10-v2 --resume --upgrade-executable TMP/fable51-controls/bin/rustred-4a17f9c7 --start`
+   The restore takes a few minutes (gen 3 took 164 s from cache, and the
+   first restore also streams all record segments once to derive the
+   Ready accepted-events aggregate); `checkpoint_executable_changed` is
+   journaled.
+4. Rollback, if ever needed: pause again, then `--resume --upgrade-executable campaigns/five-loop-qcd-feynman-d9d10-v2/bin/rustred-102adcc3...`
+   (allowed from the executable history; checkpoints written by the new
+   binary stay resumable by 102adcc3, tested for Ordered and Ready).
+
+### 8.6 Next (in order)
+1. Coordinator relief (design note): measurement M1 with a frame-pointer
+   build, then items 1a (telemetry diet; `serde_json` Value building is
+   ~15% of coordinator samples), 1b (per-slot wake-ups), 2 (helper-final
+   hit verdicts), 3a (spin barrier/pinning); all result-identical.
+2. C follow-ups (checkpoint review #2 segment compaction, #8, #9, #10, #12,
+   #14-#18), scale tests C 7.2/7.3, hardening of the two timing-flaky tests
+   (`orphan_child_retains_campaign_lock_until_exit`: a forked sibling test
+   child briefly inherits the lock fd; `ready_late_native_fault_after_cancellation_disallows_pause`).
+3. B5 pipelining only after the coordinator items above are measured.
