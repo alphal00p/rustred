@@ -10,10 +10,19 @@ partial-anchor obligations must be discharged; the input queries must be
 preserved: `inputs` follows the query document order, each distinct initial
 record equals the first query naming it (the one that admitted it), and a later
 query may only alias into an earlier same-owner initial record that
-syntactically contains it (helpers-first query documents). Violations are
-collected, written to `audit.json` and cause a nonzero exit. This checks
-recorded native completion and explicit dependencies only; it does not replay
-IBP identities or certify family closure.
+syntactically contains it (helpers-first query documents). Every alias is
+re-checked to be an exact integer-set subset of its direct representative, and
+every partial record's D >= cut slice of its initial anchor, with an
+independent interval predicate cross-checked by lattice-point enumeration on
+small sets; committed records must have accepted exactly their stream's
+events; retained frontiers, failures and refusal provenance must be explicit
+in records (parity); no record carrying a frontier or error may be reported
+descendant-closed; and helper roots and physics queries are reported
+separately. `--require-closure` additionally requires every root and record to
+be descendant-closed. Violations are collected, written to `audit.json` and
+cause a nonzero exit. This checks recorded native completion and explicit
+dependencies only; it does not replay IBP identities or certify family
+closure (edge-based re-derivation: `rustred walk-verify-closure`).
 """
 from __future__ import annotations
 
@@ -24,6 +33,7 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -284,6 +294,179 @@ def alias_contains(record, query):
             and all(within(bound, inner) for bound, inner in zip(upper, inner_upper)))
 
 
+# ---- Exact lattice predicates, independent of the walker's containment code ----
+#
+# A domain is the integer set {x in N^n : lower <= x <= upper, R <= rank,
+# A <= max_positive_power, min_power_difference <= D <= max_power_difference}
+# with physical indices n_i = x_i + 1 on owner axes and n_i = -x_i otherwise,
+# A = sum(max(n_i, 0)) = sum_owner(x_i + 1), R = sum_other(x_i), D = A - R
+# (rust `DomainPowerBounds`/`project`). A and R are sums over disjoint axis
+# groups of integer intervals, so each takes every integer between its box
+# extremes and (A, R) ranges over a full integer rectangle; D = A - R then
+# takes every integer between the rectangle's extremes. Emptiness is thus an
+# interval test, and inclusion is emptiness of the inner set intersected with
+# the negation of each outer constraint. Nothing here reuses or mirrors
+# `DomainPowerSummary`; `box_points` enumerates small sets as a brute-force
+# cross-check of both.
+
+
+def box_of(domain, rank_field="rank", phase=None):
+    """(owner, phase, lower, upper, rank, A, D_min, D_max) of a walker record or query, or None."""
+    owner = domain.get("owner") if isinstance(domain, dict) else None
+    if not (isinstance(owner, str) and owner and set(owner) <= {"0", "1"}):
+        return None
+    parsed = parsed_domain(domain, rank_field, len(owner))
+    if parsed is None:
+        return None
+    lower, upper, rank, (positive, least, most) = parsed
+    return (owner, domain.get("phase", phase), tuple(lower), tuple(upper), rank, positive, least, most)
+
+
+def _sum_interval(lower, upper, axes):
+    low = sum(lower[axis] for axis in axes)
+    high = None if any(upper[axis] is None for axis in axes) else sum(upper[axis] for axis in axes)
+    return low, high
+
+
+def _cap(value, bound):
+    """min(value, bound) with None meaning +infinity."""
+    return bound if value is None else value if bound is None else min(value, bound)
+
+
+def _floor(value, bound):
+    """max(value, bound) with None meaning -infinity."""
+    return bound if value is None else value if bound is None else max(value, bound)
+
+
+def lattice_nonempty(owner, lower, upper, a_low=None, a_high=None, r_low=None, r_high=None,
+                     d_low=None, d_high=None):
+    """Whether some integer point satisfies the box and the A/R/D intervals (None: unbounded)."""
+    if any(high is not None and high < low for low, high in zip(lower, upper)):
+        return False
+    active = [axis for axis, bit in enumerate(owner) if bit == "1"]
+    other = [axis for axis, bit in enumerate(owner) if bit != "1"]
+    box_a_low, box_a_high = _sum_interval(lower, upper, active)
+    box_a_low += len(active)
+    box_a_high = None if box_a_high is None else box_a_high + len(active)
+    box_r_low, box_r_high = _sum_interval(lower, upper, other)
+    a_low, a_high = _floor(box_a_low, a_low), _cap(box_a_high, a_high)
+    r_low, r_high = _floor(box_r_low, r_low), _cap(box_r_high, r_high)
+    if (a_high is not None and a_high < a_low) or (r_high is not None and r_high < r_low):
+        return False
+    # D over the (A, R) rectangle: every integer in [a_low - r_high, a_high - r_low].
+    low = _floor(None if r_high is None else a_low - r_high, d_low)
+    high = _cap(None if a_high is None else a_high - r_low, d_high)
+    return low is None or high is None or low <= high
+
+
+def box_nonempty(box, **extra):
+    owner, _, lower, upper, rank, positive, least, most = box
+    lower, upper = list(lower), list(upper)
+    for axis, value in extra.pop("raise_lower", {}).items():
+        lower[axis] = max(lower[axis], value)
+    for axis, value in extra.pop("cut_upper", {}).items():
+        if value < lower[axis]:
+            return False
+        upper[axis] = _cap(upper[axis], value)
+    return lattice_nonempty(owner, lower, upper, extra.get("a_low"), _cap(positive, extra.get("a_high")),
+                            extra.get("r_low"), _cap(rank, extra.get("r_high")),
+                            _floor(least, extra.get("d_low")), _cap(most, extra.get("d_high")))
+
+
+def box_contains(outer, inner):
+    """Exact integer-set inclusion inner <= outer (phase is the caller's check)."""
+    if not box_nonempty(inner):
+        return True
+    owner, _, lower, upper, rank, positive, least, most = outer
+    if owner != inner[0]:
+        return False
+    for axis, (low, high) in enumerate(zip(lower, upper)):
+        if high is not None and box_nonempty(inner, raise_lower={axis: high + 1}):
+            return False
+        if low > 0 and box_nonempty(inner, cut_upper={axis: low - 1}):
+            return False
+    return not ((rank is not None and box_nonempty(inner, r_low=rank + 1))
+                or (positive is not None and box_nonempty(inner, a_low=positive + 1))
+                or (least is not None and box_nonempty(inner, d_high=least - 1))
+                or (most is not None and box_nonempty(inner, d_low=most + 1)))
+
+
+def box_member(box, point):
+    owner, _, lower, upper, rank, positive, least, most = box
+    if not all(low <= x and (high is None or x <= high) for x, low, high in zip(point, lower, upper)):
+        return False
+    a = sum(x + 1 for x, bit in zip(point, owner) if bit == "1")
+    r = sum(x for x, bit in zip(point, owner) if bit != "1")
+    return ((rank is None or r <= rank) and (positive is None or a <= positive)
+            and (least is None or a - r >= least) and (most is None or a - r <= most))
+
+
+def box_points(box, limit):
+    """Every lattice point of `box` if its A/R-capped rectangle has at most `limit` points, else None."""
+    owner, _, lower, upper, rank, positive, _, _ = box
+    active = [axis for axis, bit in enumerate(owner) if bit == "1"]
+    other = [axis for axis, bit in enumerate(owner) if bit != "1"]
+    caps = list(upper)
+    for group, total in ((active, None if positive is None else positive - len(active)), (other, rank)):
+        if total is None:
+            continue
+        floor = sum(lower[axis] for axis in group)
+        for axis in group:
+            caps[axis] = _cap(caps[axis], total - floor + lower[axis])
+    size = 1
+    for low, high in zip(lower, caps):
+        if high is None:
+            return None
+        size *= max(high - low + 1, 0)
+        if size > limit:
+            return None
+    points = [()]
+    for low, high in zip(lower, caps):
+        points = [point + (x,) for point in points for x in range(low, high + 1)]
+    return [point for point in points if box_member(box, point)]
+
+
+class Containment:
+    """Exact inclusion with a bounded brute-force lattice cross-check."""
+
+    def __init__(self, max_points=256, budget=2_000_000):
+        self.max_points, self.budget = max_points, budget
+        self.exact = self.syntactic = self.brute_force_checks = self.brute_force_points = 0
+        self.disagreements = 0
+
+    def __call__(self, outer, inner):
+        self.exact += 1
+        result = box_contains(outer, inner)
+        if self.max_points and self.brute_force_points < self.budget:
+            points = box_points(inner, self.max_points)
+            if points is not None:
+                self.brute_force_checks += 1
+                self.brute_force_points += len(points)
+                brute = all(box_member(outer, point) for point in points) and (
+                    not points or outer[0] == inner[0])
+                if brute != result:
+                    self.disagreements += 1
+                    return False
+        return result
+
+    def json(self):
+        return {"exact_checks": self.exact, "brute_force_checks": self.brute_force_checks,
+                "brute_force_points": self.brute_force_points, "brute_force_max_points": self.max_points,
+                "brute_force_point_budget": self.budget, "exact_vs_brute_force_disagreements": self.disagreements}
+
+
+def residual_bounds(box, cut):
+    """The D < cut residual power bounds the walker inspects for a partial record."""
+    _, _, _, _, _, positive, least, most = box
+    return {"max_positive_power": positive, "min_power_difference": least,
+            "max_power_difference": _cap(most, cut - 1)}
+
+
+def high_slice(box, cut):
+    owner, phase, lower, upper, rank, positive, least, most = box
+    return (owner, phase, lower, upper, rank, positive, _floor(least, cut), most)
+
+
 def resumed_attempts(resumed, uncommitted, kinds, check):
     """Uncommitted attempts a checkpoint carried into this session; returns their count.
 
@@ -346,29 +529,40 @@ def locate(run, queries=None, command=None, receipt=None):
             "resumed": "--resume" in argv}
 
 
-def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None):
+def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None, require_closure=False,
+               containment=None, helper_pattern="anchor"):
     run = Path(run)
     audit = Audit()
     report = {"audit": "FAIL", "run_directory": str(run), "family_closure_claim": False,
               "all_local_obligations_discharged": False, "full_family_closure_claim": False,
+              "closure_required": require_closure,
               "scope": "recorded native completion and explicit dependencies; not IBP replay or termination"}
+    containment = containment if containment is not None else Containment()
     try:
         located = locate(run, queries, command, receipt)
         report.update(native_command=located["command"], queries_path=str(located["queries"]),
                       publication_policy=located["policy"], resumed=located["resumed"],
                       receipt_path=None if located["receipt"] is None else str(located["receipt"]))
-        report.update(_audit(run, located, audit, expect_schema))
+        report.update(_audit(run, located, audit, expect_schema, require_closure, containment, helper_pattern))
     except (OSError, ValueError, KeyError, TypeError, IndexError, OverflowError) as error:
         audit.check(False, f"structural: {type(error).__name__}: {error}")
+    report["containment_oracle"] = containment.json()
     report["violations"] = audit.violations
     report["violations_suppressed"] = audit.suppressed
     report["audit"] = "PASS" if not audit.violations else "FAIL"
     report["all_local_obligations_discharged"] = report["audit"] == "PASS"
+    certification = report.get("certification")
+    if isinstance(certification, dict):
+        # Engine-reported closure, re-checked for consistency; an independent
+        # edge-based re-derivation is `rustred walk-verify-closure`.
+        certification["closure_certified"] = report["audit"] == "PASS" and require_closure
     return report
 
 
-def _audit(run, located, audit, expect_schema):
+def _audit(run, located, audit, expect_schema, require_closure=False, containment=None,
+           helper_pattern="anchor"):
     check = audit.check
+    containment = containment if containment is not None else Containment()
     policy = located["policy"]
     check(policy in ("ordered", "ready"), f"unsupported publication policy {policy!r}")
     queries_document = read_json(located["queries"])
@@ -394,6 +588,21 @@ def _audit(run, located, audit, expect_schema):
     top = {}
     count = 0
     result_sha = None
+    # Alias containment: aliases wait for their (later) direct representative;
+    # one whose representative streamed first (Ready order) is re-checked in a
+    # second pass. Partial records wait for their initial anchor row.
+    waiting, late, partials = {}, [], []
+    closed_claims, parity = Counter(), Counter()
+    alias_checks = 0
+
+    def check_alias(identity, alias_box, representative, representative_box):
+        nonlocal alias_checks
+        alias_checks += 1
+        if not check(representative_box is not None, f"record {identity}: alias representative has no domain"):
+            return
+        check(alias_box[1] == representative_box[1] and containment(representative_box, alias_box),
+              f"record {identity}: alias domain not contained in representative {representative}")
+
     for item in stream_walk(run / "result.json"):
         if item[0] == "sha256":
             result_sha = item[1]
@@ -410,6 +619,13 @@ def _audit(run, located, audit, expect_schema):
         kinds.ensure(identity)
         if not check(kinds[identity] == 0, f"record {identity}: duplicate id"):
             continue
+        box = box_of(row)
+        check(box is not None, f"record {identity}: malformed domain")
+        for alias, alias_box in waiting.pop(identity, ()):
+            check_alias(alias, alias_box, identity, box)
+        claim = row.get("descendant_closed")
+        closed_claims[{True: "true", False: "false", None: "null"}.get(claim, "invalid")] += 1
+        check(claim in (True, False, None), f"record {identity}: invalid descendant_closed")
         kind, owner, phase = row.get("record_kind"), row.get("owner"), row.get("phase")
         check(phase in ("Apply", "Route"), f"record {identity}: invalid phase {phase!r}")
         valid_owner = isinstance(owner, str) and len(owner) == arity and set(owner) <= {"0", "1"}
@@ -438,9 +654,23 @@ def _audit(run, located, audit, expect_schema):
                      f"record {identity}: alias representative must be a later id"):
                 direct[identity] = representative
                 final[identity] = resolved
+                if box is not None:
+                    if kinds[representative]:
+                        late.append((identity, box, representative))
+                    else:
+                        waiting.setdefault(representative, []).append((identity, box))
             continue
-        check(row.get("error") is None, f"record {identity}: native error recorded")
-        check(row.get("frontiers") == [], f"record {identity}: nonzero frontiers")
+        frontiers, error = row.get("frontiers"), row.get("error")
+        parity["record_frontiers"] += len(frontiers) if isinstance(frontiers, list) else 0
+        parity["error_records"] += error is not None
+        refusals = row.get("optional_refusals")
+        parity["refusal_provenance_entries"] += len(refusals) if isinstance(refusals, list) else 0
+        # Seal rule (F8): only a native with 0 frontiers and no error seals, so
+        # only such a record (or an alias) may be reported descendant-closed.
+        check(not (claim is True and (error is not None or frontiers != [])),
+              f"record {identity}: descendant_closed despite a frontier or error")
+        check(error is None, f"record {identity}: native error recorded")
+        check(frontiers == [], f"record {identity}: nonzero frontiers")
         check(row.get("local_classification_discharged") is True, f"record {identity}: classification not discharged")
         if code == NATIVE:
             check(row.get("local_inspection_finished") is True, f"record {identity}: native inspection unfinished")
@@ -457,6 +687,9 @@ def _audit(run, located, audit, expect_schema):
             anchor = link.get("anchor_id")
             if check(type(anchor) is int and anchor >= 0, f"record {identity}: partial anchor id missing"):
                 final[identity] = anchor
+                cut = link.get("cut")
+                if check(type(cut) is int and box is not None, f"record {identity}: partial cut missing"):
+                    partials.append((identity, box, anchor, cut, link.get("residual_power_bounds")))
         if phase == "Route":
             check(row.get("conservative_route_overcover") is True, f"record {identity}: Route without conservative overcover")
         numeric = check_native_stats(audit, phase, row.get("stats"), identity)
@@ -464,10 +697,35 @@ def _audit(run, located, audit, expect_schema):
         for field, value in numeric.items():
             target[field] += value
         native_phases[phase] += 1
+        events = row.get("accepted_events")
         if policy == "ready":
-            events = row.get("accepted_events")
-            if check(type(events) is int and events >= 0, f"record {identity}: ready record lacks accepted_events"):
+            check(type(events) is int and events >= 0, f"record {identity}: ready record lacks accepted_events")
+        if events is not None:
+            # F7: a committed record accepted exactly the events its native stream emitted.
+            if check(type(events) is int and events >= 0, f"record {identity}: invalid accepted_events"):
                 accepted += events
+                parity["records_with_accepted_events"] += 1
+                check(events == numeric.get("events"), f"record {identity}: accepted_events != stats.events")
+    for representative, entries in waiting.items():
+        for alias, _ in entries:
+            check(False, f"record {alias}: alias representative {representative} has no record")
+    if late:
+        needed = {representative for _, _, representative in late}
+        boxes = {}
+        for item in stream_walk(run / "result.json"):
+            if item[0] == "domain" and item[1].get("id") in needed:
+                boxes[item[1]["id"]] = box_of(item[1])
+        for alias, alias_box, representative in late:
+            check_alias(alias, alias_box, representative, boxes.get(representative))
+    for identity, box, anchor, cut, residual in partials:
+        anchor_row = initial.get(anchor)
+        anchor_box = box_of(anchor_row) if anchor_row is not None else None
+        if not check(anchor_box is not None, f"record {identity}: partial anchor {anchor} has no initial row"):
+            continue
+        # The D >= cut slice is discharged by the anchor, the D < cut residual natively.
+        check(anchor_box[1] == box[1] and containment(anchor_box, high_slice(box, cut)),
+              f"record {identity}: partial D>=cut slice not contained in anchor {anchor}")
+        check(residual == residual_bounds(box, cut), f"record {identity}: partial residual bounds != D<cut slice")
     check(top.get("domains") == "<streamed>", "result has no domains array")
     check(count > 0, "no domain records")
     check(count == len(kinds) and all(kinds[index] != 0 for index in range(len(kinds))),
@@ -562,6 +820,58 @@ def _audit(run, located, audit, expect_schema):
         for field in ("owner", "lower", "upper", "power_bounds"):
             check(row.get(field) == query.get(field), f"query {query['id']}: {field} changed")
         check(row.get("rank") == query.get("max_numerator_rank"), f"query {query['id']}: rank changed")
+    # Frontier/error/refusal parity: every retained frontier, failure and
+    # refusal provenance entry is explicit in exactly one record or receipt.
+    uncommitted = top.get("uncommitted_inspections")
+    carried_frontiers = sum(len(row.get("frontiers") or []) for row in uncommitted
+                            if isinstance(row, dict)) if isinstance(uncommitted, list) else 0
+    input_frontiers = top.get("input_frontiers")
+    input_frontiers = len(input_frontiers) if isinstance(input_frontiers, list) else 0
+    check(top.get("frontiers") == input_frontiers + parity["record_frontiers"] + carried_frontiers,
+          "frontier parity: top-level frontiers != input + record + carried frontiers")
+    check(top.get("failed_nodes") == parity["error_records"], "error parity: failed_nodes != records with an error")
+    check((top.get("error") is None) == (parity["error_records"] == 0), "error parity: walk error vs record errors")
+    check(parity["refusal_provenance_entries"] <= apply_stats["optional_coefficient_refusals"],
+          "refusal parity: more refusal provenance entries than optional coefficient refusals")
+    closure = top.get("descendant_closure")
+    closure = closure if isinstance(closure, dict) else {}
+    available = closure.get("available") is True
+    if require_closure:
+        # Every certified root needs an exhausted, frontier-free, error-free
+        # cone; the checks above make that global, so every node must be closed.
+        check(available, "closure required: descendant closure unavailable")
+        check(closure.get("unresolved_domains") == 0, "closure required: unresolved_domains != 0")
+        check(closure.get("initial_total") == initial_count and closure.get("initial_closed") == initial_count,
+              "closure required: initial_closed != initial_total != distinct initial records")
+        check(closure.get("total_domains") == closure.get("total_closed") == total,
+              "closure required: total_closed != total_domains != logical records")
+        check(closed_claims["true"] == total, "closure required: a record is not descendant_closed")
+    if available:
+        check(closure.get("initial_total") == initial_count, "closure initial_total != distinct initial records")
+        check(closure.get("total_domains") == total, "closure total_domains != logical records")
+        check(closure.get("total_closed") == closed_claims["true"] and
+              closure.get("unresolved_domains") == total - closed_claims["true"],
+              "closure counters != per-record descendant_closed claims")
+    roles = {}
+    for query in queries:
+        record = mapping.get(query["id"])
+        row = initial.get(record) if type(record) is int else None
+        label = "helper" if re.search(helper_pattern, str(query["id"])) else "physics"
+        role = "admitting" if type(record) is int and admitting.get(record) == query["id"] else "absorbed"
+        closed = row is not None and row.get("descendant_closed") is True
+        entry = roles.setdefault(label, Counter())
+        entry["total"] += 1
+        entry[role] += 1
+        entry["closed"] += closed
+    roots = [row for index, row in initial.items() if index < initial_count]
+    certification = {
+        "scope": "engine descendant_closed annotations re-checked for consistency; roots are the distinct "
+                 "initial records, queries are classified by an id pattern",
+        "helper_pattern": helper_pattern, "closure_available": available,
+        "roots": {"total": initial_count, "closed": sum(row.get("descendant_closed") is True for row in roots)},
+        "queries": {label: dict(counts) for label, counts in sorted(roles.items())},
+        "record_closed_claims": dict(closed_claims),
+    }
     ledger = top.get("delegation")
     ledger = ledger if isinstance(ledger, dict) else {}
     check(ledger.get("all_ledger_obligations_discharged") is True, "ledger obligations not discharged")
@@ -648,6 +958,10 @@ def _audit(run, located, audit, expect_schema):
         "initial_queries": query_count, "distinct_initial_records": initial_count, "aliased_queries": aliased,
         "out_of_order_records": out_of_order,
         "carried_earlier_session_attempts": carried, "resumed_unpublished_returned_inspections": surplus,
+        "alias_containment_checks": alias_checks, "partial_anchor_containment_checks": len(partials),
+        "parity": dict(parity, input_frontiers=input_frontiers, carried_frontiers=carried_frontiers,
+                       top_frontiers=top.get("frontiers"), failed_nodes=top.get("failed_nodes")),
+        "certification": certification,
         "rank_histogram": {str(rank): value for rank, value in sorted(ranks.items(), key=lambda item: (item[0] is None, item[0]))},
         "apply_stats": dict(apply_stats), "route_stats": dict(route_stats),
         "events": top.get("events"), "max_scheduled_finite_rank": top.get("max_scheduled_finite_rank"),
@@ -669,11 +983,20 @@ def main(argv=None) -> int:
     parser.add_argument("--command", type=Path, help="bare native argv JSON; default: request.json or command.json")
     parser.add_argument("--supervisor-receipt", type=Path, help="default: supervisor-result.json or guard/result.json")
     parser.add_argument("--expect-schema", help="require this exact result schema string")
+    parser.add_argument("--require-closure", action="store_true",
+                        help="require every root and record descendant-closed (exhausted, frontier- and error-free)")
+    parser.add_argument("--brute-force-max-points", type=int, default=256,
+                        help="enumerate containment checks whose inner set has at most this many lattice points (0: off)")
+    parser.add_argument("--brute-force-point-budget", type=int, default=2_000_000,
+                        help="total lattice points the brute-force cross-check may enumerate")
+    parser.add_argument("--helper-pattern", default="anchor", help="regex; matching query ids are reported as helpers")
     parser.add_argument("--output", type=Path, help="audit report path; default RUN/audit.json")
     parser.add_argument("--no-output", action="store_true", help="print only; do not write audit.json")
     args = parser.parse_args(argv)
     started = time.monotonic()
-    report = audit_walk(args.run, args.queries, args.command, args.supervisor_receipt, args.expect_schema)
+    report = audit_walk(args.run, args.queries, args.command, args.supervisor_receipt, args.expect_schema,
+                        args.require_closure, Containment(args.brute_force_max_points, args.brute_force_point_budget),
+                        args.helper_pattern)
     report["audit_seconds"] = time.monotonic() - started
     text = json.dumps(report, indent=2, sort_keys=True, allow_nan=False)
     if not args.no_output:

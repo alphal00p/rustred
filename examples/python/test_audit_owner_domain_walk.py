@@ -70,7 +70,7 @@ def walk_document(policy="ordered", checkpoint_dir="/checkpoint", workers=2):
              native_inspection_scope="low_D_residual_only",
              initial_overlap={"anchor_id": 0, "authority": AUTHORITY, "coordinates_and_rank_unchanged": True,
                               "covered_slice": "original_intersect_D_ge_cut", "cut": 2,
-                              "residual_power_bounds": dict(POWER)}),
+                              "residual_power_bounds": dict(POWER, max_power_difference=1)}),
     ]
     if policy == "ready":
         for record, accepted in zip((records[0], records[1], records[3], records[4], records[5]), (3, 2, 1, 2, 1)):
@@ -110,6 +110,8 @@ def walk_document(policy="ordered", checkpoint_dir="/checkpoint", workers=2):
         "scheduling_policy": {"kind": "transfer_unreserved", "lookahead": 256},
         "checkpoint": checkpoint, "prepared_seconds": 0.1, "traversal_seconds": 0.2, "elapsed_seconds": 0.4,
         "partial_initial_inspections": 1, "publication_policy": policy,
+        "descendant_closure": {"available": True, "initial_total": 2, "initial_closed": 2, "total_domains": 6,
+                               "total_closed": 6, "unresolved_domains": 0},
         "timing_scope": "this_process_session", "domains": records,
     }
     return queries_document(), top
@@ -302,6 +304,103 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 self.assertEqual(report["audit"], "FAIL")
                 self.assertTrue(any(fragment in violation for violation in report["violations"]),
                                 (fragment, report["violations"]))
+
+    def test_oracle_checks_detect_each_injected_defect(self):
+        def retargeted_alias(top):
+            # Record 4 is a Route native: same owner check fails first; use a
+            # same-bucket Apply native that does not contain the alias instead.
+            top["domains"][3]["upper"] = [2, 0]
+            top["domains"][3]["lower"] = [2, 0]
+            top["domains"][2]["upper"] = [3, 0]
+            top["domains"][2]["power_bounds"] = dict(POWER, max_positive_power=4)
+
+        def seal_with_frontier(top):
+            top["domains"][3]["frontiers"] = [{"kind": "local_dispatch_frontier"}]
+            top["frontiers"] = 1
+
+        def seal_with_error(top):
+            top["domains"][1]["error"] = "injected"
+            top["failed_nodes"] = 1
+
+        def dropped_frontier_record(top):
+            top["frontiers"] = 1
+
+        def accepted_mismatch(top):
+            top["domains"][1]["accepted_events"] = 1
+            top["domains"][0]["accepted_events"] = 4
+
+        def partial_outside_anchor(top):
+            top["domains"][5]["initial_overlap"]["cut"] = 1
+            top["domains"][5]["initial_overlap"]["residual_power_bounds"] = dict(POWER, max_power_difference=0)
+            top["domains"][0]["lower"] = [2, 0]
+            top["domains"][0]["upper"] = [3, 0]
+
+        def unclosed_record(top):
+            top["domains"][4]["descendant_closed"] = False
+
+        cases = [("alias domain not contained in representative", retargeted_alias, "ordered", False),
+                 ("descendant_closed despite a frontier or error", seal_with_frontier, "ordered", False),
+                 ("descendant_closed despite a frontier or error", seal_with_error, "ordered", False),
+                 ("frontier parity", dropped_frontier_record, "ordered", False),
+                 ("accepted_events != stats.events", accepted_mismatch, "ready", False),
+                 ("partial D>=cut slice not contained in anchor", partial_outside_anchor, "ordered", False),
+                 ("closure counters != per-record descendant_closed claims", unclosed_record, "ordered", False),
+                 ("closure required: a record is not descendant_closed", unclosed_record, "ordered", True)]
+        for fragment, mutate, policy, require in cases:
+            with self.subTest(fragment=fragment), tempfile.TemporaryDirectory() as temporary:
+                run = build_run(Path(temporary), policy, mutate=mutate)
+                report = AUDIT.audit_walk(run, require_closure=require)
+                self.assertEqual(report["audit"], "FAIL")
+                self.assertTrue(any(fragment in violation for violation in report["violations"]),
+                                (fragment, report["violations"]))
+
+    def test_require_closure_passes_and_reports_helper_and_physics_roots(self):
+        aliases = [(alias_query("phys-c"), 0), (alias_query("phys-d", "01", (0, 4), (0, 9), 0, dict(POWER)), 1)]
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_aliased_run(Path(temporary), aliases)
+            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            self.assertEqual(report["audit"], "PASS", report["violations"])
+            certification = report["certification"]
+            self.assertTrue(certification["closure_certified"])
+            self.assertEqual(certification["roots"], {"total": 2, "closed": 2})
+            self.assertEqual(certification["queries"]["helper"], {"total": 1, "admitting": 1, "closed": 1})
+            self.assertEqual(certification["queries"]["physics"], {"total": 3, "admitting": 1, "absorbed": 2, "closed": 3})
+            self.assertEqual(report["alias_containment_checks"], 1)
+            self.assertEqual(report["partial_anchor_containment_checks"], 1)
+            self.assertEqual(report["containment_oracle"]["exact_vs_brute_force_disagreements"], 0)
+
+    def test_ready_alias_whose_representative_streamed_first_is_checked_in_a_second_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_run(Path(temporary), "ready", order=[0, 1, 3, 2, 4, 5])
+            report = AUDIT.audit_walk(run)
+            self.assertEqual(report["audit"], "PASS", report["violations"])
+            self.assertEqual(report["alias_containment_checks"], 1)
+
+    def test_exact_lattice_inclusion_matches_point_enumeration(self):
+        import random
+        rng = random.Random(5)
+        def cell(owner):
+            lower = [rng.randrange(3) for _ in owner]
+            upper = [low + rng.randrange(4) if rng.randrange(4) else None for low in lower]
+            d = lambda: rng.randrange(9) - 3 if rng.randrange(4) else None
+            least, most = d(), d()
+            if least is not None and most is not None and least > most:
+                least, most = most, least
+            return (owner, "Apply", tuple(lower), tuple(upper), rng.randrange(6) if rng.randrange(4) else None,
+                    rng.randrange(9) if rng.randrange(4) else None, least, most)
+        window = [()]
+        for _ in range(3):
+            window = [p + (x,) for p in window for x in range(12)]
+        for _ in range(3000):
+            owner = "".join(rng.choice("01") for _ in range(3))
+            outer, inner = cell(owner), cell(owner)
+            inside = [p for p in window if AUDIT.box_member(inner, p)]
+            self.assertEqual(AUDIT.box_nonempty(inner), bool(inside), inner)
+            points = AUDIT.box_points(inner, 10 ** 6)
+            if points is not None and all(u is not None and u < 12 for u in inner[3]):
+                self.assertEqual(sorted(points), sorted(inside))
+                self.assertEqual(AUDIT.box_contains(outer, inner), all(AUDIT.box_member(outer, p) for p in inside),
+                                 (outer, inner))
 
     def test_later_query_aliased_into_containing_initial_record_is_accepted(self):
         aliases = [(alias_query("phys-c"), 0),
