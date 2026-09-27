@@ -12,6 +12,12 @@ Usage (inside `nix develop`):
   run_four.py --family bmw --label NAME --cpus 100-105 [--queries Q.json]
               [--manifest SEL.json] [--workers N] [--policy ready|ordered]
               [--binary BIN] [--cp5hop BIN] [--owners-txt OWNERS]
+              [--perf-stat EVENTS]
+With --perf-stat the walk runs under `perf stat -x, -e EVENTS` (user-mode
+counters of the walk process and its threads; perfstat.csv) and metrics.json
+gets the counter values and instructions per native; the summed scheduler run
+delay of the walk's threads (/proc/PID/task/*/schedstat, last value seen per
+thread, polled every 0.5 s) is recorded in either case.
 Writes TMP/w0/inputs/four/runs/<label>/<family>/.
 """
 import argparse
@@ -34,6 +40,7 @@ COMMANDS = {
     # C-5F: five-loop 1,324-tuple finite control (hot owner), W50 historically
     "five-finite": ROOT / "TMP/ready-five-loop-finite-w50.a6ABXd/ready-first/command.json",
 }
+PERF = "/nix/store/gyp2si1k1w7jhw8z4xx1bwr2m0pr5445-perf-linux-7.2/bin/perf"
 RETIRED = ROOT / "TMP/retired-campaigns-20260925.UtI4ay"
 ENV_ONE = {k: "1" for k in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                             "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS")}
@@ -99,6 +106,8 @@ def main(argv=None):
     p.add_argument("--owners-txt", type=Path)
     p.add_argument("--max-seconds", type=float, default=600.0,
                    help="write the stop file after this many seconds (cooperative stop, checkpoint saved)")
+    p.add_argument("--perf-stat", metavar="EVENTS",
+                   help="run the walk under perf stat with these events, e.g. instructions:u,cycles:u")
     args = p.parse_args(argv)
     out = args.out_root / args.label / args.family
     if out.exists():
@@ -141,19 +150,43 @@ def main(argv=None):
     busy0, total0 = cpu_busy(set(cpus))
     start = time.time()
     with open(out / "stdout", "wb") as so, open(out / "stderr", "wb") as se:
-        proc = subprocess.Popen(["nice", "-n", "5"] + argv_, cwd=ROOT, env=env, stdout=so, stderr=se,
+        prefix = ([PERF, "stat", "-x,", "-o", str(out / "perfstat.csv"), "-e", args.perf_stat, "--"]
+                  if args.perf_stat else [])
+        proc = subprocess.Popen(["nice", "-n", "5"] + prefix + argv_, cwd=ROOT, env=env, stdout=so, stderr=se,
                                 preexec_fn=lambda: os.sched_setaffinity(0, cpus))
         stop = threading.Event()
 
         capped = {"at": None}
+        delay = {}
+
+        def walk_pid():
+            if not args.perf_stat:
+                return proc.pid
+            try:
+                kids = open(f"/proc/{proc.pid}/task/{proc.pid}/children").read().split()
+                return int(kids[0]) if kids else None
+            except OSError:
+                return None
 
         def poll():
             while not stop.is_set():
                 if capped["at"] is None and time.time() - start > args.max_seconds:
                     (out / "stop-request.json").write_text('{"reason":"run_four time cap"}\n')
                     capped["at"] = round(time.time() - start, 1)
+                pid = walk_pid()
+                if pid is None:
+                    time.sleep(0.5)
+                    continue
                 try:
-                    for line in open(f"/proc/{proc.pid}/status"):
+                    for tid in os.listdir(f"/proc/{pid}/task"):
+                        try:
+                            delay[tid] = int(open(f"/proc/{pid}/task/{tid}/schedstat").read().split()[1])
+                        except (OSError, IndexError, ValueError):
+                            pass
+                except OSError:
+                    pass
+                try:
+                    for line in open(f"/proc/{pid}/status"):
                         if line.startswith("VmRSS:"):
                             peak["rss"] = max(peak["rss"], int(line.split()[1]) * 1024)
                 except OSError:
@@ -180,9 +213,24 @@ def main(argv=None):
                "manifest_sha256": sha256(argv_[argv_.index("--manifest") + 1]),
                "exit_code": code, "whole_command_seconds": round(wall, 3), "cpus": args.cpus,
                "peak_rss_bytes": peak["rss"], "time_cap_seconds": args.max_seconds,
-               "stop_requested_at_seconds": capped["at"], **metrics_load}
+               "stop_requested_at_seconds": capped["at"], **metrics_load,
+               "run_delay_seconds": round(sum(delay.values()) / 1e9, 2), "run_delay_threads": len(delay)}
     if (out / "result.json").exists():
         metrics.update(result_metrics(out / "result.json"))
+    if args.perf_stat and (out / "perfstat.csv").exists():
+        counters = {}
+        for line in open(out / "perfstat.csv"):
+            f = line.strip().split(",")
+            if len(f) > 2 and f[2] and not line.startswith("#"):
+                try:
+                    counters[f[2]] = int(f[0])
+                except ValueError:
+                    counters[f[2]] = None
+        metrics["perf"] = counters
+        natives = int(metrics.get("completed_nodes") or 0)
+        ins = counters.get("instructions:u") or counters.get("instructions")
+        if natives and ins:
+            metrics["instructions_per_native"] = round(ins / natives)
     latest = out / "checkpoint/latest.json"
     if args.cp5hop and args.owners_txt and latest.exists():
         gen = json.loads(latest.read_text())["generation"]
