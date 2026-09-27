@@ -59,6 +59,29 @@ impl Fixture {
     pub fn save<const N: usize>(state: &State<N>) -> Self {
         Self::save_with(state, Self::request_for(state), &[], &[])
     }
+    /// An empty directory for a fresh walk, as `walking::run` opens it:
+    /// nothing is written; the caller bootstraps, binds, attaches the record
+    /// sidecar and saves through its own store.
+    pub fn fresh<const N: usize>(state: &State<N>) -> Self {
+        let dir = test_directory();
+        let mut request = Self::request_for(state);
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&dir));
+        Self { dir, request }
+    }
+    /// Copy the latest generation (`latest.json` and every file it
+    /// references, sealed record segments included) into a new directory:
+    /// what a process that died right after that save leaves to resume. The
+    /// writing store's lock and open record segment stay behind.
+    pub fn copy_latest(&self) -> Self {
+        let dir = test_directory();
+        for file in self.typed_manifest().files() {
+            fs::copy(self.dir.join(file.file), dir.join(file.file)).unwrap();
+        }
+        fs::copy(self.dir.join("latest.json"), dir.join("latest.json")).unwrap();
+        let mut request = self.request.clone();
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&dir));
+        Self { dir, request }
+    }
     /// Bootstrap, bind a synthetic owner and write generation 2.
     pub fn save_with<const N: usize>(
         state: &State<N>,

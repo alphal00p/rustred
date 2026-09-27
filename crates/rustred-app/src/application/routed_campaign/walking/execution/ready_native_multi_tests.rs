@@ -12,7 +12,10 @@
 //! baseline therefore commit the same events in the same order.
 use super::super::{
     DiagnosticPause,
-    checkpoint::test_support::{Fixture, OWNER},
+    checkpoint::{
+        SaveKind,
+        test_support::{Fixture, OWNER},
+    },
     delegation::{Ledger, SchedulingPolicy},
     diagnostic_checkpoint,
     queue::Domain,
@@ -252,6 +255,11 @@ fn resume_matches_baseline(
     );
     assert!(resumed.published_count() > resumed.queue.next);
     assert!(DiagnosticPause::ReadyMultiPrefix.fires(&resumed));
+    // Neither save's closure scan was cut, although the post-cancellation
+    // one ran with the run's cancellation set.
+    let closure = resumed.closure_json();
+    assert_eq!(closure["available"], true);
+    assert_eq!(closure["snapshot_stale"], false, "{closure}");
     walk(&mut resumed, reducer, &AtomicBool::new(false), &mut |_| {});
     assert_exhausted(&resumed);
     assert!(resumed.completed > paused.completed);
@@ -311,10 +319,15 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
     };
 
     // The production branch decides when to save, label, journal and cancel,
-    // against a real store; the triggering state is also copied to a second
-    // store so both generations a paused process leaves can be resumed.
-    let production = Fixture::save(&seed());
-    let mut store = production.open(true).unwrap();
+    // against a real store set up as `walking::run` sets up a fresh
+    // checkpointed walk: bootstrap, owner binding, the record sidecar
+    // attached before the first commit (every save seals a segment) and the
+    // initial forced save. The triggering generation is also copied to a
+    // second directory so both generations a paused process leaves can be
+    // resumed.
+    let production = Fixture::fresh(&seed());
+    let mut store = production.open(false).unwrap();
+    store.bootstrap().unwrap();
     store.bind_owners(vec![OWNER.into()]).unwrap();
     let journal = RefCell::new(Vec::new());
     let observer = |event: Value| journal.borrow_mut().push(event);
@@ -322,6 +335,24 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
     let mut pause = Some(DiagnosticPause::ReadyMultiPrefix);
     let mut trigger = None;
     let mut paused = seed();
+    store.attach_records(&paused).unwrap();
+    assert!(matches!(
+        &*paused.records.borrow(),
+        records::RecordSink::Sidecar(_)
+    ));
+    observer(
+        store
+            .save_cancellable(
+                &paused,
+                &[],
+                &[],
+                SaveKind::Forced,
+                &cancellation,
+                &observer,
+            )
+            .unwrap()
+            .expect("the initial generation"),
+    );
     walk(&mut paused, &reducer, &cancellation, &mut |state| {
         let fired = diagnostic_checkpoint(
             &mut pause,
@@ -336,7 +367,7 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
         if fired {
             assert!(trigger.is_none(), "the pause fires once");
             assert_eq!(state.queue.next, FIRST);
-            trigger = Some(Fixture::save(state));
+            trigger = Some(production.copy_latest());
         }
     });
     assert_eq!(paused.error, None);
@@ -368,10 +399,12 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
     let labelled = production.manifest()["metadata"].clone();
     assert_eq!(labelled["diagnostic_pause"], "ready-multi-prefix");
     assert_eq!(labelled["paused"], false);
-    // The walk's own forced save after cancellation: the generation a
-    // production resume restores, still labelled by this session.
+    // The walk's own final save after cancellation, made as `walking::run`
+    // makes it (the run's flag is set; the save neither folds the edge log
+    // nor cuts its closure scan): the generation a production resume
+    // restores, still labelled by this session.
     store
-        .save(&paused, &[], &[], true, &observer)
+        .save_cancellable(&paused, &[], &[], SaveKind::Final, &cancellation, &observer)
         .unwrap()
         .expect("the cancelled state differs from the triggering one");
     drop(store);
@@ -381,6 +414,32 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
     assert!(latest["generation"].as_u64() > labelled["generation"].as_u64());
 
     let trigger = trigger.expect("multi-prefix hole checkpoint");
+    // Every committed record of both generations sits in a sealed sidecar
+    // segment; the manifest tiles them from record 0.
+    assert!(matches!(
+        &*paused.records.borrow(),
+        records::RecordSink::Sidecar(_)
+    ));
+    for (fixture, published) in [
+        (&trigger, triggers[0]["committed_domains"].as_u64().unwrap()),
+        (&production, paused.published_count() as u64),
+    ] {
+        let records = &fixture.manifest()["sections"]["records"];
+        assert!(published > 0);
+        assert_eq!(records["total"].as_u64(), Some(published), "{records}");
+        let mut next = 0;
+        for segment in records["segments"].as_array().unwrap() {
+            assert_eq!(segment["first"].as_u64(), Some(next), "{records}");
+            next += segment["count"].as_u64().unwrap();
+            assert!(
+                fixture
+                    .dir
+                    .join(segment["file"].as_str().unwrap())
+                    .is_file()
+            );
+        }
+        assert_eq!(next, published, "{records}");
+    }
     resume_matches_baseline(&trigger, &reducer, &baseline, &paused);
     resume_matches_baseline(&production, &reducer, &baseline, &paused);
     println!(
