@@ -3,13 +3,17 @@
 Status (revised in c4l session 2, 2026-09-27 ~20-21 UTC): the inputs are built, validated and
 now reproducible from committed files. `four-all` drains **deterministically under Ordered**
 (30,159 natives, records strictly identical at W6, W24 and W96). Under Ready it is
-**schedule-sensitive at W96**: 3 of 5 runs drained; the others entered a self-sustained
-flood one rank above the anchors. The session-1 statements "drains robustly" and "orders in
+**schedule-sensitive at W96**: 7 of 13 runs drained (95 % interval 0.25-0.81), against 15 of 15
+at W6 and W24; the others entered a self-sustained flood one rank above the anchors. The session-1 statements "drains robustly" and "orders in
 which each owner's first row is a full orthant drained in all 13 runs" are **withdrawn**.
+`four-all` is an **additional** four-loop control. It does not replace the C-4L gate (the
+per-family FG/BMW/H/X controls). Its Ready results are reported as statistics over repeats,
+never as a binary drain gate.
 Evidence labels: **[M]** measured, **[E]** estimate or interpretation. No family-closure,
 termination or minimal-master claim is made (`family_closure_claim` is false everywhere).
 
-Inputs, commands, receipts, digests, the full results table and the recommended gate are in
+Inputs, commands, receipts, digests, the full results table and how to use `four-all` next to
+the C-4L gate are in
 [`examples/input/four_loop_combined/README.md`](../../examples/input/four_loop_combined/README.md).
 Raw evidence: `TMP/c4l-build.wBU9zC/` (session 1), `TMP/c4l-s2/` (session 2) and
 `TMP/fable51-controls/c4l-4a17f9c7-*`.
@@ -59,11 +63,11 @@ Full table in the README (section 5). Summary:
 
 | Family | Ordered (W6 / W24 / W96) | Ready W6 | Ready W24 | Ready W96 |
 |---|---|---|---|---|
-| `four-all` (physics + rank-12 anchors) | 30,159 at every width, strictly identical records | 3/3 drained, 24.5-26.1 k | 10/10 drained, 22.3-24.4 k | 3 of 5 drained (21.7-23.8 k); the others flood at rank 13 |
+| `four-all` (physics + rank-12 anchors) | 30,159 at every width, strictly identical records | 5/5 drained, 24.5-26.1 k | 10/10 drained, 22.3-24.4 k | 7 of 13 drained (21.7-24.1 k); the others flood at rank 13 |
 | `four-all-r14anchors` | W24: 38,173 | - | 2/2, 29.0-29.4 k | 2/3 drained; rank-15 flood otherwise |
-| `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 3/3 drained (25.5-25.9 k); max rank 15, so not a fix by construction; small sample |
+| `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 9/11 drained (25.5-31.7 k); the other two flood at rank 14 = anchor + 1 |
 | `four-all-h993r14` | W24: flood (730,570 natives at 900 s) | - | 0/1 (flood moved to two other owners) | - |
-| `four-all-p5` (five-loop generation policy) | W24: 31,717 | - | 2/2, 22.9-23.3 k | not run |
+| `four-all-p5` (five-loop generation policy) | W24: 31,717 | - | 2/2, 22.9-23.3 k | 2/3 (22.2-25.3 k); rank-13 flood otherwise |
 | `four-all-a19` (box-first envelope) | W6 and W24: identical flood | 0/1 | 2/3 | 1/1 |
 | `four-all-physics` | - | - | 0/1 (1 h) | - |
 | `four-all-r6anchors` | - | - | 3/3, 12.5-13.4 k | not run |
@@ -74,7 +78,7 @@ Ordered W24 and W96 and on three Ready W96 runs. In all of them, 32/32 initial r
 independently verified, 0 successors are uncovered and there are 0 containment disagreements
 (`TMP/c4l-s2/verify/`). In drained runs, 98-99 % of natives are Route inspections, and the
 non-entry banana owner takes 71-86 % of native seconds over about 20 natives. W96 rows ran on
-socket 1 with 27-78 % foreign load, so their timings are void.
+socket 1 with 27-88 % foreign load, so their timings are void.
 
 ## The fragmenting mode
 
@@ -95,6 +99,14 @@ The full per-owner breakdown of the non-drained Ready W96 run (9.12 M committed 
   layer with wide boxes of growing bounds instead of points: 58,977 rank-13 natives on
   `0111110010` take 73.3 % of native seconds, with rank-13 sweeps on `0111111001`, `0111100100`
   and `0111100000`.
+- Session B2 (8 more `four-all`, 8 rank-13 and 3 `four-all-p5` Ready W96 runs, 60 k early stop,
+  `TMP/c4l-s2/post_b2.json`): all 7 non-drains show the same signature at the stop. There are
+  1,500-13,755 Apply natives of `0111110010` at anchor rank + 1, against about 30 in a drained run,
+  in the same two flavours:
+  - point-like: 13.3-13.8 k on `0111110010` alone;
+  - wide boxes: 1.5-1.7 k on it plus 2.8-3.0 k on `0111111001`.
+
+  At the stop the flood does not yet dominate native seconds (18-57 %).
 - The same owner floods in every other non-drained run: `four-all-a19` Ready W6 and Ordered
   W6 (rank 13), `four-all-r14anchors` Ready W96 (rank 15), and `four-all-physics` Ready W24
   (rank 5 = helper rank + 2, with `0111111001`). In the drained runs checked (Ready W96,
@@ -103,7 +115,8 @@ The full per-owner breakdown of the non-drained Ready W96 run (9.12 M committed 
 
 Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]:
 - An owner orthant at rank r contains only rank <= r. Its own inspection emits rank r+1 and r+2
-  descendants. The maximum scheduled finite rank is anchor rank + 2 for anchors 12, 13, 14 and 16.
+  descendants. The maximum scheduled finite rank is anchor rank + 2 for anchors 12, 13, 14 and 16
+  in 51 of the 52 drained runs with such anchors; one rank-13 Ready W96 run reached rank 16.
 - Those descendants are admitted as ordinary domains, and a later one aliases only if an earlier
   admitted box contains it. Which wide rank-13 boxes are admitted first depends on completion
   order. In the drained W96 run, the first wide box of `0111110010` left the line-2 dots
@@ -123,6 +136,9 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
   drained runs show the rank-12 picture shifted by two. Ready W96 still fragments: 2 of 3 runs
   drained, and the third was stopped at 900 s with 1,996,696 natives, 690,152 of them rank-15
   Apply natives of `0111110010`. Ordered W24 work rises from 30,159 to 38,173 natives.
+  Rank-13 anchors (session B2): 9 of 11 Ready W96 runs drained, and the other two flood at rank
+  14 = anchor + 1 on `0111110010`. That is not distinguishable from `four-all` (7/13, Fisher exact
+  p = 0.21).
 - **A rank-14 helper for `0111110010` alone.** The flood moves. The run fragments already at
   Ready W24 (1.38 M natives in 900 s), now on `0111100100` and `0111100000` at rank 14. Their
   input is the helper's rank-14 subsector descendants, which arrive through routes.
@@ -150,13 +166,16 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
   (`TMP/c4l-s2/gen-p5/`, 21 s + 20 s) gives 22,505 / 21,885 rules and 596 / 797 finite residuals
   (Vakint policy: 22,715 / 22,228 and 386 / 445), owner bytes 3.78 MB instead of 6.56 MB (banana
   1.43 MB instead of 3.32 MB). `four-all-p5` drains with audit PASS: Ordered W24 31,717 natives
-  (+5.2 %), Ready W24 22,855 and 23,250, max rank 14, 0 frontiers. So the mismatch is small for
-  this control; it was not run at W96.
+  (+5.2 %), Ready W24 22,855 and 23,250, max rank 14, 0 frontiers; `walk-verify-closure
+  --require-closure` with full re-inspection PASS on the Ordered run (0 uncovered of 2,231,270
+  successors). So the mismatch is small for this control. At Ready W96 (session B2) it drains
+  in 2 of 3 runs (22,152 and 25,292 natives), and the third floods at rank 13 on `0111110010`, as
+  with the Vakint-policy owners.
 - **Helper shapes.** The five-loop plan-v3 has 67 helpers, 54 of them with a positive-power
   bound, and **no** rank anchors above the planner helper ranks (2-14). `four-all` adds rank-12
   anchors that the campaign does not have, and its helpers carry no positive-power bound. The
   campaign-shaped variant is therefore `four-all-physics`, which floods here on the same owner.
-- **Corrections to earlier summaries.** "Drains robustly" and "all 13 runs" are refuted (2 of 5
+- **Corrections to earlier summaries.** "Drains robustly" and "all 13 runs" are refuted (6 of 13
   Ready W96 runs of `four-all` did not drain; the helper-first order does not protect). The
   tail-sample "fed by Route records" is reversed (see above). The four-all-physics hot-owner
   shares 74.0 % / 22.3 % are confirmed (74.05 % / 22.29 %). The four-all-a19 Ready W96 run had
@@ -164,20 +183,24 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 
 ## Consequences
 
-1. **Recommended C-4L gate** (README section 5).
-   - C-4L-O, required: `four-all` Ordered at W6 and W24 (W96 when socket 1 is free), drained,
-     audit PASS and strictly identical to the reference records (30,159 natives, 65,444
+1. **How to use `four-all`, in addition to the C-4L gate** (README section 5).
+   - C-4L itself is unchanged: the per-family FG/BMW/H/X controls (the zero-Route arm).
+   - C-4L-comb-O, identity: `four-all` Ordered at W6 and W24 (W96 when socket 1 is free),
+     drained, audit PASS and strictly identical to the reference records (30,159 natives, 65,444
      records), plus `walk-verify-closure --require-closure` with full re-inspection. For the v3
-     epoch engine, which changes the records on purpose, use instead:
-     drained, audit and verify-closure PASS, identical across widths, natives within ±10 %.
-   - C-4L-R: `four-all` Ready W96 x3, 15-minute cap each, or an early stop once a run passes
-     60,000 natives (every fragmenting run, W6-W96, passed 64-263 k natives by 60 s; no drained
-     run of any variant exceeded 38,173 natives). On the legacy engine this arm is diagnostic: a
-     non-drain whose native seconds are dominated by Apply natives at anchor rank + 1 on the
-     V4min-2 connected owners (`0111110010`, `0111111001`) is known behaviour. Any other
-     signature, a frontier or a violation fails. For v3 the arm is required: 3/3 drained,
-     identical.
-   - Keep the per-family FG/BMW/H/X controls as the zero-Route arm.
+     epoch engine, which changes the records on purpose, use instead: drained, audit and
+     verify-closure PASS, identical across widths, natives within ±10 % [E: band chosen].
+   - C-4L-comb-R, Ready statistics, reported and never a binary drain gate. Run n >= 5 repeats
+     per width (W6, W24, W96), each with a 15-minute cap or an early stop at 60,000 natives. Every
+     fragmenting run (W6-W96) passed 64-263 k natives by 60 s, and no drained run of any variant
+     exceeded 38,173 natives. Report per width: n, the fraction drained, the natives distribution
+     of the drained runs, and the natives and `records_breakdown.py` signature of each non-drain.
+     Compare that with the legacy baseline, within the binomial noise at the n used (3/5 against
+     5/5: Fisher exact p = 0.44). The legacy non-drain signature, Apply natives at anchor rank + 1
+     on the V4min-2 connected owners (`0111110010`, `0111111001`), is known behaviour. Any other
+     signature, a frontier or a violation is a failure.
+   - Every run records the recorder: foreign busy CPUs, schedstat run delay, user instructions,
+     IPC and instructions per native.
    - Keep `four-all-physics` as the small, campaign-shaped stress case. A v3 engine that drains
      it within the 1-hour rule would be direct evidence on the five-loop bottleneck.
 2. **Engine requirement for v3** [E]. The flood is a coverage race on descendants just above the
@@ -207,9 +230,11 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 
 ## Open issues
 
-- The Ready W96 drain rate comes from 5 runs of `four-all` and 3 of the rank-14
-  variant. It is a small sample, not a rate estimate.
-- `four-all-p5` and `four-all-r6anchors` were not run at W96.
+- The Ready W96 drain fraction of `four-all` is 7/13 (95 % Clopper-Pearson 0.25-0.81), against
+  15/15 at W6 and W24 (Fisher exact p = 0.005). Width and host are confounded: every W96 run was
+  on socket 1 under 27-88 % foreign load, and no W6 / W24 run was. Separating them needs W24 runs
+  on socket 1, or W96 on a quiet socket.
+- `four-all-r6anchors` was not run at W96.
 - The physics helpers carry no positive-power bound. The five-loop campaign bounds A for 54 of
   its 67 helpers.
 - Not attempted: numerical sign conventions (`q^2-1` here against the thesis's Euclidean

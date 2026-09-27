@@ -4,9 +4,35 @@ One combined owner-domain walk over **all four-loop owners** in a single common
 momentum basis, built to resemble the five-loop campaign as closely as possible:
 one family, class owners generated in that family, every labelled sector routed
 to its class owner, and physics-scoped entry queries from the generic planner.
-It is proposed as the combined four-loop engine control, next to the four per-family controls
-FG/BMW/H/X (four bases, 900 installed owners, zero Route records), which stay as the zero-Route
-arm (section 5, "Recommended C-4L gate").
+It is an **additional** four-loop control. It does **not** replace the C-4L gate, which stays the
+four per-family FG/BMW/H/X controls (four bases, 900 installed owners, zero Route records). The
+owner asked for the combined run in addition to them (section 5, "How to use `four-all`").
+
+**Scope and caveats, stated plainly.**
+- `four-all` is the **planner physics class** (`--loops 4 --gauge feynman --difference-set 7,8`,
+  i.e. D = A - R in {7, 8}, 42 rows) **plus 16 appended rank-12 owner orthants**. It is **not**
+  the owner's historical A <= 19 / R <= 12 / D >= 7 saved-cover envelope.
+- The envelope variant is `four-all-a19`. It drained in 3 of its 7 runs [M]. The other 4 were
+  stopped undrained:
+  - Ready W24: killed at its 600 s cap.
+  - Ready W6 and Ordered W6: stopped by an operator at 2,541 s and 3,142 s, after the
+    non-drain was seen.
+  - Ordered W24: stopped at its 180 s cap.
+
+  The Fable 5.1 critique counts "2 of 5 within 1 h"; that count covers the two W6 runs.
+- **Ordered `four-all` is the identity oracle.** It gives 30,159 natives at W6, W24 and W96, with
+  strictly identical records.
+- **Ready `four-all` is schedule-sensitive.** One Ready W96 run did 239x the natives of a drained
+  run (5,186,115 against 21,730) and did not drain in 1 h. Ready results must be judged
+  statistically, from n >= 5 repeats per width, with the distribution of natives and the fraction
+  that drain within the cap. They are never a binary drain gate.
+- **Owner programs.** They use the Vakint package generation policy (`--exact-backend sparse
+  --numerical-depth 2 --finite-case-policy search`, no rank scope). The five-loop owners were
+  generated with `--max-numerator-rank 10 --exact-backend sparse-factorized --numerical-depth 0`.
+  A five-loop-policy variant (`four-all-p5`) was measured (section 5).
+- **Owner payloads.** The 6.56 MB of owner payloads are **not committed**. They are regenerated
+  byte-for-byte with `regenerate_owners.py` in about 1.4 min and checked against the SHA-256 pins
+  in `selection.json` (section 4).
 
 Evidence labels: **[M]** measured (a run directory under
 `TMP/c4l-build.wBU9zC/` or `TMP/fable51-controls/c4l-*` is cited), **[E]**
@@ -63,7 +89,7 @@ minimal-master claim; `family_closure_claim` is false in every artifact.
 | `selection.json` | Owner selection: 16 owners (masks, relative paths, bytes, SHA-256, representative, root, native ordinal) and the 508 routes. Owner payloads are not committed (section 4). |
 | `regenerate_owners.py` | Regenerates the 16 owner payloads with the pinned binary and checks them against `selection.json` (section 4). |
 | `tools/records_breakdown.py` | Read-only per-owner / per-rank / time-bin breakdown of a walk's committed-records sidecar (section 5). |
-| `four-all/` | **The combined control** (`run_control.py --family four-all`; how to use it: section 5, "Recommended C-4L gate"): `queries.json` = the 42 physics rows followed by 16 rank-12 owner orthants (58 rows), its `matching-summary.json` and staging `input-receipt.json`. |
+| `four-all/` | **The combined control** (`run_control.py --family four-all`; an addition to the C-4L gate, how to use it: section 5, "How to use `four-all`"): `queries.json` = the 42 physics rows followed by 16 rank-12 owner orthants (58 rows), its `matching-summary.json` and staging `input-receipt.json`. |
 | `physics/` | Planner physics class: `queries.json` (42 rows), `entry-plan-receipt.json`, `skeleton-classification.json`, `entry-plans/`, `matching-summary.json`, staging `input-receipt.json`. |
 | `envelope-a19r12d7/` | Historical saved-cover envelope: `queries-boxes.json` (16 boxes), `queries.json` (boxes + 16 rank-12 owner orthants), `entry-spec.json` / `entry-plan.json` (Rust counts), `matching-summary.json`, `input-receipt.json`. |
 
@@ -239,14 +265,17 @@ Runners: the registered families go through the shared `TMP/fable51-controls/run
 The session-2 variants (`four-all-r13anchors`, `-r14anchors`, `-r16anchors`, `-h993r14`,
 `-p5`) go through the lane-local copy `TMP/c4l-s2/run_c4l.py` (same argv rewriting and
 cooperative stop, imported from the shared runner; `--command <argv template>`; it also records
-the foreign load on the run CPUs). Their argv templates are `TMP/c4l-s2/commands/`. Socket-1
-(W96) runs held `TMP/locks/socket1.lock` (`TMP/c4l-s2/session.py`, log `sessionA.log`).
+the foreign load on the run CPUs, the recorder of item 4 below, and with `--stop-natives N` a
+cooperative early stop once a heartbeat reports N natives). Their argv templates are
+`TMP/c4l-s2/commands/`. Socket-1 (W96) runs held `TMP/locks/socket1.lock` (`TMP/c4l-s2/session.py`,
+logs `sessionA.log`, `sessionB2.log`). The per-width statistics are regenerated from the run
+directories by `TMP/c4l-s2/ready_stats.py` (`ready_stats.json`).
 
 ### Registered families and variants
 
 | Family | Queries | Content |
 |---|---:|---|
-| `four-all` | 58 | The 42 planner physics rows plus 16 appended rank-12 owner orthants (`stage_saved_owner_campaign.py --anchor-max-numerator-rank 12`; 12 = 3L, the rank of the historical rank-only anchors). **The combined control** (see "Recommended C-4L gate" below for how to use it). |
+| `four-all` | 58 | The 42 planner physics rows plus 16 appended rank-12 owner orthants (`stage_saved_owner_campaign.py --anchor-max-numerator-rank 12`; 12 = 3L, the rank of the historical rank-only anchors). **The combined control**, an addition to the C-4L gate (see "How to use `four-all`" below). |
 | `four-all-physics` | 42 | The planner physics class alone (`physics/queries.json`). |
 | `four-all-a19` | 32 | The historical envelope (`envelope-a19r12d7/queries.json`, boxes before orthants). |
 | `four-all-r12anchors` | 58 | The same query bytes as `four-all`; the label was used before the rename. |
@@ -260,7 +289,7 @@ the foreign load on the run CPUs). Their argv templates are `TMP/c4l-s2/commands
 Timings are single observations on a shared host and are not a benchmark. W6/W24 rows of
 session 1 ran on CPUs 320-383 (SMT siblings of 64-127); session-2 W24 rows ("own") on
 52-63,308-319 (12 physical cores with their SMT siblings), foreign load 6-24 %; W96 rows on
-socket 1, CPUs 128-223, foreign load 27-78 % where recorded, so **W96 timings are void**
+socket 1, CPUs 128-223, foreign load 27-88 % where recorded, so **W96 timings are void**
 (counts stay valid). "Drained" means `result.json` with an exhausted worklist and audit PASS.
 
 | Family | Policy, W | Runs | Drained | Natives (drained runs) | Max rank | Not drained |
@@ -268,17 +297,18 @@ socket 1, CPUs 128-223, foreign load 27-78 % where recorded, so **W96 timings ar
 | `four-all` | Ordered, W6 | 2 | 2 | 30,159 (both) | 14 | - |
 | `four-all` | Ordered, W24 | 2 | 2 | 30,159 (both) | 14 | - |
 | `four-all` | Ordered, W96 | 1 | 1 | 30,159 | 14 | - |
-| `four-all` | Ready, W6 | 3 | 3 | 24,482-26,065 | 14 | - |
+| `four-all` | Ready, W6 | 5 | 5 | 24,482 / 25,935 / 26,065 (min / median / max) | 14 | - |
 | `four-all` | Ready, W24 | 10 | 10 | 22,290-24,425 | 14 | - |
-| `four-all` | Ready, W96 | 5 | 3 | 21,730 / 23,811 / 23,683 | 14 | 2: rep2 stopped at 3,605 s with 5,186,115 natives; rep5 stopped at 900 s with 1,583,327; both rank-13 floods (section below) |
+| `four-all` | Ready, W96 | 13 | 7 | 21,730 / 23,683 / 24,107 (min / median / max) | 14 | 6, all rank-13 floods on `0111110010` (section below): session A rep2 stopped at 3,605 s with 5,186,115 natives, rep5 at 900 s with 1,583,327; session B2 rep6, rep7, rep8, rep10 at the 60 k early stop (61,483-63,839 natives after 28-51 s of traversal) |
 | `four-all-r13anchors` | Ordered W24 / Ready W24 | 1 / 1 | 1 / 1 | 33,750 / 26,600 | 15 | - |
-| `four-all-r13anchors` | Ready, W96 | 3 | 3 | 25,473-25,934 | 15 | - |
+| `four-all-r13anchors` | Ready, W96 | 11 | 9 | 25,473 / 25,934 / 31,693 | 15 (one run 16) | 2 (B2 rep5, rep7) at the 60 k early stop (66,767 and 63,034 natives); rank-14 flood (anchor + 1) on `0111110010` |
 | `four-all-r14anchors` | Ordered W24 / Ready W24 | 1 / 2 | 1 / 2 | 38,173 / 29,043-29,414 | 16 | - |
 | `four-all-r14anchors` | Ready, W96 | 3 | 2 | 28,596 / 31,398 | 16 | 1: rep2 stopped at 900 s with 1,996,696 natives; rank-15 flood on `0111110010` |
 | `four-all-r16anchors` | Ready, W24 | 1 | 1 | 36,531 | 18 | - |
 | `four-all-h993r14` | Ready, W24 | 1 | 0 | - | - | 1,381,632 natives at 900 s; flood moved to `0111100100` / `0111100000` at rank 14 |
 | `four-all-h993r14` | Ordered, W24 | 1 | 0 | - | - | 730,570 natives at 900 s; rank-14 flood on `0111100100` / `0111100000` |
 | `four-all-p5` | Ordered W24 / Ready W24 | 1 / 2 | 1 / 2 | 31,717 / 22,855-23,250 | 14 | - |
+| `four-all-p5` | Ready, W96 | 3 | 2 | 22,152 / 25,292 | 14 | 1 (B2 `c4l-4a17f9c7-ready-w96`) at the 60 k early stop (63,392 natives); rank-13 flood on `0111110010` |
 | `four-all-r6anchors` | Ready, W24 | 3 | 3 | 12,527-13,370 | 12 | - |
 | `four-all-a19` | Ready, W24 | 3 | 2 | 22,846 / 22,847 | 14 | 1 killed at 600 s with >= 1,150,778 natives (exit 124, no result) |
 | `four-all-a19` | Ready, W6 | 1 | 0 | - | - | 2,660,400 natives at 2,539 s; rank-13 flood on `0111110010` |
@@ -338,6 +368,17 @@ with `tools/records_breakdown.py`):
   family: 58,977 rank-13 Apply natives on `0111110010` (73.3 % of 3,089 native-seconds; wide boxes
   with growing bounds on the dots of lines 1 and 2, up to 0.66 s each) plus rank-13 sweeps on
   `0111111001` (169,082), `0111100100` (108,783) and `0111100000` (47,270).
+- Session B2 (Ready W96, 60 k early stop, `TMP/c4l-s2/post_b2.json` and `bd-ready-w96-rep*-*.json`):
+  all 7 non-drained runs carry the same signature. `0111110010` has 1,500-13,755 Apply natives at
+  anchor rank + 1 (rank 13 for `four-all` and `four-all-p5`, rank 14 for `four-all-r13anchors`),
+  against about 30 in a drained run. The two flavours of session A recur:
+  - point-like, as in rep2: 13.3-13.8 k on `0111110010` alone (`four-all` rep8 and rep10,
+    `four-all-p5`, `four-all-r13anchors` rep5);
+  - wide boxes, as in rep5: 1.5-1.7 k on `0111110010` plus 2.8-3.0 k on `0111111001` (`four-all`
+    rep6 and rep7, `four-all-r13anchors` rep7).
+
+  At a 60 k stop the flood does not yet dominate native seconds (18-57 %). The banana owner's
+  ordinary early work still takes 34-70 %.
 - The same layer floods in every other non-drained run of this directory: `four-all-a19` Ready W6
   (887,159 rank-13 natives on `0111110010`) and Ordered W6 (1,058,541, 77.6 % of native
   seconds), `four-all-r14anchors` Ready W96 rep2 (690,152 natives on `0111110010` at **rank 15**,
@@ -346,9 +387,11 @@ with `tools/records_breakdown.py`):
 - In the drained runs checked (Ready W96, Ordered W24, rank-14 anchors at W24) the same owner has
   about 30 Apply natives at anchor rank + 1, with lower corners of at most 5 dots. The anchors'
   own inspections create that layer: the maximum scheduled finite rank is anchor rank + 2 for
-  anchors 12, 13, 14 and 16 (14, 15, 16, 18).
+  anchors 12, 13, 14 and 16 (14, 15, 16, 18) in 51 of the 52 drained runs with such anchors; one
+  drained `four-all-r13anchors` Ready W96 run (B2 rep11, 31,693 natives) reached rank 16.
 - The fragmenting runs are recognisable early: 41-58 k natives at 20 s and 181-479 k at 120 s
   (`events.jsonl` heartbeats), against 22-31 k natives in 9-20 s of traversal for drained runs.
+  The seven session-B2 non-drains reached the 60 k stop after 28-51 s of traversal.
 
 **Interpretation [E]** (the boxes are measured; the causal reading was not replayed). An owner
 orthant at rank r contains only rank <= r. Its inspection emits rank r+1 and r+2 successors,
@@ -368,6 +411,10 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
   rank-12 picture shifted by two (30 Apply natives of `0111110010` at rank 15, max rank 16), and
   Ready W96 still fragments: 2 of 3 runs drained, and rep2 was stopped at 900 s with 1,996,696
   natives, 690,152 of them rank-15 Apply natives of `0111110010`.
+- **Rank-13 anchors** behave the same way: 9 of 11 Ready W96 runs drained, and the other two
+  flood at rank 14 = anchor + 1 on `0111110010` (13,755 and 1,500 Apply natives at that rank at
+  the 60 k stop). Their drain fraction is not distinguishable from `four-all` (9/11 against 7/13, Fisher
+  exact p = 0.21).
 - **A helper for the flooding owner** moves the flood: a rank-14 orthant for `0111110010` alone
   fragments already at Ready W24 (1,381,632 natives at 900 s), now on `0111100100` (637,289) and
   `0111100000` (589,355) at rank 14, fed through the routes from the helper's rank-14 subsector
@@ -377,31 +424,74 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
   `docs/research/four_loop_helper_bounds_2026-09-25.md`. Robust Ready drainage is therefore an
   engine property (admission order / coverage of the r+1 layer), not an input fix.
 
-### Recommended C-4L gate
+### How to use `four-all` (in addition to the C-4L gate)
 
-1. **C-4L-O (identity, required):** `four-all` Ordered at W6 and W24 (W96 when socket 1 is
-   free). Pass = drained, audit PASS, 0 frontiers, and strict record identity with the
-   reference above (30,159 natives, 65,444 records), plus `walk-verify-closure --require-closure`
-   with full re-inspection PASS (about 2-3 min). Measured width-invariant at W6/W24/W96.
-   For an engine change that intentionally changes records (the v3 epoch engine), replace
-   identity by: drained, audit and verify-closure PASS, identical results across W6/W24/W96,
-   and natives within +-10 % of 30,159 [E: band chosen, not measured].
-2. **C-4L-R (Ready drain at width, diagnostic on the legacy engine):** `four-all` Ready W96 x3,
-   each capped at 15 min; a run may be stopped early once it passes 60,000 natives (twice the
-   Ordered reference): every fragmenting run of this lane (W6-W96) passed 64-263 k natives by 60
-   s, and no drained run of any `four-all` variant exceeded 38,173 natives [M]. Record drained /
-   not drained and, for a non-drained run, the `tools/records_breakdown.py` signature. On the
-   legacy engine a non-drain whose native seconds are dominated by Apply natives at anchor rank +
-   1 on the V4min-2 connected owners (`0111110010`, `0111111001`) is known behaviour (3 of 5 runs
-   drained at W96), not a regression; any other signature, a frontier or an audit violation is a
-   failure. For the v3 epoch engine (deterministic by design) it becomes a required arm: 3/3
-   drained with identical results.
-3. **Keep** the per-family FG/BMW/H/X Ordered W6 controls as the zero-Route arm (owner rule:
-   "in addition to" the combined run), and keep `four-all-physics` as the small C-HOT-like stress
-   case (planner helper ranks as at five loops, same flood).
+0. **C-4L stays as defined in the master plan.** It is the per-family FG/BMW/H/X controls, the
+   zero-Route arm. `four-all` is added next to it and never replaces it.
+1. **C-4L-comb-O, identity (required when an engine change must keep records).** Run `four-all`
+   Ordered at W6 and W24, and at W96 when socket 1 is free. Pass requires:
+   - drained, audit PASS and 0 frontiers;
+   - strict record identity with the reference above (30,159 natives, 65,444 records; measured
+     width-invariant at W6, W24 and W96);
+   - `walk-verify-closure --require-closure` with full re-inspection PASS, with every root
+     independently verified (about 2-3 min).
 
-Anchors at rank >= 14 are **not** adopted: they fragment at Ready W96 as well and raise the work
-(Ordered W24 38,173 natives against 30,159).
+   For an engine that changes the records on purpose (the v3 epoch engine), replace identity
+   with: drained, audit and verify-closure PASS, identical results across W6, W24 and W96, and
+   natives within ±10 % of 30,159 [E: band chosen, not measured].
+2. **C-4L-comb-R, Ready statistics (reported, never a binary drain gate).**
+   - Run `four-all` Ready n >= 5 times per width (W6, W24, W96), each with a 15-minute cap.
+   - A run may also be stopped early once it passes 60,000 natives, twice the Ordered reference.
+     Every fragmenting run of this lane (W6-W96) passed 64-263 k natives by 60 s (the seven
+     session-B2 non-drains reached 60 k after 28-51 s of traversal), and no drained run of any
+     `four-all` variant exceeded 38,173 natives [M]. An early stop counts as "not drained within
+     the cap". `run_c4l.py --stop-natives 60000` implements it.
+   - Report per width: n, the fraction drained within the cap, the natives distribution of the
+     drained runs (min / median / max), and the natives at stop plus the
+     `tools/records_breakdown.py` signature of each run that did not drain.
+   - Compare against the legacy baseline table above (regenerate it with
+     `TMP/c4l-s2/ready_stats.py`). Measured noise floor for drained Ready runs: natives spread
+     6.5 % at W6 (n = 5), 9.6 % at W24 (n = 10) and 10.9 % at W96 (n = 7); Ordered spread 0.
+   - Legacy baseline drain fractions [M]:
+     - W6: 5/5 (95 % Clopper-Pearson interval 0.48-1).
+     - W24: 10/10 (0.69-1).
+     - W96: **7/13** (0.54; 0.25-0.81). That is 3/5 in session A (foreign load 27-45 %) and 4/8 in
+       session B2 (53-85 of the 96 CPUs busy with foreign work). The two sessions do not differ
+       (Fisher exact p = 1.0).
+   - W96 against W6 + W24 (7/13 against 15/15) gives p = 0.005, so the lower drain fraction at
+     W96 is beyond the noise. Width is confounded with the host, though: every W96 run was on
+     socket 1 under foreign load, and every W6 / W24 run was on other CPUs.
+   - A change in drain fraction is only meaningful beyond the binomial noise at the n used.
+     For example, 3/5 has a 95 % Clopper-Pearson interval of 0.15-0.95, 5/5 has 0.48-1, and 3/5
+     against 5/5 gives Fisher exact p = 0.44 (two-sided): at n = 5 they cannot be told apart.
+   - The legacy engine's known non-drain signature: Apply natives at anchor rank + 1 on the
+     V4min-2 connected owners `0111110010` and `0111111001`, far above the about 30 of a drained
+     run.
+     - At a 60 k stop that is 1.5-13.8 k natives on `0111110010`, while native seconds are still
+       led by the banana owner.
+     - In runs that continue, the layer takes 72-78 % of native seconds.
+   - Any other signature, a frontier or an audit violation is a failure in its own right.
+3. **`four-all-physics`** (the planner rows alone, the helper ranks of the five-loop plan) is the
+   small, campaign-shaped stress case. It floods on the same owner and is not a pass/fail control.
+4. The mandatory recorder. The session-2 runner `TMP/c4l-s2/run_c4l.py` stamps it into every
+   `metrics.json` from the two Ready W6 repeats on 52-57 (21:24Z) onward, including all
+   `sessionB2` runs:
+   - foreign busy CPUs;
+   - schedstat run delay summed over the native's threads;
+   - user-mode instructions, cycles and IPC of the native process;
+   - instructions per native.
+
+   Session B2 at W96 [M]: the drained `four-all` runs show 11.3-13.2 M instructions per native, IPC
+   1.34-1.60 and 57-79 foreign busy CPUs. The 60 k-stopped runs show 9.6-27.4 M instructions per
+   native.
+   Timings stay load-sensitive and are labelled as such. Example, two Ready W6 runs on 52-57 [M]:
+   9.38 M and 8.87 M instructions per native, IPC 1.82 and 2.05, run delay 9.8 s and 14.6 s. Total
+   user instructions were 230.19 G and 230.40 G (0.09 % apart), although the natives differ by
+   5.8 %: the Ready variation is in cheap Route natives.
+
+Anchors at rank >= 13 are **not** adopted. They fragment at Ready W96 as well: rank 13 in 2 of
+11 runs, rank 14 in 1 of 3. They also raise the work (Ordered W24 33,750 and 38,173 natives
+against 30,159).
 
 ## 6. Digests (SHA-256)
 
@@ -466,8 +556,9 @@ d1ac816eb5ad5473e05ba5cc618d9f9273fd05dd31dff0c90b05704b1a072e81  staged-physics
 e334f4d353be4736c111d2e1a5789bae446e2ef186463cd28bb064721beb37fd  staged-physics-r6anchors/queries.json
 8dace33c1bdd5e9dce251354c3743bef29e7625ee4b6b153847b0e3130de9051  /common/dev/rustred/TMP/fable51-controls/run_control.py
 # session 2 evidence (absolute)
-104453012643e0919495417f66ba768593911a348e722d2530c287b3420d9fd7  /common/dev/rustred/TMP/c4l-s2/run_c4l.py
-da133bd0dfe0e126f80981c467b15b390973464bda960532d4d89904fe20bdb5  /common/dev/rustred/TMP/c4l-s2/session.py
+# runner and session driver as used by session A (saved copies)
+104453012643e0919495417f66ba768593911a348e722d2530c287b3420d9fd7  /common/dev/rustred/TMP/c4l-s2/run_c4l.v1.py
+da133bd0dfe0e126f80981c467b15b390973464bda960532d4d89904fe20bdb5  /common/dev/rustred/TMP/c4l-s2/session.v1.py
 0ba969774349b83784a56bb7b926dbe1962c3b00aa61cdd4c8de0fd1f5463345  /common/dev/rustred/TMP/c4l-s2/queueA.json
 367b672d039b2b6d306fe803afe30546639f24cbf8884da82f63b5a313f3b192  /common/dev/rustred/TMP/c4l-s2/breakdown.py
 1a66e7cf84a811f59ca7a40849838bd86d004591e410cd2ec8c0f3660dd6f5d0  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep2-four-all.json
@@ -487,4 +578,20 @@ fd0e259f41a6dbad777cc2e28726c814938a277976ce40b41a43cc7e70e561dd  /common/dev/ru
 ff79221efaba44a1c9ed7cd5a9361a4b0b72f6ee6434ef4397e8968e9de175ad  /common/dev/rustred/TMP/c4l-s2/gen-p5/root511/sectors/checkpoint.toml
 e6b704064a0a6580fcb4daf7fc9d749b6b6c89621c27b8ca5c14f18c54f3bd68  /common/dev/rustred/TMP/c4l-s2/regen-script-test/regeneration-receipt.json
 6fbe2e96dbe004a6a94e8b4dc3b9c3c3c656436da0db4143a3cff8846b05def9  /common/dev/rustred/TMP/fable51-controls/c4l-4a17f9c7-ordered-w24/four-all/result.json
+# session B2 (runner with recorder and --stop-natives, session driver with budget / yield; statistics)
+42a30903a67b7f6b0b52f66e07c2f5cf731bd4456d0ffdcae5777d21c7cfd54e  /common/dev/rustred/TMP/c4l-s2/run_c4l.py
+451149b5835adedd72a8f59b21170df0f0cd2cef2271d0d49f54b21f8b63e29f  /common/dev/rustred/TMP/c4l-s2/session.py
+ce2fb5ea7d66e7e2f2345fab57c267a31b4619f721ed2a7ef94f68f265d90f4d  /common/dev/rustred/TMP/c4l-s2/queueB2.json
+c0668ce543be4a91164ae7e27dc1e9c6b4af5fcca55ea682573d5595878f4654  /common/dev/rustred/TMP/c4l-s2/sessionB2.log
+b3d24712c7f8341ef8332381ae17e551f1c710f2db2cdef838ae6a5cfebd3532  /common/dev/rustred/TMP/c4l-s2/ready_stats.py
+023741085b52e791e454ea51a5331f8caf22165c709757dc56bd39945a9e3442  /common/dev/rustred/TMP/c4l-s2/ready_stats.json
+51bbf28ef2c1b01b128f17d00f5235dd135677e24ec2be7350864237d71cea3c  /common/dev/rustred/TMP/c4l-s2/post_b2.py
+f99e9f403b209c32ba3ba79447681c860e1afb7be19895037b7d157c86768303  /common/dev/rustred/TMP/c4l-s2/post_b2.json
+6dc3c6f1baee539e9c2c4d0ac553dab103c37f580c415a86e4a33b9d530a32bf  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep6-four-all.json
+9e72790a2956a2e5ee1800ba6c7d3456459591dbcf69fbb42fc618d98db4d9c3  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep7-four-all.json
+b005b54704490ddfb0ffe76dfb5f75c5b63b37d01654b8091282097ed7db341f  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep8-four-all.json
+155f09f96369ce712d92643900e970af2f99ef7d98df572cd5a2a43d364d8c06  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep10-four-all.json
+c5ea4c26587ce43c314b9868ed3b81107af8240211292942de75adc29eafb0f8  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-four-all-p5.json
+a871c797d435d83c50db5063119210f9a76480075e9695eaa7701574d03057bd  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep5-four-all-r13anchors.json
+ebf56a81dc4b34e8f7966b41c33d101b0a145ae964a713a0948611ccdd218ef3  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep7-four-all-r13anchors.json
 ```
