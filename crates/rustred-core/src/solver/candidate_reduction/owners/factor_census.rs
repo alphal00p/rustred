@@ -32,7 +32,11 @@ impl Default for FactorCensusLimits {
 }
 
 /// Tally of one polynomial role (equality guard, excluded conjunction,
-/// original term denominator, coefficient denominator or numerator).
+/// term denominator or coefficient numerator). A term's coefficient
+/// denominator is not a separate role: preparation stores the term
+/// denominator as a copy of the coefficient's denominator
+/// (`preparation/shared.rs`), so the two coincide by construction; the census
+/// only counts terms where they differ (`coefficient_denominator_mismatches`).
 #[derive(Clone, Debug, Default)]
 pub struct FactorCensusRole {
     /// Polynomial occurrences in the installed rules.
@@ -71,6 +75,9 @@ pub struct OwnerFactorCensus {
     pub rules: usize,
     pub affine_cases: usize,
     pub rhs_terms: usize,
+    /// RHS terms whose coefficient denominator differs from the stored term
+    /// denominator (expected 0: both are the same polynomial).
+    pub coefficient_denominator_mismatches: usize,
     pub roles: BTreeMap<&'static str, FactorCensusRole>,
 }
 
@@ -136,7 +143,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                             out.rhs_terms += 1;
                             refs.push(("term_denominator", term.denominator.raw()));
                             let c = term.coefficient.raw();
-                            refs.push(("coefficient_denominator", &c.denominator));
+                            if c.denominator != *term.denominator.raw() {
+                                out.coefficient_denominator_mismatches += 1;
+                            }
                             if limits.coefficient_numerators {
                                 refs.push(("coefficient_numerator", &c.numerator));
                             }

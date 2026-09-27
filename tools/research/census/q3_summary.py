@@ -16,7 +16,10 @@ if len(sys.argv) > 2:
 roles = collections.defaultdict(lambda: collections.Counter())
 wroles = collections.defaultdict(lambda: collections.Counter())
 rules = terms = affine_cases = 0
+mismatches = None
 for o in doc["owners"]:
+    if "coefficient_denominator_mismatches" in o:
+        mismatches = (mismatches or 0) + o["coefficient_denominator_mismatches"]
     rules += o["rules"]
     terms += o["rhs_terms"]
     affine_cases += o["affine_cases"]
@@ -36,6 +39,12 @@ for o in doc["owners"]:
             wroles[role]["weight"] += w
 print(f"owners {len(doc['owners'])}, rules {rules}, affine cases {affine_cases}, rhs terms {terms}; limits {doc['factor_census_limits']}; "
       f"prepare {doc['prepared_seconds']:.1f} s, census {doc['factor_census_seconds']:.1f} s")
+print()
+if mismatches is None:
+    print("coefficient denominators: legacy output (separate 'coefficient_denominator' role; it duplicates 'term_denominator' by construction)")
+else:
+    print(f"coefficient denominators differing from the stored term denominator: {mismatches} of {terms} rhs terms "
+          "(the term denominator is stored as a copy of the coefficient denominator, so 'term_denominator' covers both)")
 print()
 print("| role | occurrences | distinct polys | skipped/failed | polys all-factors affine in n, integer coefficients (occ.) | polys all-factors at most affine in n (occ.) | CPU-weighted affine-only | CPU-weighted index-affine | distinct irreducible factors (sum over owners) |")
 print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")

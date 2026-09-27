@@ -359,7 +359,8 @@ fn factor_census<const N: usize>(
                 })
                 .collect();
             json!({"owner":owner.owner, "scan_complete":true, "batches":owner.batches, "rules":owner.rules,
-                "affine_cases":owner.affine_cases, "rhs_terms":owner.rhs_terms, "roles":roles})
+                "affine_cases":owner.affine_cases, "rhs_terms":owner.rhs_terms,
+                "coefficient_denominator_mismatches":owner.coefficient_denominator_mismatches, "roles":roles})
         })
         .collect();
     finish(
