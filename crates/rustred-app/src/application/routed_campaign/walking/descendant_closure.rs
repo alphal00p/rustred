@@ -41,6 +41,59 @@ pub(super) struct Counters {
 /// coordinator spends at most ~1/multiplier of its wall in closure scans.
 pub(super) const REFRESH_DUTY_MULTIPLIER: f64 = 100.0;
 pub(super) const REFRESH_MIN_INTERVAL_SECONDS: f64 = 5.0;
+/// Measurement override of `REFRESH_MIN_INTERVAL_SECONDS` (W0.8 knob runs
+/// sample root certification more densely; every arm uses the same value).
+pub(super) const REFRESH_MIN_INTERVAL_ENV: &str = "RUSTRED_CLOSURE_REFRESH_MIN_INTERVAL_SECONDS";
+
+fn refresh_min_interval_seconds() -> f64 {
+    static VALUE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var(REFRESH_MIN_INTERVAL_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<f64>().ok())
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .unwrap_or(REFRESH_MIN_INTERVAL_SECONDS)
+    })
+}
+
+/// Closure boost of the W0.8 dispatch-order knob (measurement only): after
+/// each refresh, the unsealed nodes reachable from every open initial root
+/// through open nodes, for roots with at most `max_blockers` of them and a
+/// cone of at most `max_cone` explored nodes.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BoostConfig {
+    pub max_blockers: usize,
+    pub max_cone: usize,
+}
+
+impl BoostConfig {
+    pub fn from_env() -> Result<Self, String> {
+        let read = |name: &str, default: usize| match std::env::var(name) {
+            Ok(value) => value
+                .trim()
+                .parse::<usize>()
+                .map_err(|error| format!("{name}={value:?}: {error}")),
+            Err(std::env::VarError::NotPresent) => Ok(default),
+            Err(error) => Err(format!("{name}: {error}")),
+        };
+        Ok(Self {
+            max_blockers: read("RUSTRED_WALK_BOOST_MAX_BLOCKERS", 4096)?,
+            max_cone: read("RUSTRED_WALK_BOOST_MAX_CONE", 1 << 20)?,
+        })
+    }
+}
+
+#[derive(Default)]
+struct Boost {
+    config: Option<BoostConfig>,
+    /// Blockers of the last round, smallest root blocker sets first.
+    pending: Vec<u32>,
+    rounds: u64,
+    open_roots: usize,
+    small_roots: usize,
+    emitted: usize,
+    seconds: f64,
+}
 
 /// The refresh scratch (blocked bitset, u32 stack) could not be reserved.
 struct ScratchUnavailable;
@@ -65,6 +118,7 @@ pub(super) struct Tracker {
     open_targets: HashMap<u32, HashSet<u32>>,
     last_refresh: Option<Instant>,
     last_refresh_seconds: f64,
+    boost: Boost,
 }
 
 impl Tracker {
@@ -84,9 +138,132 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
+            boost: Boost::default(),
         };
         value.discovered(initial);
         value
+    }
+
+    pub fn enable_boost(&mut self, config: BoostConfig) {
+        self.boost.config = Some(config);
+    }
+
+    /// Blockers found by the last refresh (each round's list is taken once).
+    pub fn take_boost(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.boost.pending)
+    }
+
+    pub fn boost_json(&self) -> Option<Value> {
+        let config = self.boost.config?;
+        Some(
+            json!({"max_blockers":config.max_blockers,"max_cone":config.max_cone,
+            "rounds":self.boost.rounds,"open_roots":self.boost.open_roots,
+            "small_roots":self.boost.small_roots,"emitted":self.boost.emitted,
+            "seconds":self.boost.seconds}),
+        )
+    }
+
+    /// One boost round on the current CLOSED bits (see `BoostConfig`).
+    /// Scratch that cannot be reserved skips the round; the walk is unaffected.
+    fn compute_boost(&mut self, cancellation: &AtomicBool) {
+        let Some(config) = self.boost.config else {
+            return;
+        };
+        let started = Instant::now();
+        let flags = &self.flags;
+        let nodes = flags.len();
+        let open = |id: usize| flags[id] & FLAG_CLOSED == 0;
+        let roots: Vec<usize> = (0..self.initial.min(nodes)).filter(|&r| open(r)).collect();
+        self.boost.open_roots = roots.len();
+        self.boost.small_roots = 0;
+        self.boost.pending.clear();
+        if roots.is_empty() {
+            return;
+        }
+        // Forward CSR over edges between open nodes.
+        let mut offsets: Vec<u64> = Vec::new();
+        if offsets.try_reserve_exact(nodes + 1).is_err() {
+            return;
+        }
+        offsets.resize(nodes + 1, 0);
+        let _ = self.edges.try_for_each(|source, target| {
+            let (source, target) = (source as usize, target as usize);
+            if open(source) && open(target) {
+                offsets[source + 1] += 1;
+            }
+            ControlFlow::<()>::Continue(())
+        });
+        for id in 0..nodes {
+            offsets[id + 1] += offsets[id];
+        }
+        let total = offsets[nodes] as usize;
+        let mut targets: Vec<u32> = Vec::new();
+        let mut fill: Vec<u64> = Vec::new();
+        let mut stamp: Vec<u32> = Vec::new();
+        if targets.try_reserve_exact(total).is_err()
+            || fill.try_reserve_exact(nodes).is_err()
+            || stamp.try_reserve_exact(nodes).is_err()
+        {
+            return;
+        }
+        targets.resize(total, 0);
+        fill.extend_from_slice(&offsets[..nodes]);
+        stamp.resize(nodes, 0);
+        let _ = self.edges.try_for_each(|source, target| {
+            if open(source as usize) && open(target as usize) {
+                let slot = &mut fill[source as usize];
+                targets[*slot as usize] = target;
+                *slot += 1;
+            }
+            ControlFlow::<()>::Continue(())
+        });
+        drop(fill);
+        let mut found: Vec<(usize, usize, Vec<u32>)> = Vec::new();
+        let mut queue: Vec<u32> = Vec::new();
+        for (index, &root) in roots.iter().enumerate() {
+            if cancellation.load(Ordering::Relaxed) {
+                return;
+            }
+            let mark = index as u32 + 1;
+            queue.clear();
+            let mut blockers = Vec::new();
+            stamp[root] = mark;
+            queue.push(root as u32);
+            let mut head = 0;
+            let mut small = true;
+            while head < queue.len() {
+                let node = queue[head] as usize;
+                head += 1;
+                if flags[node] & FLAG_SEALED == 0 {
+                    blockers.push(node as u32);
+                    if blockers.len() > config.max_blockers {
+                        small = false;
+                        break;
+                    }
+                }
+                for &next in &targets[offsets[node] as usize..offsets[node + 1] as usize] {
+                    if stamp[next as usize] != mark {
+                        stamp[next as usize] = mark;
+                        queue.push(next);
+                    }
+                }
+                if queue.len() > config.max_cone {
+                    small = false;
+                    break;
+                }
+            }
+            if small && !blockers.is_empty() {
+                found.push((blockers.len(), root, blockers));
+            }
+        }
+        found.sort_by_key(|&(count, root, _)| (count, root));
+        self.boost.small_roots = found.len();
+        for (_, _, blockers) in found {
+            self.boost.pending.extend(blockers);
+        }
+        self.boost.emitted += self.boost.pending.len();
+        self.boost.rounds += 1;
+        self.boost.seconds += started.elapsed().as_secs_f64();
     }
 
     pub fn disable(&mut self, reason: &str) {
@@ -184,7 +361,7 @@ impl Tracker {
     /// so a costly scan bounds the periodic refresh duty to about 1%.
     pub(super) fn refresh_interval(&self) -> Duration {
         Duration::from_secs_f64(
-            REFRESH_MIN_INTERVAL_SECONDS.max(self.last_refresh_seconds * REFRESH_DUTY_MULTIPLIER),
+            refresh_min_interval_seconds().max(self.last_refresh_seconds * REFRESH_DUTY_MULTIPLIER),
         )
     }
 
@@ -280,6 +457,9 @@ impl Tracker {
         self.total_closed = total;
         self.initial_closed = initial;
         self.snapshot_revision = self.revision;
+        // Measurement-only closure boost; its cost counts toward the refresh
+        // duty throttle below.
+        self.compute_boost(cancellation);
         self.last_refresh_seconds = started.elapsed().as_secs_f64();
         self.refresh_count = self.refresh_count.saturating_add(1);
         self.refresh_seconds += self.last_refresh_seconds;
@@ -292,7 +472,7 @@ impl Tracker {
     /// binaries.
     pub fn refresh_policy_json(&self) -> Value {
         json!({"duty_bound":1.0 / REFRESH_DUTY_MULTIPLIER,
-            "min_interval_seconds":REFRESH_MIN_INTERVAL_SECONDS,
+            "min_interval_seconds":refresh_min_interval_seconds(),
             "next_refresh_seconds":self.next_refresh_seconds(),
             "scope":"periodic_refresh_spacing_max(min_interval, last_scan_wall / duty_bound); forced_refreshes_bypass"})
     }
@@ -489,6 +669,7 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
+            boost: Boost::default(),
         })
     }
 

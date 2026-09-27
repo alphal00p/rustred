@@ -32,3 +32,11 @@ symbolica = { version = "=3.0.0", default-features = false, features = ["integer
 symbolica = { path = "vendor/symbolica" }
 graphica = { path = "vendor/symbolica/lib/graphica" }
 numerica = { path = "vendor/symbolica/lib/numerica" }
+
+# Measurement profile for the W0.8 build A/B (fable_5_1 next push): fat LTO
+# and one codegen unit on top of release. `-C target-cpu=znver4` is passed
+# through RUSTFLAGS for the znver4 arms (profile rustflags are unstable).
+[profile.campaign]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

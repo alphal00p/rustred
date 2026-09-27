@@ -664,6 +664,28 @@ fn run<const N: usize>(
                 .map_err(|e| AppError::input(e.to_string()))?,
         );
     }
+    // W0.8 measurement knob: fresh Ready runs without physical parts only.
+    let dispatch_order = delegation::DispatchOrder::from_env().map_err(AppError::input)?;
+    if dispatch_order != delegation::DispatchOrder::Fifo {
+        if restored.is_some() || request.apply_subdivision.is_some() {
+            return Err(AppError::input(format!(
+                "{}={} applies to fresh Ready runs without physical parts only",
+                delegation::DISPATCH_ORDER_ENV,
+                dispatch_order.name()
+            )));
+        }
+        queue
+            .delegation
+            .as_mut()
+            .ok_or_else(|| {
+                AppError::input(format!(
+                    "{} requires the Ready publication policy",
+                    delegation::DISPATCH_ORDER_ENV
+                ))
+            })?
+            .set_dispatch_order(dispatch_order)
+            .map_err(AppError::input)?;
+    }
     if request.reuse_initial_d_bands && restored.is_none() {
         queue
             .delegation
@@ -775,6 +797,12 @@ fn run<const N: usize>(
         state = restored.state;
         inputs = restored.inputs;
         input_frontiers = restored.input_frontiers;
+    }
+    if dispatch_order == delegation::DispatchOrder::ClosureBoost {
+        state
+            .closure
+            .borrow_mut()
+            .enable_boost(descendant_closure::BoostConfig::from_env().map_err(AppError::input)?);
     }
     if let Some(reducer) = &reducer {
         if let Some(store) = checkpoint.as_mut() {

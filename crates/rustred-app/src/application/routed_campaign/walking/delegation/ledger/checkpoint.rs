@@ -186,7 +186,18 @@ impl StoredLedger {
             initial_admission: false,
             protected_initial_prefix: self.protected_initial_prefix,
             partial_initial_inspections: self.partial_initial_inspections,
+            // Restored runs always resume FIFO (the W0.8 order knob is fresh-run only).
+            order: DispatchOrder::Fifo,
+            prioritized: Prioritized::default(),
+            stats: OrderStats::default(),
         };
+        ledger.stats.unreserved = ledger
+            .entries
+            .iter()
+            .filter(|e| e.responsibility == Responsibility::Local(Local::Unreserved))
+            .count();
+        ledger.stats.peak_unreserved = ledger.stats.unreserved;
+        ledger.stats.peak_pending = ledger.entries.len() - ledger.published_count();
         ledger.restore_normalize_started()?;
         Ok(ledger)
     }

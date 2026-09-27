@@ -1,6 +1,12 @@
 use super::types::{Error, NativeOutcome, Publication, Transfer};
+use std::cmp::Reverse;
 use std::num::NonZeroUsize;
 mod checkpoint;
+mod order;
+#[cfg(test)]
+mod order_tests;
+pub(in super::super) use order::{DISPATCH_ORDER_ENV, DispatchOrder, support_volume_priority};
+use order::{OrderStats, Prioritized};
 #[cfg(test)]
 mod ready_tests;
 pub(in super::super) use checkpoint::{LedgerRef, StoredLedger};
@@ -48,6 +54,10 @@ pub struct Ledger<K> {
     initial_admission: bool,
     pub(super) protected_initial_prefix: Option<usize>,
     partial_initial_inspections: usize,
+    /// W0.8 measurement knob (Ready only; FIFO keeps the historical scan).
+    order: DispatchOrder,
+    prioritized: Prioritized,
+    stats: OrderStats,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -70,6 +80,9 @@ impl<K: Copy + Eq> Ledger<K> {
             initial_admission: false,
             protected_initial_prefix: None,
             partial_initial_inspections: 0,
+            order: DispatchOrder::Fifo,
+            prioritized: Prioritized::default(),
+            stats: OrderStats::default(),
         })
     }
 
@@ -83,6 +96,76 @@ impl<K: Copy + Eq> Ledger<K> {
 
     pub fn is_ready(&self) -> bool {
         self.ready
+    }
+
+    /// Select the Ready dispatch order before the first admission. Non-FIFO
+    /// orders are measurement-only and refused outside Ready.
+    pub fn set_dispatch_order(&mut self, order: DispatchOrder) -> Result<(), String> {
+        if order == DispatchOrder::Fifo {
+            self.order = order;
+            return Ok(());
+        }
+        if !self.ready {
+            return Err(format!(
+                "{DISPATCH_ORDER_ENV}={} requires the Ready publication policy",
+                order.name()
+            ));
+        }
+        if !self.entries.is_empty() {
+            return Err(format!(
+                "{DISPATCH_ORDER_ENV}={} must be selected before the first admission (fresh runs only)",
+                order.name()
+            ));
+        }
+        self.order = order;
+        Ok(())
+    }
+
+    pub fn dispatch_order(&self) -> DispatchOrder {
+        self.order
+    }
+
+    /// Ready with a non-FIFO order: the dispatcher takes reserved IDs from
+    /// `take_reserved` and publishes transferred aliases from
+    /// `take_transferred` instead of walking IDs in order.
+    pub fn prioritized(&self) -> bool {
+        self.ready && self.order != DispatchOrder::Fifo
+    }
+
+    pub fn next_reserved(&self) -> Option<usize> {
+        self.prioritized.reserved.front().copied()
+    }
+
+    pub fn pop_reserved(&mut self) -> Option<usize> {
+        self.prioritized.reserved.pop_front()
+    }
+
+    pub fn take_transferred(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.prioritized.transferred)
+    }
+
+    /// Closure boost: queue these Pending IDs ahead of the FIFO scan, once
+    /// each. IDs that are not Unreserved now are ignored.
+    pub fn boost(&mut self, ids: impl IntoIterator<Item = usize>) {
+        if self.order != DispatchOrder::ClosureBoost {
+            return;
+        }
+        self.stats.boost_rounds += 1;
+        for id in ids {
+            if self
+                .entries
+                .get(id)
+                .is_some_and(|e| e.responsibility == Responsibility::Local(Local::Unreserved))
+                && self.prioritized.mark_boosted(id)
+            {
+                self.prioritized.boost.push_back(id);
+                self.stats.boost_pushed += 1;
+            }
+        }
+    }
+
+    pub fn order_json(&self) -> serde_json::Value {
+        self.stats.json(self.order, self.native_publications)
     }
 
     pub fn reservation_scan(&self) -> usize {
@@ -243,6 +326,17 @@ impl<K: Copy + Eq> Ledger<K> {
     /// The outer coordinator transaction must publish its raw domain atomically
     /// with this entry; do not expose it to any observer partway through.
     pub fn admit_reserved(&mut self, id: usize, key: K) -> Result<(), Error> {
+        self.admit_reserved_with_priority(id, key, 0)
+    }
+
+    /// `admit_reserved` with the dispatch priority of the admitted domain,
+    /// used only by the support-then-volume order.
+    pub fn admit_reserved_with_priority(
+        &mut self,
+        id: usize,
+        key: K,
+        priority: u64,
+    ) -> Result<(), Error> {
         if self.halted {
             return Err(Error::Halted);
         }
@@ -261,8 +355,42 @@ impl<K: Copy + Eq> Ledger<K> {
             initial_anchor: None,
             delegated_published: false,
         });
+        match self.order {
+            DispatchOrder::SupportVolume => self.prioritized.heap.push((priority, Reverse(id))),
+            DispatchOrder::DepthFirst => self.prioritized.stack.push(id),
+            DispatchOrder::Fifo | DispatchOrder::ClosureBoost => {}
+        }
+        self.stats.unreserved += 1;
+        self.stats.peak_unreserved = self.stats.peak_unreserved.max(self.stats.unreserved);
+        self.stats.peak_pending = self
+            .stats
+            .peak_pending
+            .max(self.entries.len() - self.published_count());
         self.reserve_horizon();
         Ok(())
+    }
+
+    /// Order and statistics bookkeeping of one reverse retirement.
+    fn note_retirement(&mut self, old: usize, outcome: Transfer) -> Transfer {
+        let stats = &mut self.stats;
+        match outcome {
+            Transfer::Installed => {
+                stats.retired_transferred += 1;
+                stats.unreserved = stats.unreserved.saturating_sub(1);
+                if self.order != DispatchOrder::Fifo {
+                    self.prioritized.transferred.push(old);
+                }
+            }
+            Transfer::ProtectedInitial => stats.retired_protected_initial += 1,
+            Transfer::ReservedOrStarted => match self.entries[old].responsibility {
+                Responsibility::Local(Local::Reserved) => stats.retired_reserved += 1,
+                Responsibility::Local(Local::Started) => stats.retired_started += 1,
+                Responsibility::Local(Local::Published(_)) => stats.retired_published += 1,
+                _ => stats.retired_other += 1,
+            },
+            _ => stats.retired_other += 1,
+        }
+        outcome
     }
 
     /// Called ONLY by the queue's exact reverse-retirement callback when the
@@ -273,6 +401,15 @@ impl<K: Copy + Eq> Ledger<K> {
     /// still retire their lookup entry: the original native obligation remains.
     /// Thus a refusal cannot erase responsibility or fail after partial commit.
     pub fn transfer_retired(&mut self, old: usize, representative: usize) -> Transfer {
+        let outcome = self.transfer_retired_inner(old, representative);
+        if old < self.entries.len() {
+            self.note_retirement(old, outcome)
+        } else {
+            outcome
+        }
+    }
+
+    fn transfer_retired_inner(&mut self, old: usize, representative: usize) -> Transfer {
         if representative.checked_add(1) != Some(self.entries.len()) || old >= representative {
             return Transfer::InvalidForwardEdge;
         }
@@ -426,6 +563,8 @@ impl<K: Copy + Eq> Ledger<K> {
             if self.entries[id].responsibility == Responsibility::Local(Local::Unreserved) {
                 self.entries[id].responsibility = Responsibility::Local(Local::Reserved);
                 self.outstanding_native += 1;
+                self.stats.unreserved = self.stats.unreserved.saturating_sub(1);
+                self.stats.reservations += 1;
             }
         }
         // Aliases remain sticky as this monotone fence advances.
@@ -442,6 +581,10 @@ impl<K: Copy + Eq> Ledger<K> {
         if self.halted {
             return;
         }
+        if self.order != DispatchOrder::Fifo {
+            self.reserve_prioritized();
+            return;
+        }
         while self.outstanding_native < self.lookahead.get()
             && self.reserved_through < self.entries.len()
         {
@@ -449,8 +592,69 @@ impl<K: Copy + Eq> Ledger<K> {
             if entry.responsibility == Responsibility::Local(Local::Unreserved) {
                 entry.responsibility = Responsibility::Local(Local::Reserved);
                 self.outstanding_native += 1;
+                self.stats.unreserved = self.stats.unreserved.saturating_sub(1);
+                self.stats.reservations += 1;
             }
             self.reserved_through += 1;
+        }
+    }
+
+    /// Non-FIFO Ready refill. Every admitted ID was offered to the order's
+    /// structure, so the monotone scan is complete by construction (which is
+    /// also why such a ledger is not restorable: see `order.rs`).
+    fn reserve_prioritized(&mut self) {
+        self.reserved_through = self.entries.len();
+        while self.outstanding_native < self.lookahead.get() {
+            let Some(id) = self.next_prioritized() else {
+                break;
+            };
+            self.entries[id].responsibility = Responsibility::Local(Local::Reserved);
+            self.outstanding_native += 1;
+            self.stats.unreserved = self.stats.unreserved.saturating_sub(1);
+            self.stats.reservations += 1;
+            self.prioritized.reserved.push_back(id);
+        }
+    }
+
+    fn next_prioritized(&mut self) -> Option<usize> {
+        let entries = &self.entries;
+        let unreserved =
+            |id: usize| entries[id].responsibility == Responsibility::Local(Local::Unreserved);
+        let p = &mut self.prioritized;
+        match self.order {
+            DispatchOrder::SupportVolume => {
+                while let Some((_, Reverse(id))) = p.heap.pop() {
+                    if unreserved(id) {
+                        return Some(id);
+                    }
+                }
+                None
+            }
+            DispatchOrder::DepthFirst => {
+                while let Some(id) = p.stack.pop() {
+                    if unreserved(id) {
+                        return Some(id);
+                    }
+                }
+                None
+            }
+            DispatchOrder::ClosureBoost => {
+                while let Some(id) = p.boost.pop_front() {
+                    if unreserved(id) {
+                        self.stats.boost_reserved += 1;
+                        return Some(id);
+                    }
+                }
+                while p.fifo_scan < entries.len() {
+                    let id = p.fifo_scan;
+                    p.fifo_scan += 1;
+                    if unreserved(id) {
+                        return Some(id);
+                    }
+                }
+                None
+            }
+            DispatchOrder::Fifo => None,
         }
     }
 

@@ -10,6 +10,7 @@ mod resolution;
 mod types;
 
 pub(super) use ledger::Ledger;
+pub(super) use ledger::{DISPATCH_ORDER_ENV, DispatchOrder, support_volume_priority};
 pub(super) use ledger::{LedgerRef, StoredLedger};
 pub use types::SchedulingPolicy;
 #[cfg(test)]

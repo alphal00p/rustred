@@ -563,10 +563,16 @@ impl<const N: usize> Queue<N> {
             .checked_add(maintenance)
             .ok_or("semantic containment retirement counter overflow")?;
         if let Some(ledger) = &mut self.delegation {
+            // Measurement-only W0.8 order knob; 0 (unused) under FIFO.
+            let priority = if ledger.dispatch_order().needs_priority() {
+                dispatch_priority(&domain, query.as_ref().map(|query| &query.core))
+            } else {
+                0
+            };
             // Last fallible ledger operation before the infallible queue
             // retirement/publication transaction. No observer runs mid-commit.
             ledger
-                .admit_reserved(id, bucket_key)
+                .admit_reserved_with_priority(id, bucket_key, priority)
                 .map_err(|_| "delegation ledger admission invariant")?;
         }
         let fresh_bucket = new_bucket.is_some();
@@ -684,6 +690,38 @@ impl<const N: usize> Queue<N> {
         }
         Ok((id, true))
     }
+}
+
+/// Support-then-volume dispatch priority (W0.8 measurement knob): owner
+/// support t, then log2 of the tight box volume, counting every unbounded
+/// local coordinate as 64 values. A scheduling heuristic only.
+fn dispatch_priority<const N: usize>(
+    domain: &Domain<N>,
+    core: Option<&DomainPowerSummary<N>>,
+) -> u64 {
+    const UNBOUNDED_WIDTH: u64 = 64;
+    let support = domain.owner.iter().filter(|&&active| active).count();
+    let log2_width = |lower: u64, upper: Option<u64>| {
+        let width = upper.map_or(UNBOUNDED_WIDTH, |upper| upper.saturating_sub(lower));
+        (width.min(1 << 52) as f64 + 1.0).log2()
+    };
+    let log2_volume = match core {
+        Some(core) => core.extrema().map_or(0.0, |extrema| {
+            extrema
+                .lower()
+                .iter()
+                .zip(extrema.upper())
+                .map(|(&lower, &upper)| log2_width(lower, upper))
+                .sum()
+        }),
+        None => domain
+            .lower
+            .iter()
+            .zip(&domain.upper)
+            .map(|(&lower, &upper)| log2_width(lower, upper))
+            .sum(),
+    };
+    super::delegation::support_volume_priority(support, log2_volume)
 }
 
 fn summary_error(error: DomainPowerError) -> &'static str {

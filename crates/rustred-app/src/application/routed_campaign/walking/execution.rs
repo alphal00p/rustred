@@ -338,6 +338,13 @@ impl<const N: usize> State<N> {
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
         telemetry["admission_preparation"] = self.admission.metrics_json(lean);
+        if let Some(ledger) = self.queue.delegation.as_ref().filter(|l| l.is_ready()) {
+            let mut order = ledger.order_json();
+            if let Some(boost) = self.closure.borrow().boost_json() {
+                order["closure_boost"] = boost;
+            }
+            telemetry["dispatch_order"] = order;
+        }
         if !lean {
             // Session telemetry lives under `parallel`, the object the strict
             // old-vs-new result comparison already ignores; the top level and
@@ -1128,6 +1135,13 @@ fn save<const N: usize>(
 fn refresh<const N: usize>(state: &mut State<N>, cancellation: &AtomicBool, force: bool) {
     let started = Instant::now();
     state.refresh_closure(cancellation, force);
+    // W0.8 closure boost: hand the last round's root blockers to the ledger.
+    let boosted = state.closure.borrow_mut().take_boost();
+    if !boosted.is_empty()
+        && let Some(ledger) = state.queue.delegation.as_mut()
+    {
+        ledger.boost(boosted.into_iter().map(|id| id as usize));
+    }
     state.admission.duty.closure_refresh += started.elapsed().as_secs_f64();
 }
 
@@ -1212,6 +1226,17 @@ impl Dispatcher {
                     }
                 }
             }
+        }
+        if ready
+            && state
+                .queue
+                .delegation
+                .as_ref()
+                .is_some_and(|ledger| ledger.prioritized())
+        {
+            let (more, seconds) =
+                run_prioritized(state, pool, cancellation, ready_streams, publish);
+            return (dispatches + more, nested + seconds);
         }
         while self.next < state.queue.domains.len() {
             if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
@@ -1317,6 +1342,89 @@ impl Dispatcher {
         }
         (dispatches, nested)
     }
+}
+
+/// Ready with a non-FIFO dispatch order (W0.8 measurement knob): publish
+/// every transferred alias (main loop only), then hand reserved IDs to free
+/// slots in the ledger's reservation order. Physical parts are refused at
+/// setup, so every ticket is a whole parent.
+fn run_prioritized<const N: usize>(
+    state: &mut State<N>,
+    pool: &parallel::Pool<N>,
+    cancellation: &AtomicBool,
+    ready_streams: &mut publication::ReadyStreams,
+    publish: Option<(
+        &dyn Fn(Value),
+        &mut dyn FnMut(&State<N>) -> Result<(), String>,
+    )>,
+) -> (usize, f64) {
+    let mut dispatches = 0;
+    let mut nested = 0.0;
+    if let Some((observer, maybe_save)) = publish {
+        let transferred = state
+            .queue
+            .delegation
+            .as_mut()
+            .map(|ledger| ledger.take_transferred())
+            .unwrap_or_default();
+        for id in transferred {
+            match publish_delegated(state, pool, id, observer, &mut *maybe_save) {
+                Ok(seconds) => nested += seconds,
+                Err(error) => {
+                    state.error = Some(error);
+                    return (dispatches, nested);
+                }
+            }
+        }
+    }
+    loop {
+        if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
+            break;
+        }
+        let Some(id) = state
+            .queue
+            .delegation
+            .as_ref()
+            .and_then(|ledger| ledger.next_reserved())
+        else {
+            break;
+        };
+        let raw = match (Ticket {
+            parent: id,
+            part: None,
+        })
+        .encode(state.physical_enabled)
+        {
+            Ok(raw) => raw,
+            Err(error) => {
+                pool.fail(Failure {
+                    id: None,
+                    phase: None,
+                    kind: "counter_overflow",
+                    detail: error.into(),
+                });
+                break;
+            }
+        };
+        if !pool.dispatch(raw, state.queue.domain_arc(id)) {
+            break;
+        }
+        if let Some(ledger) = state.queue.delegation.as_mut() {
+            ledger.pop_reserved();
+        }
+        dispatches += 1;
+        ready_streams.dispatched(raw);
+        if let Err(error) = state.note_native_started(id) {
+            pool.fail(Failure {
+                id: Some(raw),
+                phase: Some(state.queue.domains[id].phase()),
+                kind: "delegation_native_start",
+                detail: error,
+            });
+            break;
+        }
+    }
+    (dispatches, nested)
 }
 
 /// Ready service step between commit batches: free every finished inspector
