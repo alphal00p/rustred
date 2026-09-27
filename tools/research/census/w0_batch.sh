@@ -85,8 +85,10 @@ if [[ -n $rbin ]]; then
   for mode in plain numerators; do
     extra=(); [[ $mode == numerators ]] && extra=(--factor-census-numerators)
     t0=$SECONDS
-    # rustred refuses to start unless RAYON_NUM_THREADS=1 (the census then factors serially).
-    RAYON_NUM_THREADS=1 /run/current-system/sw/bin/time -f '%e s %M KB' -o q3/$mode.time \
+    # rustred refuses to start unless every inner pool is 1 (cli/routed.rs preflight_inner_pools);
+    # the census then factors serially.
+    env RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+      BLIS_NUM_THREADS=1 SYMBOLICA_HIDE_BANNER=1 /run/current-system/sw/bin/time -f '%e s %M KB' -o q3/$mode.time \
       "$rbin" owner-domain-scan --manifest "$v2/inputs/selection.json" --owner-base "$v2/inputs" \
       --unbounded-rank --output q3/v2-factor-census-$mode.json --events q3/v2-factor-census-$mode-events.jsonl \
       --factor-census "${extra[@]}" --no-progress > q3/$mode.stdout 2> q3/$mode.stderr
