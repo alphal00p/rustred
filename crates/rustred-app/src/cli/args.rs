@@ -371,7 +371,7 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
-    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -695,13 +695,27 @@ generation, named by the walk's own owner-domain-match argv (a JSON list, or
 an object with a `command` list). It checks the checkpoint's request binding,
 record/domain parity, the F8 seal rule against the saved seal flags, exact
 alias and partial-anchor inclusion with their dependency edges, re-derives
-dependency closure from the saved edges, and (unless `--reinspect none`)
-re-inspects natives with the exact reference reducer with every walk lever
-off: frontier, error and event counts must match, and every successor must be
-contained in a recorded target of its parent or along that target's alias
-chain. Small cells are also checked by lattice-point enumeration. The report
-(JSON) separates helper roots from physics queries; the exit status is 0 only
-on PASS. `--mutate` injects one engine defect in memory and must FAIL.
+dependency closure from the saved edges, binds the published result.json
+(default: next to the command file; `--no-result` skips) record by record to
+the generation, and (unless `--reinspect none`) re-inspects natives with the
+walker's native visitor under the run's request and every walk-level reuse
+lever off (`--reference-levers off`, the default, also turns the native
+shortcuts off: Route joint source-support pruning; `as-run` keeps them):
+frontier, error, event and Apply successor counts must match (counts are
+informational when a lever on in the run is off in the reference), and
+every admitted domain must be contained in a recorded target of its parent or
+along that target's alias chain. Small cells are also checked by lattice-point
+enumeration. The report (JSON) separates helper roots from physics queries.
+Successor generation is reproduced by the same visitor, not derived
+independently; F10 independently checks the graph bookkeeping.
+`--require-closure` requires every root closed AND independently verified
+(every native of its cone re-inspected). Exit status: 0 PASS (no violation,
+every native re-inspected), 1 FAIL, 9 INCOMPLETE (no violation, but
+re-inspection was partial or none: never a certificate). A gate asserts
+`verdict == PASS` and `roots_independently_verified == roots_total`
+(examples/python/assert_oracle_pass.py). `--mutate` injects
+one defect in memory and must FAIL (`alias-chain-detour` is a positive
+control and must PASS).
 
 Independent starting-owner campaigns (opt-in, Linux):
   rustred campaign shards --config CONFIG.json --directory DIR

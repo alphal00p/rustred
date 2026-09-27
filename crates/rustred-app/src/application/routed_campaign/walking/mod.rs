@@ -59,7 +59,8 @@ pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
 pub use verify_closure::{
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
-    OwnerDomainWalkVerifyReinspect, owner_domain_walk_verify_closure,
+    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
+    owner_domain_walk_verify_closure,
 };
 
 #[derive(Clone, Debug)]

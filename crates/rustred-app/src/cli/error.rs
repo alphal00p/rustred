@@ -12,6 +12,12 @@ pub(crate) enum CliError {
     Input(String),
     OutputIo(String),
     Application(AppError),
+    /// An oracle's own verdict (not a failure of the command): FAIL exits 1,
+    /// INCOMPLETE (no violation found, check not exhaustive) exits 9.
+    Verdict {
+        incomplete: bool,
+        message: String,
+    },
 }
 
 impl CliError {
@@ -31,6 +37,13 @@ impl CliError {
                 AppErrorKind::InternalInvariant => 70,
             },
             Self::OutputIo(_) => 7,
+            Self::Verdict { incomplete, .. } => {
+                if *incomplete {
+                    9
+                } else {
+                    1
+                }
+            }
         }
     }
 
@@ -50,6 +63,7 @@ impl CliError {
                 AppErrorKind::InternalInvariant => "internal",
             },
             Self::OutputIo(_) => "output-io",
+            Self::Verdict { .. } => "verdict",
         }
     }
 }
@@ -58,9 +72,10 @@ impl fmt::Display for CliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Usage(error) => error.fmt(formatter),
-            Self::InputIo(message) | Self::Input(message) | Self::OutputIo(message) => {
-                formatter.write_str(message)
-            }
+            Self::InputIo(message)
+            | Self::Input(message)
+            | Self::OutputIo(message)
+            | Self::Verdict { message, .. } => formatter.write_str(message),
             Self::Application(error) => error.fmt(formatter),
         }
     }

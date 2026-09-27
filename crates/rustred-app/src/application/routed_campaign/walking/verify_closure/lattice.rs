@@ -13,6 +13,14 @@
 //! interval test; `inner <= outer` holds iff inner meets the negation of no
 //! outer constraint. `for_each_point` enumerates small cells as a brute-force
 //! cross-check of both.
+//!
+//! `covered_by_union` decides `Q <= T_1 u ... u T_k` exactly (the G2'
+//! "anchor scopes plus residual cover Q" question). It splits Q minus T_1 into
+//! disjoint regions `Q ^ c_1 ^ ... ^ c_{j-1} ^ not c_j` over T_1's
+//! constraints `c_j` and recurses on T_2..T_k. Every region is a box with
+//! interval bounds on A, R and D; the same interval argument decides its
+//! emptiness exactly, so no region is approximated. Only the budget on the
+//! number of regions makes an answer undecided (None), never wrong.
 use rustred::solver::DomainPowerBounds;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +54,166 @@ fn floor(value: Option<i128>, bound: Option<i128>) -> Option<i128> {
     match (value, bound) {
         (Some(a), Some(b)) => Some(a.max(b)),
         (a, b) => a.or(b),
+    }
+}
+
+/// A box with interval bounds on A, R and D (None: unbounded on that side):
+/// one disjoint piece of `Q minus (T_1 u ... u T_j)` in `covered_by_union`.
+#[derive(Clone, Debug)]
+struct Region {
+    owner: Vec<bool>,
+    lower: Vec<u64>,
+    upper: Vec<Option<u64>>,
+    a: (Option<i128>, Option<i128>),
+    r: (Option<i128>, Option<i128>),
+    d: (Option<i128>, Option<i128>),
+}
+
+/// One constraint of a cell, in the order `Region::minus` splits on them.
+#[derive(Clone, Copy)]
+enum Bound {
+    AxisLow(usize, u64),
+    AxisHigh(usize, u64),
+    RHigh(i128),
+    AHigh(i128),
+    DLow(i128),
+    DHigh(i128),
+}
+
+impl Region {
+    fn of(cell: &Cell) -> Self {
+        Self {
+            owner: cell.owner.clone(),
+            lower: cell.lower.clone(),
+            upper: cell.upper.clone(),
+            a: (None, cell.powers.max_positive_power.map(i128::from)),
+            r: (None, cell.rank.map(i128::from)),
+            d: (
+                cell.powers.min_power_difference.map(i128::from),
+                cell.powers.max_power_difference.map(i128::from),
+            ),
+        }
+    }
+
+    /// Exact: A and R are sums of integer intervals over disjoint axis
+    /// groups, so (A, R) fills an integer rectangle and D = A - R takes
+    /// every integer between its extremes.
+    fn nonempty(&self) -> bool {
+        let (mut a_low, mut a_high, mut r_low, mut r_high) =
+            (0i128, Some(0i128), 0i128, Some(0i128));
+        for axis in 0..self.owner.len() {
+            let (low, high) = (
+                i128::from(self.lower[axis]),
+                self.upper[axis].map(i128::from),
+            );
+            if high.is_some_and(|high| high < low) {
+                return false;
+            }
+            let shift = i128::from(self.owner[axis]);
+            let (sum_low, sum_high) = if self.owner[axis] {
+                (&mut a_low, &mut a_high)
+            } else {
+                (&mut r_low, &mut r_high)
+            };
+            *sum_low += low + shift;
+            *sum_high = sum_high.zip(high).map(|(s, h)| s + h + shift);
+        }
+        let a_low = floor(Some(a_low), self.a.0).expect("finite");
+        let a_high = cap(a_high, self.a.1);
+        let r_low = floor(Some(r_low), self.r.0).expect("finite");
+        let r_high = cap(r_high, self.r.1);
+        if a_high.is_some_and(|high| high < a_low) || r_high.is_some_and(|high| high < r_low) {
+            return false;
+        }
+        let d_low = floor(r_high.map(|r| a_low - r), self.d.0);
+        let d_high = cap(a_high.map(|a| a - r_low), self.d.1);
+        !matches!((d_low, d_high), (Some(low), Some(high)) if low > high)
+    }
+
+    fn with(&self, bound: Bound, negated: bool) -> Option<Self> {
+        let mut region = self.clone();
+        match (bound, negated) {
+            (Bound::AxisLow(axis, low), false) => {
+                region.lower[axis] = region.lower[axis].max(low);
+            }
+            (Bound::AxisLow(axis, low), true) => {
+                let high = low.checked_sub(1)?;
+                region.upper[axis] = Some(region.upper[axis].map_or(high, |u| u.min(high)));
+            }
+            (Bound::AxisHigh(axis, high), false) => {
+                region.upper[axis] = Some(region.upper[axis].map_or(high, |u| u.min(high)));
+            }
+            (Bound::AxisHigh(axis, high), true) => {
+                region.lower[axis] = region.lower[axis].max(high.checked_add(1)?);
+            }
+            (Bound::RHigh(v), false) => region.r.1 = cap(region.r.1, Some(v)),
+            (Bound::RHigh(v), true) => region.r.0 = floor(region.r.0, Some(v + 1)),
+            (Bound::AHigh(v), false) => region.a.1 = cap(region.a.1, Some(v)),
+            (Bound::AHigh(v), true) => region.a.0 = floor(region.a.0, Some(v + 1)),
+            (Bound::DLow(v), false) => region.d.0 = floor(region.d.0, Some(v)),
+            (Bound::DLow(v), true) => region.d.1 = cap(region.d.1, Some(v - 1)),
+            (Bound::DHigh(v), false) => region.d.1 = cap(region.d.1, Some(v)),
+            (Bound::DHigh(v), true) => region.d.0 = floor(region.d.0, Some(v + 1)),
+        }
+        region.nonempty().then_some(region)
+    }
+
+    /// The nonempty disjoint pieces of `self minus target` (same owner).
+    fn minus(&self, target: &Cell) -> Vec<Self> {
+        let mut bounds = Vec::new();
+        for axis in 0..target.owner.len() {
+            bounds.push(Bound::AxisLow(axis, target.lower[axis]));
+            if let Some(high) = target.upper[axis] {
+                bounds.push(Bound::AxisHigh(axis, high));
+            }
+        }
+        bounds.extend(target.rank.map(|r| Bound::RHigh(i128::from(r))));
+        let powers = &target.powers;
+        bounds.extend(
+            powers
+                .max_positive_power
+                .map(|a| Bound::AHigh(i128::from(a))),
+        );
+        bounds.extend(
+            powers
+                .min_power_difference
+                .map(|d| Bound::DLow(i128::from(d))),
+        );
+        bounds.extend(
+            powers
+                .max_power_difference
+                .map(|d| Bound::DHigh(i128::from(d))),
+        );
+        let mut pieces = Vec::new();
+        let mut rest = self.clone();
+        for bound in bounds {
+            pieces.extend(rest.with(bound, true));
+            match rest.with(bound, false) {
+                Some(next) => rest = next,
+                None => break,
+            }
+        }
+        pieces
+    }
+
+    fn covered(&self, targets: &[&Cell], budget: &mut u64) -> Option<bool> {
+        let Some((first, others)) = targets.split_first() else {
+            return Some(false);
+        };
+        if *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        if first.owner != self.owner {
+            // Nonempty cells of different owners are disjoint.
+            return self.covered(others, budget);
+        }
+        for piece in self.minus(first) {
+            if !piece.covered(others, budget)? {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 }
 
@@ -289,6 +457,29 @@ impl Cell {
         }
     }
 
+    /// Exact `self <= t_1 u ... u t_k` (see the module note); None when more
+    /// than `max_regions` regions would be examined (undecided, never wrong).
+    pub fn covered_by_union(&self, targets: &[&Cell], max_regions: u64) -> Option<bool> {
+        let region = Region::of(self);
+        if !region.nonempty() {
+            return Some(true);
+        }
+        let mut budget = max_regions;
+        region.covered(targets, &mut budget)
+    }
+
+    /// Brute-force union cover over this cell's points, when enumerable.
+    pub fn brute_force_covered_by_union(&self, targets: &[&Cell], limit: u64) -> Option<bool> {
+        let mut covered = true;
+        self.for_each_point(limit, |point| {
+            covered = targets
+                .iter()
+                .any(|t| t.owner == self.owner && t.member(point));
+            covered
+        })?;
+        Some(covered)
+    }
+
     /// Brute-force inclusion over the inner cell's points, when enumerable.
     pub fn brute_force_contains(&self, inner: &Cell, limit: u64) -> Option<(bool, u64)> {
         let mut contained = true;
@@ -459,5 +650,125 @@ mod tests {
         };
         assert!(high_d.is_empty());
         assert_eq!(high_d.for_each_point(1000, |_| true), Some(0));
+    }
+
+    #[test]
+    fn union_cover_matches_point_enumeration() {
+        let mut rng = Rng(23);
+        let (mut covered, mut union_only, mut uncovered) = (0, 0, 0);
+        for n in 1..=3usize {
+            let window = window_points(n);
+            for _ in 0..3000 {
+                let owner: Vec<bool> = (0..n).map(|_| rng.below(2) == 1).collect();
+                let q = random_cell(&mut rng, &owner);
+                if !(q.for_each_point(u64::MAX, |_| true).is_some()
+                    && q.upper.iter().all(|u| u.is_some_and(|u| u < 12)))
+                {
+                    continue;
+                }
+                // Targets: random cells, plus pieces of q itself so that
+                // covers needing several targets occur often.
+                let mut targets = Vec::new();
+                for _ in 0..1 + rng.below(4) {
+                    let target = match rng.below(3) {
+                        0 => random_cell(&mut rng, &owner),
+                        1 => {
+                            let mut piece = q.clone();
+                            let axis = rng.below(n as u64) as usize;
+                            let cut = q.lower[axis] + rng.below(3);
+                            if rng.below(2) == 0 {
+                                piece.upper[axis] = Some(cut);
+                            } else {
+                                piece.lower[axis] = cut + 1;
+                            }
+                            piece
+                        }
+                        _ => {
+                            let mut piece = q.clone();
+                            let cut = rng.below(9) as i64 - 3;
+                            if rng.below(2) == 0 {
+                                piece.powers.max_power_difference = Some(cut);
+                            } else {
+                                piece.powers.min_power_difference = Some(cut + 1);
+                            }
+                            if rng.below(4) == 0 {
+                                piece.owner = (0..n).map(|_| rng.below(2) == 1).collect();
+                            }
+                            piece
+                        }
+                    };
+                    targets.push(target);
+                }
+                let refs: Vec<&Cell> = targets.iter().collect();
+                let truth = window
+                    .iter()
+                    .filter(|p| q.member(p))
+                    .all(|p| targets.iter().any(|t| t.owner == q.owner && t.member(p)));
+                assert_eq!(
+                    q.covered_by_union(&refs, 1 << 20),
+                    Some(truth),
+                    "{q:?} {targets:?}"
+                );
+                assert_eq!(q.brute_force_covered_by_union(&refs, 1 << 20), Some(truth));
+                if truth {
+                    covered += 1;
+                    union_only += usize::from(!targets.iter().any(|t| t.contains(&q)));
+                } else {
+                    uncovered += 1;
+                }
+                // A single target reduces to exact inclusion.
+                assert_eq!(
+                    q.covered_by_union(&refs[..1], 1 << 20),
+                    Some(targets[0].contains(&q))
+                );
+            }
+        }
+        // The draw must exercise genuine multi-target covers and misses.
+        assert!(
+            union_only > 200 && uncovered > 200,
+            "{covered} {union_only} {uncovered}"
+        );
+    }
+
+    #[test]
+    fn union_cover_of_a_d_cut_residual_and_its_anchor_and_the_budget() {
+        // Q = one owner axis and one other axis, unbounded; D = A - R.
+        let q = Cell {
+            owner: vec![true, false],
+            lower: vec![0, 0],
+            upper: vec![None, None],
+            rank: Some(4),
+            powers: DomainPowerBounds {
+                max_positive_power: Some(9),
+                min_power_difference: None,
+                max_power_difference: None,
+            },
+        };
+        let mut residual = q.clone();
+        residual.powers.max_power_difference = Some(2);
+        let mut anchor = q.clone();
+        anchor.powers.min_power_difference = Some(3);
+        assert_eq!(
+            q.covered_by_union(&[&residual, &anchor], 1 << 10),
+            Some(true)
+        );
+        assert!(!anchor.contains(&q) && !residual.contains(&q));
+        // Shrinking the residual by one D value leaves the D = 2 layer open.
+        let mut short = residual.clone();
+        short.powers.max_power_difference = Some(1);
+        assert_eq!(q.covered_by_union(&[&short, &anchor], 1 << 10), Some(false));
+        // An anchor of another owner covers nothing.
+        let mut foreign = anchor.clone();
+        foreign.owner = vec![false, true];
+        assert_eq!(
+            q.covered_by_union(&[&residual, &foreign], 1 << 10),
+            Some(false)
+        );
+        // The region budget makes the answer undecided, never wrong.
+        assert_eq!(q.covered_by_union(&[&residual, &anchor], 1), None);
+        assert_eq!(q.covered_by_union(&[], 1 << 10), Some(false));
+        let mut empty = q.clone();
+        empty.powers.min_power_difference = Some(20);
+        assert_eq!(empty.covered_by_union(&[], 1 << 10), Some(true));
     }
 }

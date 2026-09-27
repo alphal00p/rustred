@@ -8,7 +8,8 @@ use super::args::{
 use super::error::CliError;
 use super::io::{preflight_output_destination, write_output};
 use crate::{
-    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReinspect,
+    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
+    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
     owner_domain_walk_verify_closure,
 };
 use serde_json::Value;
@@ -27,10 +28,14 @@ pub(crate) struct WalkVerifyClosureArgs {
     pub brute_force_max_points: u64,
     pub brute_force_point_budget: u64,
     pub require_closure: bool,
+    pub reference_levers: OwnerDomainWalkVerifyReferenceLevers,
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
     pub helper_pattern: String,
     pub max_violations: usize,
     pub force: bool,
+    /// None: the command file's sibling result.json when it exists.
+    pub result: Option<PathBuf>,
+    pub no_result: bool,
 }
 
 pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -47,10 +52,13 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         brute_force_max_points: defaults.brute_force_max_points,
         brute_force_point_budget: defaults.brute_force_point_budget,
         require_closure: false,
+        reference_levers: defaults.reference_levers,
         mutation: None,
         helper_pattern: defaults.helper_pattern,
         max_violations: defaults.max_violations,
         force: false,
+        result: None,
+        no_result: false,
     };
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -95,13 +103,27 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     })?;
             }
             "--require-closure" => args.require_closure = true,
+            "--reference-levers" => {
+                let value = next_utf8_value(&mut arguments, "--reference-levers")?;
+                args.reference_levers = match value.as_str() {
+                    "off" => OwnerDomainWalkVerifyReferenceLevers::Off,
+                    "as-run" => OwnerDomainWalkVerifyReferenceLevers::AsRun,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--reference-levers",
+                            value,
+                            expected: "off (default) or as-run",
+                        });
+                    }
+                };
+            }
             "--mutate" => {
                 let value = next_utf8_value(&mut arguments, "--mutate")?;
                 args.mutation = Some(OwnerDomainWalkVerifyMutation::parse(&value).ok_or(
                     ArgError::InvalidValue {
                         option: "--mutate",
                         value,
-                        expected: "dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error or injected-false-hit",
+                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour",
                     },
                 )?);
             }
@@ -115,10 +137,21 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                 )?
             }
             "--force" => args.force = true,
+            "--result" => {
+                args.result = Some(PathBuf::from(next_value(&mut arguments, "--result")?))
+            }
+            "--no-result" => args.no_result = true,
             _ => return Err(ArgError::UnknownOption(option)),
         }
     }
     args.command = command.ok_or(ArgError::MissingRequiredOption("--command"))?;
+    if args.no_result && args.result.is_some() {
+        return Err(ArgError::InvalidValue {
+            option: "--no-result",
+            value: "--result".into(),
+            expected: "at most one of --result and --no-result",
+        });
+    }
     args.checkpoint = checkpoint;
     args.output = output;
     Ok(Command::WalkVerifyClosure(args))
@@ -177,9 +210,18 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
     options.brute_force_max_points = args.brute_force_max_points;
     options.brute_force_point_budget = args.brute_force_point_budget;
     options.require_closure = args.require_closure;
+    options.reference_levers = args.reference_levers;
     options.mutation = args.mutation;
     options.helper_pattern = args.helper_pattern.clone();
     options.max_violations = args.max_violations;
+    options.result = if args.no_result {
+        None
+    } else {
+        args.result.clone().or_else(|| {
+            let sibling = args.command.parent()?.join("result.json");
+            sibling.is_file().then_some(sibling)
+        })
+    };
     let cancellation = AtomicBool::new(false);
     let report = owner_domain_walk_verify_closure(&request, &options, &cancellation, |event| {
         let _ = writeln!(std::io::stderr().lock(), "{event}");
@@ -188,12 +230,21 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
         serde_json::to_vec_pretty(&report).map_err(|e| CliError::OutputIo(e.to_string()))?;
     text.push(b'\n');
     write_output(&args.output, &text, args.force)?;
-    if report["verdict"] == "PASS" {
-        Ok(())
-    } else {
-        Err(CliError::Input(format!(
-            "closure verification FAIL: {}",
-            report["violations_by_class"]
-        )))
+    match report["verdict"].as_str() {
+        Some("PASS") => Ok(()),
+        Some("INCOMPLETE") => Err(CliError::Verdict {
+            incomplete: true,
+            message: format!(
+                "closure verification INCOMPLETE: {}",
+                report["verdict_reason"]
+            ),
+        }),
+        _ => Err(CliError::Verdict {
+            incomplete: false,
+            message: format!(
+                "closure verification FAIL: {}",
+                report["violations_by_class"]
+            ),
+        }),
     }
 }

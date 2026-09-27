@@ -28,7 +28,8 @@ pub use walking::{
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkApplySubdivision,
     OwnerDomainWalkCheckpointOptions, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
     OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
-    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReinspect,
+    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
+    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
     WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
     owner_domain_walk_verify_closure, owner_domain_walk_with_progress,
 };
