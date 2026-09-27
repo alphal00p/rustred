@@ -168,6 +168,24 @@ def main():
     }
     if end - start > 2 * 3600:
         doc["hourly"] = windows(measured, start, end, 3600)
+        # How much do two consecutive 12-min windows of the same process differ?  This is the
+        # yardstick for a 12-min comparison across different stretches of the ID sequence.
+        twelve = windows(measured, start, end, 720)
+        adjacent = {}
+        for key in ("spec_checks_per_request", "natives_per_hour", "commit_us_per_record"):
+            vals = [w[key] for w in twelve]
+            ratios = [vals[i + 1] / vals[i] for i in range(len(vals) - 1) if vals[i] and vals[i + 1]]
+            if ratios:
+                ordered = sorted(ratios)
+                adjacent[key] = {"pairs": len(ratios), "min": ordered[0],
+                                 "p10": ordered[int(0.1 * (len(ordered) - 1))],
+                                 "median": statistics.median(ordered),
+                                 "p90": ordered[int(0.9 * (len(ordered) - 1))], "max": ordered[-1],
+                                 "share_factor_ge_1.48": sum(1 for r in ratios if r >= 1.48 or r <= 1 / 1.48)
+                                 / len(ratios),
+                                 "share_factor_ge_2.44": sum(1 for r in ratios if r >= 2.44 or r <= 1 / 2.44)
+                                 / len(ratios)}
+        doc["adjacent_720s_ratios"] = adjacent
     args.out.parent.mkdir(parents=True, exist_ok=True)
     json.dump(doc, open(args.out, "w"), indent=1)
     brief = {k: doc[k] for k in ("label", "first", "last", "interval", "full", "slices_300s_spread")}
