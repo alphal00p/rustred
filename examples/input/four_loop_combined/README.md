@@ -60,6 +60,7 @@ minimal-master claim; `family_closure_claim` is false in every artifact.
 | `four_loop_common_routing_witnesses.json` | Forward maps of the 16 representatives into the roots, summary of the labelled routes, and (documentation only) the maps of the four Vakint bases into A4. |
 | `four_loop_common_labelled_routes.jsonl` | The 508 labelled-sector routing witnesses (census producer output, byte-identical witness lines on two runs). |
 | `selection.json` | Owner selection: 16 owners (masks, relative paths, bytes, SHA-256, representative, root, native ordinal) and the 508 routes. Owner payloads are not committed (section 4). |
+| `four-all/` | **The engine control** (`run_control.py --family four-all`): `queries.json` = the 42 physics rows followed by 16 rank-12 owner orthants (58 rows), its `matching-summary.json` and staging `input-receipt.json`. |
 | `physics/` | Planner physics class: `queries.json` (42 rows), `entry-plan-receipt.json`, `skeleton-classification.json`, `entry-plans/`, `matching-summary.json`, staging `input-receipt.json`. |
 | `envelope-a19r12d7/` | Historical saved-cover envelope: `queries-boxes.json` (16 boxes), `queries.json` (boxes + 16 rank-12 owner orthants), `entry-spec.json` / `entry-plan.json` (Rust counts), `matching-summary.json`, `input-receipt.json`. |
 
@@ -179,7 +180,8 @@ copied to `TMP/c4l-build.wBU9zC/bin/`. Evidence directory:
    |---|---:|---:|---:|
    | physics | 42 | 7,024 | 36 |
    | envelope | 32 | 7,510 | 39 |
-   | physics + rank-12 anchors | 58 | 11,495 | 64 |
+   | physics + rank-12 anchors (`four-all`) | 58 | 11,495 | 64 |
+   | physics + rank-6 anchors (diagnostic) | 58 | 10,570 | 64 |
 
    Each run took under 3 s.
 
@@ -241,6 +243,7 @@ observations, not a benchmark.
 | `four-all` | Ready, W24 | 5 | 22,290-24,425 | 58,209-63,513 | 6.96-9.68 | 10.0-13.5 | PASS x5 |
 | `four-all` | Ready, W6 | 3 | 24,482-26,065 | 65,420-65,524 | 10.3-13.4 | 13.0-17.0 | PASS x3 |
 | `four-all` | Ordered, W6 | 2 | 30,159 (both) | 65,444 | 13.7-17.0 | 16.5-20.5 | PASS x2; strict record comparison PASS |
+| `four-all` | Ordered, W24 | 1 | 30,159 | 65,444 | 16.2 | 19.5 | PASS; records strictly identical to Ordered W6 |
 | `four-all` | Ready, W96 (CPUs 128-223) | queued | - | - | - | - | pending the socket-1 lock (`TMP/c4l-build.wBU9zC/socket1_session.sh`) |
 | `four-all-r6anchors` | Ready, W24 | 3 | 12,527-13,370 | 43,190 (first) | 4.36-4.50 | 7.5 (first) | PASS x3 |
 | `four-all-a19` | Ready, W24 | 3 | 22,846 / 22,847 in 2 runs; 3rd run >= 1,150,778 at 600 s | 60,721 / 60,498 | 7.32 / 8.98 | 10.0 / 12.5 | PASS x2; 3rd run not drained |

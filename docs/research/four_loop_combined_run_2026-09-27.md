@@ -61,9 +61,11 @@ closely as possible. Two paths were investigated.
 `four-all` is the physics class plus 16 rank-12 owner orthants
 (12 = 3L, the historical rank-only anchor).
 - It drains robustly: 22-30 k natives, 7-17 s of traversal, peak RSS
-  0.34 GB or less, at Ready W24 (5 runs), Ready W6 (3) and Ordered W6 (2).
-- The audit passes in every run. The two Ordered W6 runs are record-identical
-  under strict comparison.
+  0.34 GB or less, at Ready W24 (5 runs), Ready W6 (3), Ordered W6 (2) and
+  Ordered W24 (1).
+- The audit passes in every run. The Ordered runs are record-identical under
+  strict comparison across repeats and across W6 and W24, with 30,159 natives
+  each, so the Ordered policy gives a width-invariant oracle.
 - 98-99 % of natives are Route inspections. Apply inspections carry about
   92 % of native seconds.
 

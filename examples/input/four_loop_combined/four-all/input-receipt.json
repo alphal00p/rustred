@@ -1,0 +1,156 @@
+{
+  "schema": "rustred.staged-owner-inputs.v1",
+  "prepared_unix_time": 1790518628.7653885,
+  "source_manifest": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/selection.json",
+  "source_manifest_sha256": "e91dc9e57e59688b95359a6a96049351620a5605fec4fe8c92381e08eab69ef8",
+  "selection_sha256": "b228ac95f94bd9b0f14103fe1a5520cffaebb8538b7c32d74c823aa65611aec5",
+  "source_queries": "/common/dev/rustred/TMP/c4l-build.wBU9zC/plan-v1/queries.json",
+  "source_queries_sha256": "bc30baf241c2aac5a8fc035c9124d068e9ebf8d077afcd440bd3ee0b3dbb2037",
+  "queries_sha256": "d1ac816eb5ad5473e05ba5cc618d9f9273fd05dd31dff0c90b05704b1a072e81",
+  "owner_count": 16,
+  "owner_bytes": 6562373,
+  "owners": [
+    {
+      "mask": "0111100000",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0000-0111100000.rrbin",
+      "path": "owners/0000-0111100000.rrbin",
+      "bytes": 135416,
+      "sha256": "20ed993617e8789a3549d4593943185bb3c4b2cc209b0f761b4ca91042f692fb"
+    },
+    {
+      "mask": "0111110000",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0001-0111110000.rrbin",
+      "path": "owners/0001-0111110000.rrbin",
+      "bytes": 92254,
+      "sha256": "3017d853c7f207fdcaa30e86f1dacbd22f61479f1d3dde46aba977d8dd329f4e"
+    },
+    {
+      "mask": "0111100100",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0002-0111100100.rrbin",
+      "path": "owners/0002-0111100100.rrbin",
+      "bytes": 201222,
+      "sha256": "7309f75ca0a16bb761848a95deac4cba25b188700ae6f0d03c6a9712e03ab762"
+    },
+    {
+      "mask": "0111100001",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0003-0111100001.rrbin",
+      "path": "owners/0003-0111100001.rrbin",
+      "bytes": 3322106,
+      "sha256": "510c2e4fe083c2357089a3209f264ad904141d0684721453fa177cb1a7ce6a5d"
+    },
+    {
+      "mask": "0111111000",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0004-0111111000.rrbin",
+      "path": "owners/0004-0111111000.rrbin",
+      "bytes": 108064,
+      "sha256": "d2dc5bd41be420535dc096a32e23d56c71d01025366e736ca1f775b404e37772"
+    },
+    {
+      "mask": "0111110010",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0005-0111110010.rrbin",
+      "path": "owners/0005-0111110010.rrbin",
+      "bytes": 454719,
+      "sha256": "66c1b24c80cc677393625e9151dce543eb21e21b00c724fb9551640e5d397c36"
+    },
+    {
+      "mask": "0111010101",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0006-0111010101.rrbin",
+      "path": "owners/0006-0111010101.rrbin",
+      "bytes": 74748,
+      "sha256": "ce5f3d7a48ad134b33647a3491a93ae1cc0db9f8974f2dc1761ce79e7b4396fc"
+    },
+    {
+      "mask": "0111100110",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0007-0111100110.rrbin",
+      "path": "owners/0007-0111100110.rrbin",
+      "bytes": 180500,
+      "sha256": "8a930ae84a6a3a19f51cd5d415f0dc622aafeab3b08c8e6da2629627640bdc11"
+    },
+    {
+      "mask": "1111111000",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0008-1111111000.rrbin",
+      "path": "owners/0008-1111111000.rrbin",
+      "bytes": 106810,
+      "sha256": "6891e098c7639d527c9eece95737b02818d927e16d98112b825add4c1e9d4ff9"
+    },
+    {
+      "mask": "1111110100",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0009-1111110100.rrbin",
+      "path": "owners/0009-1111110100.rrbin",
+      "bytes": 83420,
+      "sha256": "c67fd17f44d627d0723be3311952d7f775997aecd99871a42ba0218301809654"
+    },
+    {
+      "mask": "0111111100",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0010-0111111100.rrbin",
+      "path": "owners/0010-0111111100.rrbin",
+      "bytes": 104601,
+      "sha256": "6e582b55e755e674435a1bebcc25cb3a1e76f2782050cd6ebefc946fa59ecf3d"
+    },
+    {
+      "mask": "0111111001",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0011-0111111001.rrbin",
+      "path": "owners/0011-0111111001.rrbin",
+      "bytes": 1226920,
+      "sha256": "c00bd404a28dd401c2797e8797c0ea5e522b642a3f920587c30b26b2490e3ca3"
+    },
+    {
+      "mask": "1111111100",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0012-1111111100.rrbin",
+      "path": "owners/0012-1111111100.rrbin",
+      "bytes": 75216,
+      "sha256": "c81ccc8d3be87f0fead2616b0da4a206b1b539399ecc12a1d8b5a692caca3f82"
+    },
+    {
+      "mask": "0111111110",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0013-0111111110.rrbin",
+      "path": "owners/0013-0111111110.rrbin",
+      "bytes": 196982,
+      "sha256": "7b64d1da88ec0b11381d7e330acee4d5fa557fe9439f10cd84127321f1da765a"
+    },
+    {
+      "mask": "1111111110",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0014-1111111110.rrbin",
+      "path": "owners/0014-1111111110.rrbin",
+      "bytes": 81355,
+      "sha256": "877719893be4f07c13c0675fd9ec2940332b6348693ab4b10c2b8532e90330b2"
+    },
+    {
+      "mask": "0111111111",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/inputs/owners/0015-0111111111.rrbin",
+      "path": "owners/0015-0111111111.rrbin",
+      "bytes": 118040,
+      "sha256": "2fde13e2b5b9e8d2a207b2e291602c517cd6bbe694c7184f21c16214c37c591e"
+    }
+  ],
+  "query_bytes_unchanged": false,
+  "query_order": "preserve",
+  "manifest_changes": "owner payload paths only",
+  "family_closure_claim": false,
+  "attachments": [
+    {
+      "name": "entry-plan-receipt.json",
+      "path": "entry-plan-receipt.json",
+      "source": "/common/dev/rustred/TMP/c4l-build.wBU9zC/plan-v1/entry-plan-receipt.json",
+      "bytes": 27333,
+      "sha256": "af96e2838a277180dd7ef5e90e0b683e06f9b6895845ba889ab39faa396bdcee"
+    }
+  ],
+  "anchor_plan": {
+    "kind": "owner_orthant_obligations",
+    "max_numerator_rank": 12,
+    "max_positive_power": null,
+    "original_query_count": 42,
+    "anchor_query_count": 16,
+    "anchor_id_prefix": "owner-anchor-",
+    "owner_order": "selection",
+    "descendant_clipping": false,
+    "family_closure_claim": false,
+    "positive_power_owner_scope": "none"
+  },
+  "original_queries": {
+    "path": "queries-original.json",
+    "sha256": "bc30baf241c2aac5a8fc035c9124d068e9ebf8d077afcd440bd3ee0b3dbb2037",
+    "bytes": 22687
+  }
+}
