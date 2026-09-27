@@ -14,11 +14,12 @@ mod recs;
 mod sym;
 mod tight;
 mod util;
+mod volume;
 
 use std::path::PathBuf;
 
 fn usage() -> ! {
-    eprintln!("usage: wv <sym|pieces> CKPT_DIR [options]; see tools/research/wv/README.md");
+    eprintln!("usage: wv <sym|volume|pieces> CKPT_DIR [options]; see tools/research/wv/README.md");
     std::process::exit(2)
 }
 
@@ -34,6 +35,7 @@ fn main() {
     match mode {
         "sym" => sym::run(&dir, &opts),
         "pieces" => pieces::run(&dir, &opts),
+        "volume" => volume::run(&dir, &opts),
         _ => usage(),
     }
     eprintln!("wv {mode}: {:.1} s", t0.elapsed().as_secs_f64());

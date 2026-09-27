@@ -47,6 +47,19 @@ taskset -c 72-87,328-343 nice -n 19 $WT/TMP/wv-target/release/wv sym TMP/w0/wv/g
     --group TMP/w0/wv/sym/group.json --out TMP/w0/wv/sym/gen7-sym.json --route-sample 2000000
 ```
 
+Options: `--route-all 1` evaluates every Route domain (no sampling); `--audit N` checks N sampled
+(domain, element) pairs pointwise with the census predicate `geom::contains_point` over
+`geom::enumerate` (independent of `tight.rs`) and the k-d tree against a linear scan;
+`--flags-out F` writes one byte per ID (bit0 sym_before, bit1 sym_other, bit2 identity_other,
+bit3 sym_native_before, bit4 first hit in another Route mask, bit7 evaluated); `--skip-apply 1`.
+
+- `volume.rs`: `wv volume CKPT --flags F --out OUT.json`. Domain-volume view of D6: the
+  flagged domains (direct: no ID, no ledger obligation, no inspection, no out-edges) and the
+  least-fixpoint cascade over the saved edges (a node is avoided once every in-edge source is
+  avoided; protected initial prefix excluded), by class (native, committed delegated,
+  native-pending, delegate-pending), native seconds [M] and predicted pending seconds [E]
+  (per (phase, owner, half-decade of points) binned mean). TMP/w0/wv/sym/run_full.sh runs both.
+
 ## D1(b): helper-piece falsifier (four-loop)
 
 - `make_piece_queries.py BASE VARIANT OUT`: helper-first query variants (pieces replace each
@@ -62,3 +75,16 @@ taskset -c 72-87,328-343 nice -n 19 $WT/TMP/wv-target/release/wv sym TMP/w0/wv/g
   reaching them; physics roots certified from the saved edges; roots reaching rank > 12.
 - `piece_graph.py --level 12=RUN --level 14=RUN ... --top RUN`: the idealized piece-aware rule
   composed offline from single-helper runs at each rank level and the unbounded (top) run.
+- `verify_runs.sh BATCH_DIR CPUS [names]`: re-runs `walk-verify-closure` over a batch (the
+  in-batch verify step returned within a second for every b1 run, so b1 was re-verified with it;
+  the script sets TMPDIR=/common/dev/rustred/TMP).
+- `summarize_pieces.py BATCH_DIR [--json OUT]`: one row per run (natives, frontiers, drain,
+  wall, foreign load, physics certification by engine, audit, verifier and cones).
+
+Batch b1 (TMP/w0/wv/pieces/runs/b1) and the compositions (TMP/w0/wv/pieces/compose):
+```
+tools/research/wv/pieces_batch.sh b1 900
+tools/research/wv/verify_runs.sh TMP/w0/wv/pieces/runs/b1 72-75,328-331 ...   # 4 slots
+for f in fg h x; do piece_graph.py --level 12=b1/$f-base --level 14=b1/$f-rank14 \
+    --level 16=b1/$f-rank16 --level 20=b1/$f-rank20 --top b1/$f-unbounded; done   # bmw: rank*k
+```

@@ -277,6 +277,20 @@ pub fn run(dir: &Path, opts: &Opts) {
     let generation_of = |id: usize| util::id_gen(&ck.m, id);
     // Per (owner, kind, generation) tallies.
     let skip_apply = opts.get("skip-apply").is_some();
+    // Per-ID flags (--flags-out): bit0 sym_before, bit1 sym_other, bit2
+    // identity_other, bit3 sym_native_before, bit4 first sym hit in another
+    // Route mask, bit7 evaluated.
+    let flags: Vec<std::sync::atomic::AtomicU8> =
+        (0..total).map(|_| std::sync::atomic::AtomicU8::new(0)).collect();
+    let setf = |id: u32, f: &Flags, cross: bool| {
+        let b = (f.sym_before as u8)
+            | (f.sym_other as u8) << 1
+            | (f.id_other as u8) << 2
+            | (f.sym_native as u8) << 3
+            | (cross as u8) << 4
+            | 0x80;
+        flags[id as usize].store(b, Ordering::Relaxed);
+    };
     let per: Vec<(u16, BTreeMap<(u8, u64), Tally>)> = owners
         .par_iter()
         .filter(|_| !skip_apply)
@@ -335,6 +349,7 @@ pub fn run(dir: &Path, opts: &Opts) {
                                 break;
                             }
                         }
+                        setf(id, &f, false);
                         let key = (kind[id as usize], generation_of(id as usize));
                         local.entry(key).or_default().add(
                             &f,
@@ -519,7 +534,7 @@ pub fn run(dir: &Path, opts: &Opts) {
 
     // ---- Route (sampled) ----
     let sample: usize = opts.num("route-sample", 0usize);
-    if sample > 0 {
+    if sample > 0 || opts.get("route-all").is_some() {
         let rkeys: Vec<u16> = route.keys().copied().collect();
         let rtrees: Vec<Tree> = rkeys
             .par_iter()
@@ -539,9 +554,14 @@ pub fn run(dir: &Path, opts: &Opts) {
             s ^= s << 17;
             s
         };
-        let picks: Vec<u32> = (0..sample)
-            .map(|_| all_route[(draw() % all_route.len() as u64) as usize])
-            .collect();
+        // --route-all: every Route domain (sample size ignored), no draws.
+        let picks: Vec<u32> = if opts.get("route-all").is_some() {
+            all_route.clone()
+        } else {
+            (0..sample)
+                .map(|_| all_route[(draw() % all_route.len() as u64) as usize])
+                .collect()
+        };
         let ident: Vec<usize> = (0..n).collect();
         let res: Vec<(bool, bool, bool, bool, bool)> = picks
             .par_chunks(1024)
@@ -579,6 +599,17 @@ pub fn run(dir: &Path, opts: &Opts) {
                                 break;
                             }
                         }
+                        setf(
+                            id,
+                            &Flags {
+                                id_before: idb,
+                                id_other: ido,
+                                sym_before: sb,
+                                sym_native: false,
+                                sym_other: so,
+                            },
+                            cross,
+                        );
                         (idb, ido, sb, so, cross)
                     })
                     .collect::<Vec<_>>()
@@ -594,6 +625,7 @@ pub fn run(dir: &Path, opts: &Opts) {
                 "route_domains": all_route.len(),
                 "route_buckets": rkeys.len(),
                 "sample": res.len(),
+                "all_route_domains_evaluated": opts.get("route-all").is_some(),
                 "seed": opts.num("seed", 20260927u64),
                 "identity_before": c(&|r| r.0) as f64 / ns,
                 "identity_other": c(&|r| r.1) as f64 / ns,
@@ -610,6 +642,11 @@ pub fn run(dir: &Path, opts: &Opts) {
         .unwrap()
         .insert("seconds_elapsed".into(), json!(t0.elapsed().as_secs_f64()));
     std::fs::write(out_path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+    if let Some(fp) = opts.get("flags-out") {
+        let bytes: Vec<u8> = flags.iter().map(|f| f.load(Ordering::Relaxed)).collect();
+        std::fs::write(fp, bytes).unwrap();
+        eprintln!("wrote flags {fp}");
+    }
     let _ = ckpt::HEADER;
     eprintln!("wrote {out_path} ({:.1} s)", t0.elapsed().as_secs_f64());
 }
