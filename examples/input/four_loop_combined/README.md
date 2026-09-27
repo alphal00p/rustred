@@ -268,7 +268,7 @@ cooperative stop, imported from the shared runner; `--command <argv template>`; 
 the foreign load on the run CPUs, the recorder of item 4 below, and with `--stop-natives N` a
 cooperative early stop once a heartbeat reports N natives). Their argv templates are
 `TMP/c4l-s2/commands/`. Socket-1 (W96) runs held `TMP/locks/socket1.lock` (`TMP/c4l-s2/session.py`,
-logs `sessionA.log`, `sessionB2.log`). The per-width statistics are regenerated from the run
+logs `sessionA.log`, `sessionB2.log`, `sessionC.log`). The per-width statistics are regenerated from the run
 directories by `TMP/c4l-s2/ready_stats.py` (`ready_stats.json`).
 
 ### Registered families and variants
@@ -299,6 +299,7 @@ socket 1, CPUs 128-223, foreign load 27-88 % where recorded, so **W96 timings ar
 | `four-all` | Ordered, W96 | 1 | 1 | 30,159 | 14 | - |
 | `four-all` | Ready, W6 | 5 | 5 | 24,482 / 25,935 / 26,065 (min / median / max) | 14 | - |
 | `four-all` | Ready, W24 | 10 | 10 | 22,290-24,425 | 14 | - |
+| `four-all` | Ready, W24 on socket 1 (CPUs 128-151, session C) | 8 | 7 | 21,904 / 24,288 / 24,307 | 14 | 1 (rep8) at the 60 k early stop (63,477 natives after 33 s of traversal); rank-13 point-like flood, 12,459 Apply natives on `0111110010` |
 | `four-all` | Ready, W96 | 13 | 7 | 21,730 / 23,683 / 24,107 (min / median / max) | 14 | 6, all rank-13 floods on `0111110010` (section below): session A rep2 stopped at 3,605 s with 5,186,115 natives, rep5 at 900 s with 1,583,327; session B2 rep6, rep7, rep8, rep10 at the 60 k early stop (61,483-63,839 natives after 28-51 s of traversal) |
 | `four-all-r13anchors` | Ordered W24 / Ready W24 | 1 / 1 | 1 / 1 | 33,750 / 26,600 | 15 | - |
 | `four-all-r13anchors` | Ready, W96 | 11 | 9 | 25,473 / 25,934 / 31,693 | 15 (one run 16) | 2 (B2 rep5, rep7) at the 60 k early stop (66,767 and 63,034 natives); rank-14 flood (anchor + 1) on `0111110010` |
@@ -379,6 +380,8 @@ with `tools/records_breakdown.py`):
 
   At a 60 k stop the flood does not yet dominate native seconds (18-57 %). The banana owner's
   ordinary early work still takes 34-70 %.
+- Session C's one W24 non-drain on socket 1 (rep8, `bd-ready-w24s1-rep8-four-all.json`) is the
+  point-like flavour: 12,459 rank-13 Apply natives on `0111110010` at the 60 k stop.
 - The same layer floods in every other non-drained run of this directory: `four-all-a19` Ready W6
   (887,159 rank-13 natives on `0111110010`) and Ordered W6 (1,058,541, 77.6 % of native
   seconds), `four-all-r14anchors` Ready W96 rep2 (690,152 natives on `0111110010` at **rank 15**,
@@ -391,7 +394,8 @@ with `tools/records_breakdown.py`):
   drained `four-all-r13anchors` Ready W96 run (B2 rep11, 31,693 natives) reached rank 16.
 - The fragmenting runs are recognisable early: 41-58 k natives at 20 s and 181-479 k at 120 s
   (`events.jsonl` heartbeats), against 22-31 k natives in 9-20 s of traversal for drained runs.
-  The seven session-B2 non-drains reached the 60 k stop after 28-51 s of traversal.
+  The seven session-B2 non-drains reached the 60 k stop after 28-51 s of traversal, and the
+  session-C one after 33 s.
 
 **Interpretation [E]** (the boxes are measured; the causal reading was not replayed). An owner
 orthant at rank r contains only rank <= r. Its inspection emits rank r+1 and r+2 successors,
@@ -443,24 +447,30 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
    - Run `four-all` Ready n >= 5 times per width (W6, W24, W96), each with a 15-minute cap.
    - A run may also be stopped early once it passes 60,000 natives, twice the Ordered reference.
      Every fragmenting run of this lane (W6-W96) passed 64-263 k natives by 60 s (the seven
-     session-B2 non-drains reached 60 k after 28-51 s of traversal), and no drained run of any
+     session-B2 non-drains reached 60 k after 28-51 s of traversal, the session-C one after 33 s), and no drained run of any
      `four-all` variant exceeded 38,173 natives [M]. An early stop counts as "not drained within
      the cap". `run_c4l.py --stop-natives 60000` implements it.
    - Report per width: n, the fraction drained within the cap, the natives distribution of the
      drained runs (min / median / max), and the natives at stop plus the
      `tools/records_breakdown.py` signature of each run that did not drain.
    - Compare against the legacy baseline table above (regenerate it with
-     `TMP/c4l-s2/ready_stats.py`). Measured noise floor for drained Ready runs: natives spread
-     6.5 % at W6 (n = 5), 9.6 % at W24 (n = 10) and 10.9 % at W96 (n = 7); Ordered spread 0.
+     `TMP/c4l-s2/ready_stats.py`, which splits by width and host). Measured noise floor for
+     drained Ready runs: natives spread 6.5 % at W6 (n = 5), 9.6 % at W24 (n = 10; 11.0 % for the 7
+     on socket 1) and 10.9 % at W96 (n = 7); Ordered spread 0.
    - Legacy baseline drain fractions [M]:
      - W6: 5/5 (95 % Clopper-Pearson interval 0.48-1).
-     - W24: 10/10 (0.69-1).
+     - W24: 10/10 on CPUs 320-383 and 52-63,308-319 (foreign load 6-24 % where recorded), plus
+       7/8 on socket 1 (session C, CPUs 128-151, 52-74 % foreign load in 7 of the 8 runs).
+       Together 17/18 (0.73-1).
      - W96: **7/13** (0.54; 0.25-0.81). That is 3/5 in session A (foreign load 27-45 %) and 4/8 in
        session B2 (53-85 of the 96 CPUs busy with foreign work). The two sessions do not differ
        (Fisher exact p = 1.0).
-   - W96 against W6 + W24 (7/13 against 15/15) gives p = 0.005, so the lower drain fraction at
-     W96 is beyond the noise. Width is confounded with the host, though: every W96 run was on
-     socket 1 under foreign load, and every W6 / W24 run was on other CPUs.
+   - The lower drain fraction at W96 is beyond the noise: W96 against all W24 (7/13 against
+     17/18) gives Fisher exact p = 0.012.
+   - What causes it is not resolved. Every W96 run was on socket 1 under foreign load. Session C
+     ran W24 on socket 1 to separate width from host. It gave 7/8, and its one non-drain is the
+     same rank-13 flood, so **W24 is not immune**. At this n, 7/8 differs neither from W24
+     elsewhere (10/10, p = 0.44) nor from W96 (7/13, p = 0.17).
    - A change in drain fraction is only meaningful beyond the binomial noise at the n used.
      For example, 3/5 has a 95 % Clopper-Pearson interval of 0.15-0.95, 5/5 has 0.48-1, and 3/5
      against 5/5 gives Fisher exact p = 0.44 (two-sided): at n = 5 they cannot be told apart.
@@ -475,7 +485,7 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
    small, campaign-shaped stress case. It floods on the same owner and is not a pass/fail control.
 4. The mandatory recorder. The session-2 runner `TMP/c4l-s2/run_c4l.py` stamps it into every
    `metrics.json` from the two Ready W6 repeats on 52-57 (21:24Z) onward, including all
-   `sessionB2` runs:
+   session B2 and C runs:
    - foreign busy CPUs;
    - schedstat run delay summed over the native's threads;
    - user-mode instructions, cycles and IPC of the native process;
@@ -483,7 +493,9 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
 
    Session B2 at W96 [M]: the drained `four-all` runs show 11.3-13.2 M instructions per native, IPC
    1.34-1.60 and 57-79 foreign busy CPUs. The 60 k-stopped runs show 9.6-27.4 M instructions per
-   native.
+   native. On the same socket at W24 (session C), the drained runs show 9.5-10.4 M instructions
+   per native and IPC 2.26-2.66. So W96 costs about 1.2x the user instructions per native, at
+   about 0.6x the IPC.
    Timings stay load-sensitive and are labelled as such. Example, two Ready W6 runs on 52-57 [M]:
    9.38 M and 8.87 M instructions per native, IPC 1.82 and 2.05, run delay 9.8 s and 14.6 s. Total
    user instructions were 230.19 G and 230.40 G (0.09 % apart), although the natives differ by
@@ -583,9 +595,9 @@ e6b704064a0a6580fcb4daf7fc9d749b6b6c89621c27b8ca5c14f18c54f3bd68  /common/dev/ru
 451149b5835adedd72a8f59b21170df0f0cd2cef2271d0d49f54b21f8b63e29f  /common/dev/rustred/TMP/c4l-s2/session.py
 ce2fb5ea7d66e7e2f2345fab57c267a31b4619f721ed2a7ef94f68f265d90f4d  /common/dev/rustred/TMP/c4l-s2/queueB2.json
 c0668ce543be4a91164ae7e27dc1e9c6b4af5fcca55ea682573d5595878f4654  /common/dev/rustred/TMP/c4l-s2/sessionB2.log
-b3d24712c7f8341ef8332381ae17e551f1c710f2db2cdef838ae6a5cfebd3532  /common/dev/rustred/TMP/c4l-s2/ready_stats.py
-023741085b52e791e454ea51a5331f8caf22165c709757dc56bd39945a9e3442  /common/dev/rustred/TMP/c4l-s2/ready_stats.json
-51bbf28ef2c1b01b128f17d00f5235dd135677e24ec2be7350864237d71cea3c  /common/dev/rustred/TMP/c4l-s2/post_b2.py
+3cd4e26c6735b1a4a2b63b066d5fa00be8b8f3ec5e212741cbb365fe18b58eb0  /common/dev/rustred/TMP/c4l-s2/ready_stats.py
+00149b1468fc01d747ff879e951cb911cc259533d2e94d3c8caf1dd3250698e1  /common/dev/rustred/TMP/c4l-s2/ready_stats.json
+cdaa5fd39c5ba3781d515cabe875128e4c39979a504ac5315621e0438c4d881a  /common/dev/rustred/TMP/c4l-s2/post_b2.py
 f99e9f403b209c32ba3ba79447681c860e1afb7be19895037b7d157c86768303  /common/dev/rustred/TMP/c4l-s2/post_b2.json
 6dc3c6f1baee539e9c2c4d0ac553dab103c37f580c415a86e4a33b9d530a32bf  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep6-four-all.json
 9e72790a2956a2e5ee1800ba6c7d3456459591dbcf69fbb42fc618d98db4d9c3  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep7-four-all.json
@@ -594,4 +606,9 @@ b005b54704490ddfb0ffe76dfb5f75c5b63b37d01654b8091282097ed7db341f  /common/dev/ru
 c5ea4c26587ce43c314b9868ed3b81107af8240211292942de75adc29eafb0f8  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-four-all-p5.json
 a871c797d435d83c50db5063119210f9a76480075e9695eaa7701574d03057bd  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep5-four-all-r13anchors.json
 ebf56a81dc4b34e8f7966b41c33d101b0a145ae964a713a0948611ccdd218ef3  /common/dev/rustred/TMP/c4l-s2/bd-ready-w96-rep7-four-all-r13anchors.json
+# session C (four-all Ready W24 on socket 1)
+f46c9cf45d203d402947b7a5ba6e6b85bf37e8a04940e1e76b36855e94464ed0  /common/dev/rustred/TMP/c4l-s2/queueC.json
+de7d82e66e20f994c56da319168376ada708b36b080d838d33abc56e118da62f  /common/dev/rustred/TMP/c4l-s2/sessionC.log
+68baef60b73752e1b45be76be36efed1027c6959e13bd786569511727c5d3530  /common/dev/rustred/TMP/c4l-s2/post_c.json
+a9d56d37504d33f20d8a5c31c5bb9f8f85a3807dd10a220fbab4ad9f5363a90b  /common/dev/rustred/TMP/c4l-s2/bd-ready-w24s1-rep8-four-all.json
 ```

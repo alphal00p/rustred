@@ -3,8 +3,9 @@
 Status (revised in c4l session 2, 2026-09-27 ~20-21 UTC): the inputs are built, validated and
 now reproducible from committed files. `four-all` drains **deterministically under Ordered**
 (30,159 natives, records strictly identical at W6, W24 and W96). Under Ready it is
-**schedule-sensitive at W96**: 7 of 13 runs drained (95 % interval 0.25-0.81), against 15 of 15
-at W6 and W24; the others entered a self-sustained flood one rank above the anchors. The session-1 statements "drains robustly" and "orders in
+**schedule-sensitive**: 7 of 13 runs drained at W96 (95 % interval 0.25-0.81), against 17 of 18
+at W24 and 5 of 5 at W6. The one W24 non-drain ran on socket 1. Every non-drain entered the same
+self-sustained flood one rank above the anchors. The session-1 statements "drains robustly" and "orders in
 which each owner's first row is a full orthant drained in all 13 runs" are **withdrawn**.
 `four-all` is an **additional** four-loop control. It does not replace the C-4L gate (the
 per-family FG/BMW/H/X controls). Its Ready results are reported as statistics over repeats,
@@ -63,7 +64,7 @@ Full table in the README (section 5). Summary:
 
 | Family | Ordered (W6 / W24 / W96) | Ready W6 | Ready W24 | Ready W96 |
 |---|---|---|---|---|
-| `four-all` (physics + rank-12 anchors) | 30,159 at every width, strictly identical records | 5/5 drained, 24.5-26.1 k | 10/10 drained, 22.3-24.4 k | 7 of 13 drained (21.7-24.1 k); the others flood at rank 13 |
+| `four-all` (physics + rank-12 anchors) | 30,159 at every width, strictly identical records | 5/5 drained, 24.5-26.1 k | 17/18 drained, 21.9-24.4 k (7/8 on socket 1; 1 rank-13 flood) | 7 of 13 drained (21.7-24.1 k); the others flood at rank 13 |
 | `four-all-r14anchors` | W24: 38,173 | - | 2/2, 29.0-29.4 k | 2/3 drained; rank-15 flood otherwise |
 | `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 9/11 drained (25.5-31.7 k); the other two flood at rank 14 = anchor + 1 |
 | `four-all-h993r14` | W24: flood (730,570 natives at 900 s) | - | 0/1 (flood moved to two other owners) | - |
@@ -231,9 +232,12 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 ## Open issues
 
 - The Ready W96 drain fraction of `four-all` is 7/13 (95 % Clopper-Pearson 0.25-0.81), against
-  15/15 at W6 and W24 (Fisher exact p = 0.005). Width and host are confounded: every W96 run was
-  on socket 1 under 27-88 % foreign load, and no W6 / W24 run was. Separating them needs W24 runs
-  on socket 1, or W96 on a quiet socket.
+  17/18 at W24 (Fisher exact p = 0.012).
+  - The cause (width or host) is not resolved. Every W96 run was on socket 1 under 27-88 %
+    foreign load.
+  - W24 on socket 1 (session C) gave 7/8, with one rank-13 flood. That differs neither from W24
+    elsewhere (10/10, p = 0.44) nor from W96 (p = 0.17).
+  - Separating width from host needs larger n on socket 1 at W24, or W96 on a quiet socket.
 - `four-all-r6anchors` was not run at W96.
 - The physics helpers carry no positive-power bound. The five-loop campaign bounds A for 54 of
   its 67 helpers.
