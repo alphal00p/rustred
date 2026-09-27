@@ -30,7 +30,10 @@ COMMANDS = {
     "bmw": ROOT / "TMP/four-loop-saved-descendants.VaNmUN/bmw/command-upstream-a19.json",
     "h": ROOT / "TMP/four-loop-saved-descendants.VaNmUN/h/command-rank12orthant.json",
     "x": ROOT / "TMP/four-loop-saved-descendants.VaNmUN/x/command-rank12orthant.json",
+    # C-5F: five-loop 1,324-tuple finite control (hot owner), W50 historically
+    "five-finite": ROOT / "TMP/ready-five-loop-finite-w50.a6ABXd/ready-first/command.json",
 }
+RETIRED = ROOT / "TMP/retired-campaigns-20260925.UtI4ay"
 ENV_ONE = {k: "1" for k in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                             "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS")}
 KEYS = ("traversal_seconds", "prepared_seconds", "elapsed_seconds", "completed_nodes", "scheduled_nodes",
@@ -86,13 +89,16 @@ def main(argv=None):
     p.add_argument("--label", required=True)
     p.add_argument("--cpus", default="100-105")
     p.add_argument("--queries", type=Path)
+    p.add_argument("--manifest", type=Path, help="replace the selection manifest (owner base unchanged)")
+    p.add_argument("--workers", type=int, help="replace --workers")
+    p.add_argument("--out-root", type=Path, default=ROOT / "TMP/w0/inputs/four/runs")
     p.add_argument("--binary", type=Path, default=ROOT / "TMP/fable51-controls/bin/rustred-4a17f9c7")
     p.add_argument("--cp5hop", type=Path)
     p.add_argument("--owners-txt", type=Path)
     p.add_argument("--max-seconds", type=float, default=600.0,
                    help="write the stop file after this many seconds (cooperative stop, checkpoint saved)")
     args = p.parse_args(argv)
-    out = ROOT / "TMP/w0/inputs/four/runs" / args.label / args.family
+    out = args.out_root / args.label / args.family
     if out.exists():
         sys.exit(f"refusing to overwrite {out}")
     out.mkdir(parents=True)
@@ -108,6 +114,14 @@ def main(argv=None):
     set_opt("--events", out / "events.jsonl")
     set_opt("--stop-file", out / "stop-request.json")
     set_opt("--checkpoint", out / "checkpoint")
+    for i, a in enumerate(argv_):
+        if "/common/dev/rustred/campaigns/five-loop-saved-coarse-cover/inputs" in a:
+            argv_[i] = a.replace("/common/dev/rustred/campaigns/five-loop-saved-coarse-cover/inputs",
+                                 str(RETIRED / "five-loop-saved-coarse-cover/inputs"))
+    if args.manifest:
+        set_opt("--manifest", args.manifest)
+    if args.workers:
+        set_opt("--workers", args.workers)
     queries = Path(argv_[argv_.index("--queries") + 1])
     if args.queries:
         queries = args.queries
@@ -158,6 +172,8 @@ def main(argv=None):
                     "foreign_share_of_cpuset": round(max(0.0, busy_seconds - own) / (len(cpus) * wall), 4) if wall else None}
     metrics = {"family": args.family, "label": args.label, "binary": str(args.binary),
                "binary_sha256": sha256(args.binary), "queries": str(queries), "queries_sha256": sha256(queries),
+               "manifest": argv_[argv_.index("--manifest") + 1],
+               "manifest_sha256": sha256(argv_[argv_.index("--manifest") + 1]),
                "exit_code": code, "whole_command_seconds": round(wall, 3), "cpus": args.cpus,
                "peak_rss_bytes": peak["rss"], "time_cap_seconds": args.max_seconds,
                "stop_requested_at_seconds": capped["at"], **metrics_load}
