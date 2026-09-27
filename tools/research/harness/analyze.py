@@ -228,6 +228,7 @@ def cancel(run):
     hist = defaultdict(int)
     lat = []
     outcomes = defaultdict(int)
+    by_class = defaultdict(list)
     for r in rows:
         c = r.get("cancel")
         if not c:
@@ -238,7 +239,11 @@ def cancel(run):
             continue
         kind = r["error_kind"]
         outcomes["flag_set_" + kind] += 1
+        if kind != "cancelled":
+            continue
         ns = c["latency_ns"]
+        wall_class = "<1ms" if r["wall_ns"] < 1e6 else "1-100ms" if r["wall_ns"] < 1e8 else ">=100ms"
+        by_class[wall_class].append(ns)
         lat.append((ns, r["phase"], r["i"], kind, r["wall_ns"]))
         bucket = 0 if ns <= 0 else int(math.floor(math.log2(ns)))
         hist[bucket] += 1
@@ -249,6 +254,10 @@ def cancel(run):
     return {"run": run, "outcomes": dict(outcomes), "latency_ns_quantiles":
             {"p50": q(0.5), "p90": q(0.9), "p99": q(0.99), "max": lat[-1][0] if lat else None},
             "log2_ns_histogram": {f"[2^{b},2^{b+1}) ns": hist[b] for b in sorted(hist)},
+            "by_time_to_cancel_return": {k: {"n": len(v), "p50": sorted(v)[len(v) // 2],
+                                             "p99": sorted(v)[min(len(v) - 1, int(0.99 * len(v)))],
+                                             "max": max(v)} for k, v in by_class.items()},
+            "scope": "flag set by a 20-us polling timer at CANCEL_FRACTION of each native's prior wall time; latency = flag store to inspect() return, cancelled natives only",
             "worst": [{"latency_ns": x[0], "phase": x[1], "i": x[2], "error_kind": x[3], "wall_ns": x[4]}
                       for x in lat[-10:]]}
 
