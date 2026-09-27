@@ -80,3 +80,19 @@ census pilot      CKPT --pilot RESULT.json --k N [--hot MASK]   # overlap of a d
 
 `CKPT` may also be a drained run's `result.json` (arity via `--arity`).
 `run_all.sh CKPT OUT_PREFIX [cover options]` runs every subcommand.
+
+## W0.7 receipt
+
+```
+w0_batch.sh CENSUS_BIN OUT [RUSTRED_BIN]      # every census step + the Q3 factor census (owner-domain-scan)
+W0_ONLY=q3 w0_batch.sh - OUT RUSTRED_BIN      # only Q3 (rustred needs every inner pool = 1; the script sets them)
+w0_tables.py OUT                              # the tables of docs/research/fable51_w0_census_2026-09-27.md
+summarize.py cover|owners|cost|pilot|potential|saturation ...   # single-file tables
+q3_summary.py OUT/q3/v2-factor-census-numerators.json OUT/gen7/cost.json
+```
+
+`census cost` reports two per-owner exponents: the per-native OLS of ln(seconds)
+on ln(points) (geometric-mean law) and the plan's estimator (n-weighted LS of
+ln(mean seconds) on ln(mean points) over decade bins with >= 10 natives,
+`cost_exponent_binmean_wls`). Unevaluated queries (infinite, or not
+enumerable) count as uncovered, gate failed, full residual and full cost.
