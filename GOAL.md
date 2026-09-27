@@ -4820,3 +4820,17 @@ authorization.
 - [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)
 - [Current CLI contract](docs/CLI.md)
+
+## Directive 2026-09-27: the fable_5_1 "next push" (v3 engine, work volume, ultimate launch)
+
+The governing plan for this push is
+[`docs/research/fable51_next_push_master_plan_2026-09-27.md`](docs/research/fable51_next_push_master_plan_2026-09-27.md)
+(waves W0-W5, launch criteria (A)-(G)); it replaces sections 3-4 of
+`FABLE_5_1_five_loop_vacuum_plan.md` for this push. Owner decisions (2026-09-27): both five-loop
+campaigns stay stopped until the ultimate launch; no backward-compatibility constraints (new walk
+semantics, CP6, new inputs; `containment_checks` may change); any CPU may be used and reserved;
+pilots deliver their intel within one hour; the ultimate campaign runs on 100 cores with a
+600 GB RAM cap; the zroot data errors are accepted as a non-issue; never implement an own computer
+algebra system: triple-check first that the need is covered by the latest Symbolica (vendored and
+upstream dev); validate every change on the complete four-loop run (all four families FG, BMW, H,
+X at the A <= 19, R <= 12, D >= 7 saved-cover envelope) as well as on five-loop pilots.

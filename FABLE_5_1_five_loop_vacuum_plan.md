@@ -410,3 +410,8 @@ pass at every commit; new tests accompany each package. Push to
   Single-owner Ordered pilot (hot owner, physics box, 32fdec) drained:
   5.79M native inspections, max rank 8, 3.8 h at W6, audit PASS after the
   audit learned helper-aliased roots.
+- 2026-09-27: both campaigns stopped by the owner (v2 at generation 7, interim at generation 8,
+  both paused cleanly). Next push governed by
+  `docs/research/fable51_next_push_master_plan_2026-09-27.md` (27-agent review); owner answers:
+  600 GB RAM cap for the ultimate 100-core campaign, CPUs may be reserved, zroot errors accepted,
+  no own CAS (latest Symbolica first), complete four-loop run in every validation. W0 started.
