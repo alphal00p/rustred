@@ -1,0 +1,49 @@
+{
+  "schema": "rustred.owner-domain-queries.json.v2",
+  "queries": [
+    {
+      "id": "owner-anchor-r3-a13-d10-011101110111000",
+      "owner": "011101110111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 3,
+      "power_bounds": {
+        "max_positive_power": 13,
+        "min_power_difference": 10,
+        "max_power_difference": null
+      }
+    }
+  ]
+}

@@ -16,6 +16,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = &args[1];
     let union = args.iter().any(|a| a == "--union");
+    // --scale OWNER: per log10(points) decade of that owner's native Apply
+    // records: count, mean points, mean and total record seconds.
+    let scale_owner = args.iter().position(|a| a == "--scale").map(|i| args[i + 1].clone());
+    let mut scale: BTreeMap<i32, (u64, f64, f64)> = BTreeMap::new();
     let mut native: BTreeMap<String, (u64, f64)> = BTreeMap::new();
     let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
     let mut owner_secs: HashMap<String, (u64, f64)> = HashMap::new();
@@ -68,6 +72,12 @@ fn main() {
             match points(&bits, &r.lower, &r.upper, r.rank, r.pb()) {
                 Some(p) => {
                     apply_points += p as f64;
+                    if scale_owner.as_deref() == Some(r.owner.as_str()) && p > 0 {
+                        let e = scale.entry((p as f64).log10().floor() as i32).or_default();
+                        e.0 += 1;
+                        e.1 += p as f64;
+                        e.2 += s;
+                    }
                     if union && union_total > UNION_CAP {
                         union_aborted = true;
                     } else if union {
@@ -109,6 +119,8 @@ fn main() {
         "error_records": error_records,
         "records_not_descendant_closed": not_closed,
         "max_record_seconds": max_record_seconds,
+        "scale_owner": scale_owner,
+        "scale": scale.iter().map(|(d, (n, p, sec))| json!({"log10_points": d, "n": n, "mean_points": p / *n as f64, "mean_seconds": sec / *n as f64, "total_seconds": sec, "us_per_point": 1e6 * sec / p})).collect::<Vec<_>>(),
         "apply_owner_seconds_top": owners.iter().take(20).map(|(o, (c, s))| json!({"owner": o, "inspections": c, "record_seconds": s})).collect::<Vec<_>>(),
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
