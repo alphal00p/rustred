@@ -429,6 +429,34 @@ fn aggregate(
             }
         }
         let q: BTreeMap<&str, Vec<f64>> = rfs.iter_mut().map(|(k, v)| (*k, util::quantiles(v, &[0.1, 0.25, 0.5, 0.75, 0.9]))).collect();
+        // Anchors needed by the fully covered draws (greedy first-hit count;
+        // count-weighted histogram, distinct-draw quantiles).
+        let mut ah: BTreeMap<&str, f64> = BTreeMap::new();
+        let mut av: Vec<f64> = Vec::new();
+        let (mut aw, mut asum) = (0f64, 0f64);
+        for d in draws {
+            let Some(ev) = &d.evs[si] else { continue };
+            if ev.uncovered != 0.0 {
+                continue;
+            }
+            let k = ev.anchors_used;
+            let b = match k {
+                0 => "0(single)",
+                1 => "1",
+                2 => "2",
+                3 => "3",
+                4 => "4",
+                5..=8 => "5-8",
+                9..=16 => "9-16",
+                17..=64 => "17-64",
+                _ => ">64",
+            };
+            *ah.entry(b).or_default() += d.ht;
+            aw += d.ht;
+            asum += d.ht * k as f64;
+            av.push(k as f64);
+        }
+        let aq = util::quantiles(&mut av, &[0.5, 0.9, 0.99, 1.0]);
         // Per stratum (count weight within the stratum = uniform draws).
         let mut st: BTreeMap<String, Value> = BTreeMap::new();
         for (k, (nh, dh)) in strata {
@@ -447,7 +475,9 @@ fn aggregate(
         out.insert(set.to_string(), json!({"by_weight": per_w,
             "partial(count-weighted)": {"estimated_domains": partial_w, "distinct_draws": partial_n,
                 "pieces_histogram": hist, "residual_fraction_quantiles[0.1,0.25,0.5,0.75,0.9]": q},
-            "by_stratum": st, "by_group": by_group}));
+            "by_stratum": st, "by_group": by_group,
+            "anchors_used_by_fully_covered(greedy first-hit count)": {"count_weighted_mean": if aw > 0.0 { asum / aw } else { f64::NAN },
+                "histogram(count-weighted)": ah, "quantiles_distinct_draws[0.5,0.9,0.99,max]": aq}}));
     }
     Value::Object(out)
 }
@@ -649,7 +679,7 @@ pub fn run(dir: &Path, opts: &Opts) {
                 .zip(&d.evs)
                 .map(|(s, ev)| {
                     (*s, ev.as_ref().map_or(Value::Null, |e| json!({"points": e.points, "exact": e.exact, "candidates": e.candidates,
-                        "single": e.single_container, "uncovered": e.uncovered, "d_only": [e.d_only.pieces, e.d_only.points],
+                        "single": e.single_container, "uncovered": e.uncovered, "anchors_used": e.anchors_used, "d_only": [e.d_only.pieces, e.d_only.points],
                         "hull": e.hull.points, "hull_d": [e.hull_d.pieces, e.hull_d.points], "ar": [e.ar.pieces, e.ar.points]})))
                 })
                 .collect();
