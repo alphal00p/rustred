@@ -819,17 +819,43 @@ impl RestoredAnalysis for RootBlockers {
         });
         let mut results = results.into_inner().expect("walk results").into_iter();
         let union = union.into_inner().expect("projection union");
-        let (mut kept, mut kept_unsealed) = (0u64, 0u64);
+        let (mut kept, mut kept_unsealed, mut kept_below_scan) = (0u64, 0u64, 0u64);
         let mut kept_unsealed_classes = [0u64; CLASS_NAMES.len()];
+        let scan = ledger.map_or(n, |l| l.reservation_scan().min(n));
         for id in 0..n {
             if union[id / 64] >> (id % 64) & 1 == 1 {
                 kept += 1;
+                kept_below_scan += u64::from(id < scan);
                 if flags[id] & SEALED == 0 {
                     kept_unsealed += 1;
                     kept_unsealed_classes[classes.code(id, initial)] += 1;
                 }
             }
         }
+        // Composition of the Ready FIFO ahead of an id: unreserved local
+        // obligations outside the projection union, and those a comparison
+        // initial domain contains.
+        let mut outside_before = vec![0u32; n + 1];
+        let mut comparison_before = vec![0u32; n + 1];
+        for id in 0..n {
+            let unreserved = status[id] == 0;
+            let outside = union[id / 64] >> (id % 64) & 1 == 0;
+            outside_before[id + 1] = outside_before[id] + u32::from(unreserved && outside);
+            comparison_before[id + 1] =
+                comparison_before[id] + u32::from(unreserved && classes.code(id, initial) == 2);
+        }
+        let unreserved_total = unreserved_before[n];
+        let annotate = |walk: &mut Value| {
+            if let Some(quantiles) = walk["blockers"]["id_quantiles"].as_object_mut() {
+                for entry in quantiles.values_mut() {
+                    if let Some(id) = entry["id"].as_u64().map(|id| id as usize) {
+                        entry["unreserved_before_outside_projection"] = json!(outside_before[id]);
+                        entry["unreserved_before_in_comparison_initial"] =
+                            json!(comparison_before[id]);
+                    }
+                }
+            }
+        };
         timings.insert("walks_seconds".into(), json!(seconds(phase)));
         receipt["memory"]["after_walks"] = memory();
 
@@ -842,11 +868,14 @@ impl RestoredAnalysis for RootBlockers {
         );
         let mut flag_disagreements = Vec::new();
         for root in 0..initial {
-            let (full, private, projected) = (
+            let (mut full, mut private, mut projected) = (
                 results.next().expect("full"),
                 results.next().expect("private"),
                 results.next().expect("projected"),
             );
+            for walk in [&mut full, &mut private, &mut projected] {
+                annotate(walk);
+            }
             let closed = flags[root] & CLOSED != 0;
             if (full["blockers"]["count"] == 0) != closed {
                 flag_disagreements.push(root);
@@ -1007,7 +1036,8 @@ impl RestoredAnalysis for RootBlockers {
             "projection_predicts_closed":listed(&projected_prediction),
             "comparison_closed":comparison_closed,"context_other_unclosed_roots":context,
             "projection_union":{"expanded_nodes":kept,"unsealed":kept_unsealed,
-                "nodes":n,"unsealed_total":unsealed},
+                "nodes":n,"unsealed_total":unsealed,"unreserved_obligations":unreserved_total,
+                "unreserved_outside":outside_before[n]},
             "timings":timings.clone()});
         receipt["root_blockers"] = json!({
             "schema":"rustred.root-closure-blockers.v1",
@@ -1042,6 +1072,11 @@ impl RestoredAnalysis for RootBlockers {
             "projection_union":{"expanded_nodes":kept,"unsealed":kept_unsealed,
                 "unsealed_by_class":named(&CLASS_NAMES, &kept_unsealed_classes),
                 "nodes_outside":n as u64 - kept,"unsealed_outside":unsealed - kept_unsealed,
+                "unreserved_obligations":unreserved_total,"unreserved_outside":outside_before[n],
+                "unreserved_in_comparison_initial":comparison_before[n],
+                "reservation_scan":scan,"expanded_below_reservation_scan":kept_below_scan,
+                "admitted_per_scanned":{"graph":n as f64 / scan as f64,
+                    "projection":kept as f64 / kept_below_scan as f64},
                 "scope":"union over roots of the nodes a projected walk expanded: what remains of this graph when every node contained in a comparison initial domain is replaced by that domain; the comparison run's own inspection of its larger initial domains is not modelled"},
             "closed_roots":closed_ids,
             "private_decomposition_predicts_closed":listed(&private_prediction),
