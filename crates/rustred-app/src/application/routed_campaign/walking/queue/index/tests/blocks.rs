@@ -660,3 +660,177 @@ fn running_storage_totals_equal_the_full_walk_after_every_mutation() {
     );
     assert!(wide_rows > 0 && lossy_peak > 0 && lossy_retired > 0);
 }
+
+type Layout = Vec<(Signature, Vec<Vec<usize>>)>;
+
+/// The historical retirement layout rule on a physical layout: retire the
+/// given IDs from every block of every group the insertion signature may
+/// contain, then keep the non-empty rows (and a pinned tail) in order, and
+/// swap-remove emptied groups other than the insertion's own. `retired` is
+/// sorted.
+fn reference_retire(before: &Layout, retired: &[usize], key: Signature, pin_tail: bool) -> Layout {
+    let mut groups = before.clone();
+    let mut position = 0;
+    while position < groups.len() {
+        let (signature, blocks) = &mut groups[position];
+        if key.may_contain(*signature) {
+            for block in blocks.iter_mut() {
+                block.retain(|id| retired.binary_search(id).is_err());
+            }
+            let pin = *signature == key && pin_tail;
+            let old_len = blocks.len();
+            let mut row = 0;
+            blocks.retain(|block| {
+                row += 1;
+                !block.is_empty() || (pin && row == old_len)
+            });
+        }
+        if groups[position].1.is_empty() && groups[position].0 != key {
+            groups.swap_remove(position);
+        } else {
+            position += 1;
+        }
+    }
+    groups
+}
+
+/// Compaction moves rows only from the first empty row on (and only when an
+/// earlier row was dropped), yet leaves the layout of the historical loop
+/// that swapped every kept row into place: retirements of nothing, of single
+/// IDs, of whole blocks mid-group and of whole groups, pinned tails,
+/// new-block and new-group insertions, with the running totals equal to the
+/// full walk. Insertions come in runs of one signature so that blocks hold
+/// consecutive IDs and an ID window can empty blocks in the middle of a group.
+#[test]
+fn retire_compaction_keeps_the_historical_layout() {
+    let mut state = 0x2545_F491_4F6C_DD1D_u64;
+    let mut below = move |n: u64| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 33) % n
+    };
+    fn mix(id: usize, step: usize) -> u64 {
+        let mut x = (id as u64) ^ ((step as u64) << 32) ^ 0x9E37_79B9_7F4A_7C15;
+        x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        x ^= x >> 31;
+        x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+        x ^ (x >> 29)
+    }
+    let mut index = AggregateIndex::<2>::default();
+    let (mut moved, mut emptied_mid, mut pinned_empty, mut max_rows) = (0, 0, 0, 0);
+    let mut key = signature(0);
+    for step in 0..8_000_usize {
+        if below(100) == 0 {
+            key = signature(u128::from(below(4)));
+        }
+        // 1 in 40: an ID window from a random live ID (whole blocks); 1 in
+        // 40: 5% of the examined IDs; otherwise nothing.
+        let mode = below(40);
+        let live = index.ids();
+        let lo = if live.is_empty() {
+            0
+        } else {
+            live[below(live.len() as u64) as usize]
+        };
+        let width = 32 + below(96) as usize;
+        let insertion = index.prepare(key, None).unwrap();
+        let pin_tail = !insertion.has_new_block();
+        let before = index.layout();
+        let mut retired = Vec::new();
+        index.retire_each(&insertion, None, |id| {
+            let retire = match mode {
+                0 => id >= lo && id < lo + width,
+                1 => mix(id, step) % 100 < 5,
+                _ => false,
+            };
+            if retire {
+                retired.push(id);
+            }
+            retire
+        });
+        assert!(retired.iter().all(|id| live.binary_search(id).is_ok()));
+        retired.sort_unstable();
+        let expected = reference_retire(&before, &retired, key, pin_tail);
+        assert_eq!(index.layout(), expected);
+        assert_counts(&index);
+        // Statistics of the paths taken: kept rows that had to move, emptied
+        // rows before a group's last row, and an emptied pinned tail.
+        for (signature, blocks) in &before {
+            if !key.may_contain(*signature) {
+                continue;
+            }
+            let emptied: Vec<bool> = blocks
+                .iter()
+                .map(|block| block.iter().all(|id| retired.binary_search(id).is_ok()))
+                .collect();
+            if let Some(first) = emptied.iter().position(|&e| e) {
+                moved += emptied[first..].iter().filter(|&&e| !e).count();
+                emptied_mid += usize::from(first + 1 < emptied.len());
+            }
+            pinned_empty +=
+                usize::from(*signature == key && pin_tail && emptied.last() == Some(&true));
+            max_rows = max_rows.max(blocks.len());
+        }
+        index.insert_plain(insertion, step, None);
+        assert_counts(&index);
+    }
+    println!(
+        "retire_compaction inserted=8000 live={} moved_rows={moved} emptied_mid={emptied_mid} pinned_empty_tails={pinned_empty} max_rows={max_rows} groups={}",
+        index.live,
+        index.groups()
+    );
+    // A Python replay of this exact stream (kernel2 lane) gives 783 / 101 / 17.
+    assert!(moved > 300 && emptied_mid > 50 && pinned_empty > 5);
+}
+
+/// An image restored with empty rows mid-group (the validator admits them)
+/// loses them at the next eligible retirement, even one that retires
+/// nothing, exactly as the historical compaction did; an empty pinned tail
+/// is kept for the insertion.
+#[test]
+fn retire_drops_restored_empty_rows_even_without_retirements() {
+    let stored = |len_and_ids: &[&[usize]]| {
+        let mut live = 0;
+        let blocks = len_and_ids
+            .iter()
+            .map(|ids| {
+                let mut slots = [0; BLOCK_SIZE];
+                slots[..ids.len()].copy_from_slice(ids);
+                live += ids.len();
+                StoredBlock {
+                    ids: slots,
+                    len: ids.len(),
+                    envelope: Vec::new(),
+                }
+            })
+            .collect();
+        StoredIndex {
+            groups: vec![StoredGroup {
+                signature: signature(1),
+                blocks,
+                live,
+            }],
+            live,
+        }
+    };
+    let restore = |image| AggregateIndex::<2>::restore(image, 20, |_| Ok((0, None))).unwrap();
+    for (key, pin_tail) in [(signature(3), false), (signature(1), true)] {
+        let mut index = restore(stored(&[&[0, 1, 2], &[], &[5, 6], &[]]));
+        assert_eq!(index.block_lens(0), [3, 0, 2, 0]);
+        assert_counts(&index);
+        let insertion = index.prepare(key, None).unwrap();
+        assert_eq!(!insertion.has_new_block(), pin_tail);
+        let before = index.layout();
+        assert_eq!(index.retire_each(&insertion, None, |_| false), 0);
+        let expected = reference_retire(&before, &[], key, pin_tail);
+        assert_eq!(index.layout(), expected);
+        assert_eq!(
+            index.block_lens(0),
+            if pin_tail { vec![3, 2, 0] } else { vec![3, 2] }
+        );
+        assert_counts(&index);
+        index.insert_plain(insertion, 7, None);
+        assert_counts(&index);
+    }
+}
