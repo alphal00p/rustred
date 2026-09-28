@@ -1,3 +1,10 @@
+// N3 (opt-in `mimalloc` feature): mimalloc serves Rust allocations directly;
+// its `override` feature also replaces the C malloc family for the whole
+// process (GMP/MPFR included). Off by default.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     // This executes before RustRed initializes Symbolica or starts worker
     // threads. Suppressing Symbolica's informational banner is required by

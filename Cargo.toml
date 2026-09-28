@@ -32,3 +32,17 @@ symbolica = { version = "=3.0.0", default-features = false, features = ["integer
 symbolica = { path = "vendor/symbolica" }
 graphica = { path = "vendor/symbolica/lib/graphica" }
 numerica = { path = "vendor/symbolica/lib/numerica" }
+
+# N3 (fable_5_1 next push, W1): the production campaign build. Inspector CPU
+# per native on the four-loop controls at W6, Ordered, against release runs of
+# the same session, strict identity throughout (timings under 17-35% foreign
+# load): x0.879-0.925 in W0.8 (TMP/w0/knobs/RESULTS.md) and x0.851-0.919 in
+# W1.4 (docs/research/fable51_w1_ops_2026-09-28.md); with the mimalloc feature
+# x0.772-0.868 at peak RSS x1.03-1.20. No target-cpu: znver4 measured
+# x0.95-1.09 in W0.8, no gain. Build with
+#   cargo build --profile campaign --locked --offline -p rustred-app --bin rustred
+# (binary in target/campaign/); add `--features mimalloc` for the allocator.
+[profile.campaign]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
