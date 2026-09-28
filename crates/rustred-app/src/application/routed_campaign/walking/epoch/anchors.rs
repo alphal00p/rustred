@@ -19,6 +19,7 @@
 use super::ledger6::{Entry6, Ledger6};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // G2Native / G2Residual records are produced by the W4 G2' planner
 pub(super) enum AnchorKind {
     InitialDBand = 0,
     G2Native = 1,
@@ -26,6 +27,7 @@ pub(super) enum AnchorKind {
 }
 
 impl AnchorKind {
+    #[allow(dead_code)] // report key of the W4 G2' records
     pub fn name(self) -> &'static str {
         match self {
             AnchorKind::InitialDBand => "initial_d_band",
@@ -38,6 +40,7 @@ impl AnchorKind {
 /// The scope descriptor: InitialDBand carries its D cut; a G2' residual
 /// carries its residual boxes (`lower/upper` per axis, u16, 0xFFFF = +inf).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // ResidualBoxes: G2' residual records (W4)
 pub(super) enum AnchorScope {
     DBandCut(i64),
     ResidualBoxes(Vec<(Vec<u16>, Vec<u16>)>),

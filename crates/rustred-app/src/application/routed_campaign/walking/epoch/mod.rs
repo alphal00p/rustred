@@ -54,8 +54,14 @@ use verify::QueryImage;
 /// Walk semantics of the epoch policy (the legacy policies stay at 1).
 pub const EPOCH_WALK_SEMANTICS_VERSION: u32 = 3;
 /// Lockstep epoch size B: a constant, independent of the worker count, so
-/// that results are byte-identical across widths (IMP-11).
-pub(super) const LOCKSTEP_B: usize = 64;
+/// that results are byte-identical across widths (IMP-11). The protocol
+/// proposed 64; S2 uses 16 [M, fable51_w2_s2_2026-09-28.md]: the combined
+/// four-loop controls `four-all` and `four-all-p5` drain at B = 1, 4, 8, 16
+/// and 24 (29.8-29.9 k and 31.5 k natives) but enter the documented rank-13
+/// (anchor + 1) flood on owner 0111110010 at B = 32 and 64, the same
+/// non-drain signature as legacy Ready at W96. B is performance-only and not
+/// bound; a wider lockstep front needs S4/S6 work, not a smaller front.
+pub(super) const LOCKSTEP_B: usize = 16;
 /// Heartbeat spacing (observer events only; never a resolver input).
 const HEARTBEAT_SECONDS: f64 = 5.0;
 /// Diagnostic seam, not a campaign knob: overrides the lockstep epoch size

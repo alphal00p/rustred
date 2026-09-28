@@ -130,7 +130,6 @@ impl ExactIndex {
 
 /// One (phase, owner) bucket, interned in ID order of first appearance (A3).
 pub(super) struct Bucket<const N: usize> {
-    pub key: (u8, u32),
     pub index: AggregateIndex<N>,
     /// The dominant admitted full orthant (largest rank; None rank dominates).
     pub orthant: Option<u32>,
@@ -397,7 +396,6 @@ impl<const N: usize> Store<N> {
         if !self.bucket_of.contains_key(&bucket_key) {
             self.bucket_of.insert(bucket_key, self.buckets.len() as u32);
             self.buckets.push(Bucket {
-                key: bucket_key,
                 index: AggregateIndex::default(),
                 orthant: None,
             });
@@ -451,11 +449,6 @@ impl<const N: usize> Store<N> {
             bucket.orthant = Some(id);
         }
         Ok(removed)
-    }
-
-    /// Index `id` with nothing to retire (initial admission prefix).
-    pub fn index_plain(&mut self, id: u32, query: &Query<N>) -> Result<(), &'static str> {
-        self.index_survivor(id, query, &[]).map(|_| ())
     }
 
     pub fn storage_json(&self) -> serde_json::Value {

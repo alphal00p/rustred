@@ -77,12 +77,6 @@ pub(super) struct VerifiedId {
 }
 
 impl Verified {
-    pub fn container(&self) -> ContainerRef {
-        self.container
-    }
-    pub fn q_digest(&self) -> u64 {
-        self.q_digest
-    }
     /// `Stored(id)` stays `id`; `Planned(pos)` becomes `first_new + pos`.
     /// None for a `JobMiss` token (never shipped across the merge).
     pub fn into_id(self, first_new: u32) -> Option<VerifiedId> {
@@ -119,14 +113,6 @@ pub(super) struct VerifyCounters {
 }
 
 impl VerifyCounters {
-    pub fn add(&mut self, other: &Self) {
-        self.calls += other.calls;
-        self.accepted += other.accepted;
-        self.raw_inclusions += other.raw_inclusions;
-        self.recomputes += other.recomputes;
-        self.refused_range += other.refused_range;
-        self.refused_bucket += other.refused_bucket;
-    }
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"calls":self.calls,"accepted":self.accepted,
             "raw_inclusions":self.raw_inclusions,"native_recomputes":self.recomputes,

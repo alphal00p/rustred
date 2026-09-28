@@ -84,18 +84,4 @@ impl EdgeStore {
     pub fn records_digest(&self) -> String {
         self.records_digest.finalize().to_hex().to_string()
     }
-    /// Every (source, target) pair in run order.
-    pub fn pairs(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
-        let mut at = 0;
-        std::iter::from_fn(move || {
-            (at < self.log.len()).then(|| {
-                let source = self.log[at];
-                let n = self.log[at + 1] as usize;
-                let run = &self.log[at + 2..at + 2 + n];
-                at += 2 + n;
-                run.iter().map(move |&target| (source, target))
-            })
-        })
-        .flatten()
-    }
 }

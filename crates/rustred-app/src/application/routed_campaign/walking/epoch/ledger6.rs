@@ -200,6 +200,7 @@ impl Entry6 {
         })
     }
     /// The merge epoch of a merged native (Native, NativeFrontier, NativeError).
+    #[cfg(test)]
     pub fn merge_epoch(self) -> Option<u64> {
         match self {
             Entry6::Native { epoch, .. }
@@ -248,10 +249,12 @@ pub(super) enum Transition {
         last_err: u8,
     },
     /// Exhausted -> Pending (restore with --retry-exhausted; counters reset).
+    #[allow(dead_code)] // restore-time operator flag (S3)
     T9Retry,
     /// Exhausted -> Alias{to}: P3 retirement (nothing is in flight).
     T10ExhaustedAlias { to: u32 },
     /// Pending or Reserved -> Exhausted (restore with --exhaust-id).
+    #[allow(dead_code)] // restore-time operator flag (S3)
     T12ExhaustId,
 }
 
@@ -358,9 +361,6 @@ pub(super) struct Ledger6 {
 }
 
 impl Ledger6 {
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
     pub fn counts(&self) -> TagCounts {
         self.counts
     }
@@ -480,6 +480,7 @@ impl Ledger6 {
     }
 
     /// Recount from the words (restore/audit cross-check of the counts).
+    #[cfg(test)]
     pub fn recount(&self) -> Result<TagCounts, LedgerError> {
         let mut counts = TagCounts::default();
         for &word in &self.entries {

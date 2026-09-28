@@ -111,7 +111,7 @@ fn read_image<const N: usize>(c: &mut Cursor<'_>) -> Result<CompactDomain<N>, St
     let upper = (0..N)
         .map(|_| c.u16().map(|v| (v != u16::MAX).then_some(u64::from(v))))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut option = |c: &mut Cursor<'_>| -> Result<Option<u64>, String> {
+    let option = |c: &mut Cursor<'_>| -> Result<Option<u64>, String> {
         let present = c.u8()?;
         let value = c.u64()?;
         Ok((present == 1).then_some(value))
@@ -154,7 +154,7 @@ pub(super) fn read_raw<const N: usize>(
     {
         return Err("not an epoch export of this arity".into());
     }
-    let mut read = |key: &str| -> Result<Vec<u8>, String> {
+    let read = |key: &str| -> Result<Vec<u8>, String> {
         let entry = &manifest["files"][key];
         let file = entry["file"]
             .as_str()

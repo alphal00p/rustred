@@ -221,8 +221,6 @@ pub(super) fn read_image<const N: usize>(r: &mut Reader<'_>) -> Decoded<CompactD
 
 // ---- jobs --------------------------------------------------------------------
 
-pub(super) const FLAG_CANARY_ALL: u16 = 1;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Job<const N: usize> {
     /// session << 40 | counter; unique across the run.

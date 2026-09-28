@@ -169,6 +169,7 @@ impl<const N: usize> EpochState<N> {
     }
 
     /// The F8 seal rule on the ledger: sealed iff Native or Alias.
+    #[cfg(test)]
     pub fn seal_rule_holds(&self) -> bool {
         (0..self.store.len() as u32).all(|id| {
             let sealed = self.is_sealed(id);

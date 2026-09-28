@@ -365,8 +365,6 @@ pub(super) struct Survivor<const N: usize> {
     pub summary: CompactSummary<N>,
     pub query: Query<N>,
     pub digest: u64,
-    /// (cut position of the first requesting result, ordinal in it)
-    pub first: (u32, u32),
     /// Every live ID of S_k contained in this survivor (ascending).
     pub retire: Vec<u32>,
 }
@@ -726,7 +724,6 @@ pub(super) fn p2_plan<const N: usize>(
             summary: candidate.query.compact,
             query: candidate.query.clone(),
             digest: candidate.key.0,
-            first: candidate.first,
             retire,
         });
     }
