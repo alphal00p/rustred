@@ -24,7 +24,7 @@ use super::error::check_limit;
 use super::limits::CappedWriter;
 use super::native::{
     BorrowedStateMap, LENGTH_BYTES, NATIVE_ATOM_HEADER_BYTES, ensure_native_word_size,
-    preflight_native_frame, read_length, write_length,
+    preflight_native_frame, preflight_state_export, read_length, write_length,
 };
 use super::{BinaryIoError, BinaryIoLimits};
 
@@ -295,6 +295,7 @@ impl DecodedCoefficientTable {
             return Err(BinaryIoError::Invalid("trailing coefficient table bytes"));
         }
 
+        preflight_state_export(state)?;
         let state_map = catch_unwind(AssertUnwindSafe(|| {
             let mut source = state;
             let map = State::import(&mut source, None)

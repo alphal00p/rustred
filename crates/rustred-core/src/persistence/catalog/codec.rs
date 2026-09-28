@@ -12,7 +12,7 @@ use crate::persistence::error::check_limit;
 use crate::persistence::limits::CappedWriter;
 use crate::persistence::native::{
     BorrowedStateMap, NATIVE_ATOM_HEADER_BYTES, ensure_native_word_size, preflight_native_frame,
-    read_length, write_length,
+    preflight_state_export, read_length, write_length,
 };
 use crate::persistence::{
     BinaryIoError, BinaryIoLimits, BinaryProgramKind, BinarySection, SectionTag, encode_program,
@@ -266,6 +266,7 @@ pub(super) fn decode(
     let state = envelope
         .section(SectionTag::SYMBOLICA_STATE)
         .expect("checked section");
+    preflight_state_export(state)?;
     let state_map = catch_unwind(AssertUnwindSafe(|| {
         let mut source = state;
         let map = State::import(&mut source, None).map_err(native_error)?;
