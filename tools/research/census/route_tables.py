@@ -282,7 +282,7 @@ def main():
         print("### RAM view (gen 7)")
         print()
         ram(j, t)
-    for name in ["gen7-route-saturation.json", "sat-rc3/gen7-route-saturation.json", "sat-rc3/gen7-route-saturation-seed2.json"]:
+    for name in ["gen7-route-saturation.json", "gen7-route-saturation-seed2.json"]:
         s = load(d, name)
         if s is not None:
             print(f"### Route point-space saturation (gen 7 checkpoint; {name})")
@@ -293,8 +293,6 @@ def main():
     print("### Run metrics")
     print()
     metrics(d)
-    if os.path.isdir(os.path.join(d, "sat-rc3")):
-        metrics(os.path.join(d, "sat-rc3"))
 
 
 if __name__ == "__main__":

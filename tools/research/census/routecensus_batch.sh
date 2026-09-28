@@ -39,7 +39,7 @@ run() { # run NAME ARGS...: census ARGS > NAME.json 2> NAME.err, with metrics
   while kill -0 "$tpid" 2> /dev/null; do
     pid=$(pgrep -P "$tpid" | head -1 || true)
     if [[ -n $pid ]]; then
-      x=$(cat /proc/"$pid"/task/*/schedstat 2> /dev/null | awk '{ s += $2 } END { print s + 0 }')
+      x=$( { cat /proc/"$pid"/task/*/schedstat 2> /dev/null || true; } | awk '{ s += $2 } END { print s + 0 }')
       [[ $x -gt 0 ]] && rd=$x
     fi
     sleep 2
