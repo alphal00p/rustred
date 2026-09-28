@@ -329,7 +329,8 @@ fn specialize_fixed(
     fixed: &[Option<i16>],
     indices: &[usize],
 ) -> CoefficientPolynomial {
-    let mut result = polynomial.clone();
+    // Equal value on a thread-owned context (`algebra::thread_owned`).
+    let mut result = crate::algebra::thread_owned::clone_thread_owned(polynomial);
     for (&index, value) in indices.iter().zip(fixed) {
         if let Some(value) = value {
             result = result.replace(index, &Integer::from(*value));
