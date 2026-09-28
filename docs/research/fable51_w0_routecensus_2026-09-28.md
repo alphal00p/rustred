@@ -7,6 +7,19 @@ Labels: **[M]** measured (receipt file and binary sha256 cited; sampled shares c
 error), **[E]** estimate, model output or projection. Nothing here is an ETA or a closure claim
 (`family_closure_claim` stays false). Receipt copy of this note: `/common/dev/rustred/TMP/w0/routecensus/RESULTS.md`.
 
+**Revision (fix round, 2026-09-28 ~02:00 UTC).** Verifiers raised two problems; both were real and are corrected here.
+- **Net RSS of an admission-time union cover.** The first version charged only the cover's own anchor edges. An
+  avoided domain also loses the requests that later land on it: 3.3-10.8 per covered domain, 86M-497M over v2's
+  history [M]. Each of them needs its own admission. With k' anchors per redirected hit unmeasured, the net RSS
+  factor is now a range whose floor is below 1x: 0.6-1.9x (merged natives), 0.3-3.1x (earlier non-delegated) and
+  0.06-3.0x (every smaller ID). "The union test runs only on the 74.2M misses" is replaced by up to 2.2-7.7x as many
+  union tests. New sections: §6b; tool `census route-hits` and `route_hits.py`.
+- **Creation weights of the Route pending.** They were overstated by 1.4-2.3x across the four anchor sets: for
+  all_natives, 51.8% became 22.1% (22-32%). The "at resume" projection falls from
+  4.2M / 6.0M to 2.0-2.9M / 3.1-3.9M creations. New section: §3b.
+
+Every other figure is unchanged.
+
 ## 0. Verdicts
 
 1. **Route natives are not a CPU lever. Their weight is in the admission requests they emit and, much less, in the
@@ -21,8 +34,13 @@ error), **[E]** estimate, model output or projection. Nothing here is an ETA or 
    - every smaller ID: 63.0% ± 0.8;
    - every other domain of the (Route, owner) bucket (upper bound): **69.4% ± 0.8**.
 
-   Weighted by the successors [E] these domains are predicted to emit, the shares are 45.0 / 55.3 / 60.1 / 66.1%;
-   weighted by the domains they are predicted to create [E], 51.8 / 63.6 / 67.6 / 73.8%. For comparison, the Apply
+   Weighted by the successors [E] these domains are predicted to emit, the shares are 45.0 / 55.3 / 60.1 / 66.1%
+   (calibration leaves them unchanged within 2 pp). Weighted by the domains they are predicted to create, the shares
+   are **22.1 / 31.8 / 36.0 / 43.1% [E]** (± 2.7-3.8 pp), after calibration by coverage status (§3b). An out-of-sample
+   check under-predicts by about 10 pp, so read them as 22-32 / 32-43 / 36-46 / 43-53%. The uncalibrated
+   per-(owner, rank) predictor gave 51.8 / 63.6 / 67.6 / 73.8%, an overstatement by 1.4-2.3x: it cannot see that
+   covered natives create fewer domains than others of their group (g6-g7 natives: 51.1% of the count but 25.0% of
+   the creations were covered before dispatch [M]). For comparison, the Apply
    figures (W0.7, pending Apply) are 55.4% by natives vs 79.5% by all other domains. The step from natives to the
    general union is the same size on both sides: +23.5 pp for Route, +24.1 pp for Apply (PPS; +24.2 pp uniform).
 3. **Residuals do not need C2 on the Route side either [M].** In the partially covered Route pending, D-only residual
@@ -55,7 +73,8 @@ error), **[E]** estimate, model output or projection. Nothing here is an ETA or 
      | smaller non-delegated IDs (well-founded) | 50.7% ± 1.1 | 66.4% ± 1.0 |
      | every smaller ID | 58.3% ± 1.0 | 71.9% ± 0.9 |
 
-     That is 18.0M / 27.8M / 31.9M Route domains, or 9.0-15.1 / 13.9-23.3 / 16.0-26.8 GB at 0.5-0.84 KB/domain [E].
+     That is 18.0M / 27.8M / 31.9M Route domains, or 9.0-15.1 / 13.9-23.3 / 16.0-26.8 GB at 0.5-0.84 KB/domain [E],
+     gross of the edges the lever adds (net: below).
 
    The two placements overlap: a domain covered at admission by merged natives is also covered at its dispatch.
    Neither is additive to the other. The shares rise with generation. At the gen-7 mix [E, first level, no
@@ -67,16 +86,29 @@ error), **[E]** estimate, model output or projection. Nothing here is an ETA or 
    | dispatch, Apply + Route jobs | 2.10x | 2.21x | 2.48x |
    | admission, Route-only | 1.56x | 2.04x | 2.17x |
    | admission, both phases | 2.21x | 4.35x | 5.16x |
-   | admission, both phases, net of the anchor edges | 1.5-1.9x | 1.9-3.1x | 1.5-3.0x |
+   | admission, both phases, RSS net of the cover's anchor edges only (k' = 1) | 1.5-1.9x | 1.9-3.1x | 1.5-3.0x |
+   | admission, both phases, RSS net if each redirected later hit needs the full cover (k' = a, worst case) | 0.62-1.25x | 0.34-0.95x | 0.06-0.20x |
+   | **admission, both phases, net RSS: stated range** | **0.6-1.9x** | **0.3-3.1x** | **0.06-3.0x** |
+   | admission, Route-only, net RSS: stated range | 0.7-1.5x | 0.45-1.8x | 0.07-1.8x |
 
-   Among gen-7 admissions, 51.7 / 73.7 / 78.0% of Route and 54.7 / 77.0 / 80.6% of both phases were covered. The net
-   factor assumes 12.9-19.3 anchors per union alias at 8-16 B/edge.
+   Among gen-7 admissions, 51.7 / 73.7 / 78.0% of Route and 54.7 / 77.0 / 80.6% of both phases were covered.
+
+   The net rows charge 8-16 B per extra edge against 0.5-0.84 KB per avoided domain (§6b):
+   - **The cover's own anchor edges.** A cover uses 12.9-19.3 anchors (greedy first-hit count).
+   - **Redirected later hits [M].** An avoided domain also loses the requests that would later have landed on it
+     through an exact-digest or single-container hit. Each of them needs its own admission under the lever. A covered
+     domain has **3.3 / 4.8 / 10.8** later hits on average (history, both phases). Over v2's history that is
+     **86M / 195M / 497M** distinct edges.
+   - **Anchors per redirected hit (k') are not measured.** If each redirected hit finds a single container (k' = 1),
+     it adds no edges. If each needs as many anchors as the cover (k' = a), the lever stores more edge bytes than the
+     domains it avoids, and RSS grows.
 
    **Corrections to the framing.**
    - With merged-native anchors, G2' already reaches most of this volume, and it reaches Route volume indirectly
      through the Apply jobs that create 72-78% of Route domains. "G2' is Apply-only, Route is 74% of domains"
      understates G2'.
-   - The general (non-native) union pays off mainly at admission: 4.35x against 2.21x at dispatch.
+   - In domain count, the general (non-native) union pays off mainly at admission: 4.35x against 2.21x at dispatch.
+     In RSS, the admission-time lever is only as good as its handling of redirected later hits: 0.3-3.1x.
 7. **The point space is saturated; the domain count is not [M].** The Route natives' point union grew 6.20e12 ->
    6.44e12 after g3 (+3.8%; seed 2: +3.5%). Gen-7 Route natives add 7.2-8.4 new points per native, and gen-7 admitted
    Route domains add 2.7-3.2. Sum over union is 7.2-7.8x for Route natives and 15-16x for admitted Route domains. Gen-7
@@ -92,6 +124,7 @@ error), **[E]** estimate, model output or projection. Nothing here is an ETA or 
 | receipt | `/common/dev/rustred/TMP/w0/routecensus/receipt/` (`batch.log` exit 0 at 00:53 UTC 2026-09-28; the gen7 step ran at 22:39-22:45 UTC 2026-09-27, see `batch-gen7step.log`) |
 | census binary | `.claude/worktrees/fable51-rc/TMP/census-rc4`, sha256 `3859b3c0d2260f5c935d26bdcfd0601ac27d9c8b99a730493826dbc5690e60bd`, built from `1b90876c` with a clean tracked tree (`census-build.txt`); standalone crate, no Symbolica |
 | Apply-native binary (`census route-apply`, §4b) | `.claude/worktrees/fable51-rc/TMP/census-rc6`, sha256 `67760c310562e128085580c82cac9f43c72f1b9fb0cd8d16d860caf3a998b963`, from `2a7e97d0` (`receipt/apply/census-build.txt`); outputs in `receipt/apply/` (`batch.log` exit 0 at 01:05 UTC). Its gen-7 JSON is identical to a first run with rc5 (`../apply-rc5-superseded/`, no rows file) |
+| later-hit binary (`census route-hits`, §3b and §6b; fix round) | `.claude/worktrees/fable51-rc/TMP/census-rc8`, sha256 `53694a17f5036e80c1fba81c808cc4d777d84d24c0ffd1a6da1aedf45c5158b6`, from `4a23b78c` (`receipt/hits/census-build.txt`); outputs in `receipt/hits/` (`batch.log` exit 0 at 01:41 UTC 2026-09-28), tables in `receipt/hits/route_hits.md` (`route_hits.py` at `6db303af`). It re-reads the gen7 and C-5F rows files of `receipt/`. Its edge counts and pending model are identical to `gen7-route.json`. Foreign busy CPUs on the lane CPUs: 16-18 during these steps (counts, not timings) |
 | checkpoints | block clones of v2 CP5 generations 7, 6 and 3 (`.claude/worktrees/fable51-rc/TMP/gen{7,6,3}`; each `latest.json` is byte-identical to `TMP/v2-checkpoint-copy-gen{7,6,3}`); C-5F clone of `TMP/fable51-controls/wave2-profile/w50-new-ready/five-finite/checkpoint` (`latest.json` identical) |
 | heartbeat series | v2 run series from the W0.7 receipt (`receipt-v4/v2-series.txt`, copied); C-5F series from `receipt-v4/c5f/series.txt` |
 | sampling | route pending: 400 uniform draws per (admission generation x points decade) stratum, Horvitz-Thompson weights; historical Route natives: 400 per (record generation x decade); historical Apply natives: 200 per (record generation x decade), 5,989 draws; admission census: 600 per (phase x admission generation); creator view: 4,000 draws per sample. Seed 20260928 |
@@ -111,9 +144,9 @@ is tested when |Q| <= 2e6; above that, 20,000 exactly sampled points are tested 
 | `all_other_domains` | pending | every other domain of the bucket | upper bound (includes newer IDs) |
 
 **Weights.** Pending Route domains carry the mean seconds, successors, out-edges, created domains and descendants of
-Route natives with the same (owner, rank bound) from record generations >= 6 [E]. Historical natives carry their
-measured values. `created` counts first-incoming edges: the creator of a domain is the source of its first incoming
-edge from a smaller ID.
+Route natives with the same (owner, rank bound) from record generations >= 6 [E]. The creation weights are
+calibrated by coverage status in §3b. Historical natives carry their measured values. `created` counts
+first-incoming edges: the creator of a domain is the source of its first incoming edge from a smaller ID.
 
 ## 2. Route natives: fan-out and creation (gen 7) [M]
 
@@ -170,7 +203,8 @@ Fully covered share, by weight:
 | all_other_domains | 69.4% | 67.0% | 66.1% | 73.8% | 74.0% | 73.8% | 51.2% |
 
 Bootstrap standard errors (200 stratified replicates, `gen7-boot.md`): count 0.76-0.83 pp; pred created 1.33 pp
-(all_natives).
+(all_natives). The "pred created" columns are uncalibrated and overstated by 1.4-2.3x. §3b gives the calibrated shares
+(22.1 / 31.8 / 36.0 / 43.1%).
 
 Residual view, count weighted. The gate is: residual at most 10% of |Q|, in at most 8 pieces.
 
@@ -188,9 +222,43 @@ Residual view, count weighted. The gate is: residual at most 10% of |Q|, in at m
   59.3%, g7 53.6 / 75.8%.
 - **Owners.** The pending is spread over 1,123 Route owners in the sample; the largest holds 2.0% (`gen7-boot.md`).
   No hot Route owner exists.
-- **Projections at resume [E].** The covered pending Route (all_natives) is 6.76M domains, 125M predicted successors
-  and 4.19M predicted first-level creations (2.1-3.5 GB). With all_other_domains these rise to 10.2M, 183M and 5.98M
-  (3.0-5.0 GB).
+- **Projections at resume [E].** The covered pending Route (all_natives) is 6.76M domains with 125-129M predicted
+  successors. Its calibrated first-level creations are **2.0-2.9M (1.0-2.4 GB)**. With all_other_domains these rise to
+  10.2M domains, 183-187M successors and **3.1-3.9M creations (1.6-3.2 GB)**. The uncalibrated 4.19M / 5.98M
+  (2.1-3.5 / 3.0-5.0 GB) of the first version of this note were overstated (§3b).
+
+### 3b. Calibrated creation weights of the pending (fix round) [E; ratios M]
+
+The pending predictor takes per-(owner, rank bound) means over the Route natives of record generations 6-7. Within a
+group, covered natives create fewer domains than uncovered ones. The predictor cannot see this, so it over-weights the
+covered pending. On the historical g6-g7 Route natives, with a leave-one-out predictor (`receipt/hits/route_hits.md`):
+
+| historical rule | count share covered | measured creation share | predicted creation share | R covered | R not covered |
+|---|---|---|---|---|---|
+| natives before dispatch | 51.1% | 25.0% | 55.8% | 0.472 | 1.781 |
+| earlier non-delegated | 54.6% | 27.0% | 58.2% | 0.489 | 1.833 |
+| all earlier IDs | 60.1% | 31.3% | 62.9% | 0.524 | 1.945 |
+
+**Calibration.**
+- R is the measured / predicted creation ratio per coverage status.
+- The calibrated weight of a pending domain is its predicted creations x R of its own status, under the mapped
+  historical rule. The mapping: all_natives -> natives before dispatch; earlier_non_delegated -> itself;
+  all_earlier_ids and all_other_domains -> all earlier IDs.
+- Successor weights need no calibration: their R is 1.02-1.04 for both statuses.
+
+**Out-of-sample check.** Calibrating on record g6 and predicting g7 gives 28.5% covered creations, against 38.7%
+measured and 65.4% uncalibrated. Calibration removes most of the bias but under-predicts by about 10 pp.
+
+| pending anchor set | uncalibrated creation share | calibrated [E] (± bootstrap SE) | with the +10 pp out-of-sample offset | covered creations (calibrated to calibrated + offset) | bytes at 0.5-0.84 KB |
+|---|---|---|---|---|---|
+| all_natives | 51.8% | **22.1% ± 2.7** | 32.3% | 2.0-2.9M | 1.0-2.4 GB |
+| earlier_non_delegated | 63.6% | **31.8% ± 3.2** | 43.0% | 2.5-3.4M | 1.3-2.9 GB |
+| all_earlier_ids | 67.6% | **36.0% ± 3.4** | 45.9% | 2.9-3.7M | 1.4-3.1 GB |
+| all_other_domains | 73.8% | **43.1% ± 3.8** | 53.0% | 3.1-3.9M | 1.6-3.2 GB |
+
+The same bias touches any pending weight that a coverage-blind group mean predicts. The descendants weight shares the
+creation predictor's structure and is not used for any headline figure. The pending-by-creator view of §5 is unaffected:
+it weights Apply by the W0.7 cost law.
 
 ## 4. Historical Route natives (gen 7) [M]
 
@@ -322,6 +390,84 @@ Candidate anchors are those whose box and aggregate ranges meet Q. The union tes
 For Apply the p50 is 350 / 691 / 1,058 (`route_rows.py`, `receipt/gen7-rows-quantiles.txt`). Admitted domains
 are small: median 40 points, p90 2,244 (Route), p99 234k.
 
+### 6b. Later hits on avoided domains (fix round) [M; RSS factors E]
+
+A domain that an admission-time union cover never creates cannot receive the requests that later land on it. Today
+those requests are exact-digest or single-container hits on the domain. Under the lever each needs its own admission:
+- a single-container hit on another domain, with k' = 1 anchor and no extra edge; or
+- a union test and a k'-anchor alias, with k' at most the a anchors of the domain's own cover.
+
+`census route-hits` (`receipt/hits/`) counts each drawn domain's later hits: distinct transition in-edges from
+inspected sources plus alias in-edges, excluding its creator edge and self edges.
+
+**The later hits are heavy-tailed [M].** An exact pass over every admitted domain gives:
+- 17.2 later transition in-edges per Route domain and 7.6 per Apply domain. The uniform admission sample estimates 8.3
+  and 5.3: it misses the hubs.
+- A strong dependence on age: Route admissions of g3 average 38.3, those of g7 0.5, whose later hits are censored.
+- 1,104.8M later hits in total: 953.6M on Route domains, 151.1M on Apply domains.
+
+So the redirected total comes from a second sample. 4,000 admitted domains per phase are drawn with probability
+proportional to their later hits. The share of those draws that is covered, times the exact total, estimates the hits
+that land on covered domains (Hansen-Hurwitz):
+
+| phase | anchor set at admission | covered domains | share of later hits on covered domains | redirected later hits (history) | per covered domain h | h from the uniform sample |
+|---|---|---|---|---|---|---|
+| both | merged natives before the creator's commit | 26.4M | 7.8% ± 0.3 | **86.3M ± 3.7M** | **3.27** | 3.08 |
+| both | earlier non-delegated | 40.6M | 17.6% ± 0.5 | **194.6M ± 5.4M** | **4.79** | 3.87 |
+| both | every smaller ID | 45.9M | 44.9% ± 0.7 | **496.6M ± 7.6M** | **10.83** | 4.81 |
+| Route | merged natives before the creator's commit | 18.0M | 5.9% ± 0.4 | 56.7M | 3.15 | 3.01 |
+| Route | earlier non-delegated | 27.8M | 14.0% ± 0.5 | 133.0M | 4.79 | 3.59 |
+| Route | every smaller ID | 31.9M | 43.2% ± 0.8 | 412.4M | 12.91 | 4.86 |
+
+Notes on the table:
+- About half of the covered domains (45-51%) receive no later hit.
+- The hubs that "every smaller ID" covers weigh heavily. That set is the upper bound and includes delegated anchors.
+- 4.2% (Route) and 1.5% (Apply) of the hit weight lies on unevaluated (infinite) domains. It counts as not covered.
+- The merged-natives set is not nested in the every-smaller-ID set for 0.01% of the hits (initial-band IDs).
+
+**Admission requests [E, first level].** Today the 74.2M misses are the only requests that reach a union test. Under
+the lever, every redirected hit first needs a single-container search elsewhere. When that fails (k' > 1), it also
+needs a union test. The counts below are distinct edges, a lower bound on requests: repeats from one source collapse
+onto one edge.
+
+| anchor set | union tests: today's misses only (every redirected hit single-contained) | union tests: misses plus every redirected hit | upper bound / today's misses |
+|---|---|---|---|
+| merged natives | 74.2M | 160.5M | 2.16x |
+| earlier non-delegated | 74.2M | 268.8M | 3.62x |
+| every smaller ID | 74.2M | 570.7M | 7.70x |
+
+**Net RSS at the late (admission g7) mix [E].** The factor is 1 / ((1 - c) + c x e / B), where:
+- c is the late avoided share;
+- B = 0.5-0.84 KB per domain and e = 8-16 B per edge;
+- x is the extra edges per avoided domain.
+
+For k' = 1, x = E[a - 1], the cover's own anchors, from the uniform sample. For k' = a (worst case),
+x = E[a - 1] + sum over covered domains of (a - 1) h / N_cov, with the sum taken from the PPS sample.
+
+| lever | anchor set | c | factor, no edges | x at k' = 1 | x at k' = a | net at k' = 1 | net at k' = a | edge bytes per avoided domain, k' = 1 / k' = a |
+|---|---|---|---|---|---|---|---|---|
+| both phases | merged natives | 54.7% | 2.21x | 11.9 | 66.8 | 1.51-1.94x | 0.62-1.25x | 95-190 / 534-1,068 B |
+| both phases | earlier non-delegated | 77.0% | 4.35x | 12.4 | 111.8 | 1.86-3.11x | 0.34-0.95x | 99-199 / 894-1,789 B |
+| both phases | every smaller ID | 80.6% | 5.16x | 18.3 | 629.5 | 1.50-2.99x | 0.06-0.20x | 146-293 / 5,036-10,072 B |
+| Route only | merged natives | 35.8% | 1.56x | 12.1 | 63.4 | 1.28-1.46x | 0.73-1.16x | 97-193 / 507-1,015 B |
+| Route only | earlier non-delegated | 51.0% | 2.04x | 12.7 | 107.3 | 1.43-1.81x | 0.45-0.99x | 102-204 / 858-1,716 B |
+| Route only | every smaller ID | 54.0% | 2.17x | 19.8 | 784.9 | 1.25-1.78x | 0.07-0.22x | 159-317 / 6,279-12,559 B |
+
+The lever saves RSS only while x e < B, i.e. while x stays below 31-105 extra edges per avoided domain.
+
+**Reading.**
+- k' is not measured: the checkpoint records edges, not the request boxes. Most redirected hits land on old, large
+  hub domains.
+- A sub-request of a hub may well fit inside a single one of the hub's anchors (k' = 1), so k' = a is pessimistic
+  there. It is still the bound the census can defend.
+- With merged-native anchors, the stated net range is 0.6-1.9x.
+- Measuring k' needs the request boxes. Two ways to get them: re-run the in-edge sources through the W0.3 native
+  re-inspection harness, or have the legacy falsifier's admission arm log, per redirected hit, whether a single
+  container was found and how many anchors a union alias used.
+- A compact alias record would bound the later-hit cost. It is keyed by Q's box, lives in the index and stores the
+  anchor list once, so later hits land on it exactly as they land on Q today. But it gives back part of the per-domain
+  saving (B minus the record's bytes; not measured).
+
 ## 7. Route point-space saturation (gen 7 checkpoint) [M, sampled]
 
 4,000 PPS-by-points draws per window; two seeds, `gen7-route-saturation{,-seed2}.json`.
@@ -367,16 +513,21 @@ The figures are first-level estimates on v2's actual history of 74.2M domains [E
 
 | Route lever | domains avoided (share of all domains) | bytes at 0.5-0.84 KB/domain | gen-7 mix: share of new domains avoided; creation-rate factor |
 |---|---|---|---|
-| at resume: alias the covered Route pending (all natives / all other domains) | 4.2M / 6.0M predicted creations; the 6.8M / 10.2M covered Route jobs and their 125M / 183M successors are not run | 2.1-3.5 / 3.0-5.0 GB | - |
+| at resume: alias the covered Route pending (all natives / all other domains) | 2.0-2.9M / 3.1-3.9M calibrated creations (§3b; uncalibrated 4.2M / 6.0M); the 6.8M / 10.2M covered Route jobs and their 125-129M / 183-187M successors are not run | 1.0-2.4 / 1.6-3.2 GB | - |
 | at dispatch: alias fully covered Route jobs (merged natives) | 3.4M (4.5%) | 1.7-2.8 GB | 7.3%; 1.08x |
-| at admission: never create a covered Route successor (merged natives / earlier non-delegated / every smaller ID) | 18.0M / 27.8M / 31.9M (24.3 / 37.5 / 43.1%) | 9.0-15.1 / 13.9-23.3 / 16.0-26.8 GB | 35.8 / 51.0 / 54.0%; 1.56 / 2.04 / 2.17x |
+| at admission: never create a covered Route successor (merged natives / earlier non-delegated / every smaller ID) | 18.0M / 27.8M / 31.9M (24.3 / 37.5 / 43.1%) | 9.0-15.1 / 13.9-23.3 / 16.0-26.8 GB gross; net of anchor edges and redirected later hits the Route-only RSS factor is 0.7-1.5 / 0.45-1.8 / 0.07-1.8x (§6b) | 35.8 / 51.0 / 54.0%; 1.56 / 2.04 / 2.17x in domains |
 | same, with the covered-ancestor cascade [E upper] | 18.7M / 30.7M / 38.8M | 9.3-15.7 / 15.4-25.8 / 19.4-32.6 GB | - |
 
 For scale: v2 at generation 7 holds 74.2M domains, 37-62 GB at 0.5-0.84 KB. 600 GB holds about 0.75-1.2G domains
 (handoff §0.1 item 4).
 
 A creation-rate factor f means that about f times more exploration fits under the cap before the RAM wall, at the
-same bytes per domain. Where anchor edges are counted, the factor is lower (§0 item 6).
+same bytes per domain. The byte columns are gross: they do not subtract the edges a lever adds.
+- At dispatch, those are the alias's anchor edges.
+- At admission, they are the cover's anchor edges plus k' anchors for each of the 3.3-10.8 later hits that an avoided
+  domain would have received (§6b).
+
+With them the admission-time RSS factor is a range whose floor is below 1x (§0 item 6).
 
 ### 9.2 What this means for the three-way D2 choice (none / G2' / general union)
 
@@ -401,23 +552,29 @@ v2's domain-creation rate per unit of exploration.
   beyond G2'.
 - **At admission, both phases:**
 
-  | anchors | domains avoided | bytes | late factor | late factor net of anchor edges |
-  |---|---|---|---|---|
-  | merged natives | 26.4M (35.6%) | 13.2-22.2 GB | 2.21x | 1.5-1.9x |
-  | earlier non-delegated | 40.6M (54.8%) | 20.3-34.1 GB | 4.35x | 1.9-3.1x |
-  | every smaller ID (upper bound) | 45.9M (61.9%) | 22.9-38.5 GB | 5.16x | 1.5-3.0x |
+  | anchors | domains avoided | bytes (gross) | late factor (domains) | late RSS factor, net of the cover's anchor edges (k' = 1) | late RSS factor, redirected hits need the full cover (k' = a) | redirected later hits (history) |
+  |---|---|---|---|---|---|---|
+  | merged natives | 26.4M (35.6%) | 13.2-22.2 GB | 2.21x | 1.5-1.9x | 0.62-1.25x | 86M |
+  | earlier non-delegated | 40.6M (54.8%) | 20.3-34.1 GB | 4.35x | 1.9-3.1x | 0.34-0.95x | 195M |
+  | every smaller ID (upper bound) | 45.9M (61.9%) | 22.9-38.5 GB | 5.16x | 1.5-3.0x | 0.06-0.20x | 497M |
 
-  Route carries 68-70% of the domains avoided at admission.
+  Route carries 68-70% of the domains avoided at admission. The RSS gain of the admission placement depends on how
+  the lever treats the requests that would have landed on the avoided domains (§6b). The census cannot pin this: k'
+  lies between 1 and a.
 
 **Placement barely matters with merged-native anchors, and anchors matter at admission.**
 - With merged-native anchors, the first-level volume effect is 2.10x at dispatch (Apply and Route jobs) and 2.21x at
   admission. The two sets overlap heavily: a domain covered at admission is also covered at its dispatch, and the
   children of covered jobs are mostly covered at their own admission.
 - G2' with its alias already captures most of the merged-native volume. What admission adds is that the covered domain
-  itself is never stored. The census does not price that separately.
+  itself is never stored. That record is also the target of 3.3 later hits on average (merged natives, §6b), so not
+  storing it has a price: 86M redirected requests over v2's history, and up to 534-1,068 B of extra edges per avoided
+  domain if they need the full cover.
 - The extra volume of the general union comes from anchors that are pending (non-native), used at admission: 4.35x
-  against 2.21x at the late mix. That is the substance of D2's "general union" option, and Route is where most of those
-  extra domains are: late Route coverage goes from 51.7% to 73.7% [M].
+  against 2.21x at the late mix, in domains. That is the substance of D2's "general union" option, and Route is where
+  most of those extra domains are: late Route coverage goes from 51.7% to 73.7% [M].
+- In RSS the same option ranges over 0.34-3.11x (§6b). The general union also covers the hubs that later requests hit:
+  195M redirected hits against 86M for merged natives.
 
 **Implications for the D-session.**
 
@@ -426,24 +583,37 @@ v2's domain-creation rate per unit of exploration.
    - Anchor rule: merged natives, which S7 allows today; or well-founded earlier non-delegated IDs, which need a per-ID
      protected flag (plan §3.10 "census P-anchors") and an ID-order well-foundedness argument; or none.
    - Offer G2' with merged natives as the base. Offer admission-time union cover with earlier non-delegated anchors as
-     the volume option: 2.21x -> 4.35x at the late mix, 1.9-3.1x net of anchor edges [E].
+     the volume option: 2.21x -> 4.35x at the late mix in domains [E].
+   - Say plainly that its RSS effect is 0.34-3.11x net of edges [E] until k' is measured. Below 1x, the lever costs
+     RAM.
    - Residual vocabulary is irrelevant for Route: D-only cuts are 1 piece, and Route transport has no lower bounds.
 2. **Criterion (G) and the work-factor definition** (critique TERM-2) should count avoided domains and avoided
    admission requests. Any Route lever has no inspector-seconds effect by construction.
 3. **Before any code.**
    - An exact "Q subset of union of anchors" predicate (§0.1 item 6), independent of C2, that also serves admission.
      The census predicate samples above 2e6 points.
-   - Its cost. At admission, a union test meets a median of 162-436 candidate Route anchors (p99 6k-18k) and 350-1,058
-     Apply anchors, and covers use a median of 9-22 anchors [M]. Its CPU per request is unmeasured. It runs only on
-     single-container misses, which are the 74.2M admitted domains; 96.15% of requests are containment hits
-     (handoff §5.2). Admission is the legacy coordinator's bottleneck.
-   - Anchor edges. They eat about 10-60% of the RSS gain at 8-16 B/edge [E]. Store the minimum cover, not the greedy
-     first-hit set, or use a compact multi-anchor edge.
+   - Its cost [M]. At admission, a union test meets a median of 162-436 candidate Route anchors (p99 6k-18k) and
+     350-1,058 Apply anchors, and covers use a median of 9-22 anchors. Its CPU per request is unmeasured.
+   - How often it runs [E, first level]. It runs on today's 74.2M misses, plus the later hits redirected from
+     avoided domains: 86M / 195M / 497M distinct edges [M, PPS]. Each redirected hit first needs a single-container
+     search elsewhere. When that fails, it needs a union test. Up to 160M / 269M / 571M union tests, 2.2x / 3.6x /
+     7.7x today's misses, where today 96.15% of requests are containment hits (handoff §5.2). Admission is the legacy
+     coordinator's bottleneck.
+   - Anchor edges [E].
+     - The cover's own edges cost 95-293 B per avoided domain, at k' = 1.
+     - Redirected hits that need the full cover raise this to 534-1,068 / 894-1,789 / 5,036-10,072 B, against the
+       500-840 B saved (§6b).
+     - Store the minimum cover, not the greedy first-hit set.
+     - Measure k' before sizing the lever (§6b "Reading").
+     - Consider a compact alias record keyed by Q's box: it keeps later hits at one edge, but gives back part of the
+       per-domain saving.
 4. **Falsifier.** The early env-gated legacy G2' falsifier (§0.1 item 3: merged-native anchors, residual
    re-inspected, anchor edges) will measure the dispatch-time volume effect directly.
    - This census predicts 37% fewer Apply-native creations at first level on the gen-7 history, and 16.5% at C-5F's
      maturity.
-   - Add an admission-time arm (both phases, merged-native anchors; then earlier non-delegated).
+   - Add an admission-time arm (both phases, merged-native anchors; then earlier non-delegated). It should log, per
+     redirected request, whether a single container was found and how many anchors a union alias used (k'). It should
+     also record the admission requests and union tests per completion.
    - Controls: C-5F, the only drained control with Route (712.6k Route natives), and a C-HOT-sub box, within 1 h. The
      Route content of C-HOT-sub was not checked here.
    - Measure scheduled domains, peak pending, pending growth per completion, new points per native, admission CPU per
@@ -459,6 +629,12 @@ v2's domain-creation rate per unit of exploration.
   re-created by another source.
 - **Predicted pending weights are [E].** They are per-(owner, rank bound) means over record generations 6-7:
   pooled 19.9 successors, 0.625 created and 74 us per Route native.
+  - The creation weights are coverage-blind and overstate the covered share by 1.4-2.3x. §3b calibrates them by
+    coverage status.
+  - The calibration's out-of-sample check under-predicts by about 10 pp, so the calibrated shares are read with a
+    +10 pp band.
+  - Successor weights are not affected: their calibration ratios are 1.02-1.04. Seconds weights were not
+    re-checked. Historically, covered Route natives carry about their count share of seconds (§4).
 - **Sampled verdicts** (|Q| > 2e6 points, 20,000 sampled points) are 0.30% of the pending weight, 0.72% of the native
   weight and 0.52% of the admission weight. "Fully covered" may be overestimated for them, but they make up at most
   0.32 pp of any fully covered share (`gen7-boot.md`). Infinite domains count as unevaluated: 0.22% of the historical
@@ -471,6 +647,17 @@ v2's domain-creation rate per unit of exploration.
   0.64 KB restore VmHWM. Edge bytes of 8-16 B are an assumption. CP5 stores 8 B per edge; the in-memory layout was
   not measured here.
 - **The gen-7 checkpoint is a pause mid-generation.** "g7" rows describe a partial generation.
+- **Later hits (§6b).**
+  - They are distinct edges, a lower bound on redirected requests.
+  - h is measured over v2's history. A late admission's own future hits are not observed: g7 admissions have 0.5 so
+    far, g3 admissions 38.
+  - The PPS sample leaves 4.2% (Route) / 1.5% (Apply) of the hit weight on unevaluated (infinite) domains, counted
+    as not covered. The redirected totals are lower bounds by at most that much.
+  - k' (anchors per redirected hit) is not measured. The stated RSS ranges span k' = 1 to k' = a.
+- **Redirected hits also touch the dispatch placement.** A covered job that emits no successors never creates its
+  children. A later request that would have hit such a child needs a container elsewhere. Without an admission-time
+  union test, it is admitted as a new domain when no single container holds it. The dispatch-time avoided counts
+  are upper bounds for this reason too.
 - **Dispatch-time avoided creations** count the first-level creations of covered jobs. Under the lever those
   successors are not emitted, and their points are covered by the anchors' own successors. Another source may still
   create an equivalent domain later, so these counts are an [E] upper bound per level, as the admission-time counts
@@ -495,6 +682,11 @@ nice -n 19 taskset -c 40-51,296-307 tools/research/census/routecensus_batch.sh T
 nix develop . --command python tools/research/census/route_tables.py /common/dev/rustred/TMP/w0/routecensus/receipt
 nix develop . --command python tools/research/census/route_boot.py \
   /common/dev/rustred/TMP/w0/routecensus/receipt/gen7-route-rows.jsonl,/common/dev/rustred/TMP/w0/routecensus/receipt/apply/gen7-route-apply-rows.jsonl 200
+# fix round: later hits (PPS by later hits, 4,000 per phase) and calibrated pending creation weights (§3b, §6b)
+nice -n 19 taskset -c 40-51,296-307 tools/research/census/routecensus_batch.sh TMP/census-rc8 \
+  /common/dev/rustred/TMP/w0/routecensus/receipt/hits c5f-hits gen7-hits
+nix develop . --command python tools/research/census/route_hits.py /common/dev/rustred/TMP/w0/routecensus/receipt 200 \
+  > /common/dev/rustred/TMP/w0/routecensus/receipt/hits/route_hits.md
 ```
 
 - Tables: `receipt/tables.md`; standard errors, sampled-verdict shares and the per-owner view: `receipt/gen7-boot.md`.
