@@ -17,7 +17,15 @@ impl IndexedCoefficientContext {
     /// context. The full string is scanned only when the owners differ.
     pub(crate) fn owns_fingerprint(&self, fingerprint: &Arc<String>) -> bool {
         Arc::ptr_eq(&self.fingerprint, fingerprint)
+            || crate::algebra::thread_owned::is_thread_owned_seal_of(&self.fingerprint, fingerprint)
             || self.fingerprint.as_str() == fingerprint.as_str()
+    }
+
+    /// The context seal attached to a new value: this thread's copy of the
+    /// fingerprint (equal string), so creating and dropping values does not
+    /// write the shared fingerprint's reference count (`algebra::thread_owned`).
+    pub(in crate::algebra::indexed) fn seal(&self) -> Arc<String> {
+        crate::algebra::thread_owned::thread_owned_seal(&self.fingerprint)
     }
 
     /// Fully authenticate one coefficient at an ingress boundary and return a

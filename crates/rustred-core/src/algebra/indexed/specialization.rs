@@ -349,7 +349,7 @@ impl IndexedCoefficientContext {
         }
         let denominator_guard = IndexedPolynomial {
             raw: denominator.clone(),
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         };
         let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // IndexedCoefficient is already canonical. Empty substitution is
@@ -384,7 +384,7 @@ impl IndexedCoefficientContext {
         let preflight = self.preflight_fixed_polynomial(&value.raw, &fixed, limits)?;
         Ok(IndexedPolynomial {
             raw: self.execute_fixed_polynomial(&value.raw, &fixed, limits, preflight)?,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
