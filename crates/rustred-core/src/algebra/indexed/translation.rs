@@ -106,7 +106,7 @@ impl IndexedCoefficientContext {
         self.validate_index_arity(shift)?;
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -123,7 +123,7 @@ impl IndexedCoefficientContext {
         self.validate_index_arity(shift)?;
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 

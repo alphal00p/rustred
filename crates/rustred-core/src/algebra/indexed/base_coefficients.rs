@@ -345,7 +345,7 @@ impl IndexedCoefficientContext {
                 base_monomial: base_monomial.into_boxed_slice(),
                 index_polynomial: IndexedPolynomial {
                     raw: index_polynomial,
-                    context: self.fingerprint.clone(),
+                    context: self.seal(),
                 },
             });
         }
