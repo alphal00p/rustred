@@ -1,0 +1,28 @@
+# symbol: _int_free_chunk
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   38.50 :   abdfd:  cmp    %rax,%rdx
+    7.02 :   abdbb:  xor    %esi,%esi
+    4.91 :   abddb:  jmp    abe09 <_int_free_chunk+0x169>
+    4.17 :   abe00:  je     abd3a <_int_free_chunk+0x9a>
+    4.17 :   abdf8:  lock cmpxchg %r8,(%rcx)
+    4.02 :   abd02:  shr    $0x4,%r10d
+    3.78 :   abdb4:  leave
+    3.64 :   abcbf:  jb     abd60 <_int_free_chunk+0xc0>
+    3.27 :   abd3d:  je     abdb0 <_int_free_chunk+0x110>
+    2.84 :   abca7:  mov    %rdx,%r10
+    2.48 :   abdbf:  xor    %r8d,%r8d
+    2.13 :   abd15:  mov    (%r9,%rax,8),%rdx
+    2.06 :   abe6c:  jne    abfa3 <_int_free_chunk+0x303>
+    1.63 :   abd43:  je     abdb0 <_int_free_chunk+0x110>
+    1.57 :   abd19:  je     abdd0 <_int_free_chunk+0x130>
+    1.08 :   abce2:  jae    abea0 <_int_free_chunk+0x200>
+    1.07 :   abdea:  mov    %rdx,%rax
+    0.95 :   abded:  cmpl   $0x0,%fs:0x18
+    0.89 :   abcb0:  push   %rbx
+    0.87 :   abe8a:  cmp    $0x1,%eax
+    0.83 :   abccd:  cmp    $0x10,%rax
+    0.75 :   abcdb:  cmp    0x888(%rdi),%rax
+    0.75 :   abcb1:  sub    $0x38,%rsp
+    0.64 :   abd0e:  cmpb   $0x0,0x1563eb(%rip)        # 202100 <__libc_single_threaded>
+    0.58 :   abe0c:  jne    abde0 <_int_free_chunk+0x140>

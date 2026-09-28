@@ -1,0 +1,28 @@
+# symbol: realloc
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   84.59 :   af431:  jne    af830 <__libc_realloc+0x520>
+    5.33 :   af44f:  call   adf20 <_int_realloc>
+    2.25 :   af379:  jne    af3b0 <__libc_realloc+0xa0>
+    1.17 :   af3b4:  cmp    %rsi,%rcx
+    0.60 :   af36b:  and    $0x2,%edx
+    0.53 :   af353:  je     af339 <__libc_realloc+0x29>
+    0.49 :   af503:  and    $0xfffffffffc000000,%rax
+    0.46 :   af407:  cmova  %rcx,%rax
+    0.45 :   af32b:  test   %rsi,%rsi
+    0.43 :   af3b0:  lea    -0x8(%r10),%rcx
+    0.40 :   af31b:  mov    %rsp,%rbp
+    0.36 :   af3d1:  mov    %r10,%rax
+    0.27 :   af50c:  jmp    af3d1 <__libc_realloc+0xc1>
+    0.23 :   af45d:  mov    -0x38(%rbp),%r11
+    0.22 :   af3f7:  mov    %rax,%rcx
+    0.20 :   af367:  lea    -0x10(%r10),%rbx
+    0.20 :   af359:  lea    -0x10(%rdi),%r11
+    0.16 :   af509:  mov    (%rax),%r12
+    0.16 :   af426:  mov    $0x1,%edx
+    0.16 :   af3c9:  test   $0x4,%al
+    0.13 :   af440:  mov    %r12,%rdi
+    0.12 :   af41e:  jne    af518 <__libc_realloc+0x208>
+    0.11 :   af324:  push   %r12
+    0.10 :   af315:  mov    %rdi,%r8
+    0.09 :   af326:  push   %rbx

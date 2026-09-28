@@ -1,0 +1,29 @@
+Session of 2026-09-28 (the one the README reports). Driver: session-driver-fix.sh; log: session.log.
+Socket 1 (CPUs 128-255), each part under the shared socket-1 lock:
+  A sweep/       13:34:55-13:40:37Z  180 runs  mean foreign busy on the run CPUs before each run 55%
+  B layout/      13:40:57-13:45:29Z  126 runs  27%   + profile/ (5 perf record pairs) until 13:46:54Z
+  C patch-ab/    13:59:43-14:08:13Z  255 runs  29%
+  D map-offset/  14:16:09-14:18:45Z   60 runs  17%   (waited 7 min for another user's benchmark)
+All 621 runs: every thread ended on its pinned CPU; checksums identical per (work, K) across variants, layouts,
+builds and repeats (see the last line of each summary.md).
+
+Binaries (binaries.sha256; built by scratch-builds.sh, log scratch-builds.log; same src/main.rs as committed):
+  mre-crates300  e278b7a3...  crates.io symbolica 3.0.0 (= target/release/symbolica-arc-mre of this package)
+  mre-pristine   2a61f53a...  dev 445b882d, no patch
+  mre-p1a        ae6d616f...  dev 445b882d + patch/ablation-1a-2-without-4.diff
+  mre-proposed   13f3bb85...  dev 445b882d + patch/proposed.diff (--features proposed-api)
+  mre-padded     42ab8423...  dev 445b882d + patch/experiment-context-padding.diff (runs use --ctx-vars-at 136)
+The dev builds report the same version string (symbolica-v3.0.0-25-g445b882d); host.txt "source:" and the
+diff hashes identify them. patch-ab/padded/host.txt: run.sh's version probe ran without --ctx-vars-at 136 and
+failed, the symbolica line was filled in afterwards (run.sh now probes with --ctx-offset any).
+
+Caveats:
+- Per-run stdout/stderr/perf CSV files (per-run-files.tar.gz) were named without the layout / ahash option, so in
+  directories that mix several EXTRA settings (layout/, patch-ab/*, map-offset/*) later runs overwrote the files of
+  earlier ones with the same repeat/K/work/variant. runs.jsonl was appended right after each run and holds every
+  run's complete RESULT line and perf counters. run.sh now includes EXTRA in the file names.
+- sweep/ rehome full K=96, repeat 2: 33,256 ns/op vs 15,056 and 15,529 with equal user-mode cycles (the extra CPU
+  time was kernel time, e.g. page faults; numa_balancing=1). Tables use medians.
+- The foreign load differs between parts; the same configuration (crates.io, c0/m32, shared full K=96) gave 13.8x in
+  A (55% busy) and 15.7x in B (27%); compare only within one part.
+- perf.data files of profile/ are kept locally only (not committed).

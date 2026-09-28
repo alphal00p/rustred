@@ -1,0 +1,28 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   38.56 :   7d1f9:  mov    %r15,0x180(%rsp)
+   38.22 :   7d1f9:  mov    %r15,0x180(%rsp)
+   22.49 :   7bade:  mov    0x20(%rax),%rsi
+   22.16 :   7bade:  mov    0x20(%rax),%rsi
+    4.71 :   7b9d7:  mov    0x20(%rax),%rdx
+    4.50 :   7b9d7:  mov    0x20(%rax),%rdx
+    3.43 :   7b72e:  mov    0x20(%rax),%rcx
+    3.27 :   7b72e:  mov    0x20(%rax),%rcx
+    3.00 :   7b7fb:  cmovb  %r14d,%r10d
+    2.23 :   7b7fb:  cmovb  %r14d,%r10d
+    1.80 :   7b7ff:  add    %rcx,%rax
+    1.76 :   7d1ef:  jle    7e0c5 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x29c5>
+    1.73 :   7dc89:  movups %xmm0,(%rax)
+    1.71 :   7dc89:  movups %xmm0,(%rax)
+    1.67 :   7d1ef:  jle    7e0c5 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x29c5>
+    1.65 :   7b8a8:  jle    7e0c5 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x29c5>
+    1.54 :   7b7f3:  cmp    %r14w,%bp
+    1.50 :   7b7ff:  add    %rcx,%rax
+    1.38 :   7d1f5:  mov    0x10(%r13),%r15
+    1.24 :   7b7f3:  cmp    %r14w,%bp
+    1.20 :   7b8a8:  jle    7e0c5 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x29c5>
+    1.16 :   7d1f5:  mov    0x10(%r13),%r15
+    1.16 :   7d16d:  mov    0xc8(%rsp),%rsi
+    1.13 :   7d16d:  mov    0xc8(%rsp),%rsi
+    1.00 :   7d1ad:  mov    0xc0(%rsp),%rbp

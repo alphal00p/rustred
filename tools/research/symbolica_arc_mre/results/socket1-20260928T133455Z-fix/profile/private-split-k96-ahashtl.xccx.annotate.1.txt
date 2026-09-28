@@ -1,0 +1,28 @@
+# symbol: __memcmp_evex_movbe
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   66.67 :   18e865: kmovd  %k1,%eax
+   50.00 :   18e877: movzbl (%rdi,%rax,1),%eax
+   50.00 :   18e869: test   %eax,%eax
+   33.33 :   18e840: endbr64
+    0.00 :   18eb3d: ret
+    0.00 :   18eb3d: ret
+    0.00 :   18eb3b: sub    %ecx,%eax
+    0.00 :   18eb3b: sub    %ecx,%eax
+    0.00 :   18eb36: movzbl -0x20(%rdi,%rax,1),%eax
+    0.00 :   18eb36: movzbl -0x20(%rdi,%rax,1),%eax
+    0.00 :   18eb31: movzbl -0x20(%rsi,%rax,1),%ecx
+    0.00 :   18eb31: movzbl -0x20(%rsi,%rax,1),%ecx
+    0.00 :   18eb2f: add    %edx,%eax
+    0.00 :   18eb2f: add    %edx,%eax
+    0.00 :   18eb2c: bsf    %eax,%eax
+    0.00 :   18eb2c: bsf    %eax,%eax
+    0.00 :   18eb2b: ret
+    0.00 :   18eb2b: ret
+    0.00 :   18eb29: sub    %ecx,%eax
+    0.00 :   18eb29: sub    %ecx,%eax
+    0.00 :   18eb24: movzbl -0x40(%rdi,%rax,1),%eax
+    0.00 :   18eb24: movzbl -0x40(%rdi,%rax,1),%eax
+    0.00 :   18eb1f: movzbl -0x40(%rsi,%rax,1),%ecx
+    0.00 :   18eb1f: movzbl -0x40(%rsi,%rax,1),%ecx
+    0.00 :   18eb1d: add    %edx,%eax

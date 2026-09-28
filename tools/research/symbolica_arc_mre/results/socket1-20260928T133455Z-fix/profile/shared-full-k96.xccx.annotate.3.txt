@@ -1,0 +1,28 @@
+# symbol: symbolica_arc_mre::specialize
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   27.49 :   70f2a:  cmpq   $0x0,0x20(%rax)
+   25.68 :   70f2a:  cmpq   $0x0,0x20(%rax)
+   21.19 :   70f76:  mov    0x20(%rax),%rax
+   19.61 :   70f76:  mov    0x20(%rax),%rax
+   10.20 :   70fd6:  cmovb  %ebx,%r8d
+    9.85 :   70fd6:  cmovb  %ebx,%r8d
+    8.09 :   70fce:  cmp    %bx,%r11w
+    6.76 :   70fc3:  jae    710b5 <symbolica_arc_mre::specialize+0x295>
+    6.66 :   70fc3:  jae    710b5 <symbolica_arc_mre::specialize+0x295>
+    6.32 :   70fdd:  dec    %rcx
+    6.23 :   70fce:  cmp    %bx,%r11w
+    5.74 :   70fdd:  dec    %rcx
+    4.89 :   70fe0:  jne    70fc0 <symbolica_arc_mre::specialize+0x1a0>
+    4.46 :   70fe6:  je     70f60 <symbolica_arc_mre::specialize+0x140>
+    4.07 :   70fda:  add    %rax,%r10
+    3.95 :   70fe6:  je     70f60 <symbolica_arc_mre::specialize+0x140>
+    3.82 :   70fe0:  jne    70fc0 <symbolica_arc_mre::specialize+0x1a0>
+    3.42 :   70fda:  add    %rax,%r10
+    2.44 :   70f60:  add    $0x10,%r15
+    1.71 :   70f60:  add    $0x10,%r15
+    1.33 :   70ff1:  movq   $0x0,0x50(%rsp)
+    1.28 :   70ff1:  movq   $0x0,0x50(%rsp)
+    1.20 :   7101d:  movups 0x70(%rsp),%xmm0
+    1.16 :   70ef2:  mov    0x80(%rsp),%rcx
+    1.10 :   7101d:  movups 0x70(%rsp),%xmm0

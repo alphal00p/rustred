@@ -1,0 +1,3 @@
+# symbol:     33.33%  [k] 0xffffffff8c4b37c5
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):

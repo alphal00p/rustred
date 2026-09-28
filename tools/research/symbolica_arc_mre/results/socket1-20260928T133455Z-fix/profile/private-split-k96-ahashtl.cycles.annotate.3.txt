@@ -1,0 +1,28 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   17.73 :   7b02b:  movups %xmm0,(%rax,%rcx,8)
+   10.47 :   7afed:  mov    0x10(%r12),%rax
+    7.41 :   7b012:  lea    0x0(,%r13,2),%rcx
+    7.27 :   7b022:  mov    %rdx,0x10(%rax,%rcx,8)
+    4.80 :   7afc9:  jne    7afe7 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial+0xc7>
+    4.51 :   7aff2:  mov    %rax,0x10(%rsp)
+    4.36 :   7afce:  cmp    %rdx,%r15
+    3.92 :   7afc5:  cmp    %si,(%rcx,%rdx,2)
+    3.78 :   7b02f:  inc    %r13
+    3.78 :   7b027:  movaps (%rsp),%xmm0
+    3.63 :   7b04d:  je     7b064 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial+0x144>
+    2.62 :   7af41:  jne    7af5d <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial+0x3d>
+    2.33 :   7b05b:  mov    %r14,%rsi
+    2.33 :   7b000:  cmp    (%rbx),%r13
+    2.03 :   7b067:  mov    %r12,0x28(%rbx)
+    1.45 :   7b078:  pop    %rbp
+    1.45 :   7b008:  call   *0xf31b9a(%rip)        # facba8 <_GLOBAL_OFFSET_TABLE_+0x19f8>
+    1.45 :   7af88:  imul   %r15,%rdi
+    1.31 :   7b064:  add    %r15,%r12
+    1.31 :   7b057:  add    0x20(%rbx),%rdi
+    1.16 :   7af3e:  or     (%rsi),%rax
+    1.02 :   7b4c9:  mov    $0x2,%ecx
+    0.73 :   7b4ce:  mov    $0x2,%r8d
+    0.73 :   7af6f:  cmp    %rcx,%rax
+    0.58 :   7b4d4:  mov    %r12,%rsi

@@ -1,0 +1,35 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 358K of event 'cycles:u'
+# Event count (approx.): 716325074486
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                
+# ........  ......................................................................................................................................................................................................................................................................................................................................................................................
+#
+    37.41%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+    10.62%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace
+    10.58%  [.] realloc
+     5.36%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     4.96%  [.] _int_free_chunk
+     4.25%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     3.46%  [.] symbolica_arc_mre::specialize
+     2.90%  [.] malloc
+     2.53%  [.] __memmove_avx512_unaligned_erms
+     1.76%  [.] core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     1.40%  [.] cfree@GLIBC_2.2.5
+     1.39%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial
+     1.37%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     0.91%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     0.89%  [.] <alloc::vec::Vec<numerica::domains::integer::Integer> as core::clone::Clone>::clone
+     0.83%  [.] core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     0.80%  [.] _int_realloc
+     0.66%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     0.64%  [.] _int_malloc
+     0.60%  [.] __rustc::__rdl_dealloc
+     0.59%  [.] __libc_malloc2
+#
+# (Tip: To add Node.js USDT(User-Level Statically Defined Tracing): perf buildid-cache --add `which node`)
+#

@@ -1,0 +1,28 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   79.78 :   7e4a5:  mov    0x20(%rax),%rax
+   79.02 :   7e4a5:  mov    0x20(%rax),%rax
+   10.07 :   7e3dd:  mov    0x20(%rax),%rdx
+    9.64 :   7e3dd:  mov    0x20(%rax),%rdx
+    3.18 :   7e615:  mov    %rbx,%rdi
+    3.08 :   7e615:  mov    %rbx,%rdi
+    1.69 :   7f300:  movaps 0x170(%rsp),%xmm2
+    1.46 :   7e3f9:  mov    0x20(%rax),%rdx
+    1.45 :   7f300:  movaps 0x170(%rsp),%xmm2
+    1.41 :   7e3f9:  mov    0x20(%rax),%rdx
+    1.05 :   7f327:  movups %xmm0,0x0(%r13)
+    0.92 :   7f327:  movups %xmm0,0x0(%r13)
+    0.59 :   7e4a9:  test   %rax,%rax
+    0.41 :   7e4a9:  test   %rax,%rax
+    0.37 :   7e386:  lea    0x30(%rsp),%rdi
+    0.36 :   7e386:  lea    0x30(%rsp),%rdi
+    0.32 :   7e3be:  movaps 0x40(%rsp),%xmm1
+    0.30 :   7e4f5:  mov    %si,(%rdx,%rdi,2)
+    0.28 :   7e3be:  movaps 0x40(%rsp),%xmm1
+    0.21 :   7e4f5:  mov    %si,(%rdx,%rdi,2)
+    0.19 :   7e5a3:  mov    %cx,(%rdx,%rdi,2)
+    0.19 :   7e4f9:  mov    0xc0(%rsp),%rsi
+    0.16 :   7e5a3:  mov    %cx,(%rdx,%rdi,2)
+    0.14 :   7e623:  movups 0x20(%rsp),%xmm1
+    0.14 :   7e529:  inc    %rdi

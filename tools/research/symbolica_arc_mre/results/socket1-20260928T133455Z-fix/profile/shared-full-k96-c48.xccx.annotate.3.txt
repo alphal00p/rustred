@@ -1,0 +1,28 @@
+# symbol: core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   28.33 :   3b3e7a: jne    3b3e89 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0xa9>
+   26.74 :   3b3e7a: jne    3b3e89 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0xa9>
+   13.60 :   3b3e75: cmp    %bx,(%rax,%r10,2)
+   12.36 :   3b3e75: cmp    %bx,(%rax,%r10,2)
+   10.58 :   3b3f22: cmp    $0x2,%rsi
+    9.39 :   3b3f22: cmp    $0x2,%rsi
+    6.10 :   3b3f82: mov    %r9,%rax
+    6.05 :   3b3f82: mov    %r9,%rax
+    5.94 :   3b3e7f: cmp    %r10,%rcx
+    5.62 :   3b3e7f: cmp    %r10,%rcx
+    4.98 :   3b3f90: cmp    %rax,%r9
+    4.61 :   3b3f90: cmp    %rax,%r9
+    4.09 :   3b3fea: cmp    %r15w,%bp
+    3.91 :   3b3fea: cmp    %r15w,%bp
+    3.68 :   3b3f26: jne    3b3f58 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x178>
+    3.61 :   3b3fe5: movzwl (%r9,%r10,2),%r15d
+    3.41 :   3b3fe5: movzwl (%r9,%r10,2),%r15d
+    3.29 :   3b3f26: jne    3b3f58 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x178>
+    3.14 :   3b3e1e: cmp    %rax,%r9
+    2.73 :   3b3e1e: cmp    %rax,%r9
+    2.41 :   3b3e0c: mov    %rcx,%rax
+    2.25 :   3b3e0c: mov    %rcx,%rax
+    2.17 :   3b3e44: jb     3b4102 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x322>
+    1.90 :   3b3de0: push   %rbp
+    1.71 :   3b3e44: jb     3b4102 <core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x322>

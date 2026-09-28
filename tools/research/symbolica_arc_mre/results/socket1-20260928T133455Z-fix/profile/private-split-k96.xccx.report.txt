@@ -1,0 +1,27 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 637  of event 'ls_dmnd_fills_from_sys.near_cache:u'
+# Event count (approx.): 320411
+#
+# Overhead  Symbol                                                                                                                             
+# ........  ...................................................................................................................................
+#
+    93.25%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+     2.20%  [.] __libc_calloc
+     2.04%  [.] <smallvec::SmallVec<[u16; 6]>>::from_elem
+     0.63%  [.] __rustc::__rdl_alloc_zeroed
+# Samples: 1K of event 'ls_dmnd_fills_from_sys.far_cache:u'
+# Event count (approx.): 634283
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+# ........  .................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    93.18%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+     2.38%  [.] <smallvec::SmallVec<[u16; 6]>>::from_elem
+     2.22%  [.] __libc_calloc
+#
+# (Tip: Skip collecting build-id when recording: perf record -B)
+#

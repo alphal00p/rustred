@@ -1,0 +1,28 @@
+# symbol: core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+  100.00 :   82b22:  mov    %r15,%rdi
+   64.49 :   80fa9:  jne    80fc1 <core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>+0x91>
+   62.56 :   80fa9:  jne    80fc1 <core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>+0x91>
+   16.63 :   80fc1:  pop    %rbx
+   16.33 :   80fc1:  pop    %rbx
+    4.38 :   80f34:  push   %r13
+    3.55 :   80f34:  push   %r13
+    2.76 :   80f47:  nopw   0x0(%rax,%rax,1)
+    2.71 :   80f47:  nopw   0x0(%rax,%rax,1)
+    2.30 :   80fa5:  lock decq (%rax)
+    2.20 :   80fa5:  lock decq (%rax)
+    2.02 :   80f6a:  test   %rax,%rax
+    1.77 :   80f6a:  test   %rax,%rax
+    1.48 :   80f62:  mov    %r15,%rdi
+    1.32 :   80f62:  mov    %r15,%rdi
+    1.18 :   80f5a:  dec    %r12
+    1.11 :   80f5a:  dec    %r12
+    0.77 :   80f5d:  call   82cb0 <core::ptr::drop_glue::<numerica::domains::integer::Integer>>
+    0.77 :   80f54:  je     80f67 <core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>+0x37>
+    0.72 :   80f93:  add    %rsi,%rsi
+    0.70 :   80f65:  jmp    80f50 <core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>+0x20>
+    0.66 :   80f5d:  call   82cb0 <core::ptr::drop_glue::<numerica::domains::integer::Integer>>
+    0.63 :   80f93:  add    %rsi,%rsi
+    0.63 :   80f86:  mov    0x18(%rbx),%rsi
+    0.62 :   80f8d:  je     80fa1 <core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>+0x71>

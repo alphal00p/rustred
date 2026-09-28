@@ -1,0 +1,44 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 11K of event 'cycles:u'
+# Event count (approx.): 23328034992
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+# ........  .........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    21.48%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+     9.25%  [.] _int_malloc
+     5.90%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial
+     4.70%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     4.59%  [.] _int_free_chunk
+     4.51%  [.] realloc
+     4.47%  [.] malloc_consolidate
+     4.30%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     4.22%  [.] __memmove_avx512_unaligned_erms
+     4.19%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     3.96%  [.] <smallvec::SmallVec<[u16; 6]> as core::hash::Hash>::hash::<ahash::fallback_hash::AHasher>
+     3.28%  [.] <hashbrown::raw::RawTable<(smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>)>>::reserve_rehash::<hashbrown::map::make_hasher<smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>, ahash::random_state::RandomState>::{closure#0}>
+     3.01%  [.] __libc_malloc2
+     1.87%  [.] malloc
+     1.60%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     1.59%  [.] <hashbrown::map::HashMap<smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>, ahash::random_state::RandomState>>::rustc_entry
+     1.52%  [.] _int_realloc
+     1.51%  [.] cfree@GLIBC_2.2.5
+     1.44%  [.] __memcmp_evex_movbe
+     1.03%  [.] unlink_chunk.isra.0
+     0.87%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     0.82%  [.] _int_free_create_chunk
+     0.66%  [.] symbolica_arc_mre::rehome_one_public
+     0.63%  [.] _int_free_merge_chunk
+     0.62%  [.] __rustc::__rdl_realloc
+     0.59%  [.] __rustc::__rdl_alloc
+     0.58%  [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.57%  [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.57%  [.] <hashbrown::raw::RawTable<(smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>)> as core::ops::drop::Drop>::drop
+     0.53%  [.] __rustc::__rust_no_alloc_shim_is_unstable_v2
+#
+# (Tip: To show information about system the samples were collected on use perf report --header)
+#

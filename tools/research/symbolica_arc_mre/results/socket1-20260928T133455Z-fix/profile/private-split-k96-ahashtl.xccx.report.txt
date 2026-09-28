@@ -1,0 +1,29 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 6  of event 'ls_dmnd_fills_from_sys.near_cache:u'
+# Event count (approx.): 3018
+#
+# Overhead  Symbol                             
+# ........  ...................................
+#
+    33.33%  [.] __memcmp_evex_movbe
+    33.33%  [k] 0xffffffff8c4b37c5
+    16.67%  [.] __memmove_avx512_unaligned_erms
+    16.67%  [.] sched_getcpu
+# Samples: 7  of event 'ls_dmnd_fills_from_sys.far_cache:u'
+# Event count (approx.): 3521
+#
+# Overhead  Symbol                                                    
+# ........  ..........................................................
+#
+    42.86%  [.] __memcmp_evex_movbe
+    14.29%  [.] _int_free_chunk
+    14.29%  [.] std::sys::pal::unix::stack_overflow::imp::drop_handler
+    14.29%  [k] 0xffffffff8c4b37ac
+    14.29%  [k] 0xffffffff8c4b37c5
+#
+# (Tip: Use parent filter to see specific call path: perf report -p <regex>)
+#

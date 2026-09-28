@@ -1,0 +1,28 @@
+# symbol: <smallvec::SmallVec<[u16; 6]>>::try_grow
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   19.63 :   853c2:  jne    853c9 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0xc9>
+   17.67 :   853c2:  jne    853c9 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0xc9>
+   16.88 :   8530a:  sub    $0x18,%rsp
+   15.45 :   8540c:  mov    %rdi,%rbp
+   14.58 :   8530a:  sub    $0x18,%rsp
+   14.35 :   8540c:  mov    %rdi,%rbp
+   13.52 :   85309:  push   %rbx
+   11.90 :   85309:  push   %rbx
+    9.84 :   85307:  push   %r12
+    7.48 :   85307:  push   %r12
+    6.70 :   85415:  mov    $0x2,%esi
+    6.60 :   85301:  push   %r15
+    6.42 :   85415:  mov    $0x2,%esi
+    6.23 :   85305:  push   %r13
+    4.98 :   85305:  push   %r13
+    4.74 :   85301:  push   %r15
+    4.49 :   85300:  push   %rbp
+    4.24 :   85300:  push   %rbp
+    1.93 :   8530e:  mov    0x18(%rdi),%rcx
+    1.74 :   853d3:  lea    (%rsi,%rsi,1),%r14
+    1.62 :   8530e:  mov    0x18(%rdi),%rcx
+    1.06 :   8540f:  call   *0xf29463(%rip)        # fae878 <_GLOBAL_OFFSET_TABLE_+0x36c8>
+    1.06 :   853d3:  lea    (%rsi,%rsi,1),%r14
+    0.87 :   85332:  cmp    %r12,%rsi
+    0.81 :   85342:  cmp    $0x7,%rsi

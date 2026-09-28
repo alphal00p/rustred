@@ -1,200 +1,200 @@
 # Shared `Arc<PolynomialContext>` limits multi-thread scaling of polynomial work
 
-**Summary.** When many threads work on read-only `MultivariatePolynomial`s that share one context (the normal
-situation for polynomials created from a common template), CPU time per operation grows with the number of
-threads although every thread does the same work on data nobody writes. The cause is the context's atomic
-reference count: every clone, every polynomial created from `self` (`zero()`, `constant()`, `monomial()`, ...)
-and every drop performs a locked read-modify-write on the one cache line holding the count, and `nvars()` /
-`variables()` read pointers in that same line (and in the line holding the variable map's count). On a CPU with
-many L3 domains (AMD EPYC 9754: 8 cores per L3/CCX) these lines move between CCXs on nearly every operation.
-This reproducer (Symbolica public API only) shows the effect and that it disappears when each thread uses its own
-context, even while all threads keep reading the same polynomial data. Proposed changes are at the end.
+**Summary.** Threads working on read-only `MultivariatePolynomial`s that share one context (the normal case for
+polynomials created from one template) need more CPU time per operation the more threads run, although all do the
+same work and nobody writes the polynomial data. Every clone, every polynomial derived from `self` (`zero()`,
+`monomial()`, the result of `replace()`, each output of `to_multivariate_polynomial_list`) and every drop does a
+locked read-modify-write on the context's reference count (`replace()` also on the variable map's count), and
+`variables()`/`nvars()` load the `variables` pointer stored right after that count. On a CPU with many L3 domains
+(AMD EPYC 9754: 8 cores per L3/CCX) these lines move between CCXs on nearly every operation; at 96 threads this costs
+~2.6x more (full, split work) if the allocator put that pointer in the counts' line (3 of 4 offsets) than if not. This
+reproducer (public API only) shows the effect, shows that it vanishes when each thread uses its own context on the
+same data, and measures small patches.
 
-## Environment
+## Environment and requirements
 
-- Host: 2x AMD EPYC 9754 (Zen 4c), 128 cores per socket, 16 CCXs of 8 cores per socket (one L3 each), 4 NUMA
-  nodes per socket; runs on socket 1 (CPUs 128-255, no SMT siblings online). Linux 6.18, glibc malloc.
-  Full host description: `results/<run>/host.txt`.
-- Symbolica: our vendored checkout at `953e26e2` (`symbolica-v3.0.0-24-g953e26e2`), which carries an unrelated
-  uncommitted change to `heap_pow` (u32 exponent packing) that this program does not exercise; confirmation runs
-  against pristine upstream `dev` `445b882d` (same `src/poly/polynomial.rs`; the two commits differ only in a
-  C-API feature flag). Features: `default-features = false`,
-  `integer-gmp`, `float-mpfr` (no mimalloc; `--features mimalloc` switches Symbolica's allocator on).
-- rustc 1.97.1, `--release`, `debug = "line-tables-only"`.
-- **License:** multi-threaded Symbolica needs an active license; set `SYMBOLICA_LICENSE`. The program checks
-  `LicenseManager::is_licensed()` first and exits with an error if no license is active.
+- Linux x86_64 (pinning via `sched_setaffinity`; compiled out elsewhere, untested), glibc 2.42 malloc (`--features
+  mimalloc` switches Symbolica's allocator on), rustc 1.97.1, `--release` with line tables; deps `libc`, `ahash`.
+- Host: 2x AMD EPYC 9754 (Zen 4c), per socket 16 CCXs of 8 cores (one L3 each) and 4 NUMA nodes; runs on socket 1
+  (CPUs 128-255, no SMT siblings online), Linux 6.18, `numa_balancing=1`; see `results/*/*/host.txt`.
+- Symbolica: crates.io `=3.0.0` (default in `Cargo.toml`: `default-features = false`, `integer-gmp`, `float-mpfr`,
+  `tracing_max_level_info`), whose `src/poly/polynomial.rs` is byte-identical to upstream `dev` 445b882d. Patch
+  measurements use a clone of `dev` 445b882d through `[patch.crates-io]` (commented in `Cargo.toml`).
+- **License:** multi-threaded Symbolica needs an active license; set `SYMBOLICA_LICENSE`. Both programs check
+  `LicenseManager::is_licensed()` first and refuse to run without one.
 
-## What the program does (`src/main.rs`)
+## The problem in a few lines (condensed from `examples/minimal.rs`)
 
-Builds 4096 random sparse polynomials over Z in 16 variables (4 "base" + 12 "index" variables, 8-64 terms,
-148,523 terms in total), all created from one template and therefore sharing one context and one variable map
-(checked at start-up through `variables()` addresses). K threads, each pinned to one CPU (`sched_setaffinity`),
-then run the same fixed sequence of operations on randomly chosen polynomials of the set. One operation
-(`--work full`) mirrors the hot path of the application where the problem was found:
+```rust
+let template = Poly::new(&Z, None, vars.clone());           // Poly = MultivariatePolynomial<IntegerRing, u16>
+let shared: Vec<Poly> = /* 4096 polynomials from template.zero() + append_monomial: ONE context */;
+std::thread::scope(|s| for t in 0..threads { s.spawn(move || { // e.g. 96 threads on 12 CCXs
+    let set = if private { &copy_onto_new_context(&shared) } else { &shared }; // private: same data, own context
+    for i in 0..ops {
+        let p = &set[(i * 7919 + t * 104_729) % set.len()];
+        acc += p.to_multivariate_polynomial_list(&[0, 1, 2, 3], true).len(); // +1 context clone per output
+        acc += p.clone().replace(4 + i % 12, &Integer::from(2)).nterms();   // clone, new context, map clone
+    }                                                       // every drop: -1 on the shared counts
+}); });
+```
 
-1. validate the stored polynomial against the expected variable map (`variables() ==`, `nvars()`, layout);
-2. `to_multivariate_polynomial_list(&[0,1,2,3], true)` on the stored polynomial;
-3. `clone()`, then `replace(var, &Integer)` for 3 of the index variables (descending), `is_zero()`, validate;
-4. drop everything.
+## What the measured program does (`src/main.rs`)
 
-`--work specialize` runs 1+3, `--work split` runs 1+2. CPU time is thread CPU time
-(`CLOCK_THREAD_CPUTIME_ID`) of the timed loop, after a warm-up of 10% of the operations. Variants:
+4096 random polynomials over Z in 16 variables (8-64 terms) built from one template share one context and map.
+K pinned threads run the same fixed sequence of operations on randomly chosen polynomials. `--work full` mirrors the
+application's hot path: (1) validate the stored polynomial against the expected map (`variables() ==`, `nvars()`);
+(2) `to_multivariate_polynomial_list(&[0,1,2,3], true)`; (3) `clone()`, `replace()` of 3 variables by integers,
+`is_zero()`, validate. `specialize` = 1+3, `split` = 1+2. CPU = thread CPU time of the timed loop (after a 10%
+warm-up). Variants (asserted per thread at set-up):
 
-| variant | polynomial data | context / variable map used by the thread |
+| variant | polynomial data | context / variable map the thread uses |
 |---|---|---|
-| `shared` | the one set | the one shared context and map |
-| `private` | own copy per thread (rebuilt via `zero_with_capacity` + `append_monomial_back`) | fresh context, fresh map |
-| `private-ctx` | own copy per thread | fresh context, **shared** map |
-| `rehome` | the one set (read only) | each operation first copies the stored polynomial onto the thread's own fresh context (public API, same rebuild as `private`), then works on that copy |
-| `rehome-api` | as `rehome`, using the API of `patch/proposed.diff` | (needs the patch and `--features proposed-api`) |
+| `shared` | the one set | the shared context and map |
+| `private-ctx` | own copy (`zero_with_capacity` + `append_monomial_back`) | fresh context, **shared** map |
+| `rehome` (`rehome-api`) | the one set, read only | own context; each operation first copies the polynomial onto it (`-api`: `patch/proposed.diff`) |
+| `private` | own copy | fresh context and fresh map |
 
-All variants produce identical checksums (verified per K in every run).
+**Layout control.** `--ctx-offset`/`--map-offset` (default 0 and 32) place the `ArcInner` (strong, weak, data) of the
+shared context / map at that offset of its 64-byte line, by allocating candidates through the public API until one
+lands there; each run reports both (checked with gdb). The context's `variables` pointer is at +16 (in the counts'
+line unless at offset 48); the map `Vec`'s cap/ptr/len at +16/+24/+32 (len in the counts' line for offsets 0, 16).
 
 ## How to run
 
 ```sh
-export SYMBOLICA_LICENSE=...                      # required
-cargo build --release                             # standalone package (empty [workspace])
-./target/release/symbolica-arc-mre --threads 96 --variant shared --ops 40000 --cpus 128-223
-scripts/run.sh                                    # sweep K = 1 8 24 48 96 x variants x works x 2 repeats
-PERF=$(command -v perf) scripts/run.sh           # same, with perf stat per run (user-mode events)
-PERF=$(command -v perf) VARIANT=shared WORK=full K=96 scripts/profile.sh   # perf record + annotate
+export SYMBOLICA_LICENSE=...                             # required
+cargo build --release --examples                         # standalone package (empty [workspace])
+taskset -c 0-95 target/release/examples/minimal 1 shared # then: 96 shared, 96 private
+taskset -c 128 target/release/symbolica-arc-mre --threads 96 --variant shared --work full --cpus 128-223
+PERF=$(command -v perf) scripts/run.sh                   # K = 1..96 x 4 variants x 3 works; perf of the timed loop
+EXTRA="--ctx-offset 48" VARIANTS=shared scripts/run.sh   # the other layout; scripts/profile.sh: perf record
 ```
 
-`FIRST_CPU` (default 128) must be the first CPU of a CCX; the sweep pins thread i to CPU FIRST_CPU+i, so K=8 is
-one CCX, K=24 three CCXs of one node, K=96 twelve CCXs on three nodes. To use upstream instead of the local
-checkout, replace the three `path` entries in `Cargo.toml` by
-`symbolica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = [...] }`
-and `[patch.crates-io] numerica = { git = ..., branch = "dev" }`, `graphica = { git = ..., branch = "dev" }`
-(or drop the `[patch]` table and use a crates.io release, e.g. `symbolica = "=3.0.0"`).
+`FIRST_CPU` (default 128) must start a CCX; thread i runs on CPU FIRST_CPU+i (K=8: one CCX, K=96: twelve CCXs on
+three nodes); the process starts on FIRST_CPU, so the shared data live on its node. Other CPUs: set `PERF_EVENTS`
+(see `scripts/run.sh`). `run.sh` sets `glibc.malloc.arena_max` to the CPU count (glibc 2.35-2.38 derive the limit
+from the pinned thread's affinity) [not tested]. A single-L3 machine shows the within-CCX part (K=8, table 3).
 
 ## Results
 
-Socket 1 of the host above, one process per run, 40,000 operations per thread, 2 repeats (they agree within 5%),
-`perf stat` user-mode counters. Raw data: `results/socket1-20260928T103516Z/` (`*/runs.jsonl` one line per run,
-`*/summary.md`, `*/host.txt`, `topology.txt`, per-run stdout/stderr/perf CSV in `per-run-files.tar.gz`).
-CPU time per operation, ratio to K=1 of the same variant (K=1 in ns):
+Socket 1, one process per run, 20,000 timed operations per thread, 3 repeats interleaved, **median** (min-max in the
+`summary.md` files: within 10% for most rows, up to 23%); `perf stat` counts only the timed loop. Other users' jobs
+kept the run CPUs 17-55% busy on average, depending on the part (per run in `runs.jsonl`); compare within a table.
+Raw: `results/socket1-20260928T133455Z-fix/` (`sweep/`, `layout/`, `profile/`, `patch-ab/`, `map-offset/`, driver, log).
 
-`--work full`, vendored 953e26e2 (`sweep/`):
+Table 1 (`sweep/`), `--work full`, default layout (c0/m32), ratio to K=1 of the same variant:
 
-| variant | K=1 ns | K=8 | K=24 | K=48 | K=96 | K=96 ns | IPC K=1 -> 96 | cross-CCX fills/op, K=96 |
-|---|---:|---:|---:|---:|---:|---:|---|---:|
-| `shared` | 14,310 | 1.21 | 4.21 | 8.22 | **16.29** | 233,074 | 2.77 -> 0.17 | 26.8 |
-| `private-ctx` | 14,403 | 1.00 | 1.04 | 1.16 | 1.68 | 24,177 | 2.75 -> 1.71 | 3.6 |
-| `rehome` | 14,846 | 0.99 | 1.00 | 1.02 | 1.08 | 15,962 | 2.79 -> 2.65 | 0.6 |
-| `private` | 14,495 | 0.99 | 1.01 | 1.01 | 1.08 | 15,692 | 2.74 -> 2.60 | 0.7 |
+| variant | K=1 ns | K=8 | K=24 | K=48 | K=96 | IPC K=1 -> 96 | cross-CCX fills/op, K=96 |
+|---|---:|---:|---:|---:|---:|---|---:|
+| `shared` | 14,683 | 1.17 | 4.16 | 7.16 | **13.79** | 2.73 -> 0.20 | 25.3 |
+| `private-ctx` | 14,648 | 1.00 | 1.04 | 1.13 | 1.50 | 2.73 -> 1.81 | 3.6 |
+| `rehome` | 15,210 | 0.97 | 0.98 | 1.00 | 1.02 | 2.73 -> 2.76 | 0.9 |
+| `private` | 14,740 | 0.98 | 0.99 | 1.00 | 1.02 | 2.70 -> 2.69 | 0.9 |
 
-K=96 / K=1 by kind of work:
+Table 2 (`sweep/`), ratio to K=1:
 
-| work | `shared` | `private-ctx` | `rehome` | `private` |
-|---|---:|---:|---:|---:|
-| `specialize` (clone, `replace`, `is_zero`) | 4.28 | 2.88 | 0.99 | 1.01 |
-| `split` (`to_multivariate_polynomial_list`) | 29.97 | 1.21 | 1.19 | 1.22 |
+| work | `shared` K=8 | `shared` K=96 | `private-ctx` K=96 | `rehome` K=96 | `private` K=96 |
+|---|---:|---:|---:|---:|---:|
+| `specialize` (clone, `replace`, `is_zero`) | 0.99 | 3.55 | 2.39 | 1.00 | 1.02 |
+| `split` (`to_multivariate_polynomial_list`) | 1.77 | 23.99 | 1.10 | 1.05 | 1.07 |
 
-- Instructions per operation do not change with K (1.36e5 for `full`); cycles do. Checksums are identical for all
-  variants at every K.
-- Pristine upstream `dev` 445b882d (`upstream-445b882d/`, `full`): `shared` 16.91x (14,238 -> 240,691 ns),
-  `rehome` 1.08x, `private` 1.10x.
-- `perf record` at K=96 (`profile/`): in `shared`/`full`, 38% of all cycles are in `to_multivariate_polynomial_list`,
-  and 82% of those sit at one load chain, `mov 0x10(%rax)` (context -> `variables` pointer, in the line of the
-  context's counts) then `mov 0x20(%rax)` (the `Vec` length, i.e. `nvars()`, in the line of the variable map's
-  counts), executed per term (`*.annotate.*.txt`); 41% of `replace`'s cycles sit at the same load chain. With
-  private copies, the cross-CCX fills left in `split` come from `ahash::RandomState::new` (`gen_hasher_seed` +
-  `from_keys`: 37% of the far-cache fill samples).
-- Cost of `private`: one copy per thread (818 MiB RSS at K=96 vs 25 MiB for `shared` in this small example).
-- The host is shared: the run CPUs were on average 21% busy with other users' work in the second before/after each
-  run (48% during `patched-proposed/`; per run in `runs.jsonl`); all threads stayed on their CPUs.
+Table 3 (`layout/`), `shared` unless noted, ratio to K=1, by line offset of the context / map `ArcInner`:
 
-Reading: shared read-only *data* are harmless (`rehome` reads the very same polynomials as `shared` and scales like
-`private`). What does not scale is writing shared counts: the context's (`shared` vs `private-ctx`), the variable
-map's (`private-ctx` vs `private`, visible in `specialize` because `replace` clones the map), and ahash's
-process-global counter (`split` with private copies, 1.22x).
+| layout | full K=8 | full K=96 | split K=8 | split K=96 | specialize K=96 | `private-ctx` specialize K=96 |
+|---|---:|---:|---:|---:|---:|---:|
+| c0/m32: `variables` in the context counts' line (default) | 1.19 | 15.67 | 1.76 | 27.86 | 4.07 | 2.65 |
+| c48/m32: `variables` on the next line | 1.01 | 5.92 | 1.06 | 10.88 | 2.69 | 2.71 |
+| c48/m0: also map `len` in the map counts' line | 1.07 | 7.66 | 1.07 | 11.55 | 9.59 | 9.03 |
+
+- Instructions per operation do not change with K (1.24e5 for `full`); cycles do. User-mode cycles per CPU second
+  are 3.1 GHz in all rows except one `rehome` run (kernel time; hence medians). Checksums agree everywhere.
+- `perf record`, K=96, default layout, `full` (`profile/`; skid puts samples on the instruction after the stalled
+  one): 37% of cycles in `to_multivariate_polynomial_list`, 85% of those on `mov 0x20(%rax)` right after `mov
+  0x10(%rax),%rax`, the per-term load of the `variables` pointer from the counts' line (`nvars()`); `replace`: 43% on
+  the same pattern. At `--ctx-offset 48` the two functions take 20% and 5.1% of cycles instead of 37% and 10.6%.
+  `realloc` takes 10.6%, 85% right after the `lock cmpxchg` of its per-thread arena lock [E: a serializing locked
+  instruction waiting for earlier accesses to the shared lines].
+- `private`/`split`: the remaining 0.8 cross-CCX fills per operation come from ahash's process-global counter: 0.0
+  with `--ahash-source thread-local` (`patch-ab/`); fill samples drop from about 1,700 to 13 (`profile/`).
+- Cost of `private`: 818 MiB RSS at K=96 vs 25 MiB for `shared` in this small example, 0.3-0.6 s set-up.
+- Reading: shared read-only *data* are harmless (`rehome`); writing shared counts, or loading their lines, is not.
 
 ## Root cause
 
-`src/poly/polynomial.rs` is byte-identical in the vendored 953e26e2 and upstream `dev` 445b882d; lines apply to both.
-
-- `MultivariatePolynomial` holds `context: Arc<PolynomialContext<F>>` (`:767`), with `PolynomialContext { ring: F,
+Lines of `src/poly/polynomial.rs`, byte-identical in crates.io 3.0.0, `dev` 445b882d and 953e26e2:
+- `MultivariatePolynomial` holds `context: Arc<PolynomialContext<F>>` (`:767`), `PolynomialContext { ring: F,
   variables: Arc<Vec<PolyVariable>> }` (`:809-813`). Derived polynomials share it: derived `Clone` (`:754`),
   `zero()`/`zero_with_capacity()` via `from_context` (`:903-913`, `:965-975`), `constant()`/`one()`/`monomial()`
-  (`:988`, `:999`, `:1016`); `unify_variables` even merges equal contexts into one `Arc` (`:1200-1213`). Each of
-  these, and each drop, is a locked increment/decrement of the one context's strong count.
-- `replace()` (`:2605-2636`) returns `from_coefficient_list(.., self.variables().clone(), ..)` (`:2632`,
-  `:2340-2356`): a new context plus an increment (later a decrement) of the variable map's count, which all
-  polynomials with that map share. `replace_last()` uses `zero_with_capacity()` (`:2647`).
-- `ring()`/`variables()` (`:862-870`) read fields in the 64-byte line that starts with the context's counts
-  (`ArcInner` = strong, weak, data); `nvars()` (`:1083-1086`) also reads the `Vec` length at offset 0x20 of the map's
-  `ArcInner`, in the line of the map's counts. `nvars()` runs per term in `exponents(i)` (`:1119-1125`, used by the
-  term iterator `:7275-7291`) and in `degree()` (`:2161-2173`).
-- `to_multivariate_polynomial_list()` (`:3475-3525`) creates each output with `monomial(self, ..)` (`:3505`,
-  `:3515`: one increment per output, one decrement per output drop) and its map with `HashMap::new()` (`:3481`,
-  `:3487`; `ahash::HashMap`, `:9`), i.e. `ahash::RandomState::new()`, which does a `fetch_add` on one process-global
-  counter (ahash 0.8.12 `src/random_state.rs:161-164`, called from `:234-238`).
+  (`:988`, `:999`, `:1016`); `unify_variables` merges equal contexts into one `Arc` (`:1200-1213`, e.g. from `Add`
+  `:1731`). Each of these, and each drop, is a locked increment/decrement of the one strong count.
+- `replace()` (`:2605-2636`) returns `from_coefficient_list(.., self.variables().clone(), ..)` (`:2632`, `:2340-2356`):
+  a new context and an increment (later a decrement) of the map's count; `map_coeff` (`:2062-2087`) likewise, e.g.
+  once per prime in modular GCD (`gcd.rs:5688`).
+- `ring()`/`variables()` (`:862-870`) load from the context's `ArcInner`; `nvars()` (`:1083-1086`) loads the
+  `variables` pointer (context +0x10), then the map `Vec`'s length. It runs per term in `exponents(i)` (`:1119-1125`,
+  used by the term iterator `:7275-7291`), in `degree()` (`:2161-2173`) and in `append_monomial` (`:1450`).
+- `to_multivariate_polynomial_list()` (`:3475-3525`) creates each output with `monomial(self, ..)` (`:3505`, `:3515`:
+  one increment per output, one decrement per output drop) and its map with `HashMap::new()` (`:3481`, `:3487`,
+  `ahash::HashMap`), i.e. `ahash::RandomState::new()`: a `fetch_add` on one process-global counter (ahash 0.8.12
+  `src/random_state.rs:161-164`, called from `:234-238`).
 
-Why read-only sharing turns into cache-line ping-pong: a locked add needs the line exclusively in the writer's core.
-The L3 is per CCX (8 cores), so an increment by a thread on another CCX moves the line across the fabric (to a CCX of
-the same node or of another node), and the next `nvars()`/`variables()` load on every other CCX misses on the line
-that was just taken away. With K threads touching these lines every few thousand instructions, the line is almost
-always in transit and threads queue for it: instructions stay constant, cycles grow, IPC falls (2.77 -> 0.17 here).
-Within one CCX the line stays in the shared L3, hence the small effect at K=8.
+Why read-only sharing becomes cache-line ping-pong: a locked add needs the line exclusively in the writer's core and
+invalidates it in all other CCXs; their next load of the count, or of any field in that line, fetches it across the
+fabric. With K threads doing this every few thousand instructions the line is almost always in transit: instructions
+stay constant, cycles grow, IPC falls. Within one CCX the transfers stay in its L3 but are visible (`split`: 1.77x).
 
 ## Where this came from, and what we do meanwhile
 
-RustRed (IBP reduction) runs, per job, Symbolica polynomial work (validation against the variable map, fixed-index
-specialization with `replace`, normalization, `to_multivariate_polynomial_list`) on one shared, read-only set of
-polynomials. On this host, one process with 96 threads needed 3.75x the CPU time per job of one thread (1.02x at 8,
-1.46x at 24, 2.24x at 48), IPC 3.43 -> 0.89, instructions per job constant; 81.6% of the cross-CCX fills in its
-validation routine and 82.8% in `to_multivariate_polynomial_list` sat right after the loads described above.
-The workaround we adopted is one private copy of the polynomial set per CCX, built by a thread of that CCX: 1.14-1.17x
-at 96 threads (measured under heavy foreign load, provisional), but 5.09 GiB per copy (56-61 GiB for 11-12 copies),
-about two minutes of set-up, code tied to the cache topology, and copies must never meet in arithmetic
-(`unify_variables` would merge their contexts again). The ratios in this example are larger than RustRed's,
-presumably because its operations take ~15 us instead of ~36 ms, i.e. far fewer instructions between two touches
-of the shared lines [E].
+RustRed (IBP reduction) runs this kind of work on one shared read-only set: 3.75x the CPU per ~36 ms job at 96
+threads (IPC 3.43 -> 0.89; 81.6% / 82.8% of the cross-CCX fills in its validation / in `to_multivariate_polynomial_list`
+right after the loads above). Its workaround, one private copy per CCX: 1.14-1.17x (provisional), but 5.09 GiB per
+copy (56-61 GiB in all), minutes of set-up, code tied to the topology, copies must never meet (`unify_variables`).
 
 ## Proposed changes (ranked)
 
+`patch-ab/`: pristine `dev` 445b882d vs the same tree plus `proposed.diff` (1a, 2, 4), `ablation-1a-2-without-4.diff`
+(1a, 2; 2 is inert unless called) or `experiment-context-padding.diff` (3), interleaved, 3 repeats, medians. K=96 /
+K=1, default layout unless noted; K=1 CPU of `full` is within 1.2% of pristine for every build:
+
+| Symbolica | full | full c48 | specialize | split | `private` split | `rehome`(`-api`) full / specialize / split |
+|---|---:|---:|---:|---:|---:|---|
+| pristine | 14.15 | 5.24 | 3.75 | 24.92 | 1.06 (ahash-tl 1.03) | 1.03 / 1.00 / 1.04 (public API) |
+| 1a + 2 | 2.39 | | | 1.61 (ahash-tl 1.50) | 1.08 (ahash-tl 1.03) | |
+| `proposed.diff` | 2.31 | 1.78 | 3.64 | 1.48 | 1.05 | 1.01 / 1.00 / 0.97 (`rehome-api`) |
+| padding | 4.88 | 5.05 | 2.53 | 9.78 | | |
+
 1. **Do not write shared counts on hot paths** (largest effect).
-   a. Functions that create several polynomials from `self` should put them on one per-call context (or use
-   `&PolynomialContext` for temporaries and clone the `Arc` only for results that escape). `patch/proposed.diff` does
-   this in `to_multivariate_polynomial_list` (which then also reads `nvars()` once, not per term): `shared` `split`
-   29.97x -> 1.66x and `shared` `full` 16.29x -> 2.74x at K=96 [M, `patched-proposed/`; unpatched values from
-   `sweep/`]; K=1 unchanged within 1% (14,449 vs 14,310 ns for `full`). Other candidates: `replace` (cloned map, new
-   context per call), users of `zero*()`, and GCD/factorization internals, which create many temporaries [E].
-   b. The permanent fix is a context handle whose clone and drop do not perform an atomic read-modify-write on a line
-   shared by all threads: e.g. interned contexts (a global registry of (ring, variable map); the polynomial stores a
-   `&'static` reference or an index; contexts are never freed, bounded by the number of distinct maps), or a
-   per-thread canonical context (a thread-local map from a shared context to an equal, thread-owned one, used by
-   `Clone`, `zero()`, `monomial()`, ...). Expected [E]: `shared` then behaves like `rehome` (1.08x at K=96 on the
-   same data), with no user action.
-2. **An API for per-thread contexts** (small, no behavior change): `zero_with_new_context()` and
-   `clone_with_context_of(&template)` (in `patch/proposed.diff`). A thread then clones read-only shared polynomials
-   onto its own context: `rehome-api` is 0.99-1.01x at K=96 for `full`, `specialize` and `split` [M], costs +2.4% at
-   K=1 vs `shared` (the public-API rebuild `rehome` +4.4%), and needs no copy of the whole set. Worth documenting
-   together with the fact that `unify_variables` merges equal contexts.
-3. **Keep read-mostly fields off the count lines**: `patch/experiment-context-padding.diff` only pads
-   `PolynomialContext` (`#[repr(C)]`, 112 bytes before the fields) and caches `nvars` in it. Measured [M,
-   `experiment-padded/`]: `shared` `full` 16.29x -> 5.97x, `specialize` 4.28x -> 2.96x, `split` 29.97x -> 10.49x.
-   Cheap (~128 bytes per context, no visible cost at K=1) and complementary to 1; what remains is the
-   read-modify-write traffic itself.
-4. **No process-global state per call**: use a fixed-key (or thread-local-seeded) hasher for internal maps with
-   computed keys; the patch uses `ahash::RandomState::with_seeds` in `to_multivariate_polynomial_list`: `private`
-   `split` 1.22x -> 1.05x and `private` `full` 1.08x -> 1.01x at K=96 [M]. Fixed keys matter only for maps keyed by
-   untrusted input.
+   a. Functions creating several polynomials from `self` should put them on one per-call context, or borrow
+   `&PolynomialContext` for temporaries and clone the `Arc` only for results that escape. `proposed.diff` does this
+   in `to_multivariate_polynomial_list` only (one context per call; `nvars()` read once): split 24.9x -> 1.61x, full
+   14.2x -> 2.39x with 1a alone [M]. Left [E]: the per-call context still clones the shared map (2 map-count writes
+   per call, not 2 context-count writes per output), outputs' `append_monomial` reads `nvars()` through it, `replace()`
+   is untouched (`specialize` 3.64x). Next: `replace`/`from_coefficient_list` (reuse `self`'s context), `map_coeff`,
+   `zero*()` users, GCD/factorization internals with many temporaries [E].
+   b. *Design direction, not implemented; open questions.* Contexts whose clone/drop writes no line shared by all
+   threads (interned or per-thread canonical). Interning only the context leaves the map count shared (`replace`,
+   `from_coefficient_list`, `map_coeff` use `variables().clone()`; callers clone the returned `&Arc`): expect
+   `private-ctx`-like scaling (1.5x full, 2.4x specialize) unless maps are interned/per-thread too and those functions
+   reuse `self`'s context [E]. A registry lookup per context creation is shared state too (`new`/`map_coeff` are hot);
+   never-freed contexts grow with every ring (a finite field per prime); per-thread contexts need a thread-local
+   lookup in `Clone`/`zero`/`monomial` and key-lifetime/ABA care; `unify_variables` would re-share merged contexts.
+2. **An API for per-thread contexts** (additive; `proposed.diff`, with a test): `zero_with_new_context()` and
+   `clone_with_context_of(&t)`: `rehome-api` 0.97-1.01x at K=96 (its `split` includes 4), +2.0% at K=1 vs `shared`
+   (public-API `rehome` +3.7%), no copy of the set. Document with the fact that `unify_variables` merges contexts.
+3. **Keep read-mostly fields off the count lines**: `experiment-context-padding.diff` pads `PolynomialContext`
+   (`#[repr(C)]`, 112 bytes before the fields, ~128 bytes per context) and caches `nvars` in it: the context layout no
+   longer matters (full 4.88x at c0, 5.05x at c48). With the map length in the map counts' line (m0, `map-offset/`)
+   it helps too (specialize 11.0x -> 4.8x), but the map's `ArcInner` needs the same care. The RMW traffic remains.
+4. **No process-global state per call**: a fixed-key or thread-local-seeded hasher for internal maps with computed
+   keys (`proposed.diff`: `RandomState::with_seeds`; fixed keys matter only for untrusted keys). Applications can do
+   it today with `ahash::random_state::set_random_source` before the first map (`--ahash-source thread-local`):
+   `private` split 0.8 -> 0.0 cross-CCX fills per operation, 1.06x -> 1.03x (earlier session, cross-session: 1.22x
+   -> 1.05x); `shared` split with 1a: 1.61x -> 1.50x (app-side) / 1.48x (patch).
 
-The patches are against upstream `dev` 445b882d and were only built and measured in scratch copies; they are
-illustrations, not reviewed changes; with each applied, Symbolica's `poly::` unit tests pass (316, plus one new test
-for the proposed API; `patch-tests/`). **Measured vs estimated:** all numbers in Results and those marked
-[M] are measurements on this host (2 repeats, shared machine); the effects of 1b and of 1a on other functions are
-estimates [E]; absolute ratios depend on the size of the operations.
+## Measured vs estimated
 
-## Files
-
-- `src/main.rs` the reproducer; `Cargo.toml`/`Cargo.lock` (standalone, offline-buildable here).
-- `scripts/run.sh` sweep (CPU lists by CCX, optional `perf stat`, optional `flock` for shared hosts, foreign-load
-  record per run); `scripts/summarize.sh` tables from `runs.jsonl`; `scripts/profile.sh` `perf record` + annotate.
-- `patch/proposed.diff` (changes 1a, 2, 4) and `patch/experiment-context-padding.diff` (change 3), both against
-  upstream `dev` 445b882d.
-- `results/socket1-20260928T103516Z/`: `sweep/` (vendored build), `upstream-445b882d/`, `patched-proposed/` (final
-  diff; `patched-proposed-v1/`: an earlier revision, same numbers within 3%), `experiment-padded/`, `profile/`
-  (reports, annotations; no `perf.data`), `patch-tests/`, `session-driver*.sh` (the exact sessions), `topology.txt`.
+Results and [M] are measurements on this shared host, [E] estimates; ratios depend on operation size, layout and
+foreign load. The patches (against `dev` 445b882d; hashes in `patch-ab/*/host.txt`; the ablation diff is for
+measurement only) are illustrations, measured only in scratch copies. Symbolica's `poly::` tests pass with
+`proposed.diff` (317, 1 new) and with the padding (316) in an earlier session (`results/socket1-20260928T103516Z/`:
+vendored 953e26e2 with an unrelated `heap_pow` change in `polynomial.rs`, layout not controlled, see `PROVENANCE.txt`).

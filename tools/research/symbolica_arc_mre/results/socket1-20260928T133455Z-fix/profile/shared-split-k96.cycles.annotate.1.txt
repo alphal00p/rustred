@@ -1,0 +1,28 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   85.27 :   7e4a5:  mov    0x20(%rax),%rax
+    3.01 :   7e3f9:  mov    0x20(%rax),%rdx
+    1.46 :   7f300:  movaps 0x170(%rsp),%xmm2
+    1.36 :   7e615:  mov    %rbx,%rdi
+    1.35 :   7e4a9:  test   %rax,%rax
+    0.87 :   7e4f5:  mov    %si,(%rdx,%rdi,2)
+    0.70 :   7f327:  movups %xmm0,0x0(%r13)
+    0.68 :   7e623:  movups 0x20(%rsp),%xmm1
+    0.55 :   7e4f9:  mov    0xc0(%rsp),%rsi
+    0.45 :   7e529:  inc    %rdi
+    0.39 :   7e3be:  movaps 0x40(%rsp),%xmm1
+    0.32 :   7e5a3:  mov    %cx,(%rdx,%rdi,2)
+    0.26 :   7e52c:  add    $0xfffffffffffffffe,%rcx
+    0.21 :   7e5a7:  mov    0x68(%rsp),%rsi
+    0.18 :   7e3dd:  mov    0x20(%rax),%rdx
+    0.16 :   7e3a1:  movups 0xf05f58(%rip),%xmm1        # f84300 <anon.a45a6aabe33b3eb05e522a6a3c75e0a9.16.llvm.320511791757550227+0x120>
+    0.15 :   7e501:  mov    %r14,%rdx
+    0.15 :   7e4c7:  xor    %edi,%edi
+    0.14 :   7e5ce:  add    $0x8,%rax
+    0.14 :   7e512:  mov    0xb8(%rsp),%rdx
+    0.14 :   7e368:  mov    0x8(%rax),%rbp
+    0.13 :   7e4d5:  mov    %r12,%rdx
+    0.10 :   7e4e8:  cmp    %rsi,%rdi
+    0.09 :   7e51a:  cmp    %rsi,%rdi
+    0.09 :   7e4dc:  jb     7e4e8 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list+0x1d8>

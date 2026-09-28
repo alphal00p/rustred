@@ -1,0 +1,28 @@
+# symbol: <smallvec::SmallVec<[u16; 6]>>::try_grow
+# hottest instructions (percent of this symbol's samples; skid: the stalled
+# instruction is usually the one before the sampled one):
+   17.70 :   853c2:  jne    853c9 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0xc9>
+   15.64 :   8530a:  sub    $0x18,%rsp
+   14.39 :   8540c:  mov    %rdi,%rbp
+   13.14 :   85309:  push   %rbx
+    8.61 :   85307:  push   %r12
+    7.17 :   85415:  mov    $0x2,%esi
+    6.12 :   85301:  push   %r15
+    6.02 :   85305:  push   %r13
+    3.92 :   85300:  push   %rbp
+    2.11 :   8530e:  mov    0x18(%rdi),%rcx
+    1.18 :   853d3:  lea    (%rsi,%rsi,1),%r14
+    0.75 :   8540f:  call   *0xf29463(%rip)        # fae878 <_GLOBAL_OFFSET_TABLE_+0x36c8>
+    0.60 :   85332:  cmp    %r12,%rsi
+    0.55 :   85342:  cmp    $0x7,%rsi
+    0.43 :   853e7:  je     85403 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0x103>
+    0.39 :   85407:  jae    85442 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0x142>
+    0.22 :   85312:  cmp    $0x7,%rcx
+    0.21 :   8548a:  mov    %r12,0x8(%rbp)
+    0.18 :   85440:  jmp    85484 <<smallvec::SmallVec<[u16; 6]>>::try_grow+0x184>
+    0.14 :   853dd:  cmp    %rax,%r14
+    0.13 :   854a5:  pop    %r12
+    0.09 :   85484:  movw   $0x1,0x0(%rbp)
+    0.09 :   853e4:  or     %dl,%r8b
+    0.08 :   85423:  mov    %rax,%r15
+    0.04 :   8542e:  je     8549d <<smallvec::SmallVec<[u16; 6]>>::try_grow+0x19d>

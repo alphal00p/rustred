@@ -9,18 +9,25 @@ description = "Minimal reproducer: multi-thread scaling of Symbolica polynomial 
 [workspace]
 
 [dependencies]
-# Local checkout (vendored commit 953e26e2 plus an unrelated working-tree patch, see README).
-# To use upstream instead, replace the three path entries below, e.g.
-#   symbolica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = [...] }
-#   [patch.crates-io] numerica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev" }
-#                     graphica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev" }
-# or a crates.io release: symbolica = { version = "=3.0.0", default-features = false, features = [...] } and no [patch].
-symbolica = { path = "../../../vendor/symbolica", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info"] }
+# Default (tested): the crates.io release. Its src/poly/polynomial.rs is identical to upstream `dev`
+# 445b882d (the two differ only in src/api.rs and the new poly::reconstruction module, declared in src/poly.rs).
+symbolica = { version = "=3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info"] }
+# The same ahash crate instance as Symbolica's (for --ahash-source thread-local).
+ahash = { version = "0.8.7", default-features = false }
 libc = "0.2"
 
-[patch.crates-io]
-numerica = { path = "../../../vendor/symbolica/lib/numerica" }
-graphica = { path = "../../../vendor/symbolica/lib/graphica" }
+# Upstream `dev` instead (the git form below was not tested here, the host builds offline; the measured
+# builds used a local clone of dev 445b882d the same way, with
+# `path = "<clone>"` and `path = "<clone>/lib/numerica"`, `path = "<clone>/lib/graphica"`):
+# [patch.crates-io]
+# symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "445b882d" }
+# numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "445b882d" }
+# graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "445b882d" }
+# A local checkout, e.g. with patch/proposed.diff applied (+ `--features proposed-api`):
+# [patch.crates-io]
+# symbolica = { path = "/path/to/symbolica" }
+# numerica = { path = "/path/to/symbolica/lib/numerica" }
+# graphica = { path = "/path/to/symbolica/lib/graphica" }
 
 [features]
 # Symbolica's default global allocator (mimalloc); off by default to match the reporting application.

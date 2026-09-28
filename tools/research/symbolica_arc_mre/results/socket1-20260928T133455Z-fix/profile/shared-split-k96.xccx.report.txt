@@ -1,0 +1,55 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 15K of event 'ls_dmnd_fills_from_sys.near_cache:u'
+# Event count (approx.): 7772859
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                         
+# ........  ...............................................................................................................................................................................................................................................................................................................................
+#
+    55.89%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+     9.30%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     7.42%  [.] _int_free_chunk
+     7.37%  [.] realloc
+     3.37%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     2.56%  [.] cfree@GLIBC_2.2.5
+     1.84%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     1.76%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     1.42%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     1.13%  [.] malloc_consolidate
+     1.08%  [.] __rustc::__rdl_dealloc
+     0.94%  [.] __memmove_avx512_unaligned_erms
+     0.78%  [.] _int_realloc
+     0.67%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial
+     0.64%  [.] malloc
+     0.62%  [.] <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
+     0.59%  [.] <hashbrown::raw::RawTable<(smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>)> as core::ops::drop::Drop>::drop
+# Samples: 31K of event 'ls_dmnd_fills_from_sys.far_cache:u'
+# Event count (approx.): 16030107
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                
+# ........  ......................................................................................................................................................................................................................................................................................................................................................................................
+#
+    54.97%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+     9.55%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     8.90%  [.] _int_free_chunk
+     7.15%  [.] realloc
+     3.16%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     2.40%  [.] cfree@GLIBC_2.2.5
+     1.76%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     1.61%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     1.52%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     1.05%  [.] __rustc::__rdl_dealloc
+     1.04%  [.] malloc_consolidate
+     0.93%  [.] __memmove_avx512_unaligned_erms
+     0.65%  [.] _int_realloc
+     0.65%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::append_monomial
+     0.64%  [.] malloc
+     0.62%  [.] __rustc::__rust_dealloc
+     0.57%  [.] <hashbrown::raw::RawTable<(smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>)> as core::ops::drop::Drop>::drop
+     0.55%  [.] <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
+#
+# (Tip: To adjust path to source files to local file system use perf report --prefix=... --prefix-strip=...)
+#
