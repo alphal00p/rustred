@@ -46,7 +46,7 @@ refarm() { # label family cpus policy workers  (4a17f9c7 reference)
 metric() { grep -o "\"$2\": \"*[0-9-]*" $1 2>/dev/null | head -1 | grep -o '[0-9-]*$'; }
 strict() { # reference-dir new-dir tag [compare args]
   local ref=$1 new=$2 tag=$3; shift 3
-  $PY $R/examples/python/compare_walk_records.py --mode strict "$@" $ref/result.json $new/result.json > $LOG/strict-$tag.json 2>&1
+  $PY $WT/examples/python/compare_walk_records.py --mode strict "$@" $ref/result.json $new/result.json > $LOG/strict-$tag.json 2>&1
   local rc=$?
   local verdict=$(grep -o '"verdict": "[A-Z]*"' $LOG/strict-$tag.json | head -1 | grep -o '[A-Z]*"$' | tr -d '"')
   local cr=$(metric $ref/metrics.json containment_checks) cn=$(metric $new/metrics.json containment_checks)
@@ -62,9 +62,9 @@ oracle() { # run-dir tag cpus threads
     --command "$dir/command.json" --threads $threads --require-closure --reinspect all \
     --output $dir/verify.json --force > $dir/verify.stdout 2> $dir/verify.stderr
   local vx=$?
-  $PY $R/examples/python/assert_oracle_pass.py $dir/verify.json > $dir/gate.txt 2>&1
+  $PY $WT/examples/python/assert_oracle_pass.py $dir/verify.json > $dir/gate.txt 2>&1
   local gx=$?
-  taskset -c $cpus $PY $R/examples/python/audit_owner_domain_walk.py "$dir" --command "$dir/command.json" \
+  taskset -c $cpus $PY $WT/examples/python/audit_owner_domain_walk.py "$dir" --command "$dir/command.json" \
     --require-closure --verify-report $dir/verify.json --output $dir/audit.json > $dir/audit.stdout 2> $dir/audit.stderr
   local ax=$?
   local av=$(grep -o '"audit": "[A-Z]*"' $dir/audit.json 2>/dev/null | head -1 | grep -o '[A-Z]*"$' | tr -d '"')
@@ -122,6 +122,16 @@ for phase in "$@"; do
         stats $OUT/id-off-$SHA/$fam $ALL
       done
       ;;
+    matrix)
+      # Oracle mutation matrix: drained FG (flag off), the FG frontier fixture, and the G2' FG run.
+      mkdir -p $R/TMP/w1/g2prod/matrix
+      log "matrix start"
+      taskset -c $ALL $PY $WT/examples/python/oracle_mutation_matrix.py \
+          --run $OUT/id-off-$SHA/fg --frontier-run $R/TMP/w0/oracle/runs/frontier-fixture/fg \
+          --frontier-expect-closed 60/124 --g2-run $OUT/c4l-union-r1-$SHA/fg --rustred $BIN --threads 4 --jobs 8 \
+          --output $R/TMP/w1/g2prod/matrix/matrix-$SHA.json > $LOG/matrix-$SHA.log 2>&1
+      log "matrix rc=$? $(grep -c '^ok ' $LOG/matrix-$SHA.log) ok, $(grep -c '^BAD' $LOG/matrix-$SHA.log) bad"
+      ;;
     c4l-widths)
       # Ordered G2' records identical across widths (four-all W6 vs W24).
       arm c4l-union-w24-$SHA four-all $ALL ordered 24 union
@@ -158,7 +168,7 @@ for phase in "$@"; do
       ;;
     drills)
       log "drill ready-multi-prefix start"
-      $PY $R/examples/python/ready_resume_control.py --command $OUT/c5f-rdy-union-r1-$SHA/five-finite/command.json \
+      $PY $WT/examples/python/ready_resume_control.py --command $OUT/c5f-rdy-union-r1-$SHA/five-finite/command.json \
           --binary $BIN --output $OUT/drill-ready-mp-$SHA --cpus $ALL > $LOG/drill-ready-mp-$SHA.log 2>&1
       log "drill ready-multi-prefix rc=$? $(grep -o '"verdict": "[A-Z]*"' $OUT/drill-ready-mp-$SHA/report.json 2>/dev/null | head -1)"
       oracle $OUT/drill-ready-mp-$SHA/resumed drill-ready-mp-resumed $ALL 32
@@ -172,6 +182,17 @@ for phase in "$@"; do
       done
       strict $OUT/c5f-ord-union-r1-$SHA/five-finite $OUT/drill-ord-3p-$SHA/phase-3 c5f-ord-union-uninterrupted-vs-3-pauses \
           --ignore-top g2_residual_anchors --ignore-top uncommitted_inspections
+      ;;
+    activation)
+      # G2' activation on a checkpoint written without G2' (C-5F Ready W24): flag off until 400k committed
+      # domains, then resume with --g2-residual-anchors union --g2-activate-on-resume to exhaustion.
+      log "drill activation start"
+      $PY $T/pause_drill.py --command $OUT/c5f-rdy-off-r1-$SHA/five-finite/command.json --binary $BIN \
+          --out $OUT/drill-rdy-activation-$SHA --cpus $ALL --stops 400000 \
+          --resume-extra=--g2-residual-anchors --resume-extra=union --resume-extra=--g2-activate-on-resume \
+          > $LOG/drill-rdy-activation-$SHA.log 2>&1
+      log "drill activation rc=$? $(tail -1 $LOG/drill-rdy-activation-$SHA.log)"
+      oracle $OUT/drill-rdy-activation-$SHA/phase-1 drill-rdy-activation-final $ALL 32
       ;;
     *) log "unknown phase $phase" ;;
   esac

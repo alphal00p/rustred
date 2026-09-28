@@ -124,9 +124,11 @@ RUST_MUTATIONS = {
     "hidden-frontier": ("frontier", "FAIL", {"frontier_parity", "closure_required"}, "more",
                         {"frontier_parity": 1}),
     "seal-with-frontier": ("frontier", "FAIL", {"seal_parity", "closure_required"}, "same", {"seal_parity": 1}),
-    # G2' residual anchors (drained G2' walk; exact classes calibrated on the e2e fixture and C-4L FG).
-    "g2-shrunk-residual": ("g2", "FAIL", {"g2_union_cover", "event_parity", "successor_parity"}, "same",
-                           {"g2_union_cover": 1}, ("g2_residual",)),
+    # G2' residual anchors (drained G2' walk; exact classes calibrated on C-4L FG Ordered W6 with
+    # --g2-residual-anchors union, whose G2' residuals are single D levels: the shrunk residual becomes an
+    # empty band, so the F10 full-cover rule also fires as event_parity).
+    "g2-shrunk-residual": ("g2", "FAIL", {"g2_union_cover", "event_parity"}, "same",
+                           {"g2_union_cover": 1, "event_parity": 1}, ("g2_residual",)),
     "g2-late-anchor": ("g2", "FAIL", {"g2_anchor_order"}, "same", {"g2_anchor_order": 1}, ("g2",)),
     "g2-inadmissible-anchor": ("g2", "FAIL", {"g2_anchor_kind"}, "same", {"g2_anchor_kind": 1}, ("g2",)),
     "g2-dropped-anchor-edge": ("g2", "FAIL", {"missing_edge", "seal_parity", "false_closure", "closure_required"},
@@ -248,11 +250,21 @@ def g2_rows(document):
 
 
 def mutate_g2_shrunk_residual(document):
-    for row in g2_rows(document):
-        residual = row["g2_residual_anchors"].get("residual_power_bounds")
-        if residual is not None and residual["min_power_difference"] < residual["max_power_difference"]:
+    """Drop the highest D level of a G2' residual band (a single-level band becomes a full-cover claim)."""
+    rows = [row for row in g2_rows(document) if row["g2_residual_anchors"].get("residual_power_bounds")]
+    rows.sort(key=lambda row: (row["g2_residual_anchors"]["residual_power_bounds"]["min_power_difference"]
+                               == row["g2_residual_anchors"]["residual_power_bounds"]["max_power_difference"],
+                               row["id"]))
+    for row in rows:
+        block = row["g2_residual_anchors"]
+        residual = block["residual_power_bounds"]
+        if residual["min_power_difference"] < residual["max_power_difference"]:
             residual["max_power_difference"] -= 1
-            return {"record": row["id"], "max_power_difference": residual["max_power_difference"]}
+            block["residual_d_band"] = [residual["min_power_difference"], residual["max_power_difference"]]
+        else:
+            block["residual_power_bounds"] = block["residual_d_band"] = None
+            block["residual_pieces"] = 0
+        return {"record": row["id"], "residual": block["residual_power_bounds"]}
     return None
 
 
@@ -283,12 +295,24 @@ def mutate_g2_late_anchor(document):
 
 def mutate_g2_inadmissible_anchor(document):
     positions = _positions(document)
+
+    def inadmissible(other, row):
+        kind = other.get("record_kind")
+        if kind == "delegated_not_inspected":
+            return 0 if other["owner"] == row["owner"] else 1
+        if kind == "g2_residual_anchor_inspection" and other["g2_residual_anchors"].get("residual_power_bounds") is None:
+            return 2
+        if other.get("phase") == "Route":
+            return 3
+        return None
+
     for row in g2_rows(document):
         block = row["g2_residual_anchors"]
-        for other in document["domains"]:
-            if (other.get("record_kind") == "delegated_not_inspected" and other["owner"] == row["owner"]
-                    and positions[other["id"]] < block["snapshot_stamp"]):
-                return _replace_anchor(row, other, positions)
+        ranked = sorted((rank, other["id"], other) for other in document["domains"]
+                        if other["id"] != row["id"] and positions[other["id"]] < block["snapshot_stamp"]
+                        for rank in [inadmissible(other, row)] if rank is not None)
+        if ranked:
+            return _replace_anchor(row, ranked[0][2], positions)
     return None
 
 
@@ -364,16 +388,17 @@ PYTHON_MUTATIONS = {
                         "initial entry obligations not discharged", "inputs do not map every query to an initial record",
                         "query Q: no initial record", "query Q: power_bounds changed", "query Q: upper changed"}),
 }
+# Normalized kinds: `normalized` rewrites every number, so "G2'" reads "GN'".
 PYTHON_MUTATIONS.update({
     "g2-shrunk-residual": ("g2", mutate_g2_shrunk_residual,
-                           {"record N: G2' domain not covered by its residual and anchors (False)"}),
+                           {"record N: GN' domain not covered by its residual and anchors (False)"}),
     "g2-late-anchor": ("g2", mutate_g2_late_anchor,
-                       {"record N: G2' anchor N not merged before the snapshot"}),
+                       {"record N: GN' anchor N not merged before the snapshot"}),
     "g2-inadmissible-anchor": ("g2", mutate_g2_inadmissible_anchor,
-                               {"record N: G2' anchor N ('native') is not a same-owner Apply Native, "
-                                "initial-D-band or G2' residual record"}),
+                               {"record N: GN' anchor N ('native') is not a same-owner Apply Native, "
+                                "initial-D-band or GN' residual record"}),
     "g2-anchor-cycle": ("g2", mutate_g2_anchor_cycle,
-                        {"record N: G2' anchor N not merged before the snapshot"}),
+                        {"record N: GN' anchor N not merged before the snapshot"}),
 })
 PYTHON_NOT_OBSERVABLE = {
     "dropped-edge": "result.json carries no dependency edges",

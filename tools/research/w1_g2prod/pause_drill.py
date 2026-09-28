@@ -4,7 +4,7 @@ committed-domain counts and resumed in fresh processes to exhaustion.
 
 usage: pause_drill.py --command ARGV.json --binary BIN --out DIR --cpus LIST
                       --stops 250000,500000,750000 [--workers N] [--policy P]
-                      [--extra ARG ...]
+                      [--extra ARG ...] [--resume-extra ARG ...]
 
 Phase 0 runs the command (its --checkpoint replaced by DIR/checkpoint) and
 touches the stop file once `committed_domains` in its events reaches the first
@@ -60,6 +60,8 @@ def main():
     p.add_argument("--workers", type=int)
     p.add_argument("--policy")
     p.add_argument("--extra", nargs="*", default=[])
+    p.add_argument("--resume-extra", action="append", default=[],
+                   help="one native argument added to resumed phases only (repeatable; e.g. a G2' activation)")
     p.add_argument("--nice", type=int, default=5)
     p.add_argument("--phase-timeout", type=float, default=3000.0)
     args = p.parse_args()
@@ -92,6 +94,8 @@ def main():
         set_option(argv, "--events", out / "events.jsonl")
         set_option(argv, "--stop-file", out / "stop-request.json")
         set_option(argv, "--resume" if index else "--checkpoint", checkpoint)
+        if index:
+            argv += args.resume_extra
         json.dump(argv, open(out / "command.json", "w"), indent=1)
         stop = stops[index] if index < len(stops) else None
         started = time.time()
