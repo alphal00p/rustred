@@ -1,0 +1,21 @@
+[package]
+name = "wv"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Read-only W0.11 work-volume analyses (D6 symmetry merges, D1(b) piece graphs) of RustRed walk checkpoints"
+
+# Standalone: not a member of the RustRed workspace.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+memmap2 = "0.9"
+rustc-hash = "2"
+
+[profile.release]
+opt-level = 3
+debug = 1
+codegen-units = 16
