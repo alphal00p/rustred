@@ -664,8 +664,8 @@ impl<const N: usize> State<N> {
         if let Some(ledger) = &mut self.queue.delegation {
             use super::delegation::NativeOutcome;
             if let Some(scope) = partial_scope {
-                let linked = if scope.g2.is_some() {
-                    ledger.record_residual_anchor(id, scope.anchor_id)
+                let linked = if let Some(info) = scope.g2 {
+                    ledger.record_residual_anchor(id, scope.anchor_id, info.second.map(|s| s.id))
                 } else {
                     ledger.record_initial_overlap(id, scope.anchor_id)
                 };
@@ -695,6 +695,9 @@ impl<const N: usize> State<N> {
             closure.discovered(self.queue.domains.len());
             if let Some(scope) = partial_scope {
                 closure.edge(id, scope.anchor_id);
+                if let Some(second) = scope.g2.and_then(|info| info.second) {
+                    closure.edge(id, second.id);
+                }
             }
             closure.finish(
                 id,
@@ -745,6 +748,11 @@ impl<const N: usize> State<N> {
                 "authority":"same_snapshot_phase_owner_native_summary"});
             if let Some(info) = scope.g2 {
                 record["g2_residual_anchor"] = info.json();
+                if info.second.is_some() {
+                    // Mode 2: anchor_id covers D >= first_cut only.
+                    record["initial_overlap"]["covered_slice"] =
+                        json!("original_intersect_D_ge_first_cut_see_g2_residual_anchor");
+                }
             }
         }
         if let (Some(optional), Some(stats)) = (optional, truncated) {

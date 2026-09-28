@@ -51,6 +51,8 @@ pub struct Ledger<K> {
     /// W0 G2' falsifier (throwaway, never persisted): partial anchors may be
     /// any committed same-key Native entry, resolved transitively.
     pub(super) g2_anchors: bool,
+    /// W0 G2' falsifier: optional second anchor per partial entry.
+    pub(super) g2_second: std::collections::HashMap<usize, usize>,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -74,6 +76,7 @@ impl<K: Copy + Eq> Ledger<K> {
             protected_initial_prefix: None,
             partial_initial_inspections: 0,
             g2_anchors: false,
+            g2_second: std::collections::HashMap::new(),
         })
     }
 
@@ -224,21 +227,31 @@ impl<K: Copy + Eq> Ledger<K> {
     /// anchor is any same-key entry already published as a completed Native
     /// inspection (full or partial) before this job was dispatched; its own
     /// frontiers/anchor are resolved transitively. No allocation.
-    pub fn record_residual_anchor(&mut self, id: usize, anchor: usize) -> Result<(), Error> {
+    pub fn record_residual_anchor(
+        &mut self,
+        id: usize,
+        anchor: usize,
+        second: Option<usize>,
+    ) -> Result<(), Error> {
         if !self.g2_anchors {
             return Err(Error::InvalidInitialAnchor);
         }
         self.check_publisher(id)?;
-        if anchor == id || anchor >= self.entries.len() {
-            return Err(Error::InvalidInitialAnchor);
+        for source in std::iter::once(anchor).chain(second) {
+            if source == id || source >= self.entries.len() {
+                return Err(Error::InvalidInitialAnchor);
+            }
+            let entry = &self.entries[source];
+            if entry.key != self.entries[id].key
+                || !matches!(
+                    entry.responsibility,
+                    Responsibility::Local(Local::Published(NativeOutcome::Completed { .. }))
+                )
+            {
+                return Err(Error::InvalidInitialAnchor);
+            }
         }
-        let source = &self.entries[anchor];
-        if source.key != self.entries[id].key
-            || !matches!(
-                source.responsibility,
-                Responsibility::Local(Local::Published(NativeOutcome::Completed { .. }))
-            )
-        {
+        if second == Some(anchor) {
             return Err(Error::InvalidInitialAnchor);
         }
         let entry = &mut self.entries[id];
@@ -249,6 +262,9 @@ impl<K: Copy + Eq> Ledger<K> {
         }
         entry.initial_anchor =
             NonZeroUsize::new(anchor.checked_add(1).ok_or(Error::InvalidInitialAnchor)?);
+        if let Some(second) = second {
+            self.g2_second.insert(id, second);
+        }
         self.partial_initial_inspections += 1;
         Ok(())
     }

@@ -758,30 +758,53 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
               f"record {identity}: partial D>=cut slice not contained in anchor {anchor}")
         check(residual == residual_bounds(box, cut), f"record {identity}: partial residual bounds != D<cut slice")
     if g2_partials:
-        needed = {anchor for _, _, anchor, _, _, _ in g2_partials}
+        needed = set()
+        for _, _, anchor, _, _, g2 in g2_partials:
+            needed.add(anchor)
+            second = g2.get("second_anchor")
+            if isinstance(second, dict):
+                needed.add(second.get("anchor_id"))
         anchor_boxes = {}
         for item in stream_walk(run / "result.json"):
             if item[0] == "domain" and item[1].get("id") in needed:
                 anchor_boxes[item[1]["id"]] = box_of(item[1])
-        for identity, box, anchor, cut, residual, g2 in g2_partials:
-            g2_counts["records"] += 1
+
+        def anchor_ok(identity, anchor, stamp, dispatch, own_seq, inner, what):
             anchor_box = anchor_boxes.get(anchor)
-            if not check(anchor != identity and anchor_box is not None and anchor < len(kinds),
-                         f"record {identity}: G2' anchor {anchor} has no record"):
-                continue
+            if not check(type(anchor) is int and anchor != identity and anchor_box is not None and anchor < len(kinds),
+                         f"record {identity}: G2' {what} anchor {anchor!r} has no record"):
+                return
             check(kinds[anchor] in (NATIVE, PARTIAL) and owner_phase[anchor] == owner_phase[identity]
                   and not owner_phase[identity] & 1,
-                  f"record {identity}: G2' anchor {anchor} is not a same-owner Apply native/partial record")
-            anchor_seq, own_seq = commit_seq[anchor], commit_seq[identity]
-            dispatch = g2.get("dispatch_snapshot")
-            check(anchor_seq != SENTINEL and g2.get("anchor_commit_seq") == anchor_seq,
-                  f"record {identity}: G2' anchor stamp {g2.get('anchor_commit_seq')!r} != stream stamp {anchor_seq}")
+                  f"record {identity}: G2' {what} anchor {anchor} is not a same-owner Apply native/partial record")
+            anchor_seq = commit_seq[anchor]
+            check(anchor_seq != SENTINEL and stamp == anchor_seq,
+                  f"record {identity}: G2' {what} anchor stamp {stamp!r} != stream stamp {anchor_seq}")
             check(type(dispatch) is int and anchor_seq < dispatch <= own_seq,
-                  f"record {identity}: G2' anchor not committed before dispatch ({anchor_seq}, {dispatch!r}, {own_seq})")
-            check(anchor_box[1] == box[1] and containment(anchor_box, high_slice(box, cut)),
-                  f"record {identity}: G2' D>=cut slice not contained in anchor {anchor}")
-            check(residual == residual_bounds(box, cut), f"record {identity}: G2' residual bounds != D<cut slice")
+                  f"record {identity}: G2' {what} anchor not committed before dispatch ({anchor_seq}, {dispatch!r}, {own_seq})")
+            check(anchor_box[1] == inner[1] and containment(anchor_box, inner),
+                  f"record {identity}: G2' {what} D slice not contained in anchor {anchor}")
+
+        for identity, box, anchor, cut, residual, g2 in g2_partials:
+            g2_counts["records"] += 1
+            own_seq = commit_seq[identity]
+            dispatch = g2.get("dispatch_snapshot")
+            first_cut = g2.get("first_cut", cut)
+            second = g2.get("second_anchor")
             owner, ph, lower, upper, rank, positive, least, most = box
+            if not check(type(first_cut) is int and first_cut >= cut, f"record {identity}: G2' first_cut {first_cut!r} < cut"):
+                continue
+            # First anchor: the D >= first_cut slice.
+            anchor_ok(identity, anchor, g2.get("anchor_commit_seq"), dispatch, own_seq, high_slice(box, first_cut), "first")
+            if isinstance(second, dict):
+                g2_counts["second_anchor"] += 1
+                band = (owner, ph, lower, upper, rank, positive, _floor(least, cut), _cap(most, first_cut - 1))
+                anchor_ok(identity, second.get("anchor_id"), second.get("anchor_commit_seq"), dispatch, own_seq,
+                          band, "second")
+                check(second.get("anchor_id") != anchor, f"record {identity}: G2' second anchor repeats the first")
+            else:
+                check(second is None and first_cut == cut, f"record {identity}: G2' one-anchor record with first_cut != cut")
+            check(residual == residual_bounds(box, cut), f"record {identity}: G2' residual bounds != D<cut slice")
             residual_box = (owner, ph, lower, upper, rank, positive, least, _cap(most, cut - 1))
             empty = not box_nonempty(residual_box)
             check(g2.get("full_cover") is empty,

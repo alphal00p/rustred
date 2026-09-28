@@ -74,11 +74,9 @@ impl<K: Copy + Eq> Ledger<K> {
                     {
                         // W0 G2' falsifier: anchors are committed Native
                         // entries of any ID, possibly partial themselves.
+                        let _ = anchor;
                         summary.partial_initial_inspections += 1;
-                        if status == ResolutionStatus::Discharged {
-                            status =
-                                self.anchor_chain_status(anchor.get() - 1, entry.key, &mut memo)?;
-                        }
+                        status = self.anchor_dag_status(id, entry.key, &mut memo)?;
                         if status != ResolutionStatus::Discharged {
                             summary.partial_initial_blocked += 1;
                         }
@@ -140,47 +138,59 @@ impl<K: Copy + Eq> Ledger<K> {
 }
 
 impl<K: Copy + Eq> Ledger<K> {
-    /// W0 G2' falsifier: the final status of a committed anchor, following its
-    /// own residual anchors. Anchor chains are strictly ordered in commit time,
-    /// so a revisit (cycle) is an invariant violation.
-    fn anchor_chain_status(
+    /// W0 G2' falsifier: the final status of an entry, following its residual
+    /// anchors (one or two; anchors may be partial themselves). Anchor links
+    /// are strictly ordered in commit time, so the graph is a DAG; a stack
+    /// deeper than the entry count is an invariant violation (cycle).
+    fn anchor_dag_status(
         &self,
         start: usize,
         key: K,
         memo: &mut [Option<ResolutionStatus>],
     ) -> Result<ResolutionStatus, Error> {
-        let mut path = Vec::new();
-        let mut current = start;
-        let status = loop {
-            if let Some(done) = memo.get(current).copied().flatten() {
-                break done;
+        let mut stack = vec![start];
+        while let Some(&node) = stack.last() {
+            if memo.get(node).copied().flatten().is_some() {
+                stack.pop();
+                continue;
             }
-            let entry = self
-                .entries
-                .get(current)
-                .ok_or(Error::InvalidInitialAnchor)?;
+            let entry = self.entries.get(node).ok_or(Error::InvalidInitialAnchor)?;
             let Responsibility::Local(local) = entry.responsibility else {
                 return Err(Error::InvalidInitialAnchor);
             };
-            if entry.key != key || path.len() > self.entries.len() {
+            if entry.key != key || stack.len() > self.entries.len() {
                 return Err(Error::InvalidInitialAnchor);
             }
             let own = local_status(local);
-            match entry.initial_anchor {
-                Some(next) if own == ResolutionStatus::Discharged => {
-                    path.push(current);
-                    current = next.get() - 1;
-                }
-                _ => {
-                    memo[current] = Some(own);
-                    break own;
-                }
+            let anchors = [
+                entry.initial_anchor.map(|a| a.get() - 1),
+                self.g2_second.get(&node).copied(),
+            ];
+            if own != ResolutionStatus::Discharged {
+                memo[node] = Some(own);
+                stack.pop();
+                continue;
             }
-        };
-        for id in path {
-            memo[id] = Some(status);
+            if anchors.iter().flatten().any(|&a| a >= memo.len()) {
+                return Err(Error::InvalidInitialAnchor);
+            }
+            if let Some(&pending) = anchors.iter().flatten().find(|&&a| memo[a].is_none()) {
+                stack.push(pending);
+                continue;
+            }
+            let status = anchors
+                .iter()
+                .flatten()
+                .map(|&a| memo[a].expect("resolved anchor"))
+                .find(|s| *s != ResolutionStatus::Discharged)
+                .unwrap_or(ResolutionStatus::Discharged);
+            memo[node] = Some(status);
+            stack.pop();
         }
-        Ok(status)
+        memo.get(start)
+            .copied()
+            .flatten()
+            .ok_or(Error::InvalidInitialAnchor)
     }
 }
 
