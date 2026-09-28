@@ -721,5 +721,42 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 list(AUDIT.stream_walk(path))
 
 
+
+class G2UnionCoverTest(unittest.TestCase):
+    """The audit's own G2' cover predicate against lattice-point enumeration."""
+
+    def test_union_cover_matches_enumeration_on_random_boxes(self):
+        import random
+        rng = random.Random(5)
+        owner = "101"
+
+        def box():
+            lower = tuple(rng.randrange(3) for _ in owner)
+            upper = tuple(low + rng.randrange(4) for low in lower)
+            least = rng.choice([None, rng.randrange(-2, 6)])
+            most = rng.choice([None, rng.randrange(2, 9)])
+            if least is not None and most is not None and least > most:
+                least, most = most, least
+            return (owner, "Apply", lower, upper, rng.randrange(5), 4 + rng.randrange(7), least, most)
+
+        decided = {True: 0, False: 0}
+        for _ in range(400):
+            q = box()
+            targets = [box() for _ in range(rng.randrange(1, 5))]
+            if rng.randrange(3) == 0:
+                # A residual D band of q plus q itself split in two bands.
+                owner_, phase, lower, upper, rank, positive, least, most = q
+                cut = rng.randrange(0, 10)
+                targets = [AUDIT.d_band(q, None, cut - 1), AUDIT.d_band(q, cut, None)] + targets[:1]
+            points = AUDIT.box_points(q, 10_000)
+            self.assertIsNotNone(points)
+            brute = all(any(AUDIT.box_member(t, p) for t in targets) for p in points)
+            covered = AUDIT.union_covered(q, targets)
+            self.assertEqual(covered, brute, (q, targets))
+            decided[brute] += 1
+        self.assertGreater(decided[True], 50)
+        self.assertGreater(decided[False], 50)
+
+
 if __name__ == "__main__":
     unittest.main()

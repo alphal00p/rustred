@@ -54,8 +54,9 @@ strict() { # reference-dir new-dir tag [compare args]
   log "STRICT $tag $gate verdict=$verdict rc=$rc checks ref=$cr new=$cn $(grep -o '"records": [0-9]*' $LOG/strict-$tag.json | head -1)"
   printf '%s\t%s\t%s\t%s\t%s\n' "$tag" "$gate" "$verdict" "$cr" "$cn" >> $LOG/strict-$SHA.tsv
 }
-oracle() { # run-dir tag cpus threads
+oracle() { # run-dir tag cpus threads   (NO_ORACLE=1: skip; run oracle_parallel.sh later)
   local dir=$1 tag=$2 cpus=$3 threads=$4
+  if [ -n "${NO_ORACLE:-}" ]; then log "ORACLE $tag deferred (NO_ORACLE)"; return; fi
   local start=$(date +%s)
   env RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
     BLIS_NUM_THREADS=1 SYMBOLICA_HIDE_BANNER=1 taskset -c $cpus nice -n 5 $BIN walk-verify-closure \
