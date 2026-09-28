@@ -75,7 +75,7 @@ def duty_between(a, b):
         for key in ("forward_scans", "forward_candidates", "forward_word_rejections", "forward_lane_rejections",
                     "forward_exact_tests", "forward_scan_seconds", "reverse_scans", "reverse_candidates",
                     "reverse_word_rejections", "reverse_lane_rejections", "reverse_exact_tests",
-                    "reverse_scan_seconds"):
+                    "reverse_scan_seconds", "reverse_prepared_candidates", "reverse_examined_candidates"):
             if kb.get(key) is not None:
                 k[key] = kb[key] - (ka.get(key) or 0)
         scan = k.get("forward_scan_seconds", 0.0) + k.get("reverse_scan_seconds", 0.0)
@@ -86,6 +86,11 @@ def duty_between(a, b):
         for side in ("forward", "reverse"):
             cand = k.get(f"{side}_candidates")
             k[f"{side}_ns_per_candidate"] = 1e9 * k.get(f"{side}_scan_seconds", 0.0) / cand if cand else None
+        # From 9e1c2175 the reverse timer spans the whole retirement call and its denominator is every
+        # examined candidate (helper-decided included); d9163195 divided by commit-decided IDs only.
+        examined = k.get("reverse_examined_candidates")
+        if examined:
+            k["reverse_retire_ns_per_examined_candidate"] = 1e9 * k.get("reverse_scan_seconds", 0.0) / examined
         out["admission_kernel"] = k
     sa, sb = pa.get("speculative_kernel") or {}, pb.get("speculative_kernel") or {}
     if isinstance(sb, dict) and sb:
