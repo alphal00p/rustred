@@ -306,13 +306,18 @@ def ram_rate(j, bygen):
         # net bytes per avoided domain: 0.5-0.84 KB minus (anchors - 1) extra edges at 8-16 B/edge
         lo = KB_PER_DOMAIN[0] * 1000 - (a - 1) * 16
         hi = KB_PER_DOMAIN[1] * 1000 - (a - 1) * 8
+        # RSS per unit of exploration relative to today when each avoided domain costs (anchors - 1) extra edges:
+        # (1 - c) + c (a - 1) e / B, worst case (B = 0.5 KB, e = 16 B) and best case (B = 0.84 KB, e = 8 B).
+        nw = 1 / ((1 - cov) + cov * (a - 1) * 16 / (KB_PER_DOMAIN[0] * 1000))
+        nb = 1 / ((1 - cov) + cov * (a - 1) * 8 / (KB_PER_DOMAIN[1] * 1000))
         rows.append([x, num(pop), pct(rcov), pct(ronly), f"{1 / (1 - ronly):.2f}x", pct(cov), f"{1 / (1 - cov):.2f}x", f"{a:.1f}",
-                     f"{lo:.0f}-{hi:.0f} B"])
+                     f"{lo:.0f}-{hi:.0f} B", f"{nw:.2f}-{nb:.2f}x"])
     print(f"Late-generation (admission g{j['generation']}) domain-creation view [E, first level, no cascade]:")
     print()
     print(table(["anchor set at admission", "g-last admitted domains", "Route covered", "Route-only lever: avoided share of all",
                  "Route-only factor", "both phases: covered", "both phases: factor 1/(1-c)",
-                 "mean anchors (all gens)", "net bytes saved per avoided domain (0.5-0.84 KB minus (anchors-1) x 8-16 B)"], rows))
+                 "mean anchors (all gens)", "net bytes saved per avoided domain (0.5-0.84 KB minus (anchors-1) x 8-16 B)",
+                 "both phases: net RSS factor incl. anchor edges"], rows))
     print()
 
 
