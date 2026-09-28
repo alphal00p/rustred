@@ -1,0 +1,29 @@
+{
+  "schema": "rustred.entry-domain.json.v1",
+  "sectors": [
+    "0111100000",
+    "0111110000",
+    "0111100100",
+    "0111100001",
+    "0111111000",
+    "0111110010",
+    "0111010101",
+    "0111100110",
+    "1111111000",
+    "1111110100",
+    "0111111100",
+    "0111111001",
+    "1111111100",
+    "0111111110",
+    "1111111110",
+    "0111111111"
+  ],
+  "budget": {
+    "max_positive_power": 19,
+    "max_numerator_rank": 12,
+    "min_power_difference": 7,
+    "max_power_difference": null
+  },
+  "max_preview_targets": 0,
+  "max_positive_layers_per_sector": 128
+}

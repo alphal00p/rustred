@@ -1,0 +1,270 @@
+{
+  "V4_semantics": "sum over vertices of (degree - 3); the quartic vertex count for degrees {3, 4}",
+  "coordinate_count": 10,
+  "enumeration": {
+    "degree_sequences": [
+      {
+        "V4": 3,
+        "degrees": [
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "V4": 2,
+        "degrees": [
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 1,
+        "degrees": [
+          4,
+          3,
+          3,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 0,
+        "degrees": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ]
+      }
+    ],
+    "distinct_skeletons_by_V4": {
+      "0": 5,
+      "1": 8,
+      "2": 9,
+      "3": 4
+    },
+    "labelled_leaves_by_V4": {
+      "0": 4720,
+      "1": 538,
+      "2": 76,
+      "3": 15
+    },
+    "owner_canonical_forms": 19,
+    "unmatched_reduced_skeletons_by_V4_and_t": {}
+  },
+  "inputs": {
+    "momenta_sha256": "a619209e9a7ab4a504eb23f4e48ec730411716469bcbda12aa09df49579e615e",
+    "parent_witnesses_sha256": "2d716da1e9156e79b563d2b4bd5766fccf3f4f5bc8d88dea3e50d05afa7d18c7"
+  },
+  "loops": 4,
+  "owner_count": 16,
+  "owners": {
+    "0111010101": {
+      "V4min": 1,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 6
+    },
+    "0111100000": {
+      "V4min": 3,
+      "closure_states": 15,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "3": 2
+      },
+      "t": 4
+    },
+    "0111100001": {
+      "V4min": null,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": false,
+      "parent": 511,
+      "skeleton_counts_by_V4": {},
+      "t": 5
+    },
+    "0111100100": {
+      "V4min": 3,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 5
+    },
+    "0111100110": {
+      "V4min": 3,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 6
+    },
+    "0111110000": {
+      "V4min": 2,
+      "closure_states": 6,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "2": 3
+      },
+      "t": 5
+    },
+    "0111110010": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 6
+    },
+    "0111111000": {
+      "V4min": 1,
+      "closure_states": 4,
+      "connected_forms": 2,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "1": 2,
+        "2": 2
+      },
+      "t": 6
+    },
+    "0111111001": {
+      "V4min": 2,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 7
+    },
+    "0111111100": {
+      "V4min": 0,
+      "closure_states": 2,
+      "connected_forms": 2,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 7
+    },
+    "0111111110": {
+      "V4min": 1,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 8
+    },
+    "0111111111": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 511,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 9
+    },
+    "1111110100": {
+      "V4min": 1,
+      "closure_states": 5,
+      "connected_forms": 1,
+      "connected_states": 4,
+      "entry_capable": true,
+      "parent": 1022,
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 7
+    },
+    "1111111000": {
+      "V4min": 0,
+      "closure_states": 3,
+      "connected_forms": 1,
+      "connected_states": 3,
+      "entry_capable": true,
+      "parent": 1022,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 7
+    },
+    "1111111100": {
+      "V4min": 0,
+      "closure_states": 2,
+      "connected_forms": 1,
+      "connected_states": 2,
+      "entry_capable": true,
+      "parent": 1022,
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 8
+    },
+    "1111111110": {
+      "V4min": 0,
+      "closure_states": 1,
+      "connected_forms": 1,
+      "connected_states": 1,
+      "entry_capable": true,
+      "parent": 1022,
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 9
+    }
+  },
+  "role": "offline input planning; native admission remains the coverage authority",
+  "schema": "rustred.vacuum-skeleton-classification.json.v1",
+  "vertex_degrees": {
+    "max": 4,
+    "min": 3
+  }
+}

@@ -1,0 +1,1093 @@
+{
+  "schema": "rustred.owner-domain-queries.json.v2",
+  "queries": [
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111100000",
+      "owner": "0111100000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        15,
+        15,
+        15,
+        15,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111110000",
+      "owner": "0111110000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        14,
+        14,
+        14,
+        14,
+        14,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111100100",
+      "owner": "0111100100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        14,
+        14,
+        14,
+        14,
+        12,
+        12,
+        14,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111100001",
+      "owner": "0111100001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        14,
+        14,
+        14,
+        14,
+        12,
+        12,
+        12,
+        12,
+        14
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111111000",
+      "owner": "0111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111110010",
+      "owner": "0111110010",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        13,
+        13,
+        13,
+        13,
+        13,
+        12,
+        12,
+        13,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111010101",
+      "owner": "0111010101",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        13,
+        13,
+        13,
+        12,
+        13,
+        12,
+        13,
+        12,
+        13
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111100110",
+      "owner": "0111100110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        13,
+        13,
+        13,
+        13,
+        12,
+        12,
+        13,
+        13,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-1111111000",
+      "owner": "1111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-1111110100",
+      "owner": "1111110100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111111100",
+      "owner": "0111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111111001",
+      "owner": "0111111001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-1111111100",
+      "owner": "1111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        12,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111111110",
+      "owner": "0111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-1111111110",
+      "owner": "1111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        12
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "four-loop-all-full-jet-a19-r12-d7-0111111111",
+      "owner": "0111111111",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        12,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": 19,
+        "min_power_difference": 7,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111100000",
+      "owner": "0111100000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111110000",
+      "owner": "0111110000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111100100",
+      "owner": "0111100100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111100001",
+      "owner": "0111100001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111111000",
+      "owner": "0111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111110010",
+      "owner": "0111110010",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111010101",
+      "owner": "0111010101",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111100110",
+      "owner": "0111100110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-1111111000",
+      "owner": "1111111000",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-1111110100",
+      "owner": "1111110100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111111100",
+      "owner": "0111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111111001",
+      "owner": "0111111001",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-1111111100",
+      "owner": "1111111100",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111111110",
+      "owner": "0111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-1111111110",
+      "owner": "1111111110",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    },
+    {
+      "id": "owner-anchor-r12-anone-0111111111",
+      "owner": "0111111111",
+      "lower": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "upper": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "max_numerator_rank": 12,
+      "power_bounds": {
+        "max_positive_power": null,
+        "min_power_difference": null,
+        "max_power_difference": null
+      }
+    }
+  ]
+}

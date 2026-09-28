@@ -1,0 +1,1086 @@
+{
+  "classification_source": {
+    "kind": "computed"
+  },
+  "descendant_clipping": false,
+  "family_closure_claim": false,
+  "inputs": {
+    "manifest": {
+      "path": "inputs/selection.json",
+      "sha256": "e91dc9e57e59688b95359a6a96049351620a5605fec4fe8c92381e08eab69ef8"
+    },
+    "momenta": {
+      "path": "/common/dev/rustred/.claude/worktrees/fable51-c4l/examples/input/four_loop_combined/four_loop_common_manifest.json",
+      "sha256": "a619209e9a7ab4a504eb23f4e48ec730411716469bcbda12aa09df49579e615e"
+    },
+    "parent_witnesses": {
+      "path": "/common/dev/rustred/.claude/worktrees/fable51-c4l/examples/input/four_loop_combined/four_loop_common_parent_vertices.json",
+      "sha256": "2d716da1e9156e79b563d2b4bd5766fccf3f4f5bc8d88dea3e50d05afa7d18c7"
+    }
+  },
+  "owners": [
+    {
+      "V4min": 3,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r9-anone-0111100000",
+        "max_numerator_rank": 9,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111100000",
+      "parent": 511,
+      "published_sector": 480,
+      "representative": 960,
+      "roots": [
+        {
+          "A_max": 16,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 9,
+          "active_upper": 12,
+          "closed_form_count": 4174742,
+          "id": "nested-d7p-a16-r9-0111100000",
+          "inactive_upper": 9,
+          "kind": "nested",
+          "target_count": "4174742"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "3": 2
+      },
+      "t": 4
+    },
+    {
+      "V4min": 2,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r10-anone-0111110000",
+        "max_numerator_rank": 10,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111110000",
+      "parent": 511,
+      "published_sector": 496,
+      "representative": 992,
+      "roots": [
+        {
+          "A_max": 17,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 10,
+          "active_upper": 12,
+          "closed_form_count": 10399818,
+          "id": "nested-d7p-a17-r10-0111110000",
+          "inactive_upper": 10,
+          "kind": "nested",
+          "target_count": "10399818"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "2": 3
+      },
+      "t": 5
+    },
+    {
+      "V4min": 3,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r9-anone-0111100100",
+        "max_numerator_rank": 9,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111100100",
+      "parent": 511,
+      "published_sector": 484,
+      "representative": 961,
+      "roots": [
+        {
+          "A_max": 16,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 9,
+          "active_upper": 11,
+          "closed_form_count": 4934358,
+          "id": "nested-d7p-a16-r9-0111100100",
+          "inactive_upper": 9,
+          "kind": "nested",
+          "target_count": "4934358"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 5
+    },
+    {
+      "V4min": null,
+      "class": "non_entry",
+      "entry_capable": false,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-0111100001",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111100001",
+      "parent": 511,
+      "published_sector": 481,
+      "representative": 841,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 8,
+          "closed_form_count": 95095,
+          "id": "conv-d8-a13-r5-0111100001",
+          "inactive_upper": 5,
+          "kind": "conv",
+          "target_count": "95095"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 6,
+          "closed_form_count": 20350,
+          "id": "conv-d7-a11-r4-0111100001",
+          "inactive_upper": 4,
+          "kind": "conv",
+          "target_count": "20350"
+        }
+      ],
+      "skeleton_counts_by_V4": {},
+      "t": 5
+    },
+    {
+      "V4min": 1,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r11-anone-0111111000",
+        "max_numerator_rank": 11,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111111000",
+      "parent": 511,
+      "published_sector": 504,
+      "representative": 1008,
+      "roots": [
+        {
+          "A_max": 18,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 11,
+          "active_upper": 12,
+          "closed_form_count": 16629366,
+          "id": "nested-d7p-a18-r11-0111111000",
+          "inactive_upper": 11,
+          "kind": "nested",
+          "target_count": "16629366"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "1": 2,
+        "2": 2
+      },
+      "t": 6
+    },
+    {
+      "V4min": 2,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r3-anone-0111110010",
+        "max_numerator_rank": 3,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111110010",
+      "parent": 511,
+      "published_sector": 498,
+      "representative": 993,
+      "roots": [
+        {
+          "A_max": 11,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 3,
+          "active_upper": 5,
+          "closed_form_count": 6545,
+          "id": "phys-d8-a11-r3-0111110010",
+          "inactive_upper": 3,
+          "kind": "phys",
+          "target_count": "6545"
+        },
+        {
+          "A_max": 9,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 2,
+          "active_upper": 3,
+          "closed_form_count": 650,
+          "id": "phys-d7-a9-r2-0111110010",
+          "inactive_upper": 2,
+          "kind": "phys",
+          "target_count": "650"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 6
+    },
+    {
+      "V4min": 1,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r11-anone-0111010101",
+        "max_numerator_rank": 11,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111010101",
+      "parent": 511,
+      "published_sector": 469,
+      "representative": 978,
+      "roots": [
+        {
+          "A_max": 18,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 11,
+          "active_upper": 12,
+          "closed_form_count": 16629366,
+          "id": "nested-d7p-a18-r11-0111010101",
+          "inactive_upper": 11,
+          "kind": "nested",
+          "target_count": "16629366"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 6
+    },
+    {
+      "V4min": 3,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r2-anone-0111100110",
+        "max_numerator_rank": 2,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111100110",
+      "parent": 511,
+      "published_sector": 486,
+      "representative": 952,
+      "roots": [
+        {
+          "A_max": 10,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 2,
+          "active_upper": 4,
+          "closed_form_count": 1505,
+          "id": "phys-d8-a10-r2-0111100110",
+          "inactive_upper": 2,
+          "kind": "phys",
+          "target_count": "1505"
+        },
+        {
+          "A_max": 8,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 1,
+          "active_upper": 2,
+          "closed_form_count": 90,
+          "id": "phys-d7-a8-r1-0111100110",
+          "inactive_upper": 1,
+          "kind": "phys",
+          "target_count": "90"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "3": 1
+      },
+      "t": 6
+    },
+    {
+      "V4min": 0,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-1111111000",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "1111111000",
+      "parent": 1022,
+      "published_sector": 1016,
+      "representative": 1016,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 6,
+          "closed_form_count": 29029,
+          "id": "phys-d8-a13-r5-1111111000",
+          "inactive_upper": 5,
+          "kind": "phys",
+          "target_count": "29029"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 4,
+          "closed_form_count": 4180,
+          "id": "phys-d7-a11-r4-1111111000",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "4180"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 7
+    },
+    {
+      "V4min": 1,
+      "class": "factorized",
+      "entry_capable": true,
+      "factorized": true,
+      "helper": {
+        "id": "owner-anchor-r11-anone-1111110100",
+        "max_numerator_rank": 11,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "1111110100",
+      "parent": 1022,
+      "published_sector": 1012,
+      "representative": 1012,
+      "roots": [
+        {
+          "A_max": 18,
+          "D_max": null,
+          "D_min": 7,
+          "R_max": 11,
+          "active_upper": 11,
+          "closed_form_count": 8710494,
+          "id": "nested-d7p-a18-r11-1111110100",
+          "inactive_upper": 11,
+          "kind": "nested",
+          "target_count": "8710494"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 7
+    },
+    {
+      "V4min": 0,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-0111111100",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111111100",
+      "parent": 511,
+      "published_sector": 508,
+      "representative": 1010,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 6,
+          "closed_form_count": 29029,
+          "id": "phys-d8-a13-r5-0111111100",
+          "inactive_upper": 5,
+          "kind": "phys",
+          "target_count": "29029"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 4,
+          "closed_form_count": 4180,
+          "id": "phys-d7-a11-r4-0111111100",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "4180"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1,
+        "2": 1
+      },
+      "t": 7
+    },
+    {
+      "V4min": 2,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r3-anone-0111111001",
+        "max_numerator_rank": 3,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111111001",
+      "parent": 511,
+      "published_sector": 505,
+      "representative": 1009,
+      "roots": [
+        {
+          "A_max": 11,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 3,
+          "active_upper": 4,
+          "closed_form_count": 2695,
+          "id": "phys-d8-a11-r3-0111111001",
+          "inactive_upper": 3,
+          "kind": "phys",
+          "target_count": "2695"
+        },
+        {
+          "A_max": 9,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 2,
+          "active_upper": 2,
+          "closed_form_count": 190,
+          "id": "phys-d7-a9-r2-0111111001",
+          "inactive_upper": 2,
+          "kind": "phys",
+          "target_count": "190"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "2": 1
+      },
+      "t": 7
+    },
+    {
+      "V4min": 0,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-1111111100",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "1111111100",
+      "parent": 1022,
+      "published_sector": 1020,
+      "representative": 1020,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 5,
+          "closed_form_count": 7007,
+          "id": "phys-d8-a13-r5-1111111100",
+          "inactive_upper": 5,
+          "kind": "phys",
+          "target_count": "7007"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 3,
+          "closed_form_count": 770,
+          "id": "phys-d7-a11-r4-1111111100",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "770"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "0": 1,
+        "1": 1
+      },
+      "t": 8
+    },
+    {
+      "V4min": 1,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r4-anone-0111111110",
+        "max_numerator_rank": 4,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111111110",
+      "parent": 511,
+      "published_sector": 510,
+      "representative": 1011,
+      "roots": [
+        {
+          "A_max": 12,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 4,
+          "active_upper": 4,
+          "closed_form_count": 2255,
+          "id": "phys-d8-a12-r4-0111111110",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "2255"
+        },
+        {
+          "A_max": 10,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 3,
+          "active_upper": 2,
+          "closed_form_count": 170,
+          "id": "phys-d7-a10-r3-0111111110",
+          "inactive_upper": 3,
+          "kind": "phys",
+          "target_count": "170"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "1": 1
+      },
+      "t": 8
+    },
+    {
+      "V4min": 0,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-1111111110",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "1111111110",
+      "parent": 1022,
+      "published_sector": 1022,
+      "representative": 1022,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 4,
+          "closed_form_count": 715,
+          "id": "phys-d8-a13-r5-1111111110",
+          "inactive_upper": 5,
+          "kind": "phys",
+          "target_count": "715"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 2,
+          "closed_form_count": 55,
+          "id": "phys-d7-a11-r4-1111111110",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "55"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 9
+    },
+    {
+      "V4min": 0,
+      "class": "connected",
+      "entry_capable": true,
+      "factorized": false,
+      "helper": {
+        "id": "owner-anchor-r5-anone-0111111111",
+        "max_numerator_rank": 5,
+        "max_positive_power": null
+      },
+      "ordinal": null,
+      "owner": "0111111111",
+      "parent": 511,
+      "published_sector": 511,
+      "representative": 511,
+      "roots": [
+        {
+          "A_max": 13,
+          "D_max": 8,
+          "D_min": 8,
+          "R_max": 5,
+          "active_upper": 4,
+          "closed_form_count": 715,
+          "id": "phys-d8-a13-r5-0111111111",
+          "inactive_upper": 5,
+          "kind": "phys",
+          "target_count": "715"
+        },
+        {
+          "A_max": 11,
+          "D_max": 7,
+          "D_min": 7,
+          "R_max": 4,
+          "active_upper": 2,
+          "closed_form_count": 55,
+          "id": "phys-d7-a11-r4-0111111111",
+          "inactive_upper": 4,
+          "kind": "phys",
+          "target_count": "55"
+        }
+      ],
+      "skeleton_counts_by_V4": {
+        "0": 1
+      },
+      "t": 9
+    }
+  ],
+  "physics": {
+    "coordinate_convention": "local: active x = n - 1 >= 0, inactive y = -n >= 0; A = t + sum x, R = sum y, D = A - R",
+    "difference_set": [
+      8,
+      7
+    ],
+    "factorized_roots": "nested",
+    "formulas": {
+      "box_factorized_root": "connected formulas at the owner's V4min",
+      "connected_root": {
+        "A_max": "R_max + D",
+        "D": "exact, one root per difference-set value",
+        "R_max": "D - L + 1 - V4min + K"
+      },
+      "coordinate_uppers": {
+        "active": "A_max - t",
+        "inactive": "R_max"
+      },
+      "helper": {
+        "difference_bounds": null,
+        "lower": 0,
+        "max_numerator_rank": "largest root R_max",
+        "max_positive_power": "largest root A_max for listed owners, else null",
+        "upper": null
+      },
+      "nested_factorized_root": {
+        "A_max": "5L - 1 - V4min + K",
+        "D_max": null,
+        "D_min": "2L - 1",
+        "R_max": "3L - V4min + K"
+      },
+      "non_entry_root": "connected formulas at V4min = 0"
+    },
+    "gauge": "feynman",
+    "gauge_parameter_powers": 0,
+    "helper_positive_power_owners": [],
+    "id_prefixes": {
+      "connected": "phys",
+      "factorized_box": "fact",
+      "factorized_nested": "nested",
+      "helper": "owner-anchor-",
+      "non_entry": "conv"
+    },
+    "loops": 4,
+    "non_entry_roots": "widest",
+    "vertex_degrees": {
+      "max": 4,
+      "min": 3
+    }
+  },
+  "planner": {
+    "argv": [
+      "--loops",
+      "4",
+      "--manifest",
+      "inputs/selection.json",
+      "--momenta",
+      "/common/dev/rustred/.claude/worktrees/fable51-c4l/examples/input/four_loop_combined/four_loop_common_manifest.json",
+      "--parent-witnesses",
+      "/common/dev/rustred/.claude/worktrees/fable51-c4l/examples/input/four_loop_combined/four_loop_common_parent_vertices.json",
+      "--gauge",
+      "feynman",
+      "--difference-set",
+      "7,8",
+      "--executable",
+      "bin/rustred-4a17f9c7",
+      "--output-directory",
+      "<output-directory>"
+    ],
+    "executable": {
+      "path": "bin/rustred-4a17f9c7",
+      "sha256": "4a17f9c7c0447713370a1aed2e54c9a04251106a9183fd1b8a86dc5d1abb395e"
+    },
+    "git_head": "b15316b93834b1a024d4ecc6a4e3e3f6bb7a7fb7",
+    "python_version": "3.11.15",
+    "script": "plan_renormalization_entry_queries.py",
+    "script_sha256": "fd328fe28698f3323b6379fb0a6e81eb15ca8067de7d393ecebf20bcb0e3bf11"
+  },
+  "role": "offline input planning; native admission remains the coverage authority",
+  "schema": "rustred.renormalization-entry-plan.json.v1",
+  "skeleton_enumeration": {
+    "degree_sequences": [
+      {
+        "V4": 3,
+        "degrees": [
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "V4": 2,
+        "degrees": [
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 1,
+        "degrees": [
+          4,
+          3,
+          3,
+          3,
+          3
+        ]
+      },
+      {
+        "V4": 0,
+        "degrees": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ]
+      }
+    ],
+    "distinct_skeletons_by_V4": {
+      "0": 5,
+      "1": 8,
+      "2": 9,
+      "3": 4
+    },
+    "labelled_leaves_by_V4": {
+      "0": 4720,
+      "1": 538,
+      "2": 76,
+      "3": 15
+    },
+    "owner_canonical_forms": 19,
+    "unmatched_reduced_skeletons_by_V4_and_t": {}
+  },
+  "summary": {
+    "V4min_histogram_by_class": {
+      "connected": {
+        "0": 5,
+        "1": 1,
+        "2": 2,
+        "3": 1
+      },
+      "factorized": {
+        "1": 3,
+        "2": 1,
+        "3": 2
+      }
+    },
+    "budget_groups": [
+      {
+        "budget": {
+          "max_numerator_rank": 11,
+          "max_positive_power": 18,
+          "max_power_difference": null,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a18-r11-dmin7-dmaxnone",
+        "plan_path": "entry-plans/a18-r11-dmin7-dmaxnone.json",
+        "root_ids": [
+          "nested-d7p-a18-r11-0111111000",
+          "nested-d7p-a18-r11-0111010101",
+          "nested-d7p-a18-r11-1111110100"
+        ],
+        "sectors": [
+          "0111111000",
+          "0111010101",
+          "1111110100"
+        ],
+        "total_target_count": "41969226"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 10,
+          "max_positive_power": 17,
+          "max_power_difference": null,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a17-r10-dmin7-dmaxnone",
+        "plan_path": "entry-plans/a17-r10-dmin7-dmaxnone.json",
+        "root_ids": [
+          "nested-d7p-a17-r10-0111110000"
+        ],
+        "sectors": [
+          "0111110000"
+        ],
+        "total_target_count": "10399818"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 9,
+          "max_positive_power": 16,
+          "max_power_difference": null,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a16-r9-dmin7-dmaxnone",
+        "plan_path": "entry-plans/a16-r9-dmin7-dmaxnone.json",
+        "root_ids": [
+          "nested-d7p-a16-r9-0111100000",
+          "nested-d7p-a16-r9-0111100100"
+        ],
+        "sectors": [
+          "0111100000",
+          "0111100100"
+        ],
+        "total_target_count": "9109100"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 5,
+          "max_positive_power": 13,
+          "max_power_difference": 8,
+          "min_power_difference": 8
+        },
+        "count_source": "rust",
+        "name": "a13-r5-dmin8-dmax8",
+        "plan_path": "entry-plans/a13-r5-dmin8-dmax8.json",
+        "root_ids": [
+          "conv-d8-a13-r5-0111100001",
+          "phys-d8-a13-r5-1111111000",
+          "phys-d8-a13-r5-0111111100",
+          "phys-d8-a13-r5-1111111100",
+          "phys-d8-a13-r5-1111111110",
+          "phys-d8-a13-r5-0111111111"
+        ],
+        "sectors": [
+          "0111100001",
+          "1111111000",
+          "0111111100",
+          "1111111100",
+          "1111111110",
+          "0111111111"
+        ],
+        "total_target_count": "161590"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 4,
+          "max_positive_power": 12,
+          "max_power_difference": 8,
+          "min_power_difference": 8
+        },
+        "count_source": "rust",
+        "name": "a12-r4-dmin8-dmax8",
+        "plan_path": "entry-plans/a12-r4-dmin8-dmax8.json",
+        "root_ids": [
+          "phys-d8-a12-r4-0111111110"
+        ],
+        "sectors": [
+          "0111111110"
+        ],
+        "total_target_count": "2255"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 4,
+          "max_positive_power": 11,
+          "max_power_difference": 7,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a11-r4-dmin7-dmax7",
+        "plan_path": "entry-plans/a11-r4-dmin7-dmax7.json",
+        "root_ids": [
+          "conv-d7-a11-r4-0111100001",
+          "phys-d7-a11-r4-1111111000",
+          "phys-d7-a11-r4-0111111100",
+          "phys-d7-a11-r4-1111111100",
+          "phys-d7-a11-r4-1111111110",
+          "phys-d7-a11-r4-0111111111"
+        ],
+        "sectors": [
+          "0111100001",
+          "1111111000",
+          "0111111100",
+          "1111111100",
+          "1111111110",
+          "0111111111"
+        ],
+        "total_target_count": "29590"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 3,
+          "max_positive_power": 11,
+          "max_power_difference": 8,
+          "min_power_difference": 8
+        },
+        "count_source": "rust",
+        "name": "a11-r3-dmin8-dmax8",
+        "plan_path": "entry-plans/a11-r3-dmin8-dmax8.json",
+        "root_ids": [
+          "phys-d8-a11-r3-0111110010",
+          "phys-d8-a11-r3-0111111001"
+        ],
+        "sectors": [
+          "0111110010",
+          "0111111001"
+        ],
+        "total_target_count": "9240"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 3,
+          "max_positive_power": 10,
+          "max_power_difference": 7,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a10-r3-dmin7-dmax7",
+        "plan_path": "entry-plans/a10-r3-dmin7-dmax7.json",
+        "root_ids": [
+          "phys-d7-a10-r3-0111111110"
+        ],
+        "sectors": [
+          "0111111110"
+        ],
+        "total_target_count": "170"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 2,
+          "max_positive_power": 10,
+          "max_power_difference": 8,
+          "min_power_difference": 8
+        },
+        "count_source": "rust",
+        "name": "a10-r2-dmin8-dmax8",
+        "plan_path": "entry-plans/a10-r2-dmin8-dmax8.json",
+        "root_ids": [
+          "phys-d8-a10-r2-0111100110"
+        ],
+        "sectors": [
+          "0111100110"
+        ],
+        "total_target_count": "1505"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 2,
+          "max_positive_power": 9,
+          "max_power_difference": 7,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a9-r2-dmin7-dmax7",
+        "plan_path": "entry-plans/a9-r2-dmin7-dmax7.json",
+        "root_ids": [
+          "phys-d7-a9-r2-0111110010",
+          "phys-d7-a9-r2-0111111001"
+        ],
+        "sectors": [
+          "0111110010",
+          "0111111001"
+        ],
+        "total_target_count": "840"
+      },
+      {
+        "budget": {
+          "max_numerator_rank": 1,
+          "max_positive_power": 8,
+          "max_power_difference": 7,
+          "min_power_difference": 7
+        },
+        "count_source": "rust",
+        "name": "a8-r1-dmin7-dmax7",
+        "plan_path": "entry-plans/a8-r1-dmin7-dmax7.json",
+        "root_ids": [
+          "phys-d7-a8-r1-0111100110"
+        ],
+        "sectors": [
+          "0111100110"
+        ],
+        "total_target_count": "90"
+      }
+    ],
+    "class_counts": {
+      "connected": 9,
+      "factorized": 6,
+      "non_entry": 1
+    },
+    "count_source": "rust",
+    "helper_count": 16,
+    "owner_count": 16,
+    "queries_bytes": 22687,
+    "queries_sha256": "bc30baf241c2aac5a8fc035c9124d068e9ebf8d077afcd440bd3ee0b3dbb2037",
+    "query_count": 42,
+    "query_order": "selection owner order; helper first, then roots by descending R_max",
+    "root_count": 26,
+    "total_target_count": "61683424"
+  }
+}
