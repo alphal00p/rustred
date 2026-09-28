@@ -43,6 +43,7 @@ The matrix is written as JSON; the exit status is 0 only if every row holds.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
 import os
@@ -274,7 +275,9 @@ def closed_roots(report):
     return counts.get("roots_oracle_closed"), counts.get("roots")
 
 
-def rust_matrix(binary, runs, directory, threads, frontier_expect):
+def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
+    """Baselines first (their closed-root counts anchor the closure effects),
+    then every other row, `jobs` verifier processes at a time."""
     rows = []
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -315,32 +318,36 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect):
         verified = sum(entry.get("independently_verified", 0) for entry in classes.values())
         return {"no_root_independently_verified": verified == 0}
 
-    for name in ("drained", "frontier"):
-        if runs.get(name) is None:
-            continue
-        plain = row_for(f"baseline-{name}", name, None, [], "PASS", set())
+    names = [name for name in ("drained", "frontier") if runs.get(name) is not None]
+    with ThreadPoolExecutor(max(1, jobs)) as pool:
+        plains = list(pool.map(lambda name: row_for(f"baseline-{name}", name, None, [], "PASS", set()), names))
+    later = []
+    for name, plain in zip(names, plains):
         rows.append(plain)
         closed, roots = plain["roots_oracle_closed"], plain["roots"]
         if name == "frontier":
             required = {"closure_required"}
             checks = (lambda r, e=frontier_expect: {"frontier_closed_roots": closed_roots(r) == e}) \
                 if frontier_expect else None
-            row = row_for(f"baseline-{name}-require-closure", name, None, ["--require-closure"], "FAIL", required,
-                          counts={"closure_required": roots - closed} if roots is not None and closed is not None
-                          else None, extra_checks=checks)
+            later.append(dict(label=f"baseline-{name}-require-closure", run_name=name, mutation=None,
+                              extra=["--require-closure"], expected_verdict="FAIL", expected_classes=required,
+                              counts={"closure_required": roots - closed}
+                              if roots is not None and closed is not None else None, extra_checks=checks))
         else:
-            row = row_for(f"baseline-{name}-require-closure", name, None, ["--require-closure"], "PASS", set(),
-                          extra_checks=lambda r: {"all_roots_closed": closed_roots(r)[0] == closed_roots(r)[1]})
-        rows.append(row)
-        baseline_closed[name] = row["roots_oracle_closed"]
+            later.append(dict(label=f"baseline-{name}-require-closure", run_name=name, mutation=None,
+                              extra=["--require-closure"], expected_verdict="PASS", expected_classes=set(),
+                              extra_checks=lambda r: {"all_roots_closed": closed_roots(r)[0] == closed_roots(r)[1]}))
+        # --require-closure does not change the re-derived closure: the plain
+        # baseline's count anchors every mutation's closure effect.
+        baseline_closed[name] = closed
     if runs.get("drained") is not None:
         # Partial or no re-inspection is never a PASS, even over a real defect F10 alone sees.
         for label, extra in (("partial-none", ["--reinspect", "none"]),
                              ("partial-sample", ["--reinspect", "sample:10:1"]),
                              ("partial-none-dropped-edge", ["--reinspect", "none", "--mutate", "dropped-edge"])):
             mutation = "dropped-edge" if "--mutate" in extra else None
-            rows.append(row_for(label, "drained", mutation, extra + ["--require-closure"], "INCOMPLETE", set(),
-                                extra_checks=unverified))
+            later.append(dict(label=label, run_name="drained", mutation=mutation, extra=extra + ["--require-closure"],
+                              expected_verdict="INCOMPLETE", expected_classes=set(), extra_checks=unverified))
     for kind, (target, verdict, classes, closure, counts) in RUST_MUTATIONS.items():
         if runs.get(target) is None:
             rows.append({"oracle": "walk-verify-closure", "run": target, "mutation": kind, "ok": False,
@@ -351,8 +358,11 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect):
             tally = (report.get("reinspection") or {}).get("tally") or {}
             return {"alias_chain_exercised": tally.get("covered_along_alias_chain", 0) >= 1} \
                 if kind == "alias-chain-detour" else {}
-        rows.append(row_for(f"mutation-{kind}", target, kind, ["--require-closure", "--mutate", kind], verdict,
-                            classes, counts, closure, chain))
+        later.append(dict(label=f"mutation-{kind}", run_name=target, mutation=kind,
+                          extra=["--require-closure", "--mutate", kind], expected_verdict=verdict,
+                          expected_classes=classes, counts=counts, closure=closure, extra_checks=chain))
+    with ThreadPoolExecutor(max(1, jobs)) as pool:
+        rows += list(pool.map(lambda spec: row_for(**spec), later))
     return rows
 
 
@@ -363,7 +373,8 @@ def main(argv=None):
     parser.add_argument("--frontier-run", type=Path, help="walk run directory that retains frontiers")
     parser.add_argument("--frontier-expect-closed", help="exact closed/total roots of the frontier run, e.g. 60/124")
     parser.add_argument("--rustred", type=Path, help="rustred executable with walk-verify-closure")
-    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=1, help="threads per verifier process")
+    parser.add_argument("--jobs", type=int, default=1, help="verifier processes run at a time")
     parser.add_argument("--output", type=Path, required=True, help="matrix JSON; Rust reports go next to it")
     parser.add_argument("--skip-python", action="store_true")
     parser.add_argument("--only", nargs="*", help="run only these Rust mutation kinds (baselines always run)")
@@ -379,7 +390,8 @@ def main(argv=None):
                 del RUST_MUTATIONS[kind]
     rows = [] if args.skip_python else python_matrix(runs)
     if args.rustred is not None:
-        rows += rust_matrix(args.rustred, runs, args.output.with_suffix(""), args.threads, frontier_expect)
+        rows += rust_matrix(args.rustred, runs, args.output.with_suffix(""), args.threads, frontier_expect,
+                            args.jobs)
     matrix = {"schema": "rustred.oracle-mutation-matrix.v2", "runs": {k: str(v) for k, v in runs.items()},
               "rustred": None if args.rustred is None else str(args.rustred),
               "frontier_expect_closed": args.frontier_expect_closed,
