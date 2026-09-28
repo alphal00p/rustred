@@ -37,6 +37,7 @@
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
 #[cfg(test)]
 mod e2e_tests;
+mod epoch_export;
 mod graph;
 mod lattice;
 mod result_binding;
@@ -587,6 +588,9 @@ struct Loaded<const N: usize> {
     /// inspected natively (checked against the D < cut slice and used in the
     /// exact union cover `Q <= anchor u residual`).
     residuals: BTreeMap<usize, DomainPowerBounds>,
+    /// An epoch (walk semantics 3) S2 export: its raw ledger6, edge runs and
+    /// anchors for the epoch-specific re-derivations.
+    epoch: Option<epoch_export::EpochSections>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -616,7 +620,12 @@ fn load<const N: usize>(
     digests: bool,
     violations: &mut Violations,
 ) -> Result<Loaded<N>, String> {
-    let mut raw = checkpoint::read_raw::<N>(&options.checkpoint)?;
+    let (mut raw, epoch) = if options.checkpoint.join(epoch_export::MANIFEST).is_file() {
+        let (raw, sections) = epoch_export::read_raw::<N>(&options.checkpoint)?;
+        (raw, Some(sections))
+    } else {
+        (checkpoint::read_raw::<N>(&options.checkpoint)?, None)
+    };
     let domains = std::mem::take(&mut raw.domains);
     let total = domains.len();
     if raw.flags.len() != total {
@@ -675,6 +684,7 @@ fn load<const N: usize>(
         nodes,
         digests: record_digests,
         residuals,
+        epoch,
     })
 }
 
@@ -1545,7 +1555,30 @@ fn verify<const N: usize>(
         }
         None => None,
     };
-    let bound = checkpoint::request_binding(request) == loaded.raw.request;
+    // Walk semantics 3 binds its own request digest (A7: workers, schedule
+    // and aggregate allowances are not bound).
+    let bound = if loaded.raw.publication_policy == "epoch" {
+        checkpoint::epoch_request_binding(request)
+    } else {
+        checkpoint::request_binding(request)
+    } == loaded.raw.request;
+    if let Some(sections) = &loaded.epoch {
+        let nodes = &loaded.nodes;
+        let record_of = |id: usize| {
+            nodes.get(id).and_then(|node| match node.kind {
+                Kind::Native | Kind::Partial => Some((true, node.frontiers, node.error, None)),
+                Kind::Alias => Some((false, 0, false, Some(node.link))),
+                Kind::Missing => None,
+            })
+        };
+        epoch_export::check(
+            sections,
+            &loaded.domains,
+            &loaded.raw.flags,
+            &record_of,
+            &mut |class, message| violations.add(class, || message),
+        );
+    }
     if !bound {
         violations.add("binding", || {
             "checkpoint request digest differs from the command's request/queries binding".into()
