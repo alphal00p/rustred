@@ -21,7 +21,7 @@ set -euo pipefail
 : "${BIN:?}" "${FIXTURE:?}" "${OUT:?}" "${CPUS:?}"
 THREADS=${THREADS:-1}; SINK=${SINK:-count}; ORDER=${ORDER:-fixture}
 NUMA=${NUMA:-none}; ALLOC=${ALLOC:-glibc}; PERF=${PERF:-stat}; NICE=${NICE:-5}
-PERF_BIN=${PERF_BIN:-/nix/store/gyp2si1k1w7jhw8z4xx1bwr2m0pr5445-perf-linux-7.2/bin/perf}
+PERF_BIN=${PERF_BIN:-/nix/store/wizn21b9virxqcnm4n89b09pgqkaxfn3-perf-linux-7.2.5/bin/perf}
 NUMACTL=${NUMACTL:-/nix/store/00p2pzg3i0bdlg9iab09jyr46lnvpi6n-numactl-2.0.18/bin/numactl}
 MIMALLOC=${MIMALLOC:-/nix/store/6h8sd8vcrmcmaa76qflq3yxhk2c0i78x-mimalloc-3.4.5/lib/libmimalloc.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
