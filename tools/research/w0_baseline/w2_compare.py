@@ -114,8 +114,19 @@ def summarize(run, window, slack, end_override=None):
     launch = timeline["launch_unix_time"]
     t0 = timeline["traversal_unix_time"]
     stop = timeline.get("stop_request_unix_time")
+    stop_source = "harness" if stop else None
+    if stop is None and end_override is None:
+        # A stop file written outside the harness (runA) leaves no stop_request in timeline.json;
+        # take its own unix_time so the window never runs into the final save and exit.
+        try:
+            doc = json.load(open(run / "stop-request.json"))
+            if isinstance(doc.get("unix_time"), (int, float)):
+                stop, stop_source = float(doc["unix_time"]), "stop_file"
+        except (OSError, ValueError):
+            pass
     if end_override is not None:  # e.g. a stop file written outside the harness (runA)
         stop = min(end_override, stop) if stop else end_override
+        stop_source = "end_override"
     end = t0 + window + slack if stop is None else min(stop, t0 + window + slack)
     rows = [r for r in duty_rows if t0 <= r["observed_unix_time"] <= end]
     a, b = rows[0], rows[-1]
@@ -129,7 +140,7 @@ def summarize(run, window, slack, end_override=None):
     out["timeline"] = {
         "launch_to_restored_s": timeline.get("restored_unix_time", launch) - launch,
         "launch_to_T_s": t0 - launch,
-        "T_to_stop_request_s": (stop - t0) if stop else None,
+        "T_to_stop_request_s": (stop - t0) if stop else None, "stop_source": stop_source,
         "stop_request_to_exit_s": (timeline["exit_unix_time"] - stop) if stop and timeline.get("exit_unix_time") else None,
         "stop_reason": timeline.get("stop_reason"), "exit_code": timeline.get("exit_code"),
         "wall_s": timeline.get("wall_seconds"),
@@ -181,7 +192,11 @@ def summarize(run, window, slack, end_override=None):
     # Threads and foreign load over the window
     live = [s for s in samples if s.get("threads")]
     s_first = min((s for s in live if s["unix_time"] >= t0), key=lambda s: s["unix_time"], default=None)
-    s_last = max((s for s in live if s["unix_time"] <= end), key=lambda s: s["unix_time"], default=None)
+    # Never end on a sample of the exiting process (most threads already gone): runA's first
+    # analysis took one and reported 0.46 CPUs in total.
+    full = 0.9 * len(s_first["threads"]) if s_first else 0
+    s_last = max((s for s in live if s["unix_time"] <= end and len(s["threads"]) >= full),
+                 key=lambda s: s["unix_time"], default=None)
     if s_first and s_last and s_last is not s_first:
         td = m1.thread_delta(s_first, s_last)
         out["threads"] = {"wall_seconds": td["wall_seconds"],
