@@ -339,7 +339,7 @@ socket 1, CPUs 128-223, foreign load 27-88 % where recorded, so **W96 timings ar
 | `four-all-h993r14` | Ready, W24 | 1 | 0 | - | - | 1,381,632 natives at 900 s; flood moved to `0111100100` / `0111100000` at rank 14 |
 | `four-all-h993r14` | Ordered, W24 | 1 | 0 | - | - | 730,570 natives at 900 s; rank-14 flood on `0111100100` / `0111100000` |
 | `four-all-p5` | Ordered W24 / Ready W24 | 1 / 2 | 1 / 2 | 31,717 / 22,855-23,250 | 14 | - |
-| `four-all-p5` | Ordered, W6 (fix round, CPUs 52-57, committed runner) | 1 | 1 | 31,717; records strictly identical to Ordered W24 (68,483 records, `TMP/c4l-s2/fix/compare-p5-ordered-w24own-vs-w6own-strict.json`) | 14 | - |
+| `four-all-p5` | Ordered, W6 and W96 (fix round, committed runner; W6 on CPUs 52-57, W96 on 128-223 in session F, 23 s of socket-1 hold) | 1 / 1 | 1 / 1 | 31,717 at both widths; records strictly identical to Ordered W24 (68,483 records, `TMP/c4l-s2/fix/compare-p5-ordered-w24own-vs-w{6own,96}-strict.json`), so `four-all-p5` is width-invariant under Ordered at W6, W24 and W96 | 14 | - |
 | `four-all-p5` | Ready, W96 | 3 | 2 | 22,152 / 25,292 | 14 | 1 (B2 `c4l-4a17f9c7-ready-w96`) at the 60 k early stop (63,392 natives); rank-13 flood on `0111110010` |
 | `four-all-r6anchors` | Ready, W24 | 3 | 3 | 12,527-13,370 | 12 | - |
 | `four-all-a19` | Ready, W24 | 3 | 2 | 22,846 / 22,847 | 14 | 1 killed at 600 s with >= 1,150,778 natives (exit 124, no result) |
@@ -649,7 +649,10 @@ in session 1 is not needed: rep2 had 0 partial initial inspections.
    switches, and the effective user clock (user cycles / user seconds). `tools/ready_stats.py` flags a
    drained run whose traversal exceeds 3x its group's median; rep5 is the only such run in this
    directory. Self-test of the extended recorder [M]: `four-all-p5` Ordered W6 on 52-57 recorded user
-   34.2 s, system 3.3 s (8.8 % of own CPU), 3.03 GHz effective user clock and 36 % foreign load.
+   34.2 s, system 3.3 s (8.8 % of own CPU), 3.03 GHz effective user clock and 36 % foreign load. The
+   same control at Ordered W96 on socket 1 recorded user 119.0 s and system 67.8 s (36 % of own CPU),
+   2.96 GHz, IPC 1.15, 12.8 M user instructions per native and 58 % foreign load. That is one run each,
+   so the system share at W96 is an observation, not a measured law.
 
 Anchors at rank >= 13 are **not** adopted. They fragment at Ready W96 as well: rank 13 in 2 of
 11 runs, rank 14 in 1 of 3. They also raise the work (Ordered W24 33,750 and 38,173 natives
@@ -679,8 +682,7 @@ defaults are the lane's [E] recommendation.
    finite-case search, no rank scope). The five-loop owners were generated with `--max-numerator-rank
    10 --exact-backend sparse-factorized --numerical-depth 0`. The five-loop-policy variant `four-all-p5`
    (596/797 finite residuals against 386/445) drains the same way:
-   - Ordered: 31,717 natives (+5.2 %), strictly identical records at W6 and W24; W96 is pending
-     (session F);
+   - Ordered: 31,717 natives (+5.2 %), strictly identical records at W6, W24 and W96;
    - `walk-verify-closure` PASS (89558210, all roots independently verified);
    - Ready: W24 2/2 and W96 2/3, the third with the known signature.
 
@@ -831,4 +833,8 @@ c735854682209dca177abfcae7274eb4f20cec7fff851e0eb421f6ad87856438  /common/dev/ru
 d8000db2a7aaf792feab1e4e9acab18178925b9752e1a7b39cb434805f14495e  /common/dev/rustred/TMP/c4l-s2/fix/bd-ready-w96-rep3-four-all-p5.json
 a306394e5a8f047e0efae5da8058c9fcb1a531e30950504e3164175bb7d888b1  /common/dev/rustred/TMP/c4l-s2/fix/bd-ready-w96-rep9-four-all-r13anchors.json
 4c02bbafa6f5a4f98b04ac98e6b68afb04c694ac511c6a0d63d84db24b00f708  /common/dev/rustred/TMP/c4l-s2/fix/bd-ready-w96-rep9-four-all.json
+e76684edb95dcbcbba403b5e04cfc862d82d1c232690db38b8871c7ecf17e7b8  /common/dev/rustred/TMP/c4l-s2/fix/compare-p5-ordered-w24own-vs-w96-strict.json
+d48bd34163e561f9deea5cca67f30ed5b8f481b0f6444f2ec1ede2af2e075bf9  /common/dev/rustred/TMP/fable51-controls/c4l-4a17f9c7-ordered-w96/four-all-p5/metrics.json
+c109bb42b417f73f85a1cd9cbd21ffb0299d95374d51ff74311363f1d0b5c3e0  /common/dev/rustred/TMP/fable51-controls/c4l-4a17f9c7-ordered-w96/four-all-p5/audit.json
+c419d78602db9412e3cf362d663a2507881788687a27ff97aeb6a19eb4ac51a7  /common/dev/rustred/TMP/c4l-s2/fix/sessionF.log
 ```

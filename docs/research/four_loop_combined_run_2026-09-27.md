@@ -69,7 +69,7 @@ Full table in the README (section 5). Summary:
 | `four-all-r14anchors` | W24: 38,173 | - | 2/2, 29.0-29.4 k | 2/3 drained; rank-15 flood otherwise |
 | `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 9/11 drained (25.5-31.7 k); the other two flood at rank 14 = anchor + 1 |
 | `four-all-h993r14` | W24: flood (730,570 natives at 900 s) | - | 0/1 (flood moved to two other owners) | - |
-| `four-all-p5` (five-loop generation policy) | W6 and W24: 31,717, strictly identical records | - | 2/2, 22.9-23.3 k | 2/3 (22.2-25.3 k); rank-13 flood otherwise |
+| `four-all-p5` (five-loop generation policy) | W6, W24 and W96: 31,717, strictly identical records | - | 2/2, 22.9-23.3 k | 2/3 (22.2-25.3 k); rank-13 flood otherwise |
 | `four-all-a19` (box-first envelope) | W6 and W24: identical flood | 0/1 | 2/3 | 1/1 |
 | `four-all-physics` | - | - | 0/1 (1 h) | - |
 | `four-all-r6anchors` | - | - | 3/3, 12.5-13.4 k | not run |
@@ -158,7 +158,7 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 ## Adversarial audit of the lane (session 2) [M unless stated]
 
 - **Digests.** All 53 SHA-256 lines that README section 6 had at the time matched the files. After the fix
-  round the block has 129 lines, all verified at commit time (see the last section). The 16 owner payloads
+  round the block has 133 lines, all verified at commit time (see the last section). The 16 owner payloads
   match `selection.json` in `gen/`, `inputs/` and the staged folder (48/48); the committed
   `four_loop_common_basis.toml` equals the generation input; the four-all query document is
   reproduced from `physics/queries.json` + staging (`d1ac816e...`).
@@ -277,8 +277,7 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
     interleaved comb-R design removes the confound from candidate-versus-legacy comparisons only.
 - The 10x slowdown of the drained session-C rep5 (92 s traversal, 1 % foreign load, at least 60 s of
   non-user on-CPU time) is unexplained. The extended recorder can attribute a recurrence.
-- `four-all-r6anchors` was not run at W96. `four-all-p5` Ordered W96 identity: see the fix-round
-  section.
+- `four-all-r6anchors` was not run at W96. (`four-all-p5` Ordered is width-invariant at W6/W24/W96; fix round.)
 - The physics helpers carry no positive-power bound. The five-loop campaign bounds A for 54 of
   its 67 helpers. The A-bounded variant has not been built.
 - Owner decision pending: D-memo item D-C4L (README section 5, end). It covers the scope substitution
@@ -332,7 +331,8 @@ against the files and found real. Their dispositions:
    faults, context switches and the effective user clock.
 9. **Owner decision (minor).** D-memo item D-C4L (README section 5, end) puts the scope substitution
    and the Vakint against p5 policy to the owner. New measurement: `four-all-p5` Ordered W6 = 31,717
-   natives, records strictly identical to Ordered W24 (68,483 records). W96: see README section 5.
+   natives, and W96 (session F, 23 s of socket-1 hold) = 31,717 natives. Records are strictly identical to
+   Ordered W24 (68,483 records) at both widths.
 10. **Governing documents (minor).** A separate commit on this branch adds C-4L-comb-O and C-4L-comb-R
     to the master plan's control table and to the engine-affecting gates (1.1, 1.2, 2.1, 4.4, §6 check 4,
     M-drain), next to C-4L. It also adds the schedule-to-control mapping to the v3 design (§3.4, S6).
