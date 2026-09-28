@@ -16,12 +16,18 @@ context: `HANDOFF_opus_5_5.md` (sections 0, 0.1 = binding audit directives and o
    `fable_5_1`). Never start/stop/signal/resume it yourself. Monitor it read-only (section 9.4). At 81 min [M]:
    18.0M discovered, 5.53M completed, 7.37M pending, 8/67 roots closed, 0 frontiers, RSS 17.4 GB, 3.5M
    completions/h (1 h window), coordinator duty 79%, max rank 17, pending growth per completion 1.29.
-2. **Finish LC2** (the Symbolica-PATCH-FREE reference version, section 5.1). It is almost done on branch
-   `fable_5_1-lc2`: gitlink = upstream Symbolica dev `ef0db494` (no local patch), format-6 preflight, v5->v6 converter,
-   thread-owned contexts, binary `rustred-lc2-fd9b9ac9` built, suites and strict identity PASS on all 7 controls, and
-   `campaigns/five-loop-qcd-feynman-d9d10-lc2` PREPARED (not started). Remaining: oracle gate on the new outputs, a
-   short smoke on socket-0 CPUs, the research note, **merge into `fable_5_1` and push**, then give the owner the LC2
-   launch procedure (he pauses LC1 with Ctrl-C, then starts LC2). LC2 is the reference for the long campaign.
+2. **LC2 is DONE** (update 2026-09-29 ~00:40 UTC): the Symbolica-PATCH-FREE reference version is merged into
+   `fable_5_1` (`f36ba878`, tip `46baa0f5`, pushed). vendor/symbolica = plain upstream dev `ef0db494` (no patch;
+   `patches/` deleted); format-6 preflight; `examples/python/convert_native_v5_to_v6.py`; thread-owned contexts.
+   Gates [M]: core 2844/0/32, app 822/0/12, cli 6/6, Python 260 OK; strict Ordered identity vs 4a17f9c7 (records and
+   containment_checks) on FG/BMW/H/X, four-all, four-all-p5, C-5F; oracle 7/7; smoke (start, periodic save, SIGINT
+   pause, resume, stop, 0 frontiers). Launch binary `TMP/fable51-controls/bin/rustred-lc2-fd9b9ac9`.
+   `campaigns/five-loop-qcd-feynman-d9d10-lc2` is PREPARED (not started). The owner switches when he decides:
+   Ctrl-C once in the LC1 pane (wait for the durable checkpoint and exit 4), then in a plain shell:
+   `cd /common/dev/rustred && env TMPDIR=/common/dev/rustred/TMP nix develop --command python examples/python/production_saved_owner_campaign.py --campaign-directory campaigns/five-loop-qcd-feynman-d9d10-lc2 --start`.
+   IMPORTANT: `fable_5_1` now reads only format-6 artifacts; LC1 can only be resumed with its own frozen binary in
+   `campaigns/five-loop-qcd-feynman-d9d10-lc1/bin/` (never rebuild an LC1-compatible binary from `fable_5_1`).
+   Section 5.1 below is kept for provenance; its steps are complete.
 3. Then continue the upgrade lanes (section 6): production G2' residual anchors (biggest measured work-volume lever;
    can be activated on a paused campaign at resume), the frontier rescue (owner requirement), and the epoch engine
    (W2, the big throughput lever; owner gate: must beat the legacy comparator runC by >= 1.5x).
@@ -129,7 +135,7 @@ beyond v2's reach, so zero cannot be proven; a frontier pauses the run (exit 4, 
 | Branch (worktree) | Content | State |
 |---|---|---|
 | `fable_5_1` (main tree) | official reference | pushed `d9271082` |
-| `fable_5_1-lc2` (`.claude/worktrees/fable51-lc2`) | patch-free Symbolica: `6078492d` gitlink ef0db494 + heap-pow patch removed; `d3732591`+`1ee36253` thread-owned contexts/seals; `5e9f200d` preflight accepts the linked atom-format byte, rejects v5 naming the converter; `b09a602a` `examples/python/convert_native_v5_to_v6.py` + tests | local; finish + merge (5.1) |
+| `fable_5_1-lc2` (`.claude/worktrees/fable51-lc2`, MERGED into fable_5_1 at f36ba878; retire) | patch-free Symbolica: `6078492d` gitlink ef0db494 + heap-pow patch removed; `d3732591`+`1ee36253` thread-owned contexts/seals; `5e9f200d` preflight accepts the linked atom-format byte, rejects v5 naming the converter; `b09a602a` `examples/python/convert_native_v5_to_v6.py` + tests | local; finish + merge (5.1) |
 | `fable_5_1-symeval` (`.claude/worktrees/fable51-symeval`) | evaluation of dev+939c4de8+7b31114c; source of the thread-owned-context commits (c50d838f, bf6195c7) | pushed; retire after LC2 merge |
 | `fable_5_1-v3-g2prod` (`.claude/worktrees/fable51-g2f`) | production G2' residual anchors on the legacy engine | pushed; paused (6.1) |
 | `fable_5_1-v3-rescue` (`.claude/worktrees/agent-ade877816b107b1cf`) | frontier rescue + supervisor auto-rescue | pushed; paused (6.2) |
@@ -140,7 +146,7 @@ Retired worktrees' `TMP/` evidence was moved to `TMP/archive-worktrees/<worktree
 `TMP/archive-worktrees/HEADS.txt`, log `cleanup.log`). Each worktree has its own `vendor/symbolica` checkout
 (953e26e2 + heap-pow patch, except fable51-lc2 = clean ef0db494).
 
-### 5.1 LC2: finish it (highest priority)
+### 5.1 LC2 (COMPLETED 2026-09-29 ~00:40 UTC; kept for provenance)
 
 Evidence so far (`TMP/progress/lc2.md`, `TMP/lc2/`): build rc 0 (campaign binary 3,011 s fat LTO); launch binary
 `TMP/fable51-controls/bin/rustred-lc2-fd9b9ac9` (sha256 fd9b9ac96a50513d8119a43938313e8a729110d6a3815b0f949cec4acb1d9d60,
