@@ -21,11 +21,16 @@ use std::path::{Path, PathBuf};
 
 pub(super) const MANIFEST: &str = "epoch-export.json";
 
+/// One anchor record as the verifier reads it (layout v2): node, record
+/// kind, dispatch version, `(anchor, lent scope code, stamp)` per anchor,
+/// and the raw scope bytes.
+pub(super) type AnchorRow = (u32, u8, u64, Vec<(u32, u8, u64)>, Vec<u8>);
+
 /// The ledger6 view the verifier re-derives (independent decoder).
 pub(super) struct EpochSections {
     pub ledger: Vec<u64>,
     pub runs: Vec<(u32, Vec<u32>)>,
-    pub anchors: Vec<(u32, u8, u64, Vec<(u32, u64)>, Vec<u8>)>,
+    pub anchors: Vec<AnchorRow>,
     pub manifest: Value,
 }
 
@@ -221,19 +226,30 @@ pub(super) fn read_raw<const N: usize>(
         bytes: &anchor_bytes,
         at: 0,
     };
-    if c.u16()? != 1 {
+    // Layout v2 (the S2 note's amended §11.7): u32 counts, a lent scope
+    // code per anchor, zero reserved bytes.
+    if c.u16()? != 2 {
         return Err("epoch anchors version".into());
     }
     let mut anchors = Vec::new();
     for _ in 0..c.u64()? {
         let node = c.u32()?;
         let kind = c.u8()?;
-        let n = c.u8()? as usize;
-        let scope_len = c.u16()? as usize;
+        if c.u8()? != 0 || c.u16()? != 0 {
+            return Err("epoch anchors reserved bytes".into());
+        }
+        let n = c.u32()? as usize;
+        let scope_len = c.u32()? as usize;
         let dispatch = c.u64()?;
-        let list = (0..n)
-            .map(|_| Ok::<_, String>((c.u32()?, c.u64()?)))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut list = Vec::new();
+        for _ in 0..n {
+            let anchor = c.u32()?;
+            let lent = c.u8()?;
+            if c.take(3)? != [0, 0, 0] {
+                return Err("epoch anchors padding".into());
+            }
+            list.push((anchor, lent, c.u64()?));
+        }
         let scope = c.take(scope_len)?.to_vec();
         anchors.push((node, kind, dispatch, list, scope));
     }
@@ -330,6 +346,16 @@ pub(super) fn check<const N: usize>(
     let manifest = &sections.manifest;
     let k = manifest["k"].as_u64().unwrap_or(0);
     let p0 = manifest["p0"].as_u64().unwrap_or(0) as usize;
+    if p0 > total || sections.ledger.len() != total {
+        add(
+            "epoch_ledger",
+            format!(
+                "P0 {p0} or {} ledger6 entries against {total} domains",
+                sections.ledger.len()
+            ),
+        );
+        return;
+    }
     let mut counts = [0u64; 7];
     let mut alias_to = vec![None; total];
     for (id, &word) in sections.ledger.iter().enumerate() {
@@ -485,15 +511,25 @@ pub(super) fn check<const N: usize>(
             "records digest (id, tag, out-degree) differs from the runs".into(),
         );
     }
-    // InitialDBand anchors: anchor < P0 <= node, same bucket, anchor edge
-    // present, the node's ledger6 native carries the D-band flag.
+    // InitialDBand anchors: exactly one anchor, anchor < P0 <= node, same
+    // bucket, no stamp, it lends its full domain (code 0), the anchor edge
+    // present, the node's ledger6 native carries the D-band flag and not the
+    // G2' residual flag. G2' kinds are refused (S2 produces none; the G2'
+    // verifier rules are W4).
     let run_of: std::collections::HashMap<usize, &Vec<u32>> = sections
         .runs
         .iter()
         .map(|(s, t)| (*s as usize, t))
         .collect();
-    for (node, kind, _dispatch, list, _scope) in &sections.anchors {
+    for (node, kind, _dispatch, list, scope) in &sections.anchors {
         let node = *node as usize;
+        if node >= total || node < p0 {
+            add(
+                "epoch_anchor",
+                format!("anchor record on node {node} outside [P0, W)"),
+            );
+            continue;
+        }
         if *kind != 0 {
             add(
                 "epoch_anchor",
@@ -501,11 +537,16 @@ pub(super) fn check<const N: usize>(
             );
             continue;
         }
-        for &(anchor, stamp) in list {
+        if list.len() != 1 || scope.len() != 8 {
+            add(
+                "epoch_anchor",
+                format!("node {node}: InitialDBand record needs one anchor and an 8-byte cut"),
+            );
+        }
+        for &(anchor, lent, stamp) in list {
             let anchor = anchor as usize;
             let ok = anchor < p0
-                && node >= p0
-                && node < total
+                && lent == 0
                 && stamp == u64::MAX
                 && bucket(&domains[anchor]) == bucket(&domains[node])
                 && run_of
@@ -519,10 +560,12 @@ pub(super) fn check<const N: usize>(
             }
         }
         let (tag, payload) = decode(sections.ledger[node]);
-        if matches!(tag, 2) && payload & (1 << 49) == 0 {
+        if matches!(tag, 2) && (payload & (1 << 49) == 0 || payload & (1 << 48) != 0) {
             add(
                 "epoch_anchor",
-                format!("node {node}: anchored native without the D-band flag"),
+                format!(
+                    "node {node}: anchored native without the D-band flag (or with the G2' flag)"
+                ),
             );
         }
     }
