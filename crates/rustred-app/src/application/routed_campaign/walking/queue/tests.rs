@@ -32,6 +32,7 @@ mod legacy;
 mod linear_semantic;
 mod maximal_candidates;
 mod prepared;
+mod quarantine;
 mod replay;
 mod semantic;
 

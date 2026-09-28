@@ -109,6 +109,12 @@ impl StoredBuckets {
         self.0.len()
     }
 }
+impl Metadata {
+    /// The saved contiguous publication cursor (the Ordered publisher).
+    pub(in super::super) fn next(&self) -> usize {
+        self.next
+    }
+}
 impl<const N: usize> Queue<N> {
     pub(in super::super) fn checkpoint_metadata(&self) -> Metadata {
         Metadata {

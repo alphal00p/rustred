@@ -414,8 +414,8 @@ impl<const N: usize> ExactIndex<N> {
             .ok_or(Miss { collides: true })
     }
 
-    /// Every exact-duplicate group (IDs of one domain, ascending), for the
-    /// quarantine consistency check of an amended walk.
+    /// Every exact-duplicate group (IDs of one domain, ascending).
+    #[cfg(test)]
     pub fn duplicate_groups(&self, domains: &[CompactDomain<N>]) -> Vec<Vec<usize>> {
         let mut groups = Vec::new();
         for (key, ids) in &self.overflow {

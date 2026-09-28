@@ -84,6 +84,12 @@ impl<const N: usize> Domain<N> {
     }
 }
 
+/// Membership in a rescue bitset (quarantine or abandoned set); false when
+/// the bitset is empty or shorter than `id`.
+pub(super) fn quarantined_bit(bits: &[u64], id: usize) -> bool {
+    compact::quarantined(bits, id)
+}
+
 fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
     container.is_none_or(|r| candidate.is_some_and(|s| s <= r))
 }
@@ -192,6 +198,14 @@ pub(super) struct Queue<const N: usize> {
     /// the walk carries an input amendment; never persisted (recomputed from
     /// the dependency monitor at every resume of an amended walk).
     quarantine: Vec<u64>,
+    /// Rescue: unpublished, non-delegated obligations no live input root
+    /// reaches (their cones cannot certify any query). Published without a
+    /// native inspection as unsealed `rescue_abandoned` records. Empty unless
+    /// amended; never persisted (recomputed at every amended resume). Shared
+    /// with the inspection workers, which read it at every dispatch; the
+    /// coordinator extends it when a dead obligation still being inspected
+    /// (a restored partial prefix) admits a new domain (`mark_dead`).
+    abandoned: Option<Arc<std::sync::RwLock<Vec<u64>>>>,
     /// Test instrumentation preference only, deliberately not persisted.
     #[cfg(test)]
     index_work_counters_enabled: bool,
@@ -274,10 +288,11 @@ impl<const N: usize> Queue<N> {
     /// Install the rescue quarantine (see the field). Lookups (exact index,
     /// dominant orthant, candidate index, helper preparations) then never
     /// return a quarantined ID; admission of an exact duplicate of one
-    /// creates a fresh ID. Refuses a bitset of the wrong size and a state in
-    /// which an exact-duplicate group holds more than one live ID or a live
-    /// ID below a quarantined one (the quarantine only grows, so the live
-    /// member of a group is always its latest admission).
+    /// creates a fresh ID. Refuses a bitset of the wrong size. The quarantine
+    /// is not monotone (a dead obligation published cleanly later, e.g. as
+    /// an alias of a live representative, is live again), so an exact-
+    /// duplicate group may hold several live members: every one is a valid
+    /// exact container, and lookups return the oldest live one.
     pub fn install_quarantine(&mut self, bits: Vec<u64>) -> Result<usize, String> {
         if bits.len() != self.domains.len().div_ceil(64)
             || bits.last().is_some_and(|&w| {
@@ -285,18 +300,6 @@ impl<const N: usize> Queue<N> {
             })
         {
             return Err("rescue quarantine does not match the admitted domains".into());
-        }
-        for group in self.exact.duplicate_groups(&self.domains) {
-            let live: Vec<usize> = group
-                .iter()
-                .copied()
-                .filter(|&id| !compact::quarantined(&bits, id))
-                .collect();
-            if live.len() > 1 || live.first().is_some_and(|&id| Some(&id) != group.last()) {
-                return Err(
-                    "amended walk holds an exact duplicate outside the rescue quarantine".into(),
-                );
-            }
         }
         let count = bits.iter().map(|w| w.count_ones() as usize).sum();
         self.quarantine = if count == 0 { Vec::new() } else { bits };
@@ -312,6 +315,46 @@ impl<const N: usize> Queue<N> {
     /// IDs admitted after the install are beyond the bitset: never quarantined.
     pub fn quarantine_active(&self) -> bool {
         !self.quarantine.is_empty()
+    }
+
+    /// Install the rescue's abandoned set (see the field); every member
+    /// must already be quarantined, so no later lookup resolves into it.
+    pub fn set_abandoned(&mut self, bits: Vec<u64>) -> Result<usize, String> {
+        if bits.len() > self.domains.len().div_ceil(64)
+            || bits
+                .iter()
+                .enumerate()
+                .any(|(word, &b)| b & !self.quarantine.get(word).copied().unwrap_or(0) != 0)
+        {
+            return Err("rescue abandoned set outside the quarantine".into());
+        }
+        let count = bits.iter().map(|w| w.count_ones() as usize).sum();
+        self.abandoned = self
+            .quarantine_active()
+            .then(|| Arc::new(std::sync::RwLock::new(bits)));
+        Ok(count)
+    }
+
+    /// The shared abandoned set (None for every unamended walk).
+    pub fn abandoned_handle(&self) -> Option<Arc<std::sync::RwLock<Vec<u64>>>> {
+        self.abandoned.clone()
+    }
+
+    /// A domain newly admitted by a quarantined (dead) source is itself dead:
+    /// quarantine it and abandon it (published without inspection).
+    pub fn mark_dead(&mut self, id: usize) {
+        let word = id / 64;
+        if self.quarantine.len() <= word {
+            self.quarantine.resize(word + 1, 0);
+        }
+        self.quarantine[word] |= 1 << (id % 64);
+        if let Some(set) = &self.abandoned {
+            let mut bits = set.write().unwrap_or_else(|e| e.into_inner());
+            if bits.len() <= word {
+                bits.resize(word + 1, 0);
+            }
+            bits[word] |= 1 << (id % 64);
+        }
     }
 
     pub fn containment_limit(&self) -> Option<usize> {
@@ -366,6 +409,7 @@ impl<const N: usize> Queue<N> {
             max_checks,
             identity: Arc::new(()),
             quarantine: Vec::new(),
+            abandoned: None,
             #[cfg(test)]
             index_work_counters_enabled: true,
         }

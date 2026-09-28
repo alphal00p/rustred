@@ -345,6 +345,13 @@ impl Tracker {
     /// tainted by themselves. None when the monitor is unavailable (the
     /// rescue then refuses: it cannot tell which nodes are blocked).
     pub fn tainted(&self) -> Option<Vec<u64>> {
+        self.tainted_with(&[])
+    }
+
+    /// `tainted`, also seeded with the IDs set in `extra` (the rescue's dead
+    /// pending obligations): every node reaching a frontier-bearing native
+    /// or a seed.
+    pub fn tainted_with(&self, extra: &[u64]) -> Option<Vec<u64>> {
         if self.unavailable.is_some() {
             return None;
         }
@@ -352,7 +359,8 @@ impl Tracker {
         let mut tainted = vec![0u64; nodes.div_ceil(64)];
         let mut stack: Vec<u32> = Vec::new();
         for (id, &flag) in self.flags.iter().enumerate() {
-            if flag & FLAG_INSPECTED != 0 && flag & FLAG_SEALED == 0 {
+            let seeded = extra.get(id / 64).is_some_and(|w| w >> (id % 64) & 1 != 0);
+            if seeded || flag & FLAG_INSPECTED != 0 && flag & FLAG_SEALED == 0 {
                 tainted[id / 64] |= 1 << (id % 64);
                 stack.push(id as u32);
             }
@@ -367,6 +375,56 @@ impl Tracker {
             }
         }
         Some(tainted)
+    }
+
+    /// Liveness for the rescue: a bitset of every node reachable over
+    /// recorded edges from `roots` (the untainted input roots). Builds a
+    /// transient CSR by source (4 B per edge plus 8 B per node). None when the
+    /// monitor is unavailable or the scratch cannot be reserved.
+    pub fn reachable_from(&self, roots: impl IntoIterator<Item = usize>) -> Option<Vec<u64>> {
+        if self.unavailable.is_some() {
+            return None;
+        }
+        let nodes = self.flags.len();
+        let mut offsets: Vec<usize> = Vec::new();
+        offsets.try_reserve_exact(nodes + 1).ok()?;
+        offsets.resize(nodes + 1, 0);
+        let _ = self.edges.try_for_each(|source, _| {
+            offsets[source as usize + 1] += 1;
+            ControlFlow::<()>::Continue(())
+        });
+        for index in 1..offsets.len() {
+            offsets[index] += offsets[index - 1];
+        }
+        let mut targets: Vec<u32> = Vec::new();
+        targets.try_reserve_exact(offsets[nodes]).ok()?;
+        targets.resize(offsets[nodes], 0);
+        let mut fill = offsets.clone();
+        let _ = self.edges.try_for_each(|source, target| {
+            let slot = &mut fill[source as usize];
+            targets[*slot] = target;
+            *slot += 1;
+            ControlFlow::<()>::Continue(())
+        });
+        drop(fill);
+        let mut live = vec![0u64; nodes.div_ceil(64)];
+        let mut stack: Vec<usize> = Vec::new();
+        for root in roots {
+            if root < nodes && live[root / 64] >> (root % 64) & 1 == 0 {
+                live[root / 64] |= 1 << (root % 64);
+                stack.push(root);
+            }
+        }
+        while let Some(id) = stack.pop() {
+            for &target in &targets[offsets[id]..offsets[id + 1]] {
+                let target = target as usize;
+                if live[target / 64] >> (target % 64) & 1 == 0 {
+                    live[target / 64] |= 1 << (target % 64);
+                    stack.push(target);
+                }
+            }
+        }
+        Some(live)
     }
 
     pub fn closed(&self, id: usize) -> Option<bool> {
