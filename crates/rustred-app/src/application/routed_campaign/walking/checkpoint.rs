@@ -139,6 +139,7 @@ fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
         OwnerDomainWalkPublicationPolicy::Ordered => "ordered",
         OwnerDomainWalkPublicationPolicy::Ready => "ready",
         OwnerDomainWalkPublicationPolicy::OwnerBatched => "owner_batched",
+        OwnerDomainWalkPublicationPolicy::Epoch => "epoch",
     }
 }
 fn unix_time() -> Result<u64, String> {
@@ -954,6 +955,30 @@ impl Store {
 /// The request/policy digest a checkpoint of `request` is bound to.
 pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
     binding(request)
+}
+
+/// The request digest of an `epoch` walk (walk semantics 3, W2.0 protocol
+/// §11.5, A7). Bound: owner selection, queries, limits, publication and
+/// semantics, the D-band, Route and query allowances, the frontier policy.
+/// Not bound: workers, inspection workers, the schedule and its lookahead,
+/// and the aggregate `max_domains` / `max_events` / `max_frontiers`
+/// allowances. Shared by the epoch export and the closure verifier; the
+/// CP5 `binding` above is unchanged.
+pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String {
+    let value = json!({"selection":request.matching.selection_json,
+        "queries":request.matching.queries_json,
+        "limits":super::limits_json(request),
+        "reduction":format!("{:?}",request.matching.reduction_limits),
+        "publication":"epoch","walk_semantics_version":3,
+        "reuse_initial_d_bands":request.reuse_initial_d_bands,
+        "route_domain_overcover":request.route_domain_overcover,
+        "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
+        "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
+        "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes,
+        "frontier_policy":request.frontier_policy.name()});
+    blake3::hash(value.to_string().as_bytes())
+        .to_hex()
+        .to_string()
 }
 
 /// Read-only decode of one CP5 generation for the offline closure verifier:

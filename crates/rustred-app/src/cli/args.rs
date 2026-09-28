@@ -671,7 +671,7 @@ same-owner D band. It requires --follow-successors and
 --transfer-unreserved-lookahead H (hence unlimited containment checks).
 Only the disjoint residual is inspected again; the original anchor obligation
 remains tracked. This does not clip descendants or establish coverage by itself.
---publication-policy ordered|owner-batched|ready requires --follow-successors and
+--publication-policy ordered|owner-batched|ready|epoch requires --follow-successors and
 defaults to ordered. The opt-in owner-batched mode shares immutable saved rules
 but uses separate phase/owner admission and publication queues. Bounded native
 chunks are delivered to destination queues; all descendants remain required.
@@ -687,12 +687,23 @@ It supports checkpoint/resume but cannot be combined with physical subdivision.
 Its IDs, covers and work counts may depend on scheduling; saved rules and
 obligation requirements are unchanged. Use a new campaign for a changed policy;
 never attach an ordered checkpoint to a ready run.
+The opt-in epoch policy (walk semantics 3, W2 stage S2) commits whole native
+inspections in bulk merges by one coordinator: Lockstep epochs of the 64 lowest
+pending IDs, every successor resolved in the merge (canonical minimum-ID
+index semantics, verified containment), IDs assigned at merge, full reverse
+retirement with verified transfers. Results are identical across worker counts.
+It requires --transfer-unreserved-lookahead H (the value is unused), refuses a
+finite containment cap and physical subdivision, defaults --frontier-policy to
+stop (no checkpoint needed), and treats --checkpoint DIR as the directory of a
+final, non-resumable export for the offline oracles (--resume is refused).
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.
 
 `walk-semantics-version` prints one JSON line with this executable's
-walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
+walk_semantics_version, checkpoint_format and checkpoint_schema (the legacy
+lanes' CP5 identity), plus per_policy walk semantics and checkpoint_formats,
+then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same
 format, schema and walk semantics version.

@@ -69,13 +69,16 @@ impl WorkerBudget {
         let available = requested - 1;
         // Preserve the distinct historical defaults, including the W=4 case.
         let helper_threshold = match policy {
-            OwnerDomainWalkPublicationPolicy::Ordered | OwnerDomainWalkPublicationPolicy::Ready => {
-                5
-            }
+            OwnerDomainWalkPublicationPolicy::Ordered
+            | OwnerDomainWalkPublicationPolicy::Ready
+            | OwnerDomainWalkPublicationPolicy::Epoch => 5,
             OwnerDomainWalkPublicationPolicy::OwnerBatched => 4,
         };
         let helpers = match inspection {
             Some(inspection) => available - inspection,
+            // Epoch S2: the coordinator runs the serial merge; every other
+            // worker inspects (merge helpers arrive with the parallel P2, S5).
+            None if policy == OwnerDomainWalkPublicationPolicy::Epoch => 0,
             None if requested >= helper_threshold && finite_comparison_cap.is_none() => {
                 let half = available / 2;
                 if policy == OwnerDomainWalkPublicationPolicy::Ready {

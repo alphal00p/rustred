@@ -4,6 +4,7 @@ mod checkpoint;
 mod delegation;
 mod descendant_closure;
 mod diagnostics;
+mod epoch;
 mod execution;
 mod index_report;
 mod initial_orthants;
@@ -57,6 +58,10 @@ pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 /// Transport changes (file layout, section codecs, digests, compaction,
 /// scheduling of saves) do not bump this value.
 pub const WALK_SEMANTICS_VERSION: u32 = 1;
+/// Walk semantics of publication policy `epoch` (the legacy policies Ordered,
+/// Ready and OwnerBatched stay at `WALK_SEMANTICS_VERSION`). Probe:
+/// `per_policy {ordered: 1, ready: 1, epoch: 3}`.
+pub use epoch::EPOCH_WALK_SEMANTICS_VERSION;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
 pub use verify_closure::{
@@ -480,6 +485,26 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
             "joint source-support pruning requires route domain overcover",
         ));
     }
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
+        // Semantics 3 has its own lanes: `--checkpoint` names the S2 final
+        // export, frontier stop needs no checkpoint, no diagnostic pause.
+        epoch::admit(request)?;
+        if DiagnosticPause::from_environment()
+            .map_err(AppError::input)?
+            .is_some()
+        {
+            return Err(AppError::input(format!(
+                "{DIAGNOSTIC_PAUSE_VARIABLE} is not supported by epoch publication"
+            )));
+        }
+        OwnerDomainWalkRequest::validate_inspection_workers(
+            request.workers,
+            request.inspection_workers,
+            request.max_containment_checks,
+        )
+        .map_err(AppError::input)?;
+        return Ok(None);
+    }
     if let Some(checkpoint) = &request.checkpoint {
         if checkpoint.interval_seconds == 0 {
             return Err(AppError::input("checkpoint interval must be positive"));
@@ -577,6 +602,10 @@ pub fn owner_domain_walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready {
         admitted["publication_policy"] = json!("ready_ticket_stream");
     }
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
+        admitted["publication_policy"] = json!("epoch_merge_stream");
+        admitted["walk_semantics_version"] = json!(EPOCH_WALK_SEMANTICS_VERSION);
+    }
     if let Some(pause) = diagnostic_pause {
         admitted["diagnostic_pause"] = json!(pause.name());
     }
@@ -590,6 +619,16 @@ pub fn owner_domain_walk_with_progress(
         observer(event);
     };
     with_allowances(admitted);
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
+        macro_rules! dispatch_epoch { ($($n:literal),*) => { match arity {
+            $($n => epoch::run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
+            _ => unreachable!("admitted arity"),
+        }} }
+        let mut result = dispatch_epoch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+        result.document["requested_max_queries"] = json!(request.matching.max_queries);
+        result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
+        return Ok(result);
+    }
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
         $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
         _ => unreachable!("admitted arity"),

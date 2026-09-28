@@ -226,11 +226,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "ordered" => crate::OwnerDomainWalkPublicationPolicy::Ordered,
                     "owner-batched" => crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
                     "ready" => crate::OwnerDomainWalkPublicationPolicy::Ready,
+                    "epoch" => crate::OwnerDomainWalkPublicationPolicy::Epoch,
                     _ => {
                         return Err(ArgError::InvalidValue {
                             option: name,
                             value,
-                            expected: "ordered, owner-batched, or ready",
+                            expected: "ordered, owner-batched, ready, or epoch",
                         });
                     }
                 };
@@ -382,8 +383,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--unbounded-work cannot be combined with explicit diagnostic work caps",
         ));
     }
+    let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    // Epoch (walk semantics 3): frontier stop is the default (A10) and needs
+    // no checkpoint; `--checkpoint` names its S2 final export.
+    if epoch && !seen.contains("--frontier-policy") {
+        result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::Stop;
+    }
     if result.frontier_policy == crate::OwnerDomainWalkFrontierPolicy::Stop
         && result.checkpoint.is_none()
+        && !epoch
     {
         return Err(ArgError::InvalidCombination(
             "--frontier-policy stop requires --checkpoint or --resume",
@@ -401,6 +409,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     {
         return Err(ArgError::InvalidCombination(
             "ready publication requires --transfer-unreserved-lookahead",
+        ));
+    }
+    if epoch && result.transfer_unreserved_lookahead.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "epoch publication requires --transfer-unreserved-lookahead (transfers are part of walk semantics 3; the value is not used)",
         ));
     }
     if result.apply_subdivision.is_some()
