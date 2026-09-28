@@ -3,7 +3,8 @@
 This note is the persisted record of plan item W0.2 (gate 0.2) of
 `docs/research/fable51_next_push_master_plan_2026-09-27.md` after fix round 2. Round 2 answers every item in
 `HANDOFF_opus_5_5.md` §7.1, "Adversarial verification of the oracles", and the orchestrator's course correction
-(from `FABLE_5_1_CRITIQUE.md` §2.5 and handoff §0.1 item 6). The working record is `TMP/w0/oracle/RESULTS.md`.
+(from `FABLE_5_1_CRITIQUE.md` §2.5 and handoff §0.1 item 6). Fix round 3 (2026-09-28, §11) answers three findings
+of the independent verifiers of the round-2 report. The working record is `TMP/w0/oracle/RESULTS.md`.
 
 Labels: **[M]** measured (run directory, report file and binary sha256 are cited); **[E]** estimate or
 inference. Nothing here is a closure, termination or ETA claim: `family_closure_claim` stays false in every report.
@@ -25,6 +26,24 @@ bookkeeping, and the round-1 Symbolica search (RESULTS §2) covers it.
 - **Gen 7, sample mode.** 16 min at 33.6 GB [M]. Full F10 at gen 7 would take about 15 h at 32 threads [E].
 - **Not covered.** C-HOT stays audit-only (its state is CP3).
 - **Open.** G2' must still wire the new exact union-cover predicate into its own check (§9).
+
+**Fix round 3 (2026-09-28, §11)** answers three verifier findings, all confirmed by code reading:
+- **Partial anchors were not required to be well-founded.** A partial anchored on itself, on another partial, or
+  a Route partial passed. The verifier now requires an Apply partial anchored on an earlier initial Native
+  record, as the Python audit already did. Six new mutations with exact class sets cover it.
+- **Route natives had no negative control.** A routed-edge drop, a routed false hit and a Route event miscount
+  now have rows. They run on a new in-repo routed fixture and on C-5F.
+- **The union-cover validation was overstated.** The "3,580/3,580" real-data figure is the D-cut identity check,
+  not a multi-target validation. Genuine multi-target covers are now validated against enumeration on real
+  10- and 15-axis cells:
+  - on C-4L and C-5F: 84,525 decisions against earlier native records (25,376 covers need 2-8 records) and
+    341,124 synthetic decisions;
+  - on gen 7: 16,381 real (5,866 union-only) and 66,916 synthetic decisions;
+  - 0 disagreements and 0 undecided in total [M].
+
+  The G2' mutations that need G2' records are W4.2 preconditions.
+
+Round-3 calibration with binary `rustred-b0835196` still passes the gate on 10/10 outputs [M].
 
 Commits on `fable_5_1-v3-oracle`:
 
@@ -129,7 +148,11 @@ Unit tests:
 
 Real-data exercise: every partial record's whole domain must be covered by {anchor, D < cut residual}. The exact
 union answer must agree with the slice inclusion. A disagreement is a `partial_union_cover` violation, and the
-report counts it under `containment.partial_union_cover`. Results are in §4.
+report counts it under `containment.partial_union_cover`. Results are in §4. **Correction (round 3):** with the
+recorded residual equal to the D < cut slice, {anchor, residual} partitions Q along D, so this check is logically
+the single-target slice inclusion. The 3,580/3,580 agreement is therefore a D-cut identity check of two
+implementations, not a multi-target validation. The unit test above drew only 1-3 axes with bounds below 12.
+§11.3 adds genuine multi-target validation on 4-6-axis cells and on real 10- and 15-axis cells.
 
 Scope: this is the predicate G2' needs ("anchor scopes plus residual cover Q exactly"). It is not yet used as a
 verdict on anything other than partial records. The brute-force path stays single-target, capped at 4,096 points
@@ -341,9 +364,8 @@ These round-1 statements are withdrawn or narrowed (course correction (4) and ha
 ## 9. Open items
 
 1. **Union cover beyond partial records.** `covered_by_union` is exact and tested, but it is used as a verdict
-   only on partial records. G2' must call it on the real "anchor scopes plus residual" sets. Enumeration
-   cross-checks of multi-target covers exist only in unit tests (`brute_force_covered_by_union`), capped at 4,096
-   points per cell.
+   only on partial records. G2' must call it on the real "anchor scopes plus residual" sets. Round 3 added
+   enumeration cross-checks on real cells (`--union-sample`, §11.3). The W4.2 preconditions are in §11.5.
 2. **N1/N4 in the reference.** Neither lever exists in this tree. When one lands it must be added to
    `REFERENCE_NATIVE_LEVERS` and forced off in `reference_request`, with an e2e test run as-run vs off.
 3. **F10 does not check successor generation.** The reference is the engine's own visitor, so a successor lost
@@ -357,6 +379,221 @@ These round-1 statements are withdrawn or narrowed (course correction (4) and ha
 8. **Coinductive closure.** Sealed cycles count as closed. Termination and descent are out of scope for both
    oracles.
 
+## 11. Fix round 3 (2026-09-28): three verifier findings
+
+The independent verifiers of the round-2 report raised three problems. Each one was confirmed by reading the code
+at `63771a50` and fixed on `fable_5_1-v3-oracle`:
+- `6e1b76fc`: the Rust verifier, its unit tests and the e2e tests;
+- `182211f6`: the matrix and the round-3 drivers `tools/research/oracle/r3/`.
+
+The binary is `TMP/w0/oracle/bin/rustred-b0835196`, sha256
+`b08351966802b94163476de2ac134d272e6012e012c8a21e56b625ae54c7c26e`. It was built with release `--locked
+--offline` from the tree committed as `6e1b76fc`, plus the uncommitted vendor/symbolica heap-pow patch.
+
+### 11.1 Partial anchors must be well-founded (finding 1: real)
+
+**The hole.** The partial arm of `verify()` accepted three things the Python audit rejects:
+- an anchor that is itself a Partial record, because `Node::native()` includes `Kind::Partial`;
+- a partial anchored on itself, since nothing required `link < id`;
+- a partial whose own phase is not Apply.
+
+Closure is coinductive: a self-edge or a sealed cycle counts as closed. F10 re-inspects only the D < cut residual.
+A self-anchored partial, or two partials anchored on each other, therefore left their D >= cut slices inspected by
+nobody, and the verifier still gave PASS. The engine never writes such records, because
+`walking/initial_overlap.rs` plans partials only for non-initial Apply domains against initial anchors. So no
+calibrated PASS was affected [M: the 10 outputs PASS again under the new rules]. The exposure was the W2 epoch
+re-implementation and the G2' residual anchors of W4.2.
+
+**The fix** is the new function `check_partial`, with one violation class per rule:
+
+| Class | Rule |
+|---|---|
+| `partial_phase` | the partial is an Apply record |
+| `missing_edge` | the dependency edge to the anchor exists |
+| `partial_anchor_order` | the anchor is an EARLIER INITIAL record (`link < id` and `link < initial_count`) |
+| `partial_anchor_kind` | the anchor is itself a Native inspection |
+| `partial_anchor` | the anchor is an Apply record containing the D >= cut slice |
+| `partial_union_cover` | Q ⊆ anchor ∪ recorded residual, decided exactly |
+| `partial_residual` | the recorded residual equals the D < cut slice |
+
+`partial_anchor` and `partial_union_cover` are judged only against a well-founded anchor. Against an ill-founded
+anchor they would be meaningless, and skipping them keeps the class sets fixture-independent. Together, the order
+and kind rules exclude self-anchors, partial-on-partial chains and anchor cycles. The residual identity used to be
+checked at load time; it is now checked in `verify()`, so that a mutation can reach it.
+
+**Tests.**
+- Unit test `partial_records_need_an_apply_phase_a_well_founded_anchor_and_an_exact_cover` isolates every rule on a
+  synthetic record table, including anchor kind alone and order alone.
+- New mutations. Each moves the anchor edge with the link and picks partials whose residual successors do not rest
+  on the anchor edge alone, so that only the rule under test can fire:
+
+| Mutation | Exact classes |
+|---|---|
+| `self-anchored-partial` | `partial_anchor_kind` 1, `partial_anchor_order` 1 |
+| `partial-as-anchor` (anchor not Native) | `partial_anchor_kind` 1, `partial_anchor_order` 1 |
+| `partial-anchor-cycle` | `partial_anchor_kind` 2, `partial_anchor_order` 2 |
+| `non-initial-anchor` (a later native when one exists: the ID analogue of "anchor stamp >= dispatch epoch") | `partial_anchor_order` 1 |
+| `shrunk-residual` (recorded residual one D layer short) | `partial_residual` 1, `partial_union_cover` 1 |
+| `route-partial` | `--reinspect none`: `partial_phase` 1 (the rule alone); full F10 on the sunset: also `event_parity` 1 and `successor_uncovered` 4 |
+
+The pre-existing `retargeted-anchor` now gives `partial_anchor` 1 and `partial_union_cover` 1. All of these are
+in `e2e_tests.rs` and in `oracle_mutation_matrix.py`. The Python audit also has rows for self-anchor,
+partial-as-anchor, anchor cycle and Route partial, calibrated on FG. It rejects all four.
+
+### 11.2 Route-native negative controls (finding 2: real)
+
+No fixture had a Route native that routes an Apply domain. The drained sunset has only Apply records, C-4L has no
+Route records, and the frontier fixture's 3 Route natives route nothing. Every node mutation also picked an Apply
+native.
+
+**New in-repo fixture (ROUTED).** It is the frontier walk plus a verified loop-momentum route 011 -> 110, with
+source momenta q = M k and M = [[1, -1], [0, 1]], which sends P2 and P3 onto P2 and P1. The walk has 14 Apply and
+3 Route natives. Each Route native routes one Apply domain into owner 110. There are 0 frontiers and both roots
+close.
+
+New mutations:
+
+| Mutation | Target | Exact classes (routed fixture) |
+|---|---|---|
+| `dropped-routed-edge` | the only covering edge of a Route native's routed Apply domain | `successor_uncovered` 1 |
+| `routed-false-hit` | that edge, retargeted to a same-owner native non-container | `successor_uncovered` 1 |
+| `miscounted-route-events` | a sealed Route native's event count, saved counter adjusted | `event_parity` 1 |
+
+On the routed fixture they hit Route native 2 (edge 2 -> 12, retargeted to 3) [M]. The matrix runs them on C-5F
+(§11.4). On FG they are "not applicable", decided from the baseline: FG has 0 routed admits.
+
+### 11.3 Union-cover validation, restated and extended (finding 3: real)
+
+**Restated.** The round-2 real-data figure (3,580/3,580 partial records, 246/246 at gen 7) is the D-cut identity
+check (§3 correction). The report now labels it so in `containment.partial_union_cover.scope`. The counters report
+covered, not covered, undecided, and how many were compared with the slice inclusion.
+
+**Unit test** `union_cover_matches_point_enumeration_on_four_to_six_axes`:
+- 4-6 axes with at least two axes in each owner group, 1,500 draws per arity;
+- covers made of 2-4 pieces of Q (splits strictly inside an axis range, or in D; a one-layer gap in half of the
+  draws), plus 0-2 random distractors, shuffled;
+- ground truth: direct evaluation at every window point, which bounds Q; `Cell::meets` is checked the same way;
+- required: more than 800 covers that no single target provides, more than 250 covers that no pair provides, and
+  more than 400 misses. A Python port of the generator predicts 1,357 / 508 / 766 [E]. The test passes [M].
+
+**Real data** (`--union-sample COUNT[:SEED]`, module `verify_closure/union_sample.rs`). For each sampled saved
+cell Q whose box holds at most 65,536 lattice points:
+- real covers: earlier Native records of the same (phase, owner) bucket, taken greedily while each covers a point
+  of Q the previous ones leave uncovered, up to 8 records. These are genuine multi-record covers and near misses:
+  the G2' question;
+- synthetic covers: Q split strictly inside its actual point ranges into 2 or 3 pieces along an axis or D, with
+  the real records appended as distractors. The same splits are also run with a one-layer gap.
+
+Every decided answer of `covered_by_union` is compared with `brute_force_covered_by_union`. Any disagreement, a
+partition that enumeration says is not covered, or a mismatch in the greedy bookkeeping is a `union_cross_check`
+violation.
+
+Round 3, 20,000 samples per output [M, `TMP/w0/oracle/r3/calibration-table.md`]:
+
+| Output | Axes | Real decisions | Covered only by a union (max records) | Not covered | Synthetic decisions | Disagreements / undecided |
+|---|---:|---:|---:|---:|---:|---|
+| C-4L FG Ordered / Ready | 10 | 1,625 / 1,649 | 5 / 10 (2) | 1,620 / 1,639 | 6,500 / 6,596 | 0 / 0 |
+| C-4L BMW Ordered / Ready | 10 | 19,463 / 19,483 | 5,744 / 5,639 (8) | 13,719 / 13,844 | 77,852 / 77,932 | 0 / 0 |
+| C-4L H Ordered / Ready | 10 | 4,060 / 4,071 | 148 / 156 (8) | 3,912 / 3,915 | 16,240 / 16,284 | 0 / 0 |
+| C-4L X Ordered / Ready | 10 | 3,418 / 3,441 | 359 / 355 (3) | 3,059 / 3,086 | 13,672 / 13,764 | 0 / 0 |
+| C-5F Ordered / Ready | 15 | 13,631 / 13,684 | 6,552 / 6,408 (8) | 7,079 / 7,276 | 56,116 / 56,168 | 0 / 0 |
+| **Total** | | **84,525** | **25,376** | **59,149** | **341,124** | **0 / 0** |
+
+No sampled cell was contained in a single earlier native. This agrees with the G2' falsifier's finding that
+admission aliasing already takes every single-anchor cover. The real cells are small: on C-5F, 19,378 of 20,000
+sampled cells are enumerable, averaging about 6 points. Enumeration therefore validates the predicate's logic on
+real 15-axis shapes, not its behaviour on very large cells. Those rely on the exactness argument of §3 and on the
+unit tests. Cost: 0.2-2.6 s per output.
+
+**Gen-7** (`r3/gen7/report-union20000.json`, script `r3/gen7_union.sh`): clone of v2 gen 7 (74,156,033 domains),
+`--reinspect none --union-sample 20000:1`, 32 threads [M]:
+- Verdict INCOMPLETE by design (no re-inspection, no closure requirement). 0 violations, including the new
+  partial rules on all 246 partial records (D-cut checks 246 covered).
+- 20,000 sampled; 17,024 enumerable, averaging about 150 points.
+- **16,381 real decisions**: 5,866 covered only by a union of earlier natives (at most 8 records), 10,515 not
+  covered, 0 covered by one record.
+- 66,916 synthetic decisions.
+- **0 disagreements, 0 undecided.**
+- Union phase 10.0 s. Wall 717 s (load 364 s, owner preparation 90 s, checks 256 s). VmHWM 33.57 GB.
+- Grand total over 10 outputs plus gen 7: **100,906 real decisions (31,242 union-only covers) and 408,040
+  synthetic decisions, 0 disagreements** [M].
+
+### 11.4 Calibration round 3 and matrices [M]
+
+Calibration: `tools/research/oracle/r3/verify_all.sh rustred-b0835196 24 20000`, run with full F10,
+`--require-closure`, native levers off, and the published result.json bound. Reports are in
+`TMP/w0/oracle/r3/verify/`; paired audits are in `TMP/w0/oracle/r3/audits/`.
+- **10/10 drained outputs pass the gate** (`assert_oracle_pass.py`, exit 0). Roots verified per output:
+  248/268/628/656 (C-4L FG/BMW/H/X, Ordered and Ready) and 1/1 (C-5F Ordered and Ready).
+- 0 violations of any class, including the new partial rules on all 3,580 partial records.
+- 0 uncovered admitted domains. C-5F routed admits: 3,329,296 (Ordered) and 3,364,757 (Ready).
+- 0 disagreements between exact inclusion and enumeration.
+- C-5F: 344.1 / 343.3 s at 24 threads, 6.28 / 6.29 GB peak.
+- Frontier fixture: PASS plain, gate refused (60/124).
+- Paired audits: 10/10 PASS and bound to the verifier reports. C-HOT is audit-only (PASS) and the fixture FAILs
+  as expected.
+
+Matrices (`TMP/w0/oracle/r3/mutations/`, 4 jobs × 8 threads) [M]:
+
+**FG** (`matrix-fg.json`, 193 s): **48/48 rows as predicted**, `all_ok: true`.
+- 16 Python-audit rows. The 4 new partial rows show exactly the calibrated new violation kinds: "partial anchor
+  must be an earlier initial record" and "partial anchor N has no initial row" for self-anchor, partial-as-anchor
+  and anchor cycle, and 8 kinds for the Route partial.
+- 32 Rust rows. Every new partial row has its exact classes, and closed roots stay at 248/248. On FG,
+  `partial-as-anchor` anchors 248 on 249, `partial-anchor-cycle` links 248 and 249, and `non-initial-anchor`
+  anchors 248 on the later native 367: the genuine "later" case.
+- The 3 routed rows are not applicable: the baseline has 0 routed admits, so they were not run.
+
+**C-5F** has 34 rows, all as predicted, split in two runs of under one hour each:
+- New rows (`matrix-c5f-new.json`, 26.1 min): **11/11**. Self-anchor, partial-as-anchor, cycle,
+  `non-initial-anchor` (partial 7 anchored on native 9), `shrunk-residual` and `route-partial` give the same exact
+  classes as on FG. `dropped-routed-edge` and `routed-false-hit` hit Route native 1: its routed Apply domain
+  (owner 111000100011101) loses its only covering edge (1 -> 7409), or has it retargeted to native 8103. Each gives
+  exactly `successor_uncovered` 1. `miscounted-route-events` on Route native 1 gives exactly `event_parity` 1.
+  Closed roots: 1/1 on every row.
+- Round-2 rows (`matrix-c5f-old.json`, 31.6 min): **23/23**, with the same classes and counts as round 2:
+  `successor_uncovered` 7 for dropped edge and false hit, `false_closure` 119,939 for seal-with-error.
+  `retargeted-anchor` and `remapped-query` are now reported as not applicable, decided from the baseline (C-5F has
+  1 initial record). They are no longer counted as failed rows.
+
+Routed coverage now has negative controls on real five-loop data, not only on correct data.
+
+### 11.5 W4.2 preconditions (G2' records in the verifier)
+
+The verifier does not read G2' records yet (`g2falsify.report-rev1.json`, open issue 2). Before any W4.2 gate
+cites it, it must:
+1. Read multi-anchor residual records: the anchor list, each anchor's merge stamp, the dispatch epoch, and the
+   residual pieces.
+2. Check each anchor edge.
+3. Check each anchor kind. Anchors are Native, or, under orchestrator decision 7, merged and validated G2' residual
+   records.
+4. Check well-foundedness explicitly: every anchor stamp is strictly earlier than the record's dispatch epoch, and
+   the anchor graph is acyclic (a strictly earlier id or stamp along every anchor edge).
+5. Decide Q ⊆ anchors ∪ residual with `covered_by_union`, as the primary predicate. There is no D-cut identity to
+   fall back on.
+6. Re-inspect the recorded residual pieces in F10.
+
+The G2' mutation set must then exist with exact class sets:
+- residual shrunk by one point;
+- anchor stamp >= dispatch epoch;
+- anchor not Native (and not a validated residual record);
+- anchor cycle among residual records;
+- a missing anchor edge.
+
+Their round-3 analogues on today's D-cut partials are `shrunk-residual` (one D layer), `non-initial-anchor`,
+`partial-as-anchor` and `partial-anchor-cycle`. Until the list above exists, no G2' run can be certified by
+`walk-verify-closure`.
+
+### 11.6 Tests [M]
+
+- `verify_closure` tests: 21 passed, 0 failed, 1 ignored (the exploration aid), on the first build
+  (`TMP/w0/oracle/r3/verify-closure-tests.log`). The 4 new tests are the partial-rule unit test, the 4-6-axis
+  union test, the routed fixture and the Route partial.
+- Release lib suite: **798 passed / 0 failed / 7 ignored** (round 2: 794/0/7) (`r3/lib-suite.log`).
+- `cli_routed_campaign`: 6/6.
+- Python suite: 234 OK, 1 skipped.
+- `cargo fmt`: applied.
+
 ## 10. Reproduction
 
 ```sh
@@ -367,4 +604,11 @@ tools/research/oracle/r2/matrices.sh $B all            # -> TMP/w0/oracle/r2/mut
 tools/research/oracle/r2/gen7_sample.sh $B 10000 32    # clone: .claude/worktrees/fable51-oracle/TMP/gen7
 examples/python/assert_oracle_pass.py TMP/w0/oracle/r2/verify/c4l-*.json TMP/w0/oracle/r2/verify/c5f-*.json
 cargo test --release --locked --offline -p rustred-app --lib verify_closure   # e2e + unit tests
+# round 3 (fix round, binary rustred-b0835196)
+B=TMP/w0/oracle/bin/rustred-b0835196
+tools/research/oracle/r3/verify_all.sh $B 24 20000   # -> TMP/w0/oracle/r3/verify/ (with --union-sample)
+tools/research/oracle/r3/audit_all.sh                # -> TMP/w0/oracle/r3/audits/ (paired)
+tools/research/oracle/r3/matrices.sh $B fg           # then c5f-new, c5f-old (each run < 1 h)
+tools/research/oracle/r3/gen7_union.sh $B 20000 32   # union sample on the gen-7 clone, no re-inspection
+tools/research/oracle/r3/summarize.py                # calibration and union tables
 ```
