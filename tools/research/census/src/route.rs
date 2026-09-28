@@ -1010,3 +1010,60 @@ pub fn saturation(dir: &Path, opts: &Opts) {
     let nn: usize = natives.values().map(|v| v.len()).sum();
     println!("{}", serde_json::to_string_pretty(&json!({"dir": dir, "draws": draws, "route_natives_pooled": nn, "windows": out})).unwrap());
 }
+
+// ------------------------------------------------------- apply natives
+/// `census route-apply CKPT`: the historical-native block of `route` for
+/// Apply natives (stratified by record generation x points decade), with
+/// the creation weights (created domains, creator-forest descendants), so the
+/// indirect domain-volume effect of G2' (a fully covered job emits no
+/// successors) can be read next to the Route one.
+pub fn apply_natives(dir: &Path, opts: &Opts) {
+    let ck = util::load(dir, opts, true);
+    let n = ck.n;
+    let t0 = std::time::Instant::now();
+    let sums = util::dom_sums(&ck.doms, n);
+    let seed = opts.num("seed", 20260928u64);
+    let per = opts.num("per", 200usize);
+    let series: Option<Vec<(f64, u64)>> = opts.get("series").map(|p| {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter_map(|l| {
+                let mut it = l.split_whitespace();
+                Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+            })
+            .collect()
+    });
+    let e = edges(&ck);
+    let an: Vec<&recs::Rec> = ck.recs.iter().filter(|r| recs::is_native(r.kind) && r.phase == 0).collect();
+    let (natives, all) = pools(&ck, &sums, &[0]);
+    eprintln!("route-apply: pools built ({:.1} s)", t0.elapsed().as_secs_f64());
+    let ctx = Ctx { ck: &ck, n, natives, all, series, wait: opts.num("wait", 30f64), cap: opts.num("cap", 2.0e6f64), samples: opts.num("samples", 20000usize) };
+    let mut rng = Rng::new(seed);
+    let keys: Vec<u16> = an.iter().map(|r| (r.gen.min(9) as u16) * 10 + decade(&sums[r.id as usize])).collect();
+    let (plan, strata) = stratified(&keys, per, &mut rng);
+    let sets_h = ["natives_before_dispatch", "natives_before_commit", "earlier_non_delegated", "all_earlier_ids"];
+    let wn_h = ["count", "seconds", "successors", "out_edges", "created", "created_apply", "created_route", "descendants", "points"];
+    let draws: Vec<Draw> = plan
+        .par_iter()
+        .map(|&(ix, st, ht)| {
+            let r = an[ix];
+            let id = r.id as usize;
+            let mut rng = Rng::new(seed ^ (id as u64).wrapping_mul(0x2545F4914F6CDD1D));
+            let pts = if sums[id].infinite { 0.0 } else { sums[id].points };
+            let w = vec![1.0, r.seconds as f64, r.successors as f64, (e.out[0][id] + e.out[1][id]) as f64,
+                (e.cre[0][id] + e.cre[1][id]) as f64, e.cre[0][id] as f64, e.cre[1][id] as f64, (e.subtree[id] - 1) as f64, pts];
+            let evs = sets_h.iter().map(|s| ctx.eval(id, r.seq, r.seconds as f64, s, &mut rng)).collect();
+            Draw { id: id as u32, stratum: st, ht, w, evs }
+        })
+        .collect();
+    eprintln!("route-apply: apply_natives done ({:.1} s)", t0.elapsed().as_secs_f64());
+    let tot_created: f64 = an.iter().map(|r| (e.cre[0][r.id as usize] + e.cre[1][r.id as usize]) as f64).sum();
+    let report = json!({"dir": dir, "generation": ck.m.generation,
+        "params": {"per": per, "seed": seed, "wait": opts.num("wait", 30f64), "series": opts.get("series")},
+        "edges": e.counts,
+        "apply_natives": {"population": an.len(), "strata": strata.len(), "distinct_draws": draws.len(),
+            "created_exact_total": tot_created,
+            "coverage": aggregate(&draws, &sets_h, &wn_h, &strata, &stratum_name, &|k| format!("record_g{}", k / 10))}});
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+}

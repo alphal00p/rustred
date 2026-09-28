@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: census <stats|compose|cost|potential|cover|saturation|pilot|route|route-saturation> CKPT_DIR [options]\n\
+        "usage: census <stats|compose|cost|potential|cover|saturation|pilot|route|route-saturation|route-apply> CKPT_DIR [options]\n\
          see tools/research/census/README.md"
     );
     std::process::exit(2)
@@ -41,6 +41,7 @@ fn main() {
         "saturation" => cover::saturation(&dir, &opts),
         "route" => route::run(&dir, &opts),
         "route-saturation" => route::saturation(&dir, &opts),
+        "route-apply" => route::apply_natives(&dir, &opts),
         _ => usage(),
     }
     eprintln!("census {mode}: {:.1} s", t0.elapsed().as_secs_f64());
