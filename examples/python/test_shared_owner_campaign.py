@@ -389,6 +389,7 @@ raise SystemExit(4)
             child.write_text(f"#!{sys.executable}\nimport os,sys,time\nfrom pathlib import Path\n"
                 "assert os.environ['RAYON_NUM_THREADS']=='1'\n"
                 "assert 'RUSTRED_WALK_DIAGNOSTIC_PAUSE' not in os.environ\n"
+                "assert 'RUSTRED_EPOCH_LOCKSTEP_B' not in os.environ\n"
                 "stop=Path(sys.argv[sys.argv.index('--stop-file')+1])\n"
                 "while not stop.exists(): time.sleep(.02)\nraise SystemExit(4)\n")
             child.chmod(0o700)
@@ -400,7 +401,8 @@ raise SystemExit(4)
                 "--targets",str(targets),"--workers","1","--soft-memory-bytes","1","--sample-seconds","0.1",
                 "--tmp-root",str(directory/"receipts"),"--no-progress","--expansion-limits",str(policy),
                 "--entry-domains",str(entries)],capture_output=True,text=True,timeout=10,
-                env=dict(os.environ,RUSTRED_WALK_DIAGNOSTIC_PAUSE="ready-multi-prefix"))
+                env=dict(os.environ,RUSTRED_WALK_DIAGNOSTIC_PAUSE="ready-multi-prefix",
+                         RUSTRED_EPOCH_LOCKSTEP_B="64"))
             self.assertEqual(result.returncode,4,result.stderr)
             receipt=next((directory/"receipts").iterdir())
             summary=json.loads((receipt/"supervisor-result.json").read_text())
