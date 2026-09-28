@@ -3,9 +3,10 @@
 
 Compares the S2 export sections byte for byte (domains, nodes, ledger6, edges,
 anchors), the records (JSON lines, timing field `seconds` removed), the
-manifest's digests and positions, and the result.json records and walk
+manifest's digests and positions, the lockstep size B (`extra.schedule.b`: identity is
+claimed only for equal B, the key is (request, B)), and the result.json records and walk
 counters (worker-dependent and timing fields excluded).
-usage: identity.py RUN_A RUN_B   (run directories holding result.json + checkpoint/)
+usage: identity.py RUN_A RUN_B [--out FILE]   (run directories holding result.json + checkpoint/)
 """
 import hashlib, json, sys
 from pathlib import Path
@@ -29,10 +30,21 @@ def sha(path):
 
 
 def main():
-    a, b = Path(sys.argv[1]), Path(sys.argv[2])
+    args = [arg for arg in sys.argv[1:] if not arg.startswith("--out=")]
+    out = next((arg.split("=", 1)[1] for arg in sys.argv[1:] if arg.startswith("--out=")), None)
+    if "--out" in args:
+        at = args.index("--out")
+        out = args[at + 1]
+        del args[at:at + 2]
+    a, b = Path(args[0]), Path(args[1])
     report = {"a": str(a), "b": str(b), "differences": []}
     ma = json.loads((a / "checkpoint/epoch-export.json").read_text())
     mb = json.loads((b / "checkpoint/epoch-export.json").read_text())
+    ba = ((ma.get("extra") or {}).get("schedule") or {}).get("b")
+    bb = ((mb.get("extra") or {}).get("schedule") or {}).get("b")
+    report["lockstep_b"] = [ba, bb]
+    if ba is None or ba != bb:
+        report["differences"].append(f"lockstep B differs or is missing: {ba!r} != {bb!r}")
     for key in ("domains", "nodes", "ledger6", "edges", "anchors"):
         fa, fb = a / "checkpoint" / ma["files"][key]["file"], b / "checkpoint" / mb["files"][key]["file"]
         ha, hb = sha(fa), sha(fb)
@@ -51,6 +63,7 @@ def main():
         report["differences"].append(f"records differ (counts {len(ra)}/{len(rb)}; first index {diff})")
     da = json.loads((a / "result.json").read_text())
     db = json.loads((b / "result.json").read_text())
+    report["workers"] = [da.get("workers"), db.get("workers")]
     if strip(da.get("domains")) != strip(db.get("domains")):
         report["differences"].append("result.json domains differ (seconds removed)")
     for key in sorted(set(da) | set(db)):
@@ -63,7 +76,10 @@ def main():
         if va != vb:
             report["differences"].append(f"result {key} differs")
     report["identical"] = not report["differences"]
-    print(json.dumps(report, indent=1))
+    text = json.dumps(report, indent=1)
+    if out:
+        Path(out).write_text(text + "\n")
+    print(text)
     return 0 if report["identical"] else 1
 
 
