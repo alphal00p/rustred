@@ -335,11 +335,12 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> 
 /// Launchers compare it with a paused CP5 manifest before swapping in a
 /// performance-only executable; it opens no file and runs no algebra.
 /// Backward compatible: the three legacy keys stay first and unchanged (they
-/// describe the CP5 lanes); `per_policy` and `checkpoint_formats` are added
-/// for walk semantics 3 (W2.0 protocol §11.5, IMP-15).
+/// describe the CP5 lanes); `per_policy` and `checkpoint_formats {cp5, cp6}`
+/// are added for walk semantics 3 (W2.0 protocol §11.5, IMP-15). `cp6` is
+/// null until stage S3 lands CP6 (the S2 epoch export is not resumable).
 fn walk_semantics_probe() -> String {
     format!(
-        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"epoch\":\"none (S2 final export only; CP6 is stage S3)\"}}}}\n",
+        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":null}}}}\n",
         crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
         serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
         crate::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
@@ -397,7 +398,10 @@ mod tests {
             probe["per_policy"],
             serde_json::json!({"ordered": 1, "ready": 1, "epoch": 3})
         );
-        assert_eq!(probe["checkpoint_formats"]["cp5"], "RUSTRED-WALK-CP5");
+        assert_eq!(
+            probe["checkpoint_formats"],
+            serde_json::json!({"cp5": "RUSTRED-WALK-CP5", "cp6": null})
+        );
         assert_eq!(probe.as_object().unwrap().len(), 5);
         assert!(line.starts_with("{\"walk_semantics_version\":"));
     }

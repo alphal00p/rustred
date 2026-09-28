@@ -688,10 +688,12 @@ Its IDs, covers and work counts may depend on scheduling; saved rules and
 obligation requirements are unchanged. Use a new campaign for a changed policy;
 never attach an ordered checkpoint to a ready run.
 The opt-in epoch policy (walk semantics 3, W2 stage S2) commits whole native
-inspections in bulk merges by one coordinator: Lockstep epochs of the 64 lowest
-pending IDs, every successor resolved in the merge (canonical minimum-ID
-index semantics, verified containment), IDs assigned at merge, full reverse
-retirement with verified transfers. Results are identical across worker counts.
+inspections in bulk merges by one coordinator: Lockstep epochs of the 16 lowest
+pending IDs (B = 16, independent of the worker count), every successor resolved
+in the merge (canonical minimum-ID index semantics, verified containment), IDs
+assigned at merge, full reverse retirement with verified transfers. Results are
+identical across worker counts for a fixed B; the diagnostic-only environment
+override RUSTRED_EPOCH_LOCKSTEP_B changes the walk and is recorded in the result.
 It requires --transfer-unreserved-lookahead H (the value is unused), refuses a
 finite containment cap and physical subdivision, defaults --frontier-policy to
 stop (no checkpoint needed), and treats --checkpoint DIR as the directory of a
