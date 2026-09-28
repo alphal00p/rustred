@@ -427,6 +427,10 @@ struct StatsRow {
 #[derive(Deserialize)]
 struct RecordRow {
     id: usize,
+    /// Absent only on a plain native record of a walk without a delegation
+    /// ledger (`execution.rs` writes it with the ledger; partial and
+    /// subdivided records always carry it).
+    #[serde(default = "native_inspection_kind")]
     record_kind: String,
     phase: String,
     owner: String,
@@ -453,6 +457,10 @@ struct RecordRow {
     /// Rescue: an obligation published without inspection (`rescue.rs`).
     #[serde(default)]
     rescue_abandoned: Option<bool>,
+}
+
+fn native_inspection_kind() -> String {
+    "native_inspection".into()
 }
 
 fn cell<const N: usize>(domain: &Domain<N>) -> Cell {
