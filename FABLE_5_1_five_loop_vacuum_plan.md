@@ -421,3 +421,7 @@ pass at every commit; new tests accompany each package. Push to
   the W2 epoch skeleton (S2/S4) must beat the legacy engine + SoA kernel comparator (25-min gen-7 resume, matched
   window vs M1 run2) by >= 1.5x, otherwise fall back to MVP-B (epoch core without W3/W4) or MVP-A (legacy +
   campaign profile + mimalloc + I1/I2 inputs + frontier stop) and report to the owner. I1b dropped (evidence).
+- 2026-09-28 ~09:40 UTC: owner answers: G2' residual anchors allowed (S7 amended; D2 = dispatch-time G2' union form);
+  per-CCX owner-program replicas instead of any Symbolica patch (root cause: shared Arc<PolynomialContext> refcount);
+  I2 rebuilt per owner frame and re-gated with a total-work cap; D7 always stop; D8 symbolic closure; D6, D1(b), D4
+  "no" by measurement; I1b dropped.

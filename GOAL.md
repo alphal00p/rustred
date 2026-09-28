@@ -4838,3 +4838,5 @@ X at the A <= 19, R <= 12, D >= 7 saved-cover envelope) as well as on five-loop 
 Owner answers 2026-09-27 ~21:35 UTC (after the Fable 5.1 audit `FABLE_5_1_CRITIQUE.md`): socket 1 shared at
 launch (no cpuset), no ZFS ARC cap, host MemAvailable save-and-stop floor 50 GB, full plan gated on the epoch
 skeleton beating the legacy + SoA-kernel comparator by >= 1.5x (else MVP-B / MVP-A fallback, reported to the owner).
+Owner answers 2026-09-28 ~09:40 UTC: G2' residual anchors allowed (S7 amended), per-CCX replicas (no Symbolica
+patch), I2 rebuilt and re-gated with a total-work cap, D7 always stop, D8 symbolic closure.

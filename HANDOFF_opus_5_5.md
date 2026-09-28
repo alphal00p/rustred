@@ -106,6 +106,12 @@ plan / v3 note until those are amended:
     PLAN, GATED: continue W2 only if the S2/S4 epoch skeleton beats the legacy + SoA-kernel comparator (25-min gen-7
     resume vs M1 run2, matched window) by >= 1.5x; otherwise fall back to MVP-B, then MVP-A, and report. Launch
     criterion (F) is thereby settled (shared host, no ARC cap, 600 GB cap, 50 GB host floor).
+12. **Owner answers (2026-09-28 ~09:40 UTC):** G2' residual anchors ALLOWED (amend S7/plan 3.11: an anchor is any
+    merged record whose domain is fully discharged, resolved in merge order; validators, audit and mutations check
+    it; D2 settled as dispatch-time G2' in union form); Symbolica: per-CCX replicas only, no Symbolica patch (owner
+    may raise the shared-refcount design upstream); I2: rebuild with one coordinate frame per owner and re-gate with a
+    total-work cap; D7 always stop; D8 symbolic closure. D6 and D1(b) settled "no" by measurement. Binding
+    orchestrator decisions and lane results: `TMP/progress/orchestrator_decisions.md`, `TMP/progress/*.report.json`.
 
 ---
 
