@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # W0 G2' falsifier session (throwaway). Flag off vs on, same binary, same CPUs,
 # same session, interleaved repeats. usage: session.sh BIN PHASE...
-#   phases: smoke c4l c5f hotsub post-c4l post-c5f post-hotsub
+#   phases: smoke c4l c5f hotsub post-c4l post-c5f post-hotsub   (binary B1: arms off/on)
+#           c4l3 post-c4l3 hotsub3 post-hotsub3 c5f3 post-c5f3     (binary B2: arms off/m1/m2)
+# Arm flags: off (unset), on|m1 (RUSTRED_WALK_G2_DONLY=1), m2 (=2).
 # CPU halves are disjoint sets of physical cores (n and n+256 are SMT siblings).
 set -u
 BIN=$1; shift
@@ -21,7 +23,7 @@ log() { echo "$(date -u +%FT%TZ) $*"; }
 arm() { # label family cpus policy workers on|off [extra run_arm args]
   local label=$1 fam=$2 cpus=$3 policy=$4 workers=$5 flag=$6; shift 6
   local env=()
-  [ "$flag" = on ] && env=(--env RUSTRED_WALK_G2_DONLY=1)
+  case $flag in on|m1) env=(--env RUSTRED_WALK_G2_DONLY=1) ;; m2) env=(--env RUSTRED_WALK_G2_DONLY=2) ;; esac
   log "start $label/$fam cpus=$cpus policy=$policy W$workers g2=$flag"
   $PY $T/run_arm.py --binary "$BIN" --family "$fam" --label "$label" --cpus "$cpus" \
       --policy "$policy" --workers "$workers" --time-limit 3000 --grace 300 "${env[@]}" "$@" \
@@ -33,7 +35,7 @@ post() { # label family on|off : audit + g2stats + pending, pinned to the given 
   local label=$1 fam=$2 flag=$3 cpus=$4 union=${5:-}
   local d=$OUT/$label/$fam
   local extra=()
-  [ "$flag" = on ] && extra=(--g2-residual-anchors)
+  [ "$flag" != off ] && extra=(--g2-residual-anchors)
   taskset -c "$cpus" nice -n 19 $PY $WT/examples/python/audit_owner_domain_walk.py "$d" --require-closure \
       "${extra[@]}" --no-output > "$d/audit.json" 2> "$d/audit.err"
   log "audit $label/$fam: $(grep -o '"audit": "[A-Z]*"' $d/audit.json | head -1)"
@@ -113,6 +115,71 @@ for phase in "$@"; do
       post hotsub-r1a12-off-r1-$SHA hot off 16-19,272-275 --union & post hotsub-r1a12-on-r1-$SHA hot on 20-23,276-279 --union &
       post hotsub-r1a12-off-r2-$SHA hot off 24-27,280-283 --union & post hotsub-r1a12-on-r2-$SHA hot on 28-31,284-287 --union &
       wait
+      ;;
+    c4l3)
+      for fam in fg bmw h x; do
+        arm c4l-off-r1-$SHA $fam $A ordered 6 off & arm c4l-m2-r1-$SHA $fam $B ordered 6 m2 & wait
+      done
+      for fam in fg bmw h x; do
+        arm c4l-m2-r2-$SHA $fam $A ordered 6 m2 & arm c4l-off-r2-$SHA $fam $B ordered 6 off & wait
+      done
+      for fam in fg bmw h x; do
+        arm c4l-m1-r1-$SHA $fam $A ordered 6 m1 & arm c4l-m1-r2-$SHA $fam $B ordered 6 m1 & wait
+      done
+      ;;
+    post-c4l3)
+      for fam in fg bmw h x; do
+        post c4l-off-r1-$SHA $fam off 16-17,272-273 & post c4l-m2-r1-$SHA $fam m2 18-19,274-275 &
+        post c4l-off-r2-$SHA $fam off 20-21,276-277 & post c4l-m2-r2-$SHA $fam m2 22-23,278-279 &
+        post c4l-m1-r1-$SHA $fam m1 24-25,280-281 & post c4l-m1-r2-$SHA $fam m1 26-27,282-283 &
+        wait
+        for r in r1 r2; do
+          strict $ROOT/TMP/w0/oracle/runs/c4l-ordered/$fam/result.json $OUT/c4l-off-$r-$SHA/$fam/result.json \
+                 $OUT/c4l-off-$r-$SHA/$fam/strict-vs-4a17f9c7.txt
+        done
+      done
+      ;;
+    hotsub3)
+      arm hotsub-r1a12-off-r1-$SHA hot $A ready 12 off --queries $HOTQ &
+      arm hotsub-r1a12-m1-r1-$SHA hot $B ready 12 m1 --queries $HOTQ &
+      wait
+      arm hotsub-r1a12-m2-r1-$SHA hot $A ready 12 m2 --queries $HOTQ &
+      arm hotsub-r1a12-off-r2-$SHA hot $B ready 12 off --queries $HOTQ &
+      wait
+      arm hotsub-r1a12-m1-r2-$SHA hot $A ready 12 m1 --queries $HOTQ &
+      arm hotsub-r1a12-m2-r2-$SHA hot $B ready 12 m2 --queries $HOTQ &
+      wait
+      ;;
+    post-hotsub3)
+      i=0
+      for l in off-r1 m1-r1 m2-r1 off-r2 m1-r2 m2-r2; do
+        flag=${l%-r*}; c=$((16 + 2 * i))
+        post hotsub-r1a12-$l-$SHA hot $flag $c,$((c + 1)),$((c + 256)),$((c + 257)) --union &
+        i=$((i + 1))
+      done
+      wait
+      ;;
+    c5f3)
+      for l in ord-off-r1 ord-m1-r1 ord-m2-r1 rdy-off-r1 rdy-m1-r1 rdy-m2-r1 \
+               ord-m2-r2 ord-m1-r2 ord-off-r2 rdy-m2-r2 rdy-m1-r2 rdy-off-r2; do
+        pol=${l%%-*}; rest=${l#*-}; flag=${rest%-r*}
+        policy=ordered; [ "$pol" = rdy ] && policy=ready
+        arm c5f-$l-$SHA five-finite $ALL $policy 24 $flag
+      done
+      ;;
+    post-c5f3)
+      i=0
+      for l in ord-off-r1 ord-m1-r1 ord-m2-r1 rdy-off-r1 rdy-m1-r1 rdy-m2-r1 \
+               ord-m2-r2 ord-m1-r2 ord-off-r2 rdy-m2-r2 rdy-m1-r2 rdy-off-r2; do
+        rest=${l#*-}; flag=${rest%-r*}; c=$((16 + i))
+        post c5f-$l-$SHA five-finite $flag $c,$((c + 256)) --union &
+        i=$((i + 1))
+      done
+      wait
+      for r in r1 r2; do
+        strict $ROOT/TMP/w0/oracle/runs/c5f-ordered/five-finite/result.json $OUT/c5f-ord-off-$r-$SHA/five-finite/result.json \
+               $OUT/c5f-ord-off-$r-$SHA/five-finite/strict-vs-4a17f9c7.txt
+      done
       ;;
     *) log "unknown phase $phase" ;;
   esac

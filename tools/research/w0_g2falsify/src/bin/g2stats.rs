@@ -25,6 +25,8 @@ struct Class {
     g2_partial_seconds: f64,
     g2_full: u64,
     g2_full_seconds: f64,
+    g2_second_anchor: u64,
+    g2_second_anchor_full: u64,
     initial_partial: u64,
     initial_partial_seconds: f64,
     inspected_points: f64,
@@ -106,7 +108,10 @@ fn main() {
                     anchors_scanned += g2.get("anchors_scanned").and_then(Value::as_f64).unwrap_or(0.0);
                     c.d_levels_original += g2.get("original_d_levels").and_then(Value::as_u64).unwrap_or(0);
                     c.d_levels_residual += g2.get("residual_d_levels").and_then(Value::as_u64).unwrap_or(0);
+                    let second = g2.get("second_anchor").is_some_and(|v| !v.is_null());
+                    c.g2_second_anchor += u64::from(second);
                     if g2.get("full_cover") == Some(&Value::Bool(true)) {
+                        c.g2_second_anchor_full += u64::from(second);
                         c.g2_full += 1;
                         c.g2_full_seconds += s;
                         inspected_pb = None;
@@ -176,6 +181,8 @@ fn main() {
                     "full_native": c.native, "full_native_seconds": c.native_seconds,
                     "g2_residual": c.g2_partial, "g2_residual_seconds": c.g2_partial_seconds,
                     "g2_full_cover": c.g2_full, "g2_full_cover_seconds": c.g2_full_seconds,
+                    "g2_with_second_anchor": c.g2_second_anchor,
+                    "g2_full_cover_with_second_anchor": c.g2_second_anchor_full,
                     "initial_overlap_partial": c.initial_partial,
                     "initial_overlap_partial_seconds": c.initial_partial_seconds,
                     "share_g2_residual": ratio(c.g2_partial as f64, apply as f64),
