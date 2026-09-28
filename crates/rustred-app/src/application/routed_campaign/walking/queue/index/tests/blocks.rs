@@ -1,3 +1,4 @@
+use super::super::blocks::{Block, Meta};
 use super::*;
 
 fn point(x: u64) -> DomainPowerSummary<2> {
@@ -26,24 +27,35 @@ fn whole_diagonal() -> DomainPowerSummary<2> {
     .unwrap()
 }
 
-fn insert(index: &mut AggregateIndex, summary: &DomainPowerSummary<2>, id: usize) {
+fn plain(id: usize, coordinates: Option<Coordinates<'_>>) -> Entry<'_, 2> {
+    Entry {
+        id,
+        coordinates,
+        word: 0,
+        lanes: None,
+    }
+}
+
+fn insert(index: &mut AggregateIndex<2>, summary: &DomainPowerSummary<2>, id: usize) {
     let coordinates = Coordinates::of(summary);
     let insertion = index.prepare(Signature::of(summary), coordinates).unwrap();
-    index.insert(insertion, id, coordinates);
+    index.insert_plain(insertion, id, coordinates);
     assert_counts(index);
 }
 
-fn assert_counts(index: &AggregateIndex) {
+fn assert_counts(index: &AggregateIndex<2>) {
     assert_eq!(index.live, index.ids().len());
+    assert_eq!(index.storage(), index.storage_by_walk());
     for group in &index.groups {
         assert_eq!(
             group.live,
             group
-                .blocks
+                .meta
                 .iter()
-                .map(|block| block.ids().len())
+                .map(|meta| meta.len as usize)
                 .sum::<usize>()
         );
+        assert_eq!(group.meta.len(), group.blocks.len());
     }
 }
 
@@ -76,15 +88,17 @@ fn coordinate_filters_are_necessary_for_native_inclusion_in_both_directions() {
     }
     let mut implications = 0;
     for candidate in &summaries {
-        let mut block = Block::prepare(Coordinates::of(candidate), &mut || Ok(())).unwrap();
-        block.insert(0, Coordinates::of(candidate));
+        let (mut meta, mut block) =
+            Meta::<2>::prepare(Coordinates::of(candidate), &mut || Ok(())).unwrap();
+        meta.push(&mut block[0], plain(0, Coordinates::of(candidate)), None);
         for query in &summaries {
+            let probe = Probe::unfiltered(Coordinates::of(query));
             if candidate.contains(query) {
-                assert!(block.may_contain(Coordinates::of(query)));
+                assert!(meta.may_contain(&probe));
                 implications += 1;
             }
             if query.contains(candidate) {
-                assert!(block.may_be_contained(Coordinates::of(query)));
+                assert!(meta.may_be_contained(&probe));
             }
         }
     }
@@ -93,25 +107,18 @@ fn coordinate_filters_are_necessary_for_native_inclusion_in_both_directions() {
 
 #[test]
 fn blocks_reject_disjoint_coordinates_before_native_calls_and_keep_reverse_charges() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     let summaries: Vec<_> = (0..65).map(point).collect();
     for (id, summary) in summaries.iter().enumerate() {
         insert(&mut index, summary, id);
     }
     assert_eq!(index.groups(), 1);
-    assert_eq!(
-        index.groups[0]
-            .blocks
-            .iter()
-            .map(|b| b.ids().len())
-            .collect::<Vec<_>>(),
-        [32, 32, 1]
-    );
+    assert_eq!(index.block_lens(0), [32, 32, 1]);
     let query = point(32);
     let mut calls = Vec::new();
     assert_eq!(
         index
-            .find(Signature::of(&query), Coordinates::of(&query), |id| {
+            .find_each(Signature::of(&query), Coordinates::of(&query), |id| {
                 calls.push(id);
                 Ok(summaries[id].contains(&query))
             })
@@ -131,14 +138,14 @@ fn blocks_reject_disjoint_coordinates_before_native_calls_and_keep_reverse_charg
         .unwrap();
     let mut examined = Vec::new();
     assert_eq!(
-        index.retire(&insertion, Coordinates::of(&query), |id| {
+        index.retire_each(&insertion, Coordinates::of(&query), |id| {
             examined.push(id);
             query.contains(&summaries[id])
         }),
         1
     );
     assert_eq!(examined, (32..64).collect::<Vec<_>>());
-    index.insert(insertion, 65, Coordinates::of(&query));
+    index.insert_plain(insertion, 65, Coordinates::of(&query));
     assert_counts(&index);
     assert!(!index.is_live(Signature::of(&query), 32));
     assert!(index.is_live(Signature::of(&query), 65));
@@ -147,7 +154,7 @@ fn blocks_reject_disjoint_coordinates_before_native_calls_and_keep_reverse_charg
 
 #[test]
 fn block_watermarks_keep_the_first_live_id_at_31_32_33_boundaries() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     let summary = point(5);
     for id in 0..66 {
         insert(&mut index, &summary, id);
@@ -155,7 +162,7 @@ fn block_watermarks_keep_the_first_live_id_at_31_32_33_boundaries() {
     for first in [0, 31, 32, 33, 63, 64, 65, 66] {
         assert_eq!(
             index
-                .find_from(
+                .find_from_each(
                     Signature::of(&summary),
                     Coordinates::of(&summary),
                     first,
@@ -169,14 +176,14 @@ fn block_watermarks_keep_the_first_live_id_at_31_32_33_boundaries() {
         .prepare(Signature::of(&summary), Coordinates::of(&summary))
         .unwrap();
     assert_eq!(
-        index.retire(&insertion, Coordinates::of(&summary), |id| id == 32),
+        index.retire_each(&insertion, Coordinates::of(&summary), |id| id == 32),
         1
     );
-    index.insert(insertion, 66, Coordinates::of(&summary));
+    index.insert_plain(insertion, 66, Coordinates::of(&summary));
     assert_counts(&index);
     assert_eq!(
         index
-            .find_from(
+            .find_from_each(
                 Signature::of(&summary),
                 Coordinates::of(&summary),
                 32,
@@ -191,7 +198,7 @@ fn block_watermarks_keep_the_first_live_id_at_31_32_33_boundaries() {
 #[test]
 fn all_retired_tail_and_full_tail_insertions_use_only_prepared_storage() {
     for count in [1, 31, 32, 33, 64, 65] {
-        let mut index = AggregateIndex::default();
+        let mut index = AggregateIndex::<2>::default();
         let summaries: Vec<_> = (0..count).map(point).collect();
         for (id, summary) in summaries.iter().enumerate() {
             insert(&mut index, summary, id);
@@ -200,9 +207,9 @@ fn all_retired_tail_and_full_tail_insertions_use_only_prepared_storage() {
         let insertion = index
             .prepare(Signature::of(&query), Coordinates::of(&query))
             .unwrap();
-        assert_eq!(insertion.new_block.is_some(), count % 32 == 0);
+        assert_eq!(insertion.has_new_block(), count % 32 == 0);
         assert_eq!(
-            index.retire(&insertion, Coordinates::of(&query), |id| query
+            index.retire_each(&insertion, Coordinates::of(&query), |id| query
                 .contains(&summaries[id])),
             count as usize
         );
@@ -211,7 +218,7 @@ fn all_retired_tail_and_full_tail_insertions_use_only_prepared_storage() {
         // The old nonfull tail is kept by its original block position; if it
         // was full, the replacement block was allocated before retirement.
         assert_eq!(index.groups[0].blocks.len(), usize::from(count % 32 != 0));
-        index.insert(insertion, count as usize, Coordinates::of(&query));
+        index.insert_plain(insertion, count as usize, Coordinates::of(&query));
         assert_eq!(index.ids(), [count as usize]);
         assert_eq!(index.groups[0].blocks.len(), 1);
         assert_eq!(index.live, 1);
@@ -227,7 +234,7 @@ fn all_retired_tail_and_full_tail_insertions_use_only_prepared_storage() {
 fn envelope_allocation_refusals_leave_live_ids_keys_and_retirement_unchanged() {
     let summary = point(0);
     for existing in [0, 32] {
-        let mut index = AggregateIndex::default();
+        let mut index = AggregateIndex::<2>::default();
         for id in 0..existing {
             insert(&mut index, &summary, id);
         }
@@ -274,19 +281,30 @@ fn stale_outward_envelopes_and_infinite_upper_coordinates_only_create_false_posi
         DomainPowerBounds::default(),
     )
     .unwrap();
-    let mut block = Block::prepare(Coordinates::of(&candidates[0]), &mut || Ok(())).unwrap();
-    block.insert(0, Coordinates::of(&candidates[0]));
-    block.insert(1, Coordinates::of(&candidates[1]));
-    assert!(block.may_contain(Coordinates::of(&query))); // Loose hull, not proof.
+    let (mut meta, mut block) =
+        Meta::<2>::prepare(Coordinates::of(&candidates[0]), &mut || Ok(())).unwrap();
+    meta.push(
+        &mut block[0],
+        plain(0, Coordinates::of(&candidates[0])),
+        None,
+    );
+    meta.push(
+        &mut block[0],
+        plain(1, Coordinates::of(&candidates[1])),
+        None,
+    );
+    let probe = |summary| Probe::unfiltered(Coordinates::of(summary));
+    assert!(meta.may_contain(&probe(&query))); // Loose hull, not proof.
     assert!(
         candidates
             .iter()
             .all(|candidate| !candidate.contains(&query))
     );
-    block.retain(|id| id == 1);
-    assert!(block.may_contain(Coordinates::of(&candidates[1])));
+    assert_eq!(meta.retain(&mut block[0], 0b10), 1);
+    assert_eq!((meta.first, meta.last, meta.len), (1, 1, 1));
+    assert!(meta.may_contain(&probe(&candidates[1])));
     let finite_query = make([Some(1); 2]);
-    assert!(block.may_be_contained(Coordinates::of(&finite_query))); // Stale min.
+    assert!(meta.may_be_contained(&probe(&finite_query))); // Stale min.
     assert!(!finite_query.contains(&candidates[1]));
     let maximum = make([Some(u64::MAX); 2]);
     assert!(!maximum.contains(&candidates[1])); // Infinity is not u64::MAX.
@@ -306,11 +324,11 @@ fn empty_domains_bypass_coordinates_in_both_directions() {
     )
     .unwrap();
     let nonempty = point(0);
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     insert(&mut index, &empty, 0);
     assert_eq!(
         index
-            .find(
+            .find_each(
                 Signature::of(&nonempty),
                 Coordinates::of(&nonempty),
                 |_| panic!("empty aggregate cannot contain nonempty domain")
@@ -321,7 +339,7 @@ fn empty_domains_bypass_coordinates_in_both_directions() {
     insert(&mut index, &nonempty, 1);
     assert_eq!(
         index
-            .find(Signature::of(&empty), Coordinates::of(&empty), |_| Ok(true))
+            .find_each(Signature::of(&empty), Coordinates::of(&empty), |_| Ok(true))
             .unwrap(),
         Some(0)
     );
@@ -329,13 +347,13 @@ fn empty_domains_bypass_coordinates_in_both_directions() {
         .prepare(Signature::of(&nonempty), Coordinates::of(&nonempty))
         .unwrap();
     assert_eq!(
-        index.retire(&insertion, Coordinates::of(&nonempty), |id| id == 0),
+        index.retire_each(&insertion, Coordinates::of(&nonempty), |id| id == 0),
         1
     );
-    index.insert(insertion, 2, Coordinates::of(&nonempty));
+    index.insert_plain(insertion, 2, Coordinates::of(&nonempty));
     assert_eq!(
         index
-            .find(Signature::of(&empty), Coordinates::of(&empty), |_| Ok(true))
+            .find_each(Signature::of(&empty), Coordinates::of(&empty), |_| Ok(true))
             .unwrap(),
         Some(1)
     );
@@ -343,14 +361,14 @@ fn empty_domains_bypass_coordinates_in_both_directions() {
 
 #[test]
 fn cancellation_is_polled_when_every_coordinate_block_rejects() {
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     for id in 0..65 {
         insert(&mut index, &point(id as u64), id);
     }
     let query = point(99);
     let mut checkpoints = 0;
     assert_eq!(
-        index.find_controlled(
+        index.find_controlled_each(
             Signature::of(&query),
             Coordinates::of(&query),
             0,
@@ -391,7 +409,7 @@ fn complete_reused_and_novel_proposals_preserve_native_ids_and_every_retirement_
         );
         proposals.extend((0..=100).map(point));
     }
-    let mut index = AggregateIndex::default();
+    let mut index = AggregateIndex::<2>::default();
     let mut stored: Vec<DomainPowerSummary<2>> = Vec::new();
     let mut live = std::collections::BTreeSet::<usize>::new();
     let mut reused = 0;
@@ -400,7 +418,7 @@ fn complete_reused_and_novel_proposals_preserve_native_ids_and_every_retirement_
         let coordinates = Coordinates::of(&query);
         let expected = live.iter().copied().find(|&id| stored[id].contains(&query));
         let actual = index
-            .find(signature, coordinates, |id| Ok(stored[id].contains(&query)))
+            .find_each(signature, coordinates, |id| Ok(stored[id].contains(&query)))
             .unwrap();
         assert_eq!(actual, expected);
         if actual.is_some() {
@@ -414,7 +432,7 @@ fn complete_reused_and_novel_proposals_preserve_native_ids_and_every_retirement_
             let insertion = index.prepare(signature, coordinates).unwrap();
             let mut actual_retired = Vec::new();
             assert_eq!(
-                index.retire(&insertion, coordinates, |id| {
+                index.retire_each(&insertion, coordinates, |id| {
                     let remove = query.contains(&stored[id]);
                     if remove {
                         actual_retired.push(id);
@@ -429,7 +447,7 @@ fn complete_reused_and_novel_proposals_preserve_native_ids_and_every_retirement_
                 live.remove(&id);
             }
             let id = stored.len();
-            index.insert(insertion, id, coordinates);
+            index.insert_plain(insertion, id, coordinates);
             live.insert(id);
             stored.push(query);
         }
@@ -443,17 +461,18 @@ fn complete_reused_and_novel_proposals_preserve_native_ids_and_every_retirement_
 }
 
 #[test]
-fn block_storage_reports_real_capacity_and_releases_removed_envelopes() {
-    let mut index = AggregateIndex::default();
+fn block_storage_reports_real_capacity_and_releases_removed_blocks() {
+    let mut index = AggregateIndex::<2>::default();
     for id in 0..65 {
         insert(&mut index, &point(id as u64), id);
     }
+    let block_bytes = std::mem::size_of::<Block<2>>();
     let before = index.block_storage();
     assert_eq!(before.live_ids, 65);
     assert_eq!(before.blocks, 3);
     assert_eq!(before.id_slots, 96);
-    assert!(before.block_capacity_bytes >= 3 * std::mem::size_of::<Block>());
-    assert!(before.envelope_capacity_bytes > 0);
+    assert!(before.block_capacity_bytes >= 3 * block_bytes);
+    assert!(before.envelope_capacity_bytes >= 3 * std::mem::size_of::<Meta<2>>());
     println!("coordinate_block_storage_before={before:?}");
 
     let query = whole_diagonal();
@@ -461,36 +480,183 @@ fn block_storage_reports_real_capacity_and_releases_removed_envelopes() {
         .prepare(Signature::of(&query), Coordinates::of(&query))
         .unwrap();
     assert_eq!(
-        index.retire(&insertion, Coordinates::of(&query), |_| true),
+        index.retire_each(&insertion, Coordinates::of(&query), |_| true),
         65
     );
-    index.insert(insertion, 65, Coordinates::of(&query));
+    index.insert_plain(insertion, 65, Coordinates::of(&query));
     let after = index.block_storage();
     assert_eq!(after.live_ids, 1);
     assert_eq!(after.blocks, 1);
     assert_eq!(after.id_slots, 32);
+    // Removed boxed blocks are freed; the row and pointer vectors keep their
+    // reserved capacity.
     assert_eq!(
-        after.envelope_capacity_bytes * 3,
+        after.block_capacity_bytes + 2 * block_bytes,
+        before.block_capacity_bytes
+    );
+    assert_eq!(
+        after.envelope_capacity_bytes,
         before.envelope_capacity_bytes
     );
-    assert_eq!(after.block_capacity_bytes, before.block_capacity_bytes);
     println!(
-        "coordinate_block_storage_after={after:?}; removed envelope allocations are dropped; outer capacity remains reserved"
+        "coordinate_block_storage_after={after:?}; removed boxed blocks are dropped; outer capacity remains reserved"
     );
+    println!(
+        "coordinate_block_layout arity2 block_bytes={} row_bytes={}; arity15 block_bytes={} row_bytes={} (allocator/group/hash overhead excluded)",
+        block_bytes,
+        std::mem::size_of::<Meta<2>>(),
+        std::mem::size_of::<Block<15>>(),
+        std::mem::size_of::<Meta<15>>()
+    );
+}
 
-    // Diagnostic layout only; production has no arity-specific lane here.
-    let pressure = DomainPowerSummary::try_new(
-        [true; 15],
-        &[0; 15],
-        &[Some(1); 15],
-        None,
-        DomainPowerBounds::default(),
-    )
-    .unwrap();
-    let block = Block::prepare(Coordinates::of(&pressure), &mut || Ok(())).unwrap();
+/// The running storage totals equal the full walk after every mutation:
+/// narrow and exact (wide) envelopes, narrow tails widened to exact storage,
+/// lossy and escaped slots, retirements that empty blocks and remove groups,
+/// and preparations that are refused mid-way or abandoned after reserving.
+#[test]
+fn running_storage_totals_equal_the_full_walk_after_every_mutation() {
+    let mut state = 0x5DEE_CE66_D1CE_4E5B_u64;
+    let mut below = move |n: u64| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 33) % n
+    };
+    let mut index = AggregateIndex::<2>::default();
+    let (mut next_id, mut refused, mut abandoned, mut groups_removed) = (0, 0, 0, 0);
+    let (mut wide_rows, mut lossy_peak, mut lossy_retired) = (0, 0, 0);
+    // Two full blocks in a group no random insertion retires (signature 9):
+    // the existing-group new-block path, then refusals at both of its
+    // reservation checkpoints on a full tail.
+    let full = signature(9);
+    let point_summary = point(7);
+    for _ in 0..64 {
+        let insertion = index
+            .prepare(full, Coordinates::of(&point_summary))
+            .unwrap();
+        index.insert_plain(insertion, next_id, Coordinates::of(&point_summary));
+        next_id += 1;
+        assert_counts(&index);
+    }
+    assert_eq!(index.block_lens(0), [32, 32]);
+    for fail_at in 0..2 {
+        let mut step = 0;
+        let result = index.prepare_with(full, Coordinates::of(&point_summary), || {
+            let fail = step == fail_at;
+            step += 1;
+            if fail {
+                Err("injected refusal")
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        refused += 1;
+        assert_counts(&index);
+    }
+    for _ in 0..6_000 {
+        // Coordinates: small (narrow codes) or beyond 65534 (exact storage).
+        let mut value = || {
+            if below(8) == 0 {
+                70_000 + below(1_000)
+            } else {
+                below(300)
+            }
+        };
+        let lower = [value(), value()];
+        let upper = [
+            (below(4) != 0).then(|| lower[0] + below(50)),
+            (below(4) != 0).then(|| lower[1] + below(50)),
+        ];
+        let summary = DomainPowerSummary::try_new(
+            [true; 2],
+            &lower,
+            &upper,
+            None,
+            DomainPowerBounds::default(),
+        )
+        .unwrap();
+        // Some insertions carry no coordinates (an absent envelope).
+        let coordinates = (below(10) != 0)
+            .then(|| Coordinates::of(&summary))
+            .flatten();
+        let key = signature(u128::from(below(4)));
+        match below(20) {
+            0 => {
+                // A preparation refused at a random reservation checkpoint;
+                // half of them for a group that never exists (signatures
+                // 10-13), whose path has four checkpoints.
+                let key = if below(2) == 0 {
+                    signature(10 + u128::from(below(4)))
+                } else {
+                    key
+                };
+                let fail_at = below(4);
+                let mut step = 0;
+                let result = index.prepare_with(key, coordinates, || {
+                    let fail = step == fail_at;
+                    step += 1;
+                    if fail {
+                        Err("injected refusal")
+                    } else {
+                        Ok(())
+                    }
+                });
+                refused += usize::from(result.is_err());
+            }
+            1 => {
+                // Storage reserved, then the admission failed a later queue
+                // preflight and dropped its insertion.
+                drop(index.prepare(key, coordinates).unwrap());
+                abandoned += 1;
+            }
+            _ => {
+                let insertion = index.prepare(key, coordinates).unwrap();
+                let percent = [0, 2, 30][below(3) as usize];
+                let (groups, lossy) = (index.groups(), index.storage().lossy);
+                index.retire_each(&insertion, coordinates, |_| below(100) < percent);
+                assert_counts(&index);
+                groups_removed += groups - index.groups();
+                lossy_retired += lossy - index.storage().lossy;
+                let lanes = (below(5) != 0).then(|| Lanes {
+                    lower: [0; 2],
+                    upper: [0; 2],
+                    power: [0; 6],
+                    lossy: below(3) == 0,
+                });
+                index.insert(
+                    insertion,
+                    Entry {
+                        id: next_id,
+                        coordinates,
+                        word: below(1 << 20),
+                        lanes,
+                    },
+                );
+                next_id += 1;
+            }
+        }
+        assert_counts(&index);
+        lossy_peak = lossy_peak.max(index.storage().lossy);
+        wide_rows = wide_rows.max(
+            index
+                .groups
+                .iter()
+                .flat_map(|group| &group.meta)
+                .filter(|meta| meta.envelope_capacity_bytes() > 0)
+                .count(),
+        );
+    }
     println!(
-        "coordinate_block_layout block_size={} envelope_arity15_capacity_bytes={} (allocator/group/hash overhead excluded)",
-        std::mem::size_of::<Block>(),
-        block.envelope_capacity_bytes()
+        "storage_totals inserted={next_id} refused={refused} abandoned={abandoned} groups_removed={groups_removed} wide_rows_peak={wide_rows} lossy_peak={lossy_peak} lossy_retired={lossy_retired} final={:?}",
+        index.storage()
     );
+    // Every path of the totals was exercised.
+    assert!(refused > 50 && abandoned > 100 && groups_removed > 0);
+    assert!(
+        index.block_lens(0).len() >= 2,
+        "the full group was never retired"
+    );
+    assert!(wide_rows > 0 && lossy_peak > 0 && lossy_retired > 0);
 }

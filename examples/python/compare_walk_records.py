@@ -15,6 +15,15 @@ multiset Ready or cross-policy control: equal multisets of
 
 Both files are streamed; multiset mode keeps one 16-byte digest per distinct
 record shape. Neither mode certifies family closure; run the audit first.
+
+A comparison is INVALID (exit 3), whatever the records say, when either walk
+has no domain record (a run that never started compares equal to another one),
+when either walk reports an `error` (or an `*_error` status), or when a
+`metrics.json` beside either result.json (written by run_control.py) records a
+nonzero `exit_code` for a walk whose status is not `incomplete` or `paused`
+(both exit 4 by design). `--allow-empty` waives only the first rule and
+`--allow-failed` only the other two.
+Exit status: 0 PASS, 1 FAIL, 2 usage or unreadable input, 3 INVALID.
 """
 from __future__ import annotations
 
@@ -124,7 +133,40 @@ def compare_top_level(first, second, ignored):
     return differences
 
 
-def strict_compare(first_path, second_path, ignore_top=(), ignore_record=()):
+# Walk statuses that end with exit 4 by design (a finished walk with an open
+# classification, a cooperative pause); any other nonzero exit voids a run.
+EXIT4_STATUSES = frozenset({"incomplete", "paused"})
+
+
+def invalid_reasons(first, second, allow_empty=False, allow_failed=False):
+    """Why a comparison of these two drained walks would be void (empty: valid)."""
+    reasons = []
+    for side, walk in (("a", first), ("b", second)):
+        if walk.records == 0 and not allow_empty:
+            reasons.append(f"{side}: 0 domain records in {walk.path}")
+        if allow_failed:
+            continue
+        status, error = walk.top.get("status"), walk.top.get("error")
+        if error not in (None, "") or str(status).endswith("error"):
+            reasons.append(f"{side}: walk status {status!r}, error {brief(error)}")
+        metrics = walk.path.with_name("metrics.json")
+        if metrics.is_file():
+            try:
+                code = json.loads(metrics.read_text()).get("exit_code")
+            except (OSError, ValueError, AttributeError) as failure:
+                reasons.append(f"{side}: unreadable {metrics}: {failure}")
+                continue
+            if code not in (0, None) and not (code == 4 and status in EXIT4_STATUSES):
+                reasons.append(f"{side}: {metrics} has exit_code {code} with walk status {status!r}")
+    return reasons
+
+
+def verdict_of(passed, reasons):
+    return "INVALID" if reasons else ("PASS" if passed else "FAIL")
+
+
+def strict_compare(first_path, second_path, ignore_top=(), ignore_record=(), allow_empty=False,
+                   allow_failed=False):
     first, second = Walk(first_path), Walk(second_path)
     ignored_record = frozenset(ignore_record)
     differing = 0
@@ -147,7 +189,9 @@ def strict_compare(first_path, second_path, ignore_top=(), ignore_record=()):
                                  "differing_keys": keys[:12]})
     top_differences = compare_top_level(first.top, second.top, ignore_top)
     equal = first.records == second.records and differing == 0 and not top_differences
-    return {"mode": "strict", "verdict": "PASS" if equal else "FAIL", "identical": equal,
+    reasons = invalid_reasons(first, second, allow_empty, allow_failed)
+    return {"mode": "strict", "verdict": verdict_of(equal, reasons), "identical": equal,
+            "invalid_reasons": reasons,
             "a": {"path": str(first.path), "sha256": first.sha256, "records": first.records,
                   "native_by_phase": dict(first.native_by_phase)},
             "b": {"path": str(second.path), "sha256": second.sha256, "records": second.records,
@@ -166,7 +210,8 @@ def within(a, b, tolerance):
     return abs(a - b) <= tolerance * max(a, b, 1)
 
 
-def multiset_compare(first_path, second_path, native_tolerance=0.0, shape="discharged"):
+def multiset_compare(first_path, second_path, native_tolerance=0.0, shape="discharged",
+                     allow_empty=False, allow_failed=False):
     if shape not in SHAPES:
         raise ValueError(f"shape must be one of {SHAPES}")
     first, second = Walk(first_path), Walk(second_path)
@@ -190,7 +235,9 @@ def multiset_compare(first_path, second_path, native_tolerance=0.0, shape="disch
     native_ok = within(native_a, native_b, native_tolerance)
     equal_multisets = not only_a and not only_b
     verdict = equal_multisets and native_ok is True and all(row["within_tolerance"] for row in phase_checks.values())
-    return {"mode": "multiset", "verdict": "PASS" if verdict else "FAIL", "equal_multisets": equal_multisets,
+    reasons = invalid_reasons(first, second, allow_empty, allow_failed)
+    return {"mode": "multiset", "verdict": verdict_of(verdict, reasons), "equal_multisets": equal_multisets,
+            "invalid_reasons": reasons,
             "a": {"path": str(first.path), "sha256": first.sha256, "records": first.records,
                   "native_inspections": native_a, "native_by_phase": dict(first.native_by_phase)},
             "b": {"path": str(second.path), "sha256": second.sha256, "records": second.records,
@@ -219,21 +266,27 @@ def main(argv=None) -> int:
     parser.add_argument("--ignore-record", action="append", default=[], metavar="KEY",
                         help="strict: additional per-record key to ignore; repeatable")
     parser.add_argument("--output", type=Path, help="write the comparison JSON here as well")
+    parser.add_argument("--allow-empty", action="store_true",
+                        help="do not treat a walk without domain records as INVALID")
+    parser.add_argument("--allow-failed", action="store_true",
+                        help="do not treat a walk error or a failed run's exit_code as INVALID")
     args = parser.parse_args(argv)
     if not 0 <= args.native_tolerance < 1:
         parser.error("native tolerance must be in [0, 1)")
     try:
         if args.mode == "strict":
-            report = strict_compare(args.a, args.b, args.ignore_top, args.ignore_record)
+            report = strict_compare(args.a, args.b, args.ignore_top, args.ignore_record, args.allow_empty,
+                                    args.allow_failed)
         else:
-            report = multiset_compare(args.a, args.b, args.native_tolerance, args.shape)
+            report = multiset_compare(args.a, args.b, args.native_tolerance, args.shape, args.allow_empty,
+                                      args.allow_failed)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     text = json.dumps(report, indent=2, sort_keys=True, allow_nan=False)
     if args.output is not None:
         args.output.write_text(text + "\n")
     print(text)
-    return 0 if report["verdict"] == "PASS" else 1
+    return {"PASS": 0, "FAIL": 1}.get(report["verdict"], 3)
 
 
 if __name__ == "__main__":

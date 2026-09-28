@@ -76,7 +76,7 @@ impl<const N: usize> Serialize for Domains<'_, N> {
 /// Owner buckets in (phase, owner) order: identical queue state yields
 /// identical bytes regardless of hash-map iteration order.
 pub(in super::super) struct SortedBuckets<'a, const N: usize>(
-    Vec<(&'a (Phase, [bool; N]), &'a OwnerBucket)>,
+    Vec<(&'a (Phase, [bool; N]), &'a OwnerBucket<N>)>,
 );
 impl<const N: usize> SortedBuckets<'_, N> {
     pub fn len(&self) -> usize {
@@ -92,9 +92,18 @@ impl<const N: usize> Serialize for SortedBuckets<'_, N> {
         seq.end()
     }
 }
+/// The CP5 image of one owner bucket (the live `OwnerBucket` serializes to
+/// exactly this shape).
+#[derive(Serialize, Deserialize)]
+#[serde(rename = "OwnerBucket")]
+struct StoredOwnerBucket {
+    ids: Vec<usize>,
+    indexed: index::StoredIndex,
+    orthant: Option<usize>,
+}
 /// Decoded bucket image awaiting validation against the restored domains.
 #[derive(Serialize, Deserialize)]
-pub(in super::super) struct StoredBuckets(Vec<(Phase, Vec<bool>, OwnerBucket)>);
+pub(in super::super) struct StoredBuckets(Vec<(Phase, Vec<bool>, StoredOwnerBucket)>);
 impl StoredBuckets {
     pub fn len(&self) -> usize {
         self.0.len()
@@ -174,7 +183,12 @@ impl<const N: usize> Queue<N> {
         }
         phases.since("domains_exact_index", started);
         let started = std::time::Instant::now();
-        for (phase, owner, mut bucket) in buckets.0 {
+        let mut stored = Vec::new();
+        stored
+            .try_reserve_exact(buckets.0.len())
+            .map_err(|_| "checkpoint owner bucket allocation")?;
+        let mut keys = std::collections::HashSet::new();
+        for (phase, owner, bucket) in buckets.0 {
             let owner: [bool; N] = owner.try_into().map_err(|_| "checkpoint bucket arity")?;
             if bucket.ids.iter().chain(bucket.orthant.iter()).any(|&id| {
                 q.domains
@@ -183,18 +197,51 @@ impl<const N: usize> Queue<N> {
             }) {
                 return Err("invalid checkpoint owner bucket".into());
             }
-            bucket.indexed.restore_positions(q.domains.len())?;
-            if q.by_owner.insert((phase, owner), bucket).is_some() {
+            // Admission records a bucket's orthant only for a full orthant;
+            // the shortcut relies on it (A1), so a CP5 claiming another
+            // domain is refused rather than trusted.
+            if bucket
+                .orthant
+                .is_some_and(|id| !q.domains[id].is_full_orthant())
+            {
+                return Err("invalid checkpoint full-orthant ID".into());
+            }
+            bucket.indexed.validate(q.domains.len())?;
+            if m.max_checks.is_some() && !bucket.indexed.is_empty() {
+                return Err("checkpoint candidate index in the finite-cap lane".into());
+            }
+            if !keys.insert((phase, owner)) {
                 return Err("duplicate checkpoint owner bucket".into());
             }
+            stored.push(((phase, owner), bucket));
         }
         phases.since("index_owner_buckets", started);
         if m.max_checks.is_none() {
             let started = std::time::Instant::now();
-            let indexed = q.indexed_ids()?;
-            q.restore_summaries(indexed)?;
+            let indexed = indexed_ids(&q.domains, &stored)?;
+            drop(indexed);
+            q.restore_summaries()?;
             phases.since("index_summaries", started);
         }
+        let started = std::time::Instant::now();
+        q.by_owner
+            .try_reserve(stored.len())
+            .map_err(|_| "checkpoint owner bucket allocation")?;
+        for (key, bucket) in stored {
+            let (domains, summaries) = (&q.domains, &q.summaries);
+            let indexed = index::AggregateIndex::restore(bucket.indexed, domains.len(), |id| {
+                compact::stored_image(&domains[id], &summaries[id])
+            })?;
+            q.by_owner.insert(
+                key,
+                OwnerBucket {
+                    ids: bucket.ids,
+                    indexed,
+                    orthant: bucket.orthant,
+                },
+            );
+        }
+        phases.since("index_blocks", started);
         let started = std::time::Instant::now();
         q.delegation = ledger
             .map(|l| l.restore(q.domains.iter().map(|d| (d.phase(), d.owner()))))
@@ -218,54 +265,45 @@ impl<const N: usize> Queue<N> {
         Ok(q)
     }
 }
-impl<const N: usize> Queue<N> {
-    /// Which IDs are indexed candidates. Each appears once, in its own
-    /// (phase, owner) bucket: retirement releases a candidate's summary slot
-    /// exactly once, so a repeated ID must be refused here, never met mid-walk.
-    /// Index positions are already range-checked against the domains.
-    fn indexed_ids(&self) -> Result<Vec<bool>, String> {
-        let mut indexed = Vec::new();
-        indexed
-            .try_reserve_exact(self.domains.len())
-            .map_err(|_| "checkpoint index allocation")?;
-        indexed.resize(self.domains.len(), false);
-        let (mut repeated, mut misplaced) = (false, false);
-        for (&(phase, owner), bucket) in &self.by_owner {
-            bucket.indexed.for_each_id(|id| {
-                repeated |= std::mem::replace(&mut indexed[id], true);
-                let domain = &self.domains[id];
-                misplaced |= domain.phase() != phase || domain.owner() != owner;
-            });
-        }
-        if repeated {
-            return Err("duplicate checkpoint index ID".into());
-        }
-        if misplaced {
-            return Err("invalid checkpoint owner bucket".into());
-        }
-        Ok(indexed)
+/// Which IDs are indexed candidates. Each appears once, in its own
+/// (phase, owner) bucket, so a repeated or misplaced ID is refused here, never
+/// met mid-walk. Index positions are already range-checked against the domains.
+fn indexed_ids<const N: usize>(
+    domains: &[CompactDomain<N>],
+    buckets: &[((Phase, [bool; N]), StoredOwnerBucket)],
+) -> Result<Vec<bool>, String> {
+    let mut indexed = Vec::new();
+    indexed
+        .try_reserve_exact(domains.len())
+        .map_err(|_| "checkpoint index allocation")?;
+    indexed.resize(domains.len(), false);
+    let (mut repeated, mut misplaced) = (false, false);
+    for ((phase, owner), bucket) in buckets {
+        bucket.indexed.for_each_id(|id| {
+            repeated |= std::mem::replace(&mut indexed[id], true);
+            let domain = &domains[id];
+            misplaced |= domain.phase() != *phase || domain.owner() != *owner;
+        });
     }
-
-    /// Rebuild the unlimited lane's derived geometry after the owner buckets:
-    /// a filter word for every ID and a compact summary slot for each indexed
-    /// candidate only. A retired ID's summary is never read, so it gets none.
-    fn restore_summaries(&mut self, live: Vec<bool>) -> Result<(), String> {
-        let count = self.domains.len();
-        self.bits
-            .try_reserve_exact(count)
-            .map_err(|_| "checkpoint summary allocation")?;
+    if repeated {
+        return Err("duplicate checkpoint index ID".into());
+    }
+    if misplaced {
+        return Err("invalid checkpoint owner bucket".into());
+    }
+    Ok(indexed)
+}
+impl<const N: usize> Queue<N> {
+    /// Rebuild the unlimited lane's immutable per-ID summaries (every
+    /// admitted ID, live or retired); the index blocks derive their words
+    /// and lanes from them.
+    fn restore_summaries(&mut self) -> Result<(), String> {
         self.summaries
-            .try_reserve_exact(count, live.iter().filter(|&&live| live).count())
+            .try_reserve_exact(self.domains.len())
             .map_err(|_| "checkpoint summary allocation")?;
-        for (domain, live) in self.domains.iter().zip(live) {
+        for domain in &self.domains {
             let summary = domain.try_native_summary().map_err(|e| e.to_string())?;
-            // Derived filter words are rebuilt, never stored.
-            self.bits.push(bits::word(&summary));
-            if live {
-                self.summaries.push(CompactSummary::from_core(&summary));
-            } else {
-                self.summaries.push_released();
-            }
+            self.summaries.push(CompactSummary::from_core(&summary));
         }
         Ok(())
     }

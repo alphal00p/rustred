@@ -459,8 +459,33 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
             detailed["parallel"]["admission_preparation"]["prepared_retirements_applied"],
             0
         );
+        // Kernel attribution: helper scans under admission_preparation, the
+        // coordinator's nested in the duty object (not a share; the monitor
+        // keeps numeric duty entries only).
+        let helper = &detailed["parallel"]["admission_preparation"]["speculative_kernel"];
+        assert_eq!(helper["kernel"], "struct_of_arrays_u8_lanes_v1");
+        assert_eq!(helper["candidates"], 0);
+        assert!(helper["ns_per_candidate"].is_null());
+        assert_eq!(
+            detailed["parallel"]["admission_preparation"]["speculative_forward_exact_tests"],
+            0
+        );
         // Exactly one duty object, where heartbeat_metrics.py reads it.
         let duty = &detailed["parallel"]["coordinator_duty"];
+        let kernel = &duty["admission_kernel"];
+        assert_eq!(kernel["kernel"], "struct_of_arrays_u8_lanes_v1");
+        assert_eq!(kernel["forward_scans"], 0);
+        assert_eq!(kernel["reverse_exact_tests"], 0);
+        assert!(kernel["forward_ns_per_candidate"].is_null());
+        // Reverse cost per examined candidate (helper-decided ones included).
+        assert_eq!(kernel["reverse_examined_candidates"], 0);
+        assert_eq!(kernel["reverse_prepared_candidates"], 0);
+        assert!(kernel["reverse_retire_ns_per_examined_candidate"].is_null());
+        assert!(kernel.get("reverse_ns_per_candidate").is_none());
+        // O(1) storage telemetry, with the pre-kernel analogue beside it.
+        let storage = &detailed["parallel"]["queue_storage"];
+        assert!(storage["total_excluding_index_bytes"].is_number());
+        assert!(storage["scope"].is_string());
         assert!(duty["dispatch_seconds"].is_number());
         assert!(duty["ordered_commit_seconds"].is_number());
         assert!(duty["coordinator_elapsed_seconds"].is_null()); // Not started.
@@ -688,8 +713,11 @@ fn per_domain_event_key_sets_are_frozen_and_heartbeats_only_add_pinned_telemetry
                 "prepared_retirements_applied",
                 "prepared_retirements_trivial",
                 "speculative_forward_bit_rejections",
+                "speculative_forward_exact_tests",
+                "speculative_kernel",
                 "speculative_reverse_bit_rejections",
-                "speculative_reverse_checks"
+                "speculative_reverse_checks",
+                "speculative_reverse_exact_tests"
             ]
         );
     }

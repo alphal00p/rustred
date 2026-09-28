@@ -14,17 +14,17 @@ fn signature(power: u128) -> Signature {
 fn disabled_test_counters_preserve_forward_and_retirement_results() {
     let mut expected = None;
     for enabled in [true, false] {
-        let mut index = AggregateIndex::default();
+        let mut index = AggregateIndex::<2>::default();
         assert!(index.work.enabled); // Existing diagnostics retain their default.
         index.work.enabled = enabled;
         for (key, id) in [(signature(1), 0), (signature(3), 1)] {
             let insertion = index.prepare(key, None).unwrap();
-            index.insert(insertion, id, None);
+            index.insert_plain(insertion, id, None);
         }
         let mut compared = Vec::new();
         assert_eq!(
             index
-                .find(signature(2), None, |id| {
+                .find_each(signature(2), None, |id| {
                     compared.push(id);
                     Ok(false)
                 })
@@ -36,14 +36,14 @@ fn disabled_test_counters_preserve_forward_and_retirement_results() {
         let insertion = index.prepare(signature(2), None).unwrap();
         let mut retired = Vec::new();
         assert_eq!(
-            index.retire(&insertion, None, |id| {
+            index.retire_each(&insertion, None, |id| {
                 retired.push(id);
                 true
             }),
             1
         );
         assert_eq!(retired, [0]);
-        index.insert(insertion, 2, None);
+        index.insert_plain(insertion, 2, None);
         assert_eq!(index.ids(), [1, 2]);
         let work = index.work();
         assert_eq!(

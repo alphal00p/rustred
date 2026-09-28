@@ -27,6 +27,8 @@ fn power_predicates_participate_in_identity_and_dominance_without_dropping_work(
 mod aggregate;
 mod bits;
 mod compact;
+mod gen7_kernel;
+mod legacy;
 mod linear_semantic;
 mod maximal_candidates;
 mod prepared;

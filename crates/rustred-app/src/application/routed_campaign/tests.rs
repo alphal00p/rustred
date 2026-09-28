@@ -180,7 +180,9 @@ fn owner_domain_walk_reuses_pending_unbounded_ray_without_closure_claim() {
         "first_per_phase_per_query"
     );
     assert!(finished.get("domains").is_none());
-    assert!(serde_json::to_vec(finished).unwrap().len() < 8192);
+    let bytes = serde_json::to_vec(finished).unwrap().len();
+    assert!(bytes < 8192, "final event {bytes} B");
+    println!("final_event_bytes={bytes}");
     assert_eq!(
         std::fs::read(fixture.directory.join("owner.rrbin")).unwrap(),
         before

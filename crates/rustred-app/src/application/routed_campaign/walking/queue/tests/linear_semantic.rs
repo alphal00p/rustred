@@ -103,13 +103,12 @@ impl<const N: usize> LinearSemantic<N> {
             assert_eq!(bucket.orthant, indexed.orthant);
             bucket.ids.iter().for_each(|&id| live[id] = true);
         }
-        // Exactly the live candidates hold a summary, equal to the native one.
-        assert_eq!(self.summaries.len(), queue.summaries.ids());
+        // Every admitted ID keeps its immutable summary, equal to the native
+        // one; exactly the live candidates are indexed.
+        assert_eq!(self.summaries.len(), queue.summaries.len());
         for (id, summary) in self.summaries.iter().enumerate() {
-            assert_eq!(!queue.summaries.is_released(id), live[id]);
-            if live[id] {
-                assert_eq!(*queue.summaries.get(id), CompactSummary::from_core(summary));
-            }
+            assert_eq!(queue.is_indexed(id), live[id]);
+            assert_eq!(queue.summaries[id], CompactSummary::from_core(summary));
         }
         assert_eq!(
             queue.next, 0,

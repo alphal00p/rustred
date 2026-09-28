@@ -1,6 +1,6 @@
 //! Packed necessary-condition words tested before `DomainPowerSummary::contains`.
 //!
-//! One `u64` per indexed candidate records, for every implication that exact
+//! One `u64` per indexed candidate (stored inline in its index block) records, for every implication that exact
 //! inclusion forces, a one-bit "the candidate side has this property" flag
 //! whose container side must then hold as well. A single subset test rejects
 //! most comparisons before the O(N) tight-extrema comparison runs. The word is
@@ -70,6 +70,8 @@ pub(super) fn word<const N: usize>(summary: &DomainPowerSummary<N>) -> u64 {
 }
 
 /// Necessary condition for `container.contains(candidate)`; never sufficient.
+/// (The kernel evaluates it on whole blocks; this is the per-pair reference.)
+#[cfg(test)]
 #[inline]
 pub(super) fn may_contain(container: u64, candidate: u64) -> bool {
     candidate & !container == 0
@@ -96,15 +98,14 @@ impl Prefilter {
         self.enabled = false;
     }
 
-    /// True when the bit tier alone proves `container` cannot contain
-    /// `candidate`. The caller has already charged the comparison.
+    /// Whether the kernel prefilter (bit words and lanes) runs; always true
+    /// in production.
     #[inline]
-    pub fn rejects(self, container: u64, candidate: u64) -> bool {
+    pub fn enabled(self) -> bool {
         #[cfg(test)]
-        if !self.enabled {
-            return false;
-        }
-        !may_contain(container, candidate)
+        return self.enabled;
+        #[cfg(not(test))]
+        true
     }
 }
 
@@ -126,23 +127,74 @@ pub(in super::super) struct SessionCounters {
     pub prepared_retirements_trivial: usize,
     /// Commits that had a prepared lookup but retired with the serial scan.
     pub prepared_retire_fallbacks: usize,
+    /// Kernel attribution (coordinator scans only): forward lookups and
+    /// reverse retirements that ran an index scan, the candidates of theirs
+    /// that reached the exact predicate, and the scans' wall nanoseconds.
+    /// `callbacks - bit_rejections - tests` were rejected by the u8 lanes.
+    pub forward_scans: usize,
+    pub forward_tests: usize,
+    pub forward_scan_nanos: u64,
+    pub reverse_scans: usize,
+    pub reverse_tests: usize,
+    /// Wall of the whole reverse retirement call (see `kernel_json`).
+    pub reverse_scan_nanos: u64,
+    /// Examined reverse candidates that a helper-prepared set decided: the
+    /// retirement traversal and block kernel still visit them, but they reach
+    /// no callback, so `reverse_callbacks` does not count them.
+    pub reverse_prepared_candidates: usize,
 }
 
 impl SessionCounters {
+    /// One forward candidate that reached the exact predicate.
     #[inline]
-    pub fn forward(&mut self, rejected: bool) {
+    pub fn forward_test(&mut self) {
         self.forward_callbacks = self.forward_callbacks.saturating_add(1);
-        self.forward_bit_rejections = self
-            .forward_bit_rejections
-            .saturating_add(usize::from(rejected));
+        self.forward_tests = self.forward_tests.saturating_add(1);
+    }
+
+    /// One reverse candidate that reached the exact predicate.
+    #[inline]
+    pub fn reverse_test(&mut self) {
+        self.reverse_callbacks = self.reverse_callbacks.saturating_add(1);
+        self.reverse_tests = self.reverse_tests.saturating_add(1);
+    }
+
+    /// One coordinator forward scan and its wall time.
+    #[inline]
+    pub fn forward_scan(&mut self, started: std::time::Instant) {
+        self.forward_scans = self.forward_scans.saturating_add(1);
+        self.forward_scan_nanos = self
+            .forward_scan_nanos
+            .saturating_add(started.elapsed().as_nanos() as u64);
+    }
+
+    /// One coordinator reverse retirement scan and its wall time.
+    #[inline]
+    pub fn reverse_scan(&mut self, started: std::time::Instant) {
+        self.reverse_scans = self.reverse_scans.saturating_add(1);
+        self.reverse_scan_nanos = self
+            .reverse_scan_nanos
+            .saturating_add(started.elapsed().as_nanos() as u64);
+    }
+
+    /// `count` forward callbacks rejected by the kernel prefilter, `words` of
+    /// them by the bit word.
+    #[inline]
+    pub fn forward_run(&mut self, count: usize, words: usize) {
+        self.forward_callbacks = self.forward_callbacks.saturating_add(count);
+        self.forward_bit_rejections = self.forward_bit_rejections.saturating_add(words);
     }
 
     #[inline]
-    pub fn reverse(&mut self, rejected: bool) {
-        self.reverse_callbacks = self.reverse_callbacks.saturating_add(1);
-        self.reverse_bit_rejections = self
-            .reverse_bit_rejections
-            .saturating_add(usize::from(rejected));
+    pub fn reverse_run(&mut self, count: usize, words: usize) {
+        self.reverse_callbacks = self.reverse_callbacks.saturating_add(count);
+        self.reverse_bit_rejections = self.reverse_bit_rejections.saturating_add(words);
+    }
+
+    /// `count` examined reverse candidates decided by a helper-prepared set.
+    #[inline]
+    pub fn reverse_decided(&mut self, count: usize) {
+        self.reverse_prepared_candidates = self.reverse_prepared_candidates.saturating_add(count);
     }
 
     pub fn json(&self) -> Value {
@@ -154,9 +206,66 @@ impl SessionCounters {
             "prepared_retirements_applied": self.prepared_retirements_applied,
             "prepared_retirements_trivial": self.prepared_retirements_trivial,
             "prepared_retire_fallbacks": self.prepared_retire_fallbacks,
+            "forward_lane_rejections": self.forward_lane_rejections(),
+            "forward_exact_tests": self.forward_tests,
+            "reverse_lane_rejections": self.reverse_lane_rejections(),
+            "reverse_exact_tests": self.reverse_tests,
             "counter_scope": "coordinator_commit_path_current_process_session; not_persisted; speculative_helper_work_reported_by_admission_preparation",
             "bit_layout": "0-15 upper=inf per axis; 16-31 lower=0 per axis; 32 A upper=inf; 33 R upper=inf; 34 D lower=-inf; 35 D upper=inf; 36 A lower=0; 37 R lower=0; 38 D lower<=0 or -inf",
             "results_and_persisted_counters_unchanged": true
+        })
+    }
+
+    fn forward_lane_rejections(&self) -> usize {
+        self.forward_callbacks
+            .saturating_sub(self.forward_bit_rejections)
+            .saturating_sub(self.forward_tests)
+    }
+
+    fn reverse_lane_rejections(&self) -> usize {
+        self.reverse_callbacks
+            .saturating_sub(self.reverse_bit_rejections)
+            .saturating_sub(self.reverse_tests)
+    }
+
+    /// Kernel attribution for `parallel.coordinator_duty.admission_kernel`:
+    /// scans, candidates per scan and wall ns per check-equivalent (one
+    /// logical candidate, the `containment_checks` unit) on the coordinator.
+    /// Forward: pure index scans. Reverse: the whole retirement call, whose
+    /// traversal examines helper-decided candidates too, so its per-candidate
+    /// figure divides by every examined candidate, not by the callbacks.
+    pub fn kernel_json(&self) -> Value {
+        let per = |numerator: f64, denominator: usize| {
+            (denominator > 0).then(|| numerator / denominator as f64)
+        };
+        let reverse_examined = self
+            .reverse_callbacks
+            .saturating_add(self.reverse_prepared_candidates);
+        json!({
+            "kernel": "struct_of_arrays_u8_lanes_v1",
+            "forward_scans": self.forward_scans,
+            "forward_candidates": self.forward_callbacks,
+            "forward_word_rejections": self.forward_bit_rejections,
+            "forward_lane_rejections": self.forward_lane_rejections(),
+            "forward_exact_tests": self.forward_tests,
+            "forward_scan_seconds": self.forward_scan_nanos as f64 * 1e-9,
+            "forward_candidates_per_scan": per(self.forward_callbacks as f64, self.forward_scans),
+            "forward_ns_per_candidate": per(self.forward_scan_nanos as f64, self.forward_callbacks),
+            "reverse_scans": self.reverse_scans,
+            "reverse_candidates": self.reverse_callbacks,
+            "reverse_word_rejections": self.reverse_bit_rejections,
+            "reverse_lane_rejections": self.reverse_lane_rejections(),
+            "reverse_exact_tests": self.reverse_tests,
+            "reverse_scan_seconds": self.reverse_scan_nanos as f64 * 1e-9,
+            "reverse_prepared_candidates": self.reverse_prepared_candidates,
+            "reverse_examined_candidates": reverse_examined,
+            "reverse_retire_ns_per_examined_candidate": per(self.reverse_scan_nanos as f64, reverse_examined),
+            // Kept short: the final event must stay below 8 KiB. Forward:
+            // the serial and revalidation index scans. Reverse: the whole
+            // retirement call (traversal and kernel over every examined
+            // candidate, exact tests, compaction, empty block/group removal,
+            // the ledger transfer per retirement; not the insertion).
+            "scope": "commit scans this session, wall ns, nested in ordered_commit_seconds; reverse = whole retire call over examined (callbacks + helper-decided); not persisted"
         })
     }
 }

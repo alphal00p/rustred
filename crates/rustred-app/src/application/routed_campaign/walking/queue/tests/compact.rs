@@ -1,6 +1,6 @@
 //! Compact storage is an encoding, not a policy: every predicate and every
 //! admission result must equal the one computed on the transport types.
-use super::super::compact::{Digest, ExactIndex, Query, Stored, SummarySlab};
+use super::super::compact::{Digest, ExactIndex, Query, Stored};
 use super::prepared::{parallel_prepare, same_state};
 use super::*;
 
@@ -112,17 +112,16 @@ fn summary<const N: usize>(d: &Domain<N>) -> Option<DomainPowerSummary<N>> {
 fn stored_pair<const N: usize>(
     a: &Domain<N>,
     b: &Domain<N>,
-) -> (Vec<CompactDomain<N>>, SummarySlab<N>) {
+) -> (Vec<CompactDomain<N>>, Vec<CompactSummary<N>>) {
     let domains: Vec<_> = [a, b]
         .iter()
         .map(|d| CompactDomain::try_from_domain(d).unwrap())
         .collect();
-    let mut slab = SummarySlab::new();
-    for d in [a, b] {
-        slab.try_reserve().unwrap();
-        slab.push(CompactSummary::from_core(&summary(d).unwrap()));
-    }
-    (domains, slab)
+    let summaries = [a, b]
+        .iter()
+        .map(|d| CompactSummary::from_core(&summary(d).unwrap()))
+        .collect();
+    (domains, summaries)
 }
 
 #[derive(Default, Debug)]
@@ -171,20 +170,40 @@ fn differential<const N: usize>(pairs: usize, seed: u64) -> Tally {
         let native = [sa.contains(&sb), sb.contains(&sa)];
         tally.contained += usize::from(native[0]) + usize::from(native[1]);
         if !ca.is_wide() && !cb.is_wide() {
-            assert_eq!(ca.contains(&cb), native[0], "{a:?} vs {b:?}");
-            assert_eq!(cb.contains(&ca), native[1], "{b:?} vs {a:?}");
+            assert_eq!(ca.contains(&cb), Some(native[0]), "{a:?} vs {b:?}");
+            assert_eq!(cb.contains(&ca), Some(native[1]), "{b:?} vs {a:?}");
+        } else {
+            // Release check (A1): a wide side never takes the compact path.
+            assert_eq!(ca.contains(&cb), None);
+            assert_eq!(cb.contains(&ca), None);
         }
-        // The production view, including the rebuilt-native wide fallback.
-        let (domains, slab) = stored_pair(&a, &b);
+        // The production view, including the rebuilt-native wide fallback and
+        // the explicit phase/owner check of every positive (A1): a candidate
+        // of another bucket is never a positive, not even for an empty query.
+        let (domains, summaries) = stored_pair(&a, &b);
         let stored = Stored {
             domains: &domains,
-            summaries: &slab,
+            summaries: &summaries,
         };
-        let (qa, qb) = (Query::new(sa.clone()), Query::new(sb.clone()));
-        assert_eq!(stored.contains(0, &qb), native[0]);
-        assert_eq!(stored.contained_by(1, &qa), native[0]);
-        assert_eq!(stored.contains(1, &qa), native[1]);
-        assert_eq!(stored.contained_by(0, &qb), native[1]);
+        let (qa, qb) = (
+            Query::new(sa.clone(), a.phase),
+            Query::new(sb.clone(), b.phase),
+        );
+        let same = a.phase == b.phase && a.owner == b.owner;
+        assert_eq!(stored.contains(0, &qb), same && native[0]);
+        assert_eq!(stored.contained_by(1, &qa), same && native[0]);
+        assert_eq!(stored.contains(1, &qa), same && native[1]);
+        assert_eq!(stored.contained_by(0, &qb), same && native[1]);
+        // Kernel images agree between the admission and the restore paths.
+        for (d, s, q) in [
+            (&domains[0], &summaries[0], &qa),
+            (&domains[1], &summaries[1], &qb),
+        ] {
+            assert_eq!(
+                super::super::compact::stored_image(d, s).unwrap(),
+                q.image()
+            );
+        }
         assert_eq!(stored.signature(0), Signature::of(&sa));
         assert_eq!(stored.signature(1), Signature::of(&sb));
         // Raw syntactic containment and the orthant predicate, too.
@@ -278,7 +297,7 @@ fn coordinates_above_the_compact_range_are_refused_without_publishing() {
         assert_eq!(queue.admit(above), Err(COMPACT_RANGE_ERROR));
         assert_eq!(queue.domains.len(), 1);
         assert_eq!(queue.exact.len(), 1);
-        assert_eq!(queue.summaries.ids(), usize::from(max_checks.is_none()));
+        assert_eq!(queue.summaries.len(), usize::from(max_checks.is_none()));
         assert_eq!((queue.deduplicated, queue.containment_checks), (0, 0));
         assert_eq!(queue.admit(ok), Ok((0, false)));
     }
@@ -315,9 +334,9 @@ fn campaign_query_bounds_are_inside_the_compact_range() {
 fn compact_state_size_of_is_within_budget() {
     use std::mem::size_of;
     assert_eq!(size_of::<CompactDomain<15>>(), 96);
-    assert_eq!(size_of::<CompactSummary<15>>(), 176);
+    assert_eq!(size_of::<CompactSummary<15>>(), 92);
     assert!(size_of::<CompactDomain<16>>() <= 104);
-    assert!(size_of::<CompactSummary<16>>() <= 184);
+    assert!(size_of::<CompactSummary<16>>() <= 96);
     // Exact-map entry: 64-bit digest key and the ID.
     assert_eq!(size_of::<(Digest, usize)>(), 16);
     // Transport types, for the record: what one queued ID used to retain
@@ -330,15 +349,14 @@ fn compact_state_size_of_is_within_budget() {
         + size_of::<DomainPowerSummary<15>>()
         + size_of::<(std::sync::Arc<Domain<15>>, usize)>()
         + size_of::<u64>();
+    // Immutable per-ID summary; the filter word lives in the index block.
     let new = size_of::<CompactDomain<15>>()
         + size_of::<CompactSummary<15>>()
-        + size_of::<u32>()
-        + size_of::<(Digest, usize)>()
-        + size_of::<u64>();
+        + size_of::<(Digest, usize)>();
     assert!(size_of::<DomainPowerSummary<15>>() >= 500);
     assert!(2 * new < old, "old {old} B, new {new} B");
     println!(
-        "per-ID payload bytes before allocator/table overhead: old {old}, new {new} (summary slot freed on retirement)"
+        "per-ID payload bytes before allocator/table overhead: old {old}, new {new} (immutable per-ID summary; index blocks excluded)"
     );
 }
 
@@ -455,12 +473,12 @@ fn retired_summary_slots_are_released_and_never_read_by_revalidate() {
         let tokens = parallel_prepare(&prepared, std::slice::from_ref(&request), workers);
         for queue in [&mut serial, &mut prepared] {
             assert_eq!(queue.admit(container.clone()), Ok((1, true)));
-            assert!(queue.summaries.is_released(0));
-            assert_eq!(queue.summaries.live(), 1);
+            assert!(!queue.is_indexed(0));
+            assert_eq!(queue.containment_candidate_count(), 1);
             assert_eq!(queue.admit(unrelated.clone()), Ok((2, true)));
-            // ID 2 reused the slot ID 0 released: no slab growth.
-            assert_eq!(queue.summaries.slots_allocated(), 2);
-            assert_eq!(queue.summaries.live(), 2);
+            // Summaries are per ID and immutable: the retired ID keeps its own.
+            assert_eq!(queue.summaries.len(), 3);
+            assert_eq!(queue.containment_candidate_count(), 2);
         }
         for token in tokens {
             let expected = serial.admit(request.clone());
@@ -472,10 +490,10 @@ fn retired_summary_slots_are_released_and_never_read_by_revalidate() {
     }
 }
 
-/// Released slots are recycled across a long overlapping stream, and a
-/// restored queue holds summaries for exactly the live candidates.
+/// Every admitted ID keeps its immutable summary across a long overlapping
+/// stream, and a restored queue rebuilds the same summaries and index kernel.
 #[test]
-fn summary_slab_recycles_retired_slots_and_restores_only_live_candidates() {
+fn immutable_summaries_and_index_kernel_survive_restore() {
     let stream = super::aggregate::complete_proposals();
     let mut queue = Queue::new(stream.len(), None);
     for request in &stream {
@@ -483,28 +501,27 @@ fn summary_slab_recycles_retired_slots_and_restores_only_live_candidates() {
     }
     let live = queue.containment_candidate_count();
     assert!(queue.containment_retired_candidates > 0);
-    assert_eq!(queue.summaries.ids(), queue.domains.len());
-    assert_eq!(queue.summaries.live(), live);
-    assert!(
-        queue.summaries.slots_allocated() < queue.domains.len(),
-        "retired slots were reused"
+    assert_eq!(queue.summaries.len(), queue.domains.len());
+    assert_eq!(
+        (0..queue.domains.len())
+            .filter(|&id| queue.is_indexed(id))
+            .count(),
+        live
     );
     let image = serde_json::to_string(&queue).unwrap();
     let restored: Queue<2> = serde_json::from_str(&image).unwrap();
     assert_eq!(restored.domains, queue.domains);
     assert_eq!(restored.exact, queue.exact);
+    assert_eq!(restored.summaries, queue.summaries);
     assert_eq!(restored.bit_words(), queue.bit_words());
-    assert_eq!(restored.summaries.live(), live);
-    assert_eq!(restored.summaries.slots_allocated(), live);
-    for id in 0..queue.domains.len() {
-        assert_eq!(
-            restored.summaries.is_released(id),
-            queue.summaries.is_released(id)
-        );
-        if !queue.summaries.is_released(id) {
-            assert_eq!(restored.summaries.get(id), queue.summaries.get(id));
-        }
+    assert_eq!(restored.containment_candidate_count(), live);
+    for (key, bucket) in &queue.by_owner {
+        let other = &restored.by_owner[key];
+        assert_eq!(bucket.indexed.layout(), other.indexed.layout());
+        assert_eq!(bucket.indexed.kernel_image(), other.indexed.kernel_image());
     }
+    // The image round-trips byte for byte (stale dead slots included).
+    assert_eq!(serde_json::to_string(&restored).unwrap(), image);
     // The restored queue continues exactly like the original.
     let mut original = queue;
     let mut restored = restored;
@@ -516,4 +533,120 @@ fn summary_slab_recycles_retired_slots_and_restores_only_live_candidates() {
     }
     assert_eq!(restored.domains, original.domains);
     assert_eq!(restored.containment_checks, original.containment_checks);
+}
+
+fn owner_box(lower: [u64; 2], upper: [Option<u64>; 2], rank: Option<u32>) -> Domain<2> {
+    Domain {
+        phase: Phase::Apply,
+        owner: [true, true],
+        lower: lower.to_vec(),
+        upper: upper.to_vec(),
+        rank,
+        powers: DomainPowerBounds::default(),
+    }
+}
+
+/// A1 as a restore invariant: a CP5 whose bucket names a domain that is not
+/// a full orthant as its orthant is refused. And should a queue ever hold one,
+/// the helper takes the commit's own shortcut predicate, so a prepared
+/// admission still finds the older container that the serial lookup finds.
+#[test]
+fn non_full_orthant_is_refused_at_restore_and_never_short_cuts_a_helper() {
+    // One inactive axis, so the rank bounds the numerator: the rank-3 orthant
+    // does not contain the rank-unbounded box (numerator up to 10).
+    let owned = |mut domain: Domain<2>| {
+        domain.owner = [true, false];
+        domain
+    };
+    let orthant = owned(owner_box([0, 0], [None, None], Some(3)));
+    let container = owned(owner_box([0, 0], [Some(10), Some(10)], None));
+    let query = owned(owner_box([1, 1], [Some(2), Some(2)], Some(2)));
+    let mut queue = Queue::<2>::new(8, None);
+    assert_eq!(queue.admit(orthant), Ok((0, true)));
+    assert_eq!(queue.admit(container), Ok((1, true)));
+    let key = (Phase::Apply, [true, false]);
+    assert_eq!(queue.by_owner[&key].orthant, Some(0));
+
+    let image = serde_json::to_value(&queue).unwrap();
+    let restored: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    assert_eq!(restored.by_owner[&key].orthant, Some(0));
+    let mut tampered = image.clone();
+    let bucket = &mut tampered[2][0][2];
+    assert_eq!(bucket["orthant"], 0);
+    bucket["orthant"] = serde_json::json!(1);
+    let error = serde_json::from_value::<Queue<2>>(tampered)
+        .err()
+        .expect("a non-full-orthant orthant ID is refused")
+        .to_string();
+    assert!(
+        error.contains("invalid checkpoint full-orthant ID"),
+        "{error}"
+    );
+
+    // In memory only (restore refuses it): the orthant names the finite box,
+    // whose rank still contains the query's. Serial and prepared agree.
+    let mut serial: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    let mut prepared: Queue<2> = serde_json::from_value(image).unwrap();
+    for queue in [&mut serial, &mut prepared] {
+        queue.by_owner.get_mut(&key).unwrap().orthant = Some(1);
+    }
+    let token =
+        prepared.prepare_admission(query.clone(), &std::sync::atomic::AtomicBool::new(false));
+    let expected = serial.admit(query);
+    assert_eq!(expected, Ok((0, false)));
+    assert_eq!(serial.orthant_hits, 0);
+    assert_eq!(prepared.admit_prepared(token), expected);
+    same_state(&serial, &prepared);
+    assert_eq!(serial.containment_checks, prepared.containment_checks);
+}
+
+/// Dead block slots keep their stale IDs byte for byte; one that is not a
+/// former admission ID (out of range, or not a u32) is refused, never mapped.
+#[test]
+fn stale_block_slots_restore_exactly_or_are_refused() {
+    // Points of one antidiagonal share a signature, hence one group.
+    let point = |x: u64| owner_box([x, 40 - x], [Some(x), Some(40 - x)], None);
+    let mut queue = Queue::<2>::new(64, None);
+    for x in 0..40 {
+        assert_eq!(queue.admit(point(x)), Ok((x as usize, true)));
+    }
+    // A segment containing x = 0..=19 retires them: the first block keeps
+    // x = 20..=31 and, in its dead slots, the stale IDs of its old tail.
+    let segment = owner_box([0, 21], [Some(19), Some(40)], None);
+    assert_eq!(queue.admit(segment), Ok((40, true)));
+    assert_eq!(queue.containment_retired_candidates, 20);
+    let image = serde_json::to_value(&queue).unwrap();
+    let text = serde_json::to_string(&queue).unwrap();
+    let restored: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    assert_eq!(serde_json::to_string(&restored).unwrap(), text);
+    let block = &image[2][0][2]["indexed"]["groups"][0]["blocks"][0];
+    assert_eq!(block["len"], 12);
+    assert_eq!(block["ids"][31], 31, "a former live ID in a dead slot");
+    let domains = queue.domains.len() as u64;
+    for (stale, accepted) in [
+        (domains - 1, true),
+        (0, true),
+        (domains, false),
+        (u64::from(u32::MAX), false),
+        (u64::from(u32::MAX) + 7, false),
+    ] {
+        let mut edited = image.clone();
+        edited[2][0][2]["indexed"]["groups"][0]["blocks"][0]["ids"][31] = serde_json::json!(stale);
+        match serde_json::from_value::<Queue<2>>(edited.clone()) {
+            Ok(restored) => {
+                assert!(accepted, "stale ID {stale} accepted");
+                // Re-encoded byte for byte, the stale value included.
+                assert_eq!(serde_json::to_value(&restored).unwrap(), edited);
+            }
+            Err(error) => {
+                assert!(!accepted, "stale ID {stale} refused: {error}");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("invalid checkpoint stale block slot"),
+                    "{error}"
+                );
+            }
+        }
+    }
 }

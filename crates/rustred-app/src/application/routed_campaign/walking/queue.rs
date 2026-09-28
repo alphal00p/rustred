@@ -1,7 +1,6 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
 use super::delegation::{Ledger, SchedulingPolicy};
 use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -11,9 +10,9 @@ mod compact;
 pub(super) use compact::CompactDomain;
 #[cfg(test)]
 use compact::{COMPACT_RANGE_ERROR, MAX_COMPACT_COORDINATE};
-use compact::{CompactSummary, Digest, ExactIndex, Query, Stored, SummarySlab};
+use compact::{CompactSummary, Digest, ExactIndex, Query, Stored};
 mod index;
-use index::{AggregateIndex, Coordinates, Signature};
+use index::{AggregateIndex, Coordinates, Entry, Probe, Retire, Signature, Visit};
 mod checkpoint;
 pub(super) use checkpoint::{Metadata as QueueMetadata, SortedBuckets, StoredBuckets};
 #[cfg(test)]
@@ -89,19 +88,50 @@ fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
     container.is_none_or(|r| candidate.is_some_and(|s| s <= r))
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-struct OwnerBucket {
+#[derive(serde::Serialize)]
+struct OwnerBucket<const N: usize> {
     /// Historical stable full scan, used only in the finite-cap lane.
     ids: Vec<usize>,
     /// Unlimited lane: grouped maximal lookup candidates. Retirement never
     /// removes the exact key, immutable domain or queued work.
-    indexed: AggregateIndex,
+    indexed: AggregateIndex<N>,
     /// Largest admitted full-orthant rank; None rank dominates every finite R.
     orthant: Option<usize>,
 }
 
+impl<const N: usize> Default for OwnerBucket<N> {
+    fn default() -> Self {
+        Self {
+            ids: Vec::new(),
+            indexed: AggregateIndex::default(),
+            orthant: None,
+        }
+    }
+}
+
+impl<const N: usize> OwnerBucket<N> {
+    /// The dominant full orthant that contains a query of this bucket
+    /// (`bucket` = its phase/owner code) with `rank` (A1: the stored image's
+    /// bucket, full-orthant shape and rank are all checked). The one predicate
+    /// of the ordered commit and of the helper's speculative shortcut; restore
+    /// also refuses a checkpoint whose orthant ID is not a full orthant.
+    fn orthant_hit(
+        &self,
+        domains: &[CompactDomain<N>],
+        (phase, owner): (u8, u32),
+        rank: Option<u32>,
+    ) -> Option<usize> {
+        let id = self.orthant?;
+        let stored = &domains[id];
+        (stored.same_bucket(phase, owner)
+            && stored.is_full_orthant()
+            && rank_contains(stored.rank(), rank))
+        .then_some(id)
+    }
+}
+
 #[cfg(test)]
-impl OwnerBucket {
+impl<const N: usize> OwnerBucket<N> {
     fn candidate_ids(&self) -> Vec<usize> {
         let mut ids = self.indexed.ids();
         ids.extend_from_slice(&self.ids);
@@ -141,16 +171,13 @@ pub(super) struct Queue<const N: usize> {
     pub unbounded_rank_domains: usize,
     /// Digest-keyed exact index; every hit is confirmed on the stored domain.
     exact: ExactIndex<N>,
-    by_owner: HashMap<(Phase, [bool; N]), OwnerBucket>,
-    /// Compact native summary of every live lookup candidate in the unlimited
-    /// lane; a candidate's slot is released when it leaves the index. Raw
-    /// domains, exact keys and scheduling obligations remain unchanged.
-    summaries: SummarySlab<N>,
-    /// Indexed by ID like the domains: the packed necessary-condition word of
-    /// each admitted summary (see `bits`). Rebuilt from the summaries on
-    /// restore; never persisted, so no checkpoint format depends on the bit
-    /// layout. Only live candidates' words are ever read.
-    bits: Vec<u64>,
+    by_owner: HashMap<(Phase, [bool; N]), OwnerBucket<N>>,
+    /// Indexed by ID like the domains: the immutable compact native summary
+    /// of every admitted ID in the unlimited lane (none in the finite-cap
+    /// lane). Never released, so any reader may read any admitted ID. The
+    /// kernel's filter words and lanes live inline in the index blocks and
+    /// are rebuilt from these summaries on restore, never persisted.
+    summaries: Vec<CompactSummary<N>>,
     /// Coordinator-side filter telemetry for this process session only.
     pub(super) session: SessionCounters,
     prefilter: bits::Prefilter,
@@ -184,20 +211,49 @@ impl<const N: usize> Queue<N> {
             .collect()
     }
 
-    /// Reserved bytes of the compact per-ID state: O(1), capacities only.
-    /// The candidate index blocks, ledger and closure are accounted elsewhere.
+    /// Reserved bytes of the compact queue state: per-ID images, exact index,
+    /// per-ID summaries and the candidate index. O(owner buckets): the index
+    /// keeps running totals, because every coordinator heartbeat calls this
+    /// twice. The ledger and closure are accounted elsewhere.
     pub fn storage_json(&self) -> serde_json::Value {
         let domains = self.domains.capacity() * std::mem::size_of::<CompactDomain<N>>();
         let exact = self.exact.capacity_bytes();
-        let summaries = self.summaries.capacity_bytes();
-        let words = self.bits.capacity() * std::mem::size_of::<u64>();
-        let total = domains + exact + summaries + words;
+        let summaries = self.summaries.capacity() * std::mem::size_of::<CompactSummary<N>>();
+        let index = self
+            .by_owner
+            .values()
+            .map(|bucket| bucket.indexed.storage())
+            .fold(index::IndexBytes::default(), |a, b| index::IndexBytes {
+                blocks: a.blocks + b.blocks,
+                rows: a.rows + b.rows,
+                live: a.live + b.live,
+                lossy: a.lossy + b.lossy,
+            });
+        let per_id = domains + exact + summaries;
+        let total = per_id + index.blocks + index.rows;
         serde_json::json!({"domain_bytes":domains,"exact_index_bytes":exact,
-            "summary_slab_bytes":summaries,"filter_word_bytes":words,"total_bytes":total,
-            "admitted_domains":self.domains.len(),"live_summaries":self.summaries.live(),
+            "summary_bytes":summaries,"index_block_bytes":index.blocks,
+            "index_row_bytes":index.rows,"total_bytes":total,
+            "total_excluding_index_bytes":per_id,
+            "admitted_domains":self.domains.len(),"live_candidates":index.live,
+            "lossy_lane_candidates":index.lossy,
             "bytes_per_admitted_domain":(!self.domains.is_empty())
                 .then(|| total as f64 / self.domains.len() as f64),
-            "scope":"compact per-ID queue state (domain images, digest exact index, summary slab with slot map, filter words); reserved capacities; excludes candidate index blocks, ledger and closure"})
+            // Pre-kernel binaries (4a17f9c7, 7eed68fc) reported a total
+            // without the candidate index, over a live-only summary slab and
+            // 8-B filter words per ID; total_excluding_index_bytes is the
+            // nearest analogue. Memory gates compare process RSS.
+            "scope":"compact queue state incl. SoA candidate index; reserved capacities; excl. allocator/hash overhead, ledger, closure; pre-kernel total_bytes ~ total_excluding_index_bytes"})
+    }
+
+    /// The kernel probe of `query`.
+    fn probe<'q>(&self, query: &'q Query<N>) -> Probe<'q, N> {
+        Probe::new(
+            Coordinates::of(&query.core),
+            query.word,
+            query.lanes,
+            self.prefilter.enabled(),
+        )
     }
 
     fn stored(&self) -> Stored<'_, N> {
@@ -252,8 +308,7 @@ impl<const N: usize> Queue<N> {
             unbounded_rank_domains: 0,
             exact: ExactIndex::new(),
             by_owner: HashMap::new(),
-            summaries: SummarySlab::new(),
-            bits: Vec::new(),
+            summaries: Vec::new(),
             session: SessionCounters::default(),
             prefilter: bits::Prefilter::new(),
             max_domains,
@@ -271,9 +326,24 @@ impl<const N: usize> Queue<N> {
         self.prefilter.disable();
     }
 
+    /// The kernel word of every admitted ID of the unlimited lane, rebuilt
+    /// from its immutable summary (none in the finite-cap lane).
     #[cfg(test)]
-    pub(super) fn bit_words(&self) -> &[u64] {
-        &self.bits
+    pub(super) fn bit_words(&self) -> Vec<u64> {
+        self.domains
+            .iter()
+            .zip(&self.summaries)
+            .map(|(domain, summary)| compact::stored_image(domain, summary).unwrap().0)
+            .collect()
+    }
+
+    /// Whether `id` is a live candidate of the unlimited lane's index.
+    #[cfg(test)]
+    pub(super) fn is_indexed(&self, id: usize) -> bool {
+        let domain = &self.domains[id];
+        self.by_owner
+            .get(&(domain.phase(), domain.owner()))
+            .is_some_and(|bucket| bucket.indexed.is_live(self.stored().signature(id), id))
     }
 
     pub fn with_policy(
@@ -383,6 +453,7 @@ impl<const N: usize> Queue<N> {
                         domain.powers,
                     )
                     .map_err(summary_error)?,
+                    domain.phase,
                 )
             };
             self.containment_summary_builds = builds;
@@ -390,15 +461,18 @@ impl<const N: usize> Queue<N> {
         } else {
             None
         };
-        let prefilter = self.prefilter;
+        let filter = self.prefilter.enabled();
         let bucket_key = (domain.phase, domain.owner);
+        let (phase_code, owner_code) = compact.bucket_code();
         // Helper-prepared reverse retirement set with its snapshot watermark;
         // only a revalidated prepared miss can supply one.
         let mut prepared_retire: Option<(Vec<usize>, usize)> = None;
         let mut trivial_retire = false;
         if let Some(bucket) = self.by_owner.get(&bucket_key) {
-            if let Some(id) = bucket.orthant
-                && rank_contains(self.domains[id].rank(), domain.rank)
+            // A1: the shortcut is a positive only after an explicit check of
+            // the stored image's bucket, full orthant and rank.
+            if let Some(id) =
+                bucket.orthant_hit(&self.domains, (phase_code, owner_code), domain.rank)
             {
                 self.orthant_hits += 1;
                 self.deduplicated += 1;
@@ -413,8 +487,7 @@ impl<const N: usize> Queue<N> {
                     lookup.revalidate(
                         &bucket.indexed,
                         stored,
-                        &self.bits,
-                        prefilter,
+                        filter,
                         self.containment_checks,
                         &mut self.session,
                     )
@@ -427,19 +500,26 @@ impl<const N: usize> Queue<N> {
                     }
                     revalidated.found
                 } else {
-                    bucket.indexed.find(
-                        Signature::of(&query.core),
+                    let probe = Probe::new(
                         Coordinates::of(&query.core),
-                        |id| {
-                            self.containment_checks = self
-                                .containment_checks
-                                .checked_add(1)
-                                .ok_or("domain containment counter overflow")?;
-                            let rejected = prefilter.rejects(self.bits[id], query.word);
-                            self.session.forward(rejected);
-                            Ok(!rejected && stored.contains(id, query))
+                        query.word,
+                        query.lanes,
+                        filter,
+                    );
+                    let started = std::time::Instant::now();
+                    let found = bucket.indexed.find_from(
+                        Signature::of(&query.core),
+                        &probe,
+                        0,
+                        &mut Charged {
+                            checks: &mut self.containment_checks,
+                            session: &mut self.session,
+                            stored,
+                            query,
                         },
-                    )?
+                    )?;
+                    self.session.forward_scan(started);
+                    found
                 }
             } else {
                 let mut found = None;
@@ -479,6 +559,10 @@ impl<const N: usize> Queue<N> {
             return Err("scheduled domain allowance");
         }
         let id = self.domains.len();
+        if query.is_some() && id >= u32::MAX as usize {
+            // Index blocks store u32 IDs (like the summary and ledger slots).
+            return Err("candidate index ID range");
+        }
         if let Some(ledger) = &mut self.delegation {
             ledger
                 .reserve_admission(id)
@@ -489,8 +573,7 @@ impl<const N: usize> Queue<N> {
             .map_err(|_| "domain allocation")?;
         self.exact.try_reserve(key, exact_miss)?;
         if query.is_some() {
-            self.summaries.try_reserve()?;
-            self.bits
+            self.summaries
                 .try_reserve(1)
                 .map_err(|_| "domain summary allocation")?;
         }
@@ -600,58 +683,51 @@ impl<const N: usize> Queue<N> {
                         self.session.prepared_retire_fallbacks.saturating_add(1);
                 }
             }
-            // A retired candidate's slot is released inside the traversal
-            // while later callbacks still read other live summaries; the two
-            // closures never hold the slab at the same time. No slot is reused
-            // before this admission publishes its own summary below.
-            let summaries = RefCell::new(&mut self.summaries);
-            let bits = &self.bits;
+            let probe = Probe::new(coordinates, query.word, query.lanes, filter);
             let domains = &self.domains;
             let delegation = &mut self.delegation;
-            let session = &mut self.session;
-            // Exact inclusion of an old candidate, charged as a reverse callback.
-            let mut contains_old = |old: usize| {
-                let rejected = prefilter.rejects(query.word, bits[old]);
-                session.reverse(rejected);
-                let summaries = summaries.borrow();
-                !rejected
-                    && Stored {
-                        domains,
-                        summaries: &summaries,
-                    }
-                    .contained_by(old, query)
-            };
+            let extra_retired = &mut extra_retired;
             // Apply-time effects of one retirement, identical on both paths.
-            let mut on_retire = |old: usize| {
+            let on_retire = |old: usize| {
                 if !compact.contains(&domains[old]) {
-                    extra_retired += 1; // preflighted by the maintenance bound
+                    *extra_retired += 1; // preflighted by the maintenance bound
                 }
                 if let Some(ledger) = delegation.as_mut() {
                     // Same immutable phase/owner bucket; exact native inclusion
                     // is the authority. Protected work remains a native obligation.
                     let _ = ledger.transfer_retired(old, id);
                 }
-                // The candidate left the index for good: nothing reads its
-                // summary again, and a later admission may reuse the slot.
-                summaries.borrow_mut().release(old);
             };
-            match prepared_retire.take() {
+            // Exact inclusion of an old candidate, charged as a reverse callback.
+            let mut reverse = Reverse {
+                session: &mut self.session,
+                stored: Stored {
+                    domains,
+                    summaries: &self.summaries,
+                },
+                query,
+            };
+            let started = std::time::Instant::now();
+            let removed = match prepared_retire.take() {
                 Some((set, first_new)) => bucket.indexed.retire_prepared(
                     insertion,
-                    coordinates,
+                    &probe,
                     &set,
                     first_new,
-                    &mut contains_old,
-                    &mut on_retire,
+                    &mut reverse,
+                    on_retire,
                 ),
-                None => bucket.indexed.retire(insertion, coordinates, |old| {
-                    let retire = contains_old(old);
-                    if retire {
-                        on_retire(old);
-                    }
-                    retire
-                }),
-            }
+                None => bucket.indexed.retire(
+                    insertion,
+                    &probe,
+                    &mut WithEffects {
+                        inner: reverse,
+                        on_retire,
+                    },
+                ),
+            };
+            self.session.reverse_scan(started);
+            removed
         } else {
             0
         };
@@ -660,7 +736,16 @@ impl<const N: usize> Queue<N> {
         self.containment_retired_candidates += retired;
         self.containment_semantic_retirements += extra_retired;
         if let Some(insertion) = insertion {
-            bucket.indexed.insert(insertion, id, coordinates);
+            let (word, lanes) = query.as_ref().expect("unlimited lane query").image();
+            bucket.indexed.insert(
+                insertion,
+                Entry {
+                    id,
+                    coordinates,
+                    word,
+                    lanes,
+                },
+            );
         } else {
             bucket.ids.push(id);
         }
@@ -679,10 +764,82 @@ impl<const N: usize> Queue<N> {
         self.exact.insert(key, id);
         self.domains.push(compact);
         if let Some(query) = query {
-            self.bits.push(query.word);
             self.summaries.push(query.compact);
         }
         Ok((id, true))
+    }
+}
+
+/// Ordered-commit forward visitor: charges every logical candidate, exactly
+/// as the per-ID callback did (prefilter rejections included).
+struct Charged<'a, const N: usize> {
+    checks: &'a mut usize,
+    session: &'a mut SessionCounters,
+    stored: Stored<'a, N>,
+    query: &'a Query<N>,
+}
+
+impl<const N: usize> Visit for Charged<'_, N> {
+    fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str> {
+        *self.checks = self
+            .checks
+            .checked_add(run.len())
+            .ok_or("domain containment counter overflow")?;
+        self.session
+            .forward_run(run.len(), word.count_ones() as usize);
+        Ok(())
+    }
+    fn test(&mut self, id: usize) -> Result<bool, &'static str> {
+        *self.checks = self
+            .checks
+            .checked_add(1)
+            .ok_or("domain containment counter overflow")?;
+        self.session.forward_test();
+        Ok(self.stored.contains(id, self.query))
+    }
+}
+
+/// Ordered-commit reverse visitor: the exact inclusion of an old candidate,
+/// with the session's reverse-callback telemetry.
+struct Reverse<'a, const N: usize> {
+    session: &'a mut SessionCounters,
+    stored: Stored<'a, N>,
+    query: &'a Query<N>,
+}
+
+impl<const N: usize> Retire for Reverse<'_, N> {
+    fn rejected(&mut self, run: &[u32], word: u32) {
+        self.session
+            .reverse_run(run.len(), word.count_ones() as usize);
+    }
+    fn test(&mut self, id: usize) -> bool {
+        self.session.reverse_test();
+        self.stored.contained_by(id, self.query)
+    }
+    fn decided(&mut self, count: usize) {
+        self.session.reverse_decided(count);
+    }
+}
+
+/// A reverse visitor plus the apply-time effects of each retirement.
+struct WithEffects<V, F> {
+    inner: V,
+    on_retire: F,
+}
+
+impl<V: Retire, F: FnMut(usize)> Retire for WithEffects<V, F> {
+    fn rejected(&mut self, run: &[u32], word: u32) {
+        self.inner.rejected(run, word);
+    }
+    fn test(&mut self, id: usize) -> bool {
+        let retire = self.inner.test(id);
+        if retire {
+            (self.on_retire)(id);
+        }
+        retire
+    }
+    fn decided(&mut self, count: usize) {
+        self.inner.decided(count);
     }
 }
 
