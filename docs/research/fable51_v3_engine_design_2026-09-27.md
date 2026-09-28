@@ -107,6 +107,7 @@ Layer `retired_at` values (u64) are only a cache; the authority is `live`. The e
 **3.4 Schedules.**
 - `Lockstep{B, depth 1|2}`: deterministic, for controls. `--canonical-resolution` picks the minimum ID among the snapshot's verified containers; the identity gates use it.
 - `Rolling{D, cut R results or T ms}`: for production.
+- Controls per schedule (amendment of 2026-09-28, c4l fix round). Lockstep with canonical resolution is gated on C-4L-comb-O: the combined four-loop `four-all` gives byte-identical records across W6/W24/W96, audit and verify-closure gate PASS, natives <= 33,175 one-sided or a pre-registered expectation. Rolling is gated on C-4L-comb-R: a pre-registered one-sided Fisher test of the drain fraction against interleaved legacy 4a17f9c7 Ready runs, n >= 13 per arm and width. Both are defined in `examples/input/four_loop_combined/README.md` §5 and are additions to the per-family C-4L.
 - Dispatch is FIFO over Pending. An entry is set Reserved *at enqueue*. After a resume, Reserved entries go first.
 
 **3.5 Closure monitor.** The refresher snapshots the sealed bits and the edge length at a merge boundary. That boundary is quiescent: every sealed node already has all its edges below that length.
@@ -282,6 +283,7 @@ Controls run on CPUs 200-255: four-loop FG/BMW/H/X at W6 and five-loop finite at
     - five-loop W50 traversal against `53e672fc` Ready, two rounds each.
 - **S6: lockstep-2 and rolling (≈4 d).** Saves run concurrently with inspection.
   - Gate: audit, closure and F10 PASS, with 3 pause points per control. Report the stale-miss rate, merge duty and inspector utilization. Pick rolling unless lockstep-2 reaches at least 85% of rolling's utilization.
+  - Gate: C-4L-comb-R PASS for the chosen non-deterministic schedule (no regression of the `four-all` drain fraction against interleaved legacy Ready at W6/W24/W96).
 - **S7: pilots on CPUs 128-177 (≈3 d plus wall time).**
   - (a) The engine on the **v2 inputs** at W50 for ≥6 h, compared with v2 at matched discovered domains (µs per event against D). This separates the engine gain from the input change. The run includes one RAM-guard save-and-stop plus resume, one performance-only binary swap and one re-split resume.
   - (b) The v3 inputs for ≥6 h, with a 100-150 GB guard.

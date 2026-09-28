@@ -391,12 +391,16 @@ Controls and pilots (each ≤1 h including restore):
 | Id | Definition | Baseline |
 |---|---|---|
 | C-4L | four-loop FG/BMW/H/X, W6 | 12-35 s each (`TMP/fable51-controls/RESULTS.md`) |
+| C-4L-comb-O | combined four-loop `four-all` (all 16 four-loop class owners in Luthe's A4 basis, 508 routes; planner physics class plus 16 rank-12 orthants), deterministic schedule (legacy Ordered, v3 Lockstep with canonical resolution) at W6, W24 and W96; an ADDITION to C-4L. Record-keeping changes: strict record identity. Record-changing engines/levers: byte identity across widths plus natives <= 33,175 (one-sided) or a pre-registered expectation. Always: drained, audit PASS, 0 frontiers, verify-closure gate PASS (32/32 roots) | 30,159 natives, 65,444 records, identical at W6/W24/W96; verify-closure 46d4dd28 PASS 32/32 (`examples/input/four_loop_combined/README.md` §5, branch `fable_5_1-c4l-combined`) |
+| C-4L-comb-R | `four-all` in the non-deterministic schedule (legacy Ready, v3 Rolling) at W6, W24 and W96: n >= 13 runs per arm and width, interleaved with legacy 4a17f9c7 Ready in one session on one CPU set, 15-min cap or stop at 60,000 natives. Pre-registered one-sided Fisher test at alpha 0.05 per width. BLOCK on a regression, a frontier/violation, or a non-drain without the known signature (max anchor+1 Apply natives on `0111110010`/`0111111001` >= 1,000); VOID on unequal n/CPUs. Never a binary drain gate (`tools/comb_r_test.py`) | legacy Ready drained 5/5 (W6), 17/18 (W24), 7/13 (W96) (context only; host-confounded) |
 | C-5F | five-loop 1,324-tuple finite control (hot owner, A≤11 R≤2 D≥9), W50 | 236-339 s; 1.29M domains |
 | C-HOT | single hot-owner physics box | Drained: 5,790,994 natives in 13,416 s (3.7 h), Ordered W6 (`TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec`). Its `audit.json` says FAIL: re-audit helper-aware in W0.2 and use only a PASS baseline. Used in a gate only once epoch at W96 is measured to drain it in ≤45 min; otherwise use C-HOT-sub |
 | C-HOT-sub | a hot-owner sub-box that drains in ≤20 min on the legacy engine | chosen in W0.9 |
 | P-IMP | gen-7 CP5→CP6 import, 40 min at W100 | same-clone 4a17f9c7 resume (W0.5) |
 | P-FRESH-v3 | fresh W100 run on the v2 campaign's plan-v3 inputs, 45-60 min; isolates the engine effect (v3 note S7(a)) | v2 events at matched discovered domains |
 | P-FRESH-v4 | fresh W100 run on the candidate v4 inputs, 45-60 min | P-FRESH-v3 at matched discovered domains |
+
+Engine-affecting gates below that name C-4L also require C-4L-comb-O, and C-4L-comb-R whenever the change affects the non-deterministic schedule (amendment of 2026-09-28, fix round of W0 lane c4l; `four-all` is an addition to C-4L, never a replacement; orchestrator decision 5).
 
 I1, I1b, I2, G2' and priority order can be judged only through P-FRESH runs or drained controls, and only at the domain count one hour reaches. Their long-horizon effect is projected and labelled [E].
 
@@ -478,11 +482,11 @@ W0 gates [thresholds E]:
 
 **W1: legacy-lane primitives and inputs, in parallel with W2** (about 12-16 agent-days [E]).
 - **1.1 Kernel** (`fable_5_1-v3-kernel`, = v3 S1): SoA compare kernel, immutable per-ID summaries, A5 encoding, release WIDE check, `partition_point` skip.
-  - Gate: strict Ordered identity (records and `containment_checks`) vs 4a17f9c7 on C-4L and C-5F.
+  - Gate: strict Ordered identity (records and `containment_checks`) vs 4a17f9c7 on C-4L, C-4L-comb-O and C-5F.
   - Gate: ≥1e8 forward and ≥1e8 reverse differential pairs from gen 7, including wide, empty and infinite cases.
   - Gate: ≥4x less CPU per candidate in the 0.4 replay.
 - **1.2 Native class A** (`fable_5_1-v3-native`): N1, N2 (geometry only), N3.
-  - Gate: identical successor, frontier and problem multisets on C-4L, C-5F and ≥10^6 sampled term visits.
+  - Gate: identical successor, frontier and problem multisets on C-4L, C-4L-comb-O, C-5F and ≥10^6 sampled term visits.
   - Gate: records identical except for the named differences: conditional-classification counters, `attempted_optional_coefficient_refusals` together with the OptionalCoefficientRefusal events, and timing.
   - Gate: inspector CPU per native ≥20% lower in the 0.3 harness, at K = 1 and K = 96.
 - **1.3 Inputs v4** (`fable_5_1-v3-inputs`): I1, I1b and I2, shipped as `examples/input/five_loop_qcd_feynman_d9d10/queries.json` v4 plus a rewritten selection.
@@ -502,8 +506,8 @@ W0 gates [thresholds E]:
 **W2: the epoch engine.** v3 S2-S6 plus amendments. About 45-55 agent-days including reviews, importer and tooling; critical path about 5-6 wall weeks [E].
 - **2.0 Protocol note**, written before any code. It answers every hazard in v3 §9 and fixes A1-A10, the A2 error classes and the §3.4 enqueue depth. It states the termination condition: Pending = Reserved = ∅ and no unmerged result.
 - **2.1 S2 skeleton, lockstep** (`fable_5_1-v3-epoch`).
-  - Gate: audit, closure and F10 PASS on C-4L and C-5F.
-  - Gate: byte-identical across W6, W12 and W24.
+  - Gate: audit, closure and F10 PASS on C-4L, C-4L-comb-O (Lockstep, canonical) and C-5F.
+  - Gate: byte-identical across W6, W12 and W24 (C-4L-comb-O also at W96).
 - **2.2 S3 CP6 and stops** (`fable_5_1-v3-cp6`).
   - Gate: a pause at epoch k is byte-identical.
   - Gate: these all PASS: `kill -9` resume; RAM-guard exit 4 and resume; frontier stop; deterministic-error stop, then resume without re-dispatch; double restore with D-bands; re-split resume.
@@ -561,7 +565,7 @@ W0 gates [thresholds E]:
 - **4.3 N4 cover-first.**
   - Gate: identical frontier and problem multisets.
   - Gate: ≥20% less inspector CPU per native.
-- **4.4 Conditional levers.** Each has its own ≤1 h gate on C-4L, C-5F and C-HOT-sub.
+- **4.4 Conditional levers.** Each has its own ≤1 h gate on C-4L, C-4L-comb-O (plus C-4L-comb-R if it affects scheduling), C-5F and C-HOT-sub.
   - Widening allowlist, if 0.9 passes.
   - Dense cells, if the 0.9 oracle and D2 allow.
   - P-anchors, if 0.7 shows escape shells dominating.
@@ -614,7 +618,7 @@ Checks:
    - The frozen 4a17f9c7 on drained controls, comparing closed roots and frontiers only where both runs drain with 0 frontiers.
    - Legacy Ordered/Ready and CP5 stay read-only until after launch.
 4. **verify-closure** (edge-based; reference reducer with every lever off).
-   - Full coverage on C-4L, C-5F and C-HOT-sub (C-HOT under its rule).
+   - Full coverage on C-4L, C-4L-comb-O, C-5F and C-HOT-sub (C-HOT under its rule).
    - In production: ≥10^4 newly sealed natives per generation, on spare cores.
    - Two claim levels:
      - *engine-certified*: invariants, chokepoint, canary and validators;
@@ -636,7 +640,7 @@ Checks:
 ## 7. Measurement protocol and stopping criterion
 
 Metrics (granularity-invariant):
-- **M-drain:** wall time and inspector CPU-seconds to drain C-4L, C-5F, C-HOT-sub and C-HOT.
+- **M-drain:** wall time and inspector CPU-seconds to drain C-4L, C-4L-comb-O, C-5F, C-HOT-sub and C-HOT; for C-4L-comb-R the drain fraction per width with its test.
 - **M-obl:** obligations discharged per hour (native + alias), split into Apply and Route, with CPU per class.
 - **M-cert:** helper roots and physics queries certified, per native CPU-hour and against wall time.
 - **M-util:** per-thread CPU split into native, resolve, merge and idle, plus run delay.
