@@ -54,6 +54,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_sign_splits: usize,
     pub max_domains: usize,
     pub max_frontiers: usize,
+    pub frontier_policy: crate::OwnerDomainWalkFrontierPolicy,
     pub max_successor_events: usize,
     pub max_containment_checks: Option<usize>,
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
@@ -103,6 +104,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_sign_splits: applied.max_sign_splits,
         max_domains: 100_000,
         max_frontiers: 100_000,
+        frontier_policy: crate::OwnerDomainWalkFrontierPolicy::Record,
         max_successor_events: 1_000_000,
         max_containment_checks: None,
         transfer_unreserved_lookahead: None,
@@ -159,6 +161,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-sign-splits-per-query" => "--max-sign-splits-per-query",
             "--max-domains" => "--max-domains",
             "--max-frontiers" => "--max-frontiers",
+            "--frontier-policy" => "--frontier-policy",
             "--max-successor-events" => "--max-successor-events",
             "--max-containment-checks" => "--max-containment-checks",
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
@@ -235,6 +238,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead" => {
                 result.transfer_unreserved_lookahead =
                     NonZeroUsize::new(parse_positive_integer(name, value)?);
+            }
+            "--frontier-policy" => {
+                result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::parse(&value)
+                    .ok_or(ArgError::InvalidValue {
+                        option: name,
+                        value,
+                        expected: "record or stop",
+                    })?;
             }
             "--bounded-refinement-axes" => {
                 result.refinement_axes = match value.as_str() {
@@ -371,6 +382,13 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--unbounded-work cannot be combined with explicit diagnostic work caps",
         ));
     }
+    if result.frontier_policy == crate::OwnerDomainWalkFrontierPolicy::Stop
+        && result.checkpoint.is_none()
+    {
+        return Err(ArgError::InvalidCombination(
+            "--frontier-policy stop requires --checkpoint or --resume",
+        ));
+    }
     if result.checkpoint.is_some()
         && result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched
     {
@@ -424,6 +442,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--publication-policy",
             "--max-domains",
             "--max-frontiers",
+            "--frontier-policy",
             "--max-successor-events",
             "--max-containment-checks",
             "--transfer-unreserved-lookahead",

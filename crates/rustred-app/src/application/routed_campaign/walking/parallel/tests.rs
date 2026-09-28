@@ -26,8 +26,8 @@ fn finished(error: Option<&str>) -> Finished {
         seconds: 0.0,
     }
 }
-fn licensed() -> bool {
-    symbolica::license::LicenseManager::is_licensed()
+fn licensed(test: &str) -> bool {
+    crate::test_gates::licensed_or_skip(test)
 }
 fn count() -> Event<1> {
     Event::one(Effect::Count)
@@ -123,7 +123,7 @@ fn snapshot_tiers_nest_lean_detailed_and_full_key_sets() {
 
 #[test]
 fn cancellation_first_preserves_later_worker_fault_or_panic_after_drain() {
-    if !licensed() {
+    if !licensed("cancellation_first_preserves_later_worker_fault_or_panic_after_drain") {
         return;
     }
     for panic in [false, true] {
@@ -369,7 +369,7 @@ fn wait_until(pool: &Pool<1>, predicate: impl Fn(&Value) -> bool) {
 
 #[test]
 fn symbolic_parallel_stream_is_bounded_and_commits_in_requested_order() {
-    if !licensed() {
+    if !licensed("symbolic_parallel_stream_is_bounded_and_commits_in_requested_order") {
         return;
     }
     let release = AtomicBool::new(false);
@@ -433,7 +433,7 @@ fn symbolic_parallel_stream_is_bounded_and_commits_in_requested_order() {
 
 #[test]
 fn symbolic_parallel_later_failure_stops_and_preserves_first_cause() {
-    if !licensed() {
+    if !licensed("symbolic_parallel_later_failure_stops_and_preserves_first_cause") {
         return;
     }
     let ready = std::sync::Barrier::new(2);
@@ -468,7 +468,7 @@ fn symbolic_parallel_later_failure_stops_and_preserves_first_cause() {
 
 #[test]
 fn symbolic_parallel_observer_panic_unblocks_full_mailboxes_and_joins() {
-    if !licensed() {
+    if !licensed("symbolic_parallel_observer_panic_unblocks_full_mailboxes_and_joins") {
         return;
     }
     let living = AtomicUsize::new(0);
@@ -510,7 +510,7 @@ fn symbolic_parallel_observer_panic_unblocks_full_mailboxes_and_joins() {
 
 #[test]
 fn symbolic_parallel_worker_panic_and_spawn_failure_are_terminal() {
-    if !licensed() {
+    if !licensed("symbolic_parallel_worker_panic_and_spawn_failure_are_terminal") {
         return;
     }
     let (_, snapshot, _) = with_pool(
@@ -536,7 +536,7 @@ fn symbolic_parallel_worker_panic_and_spawn_failure_are_terminal() {
 
 #[test]
 fn symbolic_parallel_buffer_refusal_does_not_publish_oversized_descriptor() {
-    if !licensed() {
+    if !licensed("symbolic_parallel_buffer_refusal_does_not_publish_oversized_descriptor") {
         return;
     }
     let (_, snapshot, _) = with_pool(

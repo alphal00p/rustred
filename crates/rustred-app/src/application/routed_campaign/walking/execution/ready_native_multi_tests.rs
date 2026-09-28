@@ -290,12 +290,16 @@ fn resume_matches_baseline(
 
 #[test]
 fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline",
+    ) {
         return;
     }
     if rustred::campaign::ParallelExecution::preflight_requested_core_budget(4).is_err() {
-        eprintln!("skipped: W=4 needs four CPUs in this process's affinity mask");
+        crate::test_gates::skip(
+            "ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline",
+            "W=4 needs four CPUs in this process's affinity mask",
+        );
         return;
     }
     let reducer = super::initial_orthants_tests::native_fixture();

@@ -65,13 +65,13 @@ class SteeringTests(unittest.TestCase):
     def test_700gb_admission_retains_host_cgroup_and_soft_guard(self):
         host={"host_total_bytes":1_200_000_000_000,"available_bytes":1_000_000_000_000}
         self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,None,host,None),
-                         (700_000_000_000,665_000_000_000,20_000_000_000))
+                         (700_000_000_000,665_000_000_000,50_000_000_000))
         host["available_bytes"]=650_000_000_000
         self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,None,host,None),
-                         (630_000_000_000,598_500_000_000,20_000_000_000))
+                         (600_000_000_000,570_000_000_000,50_000_000_000))
         host.update(cgroup_capacity_bytes=600_000_000_000,available_bytes=550_000_000_000)
         self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,660_000_000_000,host,None),
-                         (530_000_000_000,503_500_000_000,20_000_000_000))
+                         (500_000_000_000,475_000_000_000,50_000_000_000))
         for hard,margin in ((1,5),(700_000_000_000,1e-300)):
             with self.subTest(hard=hard,margin=margin), self.assertRaisesRegex(ValueError,"soft limit below hard"):
                 CAMPAIGN.memory_admission(hard,None,host,None,margin)
@@ -149,11 +149,14 @@ class SteeringTests(unittest.TestCase):
     def test_default_ram_guard_stops_at_95_percent_of_effective_ceiling(self):
         host = {"host_total_bytes": 1_200_000_000_000, "available_bytes": 730_000_000_000}
         self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, host, None),
-                         (500_000_000_000, 475_000_000_000, 20_000_000_000))
+                         (500_000_000_000, 475_000_000_000, 50_000_000_000))
         constrained = {"host_total_bytes": 1_200_000_000_000, "available_bytes": 800_000_000,
                        "cgroup_capacity_bytes": 1_000_000_000}
-        self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, constrained, None),
+        # A small cgroup needs an explicit floor below the flat 50 GB default.
+        self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, constrained, 50_000_000),
                          (750_000_000, 712_500_000, 50_000_000))
+        with self.assertRaisesRegex(ValueError, "no campaign headroom.*--host-memory-reserve-bytes"):
+            CAMPAIGN.memory_admission(500_000_000_000, None, constrained, None)
         self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, 100, host, None)[1], 100)
         with self.assertRaisesRegex(ValueError, "no campaign headroom"):
             CAMPAIGN.memory_admission(500_000_000_000, None, host, 800_000_000_000)
@@ -717,7 +720,7 @@ class SteeringV2Tests(unittest.TestCase):
             plan=production_plan(directory,"--executable",str(executable),"--workers","4","--cpus",spec,
                                  "--inspection-workers","2","--transfer-unreserved-lookahead","128")
             policy=plan["steering_policy"]
-            self.assertEqual(policy["schema"],"rustred.production-steering.v2")
+            self.assertEqual(policy["schema"],"rustred.production-steering.v3")
             options=policy["options"]
             self.assertEqual(options["cpus"],",".join(map(str,cpus)))
             self.assertEqual(options["publication_policy"],"ready")

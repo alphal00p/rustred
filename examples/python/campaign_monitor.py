@@ -238,6 +238,7 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
     return {
         "phase": counters.get("phase") or outer.get("event") or "starting",
         "native_status": counters.get("status", outer.get("status")),
+        "native_stop_reason": counters.get("stop_reason", outer.get("stop_reason")),
         "owner": counters.get("owner"),
         "progress_age_seconds": age,
         "descendant_closure": closure,
@@ -390,6 +391,15 @@ def dashboard(status: dict) -> list[str]:
     state = clean(status.get('state', 'starting')).upper()
     if status.get("heartbeat_stale") and state in ("STARTING", "RUNNING", "STOPPING"):
         state = "LAST REPORTED " + state
+    reason = status.get("stop_reason") or status.get("native_stop_reason") or progress.get("native_stop_reason")
+    if reason:
+        state += " · stop " + clean(reason)
+    own_swap = number(resources.get("own_swap_growth_bytes_per_second"))
+    if own_swap:
+        host_text += f" · own swap +{own_swap / 1e6:.1f} MB/s"
+    swap_rate = number(resources.get("host_swap_in_bytes_per_second"))
+    if swap_rate is not None:
+        host_text += f" · host swap-in {swap_rate / 1e6:.1f} MB/s"
     return [
         f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
         f"CPU {bar(cpu, status.get('workers'))} {cpu_text} / {count(status.get('workers'))} total reserved",

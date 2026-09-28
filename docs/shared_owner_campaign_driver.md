@@ -190,7 +190,25 @@ The frozen `steering.json` is `rustred.production-steering.v2` and records
 and `checkpoint_interval_seconds` beside the earlier options; the supervisor
 command is built from those options, and `--inspection-workers N` is added
 only when frozen. v1 steering files remain readable with their recorded
-values (Ordered, lookahead 256, native split).
+values (Ordered, lookahead 256, native split). New campaigns write
+`rustred.production-steering.v3`, which also freezes the frontier policy
+(default `stop`) and the host RAM guard (`host_memory_reserve_bytes`, default
+50 GB, `swap_growth_stop_bytes_per_second`, `swap_growth_stop_seconds`); the RAM
+guard options may be overridden per resume like the RSS ceiling and margin.
+Steering written before v3 keeps its historical `record` frontier policy and
+the supervisor's guard defaults. A resume is refused after
+`--max-zero-progress-ram-stops` (default 2; 0 disables) consecutive RAM-guard
+stops without committed progress.
+
+The frontier policy (`--frontier-policy record|stop`, amendment A10) decides
+what the walk does at an explicit frontier; frontiers stay explicit, persisted
+and blocking every closure claim either way. `record` keeps walking. `stop`
+saves the checkpoint and stops cooperatively (exit 4, stop reason
+`frontier_policy`, a `frontier_stop` journal event and a labelled checkpoint)
+at the first frontier the session commits; a resume continues to the next new
+frontier. `stop` requires a checkpoint and is bound into it, so a stop
+checkpoint refuses a record resume and vice versa; `record` leaves existing
+checkpoint bindings unchanged.
 Cumulative enumeration work is uncapped (`--unbounded-work`); input admission,
 bounded worker buffers, native scratch and per-operation algebra safeguards
 remain explicit. Physical subdivision is optional, with the paired
@@ -311,15 +329,45 @@ Defaults are 50 outer workers (at most 256, bounded by the permitted CPUs),
 all native/BLAS/Rayon inner pools fixed to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
 `--max-memory-bytes` accepts any positive byte count, including a higher requested
 ceiling such as 700 GB; there is no fixed numerical RAM maximum. Admission reduces it if
-host/cgroup available RAM minus the host reserve is smaller. The reserve
-defaults to `min(20 GB, 5% of host/cgroup capacity)`; readable cgroup-v2 ancestor
-limits are included. By default measured RSS at **95% of the effective ceiling**
-requests a checkpoint and stop. Set `--ram-guard-margin-percent` to change that
-margin or `--soft-memory-bytes` for an earlier stop. Thus an otherwise
-unconstrained 500 GB run requests a save at 475 GB, or a 700 GB run at 665 GB.
-Margins must leave a representable positive soft limit strictly below the
-effective hard limit. Host pressure can trigger an
-earlier stop, independently of campaign RSS.
+host/cgroup available RAM minus the host reserve is smaller: the effective hard
+ceiling is `min(requested, MemAvailable - floor)`, evaluated once at every start
+and resume (so a 600 GB request with the 50 GB floor needs 650 GB MemAvailable at
+that moment; at 636 GB it is 586 GB, soft 556.7 GB). `request.json`, `status.json`
+and the summary record it as `memory_admission` (rule, MemAvailable, ARC, floor,
+effective hard/soft, `hard_capped_by_available_memory`), the supervisor prints a
+line when the cap is reduced, and the production launcher's plan
+(`active-run.json`) carries a `memory_admission_preview`. MemAvailable excludes
+a ZFS ARC that shrinks under pressure, so the reduction is conservative. The reserve (the
+host MemAvailable floor, `--host-memory-reserve-bytes`, alias
+`--host-available-floor-bytes`) defaults to a flat **50 GB** (owner decision
+2026-09-27; formerly `min(20 GB, 5% of host/cgroup capacity)`); a host or cgroup
+with less than the floor available is refused at admission, so small hosts must
+pass an explicit floor. Readable cgroup-v2 ancestor limits are included. By
+default measured RSS at **95% of the effective ceiling** requests a checkpoint
+and stop. Set `--ram-guard-margin-percent` to change that margin or
+`--soft-memory-bytes` for an earlier stop. Thus an otherwise unconstrained
+500 GB run requests a save at 475 GB, or a 700 GB run at 665 GB. Margins must
+leave a representable positive soft limit strictly below the effective hard
+limit.
+
+Host pressure triggers the same cooperative save-and-stop (exit 4),
+independently of campaign RSS: host (or enclosing cgroup) MemAvailable at or
+below the floor (`host_memory_reserve`), or growth of the supervised tree's own
+swapped-out memory (`VmSwap` summed over its processes) at or above
+`--swap-growth-stop-bytes-per-second` (default 32 MiB/s; 0 disables) in every
+sample for `--swap-growth-stop-seconds` (default 120;
+`own_swap_growth_sustained`). Host-wide swap-in (`/proc/vmstat` `pswpin`)
+counts every user's swap-in on a shared host and is recorded only. MemAvailable
+at a quarter of the floor (12.5 GB by default) or RSS at the hard ceiling kills
+the owned native. Each resource sample records MemAvailable, the ZFS ARC size,
+the tree's swap and its growth rate, the host swap-in rate and the native's
+`VmSwap`; `request.json`, `status.json` and the summary record the guard policy
+(`ram_guard`). A host-wide stop (`host_memory_reserve`, `host_memory_emergency`)
+records `ram_guard_stop` with an attribution over the trailing window:
+`own_memory_signal` is true when the tree's RSS growth explains at least half
+of the MemAvailable drop, or its own swap is growing at the stop rate. The
+production launcher's zero-progress resume refusal counts host-wide stops only
+with that signal, so other users' memory use cannot trip it.
 
 No new `RLIMIT_AS` address-space cap is imposed by default: virtual reservation
 is not consumed RAM and must not preempt the graceful resident-memory guard.

@@ -11,6 +11,12 @@ publish = false
 [features]
 default = ["cli"]
 cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
+# N3 (opt-in, default off): mimalloc as the `rustred` binary's Rust global
+# allocator and, through its `override` feature, as the process-wide C
+# malloc/free, so GMP/MPFR allocations (statically linked, through C malloc)
+# use it too. Verify a build with `nm -D target/<profile>/rustred`: `malloc`
+# and `free` must be defined (T), not imported (U).
+mimalloc = ["cli", "dep:mimalloc"]
 
 [lib]
 name = "rustred_app"
@@ -77,3 +83,4 @@ ratatui = { version = "0.29", default-features = false, features = ["crossterm"]
 libc = { version = "0.2", optional = true }
 signal-hook = { version = "0.3", optional = true }
 toml = "1"
+mimalloc = { version = "0.1.52", default-features = false, features = ["override"], optional = true }

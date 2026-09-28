@@ -423,7 +423,7 @@ class ProductionTests(unittest.TestCase):
                                                    campaign / "inputs", 67, 123456)
                 command = policy["command_arguments"]
                 expected = requested or "ready"
-                self.assertEqual(policy["schema"], "rustred.production-steering.v2")
+                self.assertEqual(policy["schema"], "rustred.production-steering.v3")
                 self.assertEqual(policy["options"]["publication_policy"], expected)
                 self.assertEqual(command[command.index("--publication-policy") + 1], expected)
                 self.assertEqual(command[command.index("--transfer-unreserved-lookahead") + 1], "256")

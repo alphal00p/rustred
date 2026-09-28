@@ -196,6 +196,7 @@ fn walk_request(
     walk.publication_policy = args.publication_policy;
     walk.max_domains = args.max_domains;
     walk.max_frontiers = args.max_frontiers;
+    walk.frontier_policy = args.frontier_policy;
     walk.max_events = args.max_successor_events;
     walk.max_containment_checks = args.max_containment_checks;
     walk.reuse_initial_d_bands = args.reuse_initial_d_bands;

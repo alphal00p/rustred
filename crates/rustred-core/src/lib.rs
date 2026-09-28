@@ -20,3 +20,5 @@ pub mod scalar_numerator;
 pub mod sector;
 pub mod solver;
 pub mod tensor;
+#[cfg(test)]
+mod test_gates;

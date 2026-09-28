@@ -64,6 +64,7 @@ pub use verify_closure::{
     OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
     owner_domain_walk_verify_closure,
 };
+pub use work_policy::FrontierPolicy as OwnerDomainWalkFrontierPolicy;
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
@@ -96,6 +97,8 @@ pub struct OwnerDomainWalkRequest {
     pub max_events: usize,
     /// Aggregate retained input/Apply/Route obligations, independent of events.
     pub max_frontiers: usize,
+    /// Record (default) or save-and-stop at the first frontier (A10).
+    pub frontier_policy: OwnerDomainWalkFrontierPolicy,
     /// None leaves aggregate general comparisons unlimited. A positive finite
     /// cap is an opt-in diagnostic budget, not a restriction on actual rank.
     pub max_containment_checks: Option<usize>,
@@ -119,6 +122,7 @@ impl OwnerDomainWalkRequest {
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
+            frontier_policy: OwnerDomainWalkFrontierPolicy::Record,
             max_containment_checks: None,
             route_domain_overcover: false,
             route_joint_source_support_pruning: false,
@@ -280,6 +284,8 @@ impl OwnerDomainWalkResult {
             "initial_entry_domains_published",
             "pending_descendant_domains",
             "descendant_closure",
+            "frontier_policy",
+            "stop_reason",
         ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
@@ -410,6 +416,50 @@ fn diagnostic_checkpoint<const N: usize>(
     Ok(true)
 }
 
+/// One checkpoint opportunity of an A10 frontier stop. `trigger` holds the
+/// committed frontier count at session start (0 for a fresh walk, so initial
+/// input frontiers fire before any inspection; the restored count on
+/// resume). The first time the walk's count exceeds it, persist exactly that
+/// state (the frontier's record included) labelled with the stop reason,
+/// journal the stop and cancel the way a stop request does; the walk's own
+/// final save after cancellation repeats the label. Taking `trigger` makes it
+/// fire at most once per session. Returns whether it fired.
+fn frontier_stop_checkpoint<const N: usize>(
+    trigger: &mut Option<usize>,
+    store: &mut checkpoint::Store,
+    state: &execution::State<N>,
+    inputs: &[Value],
+    input_frontiers: &[Value],
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<bool, String> {
+    let Some(baseline) = trigger.take_if(|baseline| state.frontiers > *baseline) else {
+        return Ok(false);
+    };
+    store.mark_stop_reason(work_policy::FRONTIER_STOP_REASON);
+    // Forced and final, like a diagnostic pause: the walk ends after it.
+    if let Some(event) = store.save_cancellable(
+        state,
+        inputs,
+        input_frontiers,
+        checkpoint::SaveKind::Final,
+        cancellation,
+        observer,
+    )? {
+        observer(event);
+    }
+    let mut event = json!({"event":"frontier_stop","operation":"owner_domain_walk",
+        "stop_reason":work_policy::FRONTIER_STOP_REASON,"frontier_policy":"stop",
+        "frontiers":state.frontiers,"session_start_frontiers":baseline,
+        "input_frontiers":input_frontiers.len(),"committed_domains":state.published_count(),
+        "contiguous_publication_watermark":state.queue.next,"committed_events":state.events,
+        "completed_native_inspections":state.completed,"family_closure_claim":false});
+    state.add_ready_progress(&mut event);
+    observer(event);
+    cancellation.store(true, std::sync::atomic::Ordering::Release);
+    Ok(true)
+}
+
 /// Admission of a walk request before any input is parsed: allowances,
 /// policy combinations, the diagnostic pause and the worker partition. The
 /// host core-budget preflight follows separately: it depends on this
@@ -439,6 +489,13 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
                 "checkpointing requires Ordered or Ready publication",
             ));
         }
+    }
+    if request.frontier_policy == OwnerDomainWalkFrontierPolicy::Stop
+        && request.checkpoint.is_none()
+    {
+        return Err(AppError::input(
+            "frontier stop requires a checkpointed Ordered or Ready walk",
+        ));
     }
     let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
     DiagnosticPause::admit(diagnostic_pause, request).map_err(AppError::input)?;
@@ -523,6 +580,10 @@ pub fn owner_domain_walk_with_progress(
     if let Some(pause) = diagnostic_pause {
         admitted["diagnostic_pause"] = json!(pause.name());
     }
+    // Record (the default) adds no key: its receipts stay byte-identical.
+    if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
+        admitted["frontier_policy"] = json!(request.frontier_policy.name());
+    }
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.matching.max_queries);
         event["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
@@ -576,6 +637,18 @@ fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
             "max_bounded_refinement_cells":m.max_bounded_refinement_cells,
             "refinement_axes":matching::refinement_axes_name(m.refinement_axes),
             "guard_algebra":inspection::debug(&m.guard_algebra)}})
+}
+
+/// Stop policy only (Record receipts stay byte-identical): the policy, and
+/// the stop reason when this session's frontier stop fired.
+fn add_frontier_policy(document: &mut Value, request: &OwnerDomainWalkRequest, stopped: bool) {
+    if request.frontier_policy == OwnerDomainWalkFrontierPolicy::Record {
+        return;
+    }
+    document["frontier_policy"] = json!(request.frontier_policy.name());
+    if stopped {
+        document["stop_reason"] = json!(work_policy::FRONTIER_STOP_REASON);
+    }
 }
 
 /// Both publication policies use the same post-load boundary. In particular,
@@ -779,11 +852,19 @@ fn run<const N: usize>(
         });
     }
     let mut state = execution::State::new(queue, input_frontiers.len(), error);
+    let resumed = restored.is_some();
     if let Some(restored) = restored {
         state = restored.state;
         inputs = restored.inputs;
         input_frontiers = restored.input_frontiers;
     }
+    // A10: the frontier stop fires on the first frontier committed beyond
+    // this session's starting count: 0 for a fresh walk (so its initial
+    // input frontiers fire before any inspection), the restored count on
+    // resume (see `frontier_stop_checkpoint`).
+    let mut frontier_trigger = (request.frontier_policy == OwnerDomainWalkFrontierPolicy::Stop)
+        .then_some(if resumed { state.frontiers } else { 0 });
+    let mut frontier_stopped = false;
     if let Some(reducer) = &reducer {
         if let Some(store) = checkpoint.as_mut() {
             // Records are streamed to the sidecar from the first commit on.
@@ -802,6 +883,17 @@ fn run<const N: usize>(
                 {
                     observer(event);
                 }
+                // Initial input frontiers of a fresh walk stop it here.
+                frontier_stopped = frontier_stop_checkpoint(
+                    &mut frontier_trigger,
+                    store,
+                    &state,
+                    &inputs,
+                    &input_frontiers,
+                    cancellation,
+                    observer,
+                )
+                .map_err(AppError::input)?;
             }
             let mut diagnostic_pause = diagnostic_pause;
             execution::run_checkpointed(
@@ -822,6 +914,18 @@ fn run<const N: usize>(
                     )? {
                         return Ok(());
                     }
+                    if frontier_stop_checkpoint(
+                        &mut frontier_trigger,
+                        store,
+                        state,
+                        &inputs,
+                        &input_frontiers,
+                        cancellation,
+                        observer,
+                    )? {
+                        frontier_stopped = true;
+                        return Ok(());
+                    }
                     if let Some(event) = store.save_cancellable(
                         state,
                         &inputs,
@@ -835,6 +939,14 @@ fn run<const N: usize>(
                     Ok(())
                 },
             );
+            // Every frontier stop reports a paused, resumable session (exit
+            // 4), also when the run loop never observed the cancellation it
+            // raised: a stop on initial input frontiers with an empty
+            // worklist, or on the walk's last commit. The final save below
+            // then records `paused` (part of the change stamp).
+            if frontier_stopped && state.error.is_none() {
+                state.checkpoint_paused = true;
+            }
             if state.error.is_none() {
                 if let Some(event) = store
                     .save_cancellable(
@@ -877,6 +989,7 @@ fn run<const N: usize>(
         } else {
             "stable_domain_id_stream"
         });
+        add_frontier_policy(&mut document, request, frontier_stopped);
         state.add_delegation_progress(&mut document);
         state.add_ready_progress(&mut document);
         document["descendant_closure"] = state.closure_json();
@@ -979,6 +1092,7 @@ fn run<const N: usize>(
     );
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);
+    add_frontier_policy(&mut document, request, frontier_stopped);
     document["max_containment_checks"] = json!(request.max_containment_checks);
     document["containment_maintenance_checks"] = json!(state.queue.containment_maintenance_checks);
     document["containment_retired_candidates"] = json!(state.queue.containment_retired_candidates);

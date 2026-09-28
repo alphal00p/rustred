@@ -2,17 +2,20 @@ mod application;
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 #[cfg(feature = "cli")]
 mod cli;
+#[cfg(test)]
+mod test_gates;
 
 pub use application::{
     OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
     OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainMatchRequest, OwnerDomainMatchResult,
     OwnerDomainScanRequest, OwnerDomainScanResult, OwnerDomainWalkApplySubdivision,
-    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
-    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
-    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect, OwnerGuardedApplyRequest,
-    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
+    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkFrontierPolicy,
+    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
+    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerDomainWalkVerifyMutation,
+    OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReferenceLevers,
+    OwnerDomainWalkVerifyReinspect, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,
+    RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
     RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
     RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
     RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,

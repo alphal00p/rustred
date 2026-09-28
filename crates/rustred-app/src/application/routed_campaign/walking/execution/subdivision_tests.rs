@@ -190,16 +190,10 @@ fn checkpoint_codec_retains_application_refinement_counts_in_completed_parts() {
 fn native_refined_successor_prefix_survives_checkpoint_resume_w2_w6() {
     let reducer = super::initial_orthants_tests::native_fixture();
     for workers in [2, 6] {
-        if let Err(error) =
-            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
-        {
-            eprintln!("application-refinement checkpoint replay W{workers} skipped: {error:?}");
-            continue;
-        }
-        if !symbolica::license::LicenseManager::is_licensed() {
-            eprintln!(
-                "application-refinement checkpoint replay W{workers} skipped: no licensed native execution"
-            );
+        if !crate::test_gates::workers_or_skip(
+            "native_refined_successor_prefix_survives_checkpoint_resume_w2_w6",
+            workers,
+        ) {
             continue;
         }
         let (_, mut request) = setup();
@@ -565,9 +559,20 @@ fn assert_native_equivalent(a: &mut State<1>, b: &mut State<1>) {
 fn native_subdivision_repeated_on_disk_resume_preserves_parent_and_exact_prefix_w2_w6() {
     let reducer = super::initial_orthants_tests::native_fixture();
     for workers in [2, 6] {
-        if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err()
-            || !symbolica::license::LicenseManager::is_licensed()
+        if !crate::test_gates::licensed_or_skip(&format!(
+            "native_subdivision_repeated_on_disk_resume_preserves_parent_and_exact_prefix_w2_w6 W{workers}"
+        )) {
+            continue;
+        }
+        if let Err(error) =
+            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
         {
+            crate::test_gates::skip(
+                &format!(
+                    "native_subdivision_repeated_on_disk_resume_preserves_parent_and_exact_prefix_w2_w6 W{workers}"
+                ),
+                &format!("{error:?}"),
+            );
             continue;
         }
         let (_, mut request) = setup();
@@ -664,9 +669,20 @@ fn native_subdivision_repeated_on_disk_resume_preserves_parent_and_exact_prefix_
 fn native_mid_stream_part_prefix_resumes_without_readmitting_callbacks() {
     let reducer = super::initial_orthants_tests::native_fixture();
     for workers in [2, 6] {
-        if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err()
-            || !symbolica::license::LicenseManager::is_licensed()
+        if !crate::test_gates::licensed_or_skip(&format!(
+            "native_mid_stream_part_prefix_resumes_without_readmitting_callbacks W{workers}"
+        )) {
+            continue;
+        }
+        if let Err(error) =
+            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
         {
+            crate::test_gates::skip(
+                &format!(
+                    "native_mid_stream_part_prefix_resumes_without_readmitting_callbacks W{workers}"
+                ),
+                &format!("{error:?}"),
+            );
             continue;
         }
         let (_, mut request) = setup();

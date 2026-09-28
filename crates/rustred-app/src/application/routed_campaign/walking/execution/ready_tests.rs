@@ -90,6 +90,11 @@ fn run_pause() -> (State<1>, Fixture) {
     let cancelled = AtomicBool::new(false);
     let start = Instant::now();
     let mut fixture = None;
+    // Tickets >= 2 finish (and so trigger the checkpoint callbacks) only
+    // after tickets 0 and 1 have emitted their prefixes; otherwise, under
+    // load, every other ticket can commit before ticket 1 starts, leaving no
+    // later callback to pause on the two-prefix state.
+    let emitted = AtomicUsize::new(0);
     run_pool(
         &mut state,
         &request,
@@ -97,7 +102,12 @@ fn run_pause() -> (State<1>, Fixture) {
         &|_| {},
         true,
         &mut |s| {
-            if s.completed >= 8 && has_two_prefixes(s) {
+            // Both counted prefixes must be tickets 0 and 1 (the only ones
+            // that admit, points 100 and 101): a mounted ticket >= 2 whose
+            // single Count event is accepted but not yet finished also has a
+            // positive prefix, and pausing on it plus one of 0/1 (observed
+            // under load) leaves the other of 0/1 to admit after resume.
+            if s.completed >= 8 && has_two_prefixes(s) && s.queue.domains.len() == 18 {
                 assert_eq!(s.queue.next, 0);
                 assert!(s.published_count() > 3);
                 fixture = Some(Fixture::save(s));
@@ -110,6 +120,7 @@ fn run_pause() -> (State<1>, Fixture) {
                 return finished(Some(("cancelled", "cancelled")));
             }
             if id < 2 {
+                emitted.fetch_add(1, Ordering::AcqRel);
                 while !stop.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(10) {
                     std::thread::yield_now();
                 }
@@ -118,6 +129,12 @@ fn run_pause() -> (State<1>, Fixture) {
                 } else {
                     ("test stalled", "native_failure")
                 }));
+            }
+            while emitted.load(Ordering::Acquire) < 2
+                && !stop.load(Ordering::Acquire)
+                && start.elapsed() < Duration::from_secs(10)
+            {
+                std::thread::yield_now();
             }
             let _ = emit(Event::one(Effect::Count));
             finished(None)
@@ -130,8 +147,9 @@ fn run_pause() -> (State<1>, Fixture) {
 
 #[test]
 fn ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefixes() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefixes",
+    ) {
         return;
     }
     let (paused, fixture) = run_pause();
@@ -199,8 +217,9 @@ fn ready_shared_pool_replenishes_beyond_h_same_owner_and_replays_multiple_prefix
 
 #[test]
 fn ready_changed_parked_prefix_fails_before_any_suffix_admission() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_changed_parked_prefix_fails_before_any_suffix_admission",
+    ) {
         return;
     }
     let (_, fixture) = run_pause();
@@ -281,8 +300,9 @@ fn spin_until(deadline: Duration, mut done: impl FnMut() -> bool) -> bool {
 /// into the bounded escrow and dispatches reserved work onto them.
 #[test]
 fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends",
+    ) {
         return;
     }
     // Deterministic mechanism: the heavy stream holds slot 0, both tiny
@@ -443,8 +463,9 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
 /// long chunk commit reclaims slots without ever refilling them.
 #[test]
 fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_service_defers_unpublished_delegates_and_keeps_dispatching",
+    ) {
         return;
     }
     let request = ready_request(3);
@@ -577,8 +598,9 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
 
 #[test]
 fn ready_late_native_fault_after_cancellation_disallows_pause() {
-    if !symbolica::license::LicenseManager::is_licensed() {
-        eprintln!("skipped: parallel Symbolica workers require a license");
+    if !crate::test_gates::licensed_or_skip(
+        "ready_late_native_fault_after_cancellation_disallows_pause",
+    ) {
         return;
     }
     let mut s = seed();
@@ -586,6 +608,10 @@ fn ready_late_native_fault_after_cancellation_disallows_pause() {
     // Cancel only once ticket 0 is inside its visitor. A dispatched slot
     // whose worker has not yet taken the job returns nothing after the stop
     // (Pool::take refuses), so under load the late fault could never happen.
+    // The other tickets also wait for ticket 0 to run: otherwise, under load,
+    // they could all complete before its worker is scheduled, leaving no
+    // later commit (hence no checkpoint callback) to observe `running` and
+    // cancel, and ticket 0 would spin to its timeout.
     let running = AtomicBool::new(false);
     run_pool(
         &mut s,
@@ -608,6 +634,13 @@ fn ready_late_native_fault_after_cancellation_disallows_pause() {
                 }
                 finished(Some(("genuine late failure", "native_failure")))
             } else {
+                let start = Instant::now();
+                while !running.load(Ordering::Acquire)
+                    && !stop.load(Ordering::Acquire)
+                    && start.elapsed() < Duration::from_secs(10)
+                {
+                    std::thread::yield_now();
+                }
                 finished(None)
             }
         },

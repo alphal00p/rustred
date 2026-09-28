@@ -372,7 +372,7 @@ fn reclaim_all_finished_detaches_every_finished_slot_out_of_id_order() {
 
 #[test]
 fn completed_escrow_threaded_refill_keeps_canonical_event_order() {
-    if !licensed() {
+    if !licensed("completed_escrow_threaded_refill_keeps_canonical_event_order") {
         return;
     }
     let release = AtomicBool::new(false);
@@ -434,7 +434,7 @@ fn completed_escrow_threaded_refill_keeps_canonical_event_order() {
 
 #[test]
 fn completed_escrow_later_native_failure_stays_immediate_and_returns_all_attempts() {
-    if !licensed() {
+    if !licensed("completed_escrow_later_native_failure_stays_immediate_and_returns_all_attempts") {
         return;
     }
     let (_, snapshot, mut leftovers) = with_pool(
@@ -481,7 +481,7 @@ fn completed_escrow_later_native_failure_stays_immediate_and_returns_all_attempt
 
 #[test]
 fn completed_escrow_observer_panic_drains_running_and_blocked_workers() {
-    if !licensed() {
+    if !licensed("completed_escrow_observer_panic_drains_running_and_blocked_workers") {
         return;
     }
     let living = AtomicUsize::new(0);

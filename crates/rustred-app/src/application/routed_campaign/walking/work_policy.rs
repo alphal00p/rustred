@@ -1,6 +1,43 @@
 //! Production enumeration policy, separate from bounded in-flight storage.
 use super::OwnerDomainWalkRequest;
 
+/// What a walk does when it commits an explicit frontier (amendment A10 of
+/// the v3 plan). Frontiers always stay explicit, persisted and blocking
+/// certification; the policy only decides whether the run continues.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FrontierPolicy {
+    /// Record the frontier and keep walking (the historical behaviour; it is
+    /// not bound into the checkpoint request, so existing checkpoints and
+    /// controls are byte-identical).
+    #[default]
+    Record,
+    /// Save the checkpoint and stop cooperatively (exit 4, stop reason
+    /// `frontier_policy`) at the first frontier this session commits.
+    /// Frontiers restored from a checkpoint do not fire again, so resuming is
+    /// the operator's explicit decision to continue to the next new frontier.
+    /// Requires a checkpointed walk; bound into the checkpoint request.
+    Stop,
+}
+impl FrontierPolicy {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Record => "record",
+            Self::Stop => "stop",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "record" => Some(Self::Record),
+            "stop" => Some(Self::Stop),
+            _ => None,
+        }
+    }
+}
+
+/// Stop reason carried by the paused receipt, the journal event and the
+/// checkpoint metadata of a frontier stop.
+pub(super) const FRONTIER_STOP_REASON: &str = "frontier_policy";
+
 impl OwnerDomainWalkRequest {
     /// Remove diagnostic cumulative-work stops. Counters remain checked and
     /// allocations grow with actual work, never with these maximum values.
