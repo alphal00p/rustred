@@ -102,9 +102,11 @@ enumerable) count as uncovered, gate failed, full residual and full cost.
 ```
 census route            CKPT [--series S --wait W] [--per N] [--kc N] [--per-adm N] [--max-up N] [--rows R.jsonl]
 census route-saturation CKPT [--draws N] [--seed S]
+census route-hits       CKPT --rows-in ROUTE_ROWS.jsonl [--rows OUT.jsonl]   # later hits + predictor per row
 routecensus_batch.sh CENSUS_BIN OUT [gen7 gen7-sat gen7-sat-seed2 gen7-w300 gen6 gen3 c5f]
 route_tables.py OUT                 # tables of docs/research/fable51_w0_routecensus_2026-09-28.md
 route_boot.py OUT/gen7-route-rows.jsonl [REPS]   # stratified bootstrap SEs, sampled-verdict shares, per-owner view
+route_hits.py OUT [OUT/hits] [REPS]              # later hits of avoided domains, net RSS range, calibrated pending creation weights
 ```
 
 `census route` (see the header of `src/route.rs`) measures on a CP5 checkpoint:
@@ -124,3 +126,14 @@ admitted domain at its admission (covered by the union of the domains that
 existed then, by the non-delegated ones, or by the natives committed before
 its creator's record), with an ancestor cascade [E upper]. Fully covered
 draws also report the anchors a union cover used (greedy first-hit count).
+
+`census route-hits` (fix round) adds, per row of a `route` rows file, the
+later hits of the drawn domain (distinct transition in-edges from inspected
+sources and alias in-edges, creator edge and self edges excluded: the
+requests that an admission-time union cover would redirect, since the domain
+would not exist) and the pending-weight predictor at its (owner, rank bound),
+in-sample and leave-one-out; it also prints exact later-hit totals per
+(phase, admission generation, class). `route_hits.py` joins both files: net
+RSS factor of an admission-time union cover for k' = 1 and k' = a anchors per
+redirected hit, the admission-request count, and the pending creation
+weights calibrated by coverage status on the historical g6-g7 natives.

@@ -42,6 +42,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
 const NONE: u32 = u32::MAX;
 const CLS: [&str; 3] = ["native", "pending", "delegated"];
+const CKIND: [&str; 3] = ["none", "transition", "alias"];
 
 // ----------------------------------------------------------------- edges
 /// Exact edge view: creator (first incoming edge) of every domain, transition
@@ -517,9 +518,88 @@ impl Grp {
         self.cre_r += o.cre_r;
         self.desc += o.desc;
     }
+    fn sub(&self, o: &Grp) -> Grp {
+        Grp {
+            n: self.n - o.n,
+            secs: self.secs - o.secs,
+            succ: self.succ - o.succ,
+            edges: self.edges - o.edges,
+            cre_a: self.cre_a - o.cre_a,
+            cre_r: self.cre_r - o.cre_r,
+            desc: self.desc - o.desc,
+        }
+    }
     fn mean(&self) -> [f64; 6] {
         let m = self.n.max(1.0);
         [self.secs / m, self.succ / m, self.edges / m, (self.cre_a + self.cre_r) / m, self.cre_a / m, self.cre_r / m]
+    }
+}
+
+/// Pending-weight predictor [E]: means over Route natives of record
+/// generation >= `model_gen` per (owner, rank bound) when the group has >= 5
+/// natives, else per owner (>= 5), else pooled.
+struct Model {
+    grp: HashMap<(u16, u8), Grp>,
+    by_owner: HashMap<u16, Grp>,
+    pooled: Grp,
+    model_gen: u8,
+}
+impl Model {
+    fn one(e: &Edges, r: &recs::Rec) -> Grp {
+        let id = r.id as usize;
+        Grp {
+            n: 1.0,
+            secs: r.seconds as f64,
+            succ: r.successors as f64,
+            edges: (e.out[0][id] + e.out[1][id]) as f64,
+            cre_a: e.cre[0][id] as f64,
+            cre_r: e.cre[1][id] as f64,
+            desc: (e.subtree[id] - 1) as f64,
+        }
+    }
+    fn build(ck: &Ckpt, e: &Edges, rn: &[&recs::Rec], model_gen: u8) -> Model {
+        let mut grp: HashMap<(u16, u8), Grp> = HashMap::new();
+        for r in rn {
+            if r.gen < model_gen {
+                continue;
+            }
+            let d = &ck.doms[r.id as usize];
+            grp.entry((d.owner, d.rank)).or_default().add(&Model::one(e, r));
+        }
+        let mut by_owner: HashMap<u16, Grp> = HashMap::new();
+        let mut pooled = Grp::default();
+        for ((o, _), g) in &grp {
+            by_owner.entry(*o).or_default().add(g);
+            pooled.add(g);
+        }
+        Model { grp, by_owner, pooled, model_gen }
+    }
+    fn predict(&self, d: &Dom) -> ([f64; 6], f64) {
+        let g = self
+            .grp
+            .get(&(d.owner, d.rank))
+            .filter(|g| g.n >= 5.0)
+            .or_else(|| self.by_owner.get(&d.owner).filter(|g| g.n >= 5.0))
+            .unwrap_or(&self.pooled);
+        (g.mean(), g.desc / g.n.max(1.0))
+    }
+    /// Fallback level and group (owner-rank / owner / pooled) of `predict`,
+    /// optionally leaving one member `own` out (same thresholds).
+    fn level(&self, d: &Dom, own: Option<&Grp>) -> (&'static str, Grp) {
+        let z = Grp::default();
+        let o = own.unwrap_or(&z);
+        if let Some(g) = self.grp.get(&(d.owner, d.rank)).map(|g| g.sub(o)).filter(|g| g.n >= 5.0) {
+            return ("owner_rank", g);
+        }
+        if let Some(g) = self.by_owner.get(&d.owner).map(|g| g.sub(o)).filter(|g| g.n >= 5.0) {
+            return ("owner", g);
+        }
+        ("pooled", self.pooled.sub(o))
+    }
+    fn summary(&self) -> Value {
+        json!({"model_gen(min record generation)": self.model_gen, "groups(owner,rank)": self.grp.len(), "owners": self.by_owner.len(), "natives": self.pooled.n,
+            "pooled_means[seconds, successors, out_edges, created, created_apply, created_route]": self.pooled.mean(),
+            "pooled_mean_descendants": self.pooled.desc / self.pooled.n.max(1.0)})
     }
 }
 
@@ -629,37 +709,9 @@ pub fn run(dir: &Path, opts: &Opts) {
     report.insert("route_native_creations_by_creator_record_gen".into(), json!(by_cgen));
 
     // ---- prediction model per (owner, rank) over Route natives [E].
-    let mut grp: HashMap<(u16, u8), Grp> = HashMap::new();
-    for r in &rn {
-        if r.gen < model_gen {
-            continue;
-        }
-        let id = r.id as usize;
-        let d = &ck.doms[id];
-        let g = grp.entry((d.owner, d.rank)).or_default();
-        g.add(&Grp {
-            n: 1.0,
-            secs: r.seconds as f64,
-            succ: r.successors as f64,
-            edges: (e.out[0][id] + e.out[1][id]) as f64,
-            cre_a: e.cre[0][id] as f64,
-            cre_r: e.cre[1][id] as f64,
-            desc: (e.subtree[id] - 1) as f64,
-        });
-    }
-    let mut by_owner: HashMap<u16, Grp> = HashMap::new();
-    let mut pooled = Grp::default();
-    for ((o, _), g) in &grp {
-        by_owner.entry(*o).or_default().add(g);
-        pooled.add(g);
-    }
-    let predict = |d: &Dom| -> ([f64; 6], f64) {
-        let g = grp.get(&(d.owner, d.rank)).filter(|g| g.n >= 5.0).or_else(|| by_owner.get(&d.owner).filter(|g| g.n >= 5.0)).unwrap_or(&pooled);
-        (g.mean(), g.desc / g.n.max(1.0))
-    };
-    report.insert("model[E]".into(), json!({"model_gen(min record generation)": model_gen, "groups(owner,rank)": grp.len(), "owners": by_owner.len(), "natives": pooled.n,
-        "pooled_means[seconds, successors, out_edges, created, created_apply, created_route]": pooled.mean(),
-        "pooled_mean_descendants": pooled.desc / pooled.n.max(1.0)}));
+    let model = Model::build(&ck, &e, &rn, model_gen);
+    let predict = |d: &Dom| model.predict(d);
+    report.insert("model[E]".into(), model.summary());
 
     // ---- pools and bucket sizes.
     let (natives, all) = pools(&ck, &sums, &[0, 1]);
@@ -1083,5 +1135,146 @@ pub fn apply_natives(dir: &Path, opts: &Opts) {
         "apply_natives": {"population": an.len(), "strata": strata.len(), "distinct_draws": draws.len(),
             "created_exact_total": tot_created,
             "coverage": aggregate(&draws, &sets_h, &wn_h, &strata, &stratum_name, &|k| format!("record_g{}", k / 10))}});
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+}
+
+// ------------------------------------------------------------ route hits
+/// `census route-hits CKPT --rows-in ROWS.jsonl [--rows OUT.jsonl]`: for
+/// every row of a `census route` rows file (same checkpoint), the incoming
+/// edges of the drawn domain split into its creator edge (first incoming
+/// edge from a smaller ID) and its LATER hits (transition in-edges from
+/// inspected Route / Apply sources, alias in-edges from non-inspected
+/// sources; self edges excluded), plus the pending-weight predictor of
+/// `route` at the domain's (owner, rank bound), in-sample and leave-one-out
+/// (a model-generation Route native is removed from its own group mean).
+///
+/// Why: a domain that an admission-time union cover never creates cannot
+/// receive its later hits; each later request then needs its own admission
+/// (a single-container hit elsewhere, or a union test and a multi-anchor
+/// alias). The in-degree is the first-level count of those redirected
+/// requests (distinct edges; repeated requests of one source collapse onto
+/// one edge). The leave-one-out predictor lets the coverage-creation
+/// relation of historical natives calibrate the pending creation weights.
+/// Also prints exact later-hit totals per (phase, admission generation,
+/// class) over every admitted domain, to check the sampled estimates.
+pub fn hits(dir: &Path, opts: &Opts) {
+    let ck = util::load(dir, opts, true);
+    let t0 = std::time::Instant::now();
+    let e = edges(&ck);
+    let nd = ck.doms.len();
+    // In-degree by source kind: 0 transition from a Route native, 1 transition
+    // from an Apply native, 2 alias (source not inspected), 3 self edges.
+    let mk = || (0..nd).map(|_| AtomicU32::new(0)).collect::<Vec<AtomicU32>>();
+    let ind = [mk(), mk(), mk(), mk()];
+    ckpt::edges_par(&ck.m, 1 << 22, |_, c| {
+        for i in 0..c.len() / 8 {
+            let (s, t) = ckpt::edge_at(c, i);
+            let (s, t) = (s as usize, t as usize);
+            let k = if s == t {
+                3
+            } else if ck.nodes[s] & 2 == 0 {
+                2
+            } else if ck.doms[s].phase == 1 {
+                0
+            } else {
+                1
+            };
+            ind[k][t].fetch_add(1, Relaxed);
+        }
+    });
+    let ind: Vec<Vec<u32>> = ind.into_iter().map(|v| v.into_iter().map(|a| a.into_inner()).collect()).collect();
+    eprintln!("route-hits: in-degree pass ({:.1} s)", t0.elapsed().as_secs_f64());
+    // Creator edge kind: 0 none (initial), 1 transition, 2 alias.
+    let ckind = |t: usize| -> u8 {
+        let c = e.creator[t];
+        if c == NONE {
+            0
+        } else if ck.nodes[c as usize] & 2 != 0 {
+            1
+        } else {
+            2
+        }
+    };
+    let later = |t: usize| -> (u32, u32) {
+        let tr = ind[0][t] + ind[1][t];
+        let al = ind[2][t];
+        match ckind(t) {
+            1 => (tr - 1, al),
+            2 => (tr, al - 1),
+            _ => (tr, al),
+        }
+    };
+    let ledger = ck.ledger.as_ref().expect("ledger section");
+    let class = |id: usize| -> usize {
+        if ck.native_of[id] != NONE {
+            0
+        } else if matches!(ledger.entries[id].state, L_UNRESERVED | L_RESERVED | L_STARTED) {
+            1
+        } else {
+            2
+        }
+    };
+    // Exact totals over every admitted (non-initial) domain.
+    let mut tot: BTreeMap<String, [f64; 5]> = BTreeMap::new();
+    for t in 0..nd {
+        if e.creator[t] == NONE {
+            continue;
+        }
+        let (tr, al) = later(t);
+        let ph = if ck.doms[t].phase == 1 { "Route" } else { "Apply" };
+        for key in [format!("{ph}|admission_g{}", util::id_gen(&ck.m, t).min(9)), format!("{ph}|{}", CLS[class(t)]), format!("{ph}|all")] {
+            let v = tot.entry(key).or_default();
+            v[0] += 1.0;
+            v[1] += tr as f64;
+            v[2] += al as f64;
+            v[3] += (tr + al == 0) as u8 as f64;
+            v[4] += ind[0][t] as f64 - (ckind(t) == 1 && ck.doms[e.creator[t] as usize].phase == 1) as u8 as f64;
+        }
+    }
+    let totals: BTreeMap<String, Value> = tot
+        .iter()
+        .map(|(k, v)| (k.clone(), json!({"domains": v[0], "later_transition_in_edges": v[1], "later_alias_in_edges": v[2],
+            "mean_later_transition": v[1] / v[0], "mean_later_alias": v[2] / v[0], "share_without_later_hits": v[3] / v[0],
+            "later_transition_from_route_sources": v[4]})))
+        .collect();
+    // Model (identical to `route`'s).
+    let rn: Vec<&recs::Rec> = ck.recs.iter().filter(|r| recs::is_native(r.kind) && r.phase == 1).collect();
+    let model_gen = opts.num("model-gen", rn.iter().map(|r| r.gen).max().unwrap_or(0).saturating_sub(1));
+    let model = Model::build(&ck, &e, &rn, model_gen);
+    // Rows.
+    let rin = opts.get("rows-in").expect("--rows-in ROWS.jsonl (census route --rows)");
+    let mut out = opts.get("rows").map(|p| std::io::BufWriter::new(std::fs::File::create(p).unwrap()));
+    let mut nrows = 0usize;
+    let mut by_sample: BTreeMap<String, usize> = BTreeMap::new();
+    for line in std::fs::read_to_string(rin).unwrap().lines() {
+        let r: Value = serde_json::from_str(line).unwrap();
+        let sample = r["sample"].as_str().unwrap().to_string();
+        let id = r["id"].as_u64().unwrap() as usize;
+        let d = &ck.doms[id];
+        let (tr, al) = later(id);
+        let (lvl, g) = model.level(d, None);
+        let m = g.mean();
+        // Leave-one-out only for Route natives of the model generations.
+        let own = {
+            let ix = ck.native_of[id];
+            (ix != NONE && d.phase == 1 && ck.recs[ix as usize].gen >= model_gen).then(|| Model::one(&e, &ck.recs[ix as usize]))
+        };
+        let (llvl, lg) = model.level(d, own.as_ref());
+        let lm = lg.mean();
+        let row = json!({"sample": sample, "id": id, "phase": d.phase, "class": CLS[class(id)], "creator_edge": CKIND[ckind(id) as usize],
+            "in_transition_from_route": ind[0][id], "in_transition_from_apply": ind[1][id], "in_alias": ind[2][id], "self_edges": ind[3][id],
+            "later_transition": tr, "later_alias": al,
+            "pred": {"level": lvl, "n": g.n, "seconds": m[0], "successors": m[1], "created": m[3], "created_apply": m[4], "created_route": m[5]},
+            "pred_loo": {"level": llvl, "n": lg.n, "left_out": own.is_some(), "seconds": lm[0], "successors": lm[1], "created": lm[3], "created_apply": lm[4], "created_route": lm[5]}});
+        if let Some(f) = out.as_mut() {
+            writeln!(f, "{row}").unwrap();
+        }
+        nrows += 1;
+        *by_sample.entry(sample).or_default() += 1;
+    }
+    let report = json!({"dir": dir, "generation": ck.m.generation, "rows_in": rin, "rows": nrows, "rows_by_sample": by_sample,
+        "edges": e.counts, "model[E]": model.summary(),
+        "in_edge_totals[transition from Route, transition from Apply, alias, self]": (0..4).map(|k| ind[k].iter().map(|&x| x as u64).sum::<u64>()).collect::<Vec<_>>(),
+        "later_hits_exact(admitted domains; excludes the creator edge and self edges)": totals});
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
 }

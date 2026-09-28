@@ -3,6 +3,7 @@
 # every input; outputs go to $OUT.
 # usage: routecensus_batch.sh CENSUS_BIN OUT [STEP...]
 #   steps (default all): gen7 gen7-sat gen6 gen3 c5f; optional: gen7-sat-seed2 gen7-w300 gen7-apply c5f-apply
+#   gen7-hits c5f-hits (census route-hits on the rows file of the gen7/c5f step in $ROWS_DIR, default OUT/..)
 # Inputs: block clones under the lane worktree TMP (gen3/gen6/gen7 of the v2
 # checkpoint, the C-5F control), never written. The v2 heartbeat series is
 # the W0.7 receipt's v2-series.txt (copied into OUT).
@@ -62,6 +63,8 @@ for s in $steps; do
     gen7-w300) run gen7-route-w300 route "$wt/TMP/gen7" --series v2-series.txt --wait 300 --per 400 --kc 4000 ;;
     gen7-apply) run gen7-route-apply route-apply "$wt/TMP/gen7" --series v2-series.txt --wait 30 --per 200 --rows gen7-route-apply-rows.jsonl ;;
     c5f-apply) cp -n /common/dev/rustred/TMP/w0/census/receipt-v4/c5f/series.txt c5f-series.txt; run c5f-route-apply route-apply "$wt/TMP/ctl/c5f" --series c5f-series.txt --wait 1 --per 300 --rows c5f-route-apply-rows.jsonl ;;
+    gen7-hits) run gen7-route-hits route-hits "$wt/TMP/gen7" --rows-in "${ROWS_DIR:-..}/gen7-route-rows.jsonl" --rows gen7-route-hits-rows.jsonl ;;
+    c5f-hits) run c5f-route-hits route-hits "$wt/TMP/ctl/c5f" --rows-in "${ROWS_DIR:-..}/c5f-route-rows.jsonl" --rows c5f-route-hits-rows.jsonl ;;
     gen7-sat) run gen7-route-saturation route-saturation "$wt/TMP/gen7" --draws 4000 ;;
     gen7-sat-seed2) run gen7-route-saturation-seed2 route-saturation "$wt/TMP/gen7" --draws 4000 --seed 2 ;;
     gen6) run gen6-route route "$wt/TMP/gen6" --series v2-series.txt --wait 30 --per 200 --kc 2000 --rows gen6-route-rows.jsonl ;;
