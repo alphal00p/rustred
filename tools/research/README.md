@@ -52,6 +52,11 @@ candidate index, and of real successor streams recorded by the research
 `admission-trace` feature (`crates/rustred-app` feature `admission-trace`,
 env `RUSTRED_ADMISSION_TRACE_DIR`). Source map:
 
+> Integration note (2026-09-28): the `admission-trace` engine feature (commit
+> 055986ba) was NOT merged into `fable_5_1`; it stays on branch
+> `fable_5_1-v3-intel`. Build a trace binary from that branch to record new
+> streams; the replay tool itself needs no RustRed dependency.
+
 | file | content |
 |---|---|
 | `src/ckpt.rs` | CP5 section decoding; exact port of `power_domain/geometry.rs::project`, `DomainPowerSummary::contains`, `bits::word`, `Signature` |
