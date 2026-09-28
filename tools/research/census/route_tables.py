@@ -291,7 +291,11 @@ def admission_by_gen(j):
 
 
 def ram_rate(j, bygen):
-    """Domain-creation rate factor of an admission-time union cover at the late (gen-7) mix [E, first level]."""
+    """Domain-creation rate factor of an admission-time union cover at the late (gen-7) mix [E, first level].
+
+    The net RSS column charges only the cover's own (anchors - 1) extra edges. It omits the requests
+    that later land on the avoided domain (each needs its own admission and a k'-anchor alias); the
+    full range (k' = 1 .. a) is in route_hits.py."""
     sets = ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"]
     anc = {x: j["all_domains_at_admission"]["coverage"][x].get(ANCH, {}).get("count_weighted_mean") for x in sets}
     g = [k for k in bygen if k.endswith("admission_g%d" % j["generation"])]
@@ -317,7 +321,7 @@ def ram_rate(j, bygen):
     print(table(["anchor set at admission", "g-last admitted domains", "Route covered", "Route-only lever: avoided share of all",
                  "Route-only factor", "both phases: covered", "both phases: factor 1/(1-c)",
                  "mean anchors (all gens)", "net bytes saved per avoided domain (0.5-0.84 KB minus (anchors-1) x 8-16 B)",
-                 "both phases: net RSS factor incl. anchor edges"], rows))
+                 "both phases: net RSS factor incl. the cover's anchor edges only (k'=1; later hits: route_hits.py)"], rows))
     print()
 
 
