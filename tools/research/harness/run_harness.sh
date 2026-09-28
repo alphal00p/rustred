@@ -5,7 +5,11 @@
 #   FIXTURE  reinspection fixture JSON          OUT   new output directory
 #   CPUS     taskset CPU list                    THREADS K (default 1)
 #   SINK ORDER SUBSET LIMIT PASSES PIN REPLICAS REPLICA_HOME CANCEL TAP  -> RUSTRED_HARNESS_*
-#   NUMA     none | interleave:<nodes> | bind:<nodes>   (numactl)
+#   NUMA     none | interleave:<nodes> | bind:<nodes> | membind:<nodes>   (numactl; membind leaves the CPU
+#            affinity alone and only binds memory, e.g. a placement control with all pages on node 4)
+#   NUMA_MAPS_EVERY  seconds between /proc/<pid>/numa_maps samples (per-node kB, all and non-file mappings)
+#            written to numa_maps.tsv (default off). /proc/vmstat numa_* counters are always snapshotted
+#            (vmstat.before/after; system-wide, so other users' page migrations are included).
 #   ALLOC    glibc | mimalloc | census          (LD_PRELOAD)
 #   PERF     none | stat | record-fp | record-dwarf | record-ev | strace-futex
 #            (stat events: PERF_EVENTS overrides the default list; record-fp: PERF_FREQ,
@@ -55,6 +59,7 @@ case "$NUMA" in
   none) ;;
   interleave:*) numa=("$NUMACTL" --interleave="${NUMA#interleave:}") ;;
   bind:*) numa=("$NUMACTL" --cpunodebind="${NUMA#bind:}" --membind="${NUMA#bind:}") ;;
+  membind:*) numa=("$NUMACTL" --membind="${NUMA#membind:}") ;;
   *) echo "unknown NUMA $NUMA" >&2; exit 2 ;;
 esac
 events=${PERF_EVENTS:-cycles:u,instructions:u,ls_any_fills_from_sys.dram_io_near:u,ls_any_fills_from_sys.dram_io_far:u,ls_any_fills_from_sys.far_cache:u,l2_cache_req_stat.ic_dc_miss_in_l2:u}
@@ -74,17 +79,45 @@ esac
     "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)"
   printf '%s\n' "${env_args[@]}"
 } > "$stage/run.env"
+# per-node kB of one process's numa_maps: "<t> all <node> <kB>" and "<t> nonfile <node> <kB>" lines
+numa_maps_sample() {
+  awk -v t="$2" '{ file = ($0 ~ / file=/); ps = 4
+    for (i = 1; i <= NF; i++) if ($i ~ /^kernelpagesize_kB=/) { split($i, a, "="); ps = a[2] }
+    for (i = 1; i <= NF; i++) if ($i ~ /^N[0-9]+=/) { split(substr($i, 2), b, "="); all[b[1]] += b[2] * ps
+      if (!file) nf[b[1]] += b[2] * ps } }
+    END { for (n in all) print t, "all", n, all[n]; for (n in nf) print t, "nonfile", n, nf[n] }' "/proc/$1/numa_maps"
+}
+grep '^numa_' /proc/vmstat > "$stage/vmstat.before" 2> /dev/null || true
 grep '^cpu' /proc/stat > "$stage/procstat.before"
 date +%s.%N > "$stage/start.unix"
 set +e
 # numactl before taskset: --cpunodebind would otherwise widen the affinity to the whole node
 # (session D ccd12 put four 8-thread processes on the same 8 CPUs of each node that way).
 nice -n "$NICE" "${numa[@]}" taskset -c "$CPUS" env "${env_args[@]}" "${perf[@]}" \
-  "$BIN" reinspect_fixture --ignored --nocapture --test-threads 1 > "$stage/stdout" 2> "$stage/stderr"
+  "$BIN" reinspect_fixture --ignored --nocapture --test-threads 1 > "$stage/stdout" 2> "$stage/stderr" &
+run_pid=$!
+if [ -n "${NUMA_MAPS_EVERY:-}" ]; then
+  (
+    t0=$(date +%s); bin_pid=""
+    while kill -0 "$run_pid" 2> /dev/null; do
+      if [ -z "$bin_pid" ]; then
+        for c in "$run_pid" $(pgrep -P "$run_pid" 2> /dev/null); do
+          [ "$(readlink -f "/proc/$c/exe" 2> /dev/null)" = "$(readlink -f "$BIN")" ] && bin_pid=$c
+        done
+      fi
+      [ -n "$bin_pid" ] && numa_maps_sample "$bin_pid" $(( $(date +%s) - t0 )) >> "$stage/numa_maps.tsv" 2> /dev/null
+      sleep "$NUMA_MAPS_EVERY"
+    done
+  ) &
+  sampler_pid=$!
+fi
+wait "$run_pid"
 code=$?
+[ -n "${sampler_pid:-}" ] && { kill "$sampler_pid" 2> /dev/null; wait "$sampler_pid" 2> /dev/null; }
 set -e
 date +%s.%N > "$stage/end.unix"
 grep '^cpu' /proc/stat > "$stage/procstat.after"
+grep '^numa_' /proc/vmstat > "$stage/vmstat.after" 2> /dev/null || true
 echo "$code" > "$stage/exit_code"
 if [ -d "$OUT" ]; then mv "$stage"/* "$OUT"/ && rmdir "$stage"; else mv "$stage" "$OUT"; fi
 echo "run $OUT exit $code"

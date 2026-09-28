@@ -9,6 +9,10 @@
 # CCX j of socket 1 (CPUs 128+8j..128+8j+7 share one L3; EPYC 9754 = Zen 4c,
 # 2 CCX per CCD) with memory bound to that CCX's node, SUBSET j/<processes>. Common environment: BIN, FIXTURE,
 # ROOT (output root), ORDER (default fixture), PERF (default stat).
+# Load gate (optional): LOAD_GATE_MAX=<percent> re-measures the busy share of CPUs 128-223 over
+# LOAD_GATE_SECONDS (default 30) right after the lock is taken and aborts (lock released, exit 5) if it is
+# >= the maximum; with LOAD_GATE_EACH=1 it is re-measured before every plan line and the session stops at the
+# first exceedance. Needs PY (a python3) for tools/research/harness/socket1_busy.py.
 #   session_socket1.sh PLAN_FILE
 set -euo pipefail
 PLAN=$1
@@ -22,12 +26,26 @@ echo "waiting for socket-1 lock $(date -u +%FT%TZ)"
 flock -w 14400 9
 start=$(date +%s)
 echo "socket-1 lock held from $(date -u +%FT%TZ)" | tee -a "$ROOT/session.log"
+gate() {  # prints the busy percent; returns 1 when the gate fails
+  [ -z "${LOAD_GATE_MAX:-}" ] && return 0
+  local b; b=$("${PY:?PY needed for LOAD_GATE_MAX}" "$HERE/socket1_busy.py" "${LOAD_GATE_SECONDS:-30}")
+  echo "$(date -u +%FT%TZ) load gate: CPUs 128-223 busy ${b}% (max ${LOAD_GATE_MAX}%) $1" | tee -a "$ROOT/session.log"
+  [[ "$b" =~ ^[0-9]+$ ]] && (( b < LOAD_GATE_MAX ))
+}
+if ! gate "after lock"; then
+  echo "load gate failed after taking the lock; releasing it $(date -u +%FT%TZ)" | tee -a "$ROOT/session.log"
+  exit 5
+fi
 node_cpus() { case $1 in 4) echo 128-151;; 5) echo 160-183;; 6) echo 192-215;; 7) echo 224-247;; esac; }
 while read -r label cpus threads numa alloc extra; do
   [ -z "${label:-}" ] || [ "${label:0:1}" = "#" ] && continue
   now=$(date +%s)
   if (( now - start > BUDGET )); then echo "budget exhausted before $label" | tee -a "$ROOT/session.log"; break; fi
   remaining=$(( BUDGET - (now - start) ))
+  if [ "${LOAD_GATE_EACH:-0}" = 1 ] && [ "$label" != waitfile ] && ! gate "before $label"; then
+    echo "load gate failed before $label: session stopped" | tee -a "$ROOT/session.log"; break
+  fi
+  now=$(date +%s); remaining=$(( BUDGET - (now - start) ))
   [ "$label" = waitfile ] || echo "$(date -u +%FT%TZ) start $label cpus=$cpus K=$threads numa=$numa alloc=$alloc $extra (remaining ${remaining}s)" | tee -a "$ROOT/session.log"
   if [ "$label" = waitfile ]; then
     # "waitfile <path> <max-seconds>": hold the plan until a binary exists
