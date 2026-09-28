@@ -33,6 +33,12 @@ pub(super) fn run(args: OwnerDomainScanArgs) -> Result<(), CliError> {
     request.scan_limits.max_regions = args.max_regions;
     request.max_total_regions = args.max_total_regions;
     request.max_summary_groups = args.max_summary_groups;
+    request.factor_census = args
+        .factor_census
+        .then_some(rustred::solver::FactorCensusLimits {
+            max_terms: args.factor_census_max_terms,
+            coefficient_numerators: args.factor_census_numerators,
+        });
     let events: Box<dyn Write + Send> = match args.events {
         Some(path) => Box::new(
             OpenOptions::new()
