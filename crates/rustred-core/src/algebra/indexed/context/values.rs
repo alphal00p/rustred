@@ -94,7 +94,7 @@ impl IndexedCoefficientContext {
         let raw = self.extend_base_polynomial(value)?;
         Ok(IndexedPolynomial {
             raw,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -143,7 +143,7 @@ impl IndexedCoefficientContext {
         preflight_guard_polynomial_payload(&raw, serialization_byte_limit)?;
         Ok(IndexedPolynomial {
             raw,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -172,7 +172,7 @@ impl IndexedCoefficientContext {
         self.validate_bound(value)?;
         Ok(IndexedPolynomial {
             raw: value.value.raw.numerator.clone(),
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -185,7 +185,7 @@ impl IndexedCoefficientContext {
         self.validate_bound(value)?;
         Ok(IndexedPolynomial {
             raw: value.value.raw.denominator.clone(),
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -193,7 +193,7 @@ impl IndexedCoefficientContext {
         debug_assert!(self.raw_has_sealed_shape(&raw));
         IndexedCoefficient {
             raw,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         }
     }
 
@@ -262,7 +262,7 @@ impl IndexedCoefficientContext {
         self.record_authenticated_native_result();
         Ok(IndexedPolynomial {
             raw,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
