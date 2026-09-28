@@ -101,6 +101,20 @@ for phase in "$@"; do
       arm id-off-$SHA five-finite $A ordered 16 off
       strict $REFRUNS/five-finite $OUT/id-off-$SHA/five-finite five-finite-W16-vs-int-ref-g3
       ;;
+    identity-lite)
+      # Flag off vs the 4a17f9c7 reference outputs of TMP/fable51-controls/int-ref-g3 (no fresh reference run).
+      for fam in fg bmw h x four-all; do
+        arm id-off-$SHA $fam $A6 ordered 6 off
+        strict $REFRUNS/$fam $OUT/id-off-$SHA/$fam $fam-vs-int-ref-g3
+      done
+      arm id-off-$SHA five-finite $A ordered 16 off
+      strict $REFRUNS/five-finite $OUT/id-off-$SHA/five-finite five-finite-W16-vs-int-ref-g3
+      ;;
+    union-smoke)
+      # One flag-on C-5F Ready W24 run with the oracle (the named control on this binary).
+      arm c5f-rdy-union-r1-$SHA five-finite $ALL ready 24 union
+      oracle $OUT/c5f-rdy-union-r1-$SHA/five-finite c5f-rdy-union-r1 $ALL 32
+      ;;
     identity-p5)
       p5 $REF id-ref-p5-$SHA $B6 off &
       p5 $BIN id-off-p5-$SHA $A6 off &
@@ -168,26 +182,26 @@ for phase in "$@"; do
       ;;
     drills)
       log "drill ready-multi-prefix start"
-      $PY $WT/examples/python/ready_resume_control.py --command $OUT/c5f-rdy-union-r1-$SHA/five-finite/command.json \
+      $PY $WT/examples/python/ready_resume_control.py --command $OUT/c5f-rdy-union-r1-${REFSHA:-$SHA}/five-finite/command.json \
           --binary $BIN --output $OUT/drill-ready-mp-$SHA --cpus $ALL > $LOG/drill-ready-mp-$SHA.log 2>&1
       log "drill ready-multi-prefix rc=$? $(grep -o '"verdict": "[A-Z]*"' $OUT/drill-ready-mp-$SHA/report.json 2>/dev/null | head -1)"
       oracle $OUT/drill-ready-mp-$SHA/resumed drill-ready-mp-resumed $ALL 32
       for pol in ord rdy; do
         policy=ordered; [ $pol = rdy ] && policy=ready
         log "drill 3-pause $pol start"
-        $PY $T/pause_drill.py --command $OUT/c5f-$pol-union-r1-$SHA/five-finite/command.json --binary $BIN \
+        $PY $T/pause_drill.py --command $OUT/c5f-$pol-union-r1-${REFSHA:-$SHA}/five-finite/command.json --binary $BIN \
             --out $OUT/drill-$pol-3p-$SHA --cpus $ALL --stops 250000,500000,750000 > $LOG/drill-$pol-3p-$SHA.log 2>&1
         log "drill 3-pause $pol rc=$? $(tail -1 $LOG/drill-$pol-3p-$SHA.log)"
         oracle $OUT/drill-$pol-3p-$SHA/phase-3 drill-$pol-3p-final $ALL 32
       done
-      strict $OUT/c5f-ord-union-r1-$SHA/five-finite $OUT/drill-ord-3p-$SHA/phase-3 c5f-ord-union-uninterrupted-vs-3-pauses \
+      strict $OUT/c5f-ord-union-r1-${REFSHA:-$SHA}/five-finite $OUT/drill-ord-3p-$SHA/phase-3 c5f-ord-union-uninterrupted-vs-3-pauses \
           --ignore-top g2_residual_anchors --ignore-top uncommitted_inspections
       ;;
     activation)
       # G2' activation on a checkpoint written without G2' (C-5F Ready W24): flag off until 400k committed
       # domains, then resume with --g2-residual-anchors union --g2-activate-on-resume to exhaustion.
       log "drill activation start"
-      $PY $T/pause_drill.py --command $OUT/c5f-rdy-off-r1-$SHA/five-finite/command.json --binary $BIN \
+      $PY $T/pause_drill.py --command $OUT/c5f-rdy-off-r1-${REFSHA:-$SHA}/five-finite/command.json --binary $BIN \
           --out $OUT/drill-rdy-activation-$SHA --cpus $ALL --stops 400000 \
           --resume-extra=--g2-residual-anchors --resume-extra=union --resume-extra=--g2-activate-on-resume \
           > $LOG/drill-rdy-activation-$SHA.log 2>&1
