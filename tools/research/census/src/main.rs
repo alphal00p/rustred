@@ -9,13 +9,14 @@ mod cover;
 mod geom;
 mod potential;
 mod recs;
+mod route;
 mod util;
 
 use std::path::PathBuf;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: census <stats|compose|cost|potential|cover|saturation|pilot> CKPT_DIR [options]\n\
+        "usage: census <stats|compose|cost|potential|cover|saturation|pilot|route|route-saturation|route-apply|route-hits> CKPT_DIR [options]\n\
          see tools/research/census/README.md"
     );
     std::process::exit(2)
@@ -38,6 +39,10 @@ fn main() {
         "cover" => cover::run(&dir, &opts),
         "pilot" => cover::pilot(&dir, &opts),
         "saturation" => cover::saturation(&dir, &opts),
+        "route" => route::run(&dir, &opts),
+        "route-saturation" => route::saturation(&dir, &opts),
+        "route-apply" => route::apply_natives(&dir, &opts),
+        "route-hits" => route::hits(&dir, &opts),
         _ => usage(),
     }
     eprintln!("census {mode}: {:.1} s", t0.elapsed().as_secs_f64());

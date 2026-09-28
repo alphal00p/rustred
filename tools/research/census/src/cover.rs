@@ -167,7 +167,7 @@ impl Anchor {
         }
     }
     #[inline]
-    fn hit(&self, n: usize, x: &[u8; MAXN], a: i32, r: i32) -> bool {
+    pub fn hit(&self, n: usize, x: &[u8; MAXN], a: i32, r: i32) -> bool {
         if a > self.amax || r > self.rmax {
             return false;
         }
@@ -228,6 +228,9 @@ pub struct Eval {
     pub hull: Pieces,
     pub hull_c2: Pieces,
     pub hull_d: Pieces,
+    /// Distinct anchors that were the first hit of some tested point (a
+    /// greedy cover size, not a minimum; 0 for a single container).
+    pub anchors_used: usize,
 }
 
 fn count_region(q: &Dom, n: usize, lo: &[u8; MAXN], hi: &[u8; MAXN], a: (i32, i32), r: (i32, i32), d: (i32, i32)) -> f64 {
@@ -318,6 +321,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
     let mut dbox = vec![BBox::empty(); nd];
     let t = l.t;
     let mut grid = Grid::new(&cands, &qa, n);
+    let mut used: std::collections::HashSet<u32> = Default::default();
     let mut test = |x: &[u8; MAXN], sa: i32, sr: i32, grid: &mut Grid| {
         let a = sa + t;
         let li = sa as usize * lr + sr as usize;
@@ -327,6 +331,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
         for k in 0..cands.len() {
             if cands[k].hit(n, x, a, sr) {
                 hit = true;
+                used.insert(cands[k].id);
                 if k > 0 {
                     cands.swap(0, k);
                 }
@@ -357,6 +362,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
         ev.tested = samples;
         scale = total / samples as f64;
     }
+    ev.anchors_used = used.len();
     // Exact level totals (independent of sampling).
     let mut ltot = vec![0f64; la * lr];
     for sa in 0..la {
@@ -481,7 +487,7 @@ pub fn evaluate(q: &Dom, n: usize, pool: &[Anchor], admit: &dyn Fn(&Anchor) -> b
 // ------------------------------------------------------------ samples
 /// Sample `k` indices with probability proportional to `w` (with
 /// replacement), returned deduplicated with multiplicities.
-fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
+pub fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     let mut cum = Vec::with_capacity(w.len());
     let mut acc = 0.0;
     for &x in w {
@@ -499,7 +505,7 @@ fn pps(w: &[f64], k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     }
     m.into_iter().collect()
 }
-fn uniform(len: usize, k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
+pub fn uniform(len: usize, k: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     let mut m: BTreeMap<usize, usize> = BTreeMap::new();
     if len == 0 {
         return vec![];
@@ -907,7 +913,7 @@ mod tests {
 
 // --------------------------------------------------------- saturation
 /// Draw one uniform point of `d` (finite, nonempty).
-fn draw_point(d: &Dom, n: usize, rng: &mut Rng) -> Option<([u8; MAXN], i32, i32)> {
+pub fn draw_point(d: &Dom, n: usize, rng: &mut Rng) -> Option<([u8; MAXN], i32, i32)> {
     let l = geom::levels(d, n)?;
     let s = Sampler::new(d, n, &l)?;
     let (x, sa, sr) = s.sample(rng);
