@@ -37,7 +37,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from symnorm import normalize  # noqa: E402
 
 NM = "/nix/store/j5rd8xm5zqgzcb0l19942ms7r96q0hip-binutils-wrapper-2.46/bin/nm"
-SYMBOLIZER = "/nix/store/15knsirbfh6w3wfabmh1w2z063qq6gn2-llvm-22.1.8/bin/llvm-symbolizer"
+def _find_symbolizer():
+    """$LLVM_SYMBOLIZER, else the original llvm-22.1.8 store path, else the newest
+    llvm-*/bin/llvm-symbolizer left in /nix/store (the 22.1.8 path was garbage-collected
+    by 2026-09-28), else llvm-symbolizer on PATH."""
+    import glob
+    import os
+    import shutil
+    env = os.environ.get("LLVM_SYMBOLIZER")
+    if env:
+        return env
+    original = "/nix/store/15knsirbfh6w3wfabmh1w2z063qq6gn2-llvm-22.1.8/bin/llvm-symbolizer"
+    if os.path.exists(original):
+        return original
+    found = sorted(glob.glob("/nix/store/*-llvm-[0-9]*/bin/llvm-symbolizer"),
+                   key=lambda p: [int(x) for x in re.findall(r"llvm-(\d+)\.(\d+)\.(\d+)", p)[0]])
+    return found[-1] if found else (shutil.which("llvm-symbolizer") or original)
+
+
+SYMBOLIZER = _find_symbolizer()
 W = r"rustred_app::application::routed_campaign::walking::"
 # inline frames: "short_name @ crates/.../walking/<file>"
 F = r" @ crates/rustred-app/src/application/routed_campaign/walking/"
