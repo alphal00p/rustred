@@ -1,5 +1,8 @@
 # fable_5_1 v3 walker engine: recommended design
 
+> **Errata (2026-09-28):** §11 lists the Fable 5.1 audit's corrections and the owner's answers of 2026-09-27/28;
+> where they conflict with the body below, §11 wins. The body is kept as written.
+
 Date 2026-09-27. Base: branch `fable_5_1` @ 8ea26917. Status: a plan only; nothing is implemented. It combines four judged proposals and two skeptic reviews of each: a single coordinator with a replica, bucket actors, concurrent admission on inspectors, and an epoch merge. W below means `crates/rustred-app/src/application/routed_campaign/walking/`.
 
 Labels: **[M]** measured (v2 campaign 102adcc3/4cb4ab28, final paused `result.json` at 67,788 s, or a cited note); **[M-r]** measured by a reviewer from v2 heartbeats, not re-derived here (S0 re-derives it with a committed script); **[src]** checked in source at 8ea26917; **[E]** estimate.
@@ -342,3 +345,91 @@ Total effort: ≈35 d of stage work, ≈40 d with review rounds [E]. The reviewe
 - Heavy heads lengthen stops and lockstep epochs; rolling is the production schedule.
 - Faster discovery reaches the RAM wall and disk limits sooner. At 20× the records sidecar grows by up to about 15 GB per hour [E] (≈620 B per record [M]).
 - Keeping two engines in one tree adds review load, and fixes can diverge between them. Decide after launch whether to delete the legacy lanes.
+
+## 11. ERRATA (2026-09-28)
+
+Added by the integrator on 2026-09-28, when the W0/W1 lane branches were merged into `fable_5_1`. The body above is
+kept as written; where it conflicts with an entry below, the entry wins. Sources: `FABLE_5_1_CRITIQUE.md` §5 (numeric
+errata, re-derived from receipts) and §3 (epoch-design findings), `HANDOFF_opus_5_5.md` §0.1 item 4 (audit errata) and
+items 11-12 (owner answers). The W2.0 protocol note rev 2 (`docs/research/fable51_w2_epoch_protocol_2026-09-28.md`)
+settles the §0.1 item 8 design items (F7 vs A2, attempt counter, rolling replay oracle, CP6 cut, summaries, first-found
+bias, merge helpers, W3.2 inside W2). "Plan" below is `docs/research/fable51_next_push_master_plan_2026-09-27.md`.
+
+### 11.1 Audit corrections (handoff §0.1 item 4)
+
+1. Union-only residual inspections (W0.9 level-cell oracle): C-5F 0.521x, C-HOT-sub r1a12 0.423x, r2a11 0.394x,
+   C-HOT 0.328x. The 0.346x / 0.288x quoted elsewhere are the theta = 0.4 dense-cell rows.
+2. Gen-7 restore: 567 s / 598 s including the 108 s verify phase (launch to restored 570 / 600 s), not 458.8 s.
+3. RAM: 0.3 KB/domain is unsupported. Measured legacy marginals are 0.5-1.1 KB/domain (late window ~0.5); restore
+   VmHWM 0.64 KB/domain; 600 GB holds ~0.75-1.2G domains.
+4. Native scaling WAS measured at K = 96 (3.75x CPU per native vs K = 1, quiet session C); "never measured beyond
+   ~6.5" is stale.
+5. C-HOT is audit-only (CP3 state). About 1e8 positive inclusions (3.8e9 counts `contains()` calls). Successor
+   events 25.08M / 25.46M (28.4M counts admitted successors).
+6. There are two C-HOT-sub boxes: r1a12 (falsify lane; 1.02M natives; drains at W12) and s2/r2a12 (knobs lane;
+   2.12M natives; drains at W48). Every gate names its box.
+7. mimalloc compiled ratios 0.897 / 0.929 / 1.002 / 0.900 (not "x0.87-0.93").
+8. The restored-baseline "denser index" reading is refuted.
+9. Stale in the governing notes: the 700 GB guard, CPUs 28-177, W150 / 136 inspectors and the unrescaled 5-20x band.
+   Read them as: a 600 GB cap with a 50 GB host MemAvailable save-and-stop floor (§11.3), the 100-core launch on
+   (shared) socket 1, and bands rescaled to the measured native scaling (W0.3: per-CCX replicas 1.14-1.17x [E, loaded,
+   provisional], projection bracket 1.42-3.75x per `docs/research/fable51_w0_harness_2026-09-27.md`).
+
+### 11.2 Numeric and consistency errata (critique §5, re-derived from receipts by the auditor)
+
+Locations refer to the handoff (`HANDOFF_opus_5_5.md`) unless marked "plan" or "v3".
+
+| # | Handoff / plan text | Correct or missing | Location |
+|---|---|---|---|
+| 1 | gen-7 restore 458.8 s (490.1 s run2) | verify 108 s excluded: 567 s / 598 s; launch→restored 570 / 600 s; at the P-IMP 10-min limit | 5.5, 7.5, W3.3 |
+| 2 | RAM wall 10-250 h at 0.3-0.8 KB/domain | 0.3 KB unsupported; measured marginals 0.5-1.1 KB (late window ~0.5); restore VmHWM 0.64 KB/domain | 5.2, 5.5, §3.8 |
+| 3 | §11: native scaling "never measured beyond ~6.5" | measured at K=96 (7.4); stale R3 text | 11, plan R3 |
+| 4 | "both oracles pass on every drained output"; "3.8e9 inclusions"; "successors covered 28.4M" | C-HOT audit-only; ~1e8 positive inclusions; successor events 25.08M/25.46M | 5.7, 7.1 |
+| 5 | pure union residual C-5F 0.346x, C-HOT-sub 0.288x | those are dense-cell rows; union-only 0.521x / 0.423x | 5.2, 7.3 |
+| 6 | "C-HOT-sub" | two boxes: r1a12 (falsify, 1.02M natives) and s2/r2a12 (knobs, 2.12M) | 7.3 vs 7.6, 10.2 |
+| 7 | mimalloc x0.87-0.93 | tables: 0.897/0.929/1.002/0.900 (compiled), 0.899-0.971 (env) | 5.4, 9.2 |
+| 8 | smoke-fifo "reproduces 98,841 natives" | a Ready run (non-deterministic); canonical Ordered FG is 98,869 | 7.6 |
+| 9 | dispatch order "natives up to 10.6-14.5%" | W48 BMW SV x0.508 and C-HOT-sub(s2) SV x0.650 omitted from the summary | 5.3 vs 7.6 |
+| 10 | 27.34M admissions; 6.4-7.9x; 4.6-7.6x | 26,748,231; 7.9-9.5x (SoA-id) / 4.8-7.5x (SoA-pattern); 4.0-7.1x | 7.7 |
+| 11 | gate 0.7 PASS [M] | receipt binary predates the uncommitted conservative cover.rs fix; four-loop cover uninterpretable (15-70% unevaluated); cost exponents unreconciled with plan §1 | 5.7, 7.8 |
+| 12 | gate 0.5 PASS | scored on one 60-s window inside a 12-min run cut by a crash, 43 foreign CPUs | 7.5 |
+| 13 | governing notes | v3 note: 700 GB guard, CPUs 28-177, W150; plan: 700 GB guard beside 600 GB, per-family C-4L | v3 §3.6/§7, plan §3.8/§4/§5 |
+| 14 | labels | [M-r], [M-off], [src], "derived here" used but undefined; §3.3 refers to 7.2 for gaps in 7.1 | header, 3.3 |
+| 15 | test counts 777/783/784, Python 226/230 | reconcile exactly (+6 oracle tests; +9 order tests -2 failures; +4) | 3.2, 7.1, 7.6 |
+
+### 11.3 Owner answers 2026-09-27 ~21:35 UTC (handoff §0.1 item 11)
+
+- Socket 1 stays SHARED at launch: no cpuset; foreign load is recorded in every receipt.
+- NO ZFS ARC cap.
+- Host MemAvailable save-and-stop floor: 50 GB (was 20 GB).
+- FULL PLAN, GATED: continue W2 only if the S2/S4 epoch skeleton beats the legacy + SoA-kernel comparator (25-min
+  gen-7 resume vs M1 run2, matched window) by >= 1.5x; otherwise fall back to MVP-B, then MVP-A, and report.
+- Launch criterion (F) is thereby settled: shared host, no ARC cap, 600 GB cap, 50 GB host floor.
+
+### 11.4 Owner answers 2026-09-28 ~09:40 UTC (handoff §0.1 item 12; binding, listed for completeness)
+
+- G2' residual anchors ALLOWED. Plan §6 S7 (G2') and plan §3.11 are amended: an anchor is any merged record whose domain is fully
+  discharged (Native, or a validated merged G2' residual record = its residual plus its own anchors), resolved in merge
+  order (well-founded); CP6 validators, the audit and the G2' mutations check it. D2 is settled as dispatch-time G2'
+  in union form (no admission-time general union).
+- Symbolica: per-CCX replicas only, no Symbolica patch (the owner may raise the shared `Arc<PolynomialContext>`
+  refcount design upstream).
+- I2: rebuild with one coordinate frame per owner and re-gate with a total-work cap (natives, Apply natives and domains
+  no worse) in addition to >= 20% fewer Route->Route edges with audit PASS; ship only if it passes.
+- D7: always stop at the first frontier (fresh start after an input fix). D8: the deliverable is the symbolic closure.
+  D6: off at launch, not launch-blocking, deferred until its admission cost is measured on the epoch path. D1(b): no
+  (four-loop evidence). I1b dropped.
+
+### 11.5 Where this note's body is affected
+
+- §3.6 split (W150 on CPUs 28-177, 136 inspectors, `numactl --interleave` over nodes 0-5): superseded by the 100-core
+  launch on shared socket 1 (§11.3). Interleaving is the wrong remedy for the measured native-scaling loss (critique
+  §2.1: remote fills 63% at K = 96, 81% interleaved); owner programs are replicated per CCX (§11.4); layer and index
+  placement is an open W3.5 measurement.
+- §7 S7 launch line ("launch fresh on CPUs 28-177 with 4 h checkpoints and a 700 GB guard"): the owner launches; 100
+  cores, a 600 GB cap and a 50 GB host floor (§11.3).
+- §8 expected gains (136 inspectors, the 5-20x band, "native scaling ... unmeasured beyond ≈6.5", the 700 GB wall at
+  0.9-1.5G domains): read with §11.1 items 3, 4 and 9. These remain [E].
+- §5 soundness and §6 CP6 anchors: CP6 must carry G2' residual-anchor kinds from day one (§11.4; plan §3.11 as amended).
+- §10 "`--epoch-resolve merge` is the fallback": a diagnostic, not a production fallback (critique §3 EPOCH-7; handoff
+  §0.1 item 8).
