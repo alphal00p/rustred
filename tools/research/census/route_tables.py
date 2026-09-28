@@ -224,6 +224,11 @@ def ram(j, t):
     for s in ["natives_before_dispatch", "earlier_non_delegated", "all_earlier_ids"]:
         share = cov[s]["by_weight"]["created"]["fully_covered_share"]
         rows.append([f"Route natives covered ({s}): their first-level creations", num(created), pct(share), num(created * share)])
+    pc = j["route_pending"]["coverage"]
+    for s in ["all_natives", "earlier_non_delegated", "all_earlier_ids", "all_other_domains"]:
+        bw = pc[s]["by_weight"]["pred_created[E]"]
+        rows.append([f"Route pending covered at resume ({s}): their predicted first-level creations [E]", num(bw["total_weight"]),
+                     pct(bw["fully_covered_share"]), num(bw["total_weight"] * bw["fully_covered_share"])])
     for ph in ["Route", "Apply"]:
         for s in ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"]:
             dom = t.get(f"{ph}|domains", 0)
@@ -236,6 +241,78 @@ def ram(j, t):
         n = float(r[3][:-1]) * 1e6 if r[3].endswith("M") else float(r[3][:-1]) * 1e3 if r[3].endswith("k") else float(r[3])
         out.append(r + [f"{n * KB_PER_DOMAIN[0] / 1e6:.1f}-{n * KB_PER_DOMAIN[1] / 1e6:.1f} GB"])
     print(table(["avoidable set (gen 7 history)", "base", "share", "domains", "bytes at 0.5-0.84 KB/domain [E]"], out))
+    print()
+
+
+ANCH = "anchors_used_by_fully_covered(greedy first-hit count)"
+
+
+def anchors(j):
+    """Anchors a union cover of a fully covered draw uses (greedy first-hit count: an upper bound on the
+    minimum cover size; for |Q| > cap the points are sampled, a lower bound on the first-hit count)."""
+    rows = []
+    for block, sets in [("route_pending", ["all_natives", "earlier_non_delegated", "all_earlier_ids", "all_other_domains"]),
+                        ("route_natives", ["natives_before_dispatch", "earlier_non_delegated", "all_earlier_ids"]),
+                        ("all_domains_at_admission", ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"])]:
+        cov = j[block]["coverage"]
+        for x in sets:
+            a = cov[x].get(ANCH)
+            if a is None:
+                continue
+            h = a["histogram(count-weighted)"]
+            tot = sum(h.values())
+            small = sum(v for k, v in h.items() if k in ("0(single)", "1", "2", "3", "4"))
+            q = a["quantiles_distinct_draws[0.5,0.9,0.99,max]"]
+            rows.append([block, x, f"{a['count_weighted_mean']:.1f}", f"{q[0]:.0f} / {q[1]:.0f} / {q[2]:.0f} / {q[3]:.0f}",
+                         pct(small / tot if tot else None), pct(h.get(">64", 0) / tot if tot else None)])
+    print("Anchors used by the fully covered draws (count-weighted mean; distinct-draw quantiles p50/p90/p99/max; share <= 4 anchors; share > 64):")
+    print()
+    print(table(["sample", "anchor set", "mean anchors", "p50 / p90 / p99 / max", "<= 4 anchors", "> 64 anchors"], rows))
+    print()
+
+
+def admission_by_gen(j):
+    """Covered-at-admission share (count weight) per phase and admission generation."""
+    cov = j["all_domains_at_admission"]["coverage"]
+    sets = ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"]
+    keys = sorted(cov[sets[0]]["by_stratum"], key=lambda k: (k.split("|")[0], int(k.rsplit("g", 1)[1])))
+    rows = []
+    for k in keys:
+        st = cov[sets[0]]["by_stratum"][k]
+        if st["population"] < 1000:
+            continue
+        rows.append([k, num(st["population"]), st["distinct_draws"]] + [pct(cov[x]["by_stratum"][k]["fully_covered_share"]) for x in sets])
+    print("Covered at admission by phase and admission generation (count weight; uniform draws within the stratum):")
+    print()
+    print(table(["phase|admission gen", "domains", "draws"] + sets, rows))
+    print()
+    return {k: {x: cov[x]["by_stratum"][k]["fully_covered_share"] for x in sets} | {"population": cov[sets[0]]["by_stratum"][k]["population"]}
+            for k in keys}
+
+
+def ram_rate(j, bygen):
+    """Domain-creation rate factor of an admission-time union cover at the late (gen-7) mix [E, first level]."""
+    sets = ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"]
+    anc = {x: j["all_domains_at_admission"]["coverage"][x].get(ANCH, {}).get("count_weighted_mean") for x in sets}
+    g = [k for k in bygen if k.endswith("admission_g%d" % j["generation"])]
+    rows = []
+    for x in sets:
+        pop = sum(bygen[k]["population"] for k in g)
+        cov = sum(bygen[k]["population"] * bygen[k][x] for k in g) / pop
+        rt = [k for k in g if k.startswith("Route")]
+        rcov = sum(bygen[k]["population"] * bygen[k][x] for k in rt) / sum(bygen[k]["population"] for k in rt)
+        ronly = sum(bygen[k]["population"] * bygen[k][x] for k in rt) / pop
+        a = anc[x] or float("nan")
+        # net bytes per avoided domain: 0.5-0.84 KB minus (anchors - 1) extra edges at 8-16 B/edge
+        lo = KB_PER_DOMAIN[0] * 1000 - (a - 1) * 16
+        hi = KB_PER_DOMAIN[1] * 1000 - (a - 1) * 8
+        rows.append([x, num(pop), pct(rcov), pct(ronly), f"{1 / (1 - ronly):.2f}x", pct(cov), f"{1 / (1 - cov):.2f}x", f"{a:.1f}",
+                     f"{lo:.0f}-{hi:.0f} B"])
+    print(f"Late-generation (admission g{j['generation']}) domain-creation view [E, first level, no cascade]:")
+    print()
+    print(table(["anchor set at admission", "g-last admitted domains", "Route covered", "Route-only lever: avoided share of all",
+                 "Route-only factor", "both phases: covered", "both phases: factor 1/(1-c)",
+                 "mean anchors (all gens)", "net bytes saved per avoided domain (0.5-0.84 KB minus (anchors-1) x 8-16 B)"], rows))
     print()
 
 
@@ -269,6 +346,10 @@ def route_step(d, step, full=True):
     if j["route_pending"]["population"] > 0:
         creator_view(j)
     t = admission(j)
+    bygen = admission_by_gen(j)
+    if full:
+        anchors(j)
+        ram_rate(j, bygen)
     return j, t
 
 

@@ -96,3 +96,31 @@ on ln(points) (geometric-mean law) and the plan's estimator (n-weighted LS of
 ln(mean seconds) on ln(mean points) over decade bins with >= 10 natives,
 `cost_exponent_binmean_wls`). Unevaluated queries (infinite, or not
 enumerable) count as uncovered, gate failed, full residual and full cost.
+
+## Route-side census (routecensus lane, 2026-09-28)
+
+```
+census route            CKPT [--series S --wait W] [--per N] [--kc N] [--per-adm N] [--max-up N] [--rows R.jsonl]
+census route-saturation CKPT [--draws N] [--seed S]
+routecensus_batch.sh CENSUS_BIN OUT [gen7 gen7-sat gen7-sat-seed2 gen7-w300 gen6 gen3 c5f]
+route_tables.py OUT                 # tables of docs/research/fable51_w0_routecensus_2026-09-28.md
+route_boot.py OUT/gen7-route-rows.jsonl [REPS]   # stratified bootstrap SEs, sampled-verdict shares, per-owner view
+```
+
+`census route` (see the header of `src/route.rs`) measures on a CP5 checkpoint:
+exact edge fan-out of Route and Apply natives and the creator forest (first
+incoming edge of every domain); the coverage of Route native-pending
+(stratified by admission generation x points decade) by `all_natives`,
+`earlier_non_delegated` (smaller IDs that are natives or still pending: a
+well-founded union), `all_earlier_ids` and `all_other_domains`, weighted by
+count and by per-(owner, rank) predicted seconds, successors, out-edges and
+created domains [E]; the coverage of historical Route natives (stratified by
+record generation x decade) by `natives_before_dispatch` (G2' rule),
+`natives_before_commit`, `earlier_non_delegated` and `all_earlier_ids`,
+weighted by measured seconds, successors, edges, created domains and
+creator-forest descendants; the creator of sampled pending Apply/Route
+domains and whether that Route-native creator was itself covered; and every
+admitted domain at its admission (covered by the union of the domains that
+existed then, by the non-delegated ones, or by the natives committed before
+its creator's record), with an ancestor cascade [E upper]. Fully covered
+draws also report the anchors a union cover used (greedy first-hit count).
