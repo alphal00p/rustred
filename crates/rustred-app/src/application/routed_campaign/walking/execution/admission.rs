@@ -233,7 +233,7 @@ impl Metrics {
                 "candidates": candidates,
                 "ns_per_candidate": (candidates > 0)
                     .then(|| self.speculative_scan_nanos as f64 / candidates as f64),
-                "scope": "helper_thread_wall_of_forward_plus_reverse_index_scans_per_preparation; summed_over_helpers; includes_exact_predicate; excludes_summary_construction"
+                "scope": "helper scan wall summed over helpers; incl. exact predicate; excl. summary builds"
             });
             value["prepared_retirements_applied"] = json!(self.prepared_retirements_applied);
             value["prepared_retirements_trivial"] = json!(self.prepared_retirements_trivial);

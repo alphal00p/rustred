@@ -115,6 +115,9 @@ pub(super) trait Visit {
 pub(super) trait Retire {
     fn rejected(&mut self, run: &[u32], word: u32);
     fn test(&mut self, id: usize) -> bool;
+    /// `count` examined candidates that a helper-prepared set decided (they
+    /// reach neither `rejected` nor `test`); telemetry only.
+    fn decided(&mut self, _count: usize) {}
 }
 
 /// Every candidate is tested (an unfiltered probe never rejects).
@@ -255,6 +258,16 @@ impl StoredIndex {
                 {
                     return Err("invalid checkpoint coordinate block".into());
                 }
+                // Dead slots hold 0 or a former live ID (retain compacts in
+                // place), both below the domain count. The restored u32 slots
+                // must re-encode them byte for byte, so anything else is
+                // refused rather than silently rewritten.
+                if block.ids[block.len..]
+                    .iter()
+                    .any(|&id| id >= domain_count || id >= u32::MAX as usize)
+                {
+                    return Err("invalid checkpoint stale block slot".into());
+                }
                 for &id in &block.ids[..block.len] {
                     if previous.is_some_and(|old| old >= id) {
                         return Err("unordered checkpoint index IDs".into());
@@ -319,6 +332,8 @@ pub(super) struct AggregateIndex<const N: usize> {
     groups: Vec<Group<N>>,
     positions: HashMap<Signature, usize>,
     live: usize,
+    /// Running totals behind `storage`, so a heartbeat reads them in O(1).
+    totals: Totals,
     #[cfg(test)]
     work: WorkCounters,
 }
@@ -329,9 +344,39 @@ impl<const N: usize> Default for AggregateIndex<N> {
             groups: Vec::new(),
             positions: HashMap::new(),
             live: 0,
+            totals: Totals::default(),
             #[cfg(test)]
             work: WorkCounters::default(),
         }
+    }
+}
+
+/// Storage totals kept current at every mutation that changes them (a
+/// reserved capacity, the block count, exact envelope storage or a lossy live
+/// slot), so that `storage` never walks the blocks. `recount` is the full walk
+/// they must always equal (checked by the tests).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Totals {
+    /// Boxed blocks (the sum of the groups' block counts).
+    blocks: usize,
+    /// Reserved bytes of the group vector, of every group's row and block
+    /// pointer vectors, and of the exact (wide) envelopes.
+    rows: usize,
+    /// Live slots whose lanes saturate.
+    lossy: usize,
+}
+
+/// Bytes a vector reserved since its capacity was `before` (capacities in
+/// this index only grow while its vectors live).
+fn grown<T>(vector: &Vec<T>, before: usize) -> usize {
+    (vector.capacity() - before) * std::mem::size_of::<T>()
+}
+
+impl<const N: usize> Group<N> {
+    /// Reserved bytes of the row and block pointer vectors.
+    fn vector_bytes(&self) -> usize {
+        self.meta.capacity() * std::mem::size_of::<Meta<N>>()
+            + self.blocks.capacity() * std::mem::size_of::<BlockBox<N>>()
     }
 }
 
@@ -464,6 +509,8 @@ impl<const N: usize> AggregateIndex<N> {
             });
         }
         index.live = stored.live;
+        // One walk at restore; every later change updates the totals.
+        index.totals = index.recount();
         Ok(index)
     }
 
@@ -602,21 +649,23 @@ impl<const N: usize> AggregateIndex<N> {
                 (None, None)
             } else {
                 checkpoint()?;
-                group
+                // A reservation that succeeds stays reserved even if a later
+                // preflight fails, so account it immediately.
+                let (rows, pointers) = (group.meta.capacity(), group.blocks.capacity());
+                let reserved = group
                     .meta
                     .try_reserve(1)
-                    .map_err(|_| "coordinate block allocation")?;
-                group
-                    .blocks
-                    .try_reserve(1)
-                    .map_err(|_| "coordinate block allocation")?;
+                    .and_then(|()| group.blocks.try_reserve(1));
+                self.totals.rows += grown(&group.meta, rows) + grown(&group.blocks, pointers);
+                reserved.map_err(|_| "coordinate block allocation")?;
                 (None, Some(Meta::prepare(coordinates, &mut checkpoint)?))
             }
         } else {
             checkpoint()?;
-            self.groups
-                .try_reserve(1)
-                .map_err(|_| "aggregate group allocation")?;
+            let before = self.groups.capacity();
+            let reserved = self.groups.try_reserve(1);
+            self.totals.rows += grown(&self.groups, before);
+            reserved.map_err(|_| "aggregate group allocation")?;
             checkpoint()?;
             self.positions
                 .try_reserve(1)
@@ -751,12 +800,16 @@ impl<const N: usize> AggregateIndex<N> {
         impl<V: Retire, F: FnMut(usize)> Retire for Split<'_, V, F> {
             fn rejected(&mut self, run: &[u32], word: u32) {
                 let old = run.partition_point(|&id| (id as usize) < self.first_new);
+                if old > 0 {
+                    self.visit_new.decided(old);
+                }
                 if old < run.len() {
                     self.visit_new.rejected(&run[old..], word >> old);
                 }
             }
             fn test(&mut self, id: usize) -> bool {
                 let retire = if id < self.first_new {
+                    self.visit_new.decided(1);
                     self.prepared.binary_search(&id).is_ok()
                 } else {
                     self.visit_new.test(id)
@@ -823,7 +876,10 @@ impl<const N: usize> AggregateIndex<N> {
                         &mut Infallible(visit),
                     );
                     if hits != 0 {
+                        let lossy = block.lossy(len).count_ones();
                         let gone = meta.retain(block, !hits);
+                        self.totals.lossy -=
+                            (lossy - block.lossy(meta.len as usize).count_ones()) as usize;
                         removed += gone;
                         group.live -= gone;
                     }
@@ -839,11 +895,19 @@ impl<const N: usize> AggregateIndex<N> {
                         kept += 1;
                     }
                 }
+                // Dropped rows free their boxed blocks and exact envelopes;
+                // the row and pointer vectors keep their capacity.
+                self.totals.blocks -= old_len - kept;
+                self.totals.rows -= group.meta[kept..]
+                    .iter()
+                    .map(Meta::envelope_capacity_bytes)
+                    .sum::<usize>();
                 group.meta.truncate(kept);
                 group.blocks.truncate(kept);
             }
             if group.meta.is_empty() && group.signature != insertion.signature {
                 let key = group.signature;
+                self.totals.rows -= group.vector_bytes();
                 self.groups.swap_remove(position);
                 self.positions.remove(&key);
                 if let Some(moved) = self.groups.get(position) {
@@ -862,54 +926,97 @@ impl<const N: usize> AggregateIndex<N> {
 
     pub(super) fn insert(&mut self, mut insertion: Insertion<N>, entry: Entry<'_, N>) {
         let spare = insertion.spare_envelope.take();
+        let lossy = entry.lanes.as_ref().is_some_and(|lanes| lanes.lossy);
         if let Some(mut group) = insertion.new_group.take() {
             let (mut meta, mut block) = insertion
                 .new_block
                 .take()
                 .expect("preallocated new group block");
             meta.push(&mut block[0], entry, spare);
+            let envelope = meta.envelope_capacity_bytes();
             group.meta.push(meta);
             group.blocks.push(block);
             group.live = 1;
             self.positions
                 .insert(insertion.signature, self.groups.len());
+            let before = self.groups.capacity();
+            self.totals.rows += group.vector_bytes() + envelope;
             self.groups.push(group);
+            self.totals.rows += grown(&self.groups, before);
+            self.totals.blocks += 1;
         } else {
             let position = self.positions[&insertion.signature];
             let group = &mut self.groups[position];
-            if let Some((meta, block)) = insertion.new_block.take() {
+            // Exact envelope bytes of the target row already counted.
+            let counted = if let Some((meta, block)) = insertion.new_block.take() {
+                let (rows, pointers) = (group.meta.capacity(), group.blocks.capacity());
                 group.meta.push(meta);
                 group.blocks.push(block);
-            }
+                self.totals.rows += grown(&group.meta, rows) + grown(&group.blocks, pointers);
+                self.totals.blocks += 1;
+                0
+            } else {
+                group
+                    .meta
+                    .last()
+                    .expect("reserved tail block")
+                    .envelope_capacity_bytes()
+            };
             let meta = group.meta.last_mut().expect("reserved tail block");
             let block = group.blocks.last_mut().expect("reserved tail block");
             meta.push(&mut block[0], entry, spare);
+            // A narrow envelope may have become exact (wide) storage.
+            self.totals.rows += meta.envelope_capacity_bytes() - counted;
             group.live += 1; // bounded by checked global live + 1
         }
+        self.totals.lossy += usize::from(lossy);
         self.live += 1; // checked by prepare before any retirement
     }
 
-    /// Reserved storage of the index (see `IndexBytes`).
+    /// Reserved storage of the index (see `IndexBytes`), from the running
+    /// totals: O(1), cheap enough for every coordinator heartbeat.
     pub(super) fn storage(&self) -> IndexBytes {
-        let mut bytes = IndexBytes {
-            rows: self.groups.capacity() * std::mem::size_of::<Group<N>>(),
+        IndexBytes {
+            blocks: self.totals.blocks * std::mem::size_of::<blocks::Block<N>>(),
+            rows: self.totals.rows,
             live: self.live,
-            ..IndexBytes::default()
+            lossy: self.totals.lossy,
+        }
+    }
+
+    /// The totals by a full walk of every group and block (O(blocks), one
+    /// pointer dereference per boxed block): restore only, and the tests'
+    /// reference for the running totals.
+    fn recount(&self) -> Totals {
+        let mut totals = Totals {
+            rows: self.groups.capacity() * std::mem::size_of::<Group<N>>(),
+            ..Totals::default()
         };
         for group in &self.groups {
-            bytes.rows += group.meta.capacity() * std::mem::size_of::<Meta<N>>()
-                + group.blocks.capacity() * std::mem::size_of::<BlockBox<N>>()
+            totals.rows += group.vector_bytes()
                 + group
                     .meta
                     .iter()
                     .map(Meta::envelope_capacity_bytes)
                     .sum::<usize>();
-            bytes.blocks += group.blocks.len() * std::mem::size_of::<blocks::Block<N>>();
+            totals.blocks += group.blocks.len();
             for (meta, block) in group.meta.iter().zip(&group.blocks) {
-                bytes.lossy += block[0].lossy(meta.len as usize).count_ones() as usize;
+                totals.lossy += block[0].lossy(meta.len as usize).count_ones() as usize;
             }
         }
-        bytes
+        totals
+    }
+
+    /// `storage` recomputed by the full walk (tests and the gen-7 harness).
+    #[cfg(test)]
+    pub(super) fn storage_by_walk(&self) -> IndexBytes {
+        let totals = self.recount();
+        IndexBytes {
+            blocks: totals.blocks * std::mem::size_of::<blocks::Block<N>>(),
+            rows: totals.rows,
+            live: self.live,
+            lossy: totals.lossy,
+        }
     }
 
     #[cfg(test)]

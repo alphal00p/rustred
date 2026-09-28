@@ -136,7 +136,12 @@ pub(in super::super) struct SessionCounters {
     pub forward_scan_nanos: u64,
     pub reverse_scans: usize,
     pub reverse_tests: usize,
+    /// Wall of the whole reverse retirement call (see `kernel_json`).
     pub reverse_scan_nanos: u64,
+    /// Examined reverse candidates that a helper-prepared set decided: the
+    /// retirement traversal and block kernel still visit them, but they reach
+    /// no callback, so `reverse_callbacks` does not count them.
+    pub reverse_prepared_candidates: usize,
 }
 
 impl SessionCounters {
@@ -186,6 +191,12 @@ impl SessionCounters {
         self.reverse_bit_rejections = self.reverse_bit_rejections.saturating_add(words);
     }
 
+    /// `count` examined reverse candidates decided by a helper-prepared set.
+    #[inline]
+    pub fn reverse_decided(&mut self, count: usize) {
+        self.reverse_prepared_candidates = self.reverse_prepared_candidates.saturating_add(count);
+    }
+
     pub fn json(&self) -> Value {
         json!({
             "forward_callbacks": self.forward_callbacks,
@@ -220,10 +231,16 @@ impl SessionCounters {
     /// Kernel attribution for `parallel.coordinator_duty.admission_kernel`:
     /// scans, candidates per scan and wall ns per check-equivalent (one
     /// logical candidate, the `containment_checks` unit) on the coordinator.
+    /// Forward: pure index scans. Reverse: the whole retirement call, whose
+    /// traversal examines helper-decided candidates too, so its per-candidate
+    /// figure divides by every examined candidate, not by the callbacks.
     pub fn kernel_json(&self) -> Value {
         let per = |numerator: f64, denominator: usize| {
             (denominator > 0).then(|| numerator / denominator as f64)
         };
+        let reverse_examined = self
+            .reverse_callbacks
+            .saturating_add(self.reverse_prepared_candidates);
         json!({
             "kernel": "struct_of_arrays_u8_lanes_v1",
             "forward_scans": self.forward_scans,
@@ -240,9 +257,15 @@ impl SessionCounters {
             "reverse_lane_rejections": self.reverse_lane_rejections(),
             "reverse_exact_tests": self.reverse_tests,
             "reverse_scan_seconds": self.reverse_scan_nanos as f64 * 1e-9,
-            "reverse_candidates_per_scan": per(self.reverse_callbacks as f64, self.reverse_scans),
-            "reverse_ns_per_candidate": per(self.reverse_scan_nanos as f64, self.reverse_callbacks),
-            "scope": "coordinator_ordered_commit_scans_this_process_session; wall_ns; inside ordered_commit_seconds (not a disjoint duty bucket); reverse candidates exclude IDs decided by a helper-prepared set; helper-side work is admission_preparation.speculative_*; not_persisted"
+            "reverse_prepared_candidates": self.reverse_prepared_candidates,
+            "reverse_examined_candidates": reverse_examined,
+            "reverse_retire_ns_per_examined_candidate": per(self.reverse_scan_nanos as f64, reverse_examined),
+            // Kept short: the final event must stay below 8 KiB. Forward:
+            // the serial and revalidation index scans. Reverse: the whole
+            // retirement call (traversal and kernel over every examined
+            // candidate, exact tests, compaction, empty block/group removal,
+            // the ledger transfer per retirement; not the insertion).
+            "scope": "commit scans this session, wall ns, nested in ordered_commit_seconds; reverse = whole retire call over examined (callbacks + helper-decided); not persisted"
         })
     }
 }

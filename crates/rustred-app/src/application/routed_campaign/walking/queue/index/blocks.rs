@@ -888,8 +888,11 @@ impl<const N: usize> Meta<N> {
                 let (word, lanes) = entry(id)?;
                 storage.put(slot, id as u32, word, lanes.as_ref());
             } else {
-                // Dead slot: keep the historical stale ID when representable.
-                storage.ids[slot] = u32::try_from(id).unwrap_or(0);
+                // Dead slot: keep the historical stale ID exactly, or refuse.
+                storage.ids[slot] = u32::try_from(id)
+                    .ok()
+                    .filter(|&id| (id as usize) < domain_count)
+                    .ok_or("invalid checkpoint stale block slot")?;
             }
         }
         storage.refresh_words(len);

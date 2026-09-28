@@ -109,6 +109,27 @@ impl<const N: usize> Default for OwnerBucket<N> {
     }
 }
 
+impl<const N: usize> OwnerBucket<N> {
+    /// The dominant full orthant that contains a query of this bucket
+    /// (`bucket` = its phase/owner code) with `rank` (A1: the stored image's
+    /// bucket, full-orthant shape and rank are all checked). The one predicate
+    /// of the ordered commit and of the helper's speculative shortcut; restore
+    /// also refuses a checkpoint whose orthant ID is not a full orthant.
+    fn orthant_hit(
+        &self,
+        domains: &[CompactDomain<N>],
+        (phase, owner): (u8, u32),
+        rank: Option<u32>,
+    ) -> Option<usize> {
+        let id = self.orthant?;
+        let stored = &domains[id];
+        (stored.same_bucket(phase, owner)
+            && stored.is_full_orthant()
+            && rank_contains(stored.rank(), rank))
+        .then_some(id)
+    }
+}
+
 #[cfg(test)]
 impl<const N: usize> OwnerBucket<N> {
     fn candidate_ids(&self) -> Vec<usize> {
@@ -191,8 +212,9 @@ impl<const N: usize> Queue<N> {
     }
 
     /// Reserved bytes of the compact queue state: per-ID images, exact index,
-    /// per-ID summaries and the candidate index (its storage is O(groups)).
-    /// The ledger and closure are accounted elsewhere.
+    /// per-ID summaries and the candidate index. O(owner buckets): the index
+    /// keeps running totals, because every coordinator heartbeat calls this
+    /// twice. The ledger and closure are accounted elsewhere.
     pub fn storage_json(&self) -> serde_json::Value {
         let domains = self.domains.capacity() * std::mem::size_of::<CompactDomain<N>>();
         let exact = self.exact.capacity_bytes();
@@ -207,15 +229,21 @@ impl<const N: usize> Queue<N> {
                 live: a.live + b.live,
                 lossy: a.lossy + b.lossy,
             });
-        let total = domains + exact + summaries + index.blocks + index.rows;
+        let per_id = domains + exact + summaries;
+        let total = per_id + index.blocks + index.rows;
         serde_json::json!({"domain_bytes":domains,"exact_index_bytes":exact,
             "summary_bytes":summaries,"index_block_bytes":index.blocks,
             "index_row_bytes":index.rows,"total_bytes":total,
+            "total_excluding_index_bytes":per_id,
             "admitted_domains":self.domains.len(),"live_candidates":index.live,
             "lossy_lane_candidates":index.lossy,
             "bytes_per_admitted_domain":(!self.domains.is_empty())
                 .then(|| total as f64 / self.domains.len() as f64),
-            "scope":"compact queue state (domain images, digest exact index, immutable per-ID summaries, struct-of-arrays candidate blocks and their rows); reserved capacities, allocator and hash-map overhead excluded; excludes ledger and closure"})
+            // Pre-kernel binaries (4a17f9c7, 7eed68fc) reported a total
+            // without the candidate index, over a live-only summary slab and
+            // 8-B filter words per ID; total_excluding_index_bytes is the
+            // nearest analogue. Memory gates compare process RSS.
+            "scope":"compact queue state incl. SoA candidate index; reserved capacities; excl. allocator/hash overhead, ledger, closure; pre-kernel total_bytes ~ total_excluding_index_bytes"})
     }
 
     /// The kernel probe of `query`.
@@ -443,10 +471,8 @@ impl<const N: usize> Queue<N> {
         if let Some(bucket) = self.by_owner.get(&bucket_key) {
             // A1: the shortcut is a positive only after an explicit check of
             // the stored image's bucket, full orthant and rank.
-            if let Some(id) = bucket.orthant
-                && self.domains[id].same_bucket(phase_code, owner_code)
-                && self.domains[id].is_full_orthant()
-                && rank_contains(self.domains[id].rank(), domain.rank)
+            if let Some(id) =
+                bucket.orthant_hit(&self.domains, (phase_code, owner_code), domain.rank)
             {
                 self.orthant_hits += 1;
                 self.deduplicated += 1;
@@ -790,6 +816,9 @@ impl<const N: usize> Retire for Reverse<'_, N> {
         self.session.reverse_test();
         self.stored.contained_by(id, self.query)
     }
+    fn decided(&mut self, count: usize) {
+        self.session.reverse_decided(count);
+    }
 }
 
 /// A reverse visitor plus the apply-time effects of each retirement.
@@ -808,6 +837,9 @@ impl<V: Retire, F: FnMut(usize)> Retire for WithEffects<V, F> {
             (self.on_retire)(id);
         }
         retire
+    }
+    fn decided(&mut self, count: usize) {
+        self.inner.decided(count);
     }
 }
 

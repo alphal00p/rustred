@@ -197,6 +197,15 @@ impl<const N: usize> Queue<N> {
             }) {
                 return Err("invalid checkpoint owner bucket".into());
             }
+            // Admission records a bucket's orthant only for a full orthant;
+            // the shortcut relies on it (A1), so a CP5 claiming another
+            // domain is refused rather than trusted.
+            if bucket
+                .orthant
+                .is_some_and(|id| !q.domains[id].is_full_orthant())
+            {
+                return Err("invalid checkpoint full-orthant ID".into());
+            }
             bucket.indexed.validate(q.domains.len())?;
             if m.max_checks.is_some() && !bucket.indexed.is_empty() {
                 return Err("checkpoint candidate index in the finite-cap lane".into());

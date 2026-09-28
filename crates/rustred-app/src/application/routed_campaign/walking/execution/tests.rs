@@ -475,6 +475,15 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
         assert_eq!(kernel["forward_scans"], 0);
         assert_eq!(kernel["reverse_exact_tests"], 0);
         assert!(kernel["forward_ns_per_candidate"].is_null());
+        // Reverse cost per examined candidate (helper-decided ones included).
+        assert_eq!(kernel["reverse_examined_candidates"], 0);
+        assert_eq!(kernel["reverse_prepared_candidates"], 0);
+        assert!(kernel["reverse_retire_ns_per_examined_candidate"].is_null());
+        assert!(kernel.get("reverse_ns_per_candidate").is_none());
+        // O(1) storage telemetry, with the pre-kernel analogue beside it.
+        let storage = &detailed["parallel"]["queue_storage"];
+        assert!(storage["total_excluding_index_bytes"].is_number());
+        assert!(storage["scope"].is_string());
         assert!(duty["dispatch_seconds"].is_number());
         assert!(duty["ordered_commit_seconds"].is_number());
         assert!(duty["coordinator_elapsed_seconds"].is_null()); // Not started.

@@ -45,6 +45,7 @@ fn insert(index: &mut AggregateIndex<2>, summary: &DomainPowerSummary<2>, id: us
 
 fn assert_counts(index: &AggregateIndex<2>) {
     assert_eq!(index.live, index.ids().len());
+    assert_eq!(index.storage(), index.storage_by_walk());
     for group in &index.groups {
         assert_eq!(
             group.live,
@@ -507,4 +508,155 @@ fn block_storage_reports_real_capacity_and_releases_removed_blocks() {
         std::mem::size_of::<Block<15>>(),
         std::mem::size_of::<Meta<15>>()
     );
+}
+
+/// The running storage totals equal the full walk after every mutation:
+/// narrow and exact (wide) envelopes, narrow tails widened to exact storage,
+/// lossy and escaped slots, retirements that empty blocks and remove groups,
+/// and preparations that are refused mid-way or abandoned after reserving.
+#[test]
+fn running_storage_totals_equal_the_full_walk_after_every_mutation() {
+    let mut state = 0x5DEE_CE66_D1CE_4E5B_u64;
+    let mut below = move |n: u64| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 33) % n
+    };
+    let mut index = AggregateIndex::<2>::default();
+    let (mut next_id, mut refused, mut abandoned, mut groups_removed) = (0, 0, 0, 0);
+    let (mut wide_rows, mut lossy_peak, mut lossy_retired) = (0, 0, 0);
+    // Two full blocks in a group no random insertion retires (signature 9):
+    // the existing-group new-block path, then refusals at both of its
+    // reservation checkpoints on a full tail.
+    let full = signature(9);
+    let point_summary = point(7);
+    for _ in 0..64 {
+        let insertion = index
+            .prepare(full, Coordinates::of(&point_summary))
+            .unwrap();
+        index.insert_plain(insertion, next_id, Coordinates::of(&point_summary));
+        next_id += 1;
+        assert_counts(&index);
+    }
+    assert_eq!(index.block_lens(0), [32, 32]);
+    for fail_at in 0..2 {
+        let mut step = 0;
+        let result = index.prepare_with(full, Coordinates::of(&point_summary), || {
+            let fail = step == fail_at;
+            step += 1;
+            if fail {
+                Err("injected refusal")
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        refused += 1;
+        assert_counts(&index);
+    }
+    for _ in 0..6_000 {
+        // Coordinates: small (narrow codes) or beyond 65534 (exact storage).
+        let mut value = || {
+            if below(8) == 0 {
+                70_000 + below(1_000)
+            } else {
+                below(300)
+            }
+        };
+        let lower = [value(), value()];
+        let upper = [
+            (below(4) != 0).then(|| lower[0] + below(50)),
+            (below(4) != 0).then(|| lower[1] + below(50)),
+        ];
+        let summary = DomainPowerSummary::try_new(
+            [true; 2],
+            &lower,
+            &upper,
+            None,
+            DomainPowerBounds::default(),
+        )
+        .unwrap();
+        // Some insertions carry no coordinates (an absent envelope).
+        let coordinates = (below(10) != 0)
+            .then(|| Coordinates::of(&summary))
+            .flatten();
+        let key = signature(u128::from(below(4)));
+        match below(20) {
+            0 => {
+                // A preparation refused at a random reservation checkpoint;
+                // half of them for a group that never exists (signatures
+                // 10-13), whose path has four checkpoints.
+                let key = if below(2) == 0 {
+                    signature(10 + u128::from(below(4)))
+                } else {
+                    key
+                };
+                let fail_at = below(4);
+                let mut step = 0;
+                let result = index.prepare_with(key, coordinates, || {
+                    let fail = step == fail_at;
+                    step += 1;
+                    if fail {
+                        Err("injected refusal")
+                    } else {
+                        Ok(())
+                    }
+                });
+                refused += usize::from(result.is_err());
+            }
+            1 => {
+                // Storage reserved, then the admission failed a later queue
+                // preflight and dropped its insertion.
+                drop(index.prepare(key, coordinates).unwrap());
+                abandoned += 1;
+            }
+            _ => {
+                let insertion = index.prepare(key, coordinates).unwrap();
+                let percent = [0, 2, 30][below(3) as usize];
+                let (groups, lossy) = (index.groups(), index.storage().lossy);
+                index.retire_each(&insertion, coordinates, |_| below(100) < percent);
+                assert_counts(&index);
+                groups_removed += groups - index.groups();
+                lossy_retired += lossy - index.storage().lossy;
+                let lanes = (below(5) != 0).then(|| Lanes {
+                    lower: [0; 2],
+                    upper: [0; 2],
+                    power: [0; 6],
+                    lossy: below(3) == 0,
+                });
+                index.insert(
+                    insertion,
+                    Entry {
+                        id: next_id,
+                        coordinates,
+                        word: below(1 << 20),
+                        lanes,
+                    },
+                );
+                next_id += 1;
+            }
+        }
+        assert_counts(&index);
+        lossy_peak = lossy_peak.max(index.storage().lossy);
+        wide_rows = wide_rows.max(
+            index
+                .groups
+                .iter()
+                .flat_map(|group| &group.meta)
+                .filter(|meta| meta.envelope_capacity_bytes() > 0)
+                .count(),
+        );
+    }
+    println!(
+        "storage_totals inserted={next_id} refused={refused} abandoned={abandoned} groups_removed={groups_removed} wide_rows_peak={wide_rows} lossy_peak={lossy_peak} lossy_retired={lossy_retired} final={:?}",
+        index.storage()
+    );
+    // Every path of the totals was exercised.
+    assert!(refused > 50 && abandoned > 100 && groups_removed > 0);
+    assert!(
+        index.block_lens(0).len() >= 2,
+        "the full group was never retired"
+    );
+    assert!(wide_rows > 0 && lossy_peak > 0 && lossy_retired > 0);
 }

@@ -1,6 +1,6 @@
 //! The bit tier is a necessary condition only: it never changes a result.
 use super::super::bits::{may_contain, word};
-use super::prepared::{parallel_prepare, same_state};
+use super::prepared::{parallel_prepare, same_reverse_examined, same_state};
 use super::*;
 
 /// Every small-grid summary of arity N (Err projections skipped, empties kept)
@@ -194,6 +194,8 @@ fn prefilter_toggle_preserves_results_and_persisted_counters_on_proposal_streams
                 same_state(&serial, &serial_unfiltered);
                 same_state(&filtered, &unfiltered);
                 same_state(&serial, &filtered);
+                same_reverse_examined(&serial, &filtered);
+                same_reverse_examined(&serial_unfiltered, &unfiltered);
                 assert_eq!(
                     serial.containment_checks,
                     serial_unfiltered.containment_checks

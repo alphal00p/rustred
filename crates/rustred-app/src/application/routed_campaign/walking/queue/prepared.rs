@@ -204,9 +204,12 @@ impl<const N: usize> Queue<N> {
         let bucket = self.by_owner.get(&(domain.phase, domain.owner));
         let bucket_absent = bucket.is_none();
         let (found, retire) = if let Some(bucket) = bucket {
+            // The commit's own shortcut predicate. A later orthant of the
+            // bucket dominates this one's rank, so the ordered commit returns
+            // an orthant hit too (or an exact hit, checked before it).
             if bucket
-                .orthant
-                .is_some_and(|id| rank_contains(self.domains[id].rank(), domain.rank))
+                .orthant_hit(&self.domains, compact.bucket_code(), domain.rank)
+                .is_some()
             {
                 // Commit must still reproduce the ordinary summary preflight
                 // and fresh exact/orthant priority, without a general scan.

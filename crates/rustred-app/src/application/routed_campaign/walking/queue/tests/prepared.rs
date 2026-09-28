@@ -60,6 +60,24 @@ pub(super) fn same_state<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>)
     );
     // Completed speculative forward work can differ from a fresh serial scan.
     // This telemetry is deliberately not a semantic state-equality condition.
+    // The index's running storage totals equal a full walk on both queues.
+    for queue in [serial, prepared] {
+        for bucket in queue.by_owner.values() {
+            assert_eq!(bucket.indexed.storage(), bucket.indexed.storage_by_walk());
+        }
+    }
+}
+
+/// Session telemetry of a serial queue and a prepared queue with the same
+/// history from the same start: the reverse retirement traversal examines
+/// the same candidates on both paths; the prepared path only splits them
+/// into commit-time callbacks and IDs its helper sets decided.
+pub(super) fn same_reverse_examined<const N: usize>(serial: &Queue<N>, prepared: &Queue<N>) {
+    let examined = |queue: &Queue<N>| {
+        queue.session.reverse_callbacks + queue.session.reverse_prepared_candidates
+    };
+    assert_eq!(examined(serial), examined(prepared));
+    assert_eq!(serial.session.reverse_prepared_candidates, 0);
 }
 
 pub(super) fn parallel_prepare<const N: usize>(
@@ -119,16 +137,22 @@ fn parallel_preparation_matches_complete_proposal_streams_in_serial_commit_order
                 assert_eq!(expected, linear.admit(item.clone()));
                 assert_eq!(prepared.admit_prepared(token), expected);
                 same_state(&serial, &prepared);
+                same_reverse_examined(&serial, &prepared);
                 linear.assert_same_state(&prepared);
             }
         }
         println!(
-            "prepared_complete_stream order={order} workers={workers} batch={batch_size} proposals={} admitted={} serial_checks={} prepared_checks={}",
+            "prepared_complete_stream order={order} workers={workers} batch={batch_size} proposals={} admitted={} serial_checks={} prepared_checks={} reverse_examined={} helper_decided={}",
             stream.len(),
             serial.domains.len(),
             serial.containment_checks,
-            prepared.containment_checks
+            prepared.containment_checks,
+            serial.session.reverse_callbacks,
+            prepared.session.reverse_prepared_candidates
         );
+        // Helper sets decided examined reverse candidates (same_reverse_examined checks
+        // that the examined totals agree with the serial queue).
+        assert!(prepared.session.reverse_prepared_candidates > 0);
     }
 }
 

@@ -534,3 +534,119 @@ fn immutable_summaries_and_index_kernel_survive_restore() {
     assert_eq!(restored.domains, original.domains);
     assert_eq!(restored.containment_checks, original.containment_checks);
 }
+
+fn owner_box(lower: [u64; 2], upper: [Option<u64>; 2], rank: Option<u32>) -> Domain<2> {
+    Domain {
+        phase: Phase::Apply,
+        owner: [true, true],
+        lower: lower.to_vec(),
+        upper: upper.to_vec(),
+        rank,
+        powers: DomainPowerBounds::default(),
+    }
+}
+
+/// A1 as a restore invariant: a CP5 whose bucket names a domain that is not
+/// a full orthant as its orthant is refused. And should a queue ever hold one,
+/// the helper takes the commit's own shortcut predicate, so a prepared
+/// admission still finds the older container that the serial lookup finds.
+#[test]
+fn non_full_orthant_is_refused_at_restore_and_never_short_cuts_a_helper() {
+    // One inactive axis, so the rank bounds the numerator: the rank-3 orthant
+    // does not contain the rank-unbounded box (numerator up to 10).
+    let owned = |mut domain: Domain<2>| {
+        domain.owner = [true, false];
+        domain
+    };
+    let orthant = owned(owner_box([0, 0], [None, None], Some(3)));
+    let container = owned(owner_box([0, 0], [Some(10), Some(10)], None));
+    let query = owned(owner_box([1, 1], [Some(2), Some(2)], Some(2)));
+    let mut queue = Queue::<2>::new(8, None);
+    assert_eq!(queue.admit(orthant), Ok((0, true)));
+    assert_eq!(queue.admit(container), Ok((1, true)));
+    let key = (Phase::Apply, [true, false]);
+    assert_eq!(queue.by_owner[&key].orthant, Some(0));
+
+    let image = serde_json::to_value(&queue).unwrap();
+    let restored: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    assert_eq!(restored.by_owner[&key].orthant, Some(0));
+    let mut tampered = image.clone();
+    let bucket = &mut tampered[2][0][2];
+    assert_eq!(bucket["orthant"], 0);
+    bucket["orthant"] = serde_json::json!(1);
+    let error = serde_json::from_value::<Queue<2>>(tampered)
+        .err()
+        .expect("a non-full-orthant orthant ID is refused")
+        .to_string();
+    assert!(
+        error.contains("invalid checkpoint full-orthant ID"),
+        "{error}"
+    );
+
+    // In memory only (restore refuses it): the orthant names the finite box,
+    // whose rank still contains the query's. Serial and prepared agree.
+    let mut serial: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    let mut prepared: Queue<2> = serde_json::from_value(image).unwrap();
+    for queue in [&mut serial, &mut prepared] {
+        queue.by_owner.get_mut(&key).unwrap().orthant = Some(1);
+    }
+    let token =
+        prepared.prepare_admission(query.clone(), &std::sync::atomic::AtomicBool::new(false));
+    let expected = serial.admit(query);
+    assert_eq!(expected, Ok((0, false)));
+    assert_eq!(serial.orthant_hits, 0);
+    assert_eq!(prepared.admit_prepared(token), expected);
+    same_state(&serial, &prepared);
+    assert_eq!(serial.containment_checks, prepared.containment_checks);
+}
+
+/// Dead block slots keep their stale IDs byte for byte; one that is not a
+/// former admission ID (out of range, or not a u32) is refused, never mapped.
+#[test]
+fn stale_block_slots_restore_exactly_or_are_refused() {
+    // Points of one antidiagonal share a signature, hence one group.
+    let point = |x: u64| owner_box([x, 40 - x], [Some(x), Some(40 - x)], None);
+    let mut queue = Queue::<2>::new(64, None);
+    for x in 0..40 {
+        assert_eq!(queue.admit(point(x)), Ok((x as usize, true)));
+    }
+    // A segment containing x = 0..=19 retires them: the first block keeps
+    // x = 20..=31 and, in its dead slots, the stale IDs of its old tail.
+    let segment = owner_box([0, 21], [Some(19), Some(40)], None);
+    assert_eq!(queue.admit(segment), Ok((40, true)));
+    assert_eq!(queue.containment_retired_candidates, 20);
+    let image = serde_json::to_value(&queue).unwrap();
+    let text = serde_json::to_string(&queue).unwrap();
+    let restored: Queue<2> = serde_json::from_value(image.clone()).unwrap();
+    assert_eq!(serde_json::to_string(&restored).unwrap(), text);
+    let block = &image[2][0][2]["indexed"]["groups"][0]["blocks"][0];
+    assert_eq!(block["len"], 12);
+    assert_eq!(block["ids"][31], 31, "a former live ID in a dead slot");
+    let domains = queue.domains.len() as u64;
+    for (stale, accepted) in [
+        (domains - 1, true),
+        (0, true),
+        (domains, false),
+        (u64::from(u32::MAX), false),
+        (u64::from(u32::MAX) + 7, false),
+    ] {
+        let mut edited = image.clone();
+        edited[2][0][2]["indexed"]["groups"][0]["blocks"][0]["ids"][31] = serde_json::json!(stale);
+        match serde_json::from_value::<Queue<2>>(edited.clone()) {
+            Ok(restored) => {
+                assert!(accepted, "stale ID {stale} accepted");
+                // Re-encoded byte for byte, the stale value included.
+                assert_eq!(serde_json::to_value(&restored).unwrap(), edited);
+            }
+            Err(error) => {
+                assert!(!accepted, "stale ID {stale} refused: {error}");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("invalid checkpoint stale block slot"),
+                    "{error}"
+                );
+            }
+        }
+    }
+}
