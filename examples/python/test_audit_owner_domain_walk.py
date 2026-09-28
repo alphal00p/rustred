@@ -759,6 +759,10 @@ def build_rescued_run(directory, mutate=None, amend=True):
     if mutate is not None:
         mutate(top)
     write_walk(result, run / "events.jsonl", directory / "checkpoint", queries, top)
+    # A rescued walk that drained with quarantined frontiers exits 4.
+    receipt = json.loads((run / "supervisor-result.json").read_text())
+    receipt["exit_status"] = 4
+    (run / "supervisor-result.json").write_text(json.dumps(receipt) + "\n")
     request = json.loads((run / "request.json").read_text())
     command = request["command"]
     command[command.index("--max-queries") + 1] = "3"

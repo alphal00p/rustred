@@ -52,6 +52,11 @@ if sys.argv[1] == "walk-rescue-plan":
 output = Path(arg("--output"))
 checkpoint = arg("--checkpoint") or arg("--resume")
 Path(checkpoint).mkdir(exist_ok=True)
+if os.environ.get("FAKE_DRAIN") and sys.argv.count("--amend-queries") == 0:
+    output.write_text(json.dumps({"status": "incomplete", "recursive_worklist_exhausted": True,
+                                  "frontiers": 3, "error": None}))
+    Path(arg("--events")).write_text(json.dumps({"event": "finished", "status": "incomplete"}) + "\n")
+    raise SystemExit(4)
 amendments = sys.argv.count("--amend-queries")
 stops = int(os.environ.get("FAKE_STOPS", "1"))
 if amendments < stops and "--no-amendment-counts" not in sys.argv:
@@ -128,10 +133,11 @@ class SupervisorRescueTests(unittest.TestCase):
             self.assertEqual(native[1].count("--amend-queries"), 1)
             self.assertIn("--helper-pattern", plans[0])
             self.assertEqual(plans[0][plans[0].index("--helper-pattern") + 1], "owner-anchor-")
-            resumed = sorted(p for p in directory.glob("run.resume-*") if p.name.count(".resume-") == 1)
-            self.assertEqual(len(resumed), 1)
-            final = sorted(resumed[0].parent.glob(resumed[0].name + ".resume-*"))
-            self.assertEqual(len(final), 1)
+            # Flat resume names (the chain would otherwise outgrow NAME_MAX).
+            resumed = sorted(directory.glob("run.resume-*"), key=lambda p: (p / "request.json").stat().st_mtime_ns)
+            self.assertEqual(len(resumed), 2)
+            self.assertTrue(all(p.name.count(".resume-") == 1 for p in resumed))
+            final = resumed[1:]
             request = json.loads((final[0] / "request.json").read_text())
             self.assertEqual(len(request["amend_queries"]), 2)
             self.assertEqual(request["auto_rescue"]["helper_pattern"], "owner-anchor-")
@@ -164,6 +170,27 @@ class SupervisorRescueTests(unittest.TestCase):
             self.assertEqual(len(native), 2)
             self.assertIn("--resume", native[1])
             self.assertNotIn("--amend-queries", native[1])
+
+    def test_drained_walk_with_frontiers_is_planned_and_completes_or_rescues(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            result = supervise(directory, "--checkpoint", str(directory / "checkpoint"),
+                               "--frontier-policy", "stop", "--auto-rescue",
+                               env={"FAKE_DRAIN": "1", "FAKE_VERDICT": "no_amendment_needed"})
+            self.assertEqual(result.returncode, 4, result.stderr)
+            self.assertIn("every physics query has an untainted containing root", result.stdout)
+            receipt = json.loads((directory / "run" / "rescue.json").read_text())
+            self.assertEqual((receipt["trigger"], receipt["action"]), ("drained_with_frontiers", "complete"))
+            self.assertFalse(list(directory.glob("run.resume-*")))
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            result = supervise(directory, "--checkpoint", str(directory / "checkpoint"),
+                               "--frontier-policy", "stop", "--auto-rescue", env={"FAKE_DRAIN": "1"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rows = [json.loads(line) for line in
+                    (directory / "checkpoint.amendments" / "rescues.jsonl").read_text().splitlines()]
+            self.assertEqual([(row["trigger"], row["action"]) for row in rows],
+                             [("drained_with_frontiers", "resume")])
 
     def test_attempt_bound_stops_the_automatic_rescue(self):
         with tempfile.TemporaryDirectory() as temporary:

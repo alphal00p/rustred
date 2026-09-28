@@ -101,7 +101,10 @@ def restart_command(args, output: Path, checkpoint: str, cpus: set[int]) -> list
         else:
             for item in value if isinstance(value, list) else [value]:
                 command += [option, str(item.resolve() if isinstance(item, Path) else item)]
-    destination = output.with_name(output.name + ".resume-" + uuid.uuid4().hex[:12])
+    # Flat names: an automatic rescue loop resumes many times, and nested
+    # `.resume-` suffixes would outgrow the file-name limit.
+    base = output.name.split(".resume-", 1)[0]
+    destination = output.with_name(base + ".resume-" + uuid.uuid4().hex[:12])
     command += ["--cpus", ",".join(map(str, sorted(cpus))), "--resume", checkpoint,
                 "--run-directory", str(destination)]
     return command
@@ -542,24 +545,40 @@ def rescue_attempts(directory: Path) -> int:
 
 def native_frontier_stop(output: Path, status: int) -> bool:
     """Whether the native session paused on the A10 frontier stop (exit 4)."""
+    return native_rescue_trigger(output, status) == "frontier_stop"
+
+
+def native_rescue_trigger(output: Path, status: int):
+    """Why a rescue plan is due after this native session, or None.
+
+    "frontier_stop": paused on the A10 frontier stop. "drained_with_frontiers":
+    the worklist drained (exit 4, status incomplete) with frontiers left, so a
+    physics query may still be blocked (e.g. a taint that no later stop saw).
+    """
     if status != 4:
-        return False
+        return None
     try:
         document = json.loads((output / "result.json").read_text())
     except (OSError, ValueError):
-        return False
-    return document.get("status") == "paused" and document.get("stop_reason") == FRONTIER_STOP_REASON
+        return None
+    if document.get("status") == "paused" and document.get("stop_reason") == FRONTIER_STOP_REASON:
+        return "frontier_stop"
+    if (document.get("status") == "incomplete" and document.get("recursive_worklist_exhausted") is True
+            and (document.get("frontiers") or 0) > 0 and document.get("error") is None):
+        return "drained_with_frontiers"
+    return None
 
 
 def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_pattern: str,
-                rescue_helpers, env, max_rescues: int, attempts: int, runner=subprocess.run) -> dict:
+                rescue_helpers, env, max_rescues: int, attempts: int, runner=subprocess.run,
+                trigger: str = "frontier_stop", scope: str = "class") -> dict:
     """Classify the frontier stop of the run in `output` and prepare the next resume.
 
     Returns the rescue receipt: action "resume" (with the new amendment path,
     if any) or "wait_for_owner" with the reason. Never touches the checkpoint.
     """
     receipt = {"schema": "rustred.frontier-rescue-receipt.v1", "unix_time": time.time(),
-               "run_directory": str(output), "attempt": attempts + 1, "max_rescues": max_rescues,
+               "run_directory": str(output), "trigger": trigger, "attempt": attempts + 1, "max_rescues": max_rescues,
                "helper_pattern": helper_pattern, "rescue_helpers": None if rescue_helpers is None else str(rescue_helpers),
                "family_closure_claim": False}
     if attempts >= max_rescues:
@@ -571,7 +590,7 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
     plan_path = output / "rescue-plan.json"
     command = [str(executable), "walk-rescue-plan", "--command", str(output / "request.json"),
                "--helper-pattern", helper_pattern, "--output", str(plan_path),
-               "--amendment-output", str(pending)]
+               "--amendment-output", str(pending), "--rescue-scope", scope]
     if rescue_helpers is not None:
         command += ["--rescue-helpers", str(Path(rescue_helpers).resolve())]
     receipt["planner_command"] = command
@@ -587,9 +606,15 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
         return receipt
     receipt["plan"] = {key: plan.get(key) for key in (
         "verdict", "reason", "frontier_nodes", "frontier_records", "classes", "tainted_nodes",
-        "helper_roots_tainted", "physics_queries", "physics_blocked", "unknown_examples", "rescue_level")}
+        "helper_roots_tainted", "physics_queries", "physics_blocked", "unknown_examples", "rescue_level",
+        "rescue_scope", "superseded")}
     receipt["plan_path"] = str(plan_path)
     verdict = plan.get("verdict")
+    if trigger == "drained_with_frontiers" and verdict == "no_amendment_needed":
+        # Drained: every physics query has an untainted (hence closed) root.
+        receipt.update(action="complete", reason="drained; every physics query has an untainted containing "
+                       "root; the remaining frontiers lie in quarantined helper cones")
+        return receipt
     if verdict not in RESCUE_RESUME_VERDICTS:
         receipt.update(action="wait_for_owner",
                        reason=f"frontier rescue refused: {verdict}: {plan.get('reason')}")
@@ -752,6 +777,10 @@ def main() -> int:
     parser.add_argument("--helper-pattern", default=DEFAULT_HELPER_PATTERN,
                         help=f"substring of every helper query id (default: {DEFAULT_HELPER_PATTERN}); other queries are "
                              "physics queries whose certification the rescue preserves")
+    parser.add_argument("--rescue-scope", choices=("class", "tainted"), default="class",
+                        help="class (default): a known-class frontier supersedes every open helper root unbounded in "
+                             "that class's dimension and re-covers its physics queries with bounded helpers (no "
+                             "cascade); tainted: re-cover only the physics queries whose roots reach the frontier")
     parser.add_argument("--max-rescues", type=positive, default=DEFAULT_MAX_RESCUES,
                         help=f"automatic rescue resumes per campaign (default: {DEFAULT_MAX_RESCUES}); counted in the "
                              "amendments directory")
@@ -946,6 +975,7 @@ def main() -> int:
         "amend_queries": [str(path.resolve()) for path in args.amend_queries],
         "auto_rescue": None if not args.auto_rescue else {
             "helper_pattern": args.helper_pattern, "max_rescues": args.max_rescues,
+            "rescue_scope": args.rescue_scope,
             "rescue_helpers": None if args.rescue_helpers is None else str(args.rescue_helpers.resolve()),
             "amendments_directory": str(amendments_directory) if amendments_directory else None},
         "work_checkpoint": False, "family_closure_claim": False,
@@ -1189,11 +1219,15 @@ def main() -> int:
     }, indent=2) + "\n")
     # Frontier rescue: a frontier stop with a known rescue is a pause, never
     # the end of the campaign (owner requirement 2026-09-28).
-    if (args.auto_rescue and stop_reason is None and not hard_stopped
-            and native_frontier_stop(output, status) and checkpoint_directory):
+    trigger = native_rescue_trigger(output, status) if args.auto_rescue else None
+    if trigger and stop_reason is None and not hard_stopped and checkpoint_directory:
         receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_pattern,
-                              args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory))
-        if receipt["action"] == "resume":
+                              args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory),
+                              trigger=trigger, scope=args.rescue_scope)
+        if receipt["action"] == "complete":
+            record_rescue(amendments_directory, output, receipt)
+            print("Frontier rescue: " + receipt["reason"], flush=True)
+        elif receipt["action"] == "resume":
             if receipt["amendment"] is not None:
                 args.amend_queries = [*args.amend_queries, Path(receipt["amendment"]["path"])]
             restart = restart_command(args, output, checkpoint_directory, cpus)
@@ -1207,10 +1241,12 @@ def main() -> int:
             sys.stdout.flush()
             sys.stderr.flush()
             os.execv(restart[0], restart)
-        record_rescue(amendments_directory, output, receipt)
-        print("FRONTIER RESCUE: the campaign is paused and WAITS FOR THE OWNER. " + receipt["reason"],
-              file=sys.stderr, flush=True)
-        print(f"Rescue receipt: {output / 'rescue.json'}; plan: {receipt.get('plan_path')}", file=sys.stderr, flush=True)
+        else:
+            record_rescue(amendments_directory, output, receipt)
+            print("FRONTIER RESCUE: the campaign is paused and WAITS FOR THE OWNER. " + receipt["reason"],
+                  file=sys.stderr, flush=True)
+            print(f"Rescue receipt: {output / 'rescue.json'}; plan: {receipt.get('plan_path')}",
+                  file=sys.stderr, flush=True)
     if resume_command:
         print(f"Durable checkpoint: {checkpoint_directory}", flush=True)
         print("Resume with fresh receipts: " + shlex.join(resume_command), flush=True)

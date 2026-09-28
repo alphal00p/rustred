@@ -54,6 +54,7 @@ TOP_ZERO = ("queued_nodes", "frontiers", "failed_nodes", "pending_descendant_dom
 AMENDMENT_SCHEMA = "rustred.owner-domain-walk-amendment.json.v1"
 # An amended (rescued) walk may keep frontier-blocked obligations: the
 # frontier-bearing nodes and their ancestors are quarantined, never required.
+RESCUE_ABANDONED_KIND = "rescue_abandoned_dead_cone"
 RESCUE_BLOCKED = ("native_frontier_blocked", "delegated_frontier_blocked", "partial_initial_blocked")
 POWER_FIELDS = ("max_positive_power", "min_power_difference", "max_power_difference")
 
@@ -212,7 +213,7 @@ class Audit:
         return condition
 
 
-def check_native_stats(audit, phase, stats, identity):
+def check_native_stats(audit, phase, stats, identity, abandoned=False):
     if not isinstance(stats, dict):
         audit.check(False, f"record {identity}: stats missing")
         return {}
@@ -228,7 +229,7 @@ def check_native_stats(audit, phase, stats, identity):
         audit.check(numeric.get("missing_routes") == 0, f"record {identity}: Route missing_routes must be 0")
         audit.check(numeric.get("masks_pruned", 0) <= numeric.get("masks_examined", 0),
                     f"record {identity}: Route pruned more masks than examined")
-        audit.check(numeric.get("events") == sum(numeric.get(key, 0) for key in ROUTE_EVENT_PARTS),
+        audit.check(abandoned or numeric.get("events") == sum(numeric.get(key, 0) for key in ROUTE_EVENT_PARTS),
                     f"record {identity}: Route event accounting mismatch")
     return numeric
 
@@ -852,8 +853,17 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         else:
             check(frontiers == [], f"record {identity}: nonzero frontiers")
             check(row.get("local_classification_discharged") is True, f"record {identity}: classification not discharged")
+        abandoned = row.get("rescue_abandoned") is True
+        if abandoned:
+            # Rescue: published without inspection, one bookkeeping frontier.
+            parity["rescue_abandoned_records"] += 1
+            check(rescue and code == NATIVE and isinstance(frontiers, list) and len(frontiers) == 1
+                  and isinstance(frontiers[0], dict) and frontiers[0].get("kind") == RESCUE_ABANDONED_KIND
+                  and claim is not True and (row.get("stats") or {}).get("events") == 1,
+                  f"record {identity}: malformed rescue-abandoned record")
         if code == NATIVE:
-            check(row.get("local_inspection_finished") is True, f"record {identity}: native inspection unfinished")
+            check(row.get("local_inspection_finished") is (not abandoned),
+                  f"record {identity}: native inspection unfinished")
         else:
             check(phase == "Apply", f"record {identity}: partial inspection outside Apply")
             check(row.get("local_inspection_finished") is False, f"record {identity}: partial claims full inspection")
@@ -876,7 +886,7 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
                     partials.append((identity, box, anchor, cut, link.get("residual_power_bounds")))
         if phase == "Route":
             check(row.get("conservative_route_overcover") is True, f"record {identity}: Route without conservative overcover")
-        numeric = check_native_stats(audit, phase, row.get("stats"), identity)
+        numeric = check_native_stats(audit, phase, row.get("stats"), identity, abandoned)
         target = apply_stats if phase == "Apply" else route_stats
         for field, value in numeric.items():
             target[field] += value
@@ -1142,7 +1152,11 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     receipt = None
     if located["receipt"] is not None:
         receipt = read_json(located["receipt"])
-        check(receipt.get("exit_status") == 0, "resource receipt exit_status != 0")
+        # A rescued walk that drained with quarantined frontiers exits 4 (incomplete).
+        rescued_drain = rescue and top.get("status") == "incomplete" and (top.get("frontiers") or 0) > 0
+        check(receipt.get("exit_status") == (4 if rescued_drain else 0),
+              "resource receipt exit_status != 0" if not rescued_drain
+              else "rescued walk: resource receipt exit_status != 4 (drained with quarantined frontiers)")
         if "hard_stopped" in receipt:
             check(receipt.get("hard_stopped") is False, "supervisor hard-stopped the native process")
             check(receipt.get("operator_or_resource_stop") is None, "supervisor recorded a stop reason")
