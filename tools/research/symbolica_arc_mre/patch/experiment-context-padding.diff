@@ -1,0 +1,131 @@
+diff --git a/src/poly/polynomial.rs b/src/poly/polynomial.rs
+index e2d4dddc..c6b10362 100755
+--- a/src/poly/polynomial.rs
++++ b/src/poly/polynomial.rs
+@@ -806,12 +806,31 @@ impl<E: Display> Display for PositiveRealRootCountError<E> {
+ impl<E: std::fmt::Debug + Display> std::error::Error for PositiveRealRootCountError<E> {}
+ 
+ /// Shared coefficient ring and variable map of a multivariate polynomial.
++///
++/// `_pad` keeps the fields that are read on every operation (`ring`, `nvars`, `variables`)
++/// off the cache line of the `Arc` reference counts, which every clone and drop of a
++/// polynomial writes (possibly from many threads at once).
+ #[derive(Clone, PartialEq, Eq, Hash, Debug)]
++#[repr(C)]
+ struct PolynomialContext<F: Ring> {
++    _pad: [u64; 14],
+     ring: F,
++    nvars: usize,
+     variables: Arc<Vec<PolyVariable>>,
+ }
+ 
++impl<F: Ring> PolynomialContext<F> {
++    #[inline]
++    fn new(ring: F, variables: Arc<Vec<PolyVariable>>) -> Self {
++        PolynomialContext {
++            _pad: [0; 14],
++            ring,
++            nvars: variables.len(),
++            variables,
++        }
++    }
++}
++
+ #[cfg(feature = "bincode")]
+ impl<F: Ring + bincode::Encode, E: Exponent + bincode::Encode, O: MonomialOrder> bincode::Encode
+     for MultivariatePolynomial<F, E, O>
+@@ -850,7 +869,7 @@ where
+         Ok(MultivariatePolynomial {
+             coefficients,
+             exponents,
+-            context: Arc::new(PolynomialContext { ring, variables }),
++            context: Arc::new(PolynomialContext::new(ring, variables)),
+             _phantom: PhantomData,
+         })
+     }
+@@ -881,7 +900,9 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         if Arc::ptr_eq(&self.context.variables, &variables) {
+             return;
+         }
+-        Arc::make_mut(&mut self.context).variables = variables;
++        let context = Arc::make_mut(&mut self.context);
++        context.nvars = variables.len();
++        context.variables = variables;
+     }
+ 
+     /// Constructs a zero polynomial. Instead of using this constructor,
+@@ -892,10 +913,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         Self {
+             coefficients: Vec::with_capacity(cap.unwrap_or(0)),
+             exponents: Vec::with_capacity(cap.unwrap_or(0) * variables.len()),
+-            context: Arc::new(PolynomialContext {
+-                ring: ring.clone(),
+-                variables,
+-            }),
++            context: Arc::new(PolynomialContext::new(ring.clone(), variables)),
+             _phantom: PhantomData,
+         }
+     }
+@@ -903,7 +921,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+     /// Constructs an empty polynomial with capacity, sharing `context`.
+     #[inline]
+     fn from_context(cap: Option<usize>, context: Arc<PolynomialContext<F>>) -> Self {
+-        let nvars = context.variables.len();
++        let nvars = context.nvars;
+         Self {
+             coefficients: Vec::with_capacity(cap.unwrap_or(0)),
+             exponents: Vec::with_capacity(cap.unwrap_or(0) * nvars),
+@@ -924,7 +942,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         Self {
+             coefficients,
+             exponents,
+-            context: Arc::new(PolynomialContext { ring, variables }),
++            context: Arc::new(PolynomialContext::new(ring, variables)),
+             _phantom: PhantomData,
+         }
+     }
+@@ -937,10 +955,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         Self {
+             coefficients: vec![],
+             exponents: vec![],
+-            context: Arc::new(PolynomialContext {
+-                ring: ring.clone(),
+-                variables: Arc::new(vec![]),
+-            }),
++            context: Arc::new(PolynomialContext::new(ring.clone(), Arc::new(vec![]))),
+             _phantom: PhantomData,
+         }
+     }
+@@ -953,10 +968,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         Self {
+             coefficients: vec![ring.one()],
+             exponents: vec![],
+-            context: Arc::new(PolynomialContext {
+-                ring: ring.clone(),
+-                variables: Arc::new(vec![]),
+-            }),
++            context: Arc::new(PolynomialContext::new(ring.clone(), Arc::new(vec![]))),
+             _phantom: PhantomData,
+         }
+     }
+@@ -1082,7 +1094,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+     /// Returns the number of variables in the polynomial.
+     #[inline]
+     pub fn nvars(&self) -> usize {
+-        self.variables().len()
++        self.context.nvars
+     }
+ 
+     /// Returns true if the polynomial is constant.
+@@ -2078,10 +2090,7 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         MultivariatePolynomial {
+             coefficients,
+             exponents,
+-            context: Arc::new(PolynomialContext {
+-                ring: field,
+-                variables: self.variables().clone(),
+-            }),
++            context: Arc::new(PolynomialContext::new(field, self.variables().clone())),
+             _phantom: PhantomData,
+         }
+     }

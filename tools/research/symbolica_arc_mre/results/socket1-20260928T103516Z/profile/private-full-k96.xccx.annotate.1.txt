@@ -1,0 +1,27 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+# hottest instructions (percent of this symbol's samples):
+   88.83 :   7c6b5:  mov    %si,(%rdx,%rdi,2)
+    2.23 :   7c687:  xor    %edi,%edi
+    2.23 :   7c57e:  movaps 0x40(%rsp),%xmm1
+    1.12 :   7c669:  test   %rax,%rax
+    0.56 :   7c6ec:  add    $0xfffffffffffffffe,%rcx
+    0.56 :   7c6e9:  inc    %rdi
+    0.56 :   7c6a3:  mov    0x60(%rsp),%rdx
+    0.56 :   7c69c:  jb     7c6a8 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list+0x1d8>
+    0.56 :   7c695:  mov    %r12,%rdx
+    0.56 :   7c67f:  add    0x118(%rsp),%rax
+    0.56 :   7c639:  mov    %rax,0xc8(%rsp)
+    0.56 :   7c61b:  lea    0xeffe8e(%rip),%rax        # f7c4b0 <anon.eb910207615862a9c1e6f64f7c3d5b98.16.llvm.16245042909035050292+0x158>
+    0.56 :   7c5d1:  mov    %rax,0x128(%rsp)
+    0.56 :   7c5bd:  lea    0xa8(%rsp),%rdi
+    0.00 :   7d73e:  call   *0xf296f4(%rip)        # fa6e38 <_GLOBAL_OFFSET_TABLE_+0x3c68>
+    0.00 :   7d738:  call   *0xf296fa(%rip)        # fa6e38 <_GLOBAL_OFFSET_TABLE_+0x3c68>
+    0.00 :   7d733:  call   3b0b0 <_Unwind_Resume@plt>
+    0.00 :   7d730:  mov    %r14,%rdi
+    0.00 :   7d72b:  call   7ffb0 <<hashbrown::raw::RawTable<(smallvec::SmallVec<[u16; 6]>, symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>)> as core::ops::drop::Drop>::drop>
+    0.00 :   7d723:  lea    0x150(%rsp),%rdi
+    0.00 :   7d71d:  call   *0xf25ff5(%rip)        # fa3718 <_GLOBAL_OFFSET_TABLE_+0x548>
+    0.00 :   7d718:  mov    $0x2,%edx
+    0.00 :   7d715:  add    %rsi,%rsi
+    0.00 :   7d710:  mov    0x60(%rsp),%rdi
+    0.00 :   7d70e:  jb     7d723 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list+0x1253>

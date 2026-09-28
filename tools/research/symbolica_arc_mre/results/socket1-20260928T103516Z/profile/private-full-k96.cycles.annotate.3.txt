@@ -1,0 +1,27 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace
+# hottest instructions (percent of this symbol's samples):
+   14.59 :   7aeaf:  movaps %xmm0,(%rsp)
+    4.70 :   7b1ad:  mov    0xc8(%rsp),%rsi
+    4.49 :   7b1a0:  test   %rdx,%rdx
+    2.59 :   7b17b:  sub    %r14,%r13
+    2.31 :   7bcc9:  movups %xmm0,(%rax)
+    2.24 :   7bd62:  add    %rax,%rbx
+    2.24 :   7983f:  add    %rcx,%rax
+    1.89 :   7bff7:  movdqa 0xa0(%rsp),%xmm2
+    1.89 :   7b2d7:  xor    %edx,%edx
+    1.89 :   7aeee:  movdqu %xmm0,(%rax,%rcx,8)
+    1.75 :   7be59:  je     7bef0 <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x27b0>
+    1.61 :   7bd57:  call   *0xf28d1b(%rip)        # fa4a78 <memcpy@GLIBC_2.14>
+    1.54 :   7bec8:  cmp    %rax,0x68(%rsp)
+    1.54 :   7be9b:  mov    %rdx,0x10(%rax,%rcx,8)
+    1.54 :   7bddc:  or     0x50(%rsp),%rax
+    1.54 :   7983b:  cmovb  %r14d,%r10d
+    1.47 :   7bd99:  mov    %rcx,0x60(%rsp)
+    1.40 :   7bdc0:  mov    0x30(%rsp),%rdx
+    1.26 :   7be25:  jb     7c08f <<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace+0x294f>
+    1.26 :   7b307:  add    $0x20,%rdx
+    1.26 :   7984a:  test   %r10w,%r10w
+    1.26 :   79833:  cmp    %r14w,%bp
+    1.19 :   7b1bb:  mov    %r15,%rdi
+    1.12 :   7beaa:  inc    %rbx
+    1.12 :   7be14:  mov    %rcx,%rsi

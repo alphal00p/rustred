@@ -1,0 +1,27 @@
+# symbol: core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>
+# hottest instructions (percent of this symbol's samples):
+    1.47 :   af748a: jne    af74a0 <core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x3680>
+    1.40 :   af7344: cmp    %bp,(%rax,%rsi,2)
+    1.26 :   af751a: jne    af7530 <core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x3710>
+    1.19 :   af7515: cmp    %r14w,(%rax,%r8,2)
+    1.07 :   af742e: cmp    %rax,%rsi
+    0.97 :   af7485: cmp    %bp,(%rax,%r8,2)
+    0.88 :   af751f: cmp    %r8,%rbx
+    0.83 :   af7348: jne    af7360 <core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x3540>
+    0.83 :   af7210: add    $0x8,%rdi
+    0.79 :   af734d: cmp    %rsi,%r8
+    0.78 :   af7533: cmovb  %r13,%r12
+    0.69 :   af74a4: cmovb  %r13,%r12
+    0.57 :   af7363: mov    0x80(%rsp),%rbp
+    0.55 :   af73fb: add    %rax,%rcx
+    0.53 :   af7295: cmp    %r8w,(%rax,%rsi,2)
+    0.50 :   af74be: cmp    %rax,%rsi
+    0.47 :   af72d5: mov    %r8,%rax
+    0.47 :   af680b: mov    (%rsp),%rdi
+    0.43 :   af748f: cmp    %r8,%rbx
+    0.41 :   af729f: cmp    %rsi,%r14
+    0.41 :   af729a: jne    af72b0 <core::slice::sort::shared::smallsort::small_sort_network::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::algebraic::AlgebraicExtension<numerica::domains::finite_field::FiniteField<numerica::domains::finite_field::Mersenne64>>>>::from_coefficient_list::{closure#0}>::{closure#0}>+0x3490>
+    0.41 :   af6f6b: mov    0x20(%rsp),%rdi
+    0.40 :   af72e7: cmp    %rax,%rsi
+    0.40 :   af6b55: cmp    %r15w,(%rdx,%r9,2)
+    0.38 :   af5a05: cmp    %bp,(%rdx,%r15,2)

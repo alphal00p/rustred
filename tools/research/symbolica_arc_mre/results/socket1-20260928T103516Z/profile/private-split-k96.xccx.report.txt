@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 262  of event 'ls_dmnd_fills_from_sys.far_cache:u'
+# Event count (approx.): 524786
+#
+# Overhead  Symbol                                                                                                                             
+# ........  ...................................................................................................................................
+#
+    50.38%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+    21.76%  [.] <ahash::random_state::RandomState>::from_keys
+    15.65%  [.] <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
+     5.73%  [.] __libc_calloc
+     3.44%  [.] <smallvec::SmallVec<[u16; 6]>>::from_elem
+     1.15%  [.] __rustc::__rdl_alloc_zeroed
+#
+# (Tip: To group events which need to be collected together for accuracy use {}: perf record -e {cycles,branches}' ...)
+#

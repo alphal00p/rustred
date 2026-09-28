@@ -1,0 +1,27 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+# hottest instructions (percent of this symbol's samples):
+   27.00 :   7c7e3:  movups 0x20(%rsp),%xmm1
+   19.94 :   7c6b5:  mov    %si,(%rdx,%rdi,2)
+   11.61 :   7c52c:  lea    0xf2c90d(%rip),%rax        # fa8e40 <ahash::random_state::get_fixed_seeds::SEEDS>
+    3.90 :   7c528:  mov    0x8(%rax),%rbp
+    2.77 :   7c6e9:  inc    %rdi
+    2.63 :   7c6b9:  mov    0xc0(%rsp),%rsi
+    1.89 :   7c8c2:  movdqa %xmm0,0x130(%rsp)
+    1.86 :   7c7f6:  mov    %rbx,%rdi
+    1.38 :   7c695:  mov    %r12,%rdx
+    1.36 :   7c6ec:  add    $0xfffffffffffffffe,%rcx
+    1.33 :   7c669:  test   %rax,%rax
+    1.27 :   7c7d5:  mov    %rbx,%rdi
+    1.27 :   7c763:  mov    %cx,(%rdx,%rdi,2)
+    1.13 :   7cc7f:  movups 0x1e0(%rsp),%xmm1
+    1.07 :   7c6c1:  mov    %r14,%rdx
+    1.02 :   7c767:  mov    0x68(%rsp),%rsi
+    0.90 :   7c6d2:  mov    0xb8(%rsp),%rdx
+    0.88 :   7c6c4:  cmp    $0x7,%rsi
+    0.79 :   7c6a8:  cmp    %rsi,%rdi
+    0.76 :   7c6da:  cmp    %rsi,%rdi
+    0.73 :   7c78e:  add    $0x8,%rax
+    0.71 :   7cc87:  movups 0x1f0(%rsp),%xmm2
+    0.68 :   7c687:  xor    %edi,%edi
+    0.51 :   7c665:  mov    0x20(%rax),%rax
+    0.48 :   7c698:  cmp    $0x7,%rsi

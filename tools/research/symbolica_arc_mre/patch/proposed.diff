@@ -1,0 +1,146 @@
+diff --git a/src/poly/polynomial.rs b/src/poly/polynomial.rs
+index e2d4dddc..d2b6a177 100755
+--- a/src/poly/polynomial.rs
++++ b/src/poly/polynomial.rs
+@@ -974,6 +974,44 @@ impl<F: Ring, E: Exponent, O: MonomialOrder> MultivariatePolynomial<F, E, O> {
+         Self::from_context(Some(cap), self.context.clone())
+     }
+ 
++    /// Constructs a zero polynomial with an equal field and variable map held in a new
++    /// context (and a new variable-map allocation) that no other polynomial shares.
++    ///
++    /// Every clone or drop of a polynomial updates the atomic reference count of its context.
++    /// When many threads work on polynomials that share one context, these updates move the
++    /// same cache line between cores. A thread can create one such template and use
++    /// [`Self::clone_with_context_of`] to work on shared, read-only polynomials without
++    /// touching their context.
++    pub fn zero_with_new_context(&self) -> Self {
++        Self::from_context(
++            None,
++            Arc::new(PolynomialContext {
++                ring: self.ring().clone(),
++                variables: Arc::new(self.variables().as_ref().clone()),
++            }),
++        )
++    }
++
++    /// Clones `self` onto the context of `other`, whose field and variable map must be equal
++    /// to those of `self`. Unlike [`Clone::clone`], this does not update the reference count
++    /// of `self`'s context; see [`Self::zero_with_new_context`].
++    ///
++    /// # Panics
++    ///
++    /// Panics if the fields or the variable maps differ.
++    pub fn clone_with_context_of(&self, other: &Self) -> Self {
++        assert!(
++            self.ring() == other.ring() && self.variables() == other.variables(),
++            "clone_with_context_of: the field and the variable map must be equal"
++        );
++        Self {
++            coefficients: self.coefficients.clone(),
++            exponents: self.exponents.clone(),
++            context: other.context.clone(),
++            _phantom: PhantomData,
++        }
++    }
++
+     /// Constructs a constant polynomial,
+     /// inheriting the field and variable map from `self`.
+     #[inline]
+@@ -3477,18 +3515,38 @@ impl<F: Ring, E: Exponent> MultivariatePolynomial<F, E, LexOrder> {
+         xs: &[usize],
+         include: bool,
+     ) -> HashMap<SmallVec<[E; INLINED_EXPONENTS]>, MultivariatePolynomial<F, E, LexOrder>> {
++        // A fixed-key hasher: `HashMap::new()` calls `ahash::RandomState::new()`, which
++        // increments one process-global atomic counter per call (contended when many threads
++        // call this function). The keys are exponent vectors computed here.
++        let hasher = ahash::RandomState::with_seeds(
++            0x243f_6a88_85a3_08d3,
++            0x1319_8a2e_0370_7344,
++            0xa409_3822_299f_31d0,
++            0x082e_fa98_ec4e_6c89,
++        );
+         if self.coefficients.is_empty() {
+-            return HashMap::new();
++            return HashMap::with_hasher(hasher);
+         }
+ 
++        // All outputs share one context created for this call, instead of each output cloning
++        // (and later dropping) `self`'s context, which may be shared by many threads.
++        let template = Self::from_context(
++            None,
++            Arc::new(PolynomialContext {
++                ring: self.ring().clone(),
++                variables: self.variables().clone(),
++            }),
++        );
++        let nvars = self.nvars();
+         let mut tm: HashMap<
+             SmallVec<[E; INLINED_EXPONENTS]>,
+             MultivariatePolynomial<F, E, LexOrder>,
+-        > = HashMap::new();
+-        let mut e_not_in_xs = smallvec![E::zero(); self.nvars()];
+-        let mut e_in_xs = smallvec![E::zero(); self.nvars()];
+-        for t in self {
+-            for (i, ee) in t.exponents.iter().enumerate() {
++        > = HashMap::with_hasher(hasher);
++        let mut e_not_in_xs = smallvec![E::zero(); nvars];
++        let mut e_in_xs = smallvec![E::zero(); nvars];
++        for (term, coefficient) in self.coefficients.iter().enumerate() {
++            let exponents = &self.exponents[term * nvars..(term + 1) * nvars];
++            for (i, ee) in exponents.iter().enumerate() {
+                 e_not_in_xs[i] = *ee;
+                 e_in_xs[i] = E::zero();
+             }
+@@ -3500,24 +3558,12 @@ impl<F: Ring, E: Exponent> MultivariatePolynomial<F, E, LexOrder> {
+ 
+             if include {
+                 tm.entry(e_in_xs.clone())
+-                    .and_modify(|x| x.append_monomial(t.coefficient.clone(), &e_not_in_xs))
+-                    .or_insert_with(|| {
+-                        MultivariatePolynomial::monomial(
+-                            self,
+-                            t.coefficient.clone(),
+-                            e_not_in_xs.to_vec(),
+-                        )
+-                    });
++                    .and_modify(|x| x.append_monomial(coefficient.clone(), &e_not_in_xs))
++                    .or_insert_with(|| template.monomial(coefficient.clone(), e_not_in_xs.to_vec()));
+             } else {
+                 tm.entry(e_not_in_xs.clone())
+-                    .and_modify(|x| x.append_monomial(t.coefficient.clone(), &e_in_xs))
+-                    .or_insert_with(|| {
+-                        MultivariatePolynomial::monomial(
+-                            self,
+-                            t.coefficient.clone(),
+-                            e_in_xs.to_vec(),
+-                        )
+-                    });
++                    .and_modify(|x| x.append_monomial(coefficient.clone(), &e_in_xs))
++                    .or_insert_with(|| template.monomial(coefficient.clone(), e_in_xs.to_vec()));
+             }
+         }
+ 
+@@ -7690,6 +7736,22 @@ mod test {
+         );
+     }
+ 
++    #[test]
++    fn clone_with_context_of_uses_the_template_context() {
++        let variables = Arc::new(vec![symbol!("x").into(), symbol!("y").into()]);
++        let p = parse!("x^2*y+3*y").to_polynomial::<_, u8>(&Z, variables);
++        let template = p.zero_with_new_context();
++        assert!(!Arc::ptr_eq(&p.context, &template.context));
++        assert!(!Arc::ptr_eq(p.variables(), template.variables()));
++        let q = p.clone_with_context_of(&template);
++        assert!(Arc::ptr_eq(&q.context, &template.context));
++        assert_eq!(q, p);
++
++        let split = q.to_multivariate_polynomial_list(&[0], true);
++        assert_eq!(split, p.to_multivariate_polynomial_list(&[0], true));
++        assert_eq!(split.len(), 2);
++    }
++
+     #[test]
+     fn polynomial_context_is_shared_and_copy_on_write() {
+         let variables = Arc::new(vec![symbol!("x").into(), symbol!("y").into()]);

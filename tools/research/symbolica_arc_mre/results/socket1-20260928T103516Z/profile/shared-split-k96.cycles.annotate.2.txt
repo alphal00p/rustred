@@ -1,0 +1,27 @@
+# symbol: realloc
+# hottest instructions (percent of this symbol's samples):
+   86.09 :   af431:  jne    af830 <__libc_realloc+0x520>
+    8.55 :   af44f:  call   adf20 <_int_realloc>
+    1.71 :   af379:  jne    af3b0 <__libc_realloc+0xa0>
+    0.45 :   af3b0:  lea    -0x8(%r10),%rcx
+    0.30 :   af407:  cmova  %rcx,%rax
+    0.25 :   af3d1:  mov    %r10,%rax
+    0.23 :   af45d:  mov    -0x38(%rbp),%r11
+    0.23 :   af40b:  mov    %rax,%r13
+    0.21 :   af3d4:  neg    %rax
+    0.21 :   af36b:  and    $0x2,%edx
+    0.19 :   af440:  mov    %r12,%rdi
+    0.16 :   af447:  mov    %r8,-0x40(%rbp)
+    0.16 :   af315:  mov    %rdi,%r8
+    0.14 :   af327:  sub    $0x38,%rsp
+    0.13 :   af326:  push   %rbx
+    0.12 :   af359:  lea    -0x10(%rdi),%r11
+    0.10 :   af324:  push   %r12
+    0.10 :   af320:  push   %r14
+    0.09 :   af353:  je     af339 <__libc_realloc+0x29>
+    0.07 :   af367:  lea    -0x10(%r10),%rbx
+    0.07 :   af31b:  mov    %rsp,%rbp
+    0.04 :   af363:  and    $0xfffffffffffffff8,%r10
+    0.04 :   af32b:  test   %rsi,%rsi
+    0.03 :   af48e:  test   $0x4,%al
+    0.03 :   af39c:  xor    %r8d,%r8d

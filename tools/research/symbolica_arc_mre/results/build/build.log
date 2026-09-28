@@ -1,0 +1,85 @@
+warning: Git tree '/common/dev/rustred' is dirty
+     Locking 2 packages to latest Rust 1.97.1 compatible versions
+      Adding libmimalloc-sys v0.1.49
+      Adding mimalloc v0.1.52
+   Compiling libc v0.2.189
+   Compiling autocfg v1.5.1
+   Compiling cfg-if v1.0.4
+   Compiling bytemuck v1.25.2
+   Compiling version_check v0.9.5
+   Compiling zerocopy v0.8.56
+   Compiling crossbeam-utils v0.8.22
+   Compiling getrandom v0.3.4
+   Compiling proc-macro2 v1.0.107
+   Compiling once_cell v1.21.4
+   Compiling crossbeam-epoch v0.9.20
+   Compiling paste v1.0.15
+   Compiling gmp-mpfr-sys v1.7.1
+   Compiling crossbeam-deque v0.8.7
+   Compiling unicode-ident v1.0.24
+   Compiling libm v0.2.16
+   Compiling quote v1.0.47
+   Compiling rayon-core v1.13.0
+   Compiling either v1.17.0
+   Compiling rug v1.30.0
+   Compiling smallvec v1.15.2
+   Compiling regex-syntax v0.8.11
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling az v1.3.0
+   Compiling pin-project-lite v0.2.17
+   Compiling log v0.4.33
+   Compiling dyn-clone v1.0.20
+   Compiling colored v3.1.1
+   Compiling option-ext v0.2.0
+   Compiling lazy_static v1.5.0
+   Compiling symbolica v3.0.0 (/common/dev/rustred/vendor/symbolica)
+   Compiling nu-ansi-term v0.50.3
+   Compiling static_assertions v1.1.0
+   Compiling inventory v0.3.24
+   Compiling bytes v1.12.1
+   Compiling tinyjson v2.5.1
+   Compiling data-encoding v2.11.1
+   Compiling byteorder v1.5.0
+   Compiling self_cell v1.3.0
+   Compiling append-only-vec v0.1.8
+   Compiling thread_local v1.1.10
+   Compiling sharded-slab v0.1.7
+   Compiling ed25519-compact v2.4.2
+   Compiling alloc-stdlib v0.2.4
+   Compiling safe_arch v0.7.4
+   Compiling safe_arch v1.2.0
+   Compiling brotli-decompressor v5.0.3
+   Compiling itertools v0.14.0
+   Compiling tracing-core v0.1.36
+   Compiling ahash v0.8.12
+   Compiling num-traits v0.2.19
+   Compiling smartstring v1.0.1
+   Compiling wide v0.7.33
+   Compiling tracing-log v0.2.0
+   Compiling wide v1.7.1
+   Compiling syn v2.0.119
+   Compiling brotli v8.0.4
+   Compiling regex-automata v0.4.18
+   Compiling dirs-sys v0.5.0
+   Compiling approx v0.5.1
+   Compiling num-complex v0.4.6
+   Compiling directories v6.0.0
+   Compiling rand_core v0.9.5
+   Compiling rayon v1.12.0
+   Compiling simba v0.9.1
+   Compiling matchers v0.2.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling tracing-attributes v0.1.31
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.5
+   Compiling tracing v0.1.44
+   Compiling tracing-subscriber v0.3.23
+   Compiling xprec v0.2.2
+   Compiling numerica v3.0.0 (/common/dev/rustred/vendor/symbolica/lib/numerica)
+   Compiling graphica v3.0.0 (/common/dev/rustred/vendor/symbolica/lib/graphica)
+   Compiling symbolica-arc-mre v0.1.0 (/common/dev/rustred/tools/research/symbolica_arc_mre)
+    Finished `release` profile [optimized + debuginfo] target(s) in 9m 05s
+
+real	9m7.524s
+user	20m53.564s
+sys	0m42.219s

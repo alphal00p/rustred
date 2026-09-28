@@ -1,0 +1,27 @@
+# symbol: <ahash::random_state::RandomState>::from_keys
+# hottest instructions (percent of this symbol's samples):
+   47.76 :   d44f9a: xor    %rdx,%rax
+   16.42 :   d44fa3: xor    %rdx,%rcx
+    8.96 :   d44fa0: mov    %rax,%rcx
+    4.48 :   d44faf: xor    %rax,%r8
+    4.48 :   d44f87: mov    0x10(%r9),%r10
+    2.99 :   d44fac: mov    %rdx,%r8
+    2.99 :   d44f97: xor    %r10,%rdx
+    2.99 :   d44f60: push   %r15
+    1.49 :   d45032: mov    %r9,0x8(%rdi)
+    1.49 :   d4501d: mov    %rax,%rcx
+    1.49 :   d44fe4: xor    %r11,%r10
+    1.49 :   d44fa6: mov    %rcx,%rax
+    1.49 :   d44f91: xor    %r11,%rax
+    1.49 :   d44f62: push   %r14
+    0.00 :   d45048: ret
+    0.00 :   d45046: pop    %r15
+    0.00 :   d45044: pop    %r14
+    0.00 :   d45042: pop    %r12
+    0.00 :   d45041: pop    %rbx
+    0.00 :   d4503e: mov    %rdi,%rax
+    0.00 :   d4503a: mov    %rdx,0x18(%rdi)
+    0.00 :   d45036: mov    %r10,0x10(%rdi)
+    0.00 :   d4502f: mov    %r8,(%rdi)
+    0.00 :   d4502c: rol    %cl,%rdx
+    0.00 :   d45029: xor    %rax,%rdx

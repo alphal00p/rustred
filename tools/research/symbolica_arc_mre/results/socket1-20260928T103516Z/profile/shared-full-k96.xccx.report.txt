@@ -1,0 +1,73 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5K of event 'ls_dmnd_fills_from_sys.near_cache:u'
+# Event count (approx.): 10539786
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                  
+# ........  ........................................................................................................................................................................................................................................................................................................................................................
+#
+    33.88%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+    11.67%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace
+     8.02%  [.] symbolica_arc_mre::specialize
+     5.66%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     5.07%  [.] _int_free_chunk
+     4.16%  [.] realloc
+     3.55%  [.] cfree@GLIBC_2.2.5
+     2.83%  [.] <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
+     2.77%  [.] core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     1.84%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     1.77%  [.] <ahash::random_state::RandomState>::from_keys
+     1.73%  [.] symbolica_arc_mre::check_on_map
+     1.29%  [.] <alloc::vec::Vec<numerica::domains::integer::Integer> as core::clone::Clone>::clone
+     1.25%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     1.24%  [.] <symbolica::poly::PolyVariable as core::slice::cmp::SlicePartialEq<symbolica::poly::PolyVariable>>::equal_same_length
+     1.12%  [.] <alloc::sync::Arc<symbolica::poly::polynomial::PolynomialContext<symbolica::domains::rational_polynomial::RationalPolynomialField<numerica::domains::integer::IntegerRing, u32>>>>::drop_slow
+     1.01%  [.] __rustc::__rdl_dealloc
+     0.91%  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     0.84%  [.] core::slice::sort::unstable::quicksort::quicksort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     0.82%  [.] __rustc::__rust_dealloc
+     0.82%  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left::<(usize, i64), <[(usize, i64)]>::sort_unstable_by<symbolica_arc_mre::draw_fixed::{closure#1}>::{closure#0}>
+     0.76%  [.] symbolica_arc_mre::run_ops
+     0.68%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     0.67%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     0.65%  [.] __memmove_avx512_unaligned_erms
+     0.65%  [.] malloc
+     0.59%  [.] _int_realloc
+# Samples: 12K of event 'ls_dmnd_fills_from_sys.far_cache:u'
+# Event count (approx.): 25802646
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                  
+# ........  ........................................................................................................................................................................................................................................................................................................................................................
+#
+    34.72%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+    10.57%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::replace
+     8.07%  [.] symbolica_arc_mre::specialize
+     6.33%  [.] core::ptr::drop_glue::<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>
+     4.67%  [.] _int_free_chunk
+     4.14%  [.] realloc
+     3.32%  [.] cfree@GLIBC_2.2.5
+     2.77%  [.] core::slice::sort::unstable::ipnsort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     2.76%  [.] <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
+     1.85%  [.] symbolica_arc_mre::check_on_map
+     1.83%  [.] <smallvec::SmallVec<[u16; 6]>>::try_grow
+     1.79%  [.] <ahash::random_state::RandomState>::from_keys
+     1.36%  [.] core::ptr::drop_glue::<numerica::domains::integer::Integer>
+     1.20%  [.] <smallvec::SmallVec<[u16; 6]> as core::iter::traits::collect::Extend<u16>>::extend::<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<u16>>>
+     1.18%  [.] <symbolica::poly::PolyVariable as core::slice::cmp::SlicePartialEq<symbolica::poly::PolyVariable>>::equal_same_length
+     1.12%  [.] __rustc::__rdl_dealloc
+     1.00%  [.] <alloc::vec::Vec<numerica::domains::integer::Integer> as core::clone::Clone>::clone
+     0.82%  [.] __rustc::__rust_dealloc
+     0.82%  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     0.74%  [.] __memmove_avx512_unaligned_erms
+     0.73%  [.] <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::monomial
+     0.71%  [.] malloc
+     0.71%  [.] _int_realloc
+     0.69%  [.] symbolica_arc_mre::run_ops
+     0.66%  [.] core::slice::sort::unstable::quicksort::quicksort::<usize, <[usize]>::sort_unstable_by<<symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::from_coefficient_list::{closure#0}>::{closure#0}>
+     0.62%  [.] <alloc::sync::Arc<symbolica::poly::polynomial::PolynomialContext<symbolica::domains::rational_polynomial::RationalPolynomialField<numerica::domains::integer::IntegerRing, u32>>>>::drop_slow
+#
+# (Tip: If you prefer Intel style assembly, try: perf annotate -M intel)
+#

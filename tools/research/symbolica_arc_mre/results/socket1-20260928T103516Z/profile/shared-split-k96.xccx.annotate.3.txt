@@ -1,0 +1,27 @@
+# symbol: realloc
+# hottest instructions (percent of this symbol's samples):
+   86.67 :   af431:  jne    af830 <__libc_realloc+0x520>
+   83.75 :   af431:  jne    af830 <__libc_realloc+0x520>
+   12.38 :   af44f:  call   adf20 <_int_realloc>
+   10.22 :   af44f:  call   adf20 <_int_realloc>
+    2.32 :   af379:  jne    af3b0 <__libc_realloc+0xa0>
+    1.78 :   af379:  jne    af3b0 <__libc_realloc+0xa0>
+    0.44 :   af40b:  mov    %rax,%r13
+    0.44 :   af367:  lea    -0x10(%r10),%rbx
+    0.44 :   af320:  push   %r14
+    0.39 :   af447:  mov    %r8,-0x40(%rbp)
+    0.19 :   af440:  mov    %r12,%rdi
+    0.19 :   af40b:  mov    %rax,%r13
+    0.19 :   af407:  cmova  %rcx,%rax
+    0.19 :   af3fa:  and    $0xfffffffffffffff0,%rcx
+    0.19 :   af3b0:  lea    -0x8(%r10),%rcx
+    0.19 :   af359:  lea    -0x10(%rdi),%r11
+    0.00 :   af896:  call   39990 <__libc_assert_fail>
+    0.00 :   af896:  call   39990 <__libc_assert_fail>
+    0.00 :   af88f:  lea    0x1139e3(%rip),%rdi        # 1c3279 <null+0x10f3>
+    0.00 :   af88f:  lea    0x1139e3(%rip),%rdi        # 1c3279 <null+0x10f3>
+    0.00 :   af888:  lea    0x113794(%rip),%rsi        # 1c3023 <null+0xe9d>
+    0.00 :   af888:  lea    0x113794(%rip),%rsi        # 1c3023 <null+0xe9d>
+    0.00 :   af883:  mov    $0xc1a,%edx
+    0.00 :   af883:  mov    $0xc1a,%edx
+    0.00 :   af87c:  lea    0x119a3d(%rip),%rcx        # 1c92c0 <__PRETTY_FUNCTION__.15>

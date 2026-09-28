@@ -1,0 +1,27 @@
+# symbol: <symbolica::poly::polynomial::MultivariatePolynomial<numerica::domains::integer::IntegerRing>>::to_multivariate_polynomial_list
+# hottest instructions (percent of this symbol's samples):
+   80.87 :   7c665:  mov    0x20(%rax),%rax
+   80.08 :   7c665:  mov    0x20(%rax),%rax
+    6.06 :   7c528:  mov    0x8(%rax),%rbp
+    5.16 :   7c528:  mov    0x8(%rax),%rbp
+    2.53 :   7c59d:  mov    0x20(%rax),%rdx
+    2.36 :   7c7d5:  mov    %rbx,%rdi
+    2.21 :   7c7d5:  mov    %rbx,%rdi
+    2.02 :   7c59d:  mov    0x20(%rax),%rdx
+    1.92 :   7c5b9:  mov    0x20(%rax),%rdx
+    1.40 :   7c5b9:  mov    0x20(%rax),%rdx
+    1.29 :   7d4c0:  movaps 0x170(%rsp),%xmm2
+    1.27 :   7d4c0:  movaps 0x170(%rsp),%xmm2
+    1.21 :   7c57e:  movaps 0x40(%rsp),%xmm1
+    0.90 :   7d4e7:  movups %xmm0,0x0(%r13)
+    0.89 :   7d4e7:  movups %xmm0,0x0(%r13)
+    0.84 :   7c514:  test   %rax,%rax
+    0.62 :   7c583:  movdqa %xmm0,0x170(%rsp)
+    0.62 :   7c57e:  movaps 0x40(%rsp),%xmm1
+    0.58 :   7c583:  movdqa %xmm0,0x170(%rsp)
+    0.40 :   7c514:  test   %rax,%rax
+    0.36 :   7c594:  mov    0x30(%r12),%r14
+    0.34 :   7c669:  test   %rax,%rax
+    0.28 :   7c594:  mov    0x30(%r12),%r14
+    0.28 :   7c561:  movups 0xefff28(%rip),%xmm1        # f7c490 <anon.eb910207615862a9c1e6f64f7c3d5b98.16.llvm.16245042909035050292+0x138>
+    0.27 :   7c561:  movups 0xefff28(%rip),%xmm1        # f7c490 <anon.eb910207615862a9c1e6f64f7c3d5b98.16.llvm.16245042909035050292+0x138>
