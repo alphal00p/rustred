@@ -26,7 +26,16 @@ Final verdict per pair (`w13_gate`):
                ("record audit only") or the oracle branch is not merged
   FAIL         metric fails, or any record audit or any present oracle report fails
 
-Usage: c5f_gate.py ROOT ORIG:I2 [ORIG:I2 ...] [--verify-dir DIR] [--output OUT.json]
+Total-work cap (owner decision 2026-09-28 (c), D-I2; `--total-work-cap C`, e.g.
+1.02): the amended gate (`w13_gate_total_work`) additionally requires, per pair,
+i2 natives, Apply natives and discovered domains <= C x orig and both arms
+drained with 0 frontiers; otherwise FAIL. Without the option the amended gate is
+not evaluated. Per-owner Apply domains / inspected Apply domains (census
+envelope) are reported by owner class (--lstar L.json, --guards MASKS, --hot
+MASK: H hot owner, L L*, G guard, U other).
+
+Usage: c5f_gate.py ROOT ORIG:I2 [ORIG:I2 ...] [--verify-dir DIR] [--total-work-cap C]
+                   [--lstar L.json --guards MASKS --hot MASK] [--output OUT.json]
 """
 import argparse
 import csv
@@ -91,6 +100,11 @@ def arm(root, label, verify_dir=None):
         rows = [json.loads(line) for line in open(load_path) if line.strip()]
         load = next((r for r in rows if r.get("summary")), None)
     natives = int(metrics["completed_nodes"])
+    envelope = {}
+    if (d / "census/envelope.tsv").exists():
+        for row in csv.DictReader(open(d / "census/envelope.tsv"), delimiter="\t"):
+            envelope[row["mask"]] = {"apply_domains": int(row["apply_domains"]), "inspected": int(row["inspected"]),
+                                     "max_finite_A": row["max_finite_A"], "max_finite_rank": row["max_finite_rank"]}
     return {
         "label": label, "audit": audit.get("audit"), "violations": len(audit.get("violations") or []),
         "oracle_gate": oracle, "oracle_reasons": oracle_reasons,
@@ -110,7 +124,30 @@ def arm(root, label, verify_dir=None):
         "inspector_slot_busy_seconds": sum(float(x) for x in busy.group(1).split(",") if x.strip()) if busy else None,
         "coordinator": coord, "peak_rss_bytes": metrics["peak_rss_bytes"],
         "foreign_share": load.get("foreign_share") if load else metrics.get("foreign_share_of_cpuset"),
+        "frontiers": int(metrics.get("frontiers") or 0), "envelope": envelope,
     }
+
+
+def owner_classes(o, i, lstar, guards, hot):
+    """Apply domains / inspected per owner and per class (H, L, G, U), orig vs i2."""
+    def klass(mask):
+        return "H" if mask == hot else "L" if mask in lstar else "G" if mask in guards else "U"
+    per_owner, per_class = {}, {}
+    for mask in sorted(set(o["envelope"]) | set(i["envelope"])):
+        a, b = o["envelope"].get(mask, {}), i["envelope"].get(mask, {})
+        row = {"class": klass(mask), "orig_apply_domains": a.get("apply_domains", 0),
+               "i2_apply_domains": b.get("apply_domains", 0), "orig_inspected": a.get("inspected", 0),
+               "i2_inspected": b.get("inspected", 0), "orig_max_A": a.get("max_finite_A"), "i2_max_A": b.get("max_finite_A"),
+               "orig_max_rank": a.get("max_finite_rank"), "i2_max_rank": b.get("max_finite_rank")}
+        per_owner[mask] = row
+        c = per_class.setdefault(row["class"], {"owners": 0, "orig_apply_domains": 0, "i2_apply_domains": 0,
+                                                "orig_inspected": 0, "i2_inspected": 0})
+        c["owners"] += 1
+        for k in ("orig_apply_domains", "i2_apply_domains", "orig_inspected", "i2_inspected"):
+            c[k] += row[k]
+    for c in per_class.values():
+        c["inspected_ratio"] = c["i2_inspected"] / c["orig_inspected"] if c["orig_inspected"] else None
+    return per_owner, per_class
 
 
 def main(argv=None):
@@ -121,8 +158,15 @@ def main(argv=None):
     p.add_argument("--repo", type=Path, default=Path("/common/dev/rustred"))
     p.add_argument("--oracle-branch", default="fable_5_1-v3-oracle")
     p.add_argument("--base-branch", default="fable_5_1")
+    p.add_argument("--total-work-cap", type=float,
+                   help="amended gate: i2 natives, Apply natives, discovered <= CAP x orig (e.g. 1.02)")
+    p.add_argument("--lstar", type=Path, help="L* owner list (JSON array) for the per-class report")
+    p.add_argument("--guards", default="", help="comma-separated guard owner masks")
+    p.add_argument("--hot", default="011101110111000", help="hot owner mask")
     p.add_argument("--output", type=Path)
     args = p.parse_args(argv)
+    lstar = set(json.loads(args.lstar.read_text())) if args.lstar else set()
+    guards = set(filter(None, args.guards.split(",")))
     merged = branch_merged(args.repo, args.oracle_branch, args.base_branch)
     out = {"pairs": [], "oracle_branch": args.oracle_branch, "base_branch": args.base_branch,
            "oracle_branch_merged": merged, "verify_dir": str(args.verify_dir) if args.verify_dir else None}
@@ -143,11 +187,37 @@ def main(argv=None):
             final = "PROVISIONAL (oracle PASS, oracle branch not merged)"
         else:
             final = "PASS"
-        out["pairs"].append({"orig": o, "i2": i, "route_route_per_route_native_change": change,
-                             "w13_gate_as_worded": "PASS" if gate else "FAIL",
-                             "record_audit_and_metric": "PASS" if gate else "FAIL",
-                             "oracle_gates": {"orig": o["oracle_gate"], "i2": i["oracle_gate"]},
-                             "w13_gate": final, "i2_over_orig": ratio})
+        pair = {"orig": o, "i2": i, "route_route_per_route_native_change": change,
+                "w13_gate_as_worded": "PASS" if gate else "FAIL",
+                "record_audit_and_metric": "PASS" if gate else "FAIL",
+                "oracle_gates": {"orig": o["oracle_gate"], "i2": i["oracle_gate"]},
+                "w13_gate": final, "i2_over_orig": ratio}
+        per_owner, per_class = owner_classes(o, i, lstar, guards, args.hot)
+        pair["apply_by_owner"], pair["apply_by_class"] = per_owner, per_class
+        for arm_ in (o, i):
+            arm_.pop("envelope", None)
+        if args.total_work_cap is not None:
+            cap = args.total_work_cap
+            clauses = {"route_route_per_route_native_at_most_0.80x": change <= -0.20,
+                       "record_audits_PASS": o["audit"] == "PASS" and i["audit"] == "PASS",
+                       "both_drained_0_frontiers": o["drained"] and i["drained"] and not o["frontiers"]
+                       and not i["frontiers"]}
+            for k in ("natives", "apply_natives", "discovered"):
+                clauses[f"{k}_at_most_{cap}x"] = i[k] <= cap * o[k]
+            failed = [k for k, v in clauses.items() if not v]
+            if failed or "FAIL" in oracles:
+                amended = "FAIL"
+            elif "MISSING" in oracles:
+                amended = "PROVISIONAL (record audit only)"
+            elif merged is not True:
+                amended = "PROVISIONAL (oracle PASS, oracle branch not merged)"
+            else:
+                amended = "PASS"
+            pair["total_work_cap"] = cap
+            pair["total_work_clauses"] = clauses
+            pair["total_work_failed_clauses"] = failed
+            pair["w13_gate_total_work"] = amended
+        out["pairs"].append(pair)
     text = json.dumps(out, indent=1, sort_keys=True)
     if args.output:
         args.output.write_text(text + "\n")
@@ -167,6 +237,12 @@ def main(argv=None):
               f"{i['edges']:,} (x{r['edges']:.3f}); own CPU {o['own_cpu_seconds']} -> {i['own_cpu_seconds']} s "
               f"(x{r['own_cpu_seconds']:.3f}); inspector busy {o['inspector_slot_busy_seconds']:.0f} -> "
               f"{i['inspector_slot_busy_seconds']:.0f} s; traversal {o['traversal_seconds']:.0f} -> {i['traversal_seconds']:.0f} s")
+        print("  Apply inspected by class: " + "; ".join(
+            f"{k} {v['orig_inspected']:,} -> {v['i2_inspected']:,} ({v['owners']} owners)"
+            for k, v in sorted(pair["apply_by_class"].items())))
+        if "w13_gate_total_work" in pair:
+            print(f"  total-work cap {pair['total_work_cap']}: failed clauses {pair['total_work_failed_clauses'] or 'none'}; "
+                  f"amended gate {pair['w13_gate_total_work']}")
     return 0
 
 

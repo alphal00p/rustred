@@ -7,10 +7,23 @@
 //! sector (a unimodular map that permutes the owner's active lines up to sign)
 //! gives another valid witness `T M`. The route over-cover can pinch exactly
 //! the owner active lines that occur in the expansion of some source
-//! irreducible numerator; this tool picks, per route, the automorphism that
-//! minimises that cancellation support (then the number of support terms),
-//! preferring the saved witness on ties, and rewrites
+//! irreducible numerator; this tool picks the automorphism that minimises that
+//! cancellation support and rewrites
 //! `source_to_representative := (T M) owner_to_representative`.
+//!
+//! Two frame modes:
+//! - `--frame route` (default; the W0.6 I2 build): one automorphism per ROUTE,
+//!   minimising that route's support (then the number of support terms),
+//!   preferring the saved witness on ties. Routes into one owner can then land
+//!   in different frames of the owner's coordinates.
+//! - `--frame owner` (the W1 I2 rebuild, owner decision 2026-09-28 (c)): one
+//!   automorphism M_o per OWNER, applied to every transported route into o, so
+//!   all routed images into o share one coordinate frame. M_o minimises the
+//!   traffic-weighted cancellation support summed over all transported routes
+//!   into o (then weighted terms, unweighted support, unweighted terms); the
+//!   identity (saved witnesses) is kept unless another automorphism is strictly
+//!   better. The owner's own identity route (`requires_transport` false) is not
+//!   touched.
 //!
 //! Exact linear algebra (inverses, products, determinants, the basis change
 //! to the 15 line squares) uses Symbolica's `Matrix` over Q; the combinatorial
@@ -20,8 +33,11 @@
 //!
 //! Usage: route_witness_rewrite SELECTION.json MOMENTA_MANIFEST.json
 //!          TRAFFIC.tsv OUT_SELECTION.json OUT_REPORT.tsv OUT_SUMMARY.json
+//!          [--frame route|owner]
 //!   TRAFFIC.tsv: `source_mask<TAB>weight` (header line skipped); routes
-//!   without a row get weight 0.
+//!   without a row get weight 0. Weights must be non-negative integers.
+//!   With `--frame owner` the per-owner choice is also written to
+//!   OUT_REPORT.tsv with the suffix `.owners.tsv`.
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -279,18 +295,90 @@ fn lcm(a: i128, b: i128) -> i128 {
     a / gcd(a, b) * b
 }
 
+/// Cancellation support of a witness: owner active lines occurring in the
+/// line-square expansion of some source irreducible numerator, and the number
+/// of (source row, owner line) support terms. None if T does not map the
+/// source active lines onto owner active lines up to sign.
+fn evaluate(
+    t: &[Vec<i64>],
+    slots: &[Vec<i64>],
+    src_active: &[bool],
+    own_active: &[bool],
+    expand: &dyn Fn(&[i64]) -> Vec<i128>,
+) -> Option<(u32, u32)> {
+    let n = slots.len();
+    let mut support = vec![false; n];
+    let mut terms = 0u32;
+    for j in 0..n {
+        let w = row_times(&slots[j], t);
+        if src_active[j] {
+            // must be +- an owner active line
+            let ok = (0..n).any(|i| {
+                own_active[i] && (slots[i] == w || slots[i].iter().zip(&w).all(|(a, b)| *a == -b))
+            });
+            if !ok {
+                return None;
+            }
+        } else {
+            let x = expand(&w);
+            for i in 0..n {
+                if own_active[i] && x[i] != 0 {
+                    support[i] = true;
+                    terms += 1;
+                }
+            }
+        }
+    }
+    Some((support.iter().filter(|&&b| b).count() as u32, terms))
+}
+
+/// One transported route with the evaluation of every owner automorphism
+/// (index 0 = identity = the saved witness).
+struct Candidate {
+    index: usize,
+    source: String,
+    owner: String,
+    weight: u64,
+    t_route: Vec<Vec<i64>>,
+    a_o: Vec<Vec<i64>>,
+    evals: Vec<Option<(u32, u32)>>,
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let selection_text = fs::read_to_string(&args[1]).unwrap();
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let mut frame = String::from("route");
+    let mut args: Vec<String> = Vec::new();
+    let mut it = raw.into_iter();
+    while let Some(a) = it.next() {
+        if let Some(v) = a.strip_prefix("--frame=") {
+            frame = v.to_owned();
+        } else if a == "--frame" {
+            frame = it.next().expect("--frame needs route|owner");
+        } else {
+            args.push(a);
+        }
+    }
+    assert!(
+        frame == "route" || frame == "owner",
+        "--frame must be route or owner, got {frame}"
+    );
+    assert_eq!(args.len(), 6, "usage: see the module documentation");
+    let selection_text = fs::read_to_string(&args[0]).unwrap();
     let mut selection: Value = serde_json::from_str(&selection_text).unwrap();
-    let manifest: Value = serde_json::from_str(&fs::read_to_string(&args[2]).unwrap()).unwrap();
-    let traffic: HashMap<String, f64> = fs::read_to_string(&args[3])
+    let manifest: Value = serde_json::from_str(&fs::read_to_string(&args[1]).unwrap()).unwrap();
+    let traffic: HashMap<String, u64> = fs::read_to_string(&args[2])
         .unwrap()
         .lines()
         .skip(1)
         .filter_map(|l| {
-            l.split_once('\t')
-                .map(|(m, w)| (m.to_owned(), w.trim().parse().unwrap()))
+            l.split_once('\t').map(|(m, w)| {
+                let w: f64 = w.trim().parse().unwrap();
+                assert!(
+                    w >= 0.0 && w.fract() == 0.0 && w < 9.0e15,
+                    "traffic weight {w} for {m} must be a non-negative integer"
+                );
+                (m.to_owned(), w as u64)
+            })
         })
         .collect();
     let loops = manifest["loop_count"].as_u64().unwrap() as usize;
@@ -374,14 +462,14 @@ fn main() {
             })
             .collect()
     };
-    let mut report = String::from(
-        "source_mask\towner_mask\ttraffic\tautomorphisms\tsaved_support\tsaved_terms\tbest_support\tbest_terms\tbest_index\tchanged\n",
-    );
-    let (mut w_total, mut w_saved, mut w_best) = (0f64, 0f64, 0f64);
-    let (mut changed, mut routes_done, mut unweighted_saved, mut unweighted_best) =
-        (0usize, 0usize, 0usize, 0usize);
-    let routes = selection["initial_frontier_routes"].as_array_mut().unwrap();
-    for route in routes.iter_mut() {
+    // pass 1: evaluate every automorphism on every transported route
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for (index, route) in selection["initial_frontier_routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         if !route["requires_transport"].as_bool().unwrap() {
             continue;
         }
@@ -395,57 +483,151 @@ fn main() {
                 .expect("composed witness must be integral");
         let src_active: Vec<bool> = source.chars().map(|c| c == '1').collect();
         let own_active: Vec<bool> = owner_mask.chars().map(|c| c == '1').collect();
-        let evaluate = |t: &[Vec<i64>]| -> Option<(u32, u32)> {
-            let mut support = vec![false; n];
-            let mut terms = 0u32;
-            for j in 0..n {
-                let w = row_times(&slots[j], t);
-                if src_active[j] {
-                    // must be +- an owner active line
-                    let ok = (0..n).any(|i| {
-                        own_active[i]
-                            && (slots[i] == w || slots[i].iter().zip(&w).all(|(a, b)| *a == -b))
-                    });
-                    if !ok {
-                        return None;
-                    }
+        let evals: Vec<Option<(u32, u32)>> = owner
+            .auts
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let t = if i == 0 {
+                    t_route.clone()
                 } else {
-                    let x = expand(&w);
-                    for i in 0..n {
-                        if own_active[i] && x[i] != 0 {
-                            support[i] = true;
-                            terms += 1;
-                        }
+                    mat_mul(&t_route, m)
+                };
+                evaluate(&t, &slots, &src_active, &own_active, &expand)
+            })
+            .collect();
+        assert!(
+            evals[0].is_some(),
+            "saved witness maps source actives onto owner actives ({source})"
+        );
+        let weight = traffic.get(&source).copied().unwrap_or(0);
+        candidates.push(Candidate {
+            index,
+            source,
+            owner: owner_mask,
+            weight,
+            t_route,
+            a_o,
+            evals,
+        });
+    }
+    // pass 2: choose the automorphism index per route
+    let mut chosen: Vec<usize> = vec![0; candidates.len()];
+    let mut owner_rows = String::from(
+        "owner_mask\troutes\ttraffic\tautomorphisms\tchosen_index\tweighted_support_saved\tweighted_support_chosen\tweighted_terms_saved\tweighted_terms_chosen\tsupport_saved\tsupport_chosen\troutes_better\troutes_worse\tinvalid_automorphisms\n",
+    );
+    let mut owner_summary: Vec<Value> = Vec::new();
+    if frame == "route" {
+        for (k, c) in candidates.iter().enumerate() {
+            let saved = c.evals[0].unwrap();
+            let mut best = (saved.0, saved.1, 0usize);
+            for (index, e) in c.evals.iter().enumerate().skip(1) {
+                if let Some((s, terms)) = *e {
+                    if (s, terms) < (best.0, best.1) {
+                        best = (s, terms, index);
                     }
                 }
             }
-            Some((support.iter().filter(|&&b| b).count() as u32, terms))
-        };
-        let saved =
-            evaluate(&t_route).expect("saved witness maps source actives onto owner actives");
-        let mut best = (saved.0, saved.1, 0usize);
-        let mut best_t = t_route.clone();
-        for (index, m) in owner.auts.iter().enumerate().skip(1) {
-            let t = mat_mul(&t_route, m);
-            if let Some((s, terms)) = evaluate(&t) {
-                if (s, terms) < (best.0, best.1) {
-                    best = (s, terms, index);
-                    best_t = t;
+            chosen[k] = best.2;
+        }
+    } else {
+        let mut by_owner: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (k, c) in candidates.iter().enumerate() {
+            by_owner.entry(c.owner.as_str()).or_default().push(k);
+        }
+        for (mask, members) in &by_owner {
+            let auts = owners[*mask].auts.len();
+            // key per automorphism: (weighted support, weighted terms, support, terms)
+            let key = |i: usize| -> Option<(u128, u128, u64, u64)> {
+                let mut acc = (0u128, 0u128, 0u64, 0u64);
+                for &k in members {
+                    let c = &candidates[k];
+                    let (s, t) = c.evals[i]?;
+                    acc.0 += c.weight as u128 * s as u128;
+                    acc.1 += c.weight as u128 * t as u128;
+                    acc.2 += s as u64;
+                    acc.3 += t as u64;
+                }
+                Some(acc)
+            };
+            let saved = key(0).expect("identity is valid on every route");
+            let mut best = (saved, 0usize);
+            let mut invalid = 0usize;
+            for i in 1..auts {
+                match key(i) {
+                    Some(k) if k < best.0 => best = (k, i),
+                    Some(_) => {}
+                    None => invalid += 1,
                 }
             }
+            let (mut better, mut worse) = (0usize, 0usize);
+            let traffic_sum: u128 = members.iter().map(|&k| candidates[k].weight as u128).sum();
+            for &k in members {
+                chosen[k] = best.1;
+                let (s0, s1) = (
+                    candidates[k].evals[0].unwrap().0,
+                    candidates[k].evals[best.1].unwrap().0,
+                );
+                if s1 < s0 {
+                    better += 1;
+                } else if s1 > s0 {
+                    worse += 1;
+                }
+            }
+            let ws = |acc: (u128, u128, u64, u64)| -> f64 {
+                if traffic_sum > 0 {
+                    acc.0 as f64 / traffic_sum as f64
+                } else {
+                    0.0
+                }
+            };
+            owner_rows.push_str(&format!(
+                "{mask}\t{}\t{traffic_sum}\t{auts}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{better}\t{worse}\t{invalid}\n",
+                members.len(),
+                best.1,
+                ws(saved),
+                ws(best.0),
+                saved.1,
+                best.0 .1,
+                saved.2,
+                best.0 .2,
+            ));
+            owner_summary.push(json!({
+                "owner_mask": mask, "routes": members.len(), "traffic": traffic_sum as f64,
+                "automorphisms": auts, "chosen_index": best.1,
+                "weighted_support_saved": ws(saved), "weighted_support_chosen": ws(best.0),
+                "support_saved": saved.2, "support_chosen": best.0 .2,
+                "routes_better": better, "routes_worse": worse, "invalid_automorphisms": invalid,
+            }));
         }
-        let weight = traffic.get(&source).copied().unwrap_or(0.0);
+    }
+    // pass 3: rewrite and report
+    let mut report = String::from(
+        "source_mask\towner_mask\ttraffic\tautomorphisms\tsaved_support\tsaved_terms\tbest_support\tbest_terms\tbest_index\tchanged\n",
+    );
+    let (mut w_total, mut w_saved, mut w_best) = (0f64, 0f64, 0f64);
+    let (mut changed, mut routes_done, mut unweighted_saved, mut unweighted_best) =
+        (0usize, 0usize, 0usize, 0usize);
+    let routes = selection["initial_frontier_routes"].as_array_mut().unwrap();
+    for (k, c) in candidates.iter().enumerate() {
+        let route = &mut routes[c.index];
+        let saved = c.evals[0].unwrap();
+        let index = chosen[k];
+        let best = c.evals[index].expect("chosen automorphism is valid on the route");
+        let weight = c.weight as f64;
         w_total += weight;
         w_saved += weight * saved.0 as f64;
         w_best += weight * best.0 as f64;
         unweighted_saved += saved.0 as usize;
         unweighted_best += best.0 as usize;
         routes_done += 1;
-        if best.2 != 0 {
+        if index != 0 {
             changed += 1;
-            let new_as = mat_mul(&best_t, &a_o);
+            let best_t = mat_mul(&c.t_route, &owners[&c.owner].auts[index]);
+            let new_as = mat_mul(&best_t, &c.a_o);
             // exact check with Symbolica: new_as * inv(a_o) == best_t
-            let back = to_ints(&(&from_ints(&new_as) * &from_ints(&a_o).inv().unwrap())).unwrap();
+            let back =
+                to_ints(&(&from_ints(&new_as) * &from_ints(&c.a_o).inv().unwrap())).unwrap();
             assert_eq!(back, best_t, "rewrite must reproduce the chosen witness");
             route["source_to_representative"] = json!(
                 new_as
@@ -455,14 +637,17 @@ fn main() {
             );
         }
         report.push_str(&format!(
-            "{source}\t{owner_mask}\t{weight}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            owner.auts.len(),
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            c.source,
+            c.owner,
+            weight,
+            owners[&c.owner].auts.len(),
             saved.0,
             saved.1,
             best.0,
             best.1,
-            best.2,
-            (best.2 != 0) as u8
+            index,
+            (index != 0) as u8
         ));
     }
     let incomplete: Vec<&String> = owners
@@ -471,13 +656,17 @@ fn main() {
         .map(|(m, _)| m)
         .collect();
     fs::write(
-        &args[4],
+        &args[3],
         serde_json::to_string_pretty(&selection).unwrap() + "\n",
     )
     .unwrap();
-    fs::write(&args[5], report).unwrap();
-    let summary = json!({
+    fs::write(&args[4], report).unwrap();
+    if frame == "owner" {
+        fs::write(format!("{}.owners.tsv", args[4]), owner_rows).unwrap();
+    }
+    let mut summary = json!({
         "schema": "rustred.route-witness-rewrite.v1",
+        "frame": frame,
         "routes_evaluated": routes_done, "routes_changed": changed,
         "traffic_total": w_total,
         "traffic_weighted_support_saved": if w_total > 0.0 { w_saved / w_total } else { 0.0 },
@@ -487,10 +676,21 @@ fn main() {
         "owners_without_full_active_span": incomplete,
         "authority": "candidate witnesses only; native symmetry::verify and integral_transport::compile at load remain the proof",
     });
+    if frame == "owner" {
+        let changed_owners = owner_summary
+            .iter()
+            .filter(|o| o["chosen_index"].as_u64() != Some(0))
+            .count();
+        summary["owners_with_transported_routes"] = json!(owner_summary.len());
+        summary["owners_changed"] = json!(changed_owners);
+        summary["owners"] = json!(owner_summary);
+    }
     fs::write(
-        &args[6],
+        &args[5],
         serde_json::to_string_pretty(&summary).unwrap() + "\n",
     )
     .unwrap();
-    println!("{summary}");
+    let mut short = summary.clone();
+    short.as_object_mut().unwrap().remove("owners");
+    println!("{short}");
 }
