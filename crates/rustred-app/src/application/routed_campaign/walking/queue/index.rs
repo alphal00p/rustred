@@ -546,10 +546,22 @@ impl<const N: usize> AggregateIndex<N> {
                 continue;
             }
             // IDs increase across blocks: the blocks wholly below `first_id`
-            // form a prefix (an empty block is never counted in it).
-            let skip = group
+            // form a prefix (an empty block is never counted in it). The
+            // bounds are checked first: an unbounded scan skips nothing, and a
+            // revalidation usually finds every block below its watermark.
+            let skip = if first_id == 0 {
+                0
+            } else if group
                 .meta
-                .partition_point(|meta| (meta.last as usize) < first_id);
+                .last()
+                .is_some_and(|meta| (meta.last as usize) < first_id)
+            {
+                group.meta.len()
+            } else {
+                group
+                    .meta
+                    .partition_point(|meta| (meta.last as usize) < first_id)
+            };
             for (meta, block) in group.meta[skip..].iter().zip(&group.blocks[skip..]) {
                 checkpoint()?;
                 if meta.len == 0 || (meta.last as usize) < first_id {
@@ -799,7 +811,13 @@ impl<const N: usize> AggregateIndex<N> {
         }
         impl<V: Retire, F: FnMut(usize)> Retire for Split<'_, V, F> {
             fn rejected(&mut self, run: &[u32], word: u32) {
-                let old = run.partition_point(|&id| (id as usize) < self.first_new);
+                // A run is ascending; runs wholly below the watermark (the
+                // usual case) need no search.
+                let old = if run.last().is_none_or(|&id| (id as usize) < self.first_new) {
+                    run.len()
+                } else {
+                    run.partition_point(|&id| (id as usize) < self.first_new)
+                };
                 if old > 0 {
                     self.visit_new.decided(old);
                 }

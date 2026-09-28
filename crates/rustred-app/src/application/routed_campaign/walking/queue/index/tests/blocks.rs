@@ -834,3 +834,143 @@ fn retire_drops_restored_empty_rows_even_without_retirements() {
         assert_counts(&index);
     }
 }
+
+/// The watermark shortcuts (a forward scan from ID 0 skips no block, a scan
+/// whose watermark is above every block skips the group, a reverse run wholly
+/// below the prepared watermark needs no split search) keep the minimum-ID
+/// result, never test an ID below the watermark, and hand every examined
+/// candidate to exactly one of: the prepared set (old IDs), the prefilter or
+/// the commit-time predicate (new IDs), with the historical layout.
+#[test]
+fn watermark_shortcuts_keep_minimum_ids_and_the_prepared_split() {
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut below = move |n: u64| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 33) % n
+    };
+    struct Record<F> {
+        decided: usize,
+        rejected: Vec<usize>,
+        tested: Vec<usize>,
+        predicate: F,
+    }
+    impl<F: FnMut(usize) -> bool> Retire for Record<F> {
+        fn rejected(&mut self, run: &[u32], _: u32) {
+            self.rejected.extend(run.iter().map(|&id| id as usize));
+        }
+        fn test(&mut self, id: usize) -> bool {
+            self.tested.push(id);
+            (self.predicate)(id)
+        }
+        fn decided(&mut self, count: usize) {
+            self.decided += count;
+        }
+    }
+    let mut index = AggregateIndex::<2>::default();
+    let mut words = Vec::new();
+    let (mut shortcuts, mut splits) = (0, 0);
+    for next_id in 0..4_000_usize {
+        let key = signature(u128::from(below(4)));
+        let before = index.layout();
+        // Forward: brute-force minimum over the groups that may contain key.
+        for first in [0, below(next_id as u64 + 1) as usize, next_id, next_id + 3] {
+            let hit = |id: usize| id % 5 == 2;
+            let mut asked = Vec::new();
+            let found = index
+                .find_from_each(key, None, first, |id| {
+                    asked.push(id);
+                    Ok(hit(id))
+                })
+                .unwrap();
+            let expected = before
+                .iter()
+                .filter(|(signature, _)| signature.may_contain(key))
+                .flat_map(|(_, blocks)| blocks.iter().flatten().copied())
+                .filter(|&id| id >= first && hit(id))
+                .min();
+            assert_eq!(found, expected);
+            assert!(asked.iter().all(|&id| id >= first));
+            shortcuts += usize::from(first >= next_id && next_id > 0);
+        }
+        // Reverse with a word prefilter and a prepared set below `first_new`.
+        let insertion = index.prepare(key, None).unwrap();
+        let pin_tail = !insertion.has_new_block();
+        let probe_word = below(16);
+        let first_new = below(next_id as u64 + 1) as usize;
+        let passes = |id: usize, words: &[u64]| words[id] & !probe_word == 0;
+        let examined: Vec<usize> = before
+            .iter()
+            .filter(|(signature, _)| key.may_contain(*signature))
+            .flat_map(|(_, blocks)| blocks.iter().flatten().copied())
+            .collect();
+        let prepared: Vec<usize> = examined
+            .iter()
+            .copied()
+            .filter(|&id| id < first_new && passes(id, &words) && id % 3 == 0)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut record = Record {
+            decided: 0,
+            rejected: Vec::new(),
+            tested: Vec::new(),
+            predicate: |id: usize| id % 4 == 1,
+        };
+        let mut retired = Vec::new();
+        index.retire_prepared(
+            &insertion,
+            &Probe::new(None, probe_word, None, true),
+            &prepared,
+            first_new,
+            &mut record,
+            |id| retired.push(id),
+        );
+        let (old, new): (Vec<usize>, Vec<usize>) = examined.iter().partition(|&&id| id < first_new);
+        assert_eq!(record.decided, old.len());
+        let mut handed: Vec<usize> = record
+            .rejected
+            .iter()
+            .chain(&record.tested)
+            .copied()
+            .collect();
+        handed.sort_unstable();
+        let mut new_sorted = new.clone();
+        new_sorted.sort_unstable();
+        assert_eq!(handed, new_sorted);
+        assert!(record.rejected.iter().all(|&id| !passes(id, &words)));
+        assert!(record.tested.iter().all(|&id| passes(id, &words)));
+        let mut expected: Vec<usize> = prepared
+            .iter()
+            .copied()
+            .chain(
+                new.iter()
+                    .copied()
+                    .filter(|&id| passes(id, &words) && id % 4 == 1),
+            )
+            .collect();
+        expected.sort_unstable();
+        retired.sort_unstable();
+        assert_eq!(retired, expected);
+        assert_eq!(
+            index.layout(),
+            reference_retire(&before, &retired, key, pin_tail)
+        );
+        splits += usize::from(!old.is_empty() && !new.is_empty());
+        let word = below(16);
+        words.push(word);
+        index.insert(
+            insertion,
+            Entry {
+                id: next_id,
+                coordinates: None,
+                word,
+                lanes: None,
+            },
+        );
+        assert_counts(&index);
+    }
+    println!("watermark_shortcuts group_skips={shortcuts} mixed_splits={splits}");
+    assert!(shortcuts > 1_000 && splits > 1_000);
+}
