@@ -772,7 +772,7 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             if item[0] == "domain" and item[1].get("id") in needed:
                 anchor_boxes[item[1]["id"]] = box_of(item[1])
 
-        def anchor_ok(identity, anchor, stamp, dispatch, own_seq, inner, what):
+        def anchor_ok(identity, anchor, stamp, dispatch, own_seq, inner, what, native_only=False):
             anchor_box = anchor_boxes.get(anchor)
             if not check(type(anchor) is int and anchor != identity and anchor_box is not None and anchor < len(kinds),
                          f"record {identity}: G2' {what} anchor {anchor!r} has no record"):
@@ -780,6 +780,12 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             check(kinds[anchor] in (NATIVE, PARTIAL) and owner_phase[anchor] == owner_phase[identity]
                   and not owner_phase[identity] & 1,
                   f"record {identity}: G2' {what} anchor {anchor} is not a same-owner Apply native/partial record")
+            if native_only:
+                # Mode n (S7 / plan 3.11 read literally): every anchor is a
+                # full native inspection, never a partial record.
+                g2_counts["native_only_anchor_checks"] += 1
+                check(kinds[anchor] == NATIVE,
+                      f"record {identity}: G2' {what} anchor {anchor} is not a full native inspection (mode n)")
             anchor_seq = commit_seq[anchor]
             check(anchor_seq != SENTINEL and stamp == anchor_seq,
                   f"record {identity}: G2' {what} anchor stamp {stamp!r} != stream stamp {anchor_seq}")
@@ -799,6 +805,9 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             if not check(type(first_cut) is int and first_cut >= cut, f"record {identity}: G2' first_cut {first_cut!r} < cut"):
                 continue
             union = g2.get("union_anchors")
+            native_only = "full_native" in str(g2.get("mode", ""))
+            if native_only:
+                g2_counts["native_only_records"] += 1
             if union is not None:
                 # Mode u: the D >= cut slice is covered pointwise by the union
                 # of the listed anchors. Stamps, owner and kind are checked
@@ -813,18 +822,18 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
                 g2_counts["union_anchor_edges"] += len(union)
                 for item in union:
                     anchor_ok(identity, item.get("anchor_id"), item.get("anchor_commit_seq"), dispatch, own_seq, None,
-                              "union")
+                              "union", native_only)
             else:
                 # First anchor: the D >= first_cut slice.
                 anchor_ok(identity, anchor, g2.get("anchor_commit_seq"), dispatch, own_seq, high_slice(box, first_cut),
-                          "first")
+                          "first", native_only)
             if union is not None:
                 pass
             elif isinstance(second, dict):
                 g2_counts["second_anchor"] += 1
                 band = (owner, ph, lower, upper, rank, positive, _floor(least, cut), _cap(most, first_cut - 1))
                 anchor_ok(identity, second.get("anchor_id"), second.get("anchor_commit_seq"), dispatch, own_seq,
-                          band, "second")
+                          band, "second", native_only)
                 check(second.get("anchor_id") != anchor, f"record {identity}: G2' second anchor repeats the first")
             else:
                 check(second is None and first_cut == cut, f"record {identity}: G2' one-anchor record with first_cut != cut")

@@ -4,7 +4,9 @@
 #   phases: smoke c4l c5f hotsub post-c4l post-c5f post-hotsub   (binary B1: arms off/on)
 #           c4l3 post-c4l3 hotsub3 post-hotsub3 c5f3 post-c5f3     (binary B2: arms off/m1/m2)
 #           c4lx post-c4lx hotsubx post-hotsubx c5fx post-c5fx     (binary B3: arms off/m1/m2/u)
-# Arm flags: off (unset), on|m1 (RUSTRED_WALK_G2_DONLY=1), m2 (=2), u (=u, union).
+#           c4ln post-c4ln hotsubn post-hotsubn c5fn post-c5fn     (binary B4: arms off/u/n, perf stat, n=3)
+# Arm flags: off (unset), on|m1 (RUSTRED_WALK_G2_DONLY=1), m2 (=2), u (=u, union),
+#            n (=n, union with full-native anchors only).
 # Never edit this file while a session runs it: run a snapshot copy.
 # CPU halves are disjoint sets of physical cores (n and n+256 are SMT siblings).
 set -u
@@ -27,7 +29,7 @@ arm() { # label family cpus policy workers on|off [extra run_arm args]
   local label=$1 fam=$2 cpus=$3 policy=$4 workers=$5 flag=$6; shift 6
   local env=()
   case $flag in on|m1) env=(--env RUSTRED_WALK_G2_DONLY=1) ;; m2) env=(--env RUSTRED_WALK_G2_DONLY=2) ;;
-    u) env=(--env RUSTRED_WALK_G2_DONLY=u) ;; esac
+    u) env=(--env RUSTRED_WALK_G2_DONLY=u) ;; n) env=(--env RUSTRED_WALK_G2_DONLY=n) ;; esac
   log "start $label/$fam cpus=$cpus policy=$policy W$workers g2=$flag"
   $PY $T/run_arm.py --binary "$BIN" --family "$fam" --label "$label" --cpus "$cpus" \
       --policy "$policy" --workers "$workers" --time-limit 3000 --grace 300 "${env[@]}" "$@" \
@@ -247,6 +249,68 @@ for phase in "$@"; do
       done
       wait
       for r in r1 r2; do
+        strict $ROOT/TMP/w0/oracle/runs/c5f-ordered/five-finite/result.json $OUT/c5f-ord-off-$r-$SHA/five-finite/result.json \
+               $OUT/c5f-ord-off-$r-$SHA/five-finite/strict-vs-4a17f9c7.txt
+      done
+      ;;
+    c4ln)
+      for fam in fg bmw h x; do
+        arm c4l-off-r1-$SHA $fam $A ordered 6 off --perf & arm c4l-n-r1-$SHA $fam $B ordered 6 n --perf & wait
+      done
+      for fam in fg bmw h x; do
+        arm c4l-n-r2-$SHA $fam $A ordered 6 n --perf & arm c4l-off-r2-$SHA $fam $B ordered 6 off --perf & wait
+      done
+      ;;
+    post-c4ln)
+      for fam in fg bmw h x; do
+        post c4l-off-r1-$SHA $fam off 16-19,272-275 & post c4l-n-r1-$SHA $fam n 20-23,276-279 &
+        post c4l-off-r2-$SHA $fam off 24-27,280-283 & post c4l-n-r2-$SHA $fam n 28-31,284-287 &
+        wait
+        for r in r1 r2; do
+          strict $ROOT/TMP/w0/oracle/runs/c4l-ordered/$fam/result.json $OUT/c4l-off-$r-$SHA/$fam/result.json \
+                 $OUT/c4l-off-$r-$SHA/$fam/strict-vs-4a17f9c7.txt
+        done
+      done
+      ;;
+    hotsubn)
+      # Halves A/B are separate CCDs; each arm runs on both halves.
+      for pair in off-r1:u-r1 n-r1:off-r2 u-r2:n-r2 off-r3:n-r3 u-r3:off-r4; do
+        la=${pair%%:*}; lb=${pair##*:}
+        arm hotsub-r1a12-$la-$SHA hot $A ready 12 ${la%-r*} --queries $HOTQ --perf &
+        arm hotsub-r1a12-$lb-$SHA hot $B ready 12 ${lb%-r*} --queries $HOTQ --perf &
+        wait
+      done
+      ;;
+    post-hotsubn)
+      i=0
+      for l in off-r1 u-r1 n-r1 off-r2 u-r2 n-r2 off-r3 n-r3 u-r3 off-r4; do
+        flag=${l%-r*}; c=$((16 + i))
+        post hotsub-r1a12-$l-$SHA hot $flag $c,$((c + 256)) --union &
+        i=$((i + 1))
+      done
+      wait
+      ;;
+    c5fn)
+      for l in ord-off-r1 ord-u-r1 ord-n-r1 rdy-off-r1 rdy-u-r1 rdy-n-r1 \
+               ord-n-r2 ord-off-r2 ord-u-r2 rdy-n-r2 rdy-off-r2 rdy-u-r2 \
+               ord-u-r3 ord-n-r3 ord-off-r3 rdy-u-r3 rdy-n-r3 rdy-off-r3; do
+        pol=${l%%-*}; rest=${l#*-}; flag=${rest%-r*}
+        policy=ordered; [ "$pol" = rdy ] && policy=ready
+        arm c5f-$l-$SHA five-finite $ALL $policy 24 $flag --perf
+      done
+      ;;
+    post-c5fn)
+      i=0
+      for l in ord-off-r1 ord-u-r1 ord-n-r1 rdy-off-r1 rdy-u-r1 rdy-n-r1 \
+               ord-n-r2 ord-off-r2 ord-u-r2 rdy-n-r2 rdy-off-r2 rdy-u-r2 \
+               ord-u-r3 ord-n-r3 ord-off-r3 rdy-u-r3 rdy-n-r3 rdy-off-r3; do
+        rest=${l#*-}; flag=${rest%-r*}; c=$((16 + i % 16)); c2=$((c + 256))
+        post c5f-$l-$SHA five-finite $flag $c,$c2 --union &
+        i=$((i + 1))
+        [ $((i % 16)) -eq 0 ] && wait
+      done
+      wait
+      for r in r1 r2 r3; do
         strict $ROOT/TMP/w0/oracle/runs/c5f-ordered/five-finite/result.json $OUT/c5f-ord-off-$r-$SHA/five-finite/result.json \
                $OUT/c5f-ord-off-$r-$SHA/five-finite/strict-vs-4a17f9c7.txt
       done

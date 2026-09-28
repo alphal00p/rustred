@@ -10,7 +10,10 @@
 //! lattice points: of the inspected sets (full domain or residual) and of the
 //! original domains of planned records. With --union also the distinct
 //! inspected Apply points per class (finite domains below 5e7 points only)
-//! and new points per Apply inspection.
+//! and new points per Apply inspection. `g2_anchor_reference_kinds` classifies
+//! every anchor reference of a G2' record (union list, or first/second anchor)
+//! by the referenced record's kind: full native inspection, G2' residual
+//! (partial) record, G2' full cover, initial-overlap partial, other.
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use w0_g2falsify::*;
@@ -56,14 +59,47 @@ fn main() {
     let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
     let mut native: BTreeMap<String, (u64, f64)> = BTreeMap::new();
     let mut classes: Vec<Class> = (0..3).map(|_| Class::default()).collect();
-    let mut owner_secs: HashMap<String, (u64, f64)> = HashMap::new();
+    // Per Apply owner: records, record seconds, native calls (G2' full covers excluded).
+    let mut owner_secs: HashMap<String, (u64, f64, u64)> = HashMap::new();
     let (mut frontier_records, mut error_records, mut not_closed) = (0u64, 0u64, 0u64);
     let mut plan_micros = 0f64;
     let mut anchors_scanned = 0f64;
     const UNION_CAP: usize = 200_000_000;
     let mut union_total = 0usize;
     let mut union_aborted = false;
+    // Anchor-kind census: kind per record id, anchor references per class.
+    let mut kind_of: HashMap<u64, u8> = HashMap::new();
+    let mut references: Vec<(usize, u64)> = Vec::new();
+    let mut referencing_records: Vec<(usize, Vec<u64>)> = Vec::new();
     let n = for_each_record(path, |r| {
+        if let Some(id) = r.id_u64() {
+            let code = match (r.record_kind.as_str(), &r.g2_residual_anchor) {
+                ("partial_initial_overlap_inspection", Some(g2)) => {
+                    if g2.get("full_cover") == Some(&Value::Bool(true)) { 2 } else { 1 }
+                }
+                ("partial_initial_overlap_inspection", None) => 3,
+                (k, _) if k.starts_with("native") => 0,
+                _ => 4,
+            };
+            kind_of.insert(id, code);
+            if let Some(g2) = &r.g2_residual_anchor {
+                let class = class_of(&r.owner);
+                let mut ids: Vec<u64> = match g2.get("union_anchors").and_then(Value::as_array) {
+                    Some(list) => list.iter().filter_map(|a| a.get("anchor_id").and_then(Value::as_u64)).collect(),
+                    None => r
+                        .initial_overlap
+                        .as_ref()
+                        .and_then(|o| o.get("anchor_id"))
+                        .and_then(Value::as_u64)
+                        .into_iter()
+                        .chain(g2.get("second_anchor").and_then(|s| s.get("anchor_id")).and_then(Value::as_u64))
+                        .collect(),
+                };
+                ids.dedup();
+                references.extend(ids.iter().map(|&a| (class, a)));
+                referencing_records.push((class, ids));
+            }
+        }
         let phase = r.phase_str().to_owned();
         *kinds.entry(format!("{}|{}", phase, r.record_kind)).or_default() += 1;
         if r.descendant_closed == Some(false) {
@@ -85,9 +121,14 @@ fn main() {
         if phase != "Apply" {
             return;
         }
+        let full_cover = r
+            .g2_residual_anchor
+            .as_ref()
+            .is_some_and(|g2| g2.get("full_cover") == Some(&Value::Bool(true)));
         let o = owner_secs.entry(r.owner.clone()).or_default();
         o.0 += 1;
         o.1 += s;
+        o.2 += u64::from(!full_cover);
         let c = &mut classes[class_of(&r.owner)];
         c.successors += r.stat("successors");
         c.events += r.stat("events");
@@ -203,6 +244,51 @@ fn main() {
             )
         })
         .collect();
+    const KIND_NAMES: [&str; 6] =
+        ["native_inspection", "g2_residual_partial", "g2_full_cover", "initial_overlap_partial", "other", "missing"];
+    let mut ref_counts = [[0u64; 6]; 3];
+    for &(class, anchor) in &references {
+        let code = kind_of.get(&anchor).map_or(5, |&k| k as usize);
+        ref_counts[class][code] += 1;
+    }
+    let mut records_non_native = [0u64; 3];
+    let mut records_total = [0u64; 3];
+    for (class, ids) in &referencing_records {
+        records_total[*class] += 1;
+        records_non_native[*class] +=
+            u64::from(ids.iter().any(|a| kind_of.get(a).is_none_or(|&k| k != 0)));
+    }
+    let kinds_json = |counts: &[u64; 6]| {
+        let total: u64 = counts.iter().sum();
+        let mut m: BTreeMap<String, Value> = KIND_NAMES
+            .iter()
+            .zip(counts)
+            .map(|(k, v)| ((*k).to_owned(), json!(v)))
+            .collect();
+        m.insert("total".into(), json!(total));
+        m.insert("non_native_share".into(), json!(ratio((total - counts[0]) as f64, total as f64)));
+        m
+    };
+    let mut all = [0u64; 6];
+    for counts in &ref_counts {
+        for (a, b) in all.iter_mut().zip(counts) {
+            *a += b;
+        }
+    }
+    let anchor_kinds = json!({
+        "all": kinds_json(&all),
+        "by_owner_class": CLASSES.iter().enumerate().map(|(i, name)| (name.to_owned(), json!({
+            "references": kinds_json(&ref_counts[i]),
+            "g2_records": records_total[i],
+            "g2_records_with_a_non_native_anchor": records_non_native[i],
+        }))).collect::<BTreeMap<_, _>>(),
+        "g2_records": records_total.iter().sum::<u64>(),
+        "g2_records_with_a_non_native_anchor": records_non_native.iter().sum::<u64>(),
+    });
+    let apply_by_owner: BTreeMap<String, Value> = owner_secs
+        .iter()
+        .map(|(o, (c, s, calls))| (o.clone(), json!({"records": c, "record_seconds": s, "native_calls": calls})))
+        .collect();
     let mut owners: Vec<_> = owner_secs.into_iter().collect();
     owners.sort_by(|a, b| b.1 .1.partial_cmp(&a.1 .1).unwrap());
     let out = json!({
@@ -213,11 +299,13 @@ fn main() {
         "apply_by_owner_class": class_json,
         "g2_plan_seconds_in_records": plan_micros * 1e-6,
         "g2_anchors_scanned_in_records": anchors_scanned,
+        "g2_anchor_reference_kinds": anchor_kinds,
         "frontier_records": frontier_records,
         "error_records": error_records,
         "records_not_descendant_closed": not_closed,
         "union_aborted_at_cap": union.then_some(union_aborted),
-        "apply_owner_seconds_top": owners.iter().take(12).map(|(o, (c, s))| json!({"owner": o, "records": c, "record_seconds": s})).collect::<Vec<_>>(),
+        "apply_owner_seconds_top": owners.iter().take(12).map(|(o, (c, s, _))| json!({"owner": o, "records": c, "record_seconds": s})).collect::<Vec<_>>(),
+        "apply_by_owner": apply_by_owner,
         "notes": "record seconds include the G2' anchor search of planned and unplanned jobs in the flag-on arm; points are exact lattice counts (tools/research/w0_g2falsify/src/lib.rs)",
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());

@@ -19,7 +19,10 @@ pause) and kills the process tree after the grace period.
 Recorder (plan section 7 / audit directive 0.1.7): every 10 s the busy time of
 the run CPUs (/proc/stat) minus the run's own process-tree CPU time gives the
 foreign busy CPUs; per-thread schedstat run delay of the walk process is
-summed at the end (max seen per thread).
+summed at the end (max seen per thread). With --perf the walk binary runs
+under `perf stat -e instructions:u,cycles:u,task-clock` (user-space counts of
+the whole process, every thread; perf_event_paranoid 2 allows :u events), and
+metrics.json gets a "perf" block (instructions per native: see gate.py).
 """
 import argparse
 import json
@@ -36,6 +39,7 @@ ROOT = Path("/common/dev/rustred")
 sys.path.insert(0, str(ROOT / "TMP/fable51-controls"))
 import run_control  # noqa: E402  (historical command lines and rewrite())
 
+PERF = "/nix/store/7ccpnz8xkn5qsyw8nkz998vjmb6jpl49-perf-linux-6.19.6/bin/perf"
 HOT_COMMAND = ROOT / "TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/hot-owner-physics-ordered/run/request.json"
 
 
@@ -209,6 +213,30 @@ def recorder(pid, cpus, stop, holder):
     }
 
 
+def perf_block(path):
+    """Parse `perf stat -x,` output: value,unit,event,run-time,percent,..."""
+    out = {}
+    if not path.exists():
+        return None
+    for line in path.read_text().splitlines():
+        parts = line.split(",")
+        if len(parts) < 3 or line.startswith("#"):
+            continue
+        try:
+            value = float(parts[0])
+        except ValueError:
+            out[parts[2]] = parts[0]
+            continue
+        out[parts[2]] = value
+        if len(parts) > 4 and parts[4]:
+            out[parts[2] + "_enabled_percent"] = float(parts[4])
+    ins, cyc = out.get("instructions:u"), out.get("cycles:u")
+    if isinstance(ins, float) and isinstance(cyc, float) and cyc > 0:
+        out["ipc_u"] = round(ins / cyc, 4)
+    out["tool"] = PERF + " stat -x, -e instructions:u,cycles:u,task-clock (whole process, all threads, user space)"
+    return out
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--binary", required=True)
@@ -222,6 +250,7 @@ def main():
     p.add_argument("--time-limit", type=float)
     p.add_argument("--grace", type=float, default=300.0)
     p.add_argument("--nice", type=int, default=5)
+    p.add_argument("--perf", action="store_true")
     p.add_argument("--out-root", default=str(ROOT / "TMP/w0/g2falsify/runs"))
     args = p.parse_args()
     out = Path(args.out_root) / args.label / args.family
@@ -235,6 +264,9 @@ def main():
     argv = run_control.rewrite(argv, args.binary, out, args.policy, args.workers, None, [],
                                args.family == "five-finite")
     json.dump(argv, open(out / "command.json", "w"), indent=1)
+    if args.perf:
+        argv = [PERF, "stat", "-x", ",", "-o", str(out / "perf-stat.csv"),
+                "-e", "instructions:u,cycles:u,task-clock", "--"] + argv
     env = dict(os.environ)
     env.update(run_control.ENV_ONE)
     env["TMPDIR"] = str(ROOT / "TMP")
@@ -282,6 +314,8 @@ def main():
                "stopped_by_time_limit_at": stopped_by_limit, "killed_after_grace": killed,
                "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))}
     metrics.update(holder)
+    if args.perf:
+        metrics["perf"] = perf_block(out / "perf-stat.csv")
     metrics.update(extract(out / "result.json"))
     json.dump(metrics, open(out / "metrics.json", "w"), indent=1)
     print(json.dumps(metrics, indent=1))
