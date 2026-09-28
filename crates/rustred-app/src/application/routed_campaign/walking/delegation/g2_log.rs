@@ -70,6 +70,38 @@ impl<K: Copy + Eq> Ledger<K> {
         self.g2.as_ref()
     }
 
+    /// G2' activation on a checkpoint written without it: a log of the
+    /// published Apply natives only (no G2' kinds exist yet), in merge order
+    /// with their true stamps (validated by `validate_g2`).
+    pub fn backfill_g2(
+        &mut self,
+        initial_count: usize,
+        rows: Vec<(u32, u8, u64, (i64, i64))>,
+    ) -> Result<(), String> {
+        if self.g2.is_some() {
+            return Err("G2' activation on a ledger that already has a G2' log".into());
+        }
+        let mut log = G2Log::new(initial_count);
+        log.rows
+            .try_reserve_exact(rows.len())
+            .map_err(|_| "G2' activation log allocation")?;
+        for (id, kind, stamp, band) in rows {
+            if !matches!(kind, kind::NATIVE | kind::INITIAL_D_BAND) {
+                return Err("G2' activation back-fills only Native and initial-D-band rows".into());
+            }
+            log.rows.push(Row {
+                id,
+                kind,
+                stamp,
+                snapshot: 0,
+                band,
+                anchors_start: 0,
+                anchors_len: 0,
+            });
+        }
+        self.attach_g2(log)
+    }
+
     /// Restore: attach a decoded log (validated by `validate_g2`).
     pub fn attach_g2(&mut self, log: G2Log) -> Result<(), String> {
         for (index, row) in log.rows.iter().enumerate() {
@@ -165,6 +197,22 @@ impl<K: Copy + Eq> Ledger<K> {
         });
         self.entries[id].g2_row = index;
         Ok(())
+    }
+
+    /// A published native (Completed, with or without retained frontiers).
+    pub fn native_published(&self, id: usize) -> bool {
+        self.entries.get(id).is_some_and(|e| {
+            matches!(
+                e.responsibility,
+                Responsibility::Local(Local::Published(NativeOutcome::Completed { .. }))
+            )
+        })
+    }
+
+    pub fn has_initial_anchor(&self, id: usize) -> bool {
+        self.entries
+            .get(id)
+            .is_some_and(|e| e.initial_anchor.is_some())
     }
 
     /// A published native with no retained frontier (an anchor may lend it).

@@ -175,3 +175,58 @@ fn g2_ordered_walk_is_identical_at_one_and_four_workers() {
         pool.result["g2_residual_anchors"]["residual_plans"]
     );
 }
+
+/// G2' activation: a walk checkpointed WITHOUT G2' pauses, resumes with
+/// `--g2-residual-anchors union --g2-activate-on-resume` (the log is
+/// back-filled, the binding amended and recorded), drains, and PASSes the
+/// oracle gate under the union request; a later resume needs no activation.
+#[test]
+fn g2_activation_on_resume_of_a_checkpoint_written_without_g2() {
+    let fixture = g2_fixture();
+    let dir = scratch("g2-activate");
+    let selection = write_owners(&dir.0, fixture.rank, fixture.omit, &fixture.routes);
+    std::fs::write(dir.0.join("selection.json"), selection).unwrap();
+    std::fs::write(dir.0.join("queries.json"), fixture.queries.to_string()).unwrap();
+    let off = crate::cli::walk_request_from_argv(walk_argv(&dir.0, fixture.lookahead, &[])).unwrap();
+    let stop = AtomicBool::new(false);
+    let paused = crate::owner_domain_walk_with_progress(off, &stop, |event| {
+        if event["committed_domains"].as_u64().is_some_and(|c| c >= 40) {
+            stop.store(true, Ordering::Release);
+        }
+    })
+    .unwrap();
+    assert_eq!(paused.document["status"], "paused", "{}", paused.document);
+    let resume_argv = |extra: &[&str]| {
+        let mut argv = walk_argv(&dir.0, fixture.lookahead, extra);
+        let at = argv.iter().position(|a| a == "--checkpoint").unwrap();
+        argv[at] = "--resume".into();
+        argv
+    };
+    // Without the activation flag a union resume is refused (binding differs).
+    let refused = crate::cli::walk_request_from_argv(resume_argv(&["--g2-residual-anchors", "union"])).unwrap();
+    assert!(
+        crate::owner_domain_walk_with_progress(refused, &AtomicBool::new(false), |_| {}).is_err()
+    );
+    let request = crate::cli::walk_request_from_argv(resume_argv(&[
+        "--g2-residual-anchors",
+        "union",
+        "--g2-activate-on-resume",
+    ]))
+    .unwrap();
+    let result = walk(&dir.0, &request);
+    assert_eq!(result["status"], "locally_resolved", "{}", result["error"]);
+    assert_eq!(result["checkpoint"]["g2_activation"]["from"], "off");
+    assert!(result["g2_residual_anchors"]["logged_apply_natives"].as_u64().unwrap() > 0);
+    // The amended binding is the union binding: a plain union resume opens.
+    let again = crate::cli::walk_request_from_argv(resume_argv(&["--g2-residual-anchors", "union"])).unwrap();
+    let run = Run {
+        dir,
+        request,
+        result,
+    };
+    let report = verify_run(&run, |o| o.require_closure = true);
+    assert_eq!(report["verdict"], "PASS", "{}", report["violations"]);
+    assert!(report["roots_independently_verified"] == report["roots_total"]);
+    let rerun = crate::owner_domain_walk_with_progress(again, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(rerun.document["status"], "locally_resolved");
+}

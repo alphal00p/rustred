@@ -171,7 +171,17 @@ impl<const N: usize> State<N> {
     /// plus pins not yet consumed. A resumed job re-runs its pinned decision,
     /// so its replayed prefix is the one accepted before the save.
     pub(super) fn g2_pins_json(&self) -> Option<Value> {
-        let store = self.g2.as_ref()?;
+        let Some(store) = self.g2.as_ref() else {
+            // A save between restore and session start keeps the restored pins.
+            return (!self.g2_pins.is_empty()).then(|| {
+                Value::Array(
+                    self.g2_pins
+                        .iter()
+                        .map(|(id, outcome)| json!([id, outcome]))
+                        .collect(),
+                )
+            });
+        };
         let mut ids: BTreeSet<usize> = BTreeSet::new();
         ids.insert(self.queue.next);
         ids.extend(self.streams.active.map(|t| t.parent));
@@ -211,6 +221,86 @@ impl<const N: usize> State<N> {
         }
         self.g2_pins = pins;
         Ok(())
+    }
+
+    /// G2' activation on a resumed checkpoint written without G2': back-fill
+    /// the log from the ledger and the record order (a record's merge stamp is
+    /// its position in the record stream; an initial-D-band cut is read from
+    /// its record), validate it, and pin every stream that may hold accepted
+    /// events to a whole inspection (its accepted prefix came from one).
+    pub(in super::super) fn g2_backfill(&mut self) -> Result<Value, String> {
+        #[derive(serde::Deserialize)]
+        struct Cut {
+            cut: i64,
+        }
+        #[derive(serde::Deserialize)]
+        struct Probe {
+            id: usize,
+            #[serde(default)]
+            initial_overlap: Option<Cut>,
+        }
+        let started = std::time::Instant::now();
+        let ledger = self
+            .queue
+            .delegation
+            .as_ref()
+            .ok_or("G2' activation requires the responsibility ledger")?;
+        let total = self.records.borrow().total();
+        if total != ledger.published_count() {
+            return Err("G2' activation: records and publications disagree".into());
+        }
+        let mut rows = Vec::new();
+        let mut position = 0u64;
+        let files = match &*self.records.borrow() {
+            super::records::RecordSink::Sidecar(sidecar) => sidecar.files(),
+            super::records::RecordSink::Memory(_) => {
+                return Err("G2' activation requires a record sidecar".into());
+            }
+        };
+        files.for_each_line(|line| {
+            let probe: Probe = serde_json::from_slice(line)
+                .map_err(|e| format!("G2' activation: invalid record line: {e}"))?;
+            let stamp = position;
+            position += 1;
+            let id = probe.id;
+            if self.queue.domains.get(id).is_none_or(|d| d.phase() != Phase::Apply)
+                || !ledger.native_published(id)
+            {
+                return Ok(());
+            }
+            let row = if ledger.has_initial_anchor(id) {
+                let cut = probe
+                    .initial_overlap
+                    .ok_or("G2' activation: initial-D-band record without its cut")?
+                    .cut;
+                (id as u32, kind::INITIAL_D_BAND, stamp, (cut, cut))
+            } else {
+                (id as u32, kind::NATIVE, stamp, (0, 0))
+            };
+            rows.try_reserve(1)
+                .map_err(|_| "G2' activation log allocation".to_owned())?;
+            rows.push(row);
+            Ok(())
+        })?;
+        if position as usize != total {
+            return Err("G2' activation: record stream shorter than its count".into());
+        }
+        let backfilled = rows.len();
+        let initial_count = self.initial_domain_count;
+        let ledger = self.queue.delegation.as_mut().expect("checked");
+        ledger.backfill_g2(initial_count, rows)?;
+        let domains = &self.queue.domains;
+        ledger.validate_g2(|id| domains.get(id).is_some_and(|d| d.phase() == Phase::Apply))?;
+        let mut pinned: BTreeSet<usize> = BTreeSet::new();
+        pinned.insert(self.queue.next);
+        pinned.extend(self.streams.active.map(|t| t.parent));
+        pinned.extend(self.streams.parked.iter().map(|(t, _)| t.parent));
+        pinned.retain(|&id| id < self.queue.domains.len());
+        self.g2_pins = pinned.iter().map(|&id| (id, Outcome::Whole)).collect();
+        Ok(json!({"event":"g2_activated","operation":"owner_domain_walk",
+            "published_records":total,"backfilled_apply_natives":backfilled,
+            "streams_pinned_whole":pinned.len(),"seconds":started.elapsed().as_secs_f64(),
+            "family_closure_claim":false}))
     }
 
     /// Final and paused reports.

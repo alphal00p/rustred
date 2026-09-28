@@ -96,6 +96,12 @@ pub(super) struct Store {
     last_stamp: Option<ChangeStamp>,
     verify_seconds: f64,
     pending_events: Vec<Value>,
+    /// G2' activation record (a binding amendment from off to union): set by
+    /// the activating resume and inherited from the manifest metadata by every
+    /// later session, so each later generation repeats it.
+    g2_activation: Option<Value>,
+    /// This session activated G2' on a checkpoint written without it.
+    g2_activating: bool,
     /// Label of a diagnostic pause this process triggered; every later save
     /// of the session repeats it in the manifest metadata (a free-form
     /// object, so older readers and older manifests are unaffected).
@@ -303,8 +309,32 @@ impl Store {
         };
         let mut pending_events = Vec::new();
         let mut verify_seconds = 0.0;
+        let mut g2_activation = None;
+        let mut g2_activating = false;
         let manifest = if options.resume {
             let m = manifest::read(&options.directory.join("latest.json"))?;
+            g2_activation = Some(m.metadata["g2_activation"].clone()).filter(|v| !v.is_null());
+            // G2' activation: a checkpoint bound to this request with G2' off
+            // (and never written with G2') may continue with G2' on. The
+            // amendment is recorded in every later generation's metadata.
+            let mut request_binding = request_binding.clone();
+            if request.g2_activate_on_resume
+                && m.request != request_binding
+                && m.kind == "state"
+                && m.sections.anchors.is_none()
+            {
+                let mut off = request.clone();
+                off.g2_residual_anchors = super::OwnerDomainWalkG2ResidualAnchors::Off;
+                if m.request == binding(&off) {
+                    g2_activation = Some(json!({"from":"off","to":request.g2_residual_anchors.name(),
+                        "generation":m.generation,"binding_before":m.request,"binding_after":request_binding,
+                        "committed_domains":m.metadata["committed_domains"],"activated_unix_time":unix_time()?}));
+                    g2_activating = true;
+                    pending_events.push(json!({"event":"g2_activation_requested","operation":"owner_domain_walk",
+                        "generation":m.generation,"family_closure_claim":false}));
+                    request_binding = m.request.clone();
+                }
+            }
             // The ledger section is optional in the manifest, so its presence
             // is bound to the request here; a manifest without it must not
             // resume a transfer campaign as InspectAll.
@@ -345,6 +375,8 @@ impl Store {
             last_stamp: None,
             verify_seconds,
             pending_events,
+            g2_activation,
+            g2_activating,
             diagnostic_pause: None,
             stop_reason: None,
             #[cfg(test)]
@@ -410,6 +442,13 @@ impl Store {
             "restore":report,"family_closure_claim":false}),
         );
         Ok(Some(restored))
+    }
+    /// Whether this session activates G2' on a checkpoint written without it.
+    pub(super) fn g2_activating(&self) -> bool {
+        self.g2_activating
+    }
+    pub(super) fn g2_activation(&self) -> Option<&Value> {
+        self.g2_activation.as_ref()
     }
     pub(super) fn metadata(&self) -> Option<&Value> {
         self.manifest.as_ref().map(|m| &m.metadata)
@@ -944,6 +983,9 @@ impl Store {
         if let Some(reason) = self.stop_reason {
             metadata["stop_reason"] = json!(reason);
         }
+        if let Some(activation) = &self.g2_activation {
+            metadata["g2_activation"] = activation.clone();
+        }
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
         // Every edge is durable in insertion order now; the log may fold,
@@ -1350,6 +1392,27 @@ mod tests {
         drop(Store::open(&request).unwrap().unwrap());
         request.frontier_policy = OwnerDomainWalkFrontierPolicy::Record;
         assert!(Store::open(&request).is_err());
+        fs::remove_dir_all(path).unwrap();
+    }
+    /// G2' union is bound (and refuses an off resume); off adds no key, so
+    /// the binding of every existing request is unchanged.
+    #[test]
+    fn g2_residual_anchor_policy_is_checkpoint_bound_and_off_is_historical() {
+        let path = test_directory();
+        let mut request = request(&path);
+        let off = binding(&request);
+        assert!(binding_value(&request).get("g2_residual_anchors").is_none());
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        request.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Union;
+        assert_ne!(binding(&request), off);
+        assert_eq!(binding_value(&request)["g2_residual_anchors"], "union");
+        assert!(Store::open(&request).is_err());
+        request.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Off;
+        assert_eq!(binding(&request), off);
+        drop(Store::open(&request).unwrap().unwrap());
         fs::remove_dir_all(path).unwrap();
     }
     #[test]
@@ -1895,6 +1958,11 @@ mod tests {
         let fixture = Fixture::save(&ledger_fixture());
         let manifest = fixture.manifest();
         for section in Section::ALL {
+            if section == Section::Anchors {
+                // Present only with G2' residual anchors (absent key, not null).
+                assert!(manifest["sections"].get("anchors").is_none());
+                continue;
+            }
             assert!(
                 !manifest["sections"][section.name()].is_null(),
                 "{}",

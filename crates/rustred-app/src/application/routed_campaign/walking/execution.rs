@@ -1829,7 +1829,8 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
                     "coordinates_and_rank_unchanged":true,
                     "responsibility_published":false});
             }
-            let taken = state.g2.as_ref().and_then(|store| store.take(id));
+            // Peek, not take: a paused publisher keeps its plan for the save's pins.
+            let taken = state.g2.as_ref().and_then(|store| store.peek(id));
             if finished.g2_scope().is_some()
                 && let Some(super::g2::Outcome::Planned(plan)) = taken.as_deref()
             {

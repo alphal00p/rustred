@@ -201,6 +201,7 @@ fn walk_request(
     walk.max_containment_checks = args.max_containment_checks;
     walk.reuse_initial_d_bands = args.reuse_initial_d_bands;
     walk.g2_residual_anchors = args.g2_residual_anchors;
+    walk.g2_activate_on_resume = args.g2_activate_on_resume;
     if let Some(lookahead) = args.transfer_unreserved_lookahead {
         walk.scheduling_policy = OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
     }

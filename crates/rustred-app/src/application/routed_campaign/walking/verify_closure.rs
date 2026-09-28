@@ -2925,13 +2925,25 @@ fn plan_g2_mutation<const N: usize>(ctx: &Ctx<'_, N>, kind: OwnerDomainWalkVerif
             }
             Plan::NotApplicable("no alias, G2' full cover or Route record before a snapshot".into())
         }
-        M::G2DroppedAnchorEdge => match with_anchor() {
-            Some((&id, info)) => Plan::G2(G2Edit::DropEdge {
-                id,
-                anchor: info.anchors[0].id,
-            }),
-            None => Plan::NotApplicable("no G2' record with an anchor".into()),
-        },
+        M::G2DroppedAnchorEdge => {
+            // Prefer an anchor edge that carries no successor coverage: its
+            // (record, anchor) pair occurs once among the saved edges.
+            let mut counts: std::collections::HashMap<(u32, u32), u32> =
+                std::collections::HashMap::new();
+            for &edge in &loaded.raw.edges {
+                *counts.entry(edge).or_default() += 1;
+            }
+            let single = g2.iter().find_map(|(&id, info)| {
+                info.anchors
+                    .iter()
+                    .find(|a| counts.get(&(id as u32, a.id as u32)) == Some(&1))
+                    .map(|a| (id, a.id))
+            });
+            match single.or_else(|| with_anchor().map(|(&id, info)| (id, info.anchors[0].id))) {
+                Some((id, anchor)) => Plan::G2(G2Edit::DropEdge { id, anchor }),
+                None => Plan::NotApplicable("no G2' record with an anchor".into()),
+            }
+        }
         M::G2AnchorCycle => {
             let residual: Vec<usize> = g2
                 .iter()
@@ -2991,11 +3003,9 @@ fn apply_g2_mutation<const N: usize>(loaded: &mut Loaded<N>, edit: G2Edit, repor
                 stamp: positions[to],
                 kind: kind.to_owned(),
             };
-            for edge in &mut loaded.raw.edges {
-                if (edge.0 as usize, edge.1 as usize) == (id, from) {
-                    edge.1 = to as u32;
-                }
-            }
+            // The new anchor gets its edge; the old edge stays (it may also
+            // carry successor coverage), so only the anchor rules can fire.
+            loaded.raw.edges.push((id as u32, to as u32));
             report["node"] = json!(id);
             report["anchor_from"] = json!(from);
             report["anchor_to"] = json!(to);

@@ -60,6 +60,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
     pub reuse_initial_d_bands: bool,
     pub g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors,
+    pub g2_activate_on_resume: bool,
     pub unbounded_work: bool,
     pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
     pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
@@ -111,6 +112,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         transfer_unreserved_lookahead: None,
         reuse_initial_d_bands: false,
         g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors::Off,
+        g2_activate_on_resume: false,
         unbounded_work: false,
         checkpoint: None,
         apply_subdivision: None,
@@ -169,6 +171,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands" => "--reuse-initial-d-bands",
             "--g2-residual-anchors" => "--g2-residual-anchors",
+            "--g2-activate-on-resume" => "--g2-activate-on-resume",
             "--unbounded-work" => "--unbounded-work",
             "--checkpoint" => "--checkpoint",
             "--resume" => "--resume",
@@ -200,6 +203,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--reuse-initial-d-bands" {
             result.reuse_initial_d_bands = true;
+            continue;
+        }
+        if name == "--g2-activate-on-resume" {
+            result.g2_activate_on_resume = true;
             continue;
         }
         if name == "--unbounded-work" {
@@ -459,6 +466,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands",
             "--g2-residual-anchors",
+            "--g2-activate-on-resume",
             "--route-domain-overcover",
             "--route-joint-source-support-pruning",
             "--max-route-masks-per-query",
@@ -519,6 +527,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             ));
         }
     }
+    if result.g2_activate_on_resume
+        && (result.g2_residual_anchors == crate::OwnerDomainWalkG2ResidualAnchors::Off
+            || !result.checkpoint.as_ref().is_some_and(|c| c.resume))
+    {
+        return Err(ArgError::InvalidCombination(
+            "--g2-activate-on-resume requires --resume and --g2-residual-anchors union",
+        ));
+    }
     Ok(Command::OwnerDomainMatch(result))
 }
 
@@ -527,6 +543,32 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn g2_residual_anchors_parse_and_require_the_ledger() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let Command::OwnerDomainMatch(args) = parse(base).unwrap() else {
+            panic!("match command")
+        };
+        assert_eq!(args.g2_residual_anchors, crate::OwnerDomainWalkG2ResidualAnchors::Off);
+        let Command::OwnerDomainMatch(args) = parse(&format!(
+            "{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors union"
+        ))
+        .unwrap() else {
+            panic!("match command")
+        };
+        assert_eq!(args.g2_residual_anchors, crate::OwnerDomainWalkG2ResidualAnchors::Union);
+        for bad in [
+            format!("{base} --g2-residual-anchors union"),
+            format!("{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors maybe"),
+            "--manifest m --queries q --output o --g2-residual-anchors union".to_owned(),
+            format!(
+                "{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors union --publication-policy owner-batched"
+            ),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

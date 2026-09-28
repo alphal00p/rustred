@@ -97,6 +97,10 @@ pub struct OwnerDomainWalkRequest {
     /// Opt-in G2' residual anchors (dispatch-time D-band residual inspection
     /// against the union of merged anchors; requires TransferUnreserved).
     pub g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors,
+    /// Resume only: switch a checkpoint written WITHOUT G2' to `union` (a
+    /// recorded, append-only binding amendment; the G2' log is back-filled
+    /// from the ledger and the record order). Transport, not bound.
+    pub g2_activate_on_resume: bool,
     pub max_domains: usize,
     /// Committed logical callbacks, not speculative native attempts or bytes.
     pub max_events: usize,
@@ -125,6 +129,7 @@ impl OwnerDomainWalkRequest {
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
+            g2_activate_on_resume: false,
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
@@ -554,6 +559,14 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
             ));
         }
     }
+    if request.g2_activate_on_resume
+        && (request.g2_residual_anchors == OwnerDomainWalkG2ResidualAnchors::Off
+            || !request.checkpoint.as_ref().is_some_and(|c| c.resume))
+    {
+        return Err(AppError::input(
+            "G2' activation requires --resume and --g2-residual-anchors union",
+        ));
+    }
     Ok(diagnostic_pause)
 }
 
@@ -889,6 +902,16 @@ fn run<const N: usize>(
     // ledger carries the log iff its checkpoint was written with G2' on (the
     // request binding makes these agree).
     let g2_on = request.g2_residual_anchors != OwnerDomainWalkG2ResidualAnchors::Off;
+    if resumed && g2_on && checkpoint.as_ref().is_some_and(|s| s.g2_activating()) {
+        // Activation on a checkpoint written without G2' (recorded amendment).
+        let mut event = state.g2_backfill().map_err(AppError::input)?;
+        event["g2_activation"] = checkpoint
+            .as_ref()
+            .and_then(|s| s.g2_activation())
+            .cloned()
+            .unwrap_or(Value::Null);
+        observer(event);
+    }
     if let Some(ledger) = state.queue.delegation.as_mut() {
         if g2_on && !resumed {
             ledger.enable_g2(state.initial_domain_count);
