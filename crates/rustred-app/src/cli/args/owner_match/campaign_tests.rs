@@ -185,3 +185,39 @@ fn subdivision_is_an_explicit_ordered_pair_and_accepts_zero() {
         assert!(parse_suffix(text).is_err(), "{text}");
     }
 }
+
+#[test]
+fn frontier_policy_defaults_to_record_and_stop_requires_a_checkpointed_walk() {
+    assert_eq!(
+        parse_suffix("").unwrap().frontier_policy,
+        crate::OwnerDomainWalkFrontierPolicy::Record
+    );
+    for (suffix, expected) in [
+        (
+            "--follow-successors --frontier-policy record",
+            crate::OwnerDomainWalkFrontierPolicy::Record,
+        ),
+        (
+            "--follow-successors --frontier-policy stop --checkpoint c",
+            crate::OwnerDomainWalkFrontierPolicy::Stop,
+        ),
+        (
+            "--follow-successors --unbounded-work --frontier-policy stop --resume c",
+            crate::OwnerDomainWalkFrontierPolicy::Stop,
+        ),
+    ] {
+        assert_eq!(
+            parse_suffix(suffix).unwrap().frontier_policy,
+            expected,
+            "{suffix}"
+        );
+    }
+    for suffix in [
+        "--frontier-policy record",
+        "--follow-successors --frontier-policy stop",
+        "--follow-successors --frontier-policy halt --checkpoint c",
+        "--follow-successors --frontier-policy stop --frontier-policy stop --checkpoint c",
+    ] {
+        assert!(parse_suffix(suffix).is_err(), "{suffix}");
+    }
+}

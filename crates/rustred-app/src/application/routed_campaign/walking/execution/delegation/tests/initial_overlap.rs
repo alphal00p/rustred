@@ -36,7 +36,10 @@ fn initial_overlap_actual_native_residual_and_alias_match_across_workers() {
     let reducer = native_reducer();
     let mut reference = None;
     for workers in [1, 2, 6, 50] {
-        if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err() {
+        if !crate::test_gates::workers_or_skip(
+            "initial_overlap_actual_native_residual_and_alias_match_across_workers",
+            workers,
+        ) {
             continue;
         }
         let mut s = starting();

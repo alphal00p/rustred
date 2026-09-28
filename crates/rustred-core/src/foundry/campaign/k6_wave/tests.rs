@@ -226,7 +226,10 @@ fn full_rank_wave_driver_rejects_a_structurally_compatible_foreign_root() {
 
 #[test]
 fn bounded_wave_results_are_identical_for_one_and_two_workers() {
-    if ParallelExecution::preflight_requested_core_budget(2).is_err() {
+    if !crate::test_gates::workers_or_skip(
+        "bounded_wave_results_are_identical_for_one_and_two_workers",
+        2,
+    ) {
         return;
     }
     let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1)
@@ -259,7 +262,10 @@ fn bounded_wave_results_are_identical_for_one_and_two_workers() {
 
 #[test]
 fn live_wave_progress_is_monotone_orbit_ordered_and_matches_the_final_outcome() {
-    if ParallelExecution::preflight_requested_core_budget(2).is_err() {
+    if !crate::test_gates::workers_or_skip(
+        "live_wave_progress_is_monotone_orbit_ordered_and_matches_the_final_outcome",
+        2,
+    ) {
         return;
     }
     let root = super::super::preset_k6::shared_k6_root_predecessor().unwrap();

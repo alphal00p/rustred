@@ -350,7 +350,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-query-bytes N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-query-bytes N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--frontier-policy record|stop] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json (--max-numerator-rank R | --unbounded-rank) --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--entry-domains DOMAINS.json] [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -622,6 +622,13 @@ Use the Python campaign supervisor to protect aggregate process and host RAM.
 cooperative stop; --resume DIR restores it under matching immutable inputs and
 policies. These flags are mutually exclusive and require --follow-successors.
 --checkpoint-interval-seconds N sets the positive save interval (default 3600).
+--frontier-policy record|stop decides what a walk does at an explicit frontier
+(default record: keep walking; frontiers stay explicit and block every closure
+claim either way). stop saves the checkpoint and stops cooperatively (exit 4,
+stop_reason frontier_policy) at the first frontier this session commits;
+frontiers restored by --resume do not fire again, so a resume continues to the
+next new frontier. stop requires --checkpoint or --resume and is bound into
+the checkpoint request; record leaves existing checkpoint bindings unchanged.
 A resumed unfinished inspection may replay its verified published prefix;
 completed logical work is retained. A checkpoint is not a closure certificate.
 --apply-subdivision-axis AXIS --apply-subdivision-cut CUT opts into two exact

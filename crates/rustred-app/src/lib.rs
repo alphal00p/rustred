@@ -2,20 +2,23 @@ mod application;
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 #[cfg(feature = "cli")]
 mod cli;
+#[cfg(test)]
+mod test_gates;
 
 pub use application::{
     OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
     OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
     OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest,
-    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
-    RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
-    RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
-    RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
-    owner_domain_scan_with_progress, owner_domain_walk_with_progress,
-    owner_guarded_apply_with_progress, routed_campaign_with_progress,
+    OwnerDomainWalkFrontierPolicy, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    OwnerGuardedApplyRequest, OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult,
+    RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,
+    RoutedEntryWitnessStats, RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination,
+    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
+    owner_domain_match_with_progress, owner_domain_scan_with_progress,
+    owner_domain_walk_with_progress, owner_guarded_apply_with_progress,
+    routed_campaign_with_progress,
 };
 pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
 

@@ -97,8 +97,20 @@ printf '%s\n' '{"event":"finished","operation":"owner_domain_walk","status":"loc
 printf '%s\n' '{"status":"locally_resolved"}' > "$output"
 "#;
 
+/// Tests that write the fake executable and launch it run alone in their own
+/// process (`crate::test_gates::isolated`): a sibling test that forks while
+/// this one holds a descriptor keeps a copy until its own exec, so exec of the
+/// just-written fake can fail with ETXTBSY ("Text file busy"; observed under
+/// equal-priority load) and a released campaign lock can stay held.
+fn alone(test: &str) -> bool {
+    crate::test_gates::isolated(&format!("cli::shards::supervisor::tests::{test}"))
+}
+
 #[test]
 fn two_child_processes_use_distinct_affinity_and_cooperative_pause() {
+    if !alone("two_child_processes_use_distinct_affinity_and_cooperative_pause") {
+        return;
+    }
     let fixture = Fixture::new();
     let snapshot = fixture.setup("pause", 2);
     let mut state = MasterState::new(&snapshot.shards);
@@ -132,6 +144,9 @@ fn two_child_processes_use_distinct_affinity_and_cooperative_pause() {
 
 #[test]
 fn completion_receipt_skips_finished_jobs_and_detects_tampering() {
+    if !alone("completion_receipt_skips_finished_jobs_and_detects_tampering") {
+        return;
+    }
     let fixture = Fixture::new();
     let snapshot = fixture.setup("complete", 1);
     let mut state = MasterState::new(&snapshot.shards);
@@ -166,6 +181,9 @@ fn completion_receipt_skips_finished_jobs_and_detects_tampering() {
 
 #[test]
 fn resume_refuses_live_identity_and_changed_frozen_bytes() {
+    if !alone("resume_refuses_live_identity_and_changed_frozen_bytes") {
+        return;
+    }
     let fixture = Fixture::new();
     let snapshot = fixture.setup("pause", 1);
     let mut state = MasterState::new(&snapshot.shards);
@@ -189,6 +207,9 @@ fn resume_refuses_live_identity_and_changed_frozen_bytes() {
 
 #[test]
 fn successful_exit_without_native_completion_is_incomplete() {
+    if !alone("successful_exit_without_native_completion_is_incomplete") {
+        return;
+    }
     let fixture = Fixture::new();
     let snapshot = fixture.setup("complete", 1);
     let mut state = MasterState::new(&snapshot.shards);
@@ -230,6 +251,13 @@ fn recent_throughput_uses_only_current_attempt_deltas_and_resets_on_regression()
 
 #[test]
 fn orphan_child_retains_campaign_lock_until_exit() {
+    // Alone (see `alone`): a sibling that forked while this test held the
+    // lock would keep a close-on-exec copy until its own exec, which under
+    // load (its pre_exec pins it to the CPU the fake children share) can
+    // outlast any fixed wait. No sibling, no such copy.
+    if !alone("orphan_child_retains_campaign_lock_until_exit") {
+        return;
+    }
     let fixture = Fixture::new();
     let snapshot = fixture.setup("pause", 1);
     let lock = checkpoint::acquire_lock(&fixture.0).unwrap();
@@ -243,10 +271,9 @@ fn orphan_child_retains_campaign_lock_until_exit() {
     children.0[0].stop().unwrap();
     children.0[0].child.wait().unwrap();
     children.0.clear();
-    // A sibling test that forked while this process still held the lock
-    // keeps a close-on-exec copy until its own exec, and its pre_exec pins it
-    // to the CPU the fake children share, so that exec can lag this child's
-    // exit. Such copies are transient; a lock the orphan leaked would not be.
+    // The fake child's own short-lived subprocesses (its `sleep` polls)
+    // inherit the lock without close-on-exec and may outlive it by one poll
+    // interval. Such copies are transient; a lock the orphan leaked would not be.
     let started = Instant::now();
     while let Err(error) = checkpoint::acquire_lock(&fixture.0) {
         assert!(started.elapsed() < Duration::from_secs(10), "{error:?}");

@@ -306,11 +306,13 @@ mod tests {
 
     #[test]
     fn licensed_parallel_map_uses_the_owned_workers_and_preserves_order() {
-        if !LicenseManager::is_licensed() {
+        const TEST: &str = "licensed_parallel_map_uses_the_owned_workers_and_preserves_order";
+        if !crate::test_gates::licensed_or_skip(TEST) {
             return;
         }
         let n_cores = std::thread::available_parallelism().unwrap().get().min(4);
         if n_cores < 2 {
+            crate::test_gates::skip(TEST, "fewer than 2 available cores");
             return;
         }
         let execution = ParallelExecution::try_new(n_cores, n_cores).unwrap();
@@ -337,8 +339,12 @@ mod tests {
 
     #[test]
     fn licensed_parallel_map_keeps_lowest_ordinal_error_first() {
-        if !LicenseManager::is_licensed() || std::thread::available_parallelism().unwrap().get() < 2
-        {
+        const TEST: &str = "licensed_parallel_map_keeps_lowest_ordinal_error_first";
+        if !crate::test_gates::licensed_or_skip(TEST) {
+            return;
+        }
+        if std::thread::available_parallelism().unwrap().get() < 2 {
+            crate::test_gates::skip(TEST, "fewer than 2 available cores");
             return;
         }
         let execution = ParallelExecution::try_new(2, 2).unwrap();

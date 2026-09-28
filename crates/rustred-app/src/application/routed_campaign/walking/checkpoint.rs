@@ -21,8 +21,8 @@ pub(super) mod sections;
 pub(super) mod test_support;
 
 use super::{
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkSchedulingPolicy,
-    WALK_SEMANTICS_VERSION,
+    OwnerDomainWalkFrontierPolicy, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
+    OwnerDomainWalkSchedulingPolicy, WALK_SEMANTICS_VERSION,
     execution::{
         ChangeStamp, State,
         records::{RecordSink, Sidecar},
@@ -96,14 +96,24 @@ pub(super) struct Store {
     /// of the session repeats it in the manifest metadata (a free-form
     /// object, so older readers and older manifests are unaffected).
     diagnostic_pause: Option<&'static str>,
+    /// Stop reason of a policy stop this process triggered (the A10 frontier
+    /// stop); like `diagnostic_pause`, optional free-form metadata repeated by
+    /// every later save of the session and never inherited by a resume.
+    stop_reason: Option<&'static str>,
     #[cfg(test)]
     fail_section: Option<Section>,
     #[cfg(test)]
     fail_cleanup: bool,
 }
 fn binding(request: &OwnerDomainWalkRequest) -> String {
+    blake3::hash(binding_value(request).to_string().as_bytes())
+        .to_hex()
+        .to_string()
+}
+/// The bound request value (see `binding`).
+fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
     // Checkpoint location, interval and resume mode are transport, not policy.
-    let value = json!({"selection":request.matching.selection_json,"queries":request.matching.queries_json,
+    let mut value = json!({"selection":request.matching.selection_json,"queries":request.matching.queries_json,
         "limits":super::limits_json(request),"reduction":format!("{:?}",request.matching.reduction_limits),
         "workers":request.workers,"inspection_workers":request.inspection_workers,
         "publication":format!("{:?}",request.publication_policy),"scheduling":format!("{:?}",request.scheduling_policy),
@@ -113,9 +123,12 @@ fn binding(request: &OwnerDomainWalkRequest) -> String {
         "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
-    blake3::hash(value.to_string().as_bytes())
-        .to_hex()
-        .to_string()
+    // A10: the stop policy is semantic and bound; Record (the historical
+    // behaviour) adds no key, so every existing CP5 binding is unchanged.
+    if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
+        value["frontier_policy"] = json!(request.frontier_policy.name());
+    }
+    value
 }
 fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
     match policy {
@@ -325,6 +338,7 @@ impl Store {
             verify_seconds,
             pending_events,
             diagnostic_pause: None,
+            stop_reason: None,
             #[cfg(test)]
             fail_section: None,
             #[cfg(test)]
@@ -395,6 +409,14 @@ impl Store {
     /// Label every later save of this session as a diagnostic pause.
     pub(super) fn mark_diagnostic_pause(&mut self, label: &'static str) {
         self.diagnostic_pause = Some(label);
+    }
+    /// Label every later save of this session with a policy stop reason.
+    /// The next save writes a labelled generation even when the walk state
+    /// is unchanged since the last one (e.g. a stop on initial input
+    /// frontiers right after the forced first save).
+    pub(super) fn mark_stop_reason(&mut self, reason: &'static str) {
+        self.stop_reason = Some(reason);
+        self.last_stamp = None;
     }
     fn effective_interval(&self) -> f64 {
         (self.options.interval_seconds as f64).max(20.0 * self.last_save_seconds)
@@ -895,6 +917,9 @@ impl Store {
         if let Some(label) = self.diagnostic_pause {
             metadata["diagnostic_pause"] = json!(label);
         }
+        if let Some(reason) = self.stop_reason {
+            metadata["stop_reason"] = json!(reason);
+        }
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
         // Every edge is durable in insertion order now; the log may fold,
@@ -1138,6 +1163,62 @@ mod tests {
         };
         assert!(Store::open(&request).is_err());
         request.applied_limits.cell_refinement = OwnerAppliedCellRefinement::Off;
+        assert!(Store::open(&request).is_err());
+        fs::remove_dir_all(path).unwrap();
+    }
+    /// A10: Record keeps the historical request value (the pre-A10 formula,
+    /// restated here, hashes to the same digest), so every existing CP5
+    /// checkpoint and control resumes; Stop is bound and refuses Record.
+    #[test]
+    fn frontier_stop_is_bound_and_record_keeps_the_historical_binding() {
+        let path = test_directory();
+        let mut request = request(&path);
+        request.disable_work_limits();
+        request.workers = 6;
+        request.route_domain_overcover = true;
+        let historical = |request: &OwnerDomainWalkRequest| {
+            let value = json!({"selection":request.matching.selection_json,"queries":request.matching.queries_json,
+                "limits":super::super::limits_json(request),"reduction":format!("{:?}",request.matching.reduction_limits),
+                "workers":request.workers,"inspection_workers":request.inspection_workers,
+                "publication":format!("{:?}",request.publication_policy),"scheduling":format!("{:?}",request.scheduling_policy),
+                "reuse_initial_d_bands":request.reuse_initial_d_bands,"max_domains":request.max_domains,
+                "max_events":request.max_events,"max_frontiers":request.max_frontiers,
+                "max_containment_checks":request.max_containment_checks,"route_domain_overcover":request.route_domain_overcover,
+                "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
+                "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
+                "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
+            blake3::hash(value.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        };
+        assert_eq!(
+            request.frontier_policy,
+            OwnerDomainWalkFrontierPolicy::Record
+        );
+        assert_eq!(binding(&request), historical(&request));
+        assert!(binding_value(&request).get("frontier_policy").is_none());
+        let record = binding(&request);
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.frontier_policy = OwnerDomainWalkFrontierPolicy::Stop;
+        assert_eq!(binding_value(&request)["frontier_policy"], "stop");
+        assert_ne!(binding(&request), record);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        assert!(Store::open(&request).is_err());
+        request.frontier_policy = OwnerDomainWalkFrontierPolicy::Record;
+        drop(Store::open(&request).unwrap().unwrap());
+        // A Stop checkpoint refuses a Record resume.
+        fs::remove_dir_all(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        request.checkpoint.as_mut().unwrap().resume = false;
+        request.frontier_policy = OwnerDomainWalkFrontierPolicy::Stop;
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        drop(Store::open(&request).unwrap().unwrap());
+        request.frontier_policy = OwnerDomainWalkFrontierPolicy::Record;
         assert!(Store::open(&request).is_err());
         fs::remove_dir_all(path).unwrap();
     }

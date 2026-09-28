@@ -242,10 +242,22 @@ fn initial_orthants_native_off_on_full_queue_and_serial_parallel_are_equivalent(
     assert_eq!(baseline.pre_admitted_orthant_hits, 0);
     for workers in [1, 2, 6] {
         if workers > 1
-            && (rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
-                .is_err()
-                || !symbolica::license::LicenseManager::is_licensed())
+            && !crate::test_gates::licensed_or_skip(&format!(
+                "initial_orthants_native_off_on_full_queue_and_serial_parallel_are_equivalent W{workers}"
+            ))
         {
+            continue;
+        }
+        if workers > 1
+            && let Err(error) =
+                rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
+        {
+            crate::test_gates::skip(
+                &format!(
+                    "initial_orthants_native_off_on_full_queue_and_serial_parallel_are_equivalent W{workers}"
+                ),
+                &format!("{error:?}"),
+            );
             continue;
         }
         for enabled in [false, true] {

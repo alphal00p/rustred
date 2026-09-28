@@ -291,7 +291,9 @@ fn symbolic_stream_panic_retains_already_committed_frontier_provenance() {
 
 #[test]
 fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() {
-    if !symbolica::license::LicenseManager::is_licensed() {
+    if !crate::test_gates::licensed_or_skip(
+        "completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts",
+    ) {
         return;
     }
     let mut request = request();

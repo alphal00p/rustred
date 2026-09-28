@@ -26,8 +26,8 @@ pub use walking::{
     MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
     OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    OwnerDomainWalkFrontierPolicy, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
     WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION, owner_domain_walk_with_progress,
 };
 #[cfg(test)]

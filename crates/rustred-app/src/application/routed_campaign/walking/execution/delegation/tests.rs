@@ -321,10 +321,7 @@ fn native_walk_transfer_runs_serial_two_six_fifty_and_default_keeps_every_job() 
     assert!(baseline.finalize_delegation().0.is_none());
     let mut expected = None;
     for workers in [1, 2, 6, 50] {
-        if let Err(error) =
-            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
-        {
-            eprintln!("native delegation control: skipping {workers} workers: {error}");
+        if !crate::test_gates::workers_or_skip("native delegation control", workers) {
             continue;
         }
         let mut state = initial(policy(1));
@@ -362,7 +359,10 @@ fn native_walk_transfer_runs_serial_two_six_fifty_and_default_keeps_every_job() 
 fn native_walk_cancellation_at_alias_retains_unresolved_representative() {
     let reducer = native_reducer();
     for workers in [1, 2, 6] {
-        if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err() {
+        if !crate::test_gates::workers_or_skip(
+            "native_walk_cancellation_at_alias_retains_unresolved_representative",
+            workers,
+        ) {
             continue;
         }
         let mut state = initial(policy(1));

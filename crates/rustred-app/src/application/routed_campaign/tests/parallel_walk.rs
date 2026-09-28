@@ -58,7 +58,10 @@ fn owner_domain_walk_parallel_stable_domains_and_native_counters_match_serial() 
         ])
     );
     for workers in [2, 6] {
-        if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err() {
+        if !crate::test_gates::workers_or_skip(
+            "owner_domain_walk_parallel_stable_domains_and_native_counters_match_serial",
+            workers,
+        ) {
             continue;
         }
         let mut request = request.clone();
@@ -114,7 +117,10 @@ fn owner_domain_walk_parallel_stable_domains_and_native_counters_match_serial() 
 
 #[test]
 fn owner_domain_walk_parallel_global_cap_and_cancel_retain_attempts_not_completion() {
-    if rustred::campaign::ParallelExecution::preflight_requested_core_budget(2).is_err() {
+    if !crate::test_gates::workers_or_skip(
+        "owner_domain_walk_parallel_global_cap_and_cancel_retain_attempts_not_completion",
+        2,
+    ) {
         return;
     }
     let fixture = Fixture::new();
@@ -201,7 +207,10 @@ fn owner_domain_walk_worker_and_frontier_preflight_is_explicit() {
 
 #[test]
 fn owner_domain_walk_parallel_native_route_apply_and_missing_frontier_match_serial() {
-    if rustred::campaign::ParallelExecution::preflight_requested_core_budget(2).is_err() {
+    if !crate::test_gates::workers_or_skip(
+        "owner_domain_walk_parallel_native_route_apply_and_missing_frontier_match_serial",
+        2,
+    ) {
         return;
     }
     let fixture = noninvolutive_route_fixture();

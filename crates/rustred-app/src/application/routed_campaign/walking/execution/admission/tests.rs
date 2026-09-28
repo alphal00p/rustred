@@ -507,7 +507,9 @@ fn bounded_slices_stop_between_batches_without_discarding_admitted_obligations()
 
 #[test]
 fn native_failure_retains_precedence_and_helpers_do_not_share_producer_pool() {
-    if !symbolica::license::LicenseManager::is_licensed() {
+    if !crate::test_gates::licensed_or_skip(
+        "native_failure_retains_precedence_and_helpers_do_not_share_producer_pool",
+    ) {
         return;
     }
     let engine = Engine::new(ordered_budget(5, None)).unwrap();
@@ -547,7 +549,9 @@ fn native_failure_retains_precedence_and_helpers_do_not_share_producer_pool() {
 
 #[test]
 fn helper_panic_propagates_only_after_backpressured_native_worker_is_joined() {
-    if !symbolica::license::LicenseManager::is_licensed() {
+    if !crate::test_gates::licensed_or_skip(
+        "helper_panic_propagates_only_after_backpressured_native_worker_is_joined",
+    ) {
         return;
     }
     let engine = Engine::new(ordered_budget(5, None)).unwrap();

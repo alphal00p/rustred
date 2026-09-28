@@ -50,6 +50,15 @@ fn replace_section(bytes: &[u8], tag: SectionTag, replacement: &[u8]) -> Vec<u8>
 
 #[test]
 fn arbitrary_exact_expressions_roundtrip_with_deduplicated_values() {
+    // Alone in its own process: the partial Symbolica state export appends
+    // every variable list and finite field registered since the state
+    // offset, so a sibling test registering one between the two encodings
+    // below would change the second encoding's bytes.
+    if !crate::test_gates::isolated(
+        "persistence::catalog::tests::arbitrary_exact_expressions_roundtrip_with_deduplicated_values",
+    ) {
+        return;
+    }
     let catalog = sample();
     let bytes = catalog.encode_native(Default::default()).unwrap();
     let envelope = inspect_program(&bytes, Default::default()).unwrap();

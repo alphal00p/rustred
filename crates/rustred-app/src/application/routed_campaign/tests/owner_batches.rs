@@ -8,12 +8,7 @@ mod worker_budget;
 
 fn available_workers() -> impl Iterator<Item = usize> {
     [1, 2, 6, 50].into_iter().filter(|&workers| {
-        let available =
-            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_ok();
-        if !available {
-            eprintln!("owner-batched native acceptance: {workers} workers unavailable");
-        }
-        available
+        crate::test_gates::workers_or_skip("owner-batched native acceptance", workers)
     })
 }
 
