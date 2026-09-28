@@ -32,5 +32,33 @@ pub use model::{
 };
 pub use save::encode_generated_candidate_sector;
 
+/// Test support: split a generated multi-sector bundle into the single-sector
+/// owner bundles the shared-owner loader accepts, as (mask text, bytes, family
+/// fingerprint). Records are copied unchanged; nothing is re-solved.
+#[cfg(test)]
+pub(crate) fn split_generated_candidate_bundle(
+    bytes: &[u8],
+) -> Result<Vec<(String, Vec<u8>, String)>, crate::AppError> {
+    let bundle = codec::read(bytes, Default::default())?;
+    bundle
+        .sectors
+        .iter()
+        .map(|sector| {
+            let mut shard = bundle.clone();
+            shard.sectors = vec![sector.clone()];
+            let mask = sector
+                .sector
+                .iter()
+                .map(|&active| if active { '1' } else { '0' })
+                .collect();
+            Ok((
+                mask,
+                codec::write(&shard, Default::default())?,
+                bundle.family_fingerprint.clone(),
+            ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;

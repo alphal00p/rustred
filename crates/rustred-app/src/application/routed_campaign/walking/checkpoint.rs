@@ -922,6 +922,112 @@ impl Store {
         Ok(Some(event))
     }
 }
+/// The request/policy digest a checkpoint of `request` is bound to.
+pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
+    binding(request)
+}
+
+/// Read-only decode of one CP5 generation for the offline closure verifier:
+/// file lengths and digests, section headers and codecs only. No restore
+/// validator, index, ledger or dependency tracker is rebuilt; the verifier
+/// re-derives everything it relies on from these raw parts.
+pub(super) struct RawCheckpoint<const N: usize> {
+    pub generation: u64,
+    pub request: String,
+    pub publication_policy: String,
+    pub walk_semantics_version: u32,
+    pub executable: String,
+    pub owners: Vec<String>,
+    pub counters: [usize; 12],
+    pub closure: Value,
+    pub inputs: Vec<Value>,
+    pub input_frontiers: Vec<Value>,
+    pub uncommitted: Vec<Value>,
+    pub flags: Vec<u8>,
+    pub edges: Vec<(u32, u32)>,
+    pub domains: Vec<super::queue::CompactDomain<N>>,
+    /// Record sidecar segment files in ID-tile order with their line counts.
+    pub records: Vec<(PathBuf, usize)>,
+    pub verify_seconds: f64,
+}
+
+pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint<N>, String> {
+    let manifest = manifest::read(&directory.join("latest.json"))?;
+    if manifest.kind != "state" {
+        return Err("checkpoint generation holds no walk state".into());
+    }
+    if manifest.arity as usize != N {
+        return Err("checkpoint coordinate arity".into());
+    }
+    let verify_seconds = restore::verify_files(directory, &manifest)?;
+    let identity = Identity {
+        arity: N,
+        ready: manifest.publication_policy == "ready",
+        semantics: manifest.walk_semantics_version,
+    };
+    let sections = &manifest.sections;
+    let plain = |section: Section| {
+        sections
+            .plain(section)
+            .ok_or_else(|| format!("checkpoint is missing the {} section", section.name()))
+    };
+    let segmented = |section: Section| {
+        sections
+            .segmented(section)
+            .ok_or_else(|| format!("checkpoint is missing the {} section", section.name()))
+    };
+    let read = |file: &str, bytes: u64| restore::read_section(directory, file, bytes);
+    let meta = sections::read_meta(&read(
+        &plain(Section::Meta)?.file,
+        plain(Section::Meta)?.bytes,
+    )?)?;
+    let nodes = plain(Section::Nodes)?;
+    let flags = sections::read_nodes(&read(&nodes.file, nodes.bytes)?, &identity)?;
+    let mut edges = Vec::new();
+    for segment in &segmented(Section::Edges)?.segments {
+        sections::read_edges(
+            &read(&segment.file, segment.bytes)?,
+            &identity,
+            segment.first as usize,
+            segment.count as usize,
+            &mut edges,
+        )?;
+    }
+    let mut domains = Vec::new();
+    for segment in &segmented(Section::Domains)?.segments {
+        sections::read_domains::<N>(
+            &read(&segment.file, segment.bytes)?,
+            &identity,
+            segment.first as usize,
+            segment.count as usize,
+            &mut domains,
+        )?;
+    }
+    let records = segmented(Section::Records)?
+        .segments
+        .iter()
+        .map(|segment| (directory.join(&segment.file), segment.count as usize))
+        .collect();
+    Ok(RawCheckpoint {
+        generation: manifest.generation,
+        request: manifest.request.clone(),
+        publication_policy: manifest.publication_policy.clone(),
+        walk_semantics_version: manifest.walk_semantics_version,
+        executable: manifest.executable.clone(),
+        owners: manifest.owners.clone(),
+        counters: meta.counters,
+        closure: serde_json::to_value(&meta.closure).map_err(|e| e.to_string())?,
+        inputs: meta.inputs,
+        input_frontiers: meta.input_frontiers,
+        uncommitted: meta.uncommitted,
+        flags,
+        edges,
+        domains,
+        records,
+        verify_seconds,
+    })
+}
+
 fn merge(target: &mut Value, extra: Value) {
     if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
         for (key, value) in extra {

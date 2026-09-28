@@ -265,6 +265,28 @@ fn inspect_options<const N: usize>(
     )
 }
 
+/// Reference inspection for the offline closure verifier: the unchanged
+/// native visitor with every walk lever off: no pre-admitted orthant
+/// shortcut, no job-local reuse cache, no initial-overlap planning and no
+/// physical subdivision. Every successor reaches `emit` as a raw `Admit`.
+pub(super) fn inspect_reference<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    inspect_native(
+        reducer,
+        domain,
+        request,
+        None,
+        cancellation,
+        &InitialOrthants::empty(),
+        emit,
+    )
+}
+
 /// A physical source duty bypasses initial-overlap planning: its pending broad
 /// parent is not evidence that this part has been inspected. Outgoing reuse is
 /// unchanged and remains after the native source/guard/child checks.

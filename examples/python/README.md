@@ -255,7 +255,23 @@ campaign or claims closure.
   resume the pool's `returned_inspections` must be at least native records
   plus carried attempts: results that were finished but unpolled at a
   periodic save, followed by a crash, count once more; the surplus is
-  reported as `resumed_unpublished_returned_inspections`.
+  reported as `resumed_unpublished_returned_inspections`. Every alias is
+  also re-checked to be an exact integer-set subset of its direct
+  representative and every partial record's D >= cut slice of its anchor
+  (interval predicate, cross-checked by lattice-point enumeration on small
+  sets); `accepted_events` must equal `stats.events` per record; frontiers,
+  failures and refusal provenance must be explicit in records (parity); no
+  record with a frontier or error may be `descendant_closed`; helper roots
+  and physics queries are reported separately (`--helper-pattern`).
+  `--require-closure` additionally requires every root and record closed.
+  Edge-based closure and reference re-inspection coverage (F10) are checked
+  by `rustred walk-verify-closure --command RUN/command.json`.
+- [`oracle_mutation_matrix.py`](oracle_mutation_matrix.py) injects the six
+  oracle mutations (dropped edge, retargeted alias, dropped frontier record,
+  seal with a frontier, seal with an error, injected false hit) into a
+  drained run and a frontier-bearing run, for the audit (mutated
+  `result.json` copies) and for `rustred walk-verify-closure --mutate`; every
+  mutation must FAIL and the unmutated baselines must behave as required.
 - [`ready_resume_control.py`](ready_resume_control.py) is the fresh-process
   Ready multi-prefix resume gate: one control argv run as an uninterrupted
   Ready baseline, as a run with `RUSTRED_WALK_DIAGNOSTIC_PAUSE=ready-multi-prefix`

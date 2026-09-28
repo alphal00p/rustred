@@ -11,6 +11,7 @@ pub(crate) use owner_match::walk_request_from_argv;
 mod progress;
 mod routed;
 mod shards;
+mod walk_verify;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -80,6 +81,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::CampaignReduce(arguments) => reduce_campaign_target(arguments),
         Command::CampaignShards(arguments) => shards::run(arguments),
         Command::CampaignMonitor(arguments) => shards::monitor::run(arguments),
+        Command::WalkVerifyClosure(arguments) => walk_verify::run(arguments),
     }
 }
 

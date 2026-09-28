@@ -167,6 +167,7 @@ pub(crate) enum Command {
     CampaignReduce(CampaignReduceArgs),
     CampaignShards(Vec<OsString>),
     CampaignMonitor(Vec<OsString>),
+    WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -279,6 +280,7 @@ pub(crate) fn parse_args(
         "owner-domain-scan" => owner_domains::parse(arguments),
         "owner-domain-match" => owner_match::parse(arguments),
         "owner-guarded-apply" => owner_guarded::parse(arguments),
+        "walk-verify-closure" => super::walk_verify::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -292,14 +294,14 @@ fn reject_trailing(arguments: impl IntoIterator<Item = OsString>) -> Result<(), 
     }
 }
 
-fn next_value(
+pub(super) fn next_value(
     arguments: &mut impl Iterator<Item = OsString>,
     option: &'static str,
 ) -> Result<OsString, ArgError> {
     arguments.next().ok_or(ArgError::MissingValue(option))
 }
 
-fn next_utf8_value(
+pub(super) fn next_utf8_value(
     arguments: &mut impl Iterator<Item = OsString>,
     option: &'static str,
 ) -> Result<String, ArgError> {
@@ -308,7 +310,10 @@ fn next_utf8_value(
         .map_err(ArgError::NonUtf8Option)
 }
 
-fn parse_positive_integer(option: &'static str, value: String) -> Result<usize, ArgError> {
+pub(super) fn parse_positive_integer(
+    option: &'static str,
+    value: String,
+) -> Result<usize, ArgError> {
     value
         .bytes()
         .all(|byte| byte.is_ascii_digit())
@@ -366,6 +371,7 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -683,6 +689,39 @@ walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same
 format, schema and walk semantics version.
+
+`walk-verify-closure` is an offline oracle over one saved CP5 walk
+generation, named by the walk's own owner-domain-match argv (a JSON list, or
+an object with a `command` list). It checks the checkpoint's request binding,
+record/domain parity, the F8 seal rule against the saved seal flags, exact
+alias and partial-anchor inclusion with their dependency edges (a partial
+record must be Apply, anchored on an earlier initial Native record, with the
+recorded residual equal to its D < cut slice and Q inside anchor u residual,
+decided exactly), re-derives
+dependency closure from the saved edges, binds the published result.json
+(default: next to the command file; `--no-result` skips) record by record to
+the generation, and (unless `--reinspect none`) re-inspects natives with the
+walker's native visitor under the run's request and every walk-level reuse
+lever off (`--reference-levers off`, the default, also turns the native
+shortcuts off: Route joint source-support pruning; `as-run` keeps them):
+frontier, error, event and Apply successor counts must match (counts are
+informational when a lever on in the run is off in the reference), and
+every admitted domain must be contained in a recorded target of its parent or
+along that target's alias chain. Small cells are also checked by lattice-point
+enumeration; `--union-sample COUNT[:SEED]` also validates the exact
+multi-target cover predicate against enumeration on COUNT sampled saved cells
+(earlier same-owner natives as real covers, 2-3-way splits). The report
+(JSON) separates helper roots from physics queries.
+Successor generation is reproduced by the same visitor, not derived
+independently; F10 independently checks the graph bookkeeping.
+`--require-closure` requires every root closed AND independently verified
+(every native of its cone re-inspected). Exit status: 0 PASS (no violation,
+every native re-inspected), 1 FAIL, 9 INCOMPLETE (no violation, but
+re-inspection was partial or none: never a certificate). A gate asserts
+`verdict == PASS` and `roots_independently_verified == roots_total`
+(examples/python/assert_oracle_pass.py). `--mutate` injects
+one defect in memory and must FAIL (`alias-chain-detour` is a positive
+control and must PASS).
 
 Independent starting-owner campaigns (opt-in, Linux):
   rustred campaign shards --config CONFIG.json --directory DIR
