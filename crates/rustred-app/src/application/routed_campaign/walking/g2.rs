@@ -4,9 +4,13 @@
 //! (phase, owner) bucket that were committed strictly before Q's dispatch.
 //!
 //! Selected by `RUSTRED_WALK_G2_DONLY=1` (one anchor), `=2` (up to two
-//! anchors) or `=u` (pointwise union of anchors per D level, the plan's G2'
-//! restricted to a one-piece D-only residual); unset/0/off leaves the engine
-//! byte-identical (no store, no dispatch stamps, no record or report fields).
+//! anchors), `=u` (pointwise union of anchors per D level, the plan's G2'
+//! restricted to a one-piece D-only residual) or `=n` (mode u with anchors
+//! restricted to full native inspections: G2' residual/full-cover records and
+//! initial-overlap partials get a commit stamp but never become anchors, the
+//! literal reading of S7 / master plan 3.11 "each anchor is Native");
+//! unset/0/off leaves the engine byte-identical (no store, no dispatch
+//! stamps, no record or report fields).
 //!
 //! Mode u: for a finite Q with at most `UNION_POINT_CAP` lattice points, the
 //! worker enumerates Q's points (from Q's tight extrema), assigns each point
@@ -29,7 +33,8 @@
 //! ledger and the descendant closure), and carries a `g2_residual_anchor`
 //! block with the commit stamps for the audit.
 //!
-//! Soundness: anchors are committed Native records (full or partial) whose
+//! Soundness: anchors are committed Native records (full or partial; full
+//! only in mode n) whose
 //! commit stamp is below Q's dispatch stamp; they are never pending, aliased
 //! or in flight, so anchor links are strictly ordered in commit time (no
 //! mutual subtraction). Frontiers/errors of an anchor block Q through the edge.
@@ -61,7 +66,8 @@ const UNION_POINT_CAP: usize = 1 << 18;
 /// Mode u: point-anchor membership tests allowed per plan beyond 64 per point.
 const UNION_TEST_BUDGET: u64 = 1 << 22;
 
-/// 0 off, 1 one anchor, 2 up to two anchors, 3 union (env value `u`).
+/// 0 off, 1 one anchor, 2 up to two anchors, 3 union (env value `u`),
+/// 4 union with full-native anchors only (env value `n`).
 pub(super) fn mode() -> u8 {
     static MODE: OnceLock<u8> = OnceLock::new();
     *MODE.get_or_init(|| {
@@ -70,9 +76,14 @@ pub(super) fn mode() -> u8 {
             Ok("1") => 1,
             Ok("2") => 2,
             Ok("u") => 3,
-            Ok(other) => panic!("RUSTRED_WALK_G2_DONLY={other}: expected 1, 2, u or unset"),
+            Ok("n") => 4,
+            Ok(other) => panic!("RUSTRED_WALK_G2_DONLY={other}: expected 1, 2, u, n or unset"),
         };
-        if mode == 3 {
+        if mode == 4 {
+            eprintln!(
+                "W0 G2' D-only residual-anchor falsifier ACTIVE (union of committed full-native anchors per D level)"
+            );
+        } else if mode == 3 {
             eprintln!(
                 "W0 G2' D-only residual-anchor falsifier ACTIVE (union of committed Native anchors per D level)"
             );
@@ -87,6 +98,16 @@ pub(super) fn mode() -> u8 {
 
 pub(super) fn enabled() -> bool {
     mode() != 0
+}
+
+/// Modes u and n plan unions.
+fn union_mode() -> bool {
+    mode() >= 3
+}
+
+/// Mode n: only full native inspections become anchors.
+pub(super) fn native_anchors_only() -> bool {
+    mode() == 4
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,7 +138,11 @@ pub(super) struct G2Info {
 }
 
 fn mode_name(union: bool) -> &'static str {
-    if union {
+    if union && native_anchors_only() {
+        "d_only_union_of_committed_full_native_anchors"
+    } else if native_anchors_only() {
+        "d_only_band_fallback_up_to_two_committed_full_native_anchors"
+    } else if union {
         "d_only_union_of_committed_native_anchors"
     } else if mode() >= 2 {
         "d_only_up_to_two_committed_native_anchors"
@@ -301,6 +326,8 @@ pub(super) struct Store<const N: usize> {
     unions: Mutex<HashMap<usize, Vec<SecondAnchor>>>,
     appended: AtomicU64,
     unusable: AtomicU64,
+    /// Mode n: partial records stamped but not appended as anchors.
+    stamped_only: AtomicU64,
     classes: [ClassStats; CLASSES],
 }
 
@@ -527,6 +554,7 @@ impl<const N: usize> Store<N> {
                 unions: Mutex::new(HashMap::new()),
                 appended: AtomicU64::new(0),
                 unusable: AtomicU64::new(0),
+                stamped_only: AtomicU64::new(0),
                 classes: Default::default(),
             })
         })
@@ -562,12 +590,18 @@ impl<const N: usize> Store<N> {
 
     /// Coordinator, at the end of a committed (published) Apply record without
     /// error. Returns this record's commit stamp. The record becomes visible
-    /// as an anchor to jobs dispatched from now on.
-    pub fn commit(&self, id: usize, domain: &Domain<N>) -> u64 {
+    /// as an anchor to jobs dispatched from now on, unless it is a partial
+    /// record (`partial` true) in mode n, which is stamped only.
+    pub fn commit(&self, id: usize, domain: &Domain<N>, partial: bool) -> u64 {
         let seq = self.committed.load(Ordering::Relaxed);
         self.classes[class(&domain.owner)]
             .commits
             .fetch_add(1, Ordering::Relaxed);
+        if partial && native_anchors_only() {
+            self.stamped_only.fetch_add(1, Ordering::Relaxed);
+            self.committed.store(seq + 1, Ordering::Release);
+            return seq;
+        }
         let usable = summary(domain, domain.powers).and_then(|s| {
             let extrema = s.extrema()?;
             let (dlo, dhi) = extrema.power_difference();
@@ -658,7 +692,7 @@ impl<const N: usize> Store<N> {
             return None;
         };
         stats.plans.fetch_add(1, Ordering::Relaxed);
-        let result = if mode() == 3 {
+        let result = if union_mode() {
             match self.plan_union(id, q, snapshot, cancellation, stats) {
                 Ok(plan) => plan,
                 Err(()) => {
@@ -1166,8 +1200,14 @@ impl<const N: usize> Store<N> {
         for (name, stats) in CLASS_NAMES.iter().zip(&self.classes) {
             classes.insert((*name).to_owned(), stats.json());
         }
-        json!({"mode":if mode() == 3 {"d_only_union_of_committed_native_anchors_with_band_fallback"} else {mode_name(false)},
-            "env":format!("RUSTRED_WALK_G2_DONLY={}", if mode() == 3 {"u".to_owned()} else {mode().to_string()}),
+        json!({"mode":match mode() {
+                4 => "d_only_union_of_committed_full_native_anchors_with_band_fallback",
+                3 => "d_only_union_of_committed_native_anchors_with_band_fallback",
+                _ => mode_name(false)},
+            "env":format!("RUSTRED_WALK_G2_DONLY={}", match mode() {
+                4 => "n".to_owned(), 3 => "u".to_owned(), m => m.to_string()}),
+            "anchor_eligibility":if native_anchors_only() {"full native inspections only (no G2' or initial-overlap partial records)"} else {"every Apply record committed without error"},
+            "stamped_not_anchored":self.stamped_only.load(Ordering::Relaxed),
             "union_point_cap":UNION_POINT_CAP,"union_test_budget":UNION_TEST_BUDGET,
             "scan":"per-bucket append-only commit-ordered list; compact saturating extrema prefilter, then native contains",
             "committed_apply_records":self.committed.load(Ordering::Relaxed),

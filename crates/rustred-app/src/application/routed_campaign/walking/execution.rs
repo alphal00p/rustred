@@ -834,7 +834,7 @@ impl<const N: usize> State<N> {
             && domain.phase == super::queue::Phase::Apply
             && self.error.is_none()
         {
-            record["g2_commit_seq"] = json!(g2.commit(id, &domain));
+            record["g2_commit_seq"] = json!(g2.commit(id, &domain, partial_scope.is_some()));
         }
         if let Err(error) = self.records.get_mut().push(record) {
             self.error.get_or_insert(error);
