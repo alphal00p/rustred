@@ -551,14 +551,20 @@ mod tests {
         let Command::OwnerDomainMatch(args) = parse(base).unwrap() else {
             panic!("match command")
         };
-        assert_eq!(args.g2_residual_anchors, crate::OwnerDomainWalkG2ResidualAnchors::Off);
+        assert_eq!(
+            args.g2_residual_anchors,
+            crate::OwnerDomainWalkG2ResidualAnchors::Off
+        );
         let Command::OwnerDomainMatch(args) = parse(&format!(
             "{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors union"
         ))
         .unwrap() else {
             panic!("match command")
         };
-        assert_eq!(args.g2_residual_anchors, crate::OwnerDomainWalkG2ResidualAnchors::Union);
+        assert_eq!(
+            args.g2_residual_anchors,
+            crate::OwnerDomainWalkG2ResidualAnchors::Union
+        );
         for bad in [
             format!("{base} --g2-residual-anchors union"),
             format!("{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors maybe"),

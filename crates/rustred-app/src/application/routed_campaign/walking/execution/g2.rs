@@ -263,7 +263,11 @@ impl<const N: usize> State<N> {
             let stamp = position;
             position += 1;
             let id = probe.id;
-            if self.queue.domains.get(id).is_none_or(|d| d.phase() != Phase::Apply)
+            if self
+                .queue
+                .domains
+                .get(id)
+                .is_none_or(|d| d.phase() != Phase::Apply)
                 || !ledger.native_published(id)
             {
                 return Ok(());
@@ -297,10 +301,12 @@ impl<const N: usize> State<N> {
         pinned.extend(self.streams.parked.iter().map(|(t, _)| t.parent));
         pinned.retain(|&id| id < self.queue.domains.len());
         self.g2_pins = pinned.iter().map(|&id| (id, Outcome::Whole)).collect();
-        Ok(json!({"event":"g2_activated","operation":"owner_domain_walk",
+        Ok(
+            json!({"event":"g2_activated","operation":"owner_domain_walk",
             "published_records":total,"backfilled_apply_natives":backfilled,
             "streams_pinned_whole":pinned.len(),"seconds":started.elapsed().as_secs_f64(),
-            "family_closure_claim":false}))
+            "family_closure_claim":false}),
+        )
     }
 
     /// Final and paused reports.

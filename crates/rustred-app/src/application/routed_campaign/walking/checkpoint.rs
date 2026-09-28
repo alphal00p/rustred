@@ -326,12 +326,16 @@ impl Store {
                 let mut off = request.clone();
                 off.g2_residual_anchors = super::OwnerDomainWalkG2ResidualAnchors::Off;
                 if m.request == binding(&off) {
-                    g2_activation = Some(json!({"from":"off","to":request.g2_residual_anchors.name(),
+                    g2_activation = Some(
+                        json!({"from":"off","to":request.g2_residual_anchors.name(),
                         "generation":m.generation,"binding_before":m.request,"binding_after":request_binding,
-                        "committed_domains":m.metadata["committed_domains"],"activated_unix_time":unix_time()?}));
+                        "committed_domains":m.metadata["committed_domains"],"activated_unix_time":unix_time()?}),
+                    );
                     g2_activating = true;
-                    pending_events.push(json!({"event":"g2_activation_requested","operation":"owner_domain_walk",
-                        "generation":m.generation,"family_closure_claim":false}));
+                    pending_events.push(
+                        json!({"event":"g2_activation_requested","operation":"owner_domain_walk",
+                        "generation":m.generation,"family_closure_claim":false}),
+                    );
                     request_binding = m.request.clone();
                 }
             }
