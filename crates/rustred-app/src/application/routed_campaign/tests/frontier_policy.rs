@@ -64,6 +64,65 @@ fn workers() -> impl Iterator<Item = usize> {
         .filter(|&workers| crate::test_gates::workers_or_skip("frontier policy", workers))
 }
 
+/// Input frontiers and the cumulative frontier count after each record of an
+/// Ordered record walk (record `i` committed means `i + 1` committed domains).
+fn frontier_prefix(document: &Value) -> (u64, Vec<u64>) {
+    let input = document["input_frontiers"]
+        .as_array()
+        .map_or(0, |inputs| inputs.len() as u64);
+    let mut total = input;
+    let cumulative = document["domains"]
+        .as_array()
+        .expect("record walk document lists its records")
+        .iter()
+        .map(|record| {
+            total += record["frontiers"].as_array().map_or_else(
+                || record["frontiers"].as_u64().unwrap_or(0),
+                |frontiers| frontiers.len() as u64,
+            );
+            total
+        })
+        .collect();
+    (input, cumulative)
+}
+
+/// A10 pin against a "late stop": a Stop session that started at `start`
+/// committed frontiers stops at the first checkpoint opportunity after the
+/// next frontier record of the Ordered record walk. Its frontier count lies
+/// within that record (a chunked publication may stop inside it) and it
+/// committed at most that record; one more commit fails.
+fn assert_stops_at_the_next_frontier_record(
+    document: &Value,
+    start: u64,
+    prefix: &(u64, Vec<u64>),
+) {
+    let (input, cumulative) = prefix;
+    let frontiers = document["frontiers"].as_u64().unwrap();
+    let committed = document["committed_domains"].as_u64().unwrap();
+    if *input > start {
+        assert_eq!((committed, frontiers), (0, *input), "{document}");
+        return;
+    }
+    let next = cumulative
+        .iter()
+        .position(|&total| total > start)
+        .expect("a paused Stop session has a new frontier record");
+    let before = if next == 0 {
+        *input
+    } else {
+        cumulative[next - 1]
+    };
+    assert!(
+        before < frontiers && frontiers <= cumulative[next],
+        "frontiers {frontiers} outside record {next} ({before}, {}]: {document}",
+        cumulative[next]
+    );
+    assert!(
+        committed == next as u64 || committed == next as u64 + 1,
+        "late stop: {committed} committed domains, next frontier record {next}: {document}"
+    );
+}
+
 #[test]
 fn frontier_stop_pauses_at_each_new_frontier_and_resumes_to_the_record_result() {
     let fixture = noninvolutive_route_fixture();
@@ -72,6 +131,8 @@ fn frontier_stop_pauses_at_each_new_frontier_and_resumes_to_the_record_result() 
         let (recorded, events) = walk(record.clone());
         let total = recorded.document["frontiers"].as_u64().unwrap();
         assert!(total > 0, "{}", recorded.document);
+        let prefix = frontier_prefix(&recorded.document);
+        assert_eq!(prefix.1.last().copied(), Some(total));
         // Record (the default) adds no key anywhere.
         for document in std::iter::once(&recorded.document).chain(&events) {
             assert!(document.get("frontier_policy").is_none(), "{document}");
@@ -105,6 +166,11 @@ fn frontier_stop_pauses_at_each_new_frontier_and_resumes_to_the_record_result() 
             assert_eq!(result.document["resume_supported"], true);
             assert!(!result.all_scheduled_domains_resolved);
             assert!(frontiers > session_start && frontiers <= total);
+            // Both the state the stop saved (its journal event) and the
+            // session's final paused state (a serial heartbeat stop may
+            // finish the frontier record's inspection first).
+            assert_stops_at_the_next_frontier_record(fired, session_start, &prefix);
+            assert_stops_at_the_next_frontier_record(&result.document, session_start, &prefix);
             let finished = events.iter().rfind(|e| e["event"] == "finished").unwrap();
             assert_eq!(finished["stop_reason"], "frontier_policy");
             assert_eq!(finished["status"], "paused");
@@ -221,7 +287,7 @@ fn frontier_stop_fires_on_initial_input_frontiers_before_any_inspection() {
     let directory = fixture.directory.join("frontier-input");
     request.frontier_policy = OwnerDomainWalkFrontierPolicy::Stop;
     request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
-    let (result, events) = walk(request);
+    let (result, events) = walk(request.clone());
     let fired = events
         .iter()
         .find(|e| e["event"] == "frontier_stop")
@@ -232,10 +298,71 @@ fn frontier_stop_fires_on_initial_input_frontiers_before_any_inspection() {
     assert_eq!(result.document["stop_reason"], "frontier_policy");
     assert_eq!(result.document["completed_nodes"], 0);
     assert!(!result.all_scheduled_domains_resolved);
-    assert_eq!(
-        manifest(&directory)["metadata"]["stop_reason"],
-        "frontier_policy"
-    );
+    // Like every frontier stop: a paused, resumable session (CLI exit 4),
+    // even though the run loop never started.
+    assert_eq!(result.document["status"], "paused", "{}", result.document);
+    assert_eq!(result.document["resume_supported"], true);
+    let saved = manifest(&directory);
+    assert_eq!(saved["metadata"]["stop_reason"], "frontier_policy");
+    assert_eq!(saved["metadata"]["paused"], true, "{saved}");
+    // Resuming continues past the restored frontier to the walk's end.
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let (resumed, events) = walk(request);
+    assert!(events.iter().all(|e| e["event"] != "frontier_stop"));
+    assert_ne!(resumed.document["status"], "paused", "{}", resumed.document);
+    assert!(resumed.document.get("stop_reason").is_none());
+    assert_eq!(resumed.document["frontiers"], 1);
+    assert_eq!(resumed.document["recursive_worklist_exhausted"], true);
+}
+
+/// The only frontier of the walk comes with its last commit: the run loop
+/// ends without observing the stop's cancellation, and the session must
+/// still report a paused, resumable stop (not a finished incomplete walk).
+#[test]
+fn frontier_stop_on_the_last_commit_reports_a_paused_session() {
+    let fixture = noninvolutive_route_fixture();
+    for workers in workers() {
+        let mut record = route_walk_request(&fixture, 0);
+        let mut selection: Value = serde_json::from_str(&record.matching.selection_json).unwrap();
+        selection["initial_frontier_routes"] = json!([]);
+        record.matching.selection_json = selection.to_string();
+        record.workers = workers;
+        let (recorded, _) = walk(record.clone());
+        let (input, cumulative) = frontier_prefix(&recorded.document);
+        let total = recorded.document["frontiers"].as_u64().unwrap();
+        // Precondition of this case: no input frontier, and the last record
+        // is the walk's only frontier record.
+        assert_eq!(input, 0, "{}", recorded.document);
+        assert!(total > 0, "{}", recorded.document);
+        let first = cumulative.iter().position(|&count| count > 0).unwrap();
+        assert_eq!(first, cumulative.len() - 1, "{}", recorded.document);
+
+        let directory = fixture.directory.join(format!("frontier-last-{workers}"));
+        let mut stop = record.clone();
+        stop.frontier_policy = OwnerDomainWalkFrontierPolicy::Stop;
+        stop.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
+        let (paused, events) = walk(stop.clone());
+        assert!(events.iter().any(|e| e["event"] == "frontier_stop"));
+        assert_eq!(paused.document["status"], "paused", "{}", paused.document);
+        assert_eq!(paused.document["resume_supported"], true);
+        assert_eq!(paused.document["stop_reason"], "frontier_policy");
+        assert_stops_at_the_next_frontier_record(&paused.document, 0, &(input, cumulative));
+        let saved = manifest(&directory);
+        assert_eq!(saved["metadata"]["paused"], true, "{saved}");
+        assert_eq!(saved["metadata"]["stop_reason"], "frontier_policy");
+
+        stop.checkpoint.as_mut().unwrap().resume = true;
+        let (last, events) = walk(stop);
+        assert!(events.iter().all(|e| e["event"] != "frontier_stop"));
+        assert_eq!(last.document["status"], recorded.document["status"]);
+        assert!(last.document.get("stop_reason").is_none());
+        let document = last.into_document().unwrap();
+        assert_eq!(
+            without_seconds(document["domains"].clone()),
+            without_seconds(recorded.document["domains"].clone())
+        );
+        assert_eq!(document["frontiers"], total);
+    }
 }
 
 #[test]

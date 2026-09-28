@@ -33,13 +33,16 @@ symbolica = { path = "vendor/symbolica" }
 graphica = { path = "vendor/symbolica/lib/graphica" }
 numerica = { path = "vendor/symbolica/lib/numerica" }
 
-# N3 (fable_5_1 next push, W1): the production campaign build. Inspector CPU
-# per native on the four-loop controls at W6, Ordered, against release runs of
-# the same session, strict identity throughout (timings under 17-35% foreign
-# load): x0.879-0.925 in W0.8 (TMP/w0/knobs/RESULTS.md) and x0.851-0.919 in
-# W1.4 (docs/research/fable51_w1_ops_2026-09-28.md); with the mimalloc feature
-# x0.772-0.868 at peak RSS x1.03-1.20. No target-cpu: znver4 measured
-# x0.95-1.09 in W0.8, no gain. Build with
+# N3 (fable_5_1 next push, W1): candidate production campaign build.
+# Implemented; its registered gate (plan W1.2: C-4L and C-5F identity, >= 20%
+# less inspector CPU per native in the 0.3 harness at K=1 and K=96, marginal
+# RSS/domain of a W>=48 pilot) is open: see
+# docs/research/fable51_w1_ops_2026-09-28.md section 5. On the four-loop
+# Ordered W6 controls it keeps strict identity; its CPU readings there are
+# indicative only (per-run foreign load 0.06-0.44). The opt-in mimalloc
+# feature costs peak RSS (x1.03-1.20 at W6 in W1.4; with LD_PRELOAD mimalloc
+# +29..+72% at W48 and +8.4% on C-5F in W0.8, TMP/w0/knobs/RESULTS.md).
+# No target-cpu: znver4 measured x0.95-1.09 in W0.8, no gain. Build with
 #   cargo build --profile campaign --locked --offline -p rustred-app --bin rustred
 # (binary in target/campaign/); add `--features mimalloc` for the allocator.
 [profile.campaign]

@@ -931,6 +931,14 @@ fn run<const N: usize>(
                     Ok(())
                 },
             );
+            // Every frontier stop reports a paused, resumable session (exit
+            // 4), also when the run loop never observed the cancellation it
+            // raised: a stop on initial input frontiers with an empty
+            // worklist, or on the walk's last commit. The final save below
+            // then records `paused` (part of the change stamp).
+            if frontier_stopped && state.error.is_none() {
+                state.checkpoint_paused = true;
+            }
             if state.error.is_none() {
                 if let Some(event) = store
                     .save_cancellable(
