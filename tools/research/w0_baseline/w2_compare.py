@@ -45,6 +45,7 @@ SLICE_KEYS = {
     "prep_us_per_parallel_batch": lambda s: s["duty"].get("prep_us_per_parallel_batch"),
     "ordered_commit_share": lambda s: s["duty"].get("ordered_commit_share"),
     "preparation_share": lambda s: s["duty"].get("preparation_share"),
+    "progress_json_share": lambda s: s["duty"].get("progress_json_share"),
     "kernel_scan_share_of_coordinator_wall":
         lambda s: (s["duty"].get("admission_kernel") or {}).get("scan_share_of_coordinator_wall"),
 }
@@ -94,14 +95,14 @@ def work_volume(rate):
     return out
 
 
-def row_at_offset(rows, committed0, offset):
+def row_at_committed(rows, committed):
     for r in rows:
-        if r.get("committed_domains") is not None and r["committed_domains"] - committed0 >= offset:
+        if r.get("committed_domains") is not None and r["committed_domains"] >= committed:
             return r
     return None
 
 
-def summarize(run, window, slack):
+def summarize(run, window, slack, end_override=None):
     tl = json.load(open(run / "timeline.json"))
     timeline, windows = tl["timeline"], tl["windows"]
     meta = json.load(open(run / "meta.json"))
@@ -113,6 +114,8 @@ def summarize(run, window, slack):
     launch = timeline["launch_unix_time"]
     t0 = timeline["traversal_unix_time"]
     stop = timeline.get("stop_request_unix_time")
+    if end_override is not None:  # e.g. a stop file written outside the harness (runA)
+        stop = min(end_override, stop) if stop else end_override
     end = t0 + window + slack if stop is None else min(stop, t0 + window + slack)
     rows = [r for r in duty_rows if t0 <= r["observed_unix_time"] <= end]
     a, b = rows[0], rows[-1]
@@ -294,9 +297,13 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--window", type=float, default=1500.0)
     p.add_argument("--slack", type=float, default=5.0, help="harness poll slack past T+window")
+    p.add_argument("--comparator-end", type=float, help="unix time: cut the comparator window here (a stop "
+                   "request made outside the harness is not in its timeline)")
     args = p.parse_args()
     ref = summarize(args.reference, args.window, args.slack)
-    cmp_ = summarize(args.comparator, args.window, args.slack)
+    cmp_ = summarize(args.comparator, args.window, args.slack, args.comparator_end)
+    if args.comparator_end is not None:
+        cmp_["timeline"]["external_stop_unix_time"] = args.comparator_end
     ref_rows, cmp_rows = ref.pop("_rows"), cmp_.pop("_rows")
     doc = {"window_definition": f"[T, min(stop request, T + {args.window:g} s + {args.slack:g} s slack)] on the "
                                 "harness clock; rates on the native clock; T = first traversal heartbeat",
@@ -314,49 +321,64 @@ def main():
         r["launch_to_restored"] = ratio(cmp_["timeline"]["launch_to_restored_s"], ref["timeline"]["launch_to_restored_s"])
     for key in ("inspector_cpu_ms_per_native", "admission_cpu_ms_per_obligation", "total_cpus"):
         r[key] = ratio((cmp_.get("threads") or {}).get(key), (ref.get("threads") or {}).get(key))
-    # Stretch-matched: the same committed ID range after T in both runs.
+    # Stretch-matched: the same absolute committed-domain range in both runs (the legacy engine commits in
+    # ID order from the same restored state, so equal committed counts mean the same stretch of work).
     ca, ra = cmp_rows[0], ref_rows[0]
-    n_ref = ref_rows[-1]["committed_domains"] - ra["committed_domains"]
-    n_cmp = cmp_rows[-1]["committed_domains"] - ca["committed_domains"]
+    lo = max(ra["committed_domains"], ca["committed_domains"])
+    hi = min(ref_rows[-1]["committed_domains"], cmp_rows[-1]["committed_domains"])
     stretch = {"reference_committed_range": [ra["committed_domains"], ref_rows[-1]["committed_domains"]],
                "comparator_committed_range": [ca["committed_domains"], cmp_rows[-1]["committed_domains"]],
-               "same_start": ra["committed_domains"] == ca["committed_domains"]}
-    n = min(n_ref, n_cmp)
-    rb = row_at_offset(ref_rows, ra["committed_domains"], n)
-    cb = row_at_offset(cmp_rows, ca["committed_domains"], n)
-    if rb and cb:
-        rr, cr = m1.rate_between(ra, rb), m1.rate_between(ca, cb)
-        stretch["common_committed"] = n
-        stretch["reference"] = {"native_seconds": rr["native_elapsed_seconds"],
-                                "obligations_per_hour": rr.get("committed_domains_per_hour"),
-                                "natives_per_hour": rr.get("native_publications_per_hour"),
-                                "natives": rr.get("native_publications_delta")}
-        stretch["comparator"] = {"native_seconds": cr["native_elapsed_seconds"],
-                                 "obligations_per_hour": cr.get("committed_domains_per_hour"),
-                                 "natives_per_hour": cr.get("native_publications_per_hour"),
-                                 "natives": cr.get("native_publications_delta")}
+               "common_committed_range": [lo, hi]}
+    r_lo, r_hi = row_at_committed(ref_rows, lo), row_at_committed(ref_rows, hi)
+    c_lo, c_hi = row_at_committed(cmp_rows, lo), row_at_committed(cmp_rows, hi)
+    if r_lo and r_hi and c_lo and c_hi and r_lo is not r_hi and c_lo is not c_hi:
+        rr, cr = m1.rate_between(r_lo, r_hi), m1.rate_between(c_lo, c_hi)
+        stretch["common_committed"] = hi - lo
+        for name, rate in (("reference", rr), ("comparator", cr)):
+            stretch[name] = {"native_seconds": rate["native_elapsed_seconds"],
+                             "obligations_per_hour": rate.get("committed_domains_per_hour"),
+                             "natives_per_hour": rate.get("native_publications_per_hour"),
+                             "natives": rate.get("native_publications_delta"),
+                             "obligations": rate.get("committed_domains_delta")}
         stretch["obligations_per_hour_ratio"] = ratio(cr.get("committed_domains_per_hour"),
                                                       rr.get("committed_domains_per_hour"))
         stretch["time_ratio_reference_over_comparator"] = ratio(rr["native_elapsed_seconds"],
                                                                 cr["native_elapsed_seconds"])
         per = []
-        for s in ref["slices_5min"]:
-            lo, hi = s["committed_offsets"]
-            if hi > n_cmp:
-                break
-            c_lo = row_at_offset(cmp_rows, ca["committed_domains"], lo)
-            c_hi = row_at_offset(cmp_rows, ca["committed_domains"], hi)
-            if not c_lo or not c_hi or c_lo is c_hi:
+        for sl in ref["slices_5min"]:
+            s_lo = ra["committed_domains"] + sl["committed_offsets"][0]
+            s_hi = ra["committed_domains"] + sl["committed_offsets"][1]
+            if s_lo < lo or s_hi > hi:
                 continue
-            crate = m1.rate_between(c_lo, c_hi)
-            per.append({"reference_slice_from_T_seconds": s["from_T_seconds"], "committed_offsets": [lo, hi],
-                        "reference_obligations_per_hour": s["obligations_per_hour"],
+            rl, rh = row_at_committed(ref_rows, s_lo), row_at_committed(ref_rows, s_hi)
+            cl, ch = row_at_committed(cmp_rows, s_lo), row_at_committed(cmp_rows, s_hi)
+            if not (rl and rh and cl and ch) or rl is rh or cl is ch:
+                continue
+            rrate, crate = m1.rate_between(rl, rh), m1.rate_between(cl, ch)
+            per.append({"reference_slice_from_T_seconds": sl["from_T_seconds"], "committed_range": [s_lo, s_hi],
+                        "reference_obligations_per_hour": rrate.get("committed_domains_per_hour"),
                         "comparator_obligations_per_hour": crate.get("committed_domains_per_hour"),
+                        "reference_native_seconds": rrate["native_elapsed_seconds"],
                         "comparator_native_seconds": crate["native_elapsed_seconds"],
-                        "ratio": ratio(crate.get("committed_domains_per_hour"), s["obligations_per_hour"])})
+                        "ratio": ratio(crate.get("committed_domains_per_hour"),
+                                       rrate.get("committed_domains_per_hour"))})
         stretch["per_reference_slice"] = per
         stretch["per_reference_slice_ratio_spread"] = spread([x["ratio"] for x in per])
     doc["stretch_matched"] = stretch
+    # Validity (orchestrator 2026-09-28): the comparator's heartbeat/progress JSON must cost what
+    # run2's did; d9163195 walked the queue storage on every heartbeat (progress_json ~26%).
+    pj_cmp = cmp_["duty"].get("progress_json_share")
+    pj_slices = [s.get("progress_json_share") for s in cmp_["slices_5min"] if s.get("progress_json_share") is not None]
+    window_ok = cmp_["window"]["native_seconds"] >= 0.95 * args.window
+    doc["validity"] = {
+        "progress_json_share_comparator": pj_cmp,
+        "progress_json_share_comparator_max_slice": max(pj_slices) if pj_slices else None,
+        "progress_json_share_reference": ref["duty"].get("progress_json_share"),
+        "progress_json_threshold": 0.02,
+        "progress_json_ok": pj_cmp is not None and pj_cmp < 0.02,
+        "full_window": window_ok,
+        "comparator_native_window_seconds": cmp_["window"]["native_seconds"],
+        "valid": bool(pj_cmp is not None and pj_cmp < 0.02 and window_ok)}
     ob = cmp_["throughput"]["obligations_per_hour"]
     doc["gate_1p5x"] = {
         "metric": "obligations discharged per hour (natives + aliases = committed domains) over the matched window",
@@ -367,7 +389,7 @@ def main():
         "reference_slice_spread": ref["slices_5min_spread"]["obligations_per_hour"]}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     json.dump(doc, open(args.out, "w"), indent=1)
-    brief = {"ratios": r, "gate": doc["gate_1p5x"],
+    brief = {"validity": doc["validity"], "ratios": r, "gate": doc["gate_1p5x"],
              "stretch": {k: v for k, v in stretch.items() if k != "per_reference_slice"}}
     print(json.dumps(brief, indent=1))
 
