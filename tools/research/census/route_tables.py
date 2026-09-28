@@ -396,7 +396,7 @@ def route_step(d, step, full=True):
     if full:
         anchors(j)
         ram_rate(j, bygen)
-        a = load(d, f"{step}-route-apply.json") or load(os.path.join(d, "apply-rc5"), f"{step}-route-apply.json")
+        a = load(d, f"{step}-route-apply.json") or load(os.path.join(d, "apply"), f"{step}-route-apply.json")
         if a is not None:
             coverage(a["apply_natives"], ["natives_before_dispatch", "natives_before_commit", "earlier_non_delegated", "all_earlier_ids"],
                      ["count", "seconds", "successors", "out_edges", "created", "created_apply", "created_route", "descendants", "points"],
