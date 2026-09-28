@@ -1,6 +1,7 @@
 # One combined four-loop run over all four-loop owners (2026-09-27, revised)
 
-Status (revised in c4l session 2, 2026-09-27 ~20-21 UTC): the inputs are built, validated and
+Status (revised in c4l session 2, 2026-09-27 ~20-22 UTC; gate text and counts corrected in the fix round of
+2026-09-28, see the last section): the inputs are built, validated and
 now reproducible from committed files. `four-all` drains **deterministically under Ordered**
 (30,159 natives, records strictly identical at W6, W24 and W96). Under Ready it is
 **schedule-sensitive**: 7 of 13 runs drained at W96 (95 % interval 0.25-0.81), against 17 of 18
@@ -68,7 +69,7 @@ Full table in the README (section 5). Summary:
 | `four-all-r14anchors` | W24: 38,173 | - | 2/2, 29.0-29.4 k | 2/3 drained; rank-15 flood otherwise |
 | `four-all-r13anchors` | W24: 33,750 | - | 1/1, 26.6 k | 9/11 drained (25.5-31.7 k); the other two flood at rank 14 = anchor + 1 |
 | `four-all-h993r14` | W24: flood (730,570 natives at 900 s) | - | 0/1 (flood moved to two other owners) | - |
-| `four-all-p5` (five-loop generation policy) | W24: 31,717 | - | 2/2, 22.9-23.3 k | 2/3 (22.2-25.3 k); rank-13 flood otherwise |
+| `four-all-p5` (five-loop generation policy) | W6 and W24: 31,717, strictly identical records | - | 2/2, 22.9-23.3 k | 2/3 (22.2-25.3 k); rank-13 flood otherwise |
 | `four-all-a19` (box-first envelope) | W6 and W24: identical flood | 0/1 | 2/3 | 1/1 |
 | `four-all-physics` | - | - | 0/1 (1 h) | - |
 | `four-all-r6anchors` | - | - | 3/3, 12.5-13.4 k | not run |
@@ -77,7 +78,9 @@ Drained runs have 0 frontiers and pass the audit. The closure verifier
 (`walk-verify-closure --require-closure`, full re-inspection, oracle binary 89558210) passes on
 Ordered W24 and W96 and on three Ready W96 runs. In all of them, 32/32 initial records are
 independently verified, 0 successors are uncovered and there are 0 containment disagreements
-(`TMP/c4l-s2/verify/`). In drained runs, 98-99 % of natives are Route inspections, and the
+(`TMP/c4l-s2/verify/`). With the current oracle binary 46d4dd28, which reports the gate fields, the
+Ordered W24 reference passes the gate with 32/32 roots independently verified
+(`TMP/c4l-s2/fix/verify-46d4dd28-ordered-w24_four-all.json`; fix round). In drained runs, 98-99 % of natives are Route inspections, and the
 non-entry banana owner takes 71-86 % of native seconds over about 20 natives. W96 rows ran on
 socket 1 with 27-88 % foreign load, so their timings are void.
 
@@ -107,17 +110,22 @@ The full per-owner breakdown of the non-drained Ready W96 run (9.12 M committed 
   - point-like: 13.3-13.8 k on `0111110010` alone;
   - wide boxes: 1.5-1.7 k on it plus 2.8-3.0 k on `0111111001`.
 
-  At the stop the flood does not yet dominate native seconds (18-57 %).
+  At the stop the flood does not yet dominate native seconds: `0111110010` takes 18-57 % of them in the
+  B2 non-drains, and 9.5 % in session C's one W24 non-drain (rep8: 12,457 rank-13 Apply natives on
+  `0111110010`, 12,459 over all ranks).
 - The same owner floods in every other non-drained run: `four-all-a19` Ready W6 and Ordered
   W6 (rank 13), `four-all-r14anchors` Ready W96 (rank 15), and `four-all-physics` Ready W24
-  (rank 5 = helper rank + 2, with `0111111001`). In the drained runs checked (Ready W96,
-  Ordered W24, and the rank-14 variant at W24) it has about 30 Apply natives at anchor
-  rank + 1, with small lower corners.
+  (rank 5 = helper rank + 2, with `0111111001`). The fix round broke down 15 more drained runs of
+  sessions B2 and C, for 19 drained breakdowns in all (`TMP/c4l-s2/fix/bd-*.json`). In 18 of them
+  `0111110010` has exactly 30 Apply natives at anchor rank + 1, with lower corners `A_lo` <= 5. The
+  exception has 188 (`A_lo` up to 16): the `-r13anchors` run B2 rep11, which reached rank 16. `0111111001` has 0 in all 19.
 
 Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]:
 - An owner orthant at rank r contains only rank <= r. Its own inspection emits rank r+1 and r+2
   descendants. The maximum scheduled finite rank is anchor rank + 2 for anchors 12, 13, 14 and 16
-  in 51 of the 52 drained runs with such anchors; one rank-13 Ready W96 run reached rank 16.
+  in 55 of the 56 drained runs with such anchors. With the three drained `four-all-a19` runs, whose
+  orthants are also rank 12, it is 58 of 59. The exception is one rank-13 Ready W96 run (B2 rep11),
+  which reached rank 16.
 - Those descendants are admitted as ordinary domains, and a later one aliases only if an earlier
   admitted box contains it. Which wide rank-13 boxes are admitted first depends on completion
   order. In the drained W96 run, the first wide box of `0111110010` left the line-2 dots
@@ -149,7 +157,8 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 
 ## Adversarial audit of the lane (session 2) [M unless stated]
 
-- **Digests.** All 53 SHA-256 lines of README section 6 match the files; the 16 owner payloads
+- **Digests.** All 53 SHA-256 lines that README section 6 had at the time matched the files. After the fix
+  round the block has 129 lines, all verified at commit time (see the last section). The 16 owner payloads
   match `selection.json` in `gen/`, `inputs/` and the staged folder (48/48); the committed
   `four_loop_common_basis.toml` equals the generation input; the four-all query document is
   reproduced from `physics/queries.json` + staging (`d1ac816e...`).
@@ -184,33 +193,59 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 
 ## Consequences
 
-1. **How to use `four-all`, in addition to the C-4L gate** (README section 5).
+1. **How to use `four-all`, in addition to the C-4L gate** (README section 5, revised in the fix round).
    - C-4L itself is unchanged: the per-family FG/BMW/H/X controls (the zero-Route arm).
-   - C-4L-comb-O, identity: `four-all` Ordered at W6 and W24 (W96 when socket 1 is free),
-     drained, audit PASS and strictly identical to the reference records (30,159 natives, 65,444
-     records), plus `walk-verify-closure --require-closure` with full re-inspection. For the v3
-     epoch engine, which changes the records on purpose, use instead: drained, audit and
-     verify-closure PASS, identical across widths, natives within ±10 % [E: band chosen].
-   - C-4L-comb-R, Ready statistics, reported and never a binary drain gate. Run n >= 5 repeats
-     per width (W6, W24, W96), each with a 15-minute cap or an early stop at 60,000 natives. Every
-     fragmenting run (W6-W96) passed 64-263 k natives by 60 s, and no drained run of any variant
-     exceeded 38,173 natives. Report per width: n, the fraction drained, the natives distribution
-     of the drained runs, and the natives and `records_breakdown.py` signature of each non-drain.
-     Compare that with the legacy baseline, within the binomial noise at the n used (3/5 against
-     5/5: Fisher exact p = 0.44). The legacy non-drain signature, Apply natives at anchor rank + 1
-     on the V4min-2 connected owners (`0111110010`, `0111111001`), is known behaviour. Any other
-     signature, a frontier or a violation is a failure.
+   - **C-4L-comb-O** (deterministic schedules).
+     - For record-keeping changes: `four-all` Ordered at W6 and W24, and at W96 on socket 1 under
+       `TMP/locks/socket1.lock` with the recorder. Pass requires drained, audit PASS, 0 frontiers,
+       strict record identity with the reference (30,159 natives, 65,444 records), and the
+       verify-closure gate PASS (`verdict == PASS`, `roots_independently_verified == roots_total`,
+       full re-inspection, current oracle binary). The reference passes that gate with 46d4dd28
+       (32/32).
+     - For changes that alter records on purpose (the v3 epoch engine, work-volume levers): the
+       engine's deterministic schedule, i.e. v3 `Lockstep` with canonical resolution, or legacy Ordered.
+       Pass requires drained, audit PASS, 0 frontiers, the same verify-closure gate, byte-identical
+       records across W6, W24 and W96, and a **one-sided** upper guard of natives <= 33,175
+       (1.1 x 30,159), or the lever's own pre-registered expectation. Natives and scheduled domains
+       are reported against the Ordered 30,159 and against the legacy Ready distribution, 21,730-26,065
+       (29 drained runs).
+     - The earlier two-sided ±10 % band is withdrawn. All 29 drained legacy Ready runs lie below its
+       lower edge, and G2' (scheduled domains 0.79-0.80x) would fail it by design.
+   - **C-4L-comb-R** (Ready or v3 Rolling). This is a pre-registered one-sided Fisher exact test of the
+     drain fraction, candidate against the frozen legacy 4a17f9c7 Ready, at alpha = 0.05 per width, W in
+     {6, 24, 96}.
+     - n >= 13 runs per arm and width (20 recommended at W96), interleaved in one session on one CPU
+       set, each capped at 15 min or stopped at 60,000 natives.
+     - The queue file is the pre-registration, and its digest is logged.
+     - Promotion is blocked by:
+       - a candidate frontier, violation or unknown non-drain signature;
+       - a regression (p < 0.05 at any width);
+       - a failed verify-closure gate on a drained candidate run.
+
+       Mismatched n or CPU sets void the comparison. Two gate-PASS verify-closure reports per width
+       are required.
+     - At n = 13 against a legacy 7/13, a regression is declared for <= 2/13 and an improvement for
+       >= 12/13. The superseded n >= 5 could not fail at W96 (0/5 against 7/13: one-sided p = 0.054).
+     - The historical legacy table is context only: width and host are confounded in it.
+     - `tools/comb_r_test.py` implements the rule.
+   - **Known legacy non-drain signature, quantitative.** max(N993, N1009) >= 1,000, where N993 and N1009
+     are the Apply natives of `0111110010` and `0111111001` at anchor rank + 1 at the stop. Other
+     anchor + 1 owners are allowed. Measured: drained runs 30 (one run 188) and 0; 60 k-stopped
+     non-drains 2,813-13,755 on the larger of the two.
    - Every run records the recorder: foreign busy CPUs, schedstat run delay, user instructions,
-     IPC and instructions per native.
+     IPC, instructions per native, and (from the fix round, committed `tools/run_c4l.py`) user and
+     system seconds, faults, context switches and the effective user clock.
    - Keep `four-all-physics` as the small, campaign-shaped stress case. A v3 engine that drains
      it within the 1-hour rule would be direct evidence on the five-loop bottleneck.
 2. **Engine requirement for v3** [E]. The flood is a coverage race on descendants just above the
    anchor rank. A canonical admission order makes the outcome reproducible. It does not
    guarantee drainage (`four-all-a19` Ordered floods). Two things need an explicit gate on this
    control: drainage of the anchor rank + 1 layer, and a detector for chains that sit outside
-   every admitted box. The fragmenting runs are recognisable early [M]: 41-58 k natives at 20 s
-   and 181-479 k at 120 s, whereas drained runs finish with 22-31 k natives in 9-20 s of
-   traversal.
+   every admitted box. Early recognition [M]: the ten non-drained runs that ran past 60 s had
+   64-261 k natives at 60 s, and no drained run of any variant exceeded 38,173 natives. This supports
+   the 60 k early stop. At 20 s the ranges overlap (non-drains 29-101 k; a drained Ordered r14 run had
+   37.5 k), so no earlier rule is stated. The session-2 statement "41-58 k at 20 s and 181-479 k at
+   120 s" fitted only three W96 runs and is withdrawn.
 3. **Five-loop reading.** The five-loop hot owner `011101110111000` (connected, V4min 3,
    helper rank 3) resembles the four-loop flood owner (connected, V4min 2, helper rank 3) [E].
    Raising helper ranks is not a cure at four loops; it only moves the layer. So the input lever
@@ -232,15 +267,74 @@ Why the rank-12 anchors do not stop it [M for the facts, E for the causal chain]
 ## Open issues
 
 - The Ready W96 drain fraction of `four-all` is 7/13 (95 % Clopper-Pearson 0.25-0.81), against
-  17/18 at W24 (Fisher exact p = 0.012).
-  - The cause (width or host) is not resolved. Every W96 run was on socket 1 under 27-88 %
-    foreign load.
+  17/18 at W24 (Fisher exact p = 0.012). Unreliable Ready drainage is measured at W24 (1 of 18, on
+  socket 1) and W96 (6 of 13). At W6, 5/5 drained, and all W6 runs were on socket 0.
+  - The cause (width or host) is not resolved. Every W96 run was on socket 1: session 1 (1/2, load
+    not recorded), session A (2/3, 27-45 % foreign load) and session B2 (4/8, 57-79 busy CPUs).
   - W24 on socket 1 (session C) gave 7/8, with one rank-13 flood. That differs neither from W24
     elsewhere (10/10, p = 0.44) nor from W96 (p = 0.17).
-  - Separating width from host needs larger n on socket 1 at W24, or W96 on a quiet socket.
-- `four-all-r6anchors` was not run at W96.
+  - Separating width from host needs larger n on socket 1 at W24, or W96 on a quiet socket. The
+    interleaved comb-R design removes the confound from candidate-versus-legacy comparisons only.
+- The 10x slowdown of the drained session-C rep5 (92 s traversal, 1 % foreign load, at least 60 s of
+  non-user on-CPU time) is unexplained. The extended recorder can attribute a recurrence.
+- `four-all-r6anchors` was not run at W96. `four-all-p5` Ordered W96 identity: see the fix-round
+  section.
 - The physics helpers carry no positive-power bound. The five-loop campaign bounds A for 54 of
-  its 67 helpers.
+  its 67 helpers. The A-bounded variant has not been built.
+- Owner decision pending: D-memo item D-C4L (README section 5, end). It covers the scope substitution
+  (physics class plus anchors instead of the A <= 19 envelope) and the Vakint against five-loop
+  generation policy (`four-all-p5`).
+- The master plan and v3 design must name C-4L-comb-O and C-4L-comb-R next to C-4L. The fix round
+  prepared that amendment on this branch as a separate commit, for the integrator.
 - Not attempted: numerical sign conventions (`q^2-1` here against the thesis's Euclidean
   `q^2+1`), and exhaustive uniqueness of the common basis (a scratch search plus a structural
   argument, TMP/c4l).
+
+## Fix round (2026-09-28): verifier findings and what changed [M unless stated]
+
+An independent verifier (`TMP/progress/verify-c4l.md`) raised ten problems. All ten were checked
+against the files and found real. Their dispositions:
+1. **C-4L-comb-O band (major).** All 29 drained legacy `four-all` Ready runs (21,730-26,065 natives)
+   lie outside ±10 % of 30,159, and G2' would fail the band by design. The two-sided band is withdrawn.
+   The replacement requires drained, audit PASS, 0 frontiers, the verify-closure gate PASS
+   (`roots_independently_verified == roots_total`) and width invariance under Lockstep, canonical, or
+   Ordered. It adds a one-sided guard of natives <= 33,175 or a pre-registered per-lever expectation.
+   Natives are reported against both 30,159 and the Ready distribution. The Ordered reference was
+   re-verified with the current oracle binary 46d4dd28: PASS, 32/32 roots independently verified, 177 s,
+   `assert_oracle_pass.py` GATE-PASS.
+2. **C-4L-comb-R decision rule (major).** The rule is now pre-registered: n >= 13 per arm and width,
+   interleaved with legacy 4a17f9c7 Ready runs in one session on one CPU set, and a one-sided Fisher test
+   at alpha 0.05 per width. It states BLOCK, VOID and INCOMPLETE outcomes and maps Rolling to comb-R and
+   Lockstep to comb-O. `tools/comb_r_test.py` implements it; `--self-test` reproduces every p-value
+   quoted, and a smoke run over the session-A/B2 runs exercised the audit, signature and verify paths.
+   The historical table is kept as context only (host-confounded).
+3. **Session attribution (minor).** W96 was 1/2 in session 1 (load not recorded), 2/3 in session A
+   (27-45 %) and 4/8 in session B2. "No load effect seen" is replaced by "not detectable at this n;
+   session 1 unrecorded".
+4. **Counts (minor).** README section 6: 95/95 digests verified before the fix; the block now also
+   carries the `four-all/` inputs, the committed tools and the fix-round evidence (all lines verified at
+   commit time). Max rank = anchor + 2: 55/56 drained runs (58/59 with `-a19`). Session C rep8: 12,457
+   rank-13 Apply natives (12,459 over all ranks) and 9.5 % of native seconds, outside the B2 18-57 %.
+5. **Pinning (minor).** The committed tools are `tools/run_c4l.py` (self-contained; argv rewriting
+   tested identical to the shared runner), `tools/session.py`, `tools/ready_stats.py`,
+   `tools/comb_r_test.py` and `tools/command-four-all.json`. The README now documents regenerating the
+   Ordered reference (record identity, not file digest). The shared runner's comments were corrected; the
+   pinned version is saved as `TMP/fable51-controls/run_control.8dace33c.py`.
+6. **Over-general claims (minor).** Unreliable Ready drainage is now stated for W24 and W96 only (W6 5/5,
+   socket 0 only). The 20-s and 120-s "recognisable early" ranges are withdrawn: at 20 s, non-drains had
+   29-101 k natives and a drained run 37.5 k. The 60 s / 60 k justification stands (64-261 k natives
+   at 60 s, drained maximum 38,173).
+7. **Signature threshold (minor).** Known iff max(N993, N1009) >= 1,000 at anchor + 1; other anchor + 1
+   owners are allowed. The baseline was confirmed on 15 more drained breakdowns (19 in all): 30 in 18,
+   188 in one, and N1009 = 0 in all.
+8. **Slow run (minor).** Session C rep5 (92 s against 7.9-10.8 s; at least 60 s of non-user on-CPU
+   time) is documented and flagged by `ready_stats.py`. The recorder now records user and system seconds,
+   faults, context switches and the effective user clock.
+9. **Owner decision (minor).** D-memo item D-C4L (README section 5, end) puts the scope substitution
+   and the Vakint against p5 policy to the owner. New measurement: `four-all-p5` Ordered W6 = 31,717
+   natives, records strictly identical to Ordered W24 (68,483 records). W96: see README section 5.
+10. **Governing documents (minor).** A separate commit on this branch adds C-4L-comb-O and C-4L-comb-R
+    to the master plan's control table and to the engine-affecting gates (1.1, 1.2, 2.1, 4.4, §6 check 4,
+    M-drain), next to C-4L. It also adds the schedule-to-control mapping to the v3 design (§3.4, S6).
+    "When socket 1 is free" is replaced by "on socket 1 under socket1.lock with the recorder" (socket 1
+    stays shared, HANDOFF §0.1 item 11).
