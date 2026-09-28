@@ -33,6 +33,13 @@ INCOMPLETE 9):
   drained PASS rows and fail on every other row, including the frontier
   fixture's plain PASS (consistent, but only 60/124 roots closed).
 
+Rows whose mutation needs structure a fixture lacks (partial records, a
+second initial record, Route natives that route Apply domains) are decided
+from the unmutated baseline report: when the baseline proves the structure
+absent, the row is reported as not applicable (ok, not run); when the
+structure is present the mutation must apply. Structural rows may run with
+`--reinspect none` (e.g. route-partial: the phase rule alone must fire).
+
 The audit sees no edges, so dropped edges and successor-level false hits are
 not observable by it (reported as such, never as a pass); its rows assert the
 exact set of NEW violation kinds against the unmutated baseline (messages with
@@ -62,21 +69,43 @@ GATE = importlib.util.module_from_spec(gate_spec)
 gate_spec.loader.exec_module(GATE)
 
 EXIT = {"PASS": 0, "FAIL": 1, "INCOMPLETE": 9}
+SKIP_PARTIAL_ROWS = [False]
 
-# kind -> (run, verdict, exact classes with --require-closure, closure effect, exact per-class counts)
+# kind -> (run, verdict, exact classes with --require-closure, closure effect, exact per-class counts
+#          [, required baseline structure, extra verifier arguments])
 # closure effect: "same" (roots_oracle_closed unchanged), "fewer", "more", or None (not asserted).
+PARTIAL_ANCHOR = {"partial_anchor_kind", "partial_anchor_order"}
 RUST_MUTATIONS = {
     "dropped-edge": ("drained", "FAIL", {"successor_uncovered"}, "same", {}),
     "injected-false-hit": ("drained", "FAIL", {"successor_uncovered"}, "same", {}),
     "retargeted-alias": ("drained", "FAIL", {"alias_containment"}, "same", {"alias_containment": 1}),
-    "retargeted-anchor": ("drained", "FAIL", {"partial_anchor"}, "same", {"partial_anchor": 1}),
+    "retargeted-anchor": ("drained", "FAIL", {"partial_anchor", "partial_union_cover"}, "same",
+                          {"partial_anchor": 1, "partial_union_cover": 1}, ("partials", "multi_initial")),
+    # Partial-anchor well-foundedness (the anchor edge moves with the link; only the anchor rules fire).
+    "self-anchored-partial": ("drained", "FAIL", PARTIAL_ANCHOR, "same",
+                              {"partial_anchor_kind": 1, "partial_anchor_order": 1}, ("partials",)),
+    "partial-as-anchor": ("drained", "FAIL", PARTIAL_ANCHOR, "same",
+                          {"partial_anchor_kind": 1, "partial_anchor_order": 1}, ("two_partials",)),
+    "partial-anchor-cycle": ("drained", "FAIL", PARTIAL_ANCHOR, "same",
+                             {"partial_anchor_kind": 2, "partial_anchor_order": 2}, ("two_partials",)),
+    "non-initial-anchor": ("drained", "FAIL", {"partial_anchor_order"}, "same", {"partial_anchor_order": 1},
+                            ("partials",)),
+    "shrunk-residual": ("drained", "FAIL", {"partial_residual", "partial_union_cover"}, "same",
+                        {"partial_residual": 1, "partial_union_cover": 1}, ("partials",)),
+    # Structural: without re-inspection only the phase rule can see a Route partial.
+    "route-partial": ("drained", "FAIL", {"partial_phase"}, "same", {"partial_phase": 1}, ("partials",),
+                      ["--reinspect", "none"]),
+    # Route natives: a routed Apply domain's only covering edge, a Route native's event count.
+    "dropped-routed-edge": ("drained", "FAIL", {"successor_uncovered"}, "same", {}, ("routed",)),
+    "routed-false-hit": ("drained", "FAIL", {"successor_uncovered"}, "same", {}, ("routed",)),
+    "miscounted-route-events": ("drained", "FAIL", {"event_parity"}, "same", {"event_parity": 1}, ("routed",)),
     "seal-with-error": ("drained", "FAIL",
                         {"seal_parity", "error_parity", "native_counter", "false_closure", "closure_required"},
                         "fewer", {"seal_parity": 1, "error_parity": 1, "native_counter": 1}),
     "hidden-error": ("drained", "FAIL", {"error_parity"}, "same", {"error_parity": 1}),
     "miscounted-events": ("drained", "FAIL", {"event_parity"}, "same", {"event_parity": 1}),
     "miscounted-successors": ("drained", "FAIL", {"successor_parity"}, "same", {"successor_parity": 1}),
-    "remapped-query": ("drained", "FAIL", {"root_mapping"}, None, {"root_mapping": 1}),
+    "remapped-query": ("drained", "FAIL", {"root_mapping"}, None, {"root_mapping": 1}, ("multi_initial",)),
     "foreign-request": ("drained", "FAIL", {"binding"}, "same", {"binding": 1}),
     "foreign-owners": ("drained", "FAIL", {"binding"}, "same", {"binding": 1}),
     "mismatched-result": ("drained", "FAIL", {"result_binding"}, "same", {"result_binding": 1}),
@@ -156,6 +185,47 @@ def mutate_seal_with_error(document):
     return None
 
 
+def partial_rows(document):
+    return [row for row in document["domains"] if row.get("record_kind") == "partial_initial_overlap_inspection"]
+
+
+def mutate_self_anchored_partial(document):
+    rows = partial_rows(document)
+    if not rows:
+        return None
+    row = rows[0]
+    detail = {"partial": row["id"], "from": row["initial_overlap"]["anchor_id"], "to": row["id"]}
+    row["initial_overlap"]["anchor_id"] = row["id"]
+    return detail
+
+
+def mutate_partial_as_anchor(document):
+    rows = partial_rows(document)
+    if len(rows) < 2:
+        return None
+    anchor, row = rows[0], rows[1]
+    detail = {"partial": row["id"], "from": row["initial_overlap"]["anchor_id"], "to": anchor["id"]}
+    row["initial_overlap"]["anchor_id"] = anchor["id"]
+    return detail
+
+
+def mutate_partial_anchor_cycle(document):
+    rows = partial_rows(document)
+    if len(rows) < 2:
+        return None
+    first, second = rows[0], rows[1]
+    first["initial_overlap"]["anchor_id"], second["initial_overlap"]["anchor_id"] = second["id"], first["id"]
+    return {"cycle": [first["id"], second["id"]]}
+
+
+def mutate_route_partial(document):
+    rows = partial_rows(document)
+    if not rows:
+        return None
+    rows[0]["phase"] = "Route"
+    return {"partial": rows[0]["id"]}
+
+
 def mutate_remapped_query(document):
     """Resolve a later query to an earlier same-owner initial record that does not contain it.
 
@@ -182,6 +252,8 @@ def mutate_remapped_query(document):
 # Calibrated on C-4L FG Ordered + the FG frontier fixture (TMP/w0/oracle/RESULTS.md): another
 # fixture may legitimately differ (e.g. which query fields a remap changes); such a row must be
 # re-calibrated by review, never loosened to "contains".
+PARTIAL_ANCHOR_KINDS = {"record N: partial anchor N has no initial row",
+                        "record N: partial anchor must be an earlier initial record"}
 PYTHON_MUTATIONS = {
     "retargeted-alias": ("drained", mutate_retargeted_alias,
                          {"record N: alias domain not contained in representative N"}),
@@ -195,6 +267,18 @@ PYTHON_MUTATIONS = {
     "seal-with-error": ("drained", mutate_seal_with_error,
                         {"error parity: walk error vs record errors", "failed_nodes must be N",
                          "record N: descendant_closed despite a frontier or error", "record N: native error recorded"}),
+    # Partial-anchor well-foundedness (calibrated on C-4L FG Ordered, 160 partial records): the audit
+    # requires an earlier initial NATIVE anchor and an Apply partial.
+    "self-anchored-partial": ("drained", mutate_self_anchored_partial, PARTIAL_ANCHOR_KINDS),
+    "partial-as-anchor": ("drained", mutate_partial_as_anchor, PARTIAL_ANCHOR_KINDS),
+    "partial-anchor-cycle": ("drained", mutate_partial_anchor_cycle, PARTIAL_ANCHOR_KINDS),
+    "route-partial": ("drained", mutate_route_partial,
+                      {"record N: partial inspection outside Apply",
+                       "record N: partial anchor is not a same-owner Apply native inspection",
+                       "record N: partial D>=cut slice not contained in anchor N",
+                       "record N: Route without conservative overcover", "record N: Route missing_routes must be N",
+                       "record N: Route event accounting mismatch", "routed_domains != native Route inspections",
+                       "successors != Apply statistics"}),
     "remapped-query": ("drained", mutate_remapped_query,
                        {"closure initial_total != distinct initial records",
                         "closure required: initial_closed != initial_total != distinct initial records",
@@ -321,6 +405,17 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
     names = [name for name in ("drained", "frontier") if runs.get(name) is not None]
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         plains = list(pool.map(lambda name: row_for(f"baseline-{name}", name, None, [], "PASS", set()), names))
+    structure = {}
+    for name, plain in zip(names, plains):
+        report = json.loads((directory / f"baseline-{name}.json").read_text()) \
+            if (directory / f"baseline-{name}.json").is_file() else {}
+        counts = report.get("counts") or {}
+        records = counts.get("records") or {}
+        tally = (report.get("reinspection") or {}).get("tally") or {}
+        structure[name] = {"partials": records.get("partials", 0) >= 1,
+                           "two_partials": records.get("partials", 0) >= 2,
+                           "multi_initial": (counts.get("initial_records") or 0) >= 2,
+                           "routed": (tally.get("admitted_routed_domains") or 0) >= 1}
     later = []
     for name, plain in zip(names, plains):
         rows.append(plain)
@@ -340,7 +435,7 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
         # --require-closure does not change the re-derived closure: the plain
         # baseline's count anchors every mutation's closure effect.
         baseline_closed[name] = closed
-    if runs.get("drained") is not None:
+    if runs.get("drained") is not None and not SKIP_PARTIAL_ROWS[0]:
         # Partial or no re-inspection is never a PASS, even over a real defect F10 alone sees.
         for label, extra in (("partial-none", ["--reinspect", "none"]),
                              ("partial-sample", ["--reinspect", "sample:10:1"]),
@@ -348,10 +443,20 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
             mutation = "dropped-edge" if "--mutate" in extra else None
             later.append(dict(label=label, run_name="drained", mutation=mutation, extra=extra + ["--require-closure"],
                               expected_verdict="INCOMPLETE", expected_classes=set(), extra_checks=unverified))
-    for kind, (target, verdict, classes, closure, counts) in RUST_MUTATIONS.items():
+    for kind, spec in RUST_MUTATIONS.items():
+        target, verdict, classes, closure, counts = spec[:5]
+        requires = spec[5] if len(spec) > 5 else ()
+        extra_args = spec[6] if len(spec) > 6 else []
         if runs.get(target) is None:
             rows.append({"oracle": "walk-verify-closure", "run": target, "mutation": kind, "ok": False,
                          "verdict": "not-run", "reason": f"no {target} run"})
+            continue
+        lacking = [need for need in requires if not structure.get(target, {}).get(need, False)]
+        if lacking:
+            # The unmutated baseline proves the structure absent: not applicable, not run.
+            rows.append({"oracle": "walk-verify-closure", "run": target, "mutation": kind, "ok": True,
+                         "verdict": "not-applicable", "expected": verdict, "requires": list(requires),
+                         "reason": f"baseline {target} lacks {lacking}"})
             continue
 
         def chain(report, kind=kind):
@@ -359,7 +464,7 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
             return {"alias_chain_exercised": tally.get("covered_along_alias_chain", 0) >= 1} \
                 if kind == "alias-chain-detour" else {}
         later.append(dict(label=f"mutation-{kind}", run_name=target, mutation=kind,
-                          extra=["--require-closure", "--mutate", kind], expected_verdict=verdict,
+                          extra=["--require-closure", "--mutate", kind] + extra_args, expected_verdict=verdict,
                           expected_classes=classes, counts=counts, closure=closure, extra_checks=chain))
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         rows += list(pool.map(lambda spec: row_for(**spec), later))
@@ -378,6 +483,8 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True, help="matrix JSON; Rust reports go next to it")
     parser.add_argument("--skip-python", action="store_true")
     parser.add_argument("--only", nargs="*", help="run only these Rust mutation kinds (baselines always run)")
+    parser.add_argument("--skip-partial-rows", action="store_true",
+                        help="skip the partial/no re-inspection INCOMPLETE rows (when splitting a matrix in two runs)")
     args = parser.parse_args(argv)
     runs = {"drained": args.run, "frontier": args.frontier_run}
     frontier_expect = None
@@ -388,6 +495,8 @@ def main(argv=None):
         for kind in list(RUST_MUTATIONS):
             if kind not in args.only:
                 del RUST_MUTATIONS[kind]
+    if args.skip_partial_rows:
+        SKIP_PARTIAL_ROWS[0] = True
     rows = [] if args.skip_python else python_matrix(runs)
     if args.rustred is not None:
         rows += rust_matrix(args.rustred, runs, args.output.with_suffix(""), args.threads, frontier_expect,
