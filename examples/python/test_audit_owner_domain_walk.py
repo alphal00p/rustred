@@ -405,12 +405,15 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                      ("did not require closure", {"closure_required": False}),
                      ("not every root is independently verified", {"roots_independently_verified": 1}),
                      ("not every root is independently verified", {"roots_total": None}),
+                     ("--mutate negative control", {"mutation": {"kind": "alias-chain-detour", "applied": True}}),
                      ("bound no result.json", {"result_binding": None})]
             for fragment, change in cases:
                 with self.subTest(fragment=fragment):
                     report = AUDIT.audit_walk(run, require_closure=True, verify_report=verifier(**change))
                     self.assertEqual(report["audit"], "FAIL")
                     self.assertFalse(report["certification"]["independently_verified"])
+                    # `paired` is the conjunction of the pairing checks, never set unconditionally.
+                    self.assertFalse(report["verifier_pairing"]["paired"])
                     self.assertTrue(any(fragment in violation for violation in report["violations"]),
                                     (fragment, report["violations"]))
 

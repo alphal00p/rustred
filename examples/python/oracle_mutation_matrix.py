@@ -29,9 +29,11 @@ INCOMPLETE 9):
   even with a dropped edge or an injected false hit, with 0 roots
   independently verified;
 * the gate of `assert_oracle_pass.py` (verdict == PASS and
-  roots_independently_verified == roots_total): it must pass exactly on the
-  drained PASS rows and fail on every other row, including the frontier
-  fixture's plain PASS (consistent, but only 60/124 roots closed).
+  roots_independently_verified == roots_total, unmutated, full re-inspection,
+  reference levers off): it must pass exactly on the unmutated drained PASS
+  rows and fail on every other row, including benign mutations that keep a
+  PASS verdict and the frontier fixture's plain PASS (consistent, but only
+  60/124 roots closed).
 
 Rows whose mutation needs structure a fixture lacks (partial records, a
 second initial record, Route natives that route Apply domains) are decided
@@ -387,7 +389,9 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
         if mutation is not None:
             checks["applied"] = (report.get("mutation") or {}).get("applied") is True
         gate_reasons = GATE.gate(report)
-        gate_expected = expected_verdict == "PASS" and run_name == "drained"
+        # A mutated report is a negative control: it never passes the gate, even
+        # when the mutation is benign and the verdict stays PASS.
+        gate_expected = expected_verdict == "PASS" and run_name == "drained" and mutation is None
         checks["gate"] = (not gate_reasons) == gate_expected
         return {"oracle": "walk-verify-closure", "run": run_name, "mutation": mutation, "label": label,
                 "args": extra, "expected": expected_verdict, "expected_classes": sorted(expected_classes),

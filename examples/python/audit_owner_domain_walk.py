@@ -540,7 +540,14 @@ def pair_verifier(audit, result_path, report, verify_report, require_closure):
     verified, when this audit requires closure).
     """
     check = audit.check
-    pairing = {"verify_report": str(verify_report)}
+    pairing = {"verify_report": str(verify_report), "paired": False}
+    held = []
+
+    def need(condition, message):
+        # Every pairing check is an audit violation when it fails and a term of
+        # the conjunction recorded as `paired`.
+        held.append(bool(check(condition, message)))
+
     try:
         verifier = read_json(verify_report)
     except (OSError, ValueError) as error:
@@ -554,24 +561,26 @@ def pair_verifier(audit, result_path, report, verify_report, require_closure):
     pairing.update(verifier_verdict=verifier.get("verdict"), verifier_generation=verifier.get("checkpoint", {}).get("generation"),
                    result_generation=generation, file_blake3=binding.get("file_blake3"),
                    records_compared=binding.get("records_compared"))
-    check(Path(binding.get("canonical_path", "")) == Path(result_path).resolve(),
-          "verifier pairing: the verifier bound a different result.json")
-    check(binding.get("file_bytes") == stat.st_size and binding.get("file_mtime_unix_ns") == stat.st_mtime_ns,
-          "verifier pairing: result.json changed since the verifier bound it (size or mtime)")
-    check(binding.get("generation_matches") is True and binding.get("generation") == generation
-          and verifier.get("checkpoint", {}).get("generation") == generation,
-          "verifier pairing: checkpoint generation differs between the verifier and this result")
-    check(binding.get("records_mismatched") == 0 and binding.get("records_not_published") == 0
-          and binding.get("duplicate_rows") == 0, "verifier pairing: result rows differ from the verified generation")
-    check(verifier.get("verdict") == "PASS", f"verifier pairing: verifier verdict {verifier.get('verdict')!r} is not PASS")
+    need(Path(binding.get("canonical_path", "")) == Path(result_path).resolve(),
+         "verifier pairing: the verifier bound a different result.json")
+    need(binding.get("file_bytes") == stat.st_size and binding.get("file_mtime_unix_ns") == stat.st_mtime_ns,
+         "verifier pairing: result.json changed since the verifier bound it (size or mtime)")
+    need(binding.get("generation_matches") is True and binding.get("generation") == generation
+         and verifier.get("checkpoint", {}).get("generation") == generation,
+         "verifier pairing: checkpoint generation differs between the verifier and this result")
+    need(binding.get("records_mismatched") == 0 and binding.get("records_not_published") == 0
+         and binding.get("duplicate_rows") == 0, "verifier pairing: result rows differ from the verified generation")
+    need(verifier.get("verdict") == "PASS", f"verifier pairing: verifier verdict {verifier.get('verdict')!r} is not PASS")
+    need(verifier.get("mutation") is None,
+         "verifier pairing: the verifier report is a --mutate negative control, not a certificate")
     if require_closure:
-        check(verifier.get("closure_required") is True, "verifier pairing: the verifier did not require closure")
+        need(verifier.get("closure_required") is True, "verifier pairing: the verifier did not require closure")
         # The gate (assert_oracle_pass.py): every root independently verified.
         total = verifier.get("roots_total")
-        check(isinstance(total, int) and total >= 1 and verifier.get("roots_independently_verified") == total,
-              "verifier pairing: not every root is independently verified "
-              f"({verifier.get('roots_independently_verified')!r} of {total!r})")
-    pairing["paired"] = True
+        need(isinstance(total, int) and total >= 1 and verifier.get("roots_independently_verified") == total,
+             "verifier pairing: not every root is independently verified "
+             f"({verifier.get('roots_independently_verified')!r} of {total!r})")
+    pairing["paired"] = all(held)
     return pairing
 
 
