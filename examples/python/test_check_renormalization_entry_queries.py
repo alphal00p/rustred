@@ -73,6 +73,33 @@ class CheckerTests(unittest.TestCase):
             self.assertEqual(report["probes"]["disagreements"], 0)
             self.assertEqual((report["helper_count"], report["root_count"], report["query_count"]), (3, 5, 8))
 
+    def test_helper_bounds_override_passes_and_tampering_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bounds = root / "helper-bounds.json"
+            dump(bounds, {"schema": "rustred.helper-bounds.json.v1",
+                          "owners": {"111": {"max_numerator_rank": 12, "max_positive_power": None},
+                                     "110": {"max_numerator_rank": 7, "max_positive_power": 11}}})
+            out = plan(root, "--helper-bounds-from", str(bounds))
+            code, report = run_checker(out)
+            self.assertEqual((code, report["status"], report["failures"]), (0, "pass", []), report)
+            receipt = load(out / "entry-plan-receipt.json")
+            receipt["physics"]["helper_bounds"]["110"]["max_positive_power"] = 12
+            dump(out / "entry-plan-receipt.json", receipt)
+            code, report = run_checker(out)
+            self.assertEqual(code, 1)
+            self.assertTrue(any("110: receipt helper" in f for f in report["failures"]), report["failures"])
+
+    def test_helper_bounds_override_must_contain_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = plan(Path(tmp))
+            receipt = load(out / "entry-plan-receipt.json")
+            receipt["physics"]["helper_bounds"] = {"111": {"max_numerator_rank": 3, "max_positive_power": None}}
+            dump(out / "entry-plan-receipt.json", receipt)
+            code, report = run_checker(out)
+            self.assertEqual(code, 1)
+            self.assertTrue(any("111" in f for f in report["failures"]), report["failures"])
+
     def test_closed_form_only_requires_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = plan(Path(tmp), executable=False)

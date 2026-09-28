@@ -9,6 +9,9 @@ then verifies the query document byte-for-byte against the receipt:
 - exact `rustred.owner-domain-queries.json.v2` row shape (six fields, three
   power-bound fields, nothing else), unique IDs of at most 128 bytes, byte
   size and SHA-256 equal to the receipt;
+- helper bounds: the largest root rank, with the largest root A_max for
+  `helper_positive_power_owners` (else unbounded), unless the receipt's
+  `helper_bounds` gives an explicit per-owner override (rank, A or null);
 - per owner in receipt order: exactly one full-orthant helper first (zero for
   owners without roots), then roots by descending R_max, with the root count
   implied by the owner's class and the planner options;
@@ -208,6 +211,14 @@ def check(queries_path, receipt_path, entry_plans, probes, seed, allow_closed_fo
     factorized_roots = physics.get("factorized_roots")
     non_entry_roots = physics.get("non_entry_roots")
     positive_power_owners = set(physics.get("helper_positive_power_owners", []))
+    helper_bounds = physics.get("helper_bounds", {})
+    if not isinstance(helper_bounds, dict) or any(
+            not isinstance(b, dict) or set(b) != {"max_numerator_rank", "max_positive_power"}
+            or type(b["max_numerator_rank"]) is not int or b["max_numerator_rank"] < 0
+            or (b["max_positive_power"] is not None
+                and (type(b["max_positive_power"]) is not int or b["max_positive_power"] < 0))
+            for b in helper_bounds.values()):
+        raise Failure("receipt helper_bounds must map owners to {max_numerator_rank, max_positive_power}")
     if (type(loops) is not int or type(powers) is not int or not isinstance(difference_set, list)
             or factorized_roots not in ("nested", "box", "omit") or non_entry_roots not in ("widest", "omit")):
         raise Failure("receipt physics block is incomplete")
@@ -259,6 +270,7 @@ def check(queries_path, receipt_path, entry_plans, probes, seed, allow_closed_fo
     order = {row["owner"]: index for index, row in enumerate(owners)}
     expect(len(order) == len(owners), "receipt owners must be unique")
     expect(positive_power_owners <= set(order), "helper positive-power owners must be receipt owners")
+    expect(set(helper_bounds) <= set(order), "helper_bounds owners must be receipt owners")
     by_owner = {}
     for row in rows:
         by_owner.setdefault(row["owner"], []).append(row)
@@ -303,6 +315,9 @@ def check(queries_path, receipt_path, entry_plans, probes, seed, allow_closed_fo
             continue
         helper_rank = max(r["R_max"] for r in expected_roots)
         helper_power = max(r["A_max"] for r in expected_roots) if mask in positive_power_owners else None
+        if mask in helper_bounds:
+            helper_rank = helper_bounds[mask]["max_numerator_rank"]
+            helper_power = helper_bounds[mask]["max_positive_power"]
         helper_id = f"{HELPER_PREFIX}r{helper_rank}-a{'none' if helper_power is None else helper_power}-{mask}"
         expect(owner_row.get("helper") == {"id": helper_id, "max_numerator_rank": helper_rank, "max_positive_power": helper_power},
                f"{mask}: receipt helper")

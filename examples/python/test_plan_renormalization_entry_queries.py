@@ -342,6 +342,59 @@ class DocumentTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("not selected owners", text)
 
+    def test_helper_bounds_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = l2_family(root)
+            bounds = dump(root / "helper-bounds.json", {
+                "schema": "rustred.helper-bounds.json.v1",
+                "provenance": {"note": "test"},
+                "owners": {"111": {"max_numerator_rank": 12, "max_positive_power": None},
+                           "110": {"max_numerator_rank": 7, "max_positive_power": 11}}})
+            code, text = run_planner(files, root / "out", "--helper-positive-power-owners", "111,110",
+                                     "--helper-bounds-from", str(bounds))
+            self.assertEqual(code, 0, text)
+            rows = load(root / "out" / "queries.json")["queries"]
+            helpers = {q["owner"]: q for q in rows if q["id"].startswith("owner-anchor-")}
+            self.assertEqual(helpers["111"]["id"], "owner-anchor-r12-anone-111")
+            self.assertEqual((helpers["111"]["max_numerator_rank"], helpers["111"]["power_bounds"]["max_positive_power"]),
+                             (12, None))
+            self.assertEqual(helpers["110"]["id"], "owner-anchor-r7-a11-110")
+            self.assertEqual(helpers["100"]["id"], "owner-anchor-r9-anone-100")
+            for row in rows:
+                if not row["id"].startswith("owner-anchor-"):
+                    self.assertTrue(contains(helpers[row["owner"]], row), row["id"])
+            receipt = load(root / "out" / "entry-plan-receipt.json")
+            self.assertEqual(receipt["physics"]["helper_bounds"],
+                             {"110": {"max_numerator_rank": 7, "max_positive_power": 11},
+                              "111": {"max_numerator_rank": 12, "max_positive_power": None}})
+            self.assertEqual(receipt["inputs"]["helper_bounds_from"]["sha256"], PLAN.sha256_file(bounds))
+            self.assertEqual({r["owner"]: r["helper"]["id"] for r in receipt["owners"] if r["helper"]}["110"],
+                             "owner-anchor-r7-a11-110")
+
+    def test_helper_bounds_refusals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = l2_family(root)
+            cases = [
+                ({"111": {"max_numerator_rank": 8, "max_positive_power": None}}, "below the largest root rank"),
+                ({"111": {"max_numerator_rank": 9, "max_positive_power": 18}}, "below the largest root A_max"),
+                ({"101": {"max_numerator_rank": 9, "max_positive_power": None}}, "not a selected owner"),
+                ({"111": {"max_numerator_rank": 9}}, "exactly max_numerator_rank"),
+                ({"111": {"max_numerator_rank": -1, "max_positive_power": None}}, "nonnegative integer"),
+                ({"111": {"max_numerator_rank": 9, "max_positive_power": "19"}}, "null or a nonnegative"),
+            ]
+            for index, (owners, message) in enumerate(cases):
+                bounds = dump(root / f"bounds-{index}.json", {"schema": "rustred.helper-bounds.json.v1", "owners": owners})
+                code, text = run_planner(files, root / f"bad-{index}", "--helper-bounds-from", str(bounds))
+                self.assertEqual(code, 2, (owners, text))
+                self.assertIn(message, text)
+                self.assertFalse((root / f"bad-{index}").exists())
+            wrong = dump(root / "wrong.json", {"schema": "other", "owners": {}})
+            code, text = run_planner(files, root / "bad-schema", "--helper-bounds-from", str(wrong))
+            self.assertEqual(code, 2)
+            self.assertIn("must carry schema", text)
+
     def test_two_runs_are_byte_identical(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
