@@ -1,5 +1,0 @@
-# symbol: <ahash::random_state::DefaultRandomSource as ahash::random_state::RandomSource>::gen_hasher_seed
-# hottest instructions (percent of this symbol's samples):
-  100.00 :   ca8b28: ret
-    0.00 :   ca8b23: lock xadd %rax,(%rdi)
-    0.00 :   ca8b20: mov    %rdi,%rax

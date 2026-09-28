@@ -1,2 +1,0 @@
-# symbolica-3.0.0 | glibc 2.42 | variant=Private work=Split threads=96 ops/thread=15000 warmup=1500 | set: 4096 polys, 16 vars (4 base + 12 index), 148523 terms total, built in 0.025 s | layout: context ArcInner at line offset 0 (`variables` in the counts' line), variable-map ArcInner at line offset 32 | ahash source: default
-# thread 0 set: 1 context(s), 1 variable map(s); setup 1.633 s wall, RSS after setup 813 MiB
