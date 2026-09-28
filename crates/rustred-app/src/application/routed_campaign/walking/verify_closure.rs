@@ -39,7 +39,7 @@
 mod e2e_tests;
 mod epoch_export;
 mod graph;
-mod lattice;
+pub(super) mod lattice;
 mod result_binding;
 mod union_sample;
 

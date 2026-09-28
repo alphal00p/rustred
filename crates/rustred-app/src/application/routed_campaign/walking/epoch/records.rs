@@ -10,6 +10,7 @@
 use super::super::delegation::{Resolution, ResolutionStatus};
 use super::super::queue::{CompactDomain, Phase};
 use super::super::{mask, power_bounds_json};
+use super::anchors::{AnchorScope, Lent};
 use super::ledger6::Entry6;
 use super::merge::{CheckedResult, Class, RecordBuilder};
 use super::state::EpochState;
@@ -70,7 +71,7 @@ impl<const N: usize> RecordBuilder<N> for Builder {
         );
         record["record_kind"] = json!("native_inspection");
         record["local_classification_discharged"] =
-            json!(entry.class == Class::C0 && entry.dband.is_none());
+            json!(entry.class == Class::C0 && entry.anchors.is_none());
         if image.phase() == Phase::Apply {
             record["optional_refusal_provenance_truncated"] = json!(r.refusals_truncated);
             record["optional_refusal_provenance_scope"] = json!("first_per_phase_per_query");
@@ -83,7 +84,28 @@ impl<const N: usize> RecordBuilder<N> for Builder {
         } else {
             record["conservative_route_overcover"] = json!(true);
         }
-        if let (Some((anchor, cut)), Some(scope)) = (entry.dband, r.scope) {
+        if let Some(anchors) = entry.anchors.as_ref().filter(|a| a.record.kind.is_g2()) {
+            // A G2' residual record (W4 planner; tests only in S2).
+            let pieces = match &anchors.record.scope {
+                AnchorScope::Residual(pieces) => pieces
+                    .iter()
+                    .map(|p| json!({"d_lo":p.d_lo,"d_hi":p.d_hi,"lower":p.lower,"upper":p.upper}))
+                    .collect::<Vec<_>>(),
+                AnchorScope::DBandCut(_) => Vec::new(),
+            };
+            record["record_kind"] = json!("g2_residual_inspection");
+            record["native_inspection_scope"] = json!("g2_residual_only");
+            record["local_inspection_finished"] = json!(false);
+            record["residual_inspection_finished"] = json!(finished);
+            record["local_classification_discharged"] = json!(false);
+            record["g2"] = json!({"kind":anchors.record.kind.name(),
+                "dispatch_version":anchors.record.dispatch_version,
+                "anchors":anchors.record.anchors.iter().map(|a| json!({"id":a.anchor,
+                    "stamp":a.stamp,"lent":match a.lent {Lent::Full => "domain",
+                    Lent::LowSlice => "inspected_low_D_slice"}})).collect::<Vec<_>>(),
+                "residual":pieces,"authority":"exact_union_cover_lattice"});
+        }
+        if let (Some((anchor, cut)), Some(scope)) = (entry.d_band(), r.scope) {
             record["record_kind"] = json!("partial_initial_overlap_inspection");
             record["native_inspection_scope"] = json!("low_D_residual_only");
             record["local_inspection_finished"] = json!(false);
@@ -100,6 +122,12 @@ impl<const N: usize> RecordBuilder<N> for Builder {
             "class":entry.class.name(),"break_reason":r.break_reason.name(),
             "panic":r.panic,"emitted_events":r.emitted,"error_kind":r.error_kind.name(),
             "job_local_duplicates":r.job_duplicates,"known_reuse":r.known_reuse});
+        if entry.class == Class::C2 {
+            // The ledger6 NativeError class of this record (`err_class`).
+            record["epoch"]["err_class"] = json!(super::ledger6::err_class::name(
+                super::merge::error_class(entry)
+            ));
+        }
         Ok(record)
     }
 
@@ -149,17 +177,42 @@ pub(super) fn resolve<const N: usize>(state: &EpochState<N>) -> (Vec<Resolution>
             _ => ResolutionStatus::Pending,
         }
     };
-    let anchor_of: std::collections::HashMap<u32, u32> = state
-        .anchors
-        .records()
-        .iter()
-        .filter_map(|record| {
-            record
-                .anchors
-                .first()
-                .map(|&(anchor, _)| (record.node, anchor))
-        })
-        .collect();
+    // Anchored nodes: a node is discharged only if it and EVERY anchor are
+    // (an anchor's own anchors included). Resolved in ascending merge epoch:
+    // G2' anchors merged strictly earlier; an InitialDBand anchor (< P0) is
+    // anchor-free, so its own status is final.
+    let epoch_of = |id: u32| match state.ledger.get(id) {
+        Ok(Entry6::Native { epoch, .. } | Entry6::NativeFrontier { epoch })
+        | Ok(Entry6::NativeError { epoch, .. }) => epoch,
+        _ => u64::MAX,
+    };
+    let mut anchored: Vec<&super::anchors::AnchorRecord> = state.anchors.records().iter().collect();
+    anchored.sort_by_key(|record| (epoch_of(record.node), record.node));
+    let mut anchored_status: std::collections::HashMap<u32, ResolutionStatus> =
+        std::collections::HashMap::new();
+    for record in anchored {
+        let mut status = own(record.node);
+        if status == ResolutionStatus::Discharged {
+            for a in &record.anchors {
+                let anchor = anchored_status
+                    .get(&a.anchor)
+                    .copied()
+                    .unwrap_or_else(|| own(a.anchor));
+                if anchor != ResolutionStatus::Discharged {
+                    status = anchor;
+                    break;
+                }
+            }
+        }
+        if record.kind.is_g2() {
+            s.g2_records += 1;
+            s.g2_blocked += usize::from(status != ResolutionStatus::Discharged);
+        } else {
+            s.partial_initial_inspections += 1;
+            s.partial_initial_blocked += usize::from(status != ResolutionStatus::Discharged);
+        }
+        anchored_status.insert(record.node, status);
+    }
     for id in (0..total as u32).rev() {
         let entry = state.ledger.get(id).expect("valid ledger entry");
         by_id[id as usize] = match entry {
@@ -182,16 +235,7 @@ pub(super) fn resolve<const N: usize>(state: &EpochState<N>) -> (Vec<Resolution>
                 }
             }
             _ => {
-                let mut status = own(id);
-                if let Some(&anchor) = anchor_of.get(&id) {
-                    s.partial_initial_inspections += 1;
-                    if status == ResolutionStatus::Discharged {
-                        status = own(anchor);
-                    }
-                    if status != ResolutionStatus::Discharged {
-                        s.partial_initial_blocked += 1;
-                    }
-                }
+                let status = anchored_status.get(&id).copied().unwrap_or_else(|| own(id));
                 match status {
                     ResolutionStatus::Discharged => s.native_discharged += 1,
                     ResolutionStatus::UnresolvedFrontiers { .. } => s.native_frontier_blocked += 1,
@@ -239,6 +283,7 @@ pub(super) fn resolve<const N: usize>(state: &EpochState<N>) -> (Vec<Resolution>
         "maximum_alias_depth":s.maximum_alias_depth,
         "partial_initial_inspections":s.partial_initial_inspections,
         "partial_initial_blocked":s.partial_initial_blocked,
+        "g2_residual_records":s.g2_records,"g2_residual_blocked":s.g2_blocked,
         "ledger6":counts.json(),
         "resolution_scope":"ledger6 tags (semantics 3); local obligations including partial anchor dependencies; global frontiers and errors are separate"
     });
@@ -260,4 +305,6 @@ struct Summary {
     maximum_alias_depth: usize,
     partial_initial_inspections: usize,
     partial_initial_blocked: usize,
+    g2_records: usize,
+    g2_blocked: usize,
 }

@@ -6,13 +6,18 @@
 //! S2 layout (versioned by `JOB_MAGIC` / `RESULT_MAGIC`): the job header is
 //! 32 bytes plus the canonical image; the result header is fixed and is
 //! followed by length-prefixed variable parts (stats, error, frontiers,
-//! refusal provenance, the initial-overlap scope and the misses). The record
-//! is assembled from these parts in P3 (typed binary records land in S3).
+//! refusal provenance, the initial-overlap scope, the G2' part and the
+//! misses). The record is assembled from these parts in P3 (typed binary
+//! records land in S3). S4 adds the parts of §2.4 that S2 does not ship
+//! (inspector targets, Locals, canary entries, refresh points, per-miss
+//! versions, timing) and bumps `RESULT_MAGIC` again (note D4).
 use super::super::queue::{CompactDomain, Domain, Phase};
 use rustred::solver::DomainPowerBounds;
 
 pub(super) const JOB_MAGIC: u32 = u32::from_le_bytes(*b"EJB2");
-pub(super) const RESULT_MAGIC: u32 = u32::from_le_bytes(*b"ERS2");
+/// ERS3: the G2' part (anchors with stamps and lent scopes, union-form
+/// residual) and the `G2Residual` native kind.
+pub(super) const RESULT_MAGIC: u32 = u32::from_le_bytes(*b"ERS3");
 
 // ---- little-endian writer and reader --------------------------------------
 
@@ -39,9 +44,15 @@ impl Writer {
         self.0.extend_from_slice(&v.to_bits().to_le_bytes());
     }
     /// Length-prefixed bytes (u32 length).
+    /// Results are encoded inside the inspector's unwind frame: a part of
+    /// 4 GiB or more is a C3 result there, never a truncated length.
     pub fn bytes(&mut self, v: &[u8]) {
-        self.u32(u32::try_from(v.len()).expect("a result part below 4 GiB"));
+        self.count(v.len());
         self.0.extend_from_slice(v);
+    }
+    /// A u32 element count (checked; see `bytes`).
+    pub fn count(&mut self, n: usize) {
+        self.u32(u32::try_from(n).expect("a result part below 2^32 elements"));
     }
     pub fn opt_str(&mut self, v: Option<&str>) {
         match v {
@@ -285,8 +296,12 @@ impl<const N: usize> Job<N> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum NativeKind {
     Apply = 0,
+    /// An InitialDBand residual inspection (carries `Scope`).
     ApplyPartial = 1,
     Route = 2,
+    /// A G2' residual inspection (carries `G2Part`; W4 planner, refused
+    /// without a bound G2' flag).
+    G2Residual = 3,
 }
 
 /// The native `error_kind` values (`inspection.rs`), plus `Other` for any
@@ -377,6 +392,16 @@ pub(super) struct Scope {
     pub residual: DomainPowerBounds,
 }
 
+/// The G2' part of a result (§7 R3, union form): the record kind code (1
+/// G2Native, 2 G2Residual), the anchors `(anchor, stamp, lent scope code)`
+/// planned from `MergedView` of S_{v0}, and the inspected residual pieces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct G2Part {
+    pub kind: u8,
+    pub anchors: Vec<(u32, u64, u8)>,
+    pub pieces: Vec<super::anchors::Piece>,
+}
+
 /// A request shipped to the merge (in S2 every Admit that was not an exact
 /// duplicate of an earlier Admit of the same job).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,6 +439,7 @@ pub(super) struct JobResult<const N: usize> {
     pub refusals: Vec<Vec<u8>>,
     pub refusals_truncated: bool,
     pub scope: Option<Scope>,
+    pub g2: Option<G2Part>,
     pub misses: Vec<Miss<N>>,
 }
 
@@ -447,11 +473,11 @@ impl<const N: usize> JobResult<N> {
         w.f64(self.seconds);
         w.bytes(&self.stats_json);
         w.opt_str(self.error.as_deref());
-        w.u32(self.frontiers.len() as u32);
+        w.count(self.frontiers.len());
         for frontier in &self.frontiers {
             w.bytes(frontier);
         }
-        w.u32(self.refusals.len() as u32);
+        w.count(self.refusals.len());
         for refusal in &self.refusals {
             w.bytes(refusal);
         }
@@ -465,7 +491,32 @@ impl<const N: usize> JobResult<N> {
                 w.powers(scope.residual);
             }
         }
-        w.u32(self.misses.len() as u32);
+        match &self.g2 {
+            None => w.u8(0),
+            Some(g2) => {
+                w.u8(1);
+                w.u8(g2.kind);
+                w.count(g2.anchors.len());
+                for &(anchor, stamp, lent) in &g2.anchors {
+                    w.u32(anchor);
+                    w.u64(stamp);
+                    w.u8(lent);
+                }
+                w.count(g2.pieces.len());
+                for piece in &g2.pieces {
+                    assert!(
+                        piece.lower.len() == N && piece.upper.len() == N,
+                        "G2' piece arity"
+                    );
+                    w.opt_i64(piece.d_lo);
+                    w.opt_i64(piece.d_hi);
+                    for &v in piece.lower.iter().chain(&piece.upper) {
+                        w.u16(v);
+                    }
+                }
+            }
+        }
+        w.count(self.misses.len());
         for miss in &self.misses {
             w.u32(miss.ordinal);
             w.u64(miss.digest);
@@ -486,6 +537,7 @@ impl<const N: usize> JobResult<N> {
             0 => NativeKind::Apply,
             1 => NativeKind::ApplyPartial,
             2 => NativeKind::Route,
+            3 => NativeKind::G2Residual,
             _ => return Err("invalid native kind"),
         };
         let error_kind = match r.u8()? {
@@ -518,6 +570,41 @@ impl<const N: usize> JobResult<N> {
                 anchor: r.u32()?,
                 cut: r.i64()?,
                 residual: r.powers()?,
+            })
+        } else {
+            None
+        };
+        let g2 = if r.flag()? {
+            let kind = r.u8()?;
+            let n = r.u32()? as usize;
+            let mut anchors = Vec::new();
+            anchors
+                .try_reserve(n.min(1 << 20))
+                .map_err(|_| "anchor allocation")?;
+            for _ in 0..n {
+                anchors.push((r.u32()?, r.u64()?, r.u8()?));
+            }
+            let n = r.u32()? as usize;
+            let mut pieces = Vec::new();
+            pieces
+                .try_reserve(n.min(1 << 20))
+                .map_err(|_| "piece allocation")?;
+            for _ in 0..n {
+                let d_lo = r.opt_i64()?;
+                let d_hi = r.opt_i64()?;
+                let lower = (0..N).map(|_| r.u16()).collect::<Decoded<Vec<_>>>()?;
+                let upper = (0..N).map(|_| r.u16()).collect::<Decoded<Vec<_>>>()?;
+                pieces.push(super::anchors::Piece {
+                    d_lo,
+                    d_hi,
+                    lower,
+                    upper,
+                });
+            }
+            Some(G2Part {
+                kind,
+                anchors,
+                pieces,
             })
         } else {
             None
@@ -574,6 +661,7 @@ impl<const N: usize> JobResult<N> {
             refusals,
             refusals_truncated,
             scope,
+            g2,
             misses,
         })
     }

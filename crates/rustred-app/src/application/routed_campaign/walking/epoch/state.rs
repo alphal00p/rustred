@@ -9,7 +9,11 @@ use super::store::Store;
 use super::verify::VerifyCounters;
 use std::collections::BTreeMap;
 
-/// `nodes` flags (1 byte per ID).
+/// `nodes` flags (1 byte per ID). Bit 2 (4) is `closed`, written only into
+/// the export from the final forced refresh. `anchored`: the node has an
+/// anchor record (any kind); `residual`: a G2' residual record, the same
+/// meaning as ledger6's residual bit (an InitialDBand node is anchored and
+/// carries ledger6's D-band bit, not `residual`).
 pub(super) const NODE_SEALED: u8 = 1;
 pub(super) const NODE_INSPECTED: u8 = 2;
 pub(super) const NODE_ANCHORED: u8 = 8;
@@ -44,6 +48,7 @@ pub(super) struct WalkCounters {
     pub transfers: u64,
     pub retired_lookup_only: u64,
     pub partials: u64,
+    pub g2_records: u64,
     pub initial_inspected: u64,
     pub survivors: u64,
     pub antichain_folded: u64,
@@ -77,6 +82,10 @@ pub(super) struct EpochState<const N: usize> {
     pub max_domains: usize,
     pub max_events: u64,
     pub max_frontiers: u64,
+    /// Set when P3 starts and cleared when it ends (§6.4): a panic or a C5
+    /// inside P3 leaves it set, and nothing may persist a state holding it
+    /// (the S2 export refuses; S3's save must refuse too).
+    pub poisoned: bool,
 }
 
 impl<const N: usize> EpochState<N> {
@@ -100,6 +109,7 @@ impl<const N: usize> EpochState<N> {
             max_domains,
             max_events: max_events as u64,
             max_frontiers: max_frontiers as u64,
+            poisoned: false,
         }
     }
 

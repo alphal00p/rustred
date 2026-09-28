@@ -3,8 +3,10 @@
 //! Inspectors run whole native inspections with the unchanged visitor; one
 //! coordinator merges finished inspections in bulk and stays the only
 //! mutator of the walk state. S2 is the lockstep skeleton: Lockstep depth 1
-//! (B = 64 lowest Pending IDs per epoch, all results merged in one cut in
-//! ascending parent ID), every successor resolved in the merge through the
+//! (B = 16 lowest Pending IDs per epoch, a constant independent of the
+//! worker count; all results merged in one cut in ascending parent ID;
+//! diagnostic seam `RUSTRED_EPOCH_LOCKSTEP_B`), every successor resolved in
+//! the merge through the
 //! kernel lane's ID-ordered index (canonical min-ID semantics), serial P1-P3,
 //! closure through the legacy Tracker with forced refreshes only, typed
 //! records in their JSON view. No checkpoints (S3), no inspector-side
@@ -55,19 +57,25 @@ use verify::QueryImage;
 pub const EPOCH_WALK_SEMANTICS_VERSION: u32 = 3;
 /// Lockstep epoch size B: a constant, independent of the worker count, so
 /// that results are byte-identical across widths (IMP-11). The protocol
-/// proposed 64; S2 uses 16 [M, fable51_w2_s2_2026-09-28.md]: the combined
+/// proposed 64; S2 uses 16 [M, fable51_w2_s2_2026-09-28.md §4]: the combined
 /// four-loop controls `four-all` and `four-all-p5` drain at B = 1, 4, 8, 16
 /// and 24 (29.8-29.9 k and 31.5 k natives) but enter the documented rank-13
 /// (anchor + 1) flood on owner 0111110010 at B = 32 and 64, the same
-/// non-drain signature as legacy Ready at W96. B is performance-only and not
-/// bound; a wider lockstep front needs S4/S6 work, not a smaller front.
+/// non-drain signature as legacy Ready at W96. B is soundness-neutral and
+/// determinism-neutral for a FIXED B (identity across widths), but it
+/// changes the walk (which IDs are reserved together, hence transfers, IDs
+/// and work volume): the identity oracle key is (request, B). B is recorded
+/// in the result and the export (`epoch.schedule.b`); S3 must persist it in
+/// CP6 and refuse a lockstep resume under another B.
 pub(super) const LOCKSTEP_B: usize = 16;
 /// Heartbeat spacing (observer events only; never a resolver input).
 const HEARTBEAT_SECONDS: f64 = 5.0;
 /// Diagnostic seam, not a campaign knob: overrides the lockstep epoch size
-/// B (1..=4096). B is performance-only and not bound (A7); a run is
-/// identical across widths for any fixed B. Read once per walk; an invalid
-/// value is refused, never ignored.
+/// B (1..=4096). It changes the walk (see `LOCKSTEP_B`); the value is
+/// recorded (`epoch.schedule.b`, `b_override`), the identity tools compare
+/// it, and the campaign supervisors strip it from their children
+/// (`shared_owner_campaign.py` DIAGNOSTIC_ONLY_ENVIRONMENT). Read once per
+/// walk; an invalid value is refused, never ignored.
 pub(crate) const LOCKSTEP_B_VARIABLE: &str = "RUSTRED_EPOCH_LOCKSTEP_B";
 
 fn lockstep_b() -> Result<usize, String> {
@@ -83,6 +91,14 @@ fn lockstep_b() -> Result<usize, String> {
             }),
         Err(e) => Err(format!("{LOCKSTEP_B_VARIABLE}: {e}")),
     }
+}
+
+/// Test seam for `consumer_stop_parity`: the resolver breaks with
+/// `resolver_range` when this thread's job has emitted `at_event` events (a
+/// W1 walk runs its inspections inline on the calling thread); None clears.
+#[cfg(test)]
+pub(in crate::application::routed_campaign) fn force_resolver_break(at_event: Option<u64>) {
+    resolve::FORCED_BREAK.with(|f| f.set(at_event.map(|at| (at, job::BreakReason::ResolverRange))));
 }
 
 /// Epoch-specific admission (refused lanes F20 and S2 limits); runs before
@@ -114,6 +130,42 @@ pub(super) fn admit(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Why initial admission stopped, mapped to its stop reason (§9.2).
+#[derive(Debug)]
+enum AdmissionError {
+    /// The scheduled-domain cap (F9): `domain_allowance`.
+    DomainCap,
+    /// An input whose canonical image or native summary is refused (a
+    /// deterministic input error): `error_stop`.
+    Refused(String),
+    /// An allocation failure: `ram_guard`.
+    Alloc(String),
+    /// An engine inconsistency (index, digest or verify disagreement): C5.
+    Internal(String),
+}
+
+impl AdmissionError {
+    fn index(error: &str) -> Self {
+        if error.contains("allocation") {
+            AdmissionError::Alloc(error.to_owned())
+        } else {
+            AdmissionError::Internal(error.to_owned())
+        }
+    }
+    /// The run's error text and its stop (Err: engine-fatal).
+    fn stop(self) -> (String, Result<StopReason, String>) {
+        match self {
+            AdmissionError::DomainCap => (
+                "scheduled domain allowance".into(),
+                Ok(StopReason::DomainAllowance),
+            ),
+            AdmissionError::Refused(m) => (m, Ok(StopReason::ErrorStop)),
+            AdmissionError::Alloc(m) => (m, Ok(StopReason::RamGuard)),
+            AdmissionError::Internal(m) => (m.clone(), Err(m)),
+        }
+    }
+}
+
 struct Sink<'a>(&'a mut RecordSink);
 impl RecordOut for Sink<'_> {
     fn reserve(&mut self) -> Result<(), String> {
@@ -133,41 +185,172 @@ enum End {
 /// a merge-time miss against the store (exact, orthant, minimum live ID) or
 /// becomes a new ID; a new initial ID retires the live IDs it contains from
 /// the lookup index (nothing transfers: every initial ID is protected).
+/// Every retirement holds a `Verified` token (the new ID, `Stored`, contains
+/// the retired image), as P2's reverse sets do, so a retired entry is always
+/// contained in a newer live entry of its bucket (the S1 premise S4's tiers
+/// rely on).
 fn admit_initial<const N: usize>(
     state: &mut EpochState<N>,
     domain: &Domain<N>,
-) -> Result<u32, String> {
-    let image = CompactDomain::try_from_domain(domain)?;
-    let q = QueryImage::new(image)?;
+) -> Result<u32, AdmissionError> {
+    use AdmissionError as E;
+    let image =
+        CompactDomain::try_from_domain(domain).map_err(|e| E::Refused(format!("input: {e}")))?;
+    let q = QueryImage::new(image).map_err(|e| E::Refused(format!("input: {e}")))?;
     let query = Query::new(q.core.clone(), domain.phase);
     let published = state.store.len();
-    if let Some((id, _, _)) =
-        state
-            .store
-            .lookup(&q, &query, published, &mut state.lookup, &mut state.verify)?
+    if let Some((id, _, _)) = state
+        .store
+        .lookup(&q, &query, published, &mut state.lookup, &mut state.verify)
+        .map_err(E::Internal)?
     {
         return Ok(id);
     }
     if state.store.len() >= state.id_cap() {
-        return Err("scheduled domain allowance".into());
+        return Err(E::DomainCap);
     }
-    let retire = state.store.contained_live(&q, &query, &mut state.lookup)?;
-    state.reserve_ids(1)?;
-    state.store.exact.try_reserve(&[q.digest])?;
-    let id = state.store.push(image, query.compact, q.digest);
+    let retire = state
+        .store
+        .contained_live(&q, &query, &mut state.lookup)
+        .map_err(E::Internal)?;
+    state.reserve_ids(1).map_err(E::index)?;
+    state
+        .store
+        .exact
+        .try_reserve(&[q.digest])
+        .map_err(E::index)?;
+    let id = state
+        .store
+        .push(image, query.compact, q.digest)
+        .map_err(E::Internal)?;
     state.admit_id(id);
     let mut expected = 0;
     for &old in &retire {
+        let old_q = QueryImage::new(state.store.domains[old as usize])
+            .map_err(|e| E::Internal(format!("retired {old}: {e}")))?;
+        verify::verify(
+            verify::Container::Stored {
+                id,
+                domains: &state.store.domains,
+                published_len: id as usize + 1,
+            },
+            &old_q,
+            &mut state.verify,
+        )
+        .ok_or_else(|| {
+            E::Internal(format!(
+                "initial admission: retired {old} is not contained in {id} (verify)"
+            ))
+        })?;
         if state.is_live(old) {
             expected += 1;
             state.set_live(old, false);
         }
     }
-    let removed = state.store.index_survivor(id, &query, &retire)?;
+    let removed = state
+        .store
+        .index_survivor(id, &query, &retire)
+        .map_err(E::index)?;
     if removed != expected {
-        return Err("initial admission index retirement mismatch".into());
+        return Err(E::Internal(
+            "initial admission index retirement mismatch".into(),
+        ));
     }
     Ok(id)
+}
+
+/// §16 certification: exit 0 `locally_resolved` only when drained with 0
+/// frontiers, 0 NativeError, 0 Exhausted, no input frontier, no admission
+/// error and the closure monitor available (F15). Returns (certified,
+/// monitor available).
+fn certification<const N: usize>(
+    state: &EpochState<N>,
+    drained: bool,
+    admission_error: bool,
+    input_frontiers: usize,
+) -> (bool, bool) {
+    let closure = state.tracker.json(state.store.len(), state.p0 as usize);
+    let monitor_available = closure["available"] == true;
+    let counts = state.ledger.counts();
+    let certified = drained
+        && !admission_error
+        && state.counters.frontiers == 0
+        && counts.get(Tag::NativeError) == 0
+        && counts.get(Tag::Exhausted) == 0
+        && input_frontiers == 0
+        && monitor_available;
+    (certified, monitor_available)
+}
+
+/// The anchor validators over the final state (the restore-side rules of
+/// §7/§11.4 run on the engine's own output before it is exported): every
+/// record passes R1-R3, the lent-scope rule, the exact cover and the
+/// anchor-edge-present rule against the edge run log.
+fn anchor_self_check<const N: usize>(state: &EpochState<N>) -> Result<(), String> {
+    use anchors::{AnchorRecord, AnchorView, union_cover};
+    if state.anchors.len() == 0 {
+        return Ok(());
+    }
+    let mut runs: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    let log = state.edges.log();
+    let mut at = 0;
+    while at + 1 < log.len() {
+        let (source, n) = (log[at], log[at + 1] as usize);
+        let targets = log.get(at + 2..at + 2 + n).ok_or("edge log truncated")?;
+        if state.anchors.get(source).is_some() {
+            runs.insert(source, targets.to_vec());
+        }
+        at += 2 + n;
+    }
+    let domains = &state.store.domains;
+    let same_bucket = |a: u32, b: u32| {
+        (a as usize) < domains.len()
+            && (b as usize) < domains.len()
+            && store::bucket_key(&domains[a as usize]) == store::bucket_key(&domains[b as usize])
+    };
+    let record_of = |id: u32| {
+        state
+            .anchors
+            .get(id)
+            .map(|r| (r.kind, r.d_band().map(|(_, cut)| cut)))
+    };
+    let cut_of = |id: u32| {
+        state
+            .anchors
+            .get(id)
+            .and_then(AnchorRecord::d_band)
+            .map(|(_, cut)| cut)
+    };
+    let edges_of = |id: u32| runs.get(&id).cloned();
+    for record in state.anchors.records() {
+        let node = domains
+            .get(record.node as usize)
+            .ok_or("anchor record beyond the store")?;
+        let cover = |r: &AnchorRecord| union_cover(node, domains, r, &cut_of);
+        let view = AnchorView {
+            p0: state.p0,
+            published_len: domains.len(),
+            arity: N,
+            ledger: &state.ledger,
+            same_bucket: &same_bucket,
+            record_of: &record_of,
+            edges_of: Some(&edges_of),
+            merged_view: None,
+            cover: &cover,
+        };
+        let epoch = match state.ledger.get(record.node) {
+            Ok(
+                ledger6::Entry6::Native { epoch, .. }
+                | ledger6::Entry6::NativeFrontier { epoch }
+                | ledger6::Entry6::NativeError { epoch, .. },
+            ) => epoch,
+            _ => return Err(format!("anchor record on unmerged node {}", record.node)),
+        };
+        record
+            .validate(&view, epoch)
+            .map_err(|v| format!("anchor record of node {}: {v:?}", record.node))?;
+    }
+    Ok(())
 }
 
 pub(super) fn run<const N: usize>(
@@ -227,6 +410,8 @@ pub(super) fn run<const N: usize>(
     let mut inputs = Vec::new();
     let mut input_frontiers = Vec::new();
     let mut error: Option<String> = None;
+    // The stop an admission failure maps to (Err: engine-fatal).
+    let mut admission_stop: Option<Result<StopReason, String>> = None;
     for query in queries {
         let domain = Domain {
             phase: Phase::Apply,
@@ -245,6 +430,7 @@ pub(super) fn run<const N: usize>(
             if reducer.domain_routing_requires_source_conditions() {
                 if input_frontiers.len() == request.max_frontiers {
                     error = Some("retained frontier allowance".into());
+                    admission_stop = Some(Ok(StopReason::FrontierAllowance));
                     break;
                 }
                 input_frontiers.push(json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
@@ -264,7 +450,9 @@ pub(super) fn run<const N: usize>(
         match admit_initial(&mut state, &domain) {
             Ok(id) => inputs.push(json!({"id":query.id,"domain":id})),
             Err(e) => {
-                error = Some(e);
+                let (message, stop) = e.stop();
+                error = Some(message);
+                admission_stop = Some(stop);
                 break;
             }
         }
@@ -312,6 +500,7 @@ pub(super) fn run<const N: usize>(
     let config = MergeConfig {
         frontier_stop: request.frontier_policy == OwnerDomainWalkFrontierPolicy::Stop,
         lockstep: true,
+        g2: false,
     };
     let traversal_started = Instant::now();
     let mut dispatch = Dispatch::new();
@@ -321,74 +510,111 @@ pub(super) fn run<const N: usize>(
         overlap: &overlap,
         cancellation,
     };
+    let job = |bytes: &[u8]| inspector::inspect_job(&context, bytes);
     let mut heartbeat = Instant::now();
     // Wall seconds per phase (indications only; never an input).
     let mut timing = [0f64; 5];
-    let outcome: Result<End, Fatal> = if error.is_some() {
+    let outcome: Result<End, Fatal> = if let Some(stop) = admission_stop {
         // A failed initial admission never becomes a walk over its prefix.
-        Ok(End::Stopped(StopReason::DomainAllowance))
+        stop.map(End::Stopped)
+            .map_err(|m| Fatal(format!("initial admission: {m}")))
     } else if config.frontier_stop && !input_frontiers.is_empty() {
         // Input frontiers stop the run before the first dispatch (§9.3).
         Ok(End::Stopped(StopReason::FrontierStop))
     } else {
-        inspector::with_pool(threads, &context, |run_batch| -> Result<End, Fatal> {
+        inspector::with_pool(threads, &job, |run_batch| -> Result<End, Fatal> {
             loop {
-                if cancellation.load(Ordering::Acquire) {
-                    return Ok(End::Stopped(StopReason::Paused));
-                }
-                let jobs = match dispatch.refill(&mut state, lockstep) {
-                    Refill::Drained => return Ok(End::Drained),
-                    Refill::Stalled => {
-                        return Err(Fatal(
-                            "dispatch_stall: Pending or Reserved IDs but nothing dispatchable"
-                                .into(),
-                        ));
+                // One lockstep epoch: dispatch, inspect, P1-P3. A panic
+                // anywhere in it is engine-fatal (§6.4: caught at the merge
+                // loop; `state.poisoned` stays set if P3 was running).
+                let step = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                    || -> Result<Option<End>, Fatal> {
+                        if cancellation.load(Ordering::Acquire) {
+                            return Ok(Some(End::Stopped(StopReason::Paused)));
+                        }
+                        let jobs = match dispatch.refill(&mut state, lockstep) {
+                            Refill::Drained => return Ok(Some(End::Drained)),
+                            Refill::Stalled => {
+                                return Err(Fatal(
+                                    "dispatch_stall: Pending or Reserved IDs but nothing dispatchable"
+                                        .into(),
+                                ));
+                            }
+                            Refill::Jobs(jobs) => jobs,
+                        };
+                        let batch = jobs.iter().map(job::Job::encode).collect();
+                        let clock = Instant::now();
+                        let results = run_batch(batch).map_err(Fatal)?;
+                        timing[0] += clock.elapsed().as_secs_f64();
+                        let clock = Instant::now();
+                        let checked = merge::p1_check(&mut state, results, config)?;
+                        timing[1] += clock.elapsed().as_secs_f64();
+                        if let Some(stop) = checked.stop {
+                            merge::discard_cut(&mut state, &checked, &mut |id, a| {
+                                dispatch.requeue(id, a)
+                            })?;
+                            return Ok(Some(End::Stopped(stop)));
+                        }
+                        let clock = Instant::now();
+                        let plan = merge::p2(&mut state, &checked)?;
+                        timing[2] += clock.elapsed().as_secs_f64();
+                        let clock = Instant::now();
+                        if let Err(stop) =
+                            merge::p3_preflight(&mut state, &checked, &plan, &mut Sink(&mut sink))
+                        {
+                            merge::discard_cut(&mut state, &checked, &mut |id, a| {
+                                dispatch.requeue(id, a)
+                            })?;
+                            return Ok(Some(End::Stopped(stop)));
+                        }
+                        let applied = merge::p3_apply(
+                            &mut state,
+                            checked,
+                            plan,
+                            config,
+                            &records::Builder,
+                            &mut Sink(&mut sink),
+                            &mut |id, a| dispatch.requeue(id, a),
+                        )?;
+                        timing[3] += clock.elapsed().as_secs_f64();
+                        if heartbeat.elapsed().as_secs_f64() >= HEARTBEAT_SECONDS {
+                            heartbeat = Instant::now();
+                            observer(heartbeat_event(&state, &dispatch, traversal_started));
+                        }
+                        Ok(applied.stop.map(End::Stopped))
+                    },
+                ));
+                match step {
+                    Ok(Ok(None)) => {}
+                    Ok(Ok(Some(end))) => return Ok(end),
+                    Ok(Err(fatal)) => return Err(fatal),
+                    Err(panic) => {
+                        let text = panic
+                            .downcast_ref::<&str>()
+                            .map(|s| s.to_string())
+                            .or_else(|| panic.downcast_ref::<String>().cloned())
+                            .unwrap_or_else(|| "non-text panic".into());
+                        return Err(Fatal(format!(
+                            "panic in the merge loop at k = {} (poisoned = {}): {text}",
+                            state.k, state.poisoned
+                        )));
                     }
-                    Refill::Jobs(jobs) => jobs,
-                };
-                let batch = jobs.iter().map(job::Job::encode).collect();
-                let clock = Instant::now();
-                let results = run_batch(batch);
-                timing[0] += clock.elapsed().as_secs_f64();
-                let clock = Instant::now();
-                let checked = merge::p1_check(&mut state, results, config)?;
-                timing[1] += clock.elapsed().as_secs_f64();
-                if let Some(stop) = checked.stop {
-                    merge::discard_cut(&mut state, &checked, &mut |id, a| dispatch.requeue(id, a))?;
-                    return Ok(End::Stopped(stop));
-                }
-                let clock = Instant::now();
-                let plan = merge::p2_plan(&mut state, &checked)?;
-                timing[2] += clock.elapsed().as_secs_f64();
-                let clock = Instant::now();
-                if let Err(stop) =
-                    merge::p3_preflight(&mut state, &checked, &plan, &mut Sink(&mut sink))
-                {
-                    merge::discard_cut(&mut state, &checked, &mut |id, a| dispatch.requeue(id, a))?;
-                    return Ok(End::Stopped(stop));
-                }
-                let applied = merge::p3_apply(
-                    &mut state,
-                    checked,
-                    plan,
-                    config,
-                    &records::Builder,
-                    &mut Sink(&mut sink),
-                    &mut |id, a| dispatch.requeue(id, a),
-                )?;
-                timing[3] += clock.elapsed().as_secs_f64();
-                if heartbeat.elapsed().as_secs_f64() >= HEARTBEAT_SECONDS {
-                    heartbeat = Instant::now();
-                    observer(heartbeat_event(&state, &dispatch, traversal_started));
-                }
-                if let Some(stop) = applied.stop {
-                    return Ok(End::Stopped(stop));
                 }
             }
         })
         .map_err(|e| Fatal(format!("inspector pool: {e}")))
         .and_then(|inner| inner)
     };
+    // The engine's own restore-side anchor validators on the final state; a
+    // poisoned state (P3 interrupted) is never exported.
+    let outcome = outcome.and_then(|end| {
+        if state.poisoned {
+            return Err(Fatal("P3 did not complete (poisoned state)".into()));
+        }
+        anchor_self_check(&state)
+            .map(|()| end)
+            .map_err(|e| Fatal(format!("anchor self-check: {e}")))
+    });
     let end = match outcome {
         Ok(end) => end,
         Err(Fatal(message)) => {
@@ -480,15 +706,13 @@ fn finish<const N: usize>(
         counts.get(Tag::Native) + counts.get(Tag::NativeFrontier) + counts.get(Tag::NativeError);
     let published = natives + counts.get(Tag::Alias);
     let closure = state.tracker.json(state.store.len(), state.p0 as usize);
-    let monitor_available = closure["available"] == true;
     let drained = matches!(end, End::Drained);
-    let certified = drained
-        && parts.error.is_none()
-        && state.counters.frontiers == 0
-        && counts.get(Tag::NativeError) == 0
-        && counts.get(Tag::Exhausted) == 0
-        && parts.input_frontiers.is_empty()
-        && monitor_available;
+    let (certified, monitor_available) = certification(
+        &state,
+        drained,
+        parts.error.is_some(),
+        parts.input_frontiers.len(),
+    );
     let stop_reason = match end {
         End::Drained if certified => None,
         End::Drained => Some(StopReason::DrainedUncertified),
@@ -609,7 +833,8 @@ fn finish<const N: usize>(
             json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
     }
     document["epoch"] = json!({"stage":"S2","schedule":{"kind":"lockstep","depth":1,"b":parts.lockstep,
-            "b_default":LOCKSTEP_B,"b_override":parts.lockstep != LOCKSTEP_B},
+            "b_default":LOCKSTEP_B,"b_override":parts.lockstep != LOCKSTEP_B,
+            "b_semantics":"identity holds for a fixed B; B changes the walk (identity key = request and B)"},
         "resolution":"canonical_in_merge","k":state.k,"watermark":state.watermark(),"p0":state.p0,
         "ledger6":counts.json(),"records_digest":state.edges.records_digest(),
         "edge_digest":state.edges.edge_digest(),"edge_runs":state.edges.runs(),
@@ -619,7 +844,8 @@ fn finish<const N: usize>(
             "miss_requests":c.miss_requests,"antichain_folded":c.antichain_folded,
             "job_local_duplicates":c.job_duplicates,"known_reuse":c.known_reuse,
             "transfers":c.transfers,"retired_lookup_only":c.retired_lookup_only,
-            "discarded":c.discarded,"requeued":c.requeued},
+            "discarded":c.discarded,"requeued":c.requeued,"partials":c.partials,
+            "g2_records":c.g2_records},
         "lookup":{"exact_hits":lookup.exact_hits,"orthant_hits":lookup.orthant_hits,
             "contained_hits":lookup.contained_hits,"misses":lookup.misses,
             "forward_candidates":lookup.forward_candidates,"forward_tests":lookup.forward_tests,

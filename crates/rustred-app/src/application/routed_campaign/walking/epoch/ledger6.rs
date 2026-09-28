@@ -19,6 +19,36 @@ const DBAND_BIT: u64 = 1 << 49;
 pub(super) const MAX_ATTEMPTS: u8 = 8;
 pub(super) const MAX_GUARD: u8 = 3;
 
+/// The NativeError `err` class codes (bits 48-55; §4.1, §9.1). T11 (designed
+/// only) is keyed on `ALLOWANCE`. A native `ResourceLimit` failure is
+/// `NATIVE_FAILURE` (its record's error text names the resource).
+pub(super) mod err_class {
+    pub const NATIVE_FAILURE: u8 = 1;
+    pub const CONVERSION: u8 = 2;
+    pub const RESOLVER_RANGE: u8 = 3;
+    pub const RESOLVER_SUMMARY: u8 = 4;
+    pub const RESOLVER_DIAGNOSTIC: u8 = 5;
+    /// The per-inspection allowance crossed (break reason `allowance`).
+    pub const ALLOWANCE: u8 = 6;
+    /// A recurring C3 panic (parity-exempt, no successors, no edges).
+    pub const RECURRING_PANIC: u8 = 7;
+    /// A recurring C3 of an unclassified kind.
+    pub const RECURRING_UNKNOWN: u8 = 8;
+    pub fn name(code: u8) -> &'static str {
+        match code {
+            NATIVE_FAILURE => "native_failure",
+            CONVERSION => "conversion",
+            RESOLVER_RANGE => "resolver_range",
+            RESOLVER_SUMMARY => "resolver_summary",
+            RESOLVER_DIAGNOSTIC => "resolver_diagnostic",
+            ALLOWANCE => "allowance",
+            RECURRING_PANIC => "recurring_panic",
+            RECURRING_UNKNOWN => "recurring_unknown",
+            _ => "invalid",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Tag {
     Pending = 0,
@@ -242,7 +272,10 @@ pub(super) enum Transition {
         d_guard: u8,
         last_err: u8,
     },
-    /// Reserved -> Exhausted: T7 that would reach the liveness limits.
+    /// Reserved -> Exhausted: T7 that would reach the liveness limits
+    /// (checked here: the bumped counters must reach attempts >= 8 or
+    /// guard >= 3; at restore the journal-derived guard increment is passed
+    /// as `d_guard`).
     T8Exhaust {
         d_attempts: u8,
         d_guard: u8,
@@ -279,7 +312,7 @@ impl Transition {
             last_err: 1,
         },
         Transition::T8Exhaust {
-            d_attempts: 1,
+            d_attempts: MAX_ATTEMPTS,
             d_guard: 0,
             last_err: 1,
         },
@@ -463,7 +496,14 @@ impl Ledger6 {
                     last_err,
                 },
                 Entry6::Reserved(c),
-            ) => Entry6::Exhausted(bump(c, d_attempts, d_guard, last_err)?),
+            ) => {
+                let c = bump(c, d_attempts, d_guard, last_err)?;
+                if c.attempts < MAX_ATTEMPTS && c.guard < MAX_GUARD {
+                    // Below the limits T8 is not allowed (it would be T7).
+                    return Err(LedgerError::Refused { from });
+                }
+                Entry6::Exhausted(c)
+            }
             (Transition::T9Retry, Entry6::Exhausted(c)) => Entry6::Pending(Counters {
                 dispatch_class: c.dispatch_class,
                 ..Counters::default()

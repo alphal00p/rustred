@@ -21,7 +21,12 @@ use std::hash::{BuildHasherDefault, Hasher};
 /// Number of exact-index shards (a resize touches one shard, §3.2).
 pub(super) const EXACT_SHARDS: usize = 4096;
 
-/// The digest is uniformly distributed already: hash it by identity.
+/// The digest is uniformly distributed already, but a shard holds only
+/// digests with equal top 12 bits (`shard_of`), and hashbrown takes its
+/// 7-bit control tag from the top bits of the hash: an identity hash would
+/// give every key of a shard the same tag. One multiply spreads every
+/// digest bit into the top bits (performance only; no iteration order of
+/// these maps reaches a result).
 #[derive(Default)]
 pub(super) struct IdentityHasher(u64);
 impl Hasher for IdentityHasher {
@@ -34,7 +39,7 @@ impl Hasher for IdentityHasher {
         }
     }
     fn write_u64(&mut self, value: u64) {
-        self.0 = value;
+        self.0 = (value ^ (value >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     }
 }
 type DigestMap<V> = HashMap<u64, V, BuildHasherDefault<IdentityHasher>>;
@@ -117,6 +122,8 @@ impl ExactIndex {
         }
         Ok(())
     }
+    /// Insert `id` under `digest`. The caller (`Store::push`) has refused an
+    /// equal image already (E3: exact uniqueness of images).
     pub fn insert(&mut self, digest: u64, id: u32) {
         let shard = &mut self.shards[shard_of(digest)];
         if let std::collections::hash_map::Entry::Vacant(slot) = shard.entry(digest) {
@@ -155,6 +162,19 @@ pub(super) struct LookupCounters {
     pub forward_tests: u64,
     pub reverse_candidates: u64,
     pub reverse_tests: u64,
+}
+
+impl LookupCounters {
+    pub fn add(&mut self, other: &Self) {
+        self.exact_hits += other.exact_hits;
+        self.orthant_hits += other.orthant_hits;
+        self.contained_hits += other.contained_hits;
+        self.misses += other.misses;
+        self.forward_candidates += other.forward_candidates;
+        self.forward_tests += other.forward_tests;
+        self.reverse_candidates += other.reverse_candidates;
+        self.reverse_tests += other.reverse_tests;
+    }
 }
 
 pub(super) struct Store<const N: usize> {
@@ -380,14 +400,22 @@ impl<const N: usize> Store<N> {
     }
 
     /// Append one new ID (P3 step 1, or initial admission): arena, summary,
-    /// exact entry (the digest is recomputed from the image and asserted,
-    /// SND-7), bucket interning. Infallible after `try_reserve`.
-    pub fn push(&mut self, image: CompactDomain<N>, summary: CompactSummary<N>, key: u64) -> u32 {
-        assert_eq!(
-            image.digest().0,
-            key,
-            "survivor digest differs from its image"
-        );
+    /// exact entry, bucket interning. Release checks (SND-7, E3): the digest
+    /// is recomputed from the image and must equal `key`, and no equal image
+    /// may exist; either failure is an engine inconsistency (C5 in P3).
+    /// Allocation cannot fail after `try_reserve`.
+    pub fn push(
+        &mut self,
+        image: CompactDomain<N>,
+        summary: CompactSummary<N>,
+        key: u64,
+    ) -> Result<u32, String> {
+        if image.digest().0 != key {
+            return Err("survivor digest differs from its image".into());
+        }
+        if let Some(existing) = self.exact.get(key, &image, &self.domains) {
+            return Err(format!("image already stored as {existing} (E3)"));
+        }
         let id = self.domains.len() as u32;
         self.domains.push(image);
         self.summaries.push(summary);
@@ -406,7 +434,7 @@ impl<const N: usize> Store<N> {
             }
             None => self.unbounded_rank_domains += 1,
         }
-        id
+        Ok(id)
     }
 
     /// Lookup-index maintenance for one new ID (P3): retire every ID of

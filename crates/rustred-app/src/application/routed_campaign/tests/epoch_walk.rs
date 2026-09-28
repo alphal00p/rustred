@@ -60,6 +60,8 @@ fn epoch_walk_drains_resolved_and_is_identical_across_widths() {
         assert_eq!(document["family_closure_claim"], false);
         assert_eq!(document["epoch"]["ledger6"]["pending"], 0);
         assert_eq!(document["epoch"]["certified"], true);
+        // S2 closure: one forced refresh at drain, none during merges.
+        assert_eq!(document["descendant_closure"]["refresh_count"], 1);
         // The duplicate query shares the first narrow domain's root.
         assert_eq!(
             document["inputs"][3]["domain"],
@@ -186,5 +188,118 @@ fn epoch_frontier_policy_stops_at_the_first_frontier_merge_or_records_it() {
             assert_eq!(row["descendant_closed"], false, "{row}");
             assert_eq!(row["local_classification_discharged"], false);
         }
+    }
+}
+
+/// `consumer_stop_parity` (§9.1) on the unchanged native visitor: a forced
+/// resolver break at a job's first event must satisfy P1's break relation
+/// (stats == emitted == accepted + 1: the solver charges the breaking event
+/// before the visitor refuses it). The walk then merges C2 NativeErrors and
+/// stops with `error_stop`; a wrong relation would be C5 (an Err here).
+#[test]
+fn consumer_stop_parity_on_the_real_native_visitor() {
+    let fixture = Fixture::new();
+    crate::application::routed_campaign::walking::force_resolver_break(Some(1));
+    let outcome = owner_domain_walk_with_progress(
+        epoch_request(&fixture, 1),
+        &AtomicBool::new(false),
+        |_| {},
+    );
+    crate::application::routed_campaign::walking::force_resolver_break(None);
+    let document = outcome.unwrap().into_document().unwrap();
+    assert_eq!(document["status"], "stopped", "{document}");
+    assert_eq!(document["stop_reason"], "error_stop");
+    assert!(document["failed_nodes"].as_u64().unwrap() >= 1);
+    assert_eq!(
+        document["failed_nodes"],
+        document["epoch"]["ledger6"]["native_error"]
+    );
+    let errors: Vec<&Value> = document["domains"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["error"].is_string())
+        .collect();
+    assert!(!errors.is_empty());
+    for row in errors {
+        assert_eq!(row["epoch"]["class"], "C2", "{row}");
+        assert_eq!(row["epoch"]["break_reason"], "resolver_range");
+        assert_eq!(row["epoch"]["emitted_events"], 1);
+        assert_eq!(row["accepted_events"], 0);
+        assert_eq!(row["descendant_closed"], false);
+    }
+}
+
+/// A9 (§16): helper roots and physics queries are reported separately, and
+/// a physics query admitted as a hit on a helper is certified with (and only
+/// through) the helper's root.
+#[test]
+fn a9_roots_reported_separately() {
+    let fixture = Fixture::new();
+    let directory = fixture.directory.join("epoch-a9");
+    let mut request = epoch_request(&fixture, 1);
+    request.matching.queries_json =
+        json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
+            {"id":"helper-ray","owner":"1","lower":[0],"upper":[null],"max_numerator_rank":11},
+            {"id":"physics-narrow","owner":"1","lower":[2],"upper":[2],"max_numerator_rank":11}
+        ]})
+        .to_string();
+    request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
+    let result =
+        owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
+    assert_eq!(
+        result.document["inputs"][1]["domain"], result.document["inputs"][0]["domain"],
+        "the physics query is admitted as a hit on the helper"
+    );
+    let mut options = OwnerDomainWalkVerifyOptions::new(&directory);
+    options.require_closure = true;
+    options.helper_pattern = "helper".into();
+    let report = crate::owner_domain_walk_verify_closure(
+        &request,
+        &options,
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report["verdict"], "PASS", "{report}");
+    assert_eq!(report["roots_total"], 1);
+    let classes = &report["certification"]["classes"];
+    assert_eq!(classes["helper"]["total"], 1);
+    assert_eq!(classes["helper"]["admitting"], 1);
+    assert_eq!(classes["helper"]["independently_verified"], 1);
+    assert_eq!(classes["physics"]["total"], 1);
+    assert_eq!(classes["physics"]["absorbed"], 1);
+    assert_eq!(classes["physics"]["independently_verified"], 1);
+}
+
+/// The verifier's frontier mutations on an epoch export that HAS frontier
+/// records (the record-policy frontier fixture): hiding a frontier and
+/// sealing a frontier record must FAIL (FG has no frontier, so the FG
+/// matrix could not exercise them).
+#[test]
+fn epoch_frontier_export_mutations_fail_the_verifier() {
+    let fixture = noninvolutive_route_fixture();
+    let directory = fixture.directory.join("epoch-frontier-export");
+    let mut request = missing_route_epoch(&fixture);
+    request.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::Record;
+    request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
+    let result =
+        owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!result.all_scheduled_domains_resolved);
+    let verify = |mutation: Option<crate::OwnerDomainWalkVerifyMutation>| {
+        let mut options = OwnerDomainWalkVerifyOptions::new(&directory);
+        options.mutation = mutation;
+        crate::owner_domain_walk_verify_closure(&request, &options, &AtomicBool::new(false), |_| {})
+            .unwrap()
+    };
+    let clean = verify(None);
+    assert_ne!(clean["verdict"], "FAIL", "{clean}");
+    for mutation in [
+        crate::OwnerDomainWalkVerifyMutation::HiddenFrontier,
+        crate::OwnerDomainWalkVerifyMutation::SealWithFrontier,
+    ] {
+        let report = verify(Some(mutation));
+        assert_eq!(report["verdict"], "FAIL", "{mutation:?}: {report}");
     }
 }

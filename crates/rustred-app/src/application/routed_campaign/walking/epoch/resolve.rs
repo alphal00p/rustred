@@ -15,6 +15,29 @@ use rustred::solver::DomainPowerSummary;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam (`consumer_stop_parity`): break with this reason at this
+    /// emitted-event count, on the thread that runs the job (W1: inline).
+    pub(super) static FORCED_BREAK: std::cell::Cell<Option<(u64, BreakReason)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn forced_break(emitted: u64) -> Option<BreakReason> {
+    #[cfg(test)]
+    {
+        FORCED_BREAK
+            .with(|f| f.get())
+            .filter(|&(at, _)| at == emitted)
+            .map(|(_, reason)| reason)
+    }
+    #[cfg(not(test))]
+    {
+        let _ = emitted;
+        None
+    }
+}
+
 pub(super) struct Resolver<const N: usize> {
     emitted: u64,
     accepted: u64,
@@ -57,12 +80,20 @@ impl<const N: usize> Resolver<N> {
         ControlFlow::Break(())
     }
 
+    /// `(emitted, accepted)` so far (kept for a panic while assembling).
+    pub fn prefix(&self) -> (u64, u64) {
+        (self.emitted, self.accepted)
+    }
+
     /// One native event. The breaking event is emitted but not accepted.
     pub fn emit(&mut self, event: Event<N>) -> ControlFlow<()> {
         let count = event.count as u64;
         self.emitted += count;
         if self.break_reason != BreakReason::None {
             return ControlFlow::Break(());
+        }
+        if let Some(reason) = forced_break(self.emitted) {
+            return self.stop(reason);
         }
         let (successor, conditional) = match event.effect {
             Effect::Count => (false, false),
@@ -234,6 +265,7 @@ impl<const N: usize> Resolver<N> {
                 .collect(),
             refusals_truncated: truncated,
             scope,
+            g2: None,
             misses: self.misses,
         }
     }
@@ -268,6 +300,7 @@ impl<const N: usize> Resolver<N> {
             refusals: Vec::new(),
             refusals_truncated: false,
             scope: None,
+            g2: None,
             misses: Vec::new(),
         }
     }

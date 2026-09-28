@@ -24,7 +24,7 @@
 use rustred::solver::DomainPowerBounds;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Cell {
+pub(in super::super) struct Cell {
     pub owner: Vec<bool>,
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,

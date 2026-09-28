@@ -1,12 +1,15 @@
 //! The verify chokepoint (A1, W2.0 protocol §5.3). Every positive of the
 //! epoch engine (an edge target, a transfer, an anchor) is a `Verified`
-//! token, and `Verified` has a private constructor: only `verify` makes one.
+//! token, and `Verified` has a private constructor: only `verify` (one
+//! container contains q) and `verify_cover` (G2' anchors: q is covered by
+//! its residual plus the anchors' lent scopes, exactly) make one.
 //! Phase and owner are compared explicitly, because the native summary
 //! predicate compares owner but not phase and accepts an EMPTY candidate
 //! before the owner test. Index lanes and stored summaries are prefilters
 //! only; the authority is raw inclusion or the native predicate recomputed
 //! on the canonical image.
 use super::super::queue::CompactDomain;
+use super::anchors::{AnchorRecord, union_cover};
 use rustred::solver::DomainPowerSummary;
 
 /// The query side of a containment test: the canonical image, its native
@@ -110,13 +113,25 @@ pub(super) struct VerifyCounters {
     pub recomputes: u64,
     pub refused_range: u64,
     pub refused_bucket: u64,
+    /// Exact union covers decided for G2' anchors (`verify_cover`).
+    pub union_covers: u64,
 }
 
 impl VerifyCounters {
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"calls":self.calls,"accepted":self.accepted,
             "raw_inclusions":self.raw_inclusions,"native_recomputes":self.recomputes,
-            "refused_range":self.refused_range,"refused_phase_owner":self.refused_bucket})
+            "refused_range":self.refused_range,"refused_phase_owner":self.refused_bucket,
+            "union_covers":self.union_covers})
+    }
+    pub fn add(&mut self, other: &Self) {
+        self.calls += other.calls;
+        self.accepted += other.accepted;
+        self.raw_inclusions += other.raw_inclusions;
+        self.recomputes += other.recomputes;
+        self.refused_range += other.refused_range;
+        self.refused_bucket += other.refused_bucket;
+        self.union_covers += other.union_covers;
     }
 }
 
@@ -186,4 +201,48 @@ pub(super) fn verify<const N: usize>(
         container: reference,
         q_digest: q.digest,
     })
+}
+
+/// G2' anchor edges (§5.3 "anchor edges: exact cover predicate"): one token
+/// per anchor of `record`, all naming the node's image `q`, iff every anchor
+/// is a stored container in range (`Stored`, id < `published_len`) of q's
+/// phase and owner (explicit) and `q ⊆ residual ∪ lent scopes` holds exactly
+/// (`lattice::Cell::covered_by_union`, the oracle's predicate; undecided is
+/// refused). `cut_of` gives an InitialDBand anchor's own cut (its lent
+/// low-D slice).
+pub(super) fn verify_cover<const N: usize>(
+    record: &AnchorRecord,
+    q: &QueryImage<N>,
+    domains: &[CompactDomain<N>],
+    published_len: usize,
+    cut_of: &dyn Fn(u32) -> Option<i64>,
+    counters: &mut VerifyCounters,
+) -> Option<Vec<Verified>> {
+    counters.calls += 1;
+    for a in &record.anchors {
+        if (a.anchor as usize) >= published_len.min(domains.len()) {
+            counters.refused_range += 1;
+            return None;
+        }
+        let image = &domains[a.anchor as usize];
+        if image.phase() != q.image.phase() || image.owner() != q.image.owner() {
+            counters.refused_bucket += 1;
+            return None;
+        }
+    }
+    counters.union_covers += 1;
+    if union_cover(&q.image, domains, record, cut_of) != Some(true) {
+        return None;
+    }
+    counters.accepted += 1;
+    Some(
+        record
+            .anchors
+            .iter()
+            .map(|a| Verified {
+                container: ContainerRef::Stored(a.anchor),
+                q_digest: q.digest,
+            })
+            .collect(),
+    )
 }

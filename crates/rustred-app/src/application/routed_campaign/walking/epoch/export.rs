@@ -11,7 +11,7 @@
 //!   closed by the final forced refresh, bit3 anchored, bit4 residual);
 //! - `ledger6-1.bin`: count x u64 ledger6 words (§4.1);
 //! - `edges-1.seg`: count = runs; runs `(source u32, n u32, targets u32 x n)`;
-//! - `anchors-1.bin`: the §11.7 anchor layout;
+//! - `anchors-1.bin`: the anchor layout v2 (§11.7 as amended, note D19);
 //! - `records-1.jsonl`: the records in merge order (JSON view);
 //! - `epoch-export.json`: the manifest (blake3 and length of every file).
 use super::job::{Writer, write_image};
@@ -101,6 +101,9 @@ pub(super) fn write<const N: usize>(
     state: &EpochState<N>,
     parts: ExportParts<'_>,
 ) -> Result<PathBuf, String> {
+    if state.poisoned {
+        return Err("refusing to export a poisoned epoch state (P3 did not complete)".into());
+    }
     let count = state.store.len() as u64;
     let mut files = serde_json::Map::new();
     let mut domains = Writer(header(DOMAINS_MAGIC, N, count));
@@ -143,7 +146,7 @@ pub(super) fn write<const N: usize>(
     files.insert(
         "anchors".into(),
         json!({"file":"anchors-1.bin",
-            "meta":write_file(directory, "anchors-1.bin", &state.anchors.encode())?}),
+            "meta":write_file(directory, "anchors-1.bin", &state.anchors.encode()?)?}),
     );
     let manifest = json!({"format":FORMAT,"schema":1,"stage":"S2","kind":"final_state_export",
         "resumable":false,"generation":GENERATION,"publication_policy":"epoch",

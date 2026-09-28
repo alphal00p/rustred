@@ -5,6 +5,8 @@ mod delegation;
 mod descendant_closure;
 mod diagnostics;
 mod epoch;
+#[cfg(test)]
+pub(super) use epoch::force_resolver_break;
 mod execution;
 mod index_report;
 mod initial_orthants;
