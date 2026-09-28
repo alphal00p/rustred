@@ -1060,6 +1060,70 @@ fn targets_of<const N: usize>(ctx: &Ctx<'_, N>, id: usize) -> Vec<(usize, Phase,
         .collect()
 }
 
+/// Nodes with at least this many recorded targets get a `TargetIndex`.
+const WIDE_NODE_TARGETS: usize = 256;
+
+/// Candidate order for the coverage scan of a wide node (a rescue's dead
+/// prefix holder admits ~1M successors): targets with the admitted image
+/// first, then targets of the same phase and owner. Fingerprint collisions
+/// only reorder candidates; every candidate is still judged by the caller's
+/// exact inclusion, and the caller falls back to the full scan, so the
+/// verdict and the coverage tallies never depend on the index.
+struct TargetIndex {
+    exact: std::collections::HashMap<u64, usize>,
+    owners: std::collections::HashMap<u64, Vec<usize>>,
+}
+
+impl TargetIndex {
+    fn fingerprint(phase: Phase, cell: &Cell, image: bool) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        phase.hash(&mut hasher);
+        cell.owner.hash(&mut hasher);
+        if image {
+            cell.lower.hash(&mut hasher);
+            cell.upper.hash(&mut hasher);
+            cell.rank.hash(&mut hasher);
+            cell.powers.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    fn new(targets: &[(usize, Phase, Cell)]) -> Self {
+        let mut exact = std::collections::HashMap::with_capacity(targets.len());
+        let mut owners = std::collections::HashMap::<u64, Vec<usize>>::new();
+        for (index, (_, phase, cell)) in targets.iter().enumerate() {
+            exact
+                .entry(Self::fingerprint(*phase, cell, true))
+                .or_insert(index);
+            owners
+                .entry(Self::fingerprint(*phase, cell, false))
+                .or_default()
+                .push(index);
+        }
+        Self { exact, owners }
+    }
+
+    fn find(
+        &self,
+        phase: Phase,
+        inner: &Cell,
+        targets: &[(usize, Phase, Cell)],
+        fits: impl Fn(&(usize, Phase, Cell)) -> bool,
+    ) -> Option<usize> {
+        if let Some(&index) = self.exact.get(&Self::fingerprint(phase, inner, true))
+            && fits(&targets[index])
+        {
+            return Some(index);
+        }
+        self.owners
+            .get(&Self::fingerprint(phase, inner, false))?
+            .iter()
+            .copied()
+            .find(|&index| fits(&targets[index]))
+    }
+}
+
 /// Outcome of one reference inspection used to plan mutations: the admitted
 /// domains covered by exactly one recorded target of the parent, directly,
 /// and by no other target's alias chain (that edge is load-bearing).
@@ -1124,6 +1188,7 @@ fn reinspect<const N: usize>(
     let node = ctx.loaded.nodes[id];
     let domain = inspected_domain(ctx.loaded, id);
     let targets = targets_of(ctx, id);
+    let index = (targets.len() >= WIDE_NODE_TARGETS).then(|| TargetIndex::new(&targets));
     let mut events = 0u64;
     let mut successors = 0u64;
     let mut frontiers = 0u64;
@@ -1153,16 +1218,23 @@ fn reinspect<const N: usize>(
                 let fits = |(_, phase, outer): &(usize, Phase, Cell)| {
                     *phase == admitted.phase && ctx.containment.contains(outer, &inner)
                 };
-                // Targets are sorted by id, which follows the admission order
-                // of fresh successors, so the scan resumes after the last
-                // match (wrapping). Any fitting target covers; the order only
-                // keeps a node with ~1M successors linear, not quadratic.
-                if recent < targets.len() && fits(&targets[recent]) {
-                    local.covered_direct += 1;
-                } else if let Some(index) = (recent + 1..targets.len())
-                    .chain(0..recent.min(targets.len()))
-                    .find(|&index| fits(&targets[index]))
-                {
+                // Any fitting target covers; the candidate order (last match,
+                // the wide-node index, then the full scan resuming after the
+                // last match) only keeps a node with ~1M successors from
+                // going quadratic.
+                let found = if recent < targets.len() && fits(&targets[recent]) {
+                    Some(recent)
+                } else {
+                    index
+                        .as_ref()
+                        .and_then(|index| index.find(admitted.phase, &inner, &targets, &fits))
+                        .or_else(|| {
+                            (recent + 1..targets.len())
+                                .chain(0..recent.min(targets.len()))
+                                .find(|&index| fits(&targets[index]))
+                        })
+                };
+                if let Some(index) = found {
                     recent = index;
                     local.covered_direct += 1;
                 } else if alias_chain_covers(
