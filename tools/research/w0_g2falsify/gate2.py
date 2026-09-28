@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """W0 G2' falsifier, fix round: gate table with load-insensitive work metrics (read-only).
 
-usage: gate2.py [RUNS_DIR]
+usage: gate2.py [RUNS_DIR] [--json OUT.json]
 
 For each control (C-5F Ordered/Ready W24, C-HOT-sub r1a12 Ready W12), binary
 session and G2' arm, against the flag-off arm of the same binary and session:
@@ -35,7 +35,13 @@ import math
 import sys
 from pathlib import Path
 
-RUNS = Path(sys.argv[1] if len(sys.argv) > 1 else "/common/dev/rustred/TMP/w0/g2falsify/runs")
+ARGS = [a for a in sys.argv[1:]]
+JSON_OUT = None
+if "--json" in ARGS:
+    JSON_OUT = ARGS[ARGS.index("--json") + 1]
+    del ARGS[ARGS.index("--json"):ARGS.index("--json") + 2]
+RUNS = Path(ARGS[0] if ARGS else "/common/dev/rustred/TMP/w0/g2falsify/runs")
+DUMP = []
 CLASSES = ("000011001001011", "011101110111000", "other")
 NAME = {"m1": "1 anchor", "m2": "<=2 anchors", "u": "union, any committed anchor (u)",
         "n": "union, full-native anchors only (n)"}
@@ -66,8 +72,11 @@ def load(d):
         except json.JSONDecodeError:
             out[name] = {}
     if out["g2stats-v2"]:
-        out["g2stats"] = out["g2stats-v2"]
-    return out if out["metrics"] else None
+        # B3 runs: the fix-round g2stats (anchor kinds, per owner) without --union.
+        for key in ("g2_anchor_reference_kinds", "apply_by_owner"):
+            out["g2stats"].setdefault(key, out["g2stats-v2"].get(key))
+    # Runs without post-processing (no g2stats yet) are skipped.
+    return out if out["metrics"] and out["g2stats"] else None
 
 
 def base(r):
@@ -204,6 +213,14 @@ def main():
                     cells.append(cell)
                 gate = ("PASS" if good and (ratio.get("record_s") or 9) <= 0.5 and (ratio.get("scheduled") or 9) <= 1
                         and (ratio.get("peak_pending") or 9) <= 1 else "FAIL")
+                DUMP.append({"control": cname, "binary": sha, "arm": arm, "n_on": len(on), "n_off": len(off),
+                             "all_ok": good, "gate": gate, "ratios": ratio,
+                             "off_record_s": [b["record_s"] for b in offb], "on_record_s": [b["record_s"] for b in onb],
+                             "on_plan_s": [b["plan_s"] for b in onb],
+                             "off_foreign": [b["foreign"] for b in offb], "on_foreign": [b["foreign"] for b in onb],
+                             "off_delay": [b["delay_s"] for b in offb], "on_delay": [b["delay_s"] for b in onb],
+                             "off_instr_per_native": [b["instr_per_native"] for b in offb],
+                             "on_instr_per_native": [b["instr_per_native"] for b in onb]})
                 print(f"| {cname} | {sha} | {NAME[arm]} | {len(on)}/{len(off)} | {'yes' if good else 'NO'} | "
                       + " | ".join(cells) + f" | {gate} |")
                 ms = [b["record_s"] for b in onb]
@@ -222,6 +239,8 @@ def main():
     print("|---|---|---|---:|---|---|---|---|---:|")
     for line in context:
         print(line)
+    if JSON_OUT:
+        json.dump(DUMP, open(JSON_OUT, "w"), indent=1)
 
 
 if __name__ == "__main__":

@@ -16,9 +16,10 @@ from pathlib import Path
 SHA = sys.argv[1]
 RUNS = Path(sys.argv[2] if len(sys.argv) > 2 else "/common/dev/rustred/TMP/w0/g2falsify/runs")
 CLASSES = ("000011001001011", "011101110111000", "other")
-ARMS = ("on", "m1", "m2", "u")
+ARMS = ("on", "m1", "m2", "u", "n")
+REPS = ("r1", "r2", "r3", "r4")
 ARM_NAME = {"off": "off", "on": "G2' 1 anchor", "m1": "G2' 1 anchor", "m2": "G2' <=2 anchors",
-            "u": "G2' union per D level"}
+            "u": "G2' union per D level", "n": "G2' union, full-native anchors"}
 
 # (control name, family, label template with {arm} and {r})
 GROUPS = []
@@ -32,7 +33,7 @@ GROUPS.append(("C-HOT-sub r1a12 Ready W12", "hot", "hotsub-r1a12-{arm}-{r}-" + S
 def load(label, fam):
     d = RUNS / label / fam
     out = {}
-    for name in ("metrics", "g2stats", "pending", "audit", "g2verify"):
+    for name in ("metrics", "g2stats", "g2stats-v2", "pending", "audit", "g2verify"):
         p = d / f"{name}.json"
         if p.exists() and p.stat().st_size:
             try:
@@ -41,6 +42,9 @@ def load(label, fam):
                 out[name] = {}
         else:
             out[name] = {}
+    for key in ("g2_anchor_reference_kinds", "apply_by_owner"):
+        if out.get("g2stats-v2") and key not in out["g2stats"]:
+            out["g2stats"][key] = out["g2stats-v2"].get(key)
     return out if out["metrics"] else None
 
 
@@ -81,26 +85,34 @@ def row(name, arm, r, rep):
             f"{fnum(p.get('discovered_domains_per_native'), '{:.3f}')} | {a.get('audit', '-')}"
             f"{' / ' + r['g2verify']['verdict'] if r.get('g2verify') else ''} | "
             f"{fnum(rec.get('foreign_busy_cpus_mean'), '{:.1f}')} | {fnum(rec.get('schedstat_run_delay_seconds'), '{:,.0f}')} | "
-            f"{m.get('started_utc')} |")
+            f"{fnum(rec.get('schedstat_run_seconds'), '{:,.0f}')} | "
+            f"{fnum(instr(m), '{:.4g}')} | {fnum((m.get('perf') or {}).get('ipc_u'), '{:.3f}')} | "
+            f"{m.get('cpus')} | {m.get('started_utc')} |")
+
+
+def instr(m):
+    v = (m.get("perf") or {}).get("instructions:u")
+    return v if isinstance(v, float) else None
 
 
 def main():
     print("| Control | Arm | Exit / status | Frontiers | Roots closed | Native calls Apply / Route | "
           "Inspector record-s | of which G2' plan-s | Slot-busy s | Traversal s | Scheduled domains | Peak pending | "
-          "Pending growth / completion (slope to peak) | Discovered / native | Audit (/ g2verify) | Foreign busy CPUs (mean) | Run delay s | Start (UTC) |")
-    print("|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|")
+          "Pending growth / completion (slope to peak) | Discovered / native | Audit (/ g2verify) | Foreign busy CPUs (mean) | Run delay s | "
+          "Run s (schedstat) | Instructions:u | IPC | CPUs | Start (UTC) |")
+    print("|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|")
     pairs = []
     for name, fam, tmpl in GROUPS:
-        for rep in ("r1", "r2"):
+        for rep in REPS:
             off = load(tmpl.format(arm="off", r=rep), fam)
-            if not off:
-                continue
-            print(row(name, "off", off, rep))
+            if off:
+                print(row(name, "off", off, rep))
             for arm in ARMS:
                 on = load(tmpl.format(arm=arm, r=rep), fam)
                 if on:
                     print(row(name, arm, on, rep))
-                    pairs.append((f"{name} {rep}", arm, off, on))
+                    if off:
+                        pairs.append((f"{name} {rep}", arm, off, on))
     print()
     print("| Control | Arm | record-s on/off | slot-busy on/off | traversal on/off | Apply native calls on/off | "
           "Route natives on/off | scheduled domains on/off | peak pending on/off | discovered/native on/off |")
@@ -139,6 +151,22 @@ def main():
                   f"{fnum(ca.get('distinct_inspected_points'))} / {fnum(cb.get('distinct_inspected_points'))} | "
                   f"{fnum(ca.get('distinct_points_per_native_call'), '{:.1f}')} / "
                   f"{fnum(cb.get('distinct_points_per_native_call'), '{:.1f}')} |")
+    print()
+    print("| Control | Arm | G2' records | anchor references | to full native inspections | to G2' residual partials | "
+          "to G2' full covers | to initial-overlap partials | non-native share | records with >= 1 non-native anchor |")
+    print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for name, fam, tmpl in GROUPS:
+        for rep in REPS:
+            for arm in ARMS:
+                r = load(tmpl.format(arm=arm, r=rep), fam)
+                k = r and r["g2stats"].get("g2_anchor_reference_kinds")
+                if not k:
+                    continue
+                a = k["all"]
+                print(f"| {name} {rep} | {ARM_NAME[arm]} | {k['g2_records']:,} | {a['total']:,} | {a['native_inspection']:,} | "
+                      f"{a['g2_residual_partial']:,} | {a['g2_full_cover']:,} | {a['initial_overlap_partial']:,} | "
+                      f"{a['non_native_share']:.4f} | {k['g2_records_with_a_non_native_anchor']:,} "
+                      f"({k['g2_records_with_a_non_native_anchor'] / max(1, k['g2_records']):.3f}) |")
 
 
 if __name__ == "__main__":
