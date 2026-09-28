@@ -8,7 +8,7 @@ its default helper-first query order is only an admission-order heuristic.
 With --queries it stages a verified replacement query document instead, and
 --attach copies planner receipts read-only beside the inputs. The frozen
 steering (schema v3) fixes workers, CPUs, checkpoint interval, RAM policy
-(hard cap, margin, host MemAvailable floor, swap-in guard), publication
+(hard cap, margin, host MemAvailable floor, own swap-growth guard), publication
 policy, transfer lookahead, inspection workers and the frontier policy (new
 campaigns default to stop: save and stop at the first frontier, exit 4);
 only the RAM options may be overridden per resume.
@@ -46,7 +46,7 @@ import time
 # None (steering frozen before the option existed) means the supervisor's
 # default at launch; new steering freezes each default explicitly.
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent", "host_memory_reserve_bytes",
-                      "swap_in_stop_bytes_per_second", "swap_in_stop_seconds")
+                      "swap_growth_stop_bytes_per_second", "swap_growth_stop_seconds")
 OPTIONAL_RAM_POLICY_OPTIONS = RAM_POLICY_OPTIONS[2:]
 STEERING_SCHEMA = "rustred.production-steering.v3"
 STEERING_SCHEMAS = ("rustred.production-steering.v1", "rustred.production-steering.v2", STEERING_SCHEMA)
@@ -64,8 +64,14 @@ LEGACY_FRONTIER_POLICY = "record"
 # a resume is refused after this many consecutive runs that the RAM guard
 # stopped without any committed progress (a head whose inspection alone trips
 # the guard is saved Reserved, dispatched first on resume and trips it again).
-RAM_GUARD_STOPS = ("aggregate_rss_soft_limit", "host_memory_reserve", "host_swap_in_sustained",
-                   "aggregate_rss_hard_limit", "host_memory_emergency")
+# Stops on the campaign's own signals always count; host-wide stops (the
+# MemAvailable floor and emergency) count only when the supervisor attributed
+# them to the campaign (ram_guard_stop.own_memory_signal), so other users'
+# memory use on a shared host cannot trip the refusal. host_swap_in_sustained
+# is the retired host-wide swap-in reason (never attributed).
+OWN_RAM_GUARD_STOPS = ("aggregate_rss_soft_limit", "aggregate_rss_hard_limit", "own_swap_growth_sustained")
+HOST_RAM_GUARD_STOPS = ("host_memory_reserve", "host_memory_emergency", "host_swap_in_sustained")
+RAM_GUARD_STOPS = OWN_RAM_GUARD_STOPS + HOST_RAM_GUARD_STOPS
 DEFAULT_MAX_ZERO_PROGRESS_RAM_STOPS = 2
 PROGRESS_KEYS = ("committed_domains", "completed_native_inspections", "committed_events")
 QUERY_SCHEMA = "rustred.owner-domain-queries.json.v2"
@@ -392,13 +398,25 @@ def checkpoint_progress(checkpoint):
     return values if all(natural(value) for value in values) else None
 
 
+def ram_guard_counts(result):
+    """Whether a supervisor receipt's stop is a RAM-guard stop attributable to the campaign."""
+    stop = result.get("operator_or_resource_stop")
+    if stop in OWN_RAM_GUARD_STOPS:
+        return True
+    record = result.get("ram_guard_stop")
+    return stop in HOST_RAM_GUARD_STOPS and isinstance(record, dict) and record.get("own_memory_signal") is True
+
+
 def ram_guard_liveness(campaign):
     """Trailing consecutive runs stopped by the RAM guard without committed progress.
 
     Runs are ordered by start time; a run counts when its supervisor receipt
-    names a RAM-guard stop reason and its saved checkpoint's committed domains,
-    completed native inspections and committed events all equal those of the
-    run before it (the state it resumed). Any other run ends the streak.
+    names a RAM-guard stop reason attributable to the campaign (own RSS or
+    swap; a host-wide stop only with the supervisor's own_memory_signal) and
+    its saved checkpoint's committed domains, completed native inspections and
+    committed events all equal those of the run before it (the state it
+    resumed). Any other run, including an unattributed host-wide stop, ends
+    the streak.
     """
     rows = []
     for run in sorted(campaign_runs(campaign), key=run_started):
@@ -410,10 +428,11 @@ def ram_guard_liveness(campaign):
         except ValueError:
             continue
         rows.append({"run": str(run), "stop": result.get("operator_or_resource_stop"),
+                     "counts": ram_guard_counts(result),
                      "progress": checkpoint_progress(result.get("checkpoint"))})
     streak = []
     for previous, row in zip([None, *rows], rows):
-        stalled = (row["stop"] in RAM_GUARD_STOPS and previous is not None
+        stalled = (row["counts"] and previous is not None
                    and row["progress"] is not None and row["progress"] == previous["progress"])
         streak = [*streak, row] if stalled else []
     return {"consecutive_zero_progress_ram_stops": len(streak),
@@ -709,7 +728,7 @@ def frozen_options(policy):
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if name not in options:
             value = flag_value("--" + name.replace("_", "-"))
-            options[name] = None if value is None else (float(value) if name == "swap_in_stop_seconds" else int(value))
+            options[name] = None if value is None else (float(value) if name == "swap_growth_stop_seconds" else int(value))
     return options
 
 
@@ -768,8 +787,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "ram_guard_margin_percent": 5.0, "publication_policy": DEFAULT_PUBLICATION_POLICY,
                 "transfer_unreserved_lookahead": 256, "frontier_policy": DEFAULT_FRONTIER_POLICY,
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
-                "swap_in_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_IN_STOP_BYTES_PER_SECOND,
-                "swap_in_stop_seconds": SUPERVISOR.DEFAULT_SWAP_IN_STOP_SECONDS}
+                "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
+                "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS}
     for name, default in defaults.items():
         if options[name] is None:
             options[name] = default
@@ -796,6 +815,19 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     write_json(path, policy)
     path.chmod(0o444)
     return policy
+
+
+def memory_admission_preview(options):
+    """The supervisor's admission rule applied to the host now (it re-evaluates it at launch)."""
+    reserve = options.get("host_memory_reserve_bytes") or SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES
+    try:
+        snapshot = SUPERVISOR.host_memory()
+        hard, soft, reserve = SUPERVISOR.memory_admission(
+            options["max_memory_bytes"], None, snapshot, reserve, options["ram_guard_margin_percent"])
+    except (OSError, ValueError) as error:
+        return {"rule": SUPERVISOR.ADMISSION_RULE, "error": str(error), "evaluated_unix_time": time.time()}
+    return dict(SUPERVISOR.memory_admission_record(options["max_memory_bytes"], snapshot, reserve, hard, soft),
+                evaluated_unix_time=time.time(), scope="preview at planning time; the supervisor re-evaluates at launch")
 
 
 def effective_supervisor_policy(policy, args):
@@ -859,12 +891,13 @@ def main(argv=None):
                         help="host MemAvailable floor of the cooperative save+stop (hard stop at a quarter); "
                              f"initial default: {SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES} (50 GB), frozen explicitly; "
                              "may override per resume")
-    parser.add_argument("--swap-in-stop-bytes-per-second", type=int,
-                        help="save+stop on sustained host swap-in at or above this rate; 0 disables; initial default: "
-                             f"{SUPERVISOR.DEFAULT_SWAP_IN_STOP_BYTES_PER_SECOND}; may override per resume")
-    parser.add_argument("--swap-in-stop-seconds", type=float,
-                        help=f"sustained swap-in window; initial default: {SUPERVISOR.DEFAULT_SWAP_IN_STOP_SECONDS:g}; "
-                             "may override per resume")
+    parser.add_argument("--swap-growth-stop-bytes-per-second", type=int,
+                        help="save+stop when the campaign's own swapped-out memory grows at or above this rate "
+                             "for the window; 0 disables; initial default: "
+                             f"{SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND}; may override per resume")
+    parser.add_argument("--swap-growth-stop-seconds", type=float,
+                        help="sustained own swap-growth window; initial default: "
+                             f"{SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS:g}; may override per resume")
     parser.add_argument("--max-zero-progress-ram-stops", type=int, default=DEFAULT_MAX_ZERO_PROGRESS_RAM_STOPS,
                         help="refuse --resume after this many consecutive RAM-guard stops without committed "
                              f"progress (default {DEFAULT_MAX_ZERO_PROGRESS_RAM_STOPS}; 0 disables); raise the RAM "
@@ -907,9 +940,10 @@ def main(argv=None):
     if args.max_zero_progress_ram_stops < 0:
         parser.error("--max-zero-progress-ram-stops must be nonnegative")
     if ((args.host_memory_reserve_bytes is not None and args.host_memory_reserve_bytes <= 0) or
-            (args.swap_in_stop_bytes_per_second is not None and args.swap_in_stop_bytes_per_second < 0) or
-            (args.swap_in_stop_seconds is not None and not 0 < args.swap_in_stop_seconds < float("inf"))):
-        parser.error("host memory floor must be positive, swap-in rate nonnegative and swap-in window positive and finite")
+            (args.swap_growth_stop_bytes_per_second is not None and args.swap_growth_stop_bytes_per_second < 0) or
+            (args.swap_growth_stop_seconds is not None and not 0 < args.swap_growth_stop_seconds < float("inf"))):
+        parser.error("host memory floor must be positive, swap-growth rate nonnegative and swap-growth window "
+                     "positive and finite")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
     if args.publication_policy == "ready" and args.apply_subdivision_axis is not None:
@@ -1001,6 +1035,13 @@ def main(argv=None):
         plan["executable_upgrade"] = dict(upgrade, applied=args.start)
     if liveness is not None:
         plan["ram_guard_liveness"] = dict(liveness, limit=args.max_zero_progress_ram_stops)
+    plan["memory_admission_preview"] = memory_admission_preview(options)
+    preview = plan["memory_admission_preview"]
+    if not args.json and preview.get("hard_capped_by_available_memory"):
+        print(f"RAM admission now: effective hard cap {preview['effective_hard_memory_bytes']} B = MemAvailable "
+              f"{preview['available_bytes']} B - floor {preview['host_memory_reserve_bytes']} B, below the requested "
+              f"{preview['requested_hard_memory_bytes']} B (re-evaluated by the supervisor at launch)",
+              file=sys.stderr)
     if not args.start:
         if upgrade is not None and not args.json:
             new = upgrade["new"]

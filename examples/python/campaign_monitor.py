@@ -394,9 +394,12 @@ def dashboard(status: dict) -> list[str]:
     reason = status.get("stop_reason") or status.get("native_stop_reason") or progress.get("native_stop_reason")
     if reason:
         state += " · stop " + clean(reason)
-    swap_rate = number(resources.get("swap_in_bytes_per_second"))
+    own_swap = number(resources.get("own_swap_growth_bytes_per_second"))
+    if own_swap:
+        host_text += f" · own swap +{own_swap / 1e6:.1f} MB/s"
+    swap_rate = number(resources.get("host_swap_in_bytes_per_second"))
     if swap_rate is not None:
-        host_text += f" · swap-in {swap_rate / 1e6:.1f} MB/s"
+        host_text += f" · host swap-in {swap_rate / 1e6:.1f} MB/s"
     return [
         f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
         f"CPU {bar(cpu, status.get('workers'))} {cpu_text} / {count(status.get('workers'))} total reserved",

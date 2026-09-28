@@ -193,7 +193,7 @@ only when frozen. v1 steering files remain readable with their recorded
 values (Ordered, lookahead 256, native split). New campaigns write
 `rustred.production-steering.v3`, which also freezes the frontier policy
 (default `stop`) and the host RAM guard (`host_memory_reserve_bytes`, default
-50 GB, `swap_in_stop_bytes_per_second`, `swap_in_stop_seconds`); the RAM
+50 GB, `swap_growth_stop_bytes_per_second`, `swap_growth_stop_seconds`); the RAM
 guard options may be overridden per resume like the RSS ceiling and margin.
 Steering written before v3 keeps its historical `record` frontier policy and
 the supervisor's guard defaults. A resume is refused after
@@ -329,7 +329,15 @@ Defaults are 50 outer workers (at most 256, bounded by the permitted CPUs),
 all native/BLAS/Rayon inner pools fixed to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
 `--max-memory-bytes` accepts any positive byte count, including a higher requested
 ceiling such as 700 GB; there is no fixed numerical RAM maximum. Admission reduces it if
-host/cgroup available RAM minus the host reserve is smaller. The reserve (the
+host/cgroup available RAM minus the host reserve is smaller: the effective hard
+ceiling is `min(requested, MemAvailable - floor)`, evaluated once at every start
+and resume (so a 600 GB request with the 50 GB floor needs 650 GB MemAvailable at
+that moment; at 636 GB it is 586 GB, soft 556.7 GB). `request.json`, `status.json`
+and the summary record it as `memory_admission` (rule, MemAvailable, ARC, floor,
+effective hard/soft, `hard_capped_by_available_memory`), the supervisor prints a
+line when the cap is reduced, and the production launcher's plan
+(`active-run.json`) carries a `memory_admission_preview`. MemAvailable excludes
+a ZFS ARC that shrinks under pressure, so the reduction is conservative. The reserve (the
 host MemAvailable floor, `--host-memory-reserve-bytes`, alias
 `--host-available-floor-bytes`) defaults to a flat **50 GB** (owner decision
 2026-09-27; formerly `min(20 GB, 5% of host/cgroup capacity)`); a host or cgroup
@@ -344,14 +352,22 @@ limit.
 
 Host pressure triggers the same cooperative save-and-stop (exit 4),
 independently of campaign RSS: host (or enclosing cgroup) MemAvailable at or
-below the floor (`host_memory_reserve`), or host-wide swap-in
-(`/proc/vmstat` `pswpin`) at or above `--swap-in-stop-bytes-per-second`
-(default 32 MiB/s; 0 disables) in every sample for `--swap-in-stop-seconds`
-(default 120; `host_swap_in_sustained`). MemAvailable at a quarter of the floor
-(12.5 GB by default) or RSS at the hard ceiling kills the owned native. Each
-resource sample records MemAvailable, the ZFS ARC size, the swap-in rate and
-the native's `VmSwap`; `request.json`, `status.json` and the summary record
-the guard policy (`ram_guard`).
+below the floor (`host_memory_reserve`), or growth of the supervised tree's own
+swapped-out memory (`VmSwap` summed over its processes) at or above
+`--swap-growth-stop-bytes-per-second` (default 32 MiB/s; 0 disables) in every
+sample for `--swap-growth-stop-seconds` (default 120;
+`own_swap_growth_sustained`). Host-wide swap-in (`/proc/vmstat` `pswpin`)
+counts every user's swap-in on a shared host and is recorded only. MemAvailable
+at a quarter of the floor (12.5 GB by default) or RSS at the hard ceiling kills
+the owned native. Each resource sample records MemAvailable, the ZFS ARC size,
+the tree's swap and its growth rate, the host swap-in rate and the native's
+`VmSwap`; `request.json`, `status.json` and the summary record the guard policy
+(`ram_guard`). A host-wide stop (`host_memory_reserve`, `host_memory_emergency`)
+records `ram_guard_stop` with an attribution over the trailing window:
+`own_memory_signal` is true when the tree's RSS growth explains at least half
+of the MemAvailable drop, or its own swap is growing at the stop rate. The
+production launcher's zero-progress resume refusal counts host-wide stops only
+with that signal, so other users' memory use cannot trip it.
 
 No new `RLIMIT_AS` address-space cap is imposed by default: virtual reservation
 is not consumed RAM and must not preempt the graceful resident-memory guard.

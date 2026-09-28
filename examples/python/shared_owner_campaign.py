@@ -58,11 +58,26 @@ SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
 # Host-aware RAM guard defaults (see RamGuard). The MemAvailable floor is the
 # host memory reserve: 50 GB unless --host-memory-reserve-bytes says otherwise
 # (owner decision 2026-09-27; formerly min(20 GB, 5% of host/cgroup RAM)).
-# Sustained host-wide swap-in (/proc/vmstat pswpin) at or above the rate for
-# the whole window also saves and stops; 0 disables it.
+# Admission keeps the whole floor free (ADMISSION_RULE), so the effective hard
+# cap falls below the requested one whenever MemAvailable < requested + floor
+# at a (re)start. Sustained growth of the supervised tree's OWN swapped-out
+# memory (VmSwap summed over its processes) at or above the rate for the whole
+# window also saves and stops; 0 disables it. Host-wide swap-in
+# (/proc/vmstat pswpin) counts every user's swap-in on a shared host and is
+# telemetry only.
 DEFAULT_HOST_MEMORY_RESERVE_BYTES = 50_000_000_000
-DEFAULT_SWAP_IN_STOP_BYTES_PER_SECOND = 32 * 1024 * 1024
-DEFAULT_SWAP_IN_STOP_SECONDS = 120.0
+DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND = 32 * 1024 * 1024
+DEFAULT_SWAP_GROWTH_STOP_SECONDS = 120.0
+ADMISSION_RULE = ("effective hard = min(requested hard, available_bytes - host_memory_reserve_bytes) and "
+                  "effective soft = effective hard x (1 - margin), evaluated once at every (re)start from "
+                  "host/cgroup MemAvailable (which excludes a shrinkable ZFS ARC)")
+# A host-wide stop (MemAvailable floor or emergency) carries an attribution:
+# own_memory_signal is true when the supervised tree's RSS growth over the
+# trailing window explains at least this share of the MemAvailable drop over
+# the same window, or its own swap is growing at or above the stop rate.
+# The production liveness guard counts host-wide stops only with the signal.
+OWN_MEMORY_SHARE = 0.5
+HOST_WIDE_STOPS = ("host_memory_reserve", "host_memory_emergency")
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -335,8 +350,21 @@ def memory_admission(hard: int, soft: int | None, snapshot: dict, reserve: int |
     return admitted_hard, admitted_soft, reserve
 
 
+def memory_admission_record(requested: int, snapshot: dict, reserve: int, hard: int, soft: int) -> dict:
+    """What admission did at this (re)start, for request/status/summary receipts."""
+    return {"rule": ADMISSION_RULE, "requested_hard_memory_bytes": requested,
+            "available_bytes": snapshot.get("available_bytes"),
+            "host_available_bytes": snapshot.get("host_available_bytes"),
+            "zfs_arc_bytes": snapshot.get("zfs_arc_bytes"),
+            "host_memory_reserve_bytes": reserve,
+            "effective_hard_memory_bytes": hard, "effective_soft_memory_bytes": soft,
+            "hard_capped_by_available_memory": hard < requested}
+
+
 def read_swap_in_pages(proc_root=Path("/proc")) -> int | None:
-    """Host-wide pages swapped in since boot (/proc/vmstat pswpin); None if unreadable."""
+    """Host-wide pages swapped in since boot (/proc/vmstat pswpin); None if unreadable.
+
+    Telemetry only: on a shared host it counts every user's swap-in."""
     try:
         for line in (proc_root / "vmstat").read_text().splitlines():
             name, _, value = line.partition(" ")
@@ -358,6 +386,12 @@ def process_swap_bytes(pid, proc_root=Path("/proc")) -> int | None:
     return None
 
 
+def tree_swap_bytes(pids, proc_root=Path("/proc")) -> int | None:
+    """VmSwap summed over the supervised tree's processes; None if none is readable."""
+    values = [value for value in (process_swap_bytes(pid, proc_root) for pid in pids) if value is not None]
+    return sum(values) if values else None
+
+
 class RamGuard:
     """Host-aware RAM guard: cooperative save-and-stop and hard-stop decisions.
 
@@ -366,61 +400,109 @@ class RamGuard:
       - aggregate_rss_soft_limit: the supervised tree's RSS reaches the soft
         limit (the effective hard cap minus the guard margin);
       - host_memory_reserve: host/cgroup MemAvailable falls to the floor;
-      - host_swap_in_sustained: host-wide swap-in stays at or above
-        swap_in_bytes_per_second in every sample interval for at least
-        swap_in_seconds (a missing reading or one slower interval resets it).
+      - own_swap_growth_sustained: the supervised tree's swapped-out memory
+        (VmSwap summed over its processes) grows at or above
+        swap_growth_bytes_per_second in every sample interval for at least
+        swap_growth_seconds (a missing reading or one slower interval resets
+        it). This is the campaign's own pages being evicted, not host-wide
+        swap-in, which on a shared host counts other users' processes and is
+        only recorded (host_swap_in_bytes_per_second).
     Hard stops (SIGKILL of the owned native, unchanged): RSS reaches the hard
     cap, or MemAvailable falls to a quarter of the floor.
+    Host-wide decisions (host_memory_reserve, host_memory_emergency) carry an
+    attribution over the trailing window (attribution_seconds, default the
+    swap window): own_memory_signal is true when the tree's RSS growth
+    explains at least OWN_MEMORY_SHARE of the MemAvailable drop, or its own
+    swap is growing at or above the stop rate.
     Pure state machine over readings; callers supply /proc values, so tests
     drive it with fake readers.
     """
-    def __init__(self, hard_bytes, soft_bytes, floor_bytes, swap_in_bytes_per_second=DEFAULT_SWAP_IN_STOP_BYTES_PER_SECOND,
-                 swap_in_seconds=DEFAULT_SWAP_IN_STOP_SECONDS, page_bytes=None):
+    def __init__(self, hard_bytes, soft_bytes, floor_bytes,
+                 swap_growth_bytes_per_second=DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
+                 swap_growth_seconds=DEFAULT_SWAP_GROWTH_STOP_SECONDS, page_bytes=None,
+                 attribution_seconds=None):
         if not 0 < soft_bytes < hard_bytes or floor_bytes < 0:
             raise ValueError("RAM guard requires 0 < soft < hard and a nonnegative host floor")
-        if swap_in_bytes_per_second < 0 or not math.isfinite(swap_in_seconds) or swap_in_seconds <= 0:
-            raise ValueError("swap-in guard requires a nonnegative rate and a positive finite window")
+        if (swap_growth_bytes_per_second < 0 or not math.isfinite(swap_growth_seconds)
+                or swap_growth_seconds <= 0):
+            raise ValueError("swap-growth guard requires a nonnegative rate and a positive finite window")
         self.hard_bytes, self.soft_bytes, self.floor_bytes = hard_bytes, soft_bytes, floor_bytes
-        self.swap_in_bytes_per_second, self.swap_in_seconds = swap_in_bytes_per_second, swap_in_seconds
+        self.swap_growth_bytes_per_second = swap_growth_bytes_per_second
+        self.swap_growth_seconds = swap_growth_seconds
+        self.attribution_seconds = swap_growth_seconds if attribution_seconds is None else attribution_seconds
         self.page_bytes = os.sysconf("SC_PAGE_SIZE") if page_bytes is None else page_bytes
         self.last_swap = None
         self.high_since = None
+        self.last_host_swap = None
+        self.history = deque()
 
     def policy(self) -> dict:
         return {"soft_rss_bytes": self.soft_bytes, "hard_rss_bytes": self.hard_bytes,
                 "host_available_floor_bytes": self.floor_bytes,
                 "host_available_emergency_bytes": self.floor_bytes // 4,
-                "swap_in_stop_bytes_per_second": self.swap_in_bytes_per_second,
-                "swap_in_stop_seconds": self.swap_in_seconds,
-                "swap_in_scope": "host_wide_proc_vmstat_pswpin",
+                "swap_growth_stop_bytes_per_second": self.swap_growth_bytes_per_second,
+                "swap_growth_stop_seconds": self.swap_growth_seconds,
+                "swap_scope": "supervised_tree_vmswap_growth",
+                "host_swap_in_scope": "telemetry_only_host_wide_proc_vmstat_pswpin",
+                "host_stop_attribution": {"window_seconds": self.attribution_seconds,
+                                          "own_rss_share_of_available_drop": OWN_MEMORY_SHARE},
                 "cooperative": "save_and_stop_exit_4", "hard": "sigkill_owned_native"}
 
-    def observe(self, now: float, rss: int, available: int | None, swap_in_pages: int | None) -> dict:
+    def swap_growing(self, rate) -> bool:
+        return rate is not None and self.swap_growth_bytes_per_second > 0 and rate >= self.swap_growth_bytes_per_second
+
+    def observe(self, now: float, rss: int, available: int | None, own_swap_bytes: int | None,
+                host_swap_in_pages: int | None = None) -> dict:
         rate = None
-        if swap_in_pages is not None and self.last_swap is not None and now > self.last_swap[0]:
-            rate = max(0, swap_in_pages - self.last_swap[1]) * self.page_bytes / (now - self.last_swap[0])
+        if own_swap_bytes is not None and self.last_swap is not None and now > self.last_swap[0]:
+            rate = max(0, own_swap_bytes - self.last_swap[1]) / (now - self.last_swap[0])
         previous = self.last_swap
-        self.last_swap = None if swap_in_pages is None else (now, swap_in_pages)
-        if rate is not None and self.swap_in_bytes_per_second > 0 and rate >= self.swap_in_bytes_per_second:
+        self.last_swap = None if own_swap_bytes is None else (now, own_swap_bytes)
+        if self.swap_growing(rate):
             if self.high_since is None:
                 self.high_since = previous[0]
         else:
             self.high_since = None
         sustained = 0.0 if self.high_since is None else now - self.high_since
+        host_rate = None
+        if (host_swap_in_pages is not None and self.last_host_swap is not None
+                and now > self.last_host_swap[0]):
+            host_rate = (max(0, host_swap_in_pages - self.last_host_swap[1]) * self.page_bytes
+                         / (now - self.last_host_swap[0]))
+        self.last_host_swap = None if host_swap_in_pages is None else (now, host_swap_in_pages)
+        self.history.append((now, rss, available))
+        while len(self.history) > 1 and self.history[1][0] <= now - self.attribution_seconds:
+            self.history.popleft()
         cooperative = None
         if rss >= self.soft_bytes:
             cooperative = "aggregate_rss_soft_limit"
         elif available is not None and available <= self.floor_bytes:
             cooperative = "host_memory_reserve"
-        elif self.high_since is not None and sustained >= self.swap_in_seconds:
-            cooperative = "host_swap_in_sustained"
+        elif self.high_since is not None and sustained >= self.swap_growth_seconds:
+            cooperative = "own_swap_growth_sustained"
         hard = None
         if rss >= self.hard_bytes:
             hard = "aggregate_rss_hard_limit"
         elif available is not None and available <= self.floor_bytes // 4:
             hard = "host_memory_emergency"
-        return {"cooperative": cooperative, "hard": hard, "swap_in_pages": swap_in_pages,
-                "swap_in_bytes_per_second": rate, "swap_in_sustained_seconds": sustained}
+        decision = {"cooperative": cooperative, "hard": hard, "own_swap_bytes": own_swap_bytes,
+                    "own_swap_growth_bytes_per_second": rate, "own_swap_growth_sustained_seconds": sustained,
+                    "host_swap_in_pages": host_swap_in_pages, "host_swap_in_bytes_per_second": host_rate}
+        if cooperative in HOST_WIDE_STOPS or hard in HOST_WIDE_STOPS:
+            decision["attribution"] = self.attribution(now, rss, available, rate)
+        return decision
+
+    def attribution(self, now, rss, available, rate) -> dict:
+        """Who used the memory over the trailing window (host-wide decisions only)."""
+        then, then_rss, then_available = self.history[0]
+        growth = rss - then_rss
+        drop = None if available is None or then_available is None else then_available - available
+        share = growth / drop if drop is not None and drop > 0 else None
+        swapping = self.swap_growing(rate)
+        return {"window_seconds": now - then, "own_rss_growth_bytes": growth,
+                "host_available_drop_bytes": drop, "own_share_of_available_drop": share,
+                "own_swap_growing": swapping,
+                "own_memory_signal": bool(swapping or (share is not None and share >= OWN_MEMORY_SHARE))}
 
 
 @contextmanager
@@ -484,12 +566,14 @@ def main() -> int:
                              "enclosing cgroup) MemAvailable falls to it, the hard stop at a quarter of it, and "
                              "admission leaves it free; default "
                              f"{DEFAULT_HOST_MEMORY_RESERVE_BYTES} (50 GB)")
-    parser.add_argument("--swap-in-stop-bytes-per-second", type=nonnegative,
-                        default=DEFAULT_SWAP_IN_STOP_BYTES_PER_SECOND,
-                        help="cooperative save-and-stop when host-wide swap-in stays at or above this rate "
-                             "for --swap-in-stop-seconds; 0 disables (default: 32 MiB/s)")
-    parser.add_argument("--swap-in-stop-seconds", type=float, default=DEFAULT_SWAP_IN_STOP_SECONDS,
-                        help="window of sustained swap-in before the cooperative stop (default: 120)")
+    parser.add_argument("--swap-growth-stop-bytes-per-second", type=nonnegative,
+                        default=DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
+                        help="cooperative save-and-stop when the supervised tree's own swapped-out memory "
+                             "(VmSwap summed over its processes) grows at or above this rate for "
+                             "--swap-growth-stop-seconds; 0 disables (default: 32 MiB/s). Host-wide "
+                             "swap-in is recorded only")
+    parser.add_argument("--swap-growth-stop-seconds", type=float, default=DEFAULT_SWAP_GROWTH_STOP_SECONDS,
+                        help="window of sustained own swap growth before the cooperative stop (default: 120)")
     parser.add_argument("--objective-hours", type=float, default=15.0,
                         help="performance objective only; never a termination timer")
     parser.add_argument("--sample-seconds", type=float, default=2.0)
@@ -567,8 +651,8 @@ def main() -> int:
                                        args.apply_subdivision_axis is not None)
     DOMAIN.validate_frontier_policy(parser, args.frontier_policy,
                                     args.checkpoint is not None or args.resume is not None)
-    if not math.isfinite(args.swap_in_stop_seconds) or args.swap_in_stop_seconds <= 0:
-        parser.error("swap-in stop window must be positive and finite")
+    if not math.isfinite(args.swap_growth_stop_seconds) or args.swap_growth_stop_seconds <= 0:
+        parser.error("swap-growth stop window must be positive and finite")
     affinity = os.sched_getaffinity(0)
     worker_cap = min(MAX_WORKERS, len(affinity))
     if not 1 <= args.workers <= MAX_WORKERS or args.other_workers < 0 or args.workers + args.other_workers > worker_cap:
@@ -610,8 +694,10 @@ def main() -> int:
             args.reserved_other_memory_bytes or 0, args.child_address_space_bytes,
             external_rss, resource.getrlimit(resource.RLIMIT_AS))
         monitor_headroom = effective_hard - effective_soft
-        guard = RamGuard(effective_hard, effective_soft, host_reserve, args.swap_in_stop_bytes_per_second,
-                         args.swap_in_stop_seconds)
+        guard = RamGuard(effective_hard, effective_soft, host_reserve, args.swap_growth_stop_bytes_per_second,
+                         args.swap_growth_stop_seconds)
+        admission = memory_admission_record(args.max_memory_bytes, initial_host, host_reserve,
+                                            effective_hard, effective_soft)
     except (OSError, ValueError) as error:
         parser.error(str(error))
     # Include the supervisor without treating it as an external reservation.
@@ -686,6 +772,7 @@ def main() -> int:
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "effective_hard_memory_bytes": effective_hard, "effective_soft_memory_bytes": effective_soft,
         "host_memory_reserve_bytes": host_reserve, "initial_host_memory": initial_host,
+        "memory_admission": admission,
         "ram_guard_margin_percent": args.ram_guard_margin_percent,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
         "inherited_rlimit_as_bytes": [None if value == resource.RLIM_INFINITY else value
@@ -723,6 +810,11 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, operator_stop)
     signal.signal(signal.SIGTERM, operator_stop)
+    ram_guard_stop = None
+    if admission["hard_capped_by_available_memory"]:
+        print(f"RAM admission: effective hard cap {effective_hard} B = available {initial_host['available_bytes']} B"
+              f" - floor {host_reserve} B (requested {args.max_memory_bytes} B); soft {effective_soft} B",
+              file=sys.stderr, flush=True)
     started = time.monotonic()
     tail = MONITOR.EventTail(output / "events.jsonl")
     # Derived rates over the last hour of native heartbeats (two hours retained);
@@ -767,9 +859,9 @@ def main() -> int:
                   "workers": args.workers, "other_workers": args.other_workers,
                   "hard_memory_bytes": effective_hard, "soft_memory_bytes": effective_soft,
                   "requested_hard_memory_bytes": args.max_memory_bytes,
-                  "host_memory_reserve_bytes": host_reserve,
+                  "host_memory_reserve_bytes": host_reserve, "memory_admission": admission,
                   "ram_guard_margin_percent": args.ram_guard_margin_percent,
-                  "ram_guard": guard.policy(),
+                  "ram_guard": guard.policy(), "ram_guard_stop": ram_guard_stop,
                   "native_stop_reason": progress.get("native_stop_reason"),
                   "progress": progress, "resources": resources, "checkpoint": last_checkpoint,
                   "checkpoint_write": writing, "derived": metrics.derived(),
@@ -830,13 +922,25 @@ def main() -> int:
                     host = {"host_available_bytes": None, "available_bytes": None}
                     request_stop("host_memory_monitor_unavailable")
                 available = host["available_bytes"]
-                if host.get("host_available_bytes") is not None:
-                    min_available = min(filter(None.__ne__, (min_available, host["host_available_bytes"])))
-                if host.get("zfs_arc_bytes") is not None:
-                    max_arc = max(filter(None.__ne__, (max_arc, host["zfs_arc_bytes"])))
-                decision = guard.observe(now, rss, available, read_swap_in_pages())
+                value = host.get("host_available_bytes")
+                if value is not None:
+                    min_available = value if min_available is None else min(min_available, value)
+                value = host.get("zfs_arc_bytes")
+                if value is not None:
+                    max_arc = value if max_arc is None else max(max_arc, value)
+                decision = guard.observe(now, rss, available, tree_swap_bytes(tree), read_swap_in_pages())
+
+                def guard_record(reason):
+                    return {"reason": reason, "elapsed_seconds": now-started, "aggregate_rss_bytes": rss,
+                            "available_bytes": available,
+                            "own_swap_growth_bytes_per_second": decision["own_swap_growth_bytes_per_second"],
+                            "own_swap_growth_sustained_seconds": decision["own_swap_growth_sustained_seconds"],
+                            "host_wide": reason in HOST_WIDE_STOPS, **decision.get("attribution", {})}
                 if decision["cooperative"]:
                     request_stop(decision["cooperative"])
+                    # The decision that set the stop reason (not an operator stop).
+                    if ram_guard_stop is None and stop_reason == decision["cooperative"]:
+                        ram_guard_stop = guard_record(decision["cooperative"])
                 native_cpu = next((row["observed_busy_cores"] for row in process_rows
                                    if row["role"] == "owned_native"), None)
                 last_resources = {"event": "resources", "elapsed_seconds": now-started,
@@ -846,9 +950,12 @@ def main() -> int:
                     "observed_busy_cores": None if sample_interval is None else delta_cpu/sample_interval,
                     "native_busy_cores": native_cpu, **host,
                     "zfs_arc_bytes": host.get("zfs_arc_bytes"),
-                    "swap_in_pages": decision["swap_in_pages"],
-                    "swap_in_bytes_per_second": decision["swap_in_bytes_per_second"],
-                    "swap_in_sustained_seconds": decision["swap_in_sustained_seconds"],
+                    "own_swap_bytes": decision["own_swap_bytes"],
+                    "own_swap_growth_bytes_per_second": decision["own_swap_growth_bytes_per_second"],
+                    "own_swap_growth_sustained_seconds": decision["own_swap_growth_sustained_seconds"],
+                    "host_swap_in_pages": decision["host_swap_in_pages"],
+                    "host_swap_in_bytes_per_second": decision["host_swap_in_bytes_per_second"],
+                    "ram_guard_attribution": decision.get("attribution"),
                     "native_swap_bytes": process_swap_bytes(child.pid),
                     "rss_growth_bytes_per_second": None if previous_rss is None else (rss-previous_rss)/(now-last_time),
                     "processes": len(tree), "process_cpu": process_rows, "collection": collection,
@@ -862,6 +969,7 @@ def main() -> int:
                     # Other registered jobs are measured, never signalled.
                     if child.pid in tree and tree[child.pid]["start"] == collector.identities.get(child.pid):
                         request_stop(decision["hard"])
+                        ram_guard_stop = dict(ram_guard_stop or {}, hard_stop=guard_record(decision["hard"]))
                         try:
                             os.killpg(child.pid, signal.SIGKILL)
                         except ProcessLookupError:
@@ -898,7 +1006,9 @@ def main() -> int:
         "initial_host_memory": initial_host,
         "last_host_available_bytes": last_resources.get("host_available_bytes"),
         "last_zfs_arc_bytes": last_resources.get("zfs_arc_bytes"),
-        "last_swap_in_bytes_per_second": last_resources.get("swap_in_bytes_per_second"),
+        "last_own_swap_growth_bytes_per_second": last_resources.get("own_swap_growth_bytes_per_second"),
+        "last_host_swap_in_bytes_per_second": last_resources.get("host_swap_in_bytes_per_second"),
+        "ram_guard_stop": ram_guard_stop,
         "min_observed_host_available_bytes": min_available,
         "max_observed_zfs_arc_bytes": max_arc,
         "hard_stopped": hard_stopped,
@@ -911,7 +1021,7 @@ def main() -> int:
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,
         "requested_hard_memory_bytes": args.max_memory_bytes,
         "effective_hard_memory_bytes": effective_hard, "effective_soft_memory_bytes": effective_soft,
-        "host_memory_reserve_bytes": host_reserve,
+        "host_memory_reserve_bytes": host_reserve, "memory_admission": admission,
         "ram_guard_margin_percent": args.ram_guard_margin_percent,
         "rust_result_present": (output / "result.json").is_file(),
     }, indent=2) + "\n")
