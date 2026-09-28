@@ -10,8 +10,12 @@
 //!   (native with 0 frontiers and no error) or alias (F8), and the saved
 //!   seal flags must agree;
 //! - every alias is an exact integer-set subset of its representative in the
-//!   same (phase, owner), and every partial record's D >= cut slice lies in
-//!   its initial anchor, each with its dependency edge;
+//!   same (phase, owner), with its dependency edge; every partial record is
+//!   an Apply record anchored (with its edge) on an EARLIER INITIAL record
+//!   that is itself a Native inspection (so the anchor relation is
+//!   well-founded: no self-anchor, partial-on-partial chain or anchor cycle),
+//!   its D >= cut slice lies in that anchor, its recorded residual is the
+//!   D < cut slice, and Q lies in anchor u residual (exact union cover);
 //! - closure is re-derived from the edge set (reverse reachability from
 //!   unsealed nodes, cross-checked by forward cones per root); an engine
 //!   closed flag that the oracle does not re-derive is a false claim;
@@ -26,7 +30,9 @@
 //! Verdicts: FAIL on any violation; INCOMPLETE when no violation was found
 //! but not every native was re-inspected (a partial check is never a PASS);
 //! PASS otherwise. Inclusion uses `lattice::Cell`, cross-checked by
-//! brute-force lattice enumeration on small cells. Mutations (`--mutate`)
+//! brute-force lattice enumeration on small cells; `--union-sample` checks
+//! the exact multi-target cover predicate against enumeration on sampled
+//! real cells (`union_sample`). Mutations (`--mutate`)
 //! inject one defect in memory after loading; each must turn the verdict
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
 #[cfg(test)]
@@ -34,6 +40,7 @@ mod e2e_tests;
 mod graph;
 mod lattice;
 mod result_binding;
+mod union_sample;
 
 use super::super::{RoutedCampaignRequest, input, matching, prepare};
 use super::{
@@ -156,9 +163,36 @@ pub enum OwnerDomainWalkVerifyMutation {
     /// where A is an alias of T that does not itself contain the successor;
     /// coverage must then go through the alias chain and the verdict PASS.
     AliasChainDetour,
+    /// A partial record anchored on itself (link and anchor edge): its
+    /// D >= cut slice is discharged by nobody, yet the self-edge seals.
+    SelfAnchoredPartial,
+    /// A partial record anchored on another (earlier) partial record, whose
+    /// own D >= cut slice is not natively inspected either.
+    PartialAsAnchor,
+    /// Two partial records anchored on each other (a two-cycle).
+    PartialAnchorCycle,
+    /// A partial record anchored on a non-initial Native, a later one when
+    /// it exists (the ID analogue of a G2' anchor stamped at or after the
+    /// dispatch epoch), else an earlier non-initial one.
+    NonInitialAnchor,
+    /// A partial record whose saved domain is a Route domain (same owner
+    /// and bounds): residual inspection exists only in Apply.
+    RoutePartial,
+    /// A partial record's recorded residual shrunk by one D layer (the
+    /// D = cut - 1 layer is then inspected by nobody): the exact union cover
+    /// `Q <= anchor u residual` fails.
+    ShrunkResidual,
+    /// Drop the only recorded edge covering an Apply domain routed by a
+    /// Route native.
+    DroppedRoutedEdge,
+    /// Replace the only edge covering a Route native's routed Apply domain
+    /// by one to a same-owner native non-container.
+    RoutedFalseHit,
+    /// One Route native's event count off by one, saved counter adjusted.
+    MiscountedRouteEvents,
 }
 impl OwnerDomainWalkVerifyMutation {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 25] = [
         Self::DroppedEdge,
         Self::RetargetedAlias,
         Self::DroppedFrontierRecord,
@@ -175,6 +209,15 @@ impl OwnerDomainWalkVerifyMutation {
         Self::ForeignOwners,
         Self::MismatchedResult,
         Self::AliasChainDetour,
+        Self::SelfAnchoredPartial,
+        Self::PartialAsAnchor,
+        Self::PartialAnchorCycle,
+        Self::NonInitialAnchor,
+        Self::RoutePartial,
+        Self::ShrunkResidual,
+        Self::DroppedRoutedEdge,
+        Self::RoutedFalseHit,
+        Self::MiscountedRouteEvents,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -194,6 +237,15 @@ impl OwnerDomainWalkVerifyMutation {
             Self::ForeignOwners => "foreign-owners",
             Self::MismatchedResult => "mismatched-result",
             Self::AliasChainDetour => "alias-chain-detour",
+            Self::SelfAnchoredPartial => "self-anchored-partial",
+            Self::PartialAsAnchor => "partial-as-anchor",
+            Self::PartialAnchorCycle => "partial-anchor-cycle",
+            Self::NonInitialAnchor => "non-initial-anchor",
+            Self::RoutePartial => "route-partial",
+            Self::ShrunkResidual => "shrunk-residual",
+            Self::DroppedRoutedEdge => "dropped-routed-edge",
+            Self::RoutedFalseHit => "routed-false-hit",
+            Self::MiscountedRouteEvents => "miscounted-route-events",
         }
     }
     pub fn parse(name: &str) -> Option<Self> {
@@ -226,6 +278,10 @@ pub struct OwnerDomainWalkVerifyOptions {
     /// A published result.json to bind to the checkpoint generation.
     pub result: Option<PathBuf>,
     pub reference_levers: OwnerDomainWalkVerifyReferenceLevers,
+    /// Records sampled for the real-data multi-target union-cover
+    /// validation (`union_sample`; 0 disables), and its seed.
+    pub union_sample: usize,
+    pub union_sample_seed: u64,
 }
 impl OwnerDomainWalkVerifyOptions {
     pub fn new(checkpoint: impl Into<PathBuf>) -> Self {
@@ -241,6 +297,8 @@ impl OwnerDomainWalkVerifyOptions {
             max_violations: 200,
             result: None,
             reference_levers: OwnerDomainWalkVerifyReferenceLevers::Off,
+            union_sample: 0,
+            union_sample_seed: 1,
         }
     }
 }
@@ -410,13 +468,18 @@ struct Containment {
     brute: AtomicU64,
     brute_positive: AtomicU64,
     disagreements: AtomicU64,
-    /// Partial records: exact union cover of the whole domain by
-    /// {anchor, D < cut residual} (`Cell::covered_by_union`), compared with
-    /// the slice inclusion. Informational cross-check of the union predicate
-    /// on real records; a disagreement is a violation.
+    /// Partial records with a well-founded anchor: exact union cover of the
+    /// whole domain by {anchor, recorded residual} (`Cell::covered_by_union`).
+    /// While the recorded residual equals the D < cut slice the two targets
+    /// partition Q along D, so this is logically the single-target D >= cut
+    /// slice inclusion (compared, a disagreement is a violation): a check of
+    /// two implementations on real cells, not a multi-target validation
+    /// (that is `union_sample`).
     union_checks: AtomicU64,
     union_covered: AtomicU64,
+    union_not_covered: AtomicU64,
     union_undecided: AtomicU64,
+    union_compared: AtomicU64,
     union_disagreements: AtomicU64,
 }
 impl Containment {
@@ -432,34 +495,40 @@ impl Containment {
             disagreements: AtomicU64::new(0),
             union_checks: AtomicU64::new(0),
             union_covered: AtomicU64::new(0),
+            union_not_covered: AtomicU64::new(0),
             union_undecided: AtomicU64::new(0),
+            union_compared: AtomicU64::new(0),
             union_disagreements: AtomicU64::new(0),
         }
     }
-    /// `whole <= anchor u residual`, exact; false on disagreement with
-    /// `slice_included` (the anchor contains the D >= cut slice).
-    fn partial_union_agrees(
+    /// `whole <= t_1 u ... u t_k`, exact (None: region budget exhausted),
+    /// and whether it disagrees with `slice_included` (the anchor contains
+    /// the D >= cut slice), compared only when given (recorded residual equal
+    /// to the D < cut slice).
+    fn partial_union(
         &self,
         whole: &Cell,
-        anchor: &Cell,
-        residual: &Cell,
-        slice_included: bool,
-    ) -> bool {
+        targets: &[&Cell],
+        slice_included: Option<bool>,
+    ) -> (Option<bool>, bool) {
         self.union_checks.fetch_add(1, Ordering::Relaxed);
-        match whole.covered_by_union(&[anchor, residual], 1 << 16) {
-            None => {
-                self.union_undecided.fetch_add(1, Ordering::Relaxed);
-                true
+        let covered = whole.covered_by_union(targets, 1 << 16);
+        let counter = match covered {
+            None => &self.union_undecided,
+            Some(true) => &self.union_covered,
+            Some(false) => &self.union_not_covered,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        let disagrees = match (covered, slice_included) {
+            (Some(covered), Some(included)) => {
+                self.union_compared.fetch_add(1, Ordering::Relaxed);
+                covered != included
             }
-            Some(covered) => {
-                self.union_covered
-                    .fetch_add(u64::from(covered), Ordering::Relaxed);
-                let agrees = covered == slice_included;
-                self.union_disagreements
-                    .fetch_add(u64::from(!agrees), Ordering::Relaxed);
-                agrees
-            }
-        }
+            _ => false,
+        };
+        self.union_disagreements
+            .fetch_add(u64::from(disagrees), Ordering::Relaxed);
+        (covered, disagrees)
     }
     fn contains(&self, outer: &Cell, inner: &Cell) -> bool {
         self.exact.fetch_add(1, Ordering::Relaxed);
@@ -497,9 +566,12 @@ impl Containment {
             "partial_union_cover":{
                 "checks":self.union_checks.load(Ordering::Relaxed),
                 "covered":self.union_covered.load(Ordering::Relaxed),
+                "not_covered":self.union_not_covered.load(Ordering::Relaxed),
                 "undecided":self.union_undecided.load(Ordering::Relaxed),
+                "compared_with_slice_inclusion":self.union_compared.load(Ordering::Relaxed),
                 "disagreements_with_slice_inclusion":self.union_disagreements.load(Ordering::Relaxed),
-                "predicate":"exact Q <= anchor u {D < cut residual} (lattice.rs covered_by_union), cross-checking the D >= cut slice inclusion"}})
+                "predicate":"exact Q <= anchor u recorded residual (lattice.rs covered_by_union), on partial records with a well-founded anchor",
+                "scope":"D-cut identity check, not a multi-target validation: with the recorded residual equal to the D < cut slice (partial_residual), {anchor, residual} partitions Q along D and the union cover is logically the single-target D >= cut slice inclusion; genuine multi-target covers are validated by union_sample"}})
     }
 }
 
@@ -511,6 +583,10 @@ struct Loaded<const N: usize> {
     nodes: Vec<Node>,
     /// Per-record digests of the committed record images (result binding).
     digests: Vec<Digest>,
+    /// Partial records: the residual power bounds the record says were
+    /// inspected natively (checked against the D < cut slice and used in the
+    /// exact union cover `Q <= anchor u residual`).
+    residuals: BTreeMap<usize, DomainPowerBounds>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -554,6 +630,7 @@ fn load<const N: usize>(
     } else {
         Vec::new()
     };
+    let mut residuals = BTreeMap::new();
     let mut records = 0usize;
     for (path, count) in &raw.records {
         let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -577,7 +654,7 @@ fn load<const N: usize>(
             } else {
                 serde_json::from_str(&line).map_err(parse_error)?
             };
-            record_node(&row, &domains, &mut nodes, violations);
+            record_node(&row, &domains, &mut nodes, &mut residuals, violations);
         }
         if lines != *count {
             violations.add("structure", || {
@@ -597,6 +674,7 @@ fn load<const N: usize>(
         domains,
         nodes,
         digests: record_digests,
+        residuals,
     })
 }
 
@@ -604,6 +682,7 @@ fn record_node<const N: usize>(
     row: &RecordRow,
     domains: &[CompactDomain<N>],
     nodes: &mut [Node],
+    residuals: &mut BTreeMap<usize, DomainPowerBounds>,
     violations: &mut Violations,
 ) {
     let id = row.id;
@@ -654,13 +733,8 @@ fn record_node<const N: usize>(
                 Some(overlap) => {
                     node.link = overlap.anchor_id;
                     node.cut = overlap.cut;
-                    if overlap.residual_power_bounds.bounds()
-                        != residual(domain.powers, overlap.cut)
-                    {
-                        violations.add("partial_anchor", || {
-                            format!("record {id} residual bounds are not the D < cut slice")
-                        });
-                    }
+                    // Checked in `check_partial` (after any mutation).
+                    residuals.insert(id, overlap.residual_power_bounds.bounds());
                 }
                 None => violations.add("partial_anchor", || {
                     format!("record {id} has no overlap link")
@@ -705,7 +779,6 @@ fn residual(mut powers: DomainPowerBounds, cut: i64) -> DomainPowerBounds {
     powers
 }
 
-/// The D >= cut slice of a partial record, discharged by its anchor.
 /// The D < cut slice of a cell (a partial record's residual obligation).
 fn low_slice(mut cell: Cell, cut: i64) -> Cell {
     let high = cut - 1;
@@ -717,6 +790,7 @@ fn low_slice(mut cell: Cell, cut: i64) -> Cell {
     cell
 }
 
+/// The D >= cut slice of a partial record, discharged by its anchor.
 fn high_slice(mut cell: Cell, cut: i64) -> Cell {
     cell.powers.min_power_difference =
         Some(cell.powers.min_power_difference.map_or(cut, |d| d.max(cut)));
@@ -743,6 +817,114 @@ fn sealed(nodes: &[Node], graph: &Graph) -> Vec<bool> {
             Kind::Missing => false,
         })
         .collect()
+}
+
+/// A partial record's obligations (the D >= cut slice is discharged by its
+/// anchor, the D < cut residual by its own native inspection). Classes:
+/// - `partial_phase`: residual inspection exists only in Apply (a Route
+///   record's cell would be matched by the phaseless `Cell::contains`);
+/// - `missing_edge`: no dependency edge to the anchor;
+/// - `partial_anchor_order` / `partial_anchor_kind`: the anchor must be an
+///   EARLIER INITIAL record (`link < id`, `link < initial_count`) that is
+///   itself a Native inspection. Together they make the anchor relation
+///   well-founded: no self-anchor, no partial-on-partial chain, no anchor
+///   cycle. Closure is coinductive (sealed cycles count as closed) and F10
+///   re-inspects only the residual, so without them a D >= cut slice could
+///   be discharged by nobody;
+/// - only against a well-founded anchor (otherwise meaningless):
+///   `partial_anchor` (the anchor is an Apply record containing the
+///   D >= cut slice) and `partial_union_cover` (exact `Q <= anchor u recorded
+///   residual`, compared with the slice inclusion while the residual is the
+///   D < cut slice);
+/// - `partial_residual`: the recorded residual is the D < cut slice.
+#[allow(clippy::too_many_arguments)]
+fn check_partial<const N: usize>(
+    id: usize,
+    nodes: &[Node],
+    domains: &[CompactDomain<N>],
+    residuals: &BTreeMap<usize, DomainPowerBounds>,
+    graph: &Graph,
+    containment: &Containment,
+    initial_count: usize,
+    violations: &mut Violations,
+) {
+    let node = nodes[id];
+    let (link, cut) = (node.link, node.cut);
+    let phase = domains[id].phase();
+    if phase != Phase::Apply {
+        violations.add("partial_phase", || {
+            format!("partial {id} is a {phase:?} record: residual inspection exists only in Apply")
+        });
+    }
+    let whole = ccell(&domains[id]);
+    let derived = residual(whole.powers, cut);
+    let recorded = residuals.get(&id).copied();
+    let identity = recorded == Some(derived);
+    if !identity {
+        violations.add("partial_residual", || {
+            format!(
+                "partial {id}: recorded residual bounds {recorded:?} are not the D < {cut} slice {derived:?}"
+            )
+        });
+    }
+    if link >= nodes.len() || !graph.has_edge(id, link) {
+        violations.add("missing_edge", || {
+            format!("partial {id} has no edge to anchor {link}")
+        });
+        return;
+    }
+    let ordered = link < id && link < initial_count;
+    if !ordered {
+        violations.add("partial_anchor_order", || {
+            format!(
+                "partial {id}: anchor {link} is not an earlier initial record ({initial_count} initial records)"
+            )
+        });
+    }
+    let anchor_kind = nodes[link].kind;
+    if anchor_kind != Kind::Native {
+        violations.add("partial_anchor_kind", || {
+            format!(
+                "partial {id}: anchor {link} is a {anchor_kind:?} record, not a Native inspection"
+            )
+        });
+    }
+    if !(ordered && anchor_kind == Kind::Native) {
+        return;
+    }
+    let anchor = &domains[link];
+    let anchor_apply = anchor.phase() == Phase::Apply;
+    let anchor_cell = ccell(anchor);
+    let slice_included =
+        anchor_apply && containment.contains(&anchor_cell, &high_slice(whole.clone(), cut));
+    if !slice_included {
+        violations.add("partial_anchor", || {
+            format!("partial {id}: D >= {cut} slice not covered by initial native anchor {link}")
+        });
+    }
+    let residual_cell = Cell {
+        powers: recorded.unwrap_or(derived),
+        ..whole.clone()
+    };
+    let targets: Vec<&Cell> = if anchor_apply {
+        vec![&anchor_cell, &residual_cell]
+    } else {
+        vec![&residual_cell]
+    };
+    let (covered, disagrees) =
+        containment.partial_union(&whole, &targets, identity.then_some(slice_included));
+    if covered == Some(false) || disagrees {
+        violations.add("partial_union_cover", || {
+            format!(
+                "partial {id}: exact union cover by anchor {link} and the recorded residual is {covered:?}{}",
+                if disagrees {
+                    " and disagrees with the D >= cut slice inclusion"
+                } else {
+                    ""
+                }
+            )
+        });
+    }
 }
 
 struct Ctx<'a, const N: usize> {
@@ -1428,41 +1610,16 @@ fn verify<const N: usize>(
                     });
                 }
             }
-            Kind::Partial => {
-                if node.link >= total || !graph.has_edge(id, node.link) {
-                    violations.add("missing_edge", || {
-                        format!("partial {id} has no edge to anchor {}", node.link)
-                    });
-                    continue;
-                }
-                let anchor = &loaded.domains[node.link];
-                let whole = ccell(&loaded.domains[id]);
-                let slice_included = anchor.phase() == Phase::Apply
-                    && containment.contains(&ccell(anchor), &high_slice(whole.clone(), node.cut));
-                if anchor.phase() == Phase::Apply
-                    && !containment.partial_union_agrees(
-                        &whole,
-                        &ccell(anchor),
-                        &low_slice(whole.clone(), node.cut),
-                        slice_included,
-                    )
-                {
-                    violations.add("partial_union_cover", || {
-                        format!(
-                            "partial {id}: exact union cover by anchor {} and the D < {} residual disagrees with the slice inclusion",
-                            node.link, node.cut
-                        )
-                    });
-                }
-                if node.link >= initial_count || !nodes[node.link].native() || !slice_included {
-                    violations.add("partial_anchor", || {
-                        format!(
-                            "partial {id}: D >= {} slice not covered by initial native anchor {}",
-                            node.cut, node.link
-                        )
-                    });
-                }
-            }
+            Kind::Partial => check_partial(
+                id,
+                &loaded.nodes,
+                &loaded.domains,
+                &loaded.residuals,
+                &graph,
+                &containment,
+                initial_count,
+                &mut violations,
+            ),
             _ => {}
         }
     }
@@ -1590,6 +1747,22 @@ fn verify<const N: usize>(
         Some(path) => Some(bind_result(path, loaded, &closed, &mut violations)?),
         None => None,
     };
+    let union_report = (options.union_sample > 0).then(|| {
+        let (report, failures) = union_sample::validate(
+            &loaded.domains,
+            &loaded.nodes,
+            options.union_sample,
+            options.union_sample_seed,
+            options.threads,
+            cancellation,
+        );
+        for _ in 0..failures {
+            violations.add("union_cross_check", || {
+                "exact union cover disagrees with point enumeration (see union_sample)".into()
+            });
+        }
+        report
+    });
     let checks_seconds = checks_started.elapsed().as_secs_f64();
     let memory_checked = memory_status();
     observer(json!({"event":"verify_checked","seconds":checks_seconds,"memory":memory_checked}));
@@ -1801,6 +1974,7 @@ fn verify<const N: usize>(
             "single_defective_native_detection_probability": sample_fraction,
             "threads": options.threads, "tally": reinspection.tally.json()},
         "containment": containment.json(),
+        "union_sample": union_report,
         "mutation": mutation,
         "violations": violations.list,
         "violations_by_class": violations.by_class,
@@ -1880,6 +2054,9 @@ enum Plan {
         index: usize,
         to: usize,
     },
+    /// Partial records re-anchored: (partial, old anchor, new anchor); the
+    /// anchor edge moves with the link.
+    Relink(Vec<(usize, usize, usize)>),
     Whole,
 }
 
@@ -1957,7 +2134,13 @@ fn plan_mutation<const N: usize>(
             )
     };
     match kind {
-        M::DroppedEdge | M::InjectedFalseHit | M::AliasChainDetour => {
+        M::DroppedEdge
+        | M::InjectedFalseHit
+        | M::AliasChainDetour
+        | M::DroppedRoutedEdge
+        | M::RoutedFalseHit => {
+            // Routed variants: a Route native's admitted Apply domain.
+            let routed = matches!(kind, M::DroppedRoutedEdge | M::RoutedFalseHit);
             // Representatives of aliases, for the detour.
             let mut aliases_of = BTreeMap::<usize, Vec<usize>>::new();
             if kind == M::AliasChainDetour {
@@ -1970,7 +2153,11 @@ fn plan_mutation<const N: usize>(
             // The first native (by ID) with an admitted domain covered by
             // exactly one recorded target: that edge is load-bearing.
             for id in (0..nodes.len())
-                .filter(|&id| nodes[id].native() && !ctx.graph.out(id).is_empty())
+                .filter(|&id| {
+                    nodes[id].native()
+                        && !ctx.graph.out(id).is_empty()
+                        && (!routed || domains[id].phase() == Phase::Route)
+                })
                 .take(if kind == M::AliasChainDetour {
                     200_000
                 } else {
@@ -1991,17 +2178,20 @@ fn plan_mutation<const N: usize>(
                     continue;
                 }
                 for (successor, target) in found.admits {
+                    if routed && successor.phase != Phase::Apply {
+                        continue;
+                    }
                     let label = describe(&successor);
                     let inner = cell(&successor);
                     match kind {
-                        M::DroppedEdge => {
+                        M::DroppedEdge | M::DroppedRoutedEdge => {
                             return Plan::DropEdge {
                                 source: id,
                                 target,
                                 successor: label,
                             };
                         }
-                        M::InjectedFalseHit => {
+                        M::InjectedFalseHit | M::RoutedFalseHit => {
                             // A native non-container: no alias chain can
                             // re-cover the successor through it.
                             let replacement = (0..nodes.len())
@@ -2053,6 +2243,116 @@ fn plan_mutation<const N: usize>(
             }
             Plan::NotApplicable(format!("no load-bearing edge found for {}", kind.name()))
         }
+        M::SelfAnchoredPartial
+        | M::PartialAsAnchor
+        | M::PartialAnchorCycle
+        | M::NonInitialAnchor => {
+            // Partials whose anchor edge carries only the D >= cut slice (no
+            // residual successor leans on it alone), so that moving the edge
+            // changes nothing F10 sees: only the anchor rules can fire.
+            let wanted = if kind == M::PartialAnchorCycle { 2 } else { 1 };
+            let mut chosen = Vec::new();
+            for id in (0..nodes.len()).filter(|&id| nodes[id].kind == Kind::Partial) {
+                let from = nodes[id].link;
+                if from >= nodes.len() || !ctx.graph.has_edge(id, from) {
+                    continue;
+                }
+                let found = reference(ctx, id);
+                if found.error || found.admits.iter().any(|(_, only)| *only == from) {
+                    continue;
+                }
+                chosen.push(id);
+                if chosen.len() == wanted {
+                    break;
+                }
+            }
+            if chosen.len() < wanted {
+                return Plan::NotApplicable(format!(
+                    "fewer than {wanted} partial records whose anchor edge carries only the D >= cut slice"
+                ));
+            }
+            let id = chosen[0];
+            let from = nodes[id].link;
+            match kind {
+                M::SelfAnchoredPartial => Plan::Relink(vec![(id, from, id)]),
+                M::PartialAnchorCycle => {
+                    let other = chosen[1];
+                    Plan::Relink(vec![(id, from, other), (other, nodes[other].link, id)])
+                }
+                M::PartialAsAnchor => {
+                    // Prefer an earlier partial (link < id holds; only the
+                    // initial-record and Native rules can fire).
+                    (0..nodes.len())
+                        .filter(|&q| {
+                            q != id && nodes[q].kind == Kind::Partial && !ctx.graph.has_edge(id, q)
+                        })
+                        .max_by_key(|&q| (q < id, std::cmp::Reverse(q.abs_diff(id))))
+                        .map_or(
+                            Plan::NotApplicable("no second partial record".into()),
+                            |q| Plan::Relink(vec![(id, from, q)]),
+                        )
+                }
+                _ => {
+                    // A non-initial same-owner Apply native, preferably later
+                    // and containing the D >= cut slice (only the order rule
+                    // can fire; containment is not judged against it).
+                    let high = high_slice(ccell(&domains[id]), nodes[id].cut);
+                    (initial_count..nodes.len())
+                        .filter(|&t| {
+                            t != id
+                                && nodes[t].kind == Kind::Native
+                                && domains[t].phase() == Phase::Apply
+                                && domains[t].owner() == domains[id].owner()
+                                && !ctx.graph.has_edge(id, t)
+                        })
+                        .max_by_key(|&t| {
+                            (
+                                t > id,
+                                ccell(&domains[t]).contains(&high),
+                                std::cmp::Reverse(t),
+                            )
+                        })
+                        .map_or(
+                            Plan::NotApplicable("no non-initial same-owner Apply native".into()),
+                            |t| Plan::Relink(vec![(id, from, t)]),
+                        )
+                }
+            }
+        }
+        M::RoutePartial => (0..nodes.len())
+            .find(|&id| {
+                // No alias rests on it (an alias containment check would
+                // also see the phase change).
+                nodes[id].kind == Kind::Partial
+                    && !nodes.iter().any(|n| n.kind == Kind::Alias && n.link == id)
+            })
+            .map_or(
+                Plan::NotApplicable("no partial record without aliases".into()),
+                |id| Plan::Node { id, depth: None },
+            ),
+        M::ShrunkResidual => (0..nodes.len())
+            .find(|&id| {
+                // The D = cut - 1 layer must hold points of Q.
+                let node = nodes[id];
+                node.kind == Kind::Partial
+                    && ctx.loaded.residuals.contains_key(&id)
+                    && !high_slice(low_slice(ccell(&domains[id]), node.cut), node.cut - 1)
+                        .is_empty()
+            })
+            .map_or(
+                Plan::NotApplicable("no partial record with a nonempty D = cut - 1 layer".into()),
+                |id| Plan::Node { id, depth: None },
+            ),
+        M::MiscountedRouteEvents => (0..nodes.len())
+            .find(|&id| {
+                nodes[id].kind == Kind::Native
+                    && flagged_sealed(id)
+                    && domains[id].phase() == Phase::Route
+                    && nodes[id].events.is_some()
+            })
+            .map_or(Plan::NotApplicable("no sealed Route native".into()), |id| {
+                Plan::Node { id, depth: None }
+            }),
         M::RetargetedAlias => {
             for id in (0..nodes.len()).filter(|&id| nodes[id].kind == Kind::Alias) {
                 let inner = ccell(&domains[id]);
@@ -2211,6 +2511,22 @@ fn apply_mutation<const N: usize>(
             report["retargeted_to"] = json!(to);
             report["successor"] = json!(successor);
         }
+        Plan::Relink(moves) => {
+            for &(source, from, to) in &moves {
+                for edge in &mut loaded.raw.edges {
+                    if (edge.0 as usize, edge.1 as usize) == (source, from) {
+                        edge.1 = to as u32;
+                    }
+                }
+                loaded.nodes[source].link = to;
+            }
+            report["relinked"] = json!(
+                moves
+                    .iter()
+                    .map(|&(partial, from, to)| json!({"partial": partial, "from": from, "to": to}))
+                    .collect::<Vec<_>>()
+            );
+        }
         Plan::Query { index, to } => {
             report["query_index"] = json!(index);
             report["from"] = loaded.raw.inputs[index]["domain"].clone();
@@ -2231,6 +2547,22 @@ fn apply_mutation<const N: usize>(
         Plan::Node { id, depth } => {
             report["node"] = json!(id);
             report["depth_from_roots"] = json!(depth);
+            if kind == M::RoutePartial {
+                let mut domain = loaded.domains[id].expand();
+                domain.phase = Phase::Route;
+                loaded.domains[id] =
+                    CompactDomain::try_from_domain(&domain).expect("same compact range");
+                report["phase"] = json!("Route");
+            }
+            if kind == M::ShrunkResidual
+                && let Some(bounds) = loaded.residuals.get_mut(&id)
+            {
+                let high = bounds
+                    .max_power_difference
+                    .unwrap_or(loaded.nodes[id].cut - 1);
+                bounds.max_power_difference = Some(high - 1);
+                report["residual_max_power_difference"] = json!([high, high - 1]);
+            }
             let node = &mut loaded.nodes[id];
             let flag = &mut loaded.raw.flags[id];
             let counters = &mut loaded.raw.counters;
@@ -2272,7 +2604,8 @@ fn apply_mutation<const N: usize>(
                     *flag |= FLAG_SEALED;
                 }
                 M::HiddenError => failing = Some(id),
-                M::MiscountedEvents => {
+                M::RoutePartial | M::ShrunkResidual => {}
+                M::MiscountedEvents | M::MiscountedRouteEvents => {
                     node.events = node.events.map(|e| e + 1);
                     node.accepted = node.accepted.map(|e| e + 1);
                     counters[0] += 1;
@@ -2334,11 +2667,13 @@ mod tests {
         ];
         let saved = compact(&domains);
         let mut nodes = vec![Node::MISSING; 5];
+        let mut residuals = BTreeMap::new();
         let mut violations = Violations::new(50);
         record_node(
             &row(0, "native_inspection", &domains[0], json!({})),
             &saved,
             &mut nodes,
+            &mut residuals,
             &mut violations,
         );
         record_node(
@@ -2350,6 +2685,7 @@ mod tests {
             ),
             &saved,
             &mut nodes,
+            &mut residuals,
             &mut violations,
         );
         record_node(
@@ -2361,6 +2697,7 @@ mod tests {
             ),
             &saved,
             &mut nodes,
+            &mut residuals,
             &mut violations,
         );
         record_node(
@@ -2372,12 +2709,13 @@ mod tests {
             ),
             &saved,
             &mut nodes,
+            &mut residuals,
             &mut violations,
         );
         assert!(violations.by_class.contains_key("accepted_events"));
         let mut wrong = row(4, "native_inspection", &domains[4], json!({}));
         wrong.upper = vec![Some(5), Some(2)];
-        record_node(&wrong, &saved, &mut nodes, &mut violations);
+        record_node(&wrong, &saved, &mut nodes, &mut residuals, &mut violations);
         assert!(violations.by_class.contains_key("domain_parity"));
         let graph = Graph::from_edges(5, &[(0, 1), (1, 2)]).unwrap();
         assert_eq!(sealed(&nodes, &graph), [true, true, false, false, true]);
@@ -2464,6 +2802,136 @@ mod tests {
             &wide
         ));
         assert_eq!(containment.disagreements(), 0);
+    }
+
+    /// Each partial rule in isolation on synthetic records (the engine never
+    /// writes most of these states, so only a forged table exercises them):
+    /// owner axis x0 (A = x0 + 1), other axis x1 (R = x1), D = x0 + 1 - x1.
+    #[test]
+    fn partial_records_need_an_apply_phase_a_well_founded_anchor_and_an_exact_cover() {
+        let cell_domain = |phase: Phase, upper0: u64, min_d: Option<i64>| Domain {
+            phase,
+            owner: [true, false],
+            lower: vec![0, 0],
+            upper: vec![Some(upper0), Some(2)],
+            rank: Some(2),
+            powers: DomainPowerBounds {
+                max_positive_power: None,
+                min_power_difference: min_d,
+                max_power_difference: None,
+            },
+        };
+        // 0, 1: initial natives (0 contains the D >= 2 slice of 3; 1 does
+        // not); 2: a non-initial native (contains it); 3: the partial
+        // under test, cut 2; 4: another partial.
+        let domains = vec![
+            cell_domain(Phase::Apply, 5, Some(2)),
+            cell_domain(Phase::Apply, 1, Some(2)),
+            cell_domain(Phase::Apply, 6, Some(2)),
+            cell_domain(Phase::Apply, 3, None),
+            cell_domain(Phase::Apply, 3, None),
+        ];
+        let initial_count = 2;
+        let base = |kind: Kind, link: usize| Node {
+            kind,
+            link,
+            cut: 2,
+            finished: true,
+            ..Node::MISSING
+        };
+        let nodes = vec![
+            base(Kind::Native, usize::MAX),
+            base(Kind::Native, usize::MAX),
+            base(Kind::Native, usize::MAX),
+            base(Kind::Partial, 0),
+            base(Kind::Partial, 0),
+        ];
+        let exact = residual(domains[3].powers, 2);
+        let residuals = BTreeMap::from([(3, exact), (4, exact)]);
+        let classes = |nodes: &[Node],
+                       domains: &[Domain<2>],
+                       residuals: &BTreeMap<usize, DomainPowerBounds>,
+                       edges: &[(u32, u32)]| {
+            let graph = Graph::from_edges(nodes.len(), edges).unwrap();
+            let containment = Containment::new(4096, 1 << 20);
+            let mut violations = Violations::new(50);
+            check_partial(
+                3,
+                nodes,
+                &compact(domains),
+                residuals,
+                &graph,
+                &containment,
+                initial_count,
+                &mut violations,
+            );
+            assert_eq!(containment.disagreements(), 0);
+            violations.by_class
+        };
+        let set = |names: &[(&'static str, u64)]| names.iter().copied().collect::<BTreeMap<_, _>>();
+        // Valid: Apply, earlier initial Native anchor containing the slice,
+        // exact residual, anchor edge.
+        assert_eq!(classes(&nodes, &domains, &residuals, &[(3, 0)]), set(&[]));
+        // No anchor edge.
+        assert_eq!(
+            classes(&nodes, &domains, &residuals, &[]),
+            set(&[("missing_edge", 1)])
+        );
+        // Route partial (the phaseless cells still nest): phase rule only.
+        let mut route = domains.clone();
+        route[3].phase = Phase::Route;
+        assert_eq!(
+            classes(&nodes, &route, &residuals, &[(3, 0)]),
+            set(&[("partial_phase", 1)])
+        );
+        // Self-anchor: order and kind (containment is not judged).
+        let mut relinked = nodes.clone();
+        relinked[3].link = 3;
+        assert_eq!(
+            classes(&relinked, &domains, &residuals, &[(3, 3)]),
+            set(&[("partial_anchor_kind", 1), ("partial_anchor_order", 1)])
+        );
+        // Anchored on another (later, non-initial) partial.
+        relinked[3].link = 4;
+        assert_eq!(
+            classes(&relinked, &domains, &residuals, &[(3, 4)]),
+            set(&[("partial_anchor_kind", 1), ("partial_anchor_order", 1)])
+        );
+        // Kind alone: an initial, earlier anchor that is itself a Partial.
+        let mut partial_anchor = nodes.clone();
+        partial_anchor[0].kind = Kind::Partial;
+        assert_eq!(
+            classes(&partial_anchor, &domains, &residuals, &[(3, 0)]),
+            set(&[("partial_anchor_kind", 1)])
+        );
+        // Order alone: an earlier but non-initial Native containing the slice.
+        relinked[3].link = 2;
+        assert_eq!(
+            classes(&relinked, &domains, &residuals, &[(3, 2)]),
+            set(&[("partial_anchor_order", 1)])
+        );
+        // Containment: an initial Native that misses the slice; the union
+        // cover fails with it.
+        relinked[3].link = 1;
+        assert_eq!(
+            classes(&relinked, &domains, &residuals, &[(3, 1)]),
+            set(&[("partial_anchor", 1), ("partial_union_cover", 1)])
+        );
+        // Residual shrunk by one D layer: identity and union cover fail.
+        let mut short = residuals.clone();
+        short.get_mut(&3).unwrap().max_power_difference = Some(0);
+        assert_eq!(
+            classes(&nodes, &domains, &short, &[(3, 0)]),
+            set(&[("partial_residual", 1), ("partial_union_cover", 1)])
+        );
+        // A wider recorded residual (overlapping the anchor) still covers:
+        // only the identity rule fires.
+        let mut wide = residuals.clone();
+        wide.get_mut(&3).unwrap().max_power_difference = Some(3);
+        assert_eq!(
+            classes(&nodes, &domains, &wide, &[(3, 0)]),
+            set(&[("partial_residual", 1)])
+        );
     }
 
     #[test]

@@ -371,7 +371,7 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
-    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -694,7 +694,10 @@ format, schema and walk semantics version.
 generation, named by the walk's own owner-domain-match argv (a JSON list, or
 an object with a `command` list). It checks the checkpoint's request binding,
 record/domain parity, the F8 seal rule against the saved seal flags, exact
-alias and partial-anchor inclusion with their dependency edges, re-derives
+alias and partial-anchor inclusion with their dependency edges (a partial
+record must be Apply, anchored on an earlier initial Native record, with the
+recorded residual equal to its D < cut slice and Q inside anchor u residual,
+decided exactly), re-derives
 dependency closure from the saved edges, binds the published result.json
 (default: next to the command file; `--no-result` skips) record by record to
 the generation, and (unless `--reinspect none`) re-inspects natives with the
@@ -705,7 +708,10 @@ frontier, error, event and Apply successor counts must match (counts are
 informational when a lever on in the run is off in the reference), and
 every admitted domain must be contained in a recorded target of its parent or
 along that target's alias chain. Small cells are also checked by lattice-point
-enumeration. The report (JSON) separates helper roots from physics queries.
+enumeration; `--union-sample COUNT[:SEED]` also validates the exact
+multi-target cover predicate against enumeration on COUNT sampled saved cells
+(earlier same-owner natives as real covers, 2-3-way splits). The report
+(JSON) separates helper roots from physics queries.
 Successor generation is reproduced by the same visitor, not derived
 independently; F10 independently checks the graph bookkeeping.
 `--require-closure` requires every root closed AND independently verified

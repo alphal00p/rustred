@@ -468,6 +468,36 @@ impl Cell {
         region.covered(targets, &mut budget)
     }
 
+    /// Whether the two cells share a lattice point (same owner, nonempty
+    /// intersection; the intersection of two cells is a cell).
+    pub fn meets(&self, other: &Cell) -> bool {
+        fn min<T: Ord + Copy>(a: Option<T>, b: Option<T>) -> Option<T> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
+        }
+        if self.owner != other.owner {
+            return false;
+        }
+        let mut both = self.clone();
+        for axis in 0..self.owner.len() {
+            both.lower[axis] = self.lower[axis].max(other.lower[axis]);
+            both.upper[axis] = min(self.upper[axis], other.upper[axis]);
+        }
+        both.rank = min(self.rank, other.rank);
+        let (mine, theirs) = (&self.powers, &other.powers);
+        both.powers.max_positive_power = min(mine.max_positive_power, theirs.max_positive_power);
+        both.powers.max_power_difference =
+            min(mine.max_power_difference, theirs.max_power_difference);
+        both.powers.min_power_difference =
+            match (mine.min_power_difference, theirs.min_power_difference) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
+        !both.is_empty()
+    }
+
     /// Brute-force union cover over this cell's points, when enumerable.
     pub fn brute_force_covered_by_union(&self, targets: &[&Cell], limit: u64) -> Option<bool> {
         let mut covered = true;
@@ -753,6 +783,147 @@ mod tests {
             union_only > 200 && uncovered > 200,
             "{covered} {union_only} {uncovered}"
         );
+    }
+
+    /// Four to six axes with at least two axes in each owner group (the
+    /// A and R sums each span several coordinates, as in real 10- and
+    /// 15-axis cells), covers made of 2-4 pieces of Q (splits along axes and
+    /// D, optionally with a one-layer gap) plus random distractors. Ground
+    /// truth: every point of the window (which bounds Q) evaluated directly.
+    #[test]
+    fn union_cover_matches_point_enumeration_on_four_to_six_axes() {
+        let mut rng = Rng(41);
+        let (mut union_only, mut needs_three, mut uncovered, mut meets_checked) = (0, 0, 0, 0);
+        for n in 4..=6usize {
+            let window: Vec<Vec<u64>> = {
+                let mut points = vec![vec![]];
+                for _ in 0..n {
+                    points = points
+                        .into_iter()
+                        .flat_map(|p: Vec<u64>| {
+                            (0..5u64).map(move |x| {
+                                let mut q = p.clone();
+                                q.push(x);
+                                q
+                            })
+                        })
+                        .collect();
+                }
+                points
+            };
+            for _ in 0..1500 {
+                // At least two owner and two non-owner axes.
+                let mut owner: Vec<bool> = (0..n).map(|axis| axis % 2 == 0).collect();
+                for axis in 4..n {
+                    owner[axis] = rng.below(2) == 1;
+                }
+                let mut q = random_cell(&mut rng, &owner);
+                let (mut own_low, mut other_low) = (0u64, 0u64);
+                for axis in 0..n {
+                    // Bounded inside the window: every point of q is in it.
+                    q.lower[axis] = rng.below(2);
+                    q.upper[axis] = Some(q.lower[axis] + rng.below(3));
+                    if owner[axis] {
+                        own_low += q.lower[axis] + 1;
+                    } else {
+                        other_low += q.lower[axis];
+                    }
+                }
+                // R and A caps that leave q nonempty most of the time.
+                q.rank = rng.maybe(5).map(|r| (other_low + r) as u32);
+                q.powers.max_positive_power = rng.maybe(5).map(|a| own_low + a);
+                if q.is_empty() {
+                    continue;
+                }
+                let splits = 1 + rng.below(3) as usize;
+                let mut pieces = vec![q.clone()];
+                let gap = rng.below(2) == 0;
+                for split in 0..splits {
+                    // Split the last piece strictly inside an axis range, or
+                    // in D; the last split of a gap draw leaves one layer out.
+                    let piece = pieces.pop().expect("piece");
+                    let (mut low, mut high) = (piece.clone(), piece.clone());
+                    let last = gap && split + 1 == splits;
+                    let splittable: Vec<usize> = (0..n)
+                        .filter(|&a| piece.upper[a].is_some_and(|u| u > piece.lower[a]))
+                        .collect();
+                    if !splittable.is_empty() && rng.below(4) != 0 {
+                        let axis = splittable[rng.below(splittable.len() as u64) as usize];
+                        let span = piece.upper[axis].expect("bounded") - piece.lower[axis];
+                        let cut = piece.lower[axis] + rng.below(span);
+                        low.upper[axis] = Some(cut);
+                        high.lower[axis] = cut + 1 + u64::from(last);
+                    } else {
+                        let cut = rng.below(11) as i64 - 5;
+                        low.powers.max_power_difference = Some(
+                            piece
+                                .powers
+                                .max_power_difference
+                                .map_or(cut, |d| d.min(cut)),
+                        );
+                        high.powers.min_power_difference = Some(
+                            piece
+                                .powers
+                                .min_power_difference
+                                .map_or(cut + 1 + i64::from(last), |d| {
+                                    d.max(cut + 1 + i64::from(last))
+                                }),
+                        );
+                    }
+                    pieces.push(low);
+                    pieces.push(high);
+                }
+                let mut targets = pieces;
+                for _ in 0..rng.below(3) {
+                    let mut distractor = random_cell(&mut rng, &owner);
+                    if rng.below(5) == 0 {
+                        distractor.owner = (0..n).map(|_| rng.below(2) == 1).collect();
+                    }
+                    targets.push(distractor);
+                }
+                // Shuffle so that the pieces are not always tried first.
+                for index in (1..targets.len()).rev() {
+                    targets.swap(index, rng.below(index as u64 + 1) as usize);
+                }
+                let refs: Vec<&Cell> = targets.iter().collect();
+                let inside: Vec<&Vec<u64>> = window.iter().filter(|p| q.member(p)).collect();
+                let truth = inside
+                    .iter()
+                    .all(|p| targets.iter().any(|t| t.owner == q.owner && t.member(p)));
+                assert_eq!(
+                    q.covered_by_union(&refs, 1 << 22),
+                    Some(truth),
+                    "{q:?} {targets:?}"
+                );
+                assert_eq!(q.brute_force_covered_by_union(&refs, 1 << 20), Some(truth));
+                for target in &targets {
+                    let shared = inside
+                        .iter()
+                        .any(|p| target.owner == q.owner && target.member(p));
+                    assert_eq!(q.meets(target), shared, "{q:?} {target:?}");
+                    meets_checked += 1;
+                }
+                if !truth {
+                    uncovered += 1;
+                } else if !targets.iter().any(|t| t.contains(&q)) {
+                    union_only += 1;
+                    let pair = (0..refs.len()).any(|i| {
+                        (i + 1..refs.len())
+                            .any(|j| q.covered_by_union(&[refs[i], refs[j]], 1 << 22) == Some(true))
+                    });
+                    needs_three += usize::from(!pair);
+                }
+            }
+        }
+        // Genuine multi-target covers (some needing three or more targets)
+        // and misses must both be frequent.
+        // Python port of this generator (same RNG): 3347 draws, 1357
+        // union-only covers, 508 needing >= 3 targets, 766 uncovered.
+        assert!(
+            union_only > 800 && needs_three > 250 && uncovered > 400,
+            "union-only {union_only}, needing >= 3 targets {needs_three}, uncovered {uncovered}"
+        );
+        assert!(meets_checked > 10_000);
     }
 
     #[test]

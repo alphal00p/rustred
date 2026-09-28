@@ -32,6 +32,8 @@ pub(crate) struct WalkVerifyClosureArgs {
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
     pub helper_pattern: String,
     pub max_violations: usize,
+    pub union_sample: usize,
+    pub union_sample_seed: u64,
     pub force: bool,
     /// None: the command file's sibling result.json when it exists.
     pub result: Option<PathBuf>,
@@ -56,6 +58,8 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         mutation: None,
         helper_pattern: defaults.helper_pattern,
         max_violations: defaults.max_violations,
+        union_sample: defaults.union_sample,
+        union_sample_seed: defaults.union_sample_seed,
         force: false,
         result: None,
         no_result: false,
@@ -123,9 +127,26 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     ArgError::InvalidValue {
                         option: "--mutate",
                         value,
-                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour",
+                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour, self-anchored-partial, partial-as-anchor, partial-anchor-cycle, non-initial-anchor, route-partial, shrunk-residual, dropped-routed-edge, routed-false-hit, miscounted-route-events",
                     },
                 )?);
+            }
+            "--union-sample" => {
+                let value = next_utf8_value(&mut arguments, "--union-sample")?;
+                let (count, seed) = value.split_once(':').unwrap_or((value.as_str(), "1"));
+                match (count.parse(), seed.parse()) {
+                    (Ok(count), Ok(seed)) => {
+                        args.union_sample = count;
+                        args.union_sample_seed = seed;
+                    }
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--union-sample",
+                            value,
+                            expected: "COUNT[:SEED] (0 disables)",
+                        });
+                    }
+                }
             }
             "--helper-pattern" => {
                 args.helper_pattern = next_utf8_value(&mut arguments, "--helper-pattern")?
@@ -214,6 +235,8 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
     options.mutation = args.mutation;
     options.helper_pattern = args.helper_pattern.clone();
     options.max_violations = args.max_violations;
+    options.union_sample = args.union_sample;
+    options.union_sample_seed = args.union_sample_seed;
     options.result = if args.no_result {
         None
     } else {

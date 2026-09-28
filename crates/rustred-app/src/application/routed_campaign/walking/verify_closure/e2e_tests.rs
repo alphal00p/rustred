@@ -6,13 +6,16 @@
 //! `owner_domain_walk_verify_closure` on its final generation with the
 //! published result.json bound.
 //!
-//! Two fixtures. DRAINED: five queries (one absorbed: four roots), dispatch
+//! Three fixtures. DRAINED: five queries (one absorbed: four roots), dispatch
 //! lookahead 1 so that successors beyond the horizon become aliases, and two
 //! sub-sector D >= 5 queries whose boxes contain the high-D slice of later
 //! successors, so that those become partial records anchored on them. It has
 //! natives, aliases and partials, and all roots close. FRONTIER: the 011
 //! owner is left out of the selection, so successors into that sector stay
-//! open: one of two roots closes.
+//! open: one of two roots closes. ROUTED: the FRONTIER walk with a verified
+//! loop-momentum route 011 -> 110 (q1 -> q1 - q2 maps P2, P3 onto P2, P1):
+//! the successors into sector 011 become Route natives that each route one
+//! Apply domain into owner 110, and both roots close.
 //!
 //! The drained walk must PASS (with and without `--require-closure`) and pass
 //! the gate (verdict PASS, every root independently verified); partial or no
@@ -66,9 +69,9 @@ pub(super) fn scratch(label: &str) -> Scratch {
 }
 
 /// Owners of the sunset family at candidate rank `rank`, one bundle per
-/// sector (except the masks in `omit`), written under `dir`; returns the
-/// selection JSON text.
-pub(super) fn write_owners(dir: &Path, rank: u32, omit: &[&str]) -> String {
+/// sector (except the masks in `omit`), written under `dir`, with the
+/// `initial_frontier_routes` given; returns the selection JSON text.
+pub(super) fn write_owners(dir: &Path, rank: u32, omit: &[&str], routes: &Value) -> String {
     let mut generation = FamilyCandidatesRequest::new(SUNSET);
     generation.max_numerator_rank = Some(rank);
     let bundle = family_candidates(generation).unwrap();
@@ -84,7 +87,7 @@ pub(super) fn write_owners(dir: &Path, rank: u32, omit: &[&str]) -> String {
         std::fs::write(dir.join(&name), &bytes).unwrap();
         owners.push(json!({"path": name, "bytes": bytes.len(), "mask": mask}));
     }
-    json!({"family_fingerprint": fingerprint, "owners": owners, "initial_frontier_routes": []})
+    json!({"family_fingerprint": fingerprint, "owners": owners, "initial_frontier_routes": routes})
         .to_string()
 }
 
@@ -146,11 +149,13 @@ pub(super) struct Fixture<'a> {
     pub queries: Value,
     pub lookahead: u32,
     pub omit: &'a [&'a str],
+    /// `initial_frontier_routes` of the selection (a JSON array).
+    pub routes: Value,
 }
 
 pub(super) fn run(label: &str, fixture: &Fixture, extra: &[&str]) -> Run {
     let dir = scratch(label);
-    let selection = write_owners(&dir.0, fixture.rank, fixture.omit);
+    let selection = write_owners(&dir.0, fixture.rank, fixture.omit, &fixture.routes);
     std::fs::write(dir.0.join("selection.json"), selection).unwrap();
     std::fs::write(dir.0.join("queries.json"), fixture.queries.to_string()).unwrap();
     let argv = walk_argv(&dir.0, fixture.lookahead, extra);
@@ -199,8 +204,8 @@ fn record_kinds(result: &Value) -> BTreeMap<String, u64> {
 
 /// Exploration aid (not a regression test): walk RUSTRED_E2E_QUERIES (JSON
 /// text) at candidate rank RUSTRED_E2E_RANK (lookahead RUSTRED_E2E_LOOKAHEAD,
-/// owner masks RUSTRED_E2E_OMIT left out) and print the record census and
-/// every mutation's verdict and violation classes.
+/// owner masks RUSTRED_E2E_OMIT left out, routes RUSTRED_E2E_ROUTES) and
+/// print the record census and every mutation's verdict and violation classes.
 #[test]
 #[ignore = "exploration aid; run explicitly"]
 fn explore_sunset_fixture() {
@@ -214,11 +219,14 @@ fn explore_sunset_fixture() {
     let lookahead = std::env::var("RUSTRED_E2E_LOOKAHEAD").map_or(256, |l| l.parse().unwrap());
     let omit = std::env::var("RUSTRED_E2E_OMIT").unwrap_or_default();
     let omit: Vec<&str> = omit.split_whitespace().collect();
+    let routes: Value = std::env::var("RUSTRED_E2E_ROUTES")
+        .map_or(json!([]), |r| serde_json::from_str(&r).unwrap());
     let fixture = Fixture {
         rank,
         queries,
         lookahead,
         omit: &omit,
+        routes,
     };
     let run = run("explore", &fixture, &extra);
     let result = &run.result;
@@ -275,21 +283,43 @@ fn drained() -> Run {
         ]),
         lookahead: 1,
         omit: &[],
+        routes: json!([]),
     };
     run("drained", &fixture, &[])
+}
+
+fn frontier_queries() -> Value {
+    queries(vec![
+        query("anchor", "111", [3, 3, 3], 2, 5, 2),
+        query("s101", "101", [4, 0, 4], 1, 6, 1),
+    ])
 }
 
 fn frontier() -> Run {
     let fixture = Fixture {
         rank: 2,
-        queries: queries(vec![
-            query("anchor", "111", [3, 3, 3], 2, 5, 2),
-            query("s101", "101", [4, 0, 4], 1, 6, 1),
-        ]),
+        queries: frontier_queries(),
         lookahead: 256,
         omit: &["011"],
+        routes: json!([]),
     };
     run("frontier", &fixture, &[])
+}
+
+/// The frontier walk with a verified route 011 -> 110: source momenta
+/// q = M k with M = [[1, -1], [0, 1]] (q1 = k1 - k2, q2 = k2) send
+/// P2 = q2^2 - 1 to k2^2 - 1 and P3 = (q1 + q2)^2 - 1 to k1^2 - 1.
+fn routed() -> Run {
+    let fixture = Fixture {
+        rank: 2,
+        queries: frontier_queries(),
+        lookahead: 256,
+        omit: &["011"],
+        routes: json!([{"source_mask": "011", "owner_mask": "110", "requires_transport": true,
+            "source_to_representative": [["1", "-1"], ["0", "1"]],
+            "owner_to_representative": [["1", "0"], ["0", "1"]]}]),
+    };
+    run("routed", &fixture, &[])
 }
 
 fn class_counts(report: &Value) -> BTreeMap<String, u64> {
@@ -416,15 +446,66 @@ fn frontier_sunset_walk_is_consistent_but_not_closed() {
 }
 
 #[test]
+fn routed_sunset_walk_routes_apply_domains_through_route_natives() {
+    let run = routed();
+    let kinds = record_kinds(&run.result);
+    assert_eq!(kinds.get("native_inspection/Route"), Some(&3), "{kinds:?}");
+    assert_eq!(run.result["frontiers"], 0);
+    let report = verify_run(&run, |o| o.require_closure = true);
+    assert_eq!(report["verdict"], "PASS", "{}", report["violations"]);
+    assert!(gate(&report));
+    assert_eq!(report["roots_total"], 2);
+    let tally = &report["reinspection"]["tally"];
+    // Every Route native routes one Apply domain; each is covered.
+    assert_eq!(tally["admitted_routed_domains"], 3);
+    assert_eq!(tally["uncovered"], 0);
+    assert_eq!(tally["inspected"], report["counts"]["domains"]);
+}
+
+#[test]
+fn a_route_partial_fails_on_its_phase_even_without_reinspection() {
+    use OwnerDomainWalkVerifyMutation as M;
+    let drained = drained();
+    let structural = verify_run(&drained, |o| {
+        o.require_closure = true;
+        o.reinspect = OwnerDomainWalkVerifyReinspect::None;
+        o.mutation = Some(M::RoutePartial);
+    });
+    assert_eq!(structural["mutation"]["applied"], true);
+    assert_eq!(structural["verdict"], "FAIL");
+    assert_eq!(
+        class_counts(&structural),
+        BTreeMap::from([("partial_phase".into(), 1)])
+    );
+    // With F10 the reference routes the flipped residual (event count) and
+    // the parents' Apply successors no longer find a same-phase target.
+    let full = verify_run(&drained, |o| {
+        o.require_closure = true;
+        o.mutation = Some(M::RoutePartial);
+    });
+    assert_eq!(full["verdict"], "FAIL");
+    assert_eq!(
+        class_counts(&full),
+        BTreeMap::from([
+            ("event_parity".into(), 1),
+            ("partial_phase".into(), 1),
+            ("successor_uncovered".into(), 4)
+        ])
+    );
+    assert!(!gate(&full));
+}
+
+#[test]
 fn every_mutation_gives_its_exact_violation_classes() {
     use OwnerDomainWalkVerifyMutation as M;
     let drained = drained();
     let frontier = frontier();
+    let routed = routed();
     // (fixture, mutation, exact classes with --require-closure, exact counts
     // of the single-node classes). Per-node F10 classes (frontier_parity,
     // error_parity, event_parity, successor_parity, successor_uncovered) are
     // distinct from the global counters (frontier_counter, native_counter).
-    let rows: [(&Run, M, &[&str], &[(&str, u64)]); 18] = [
+    let rows: Vec<(&Run, M, &[&str], &[(&str, u64)])> = vec![
         (&drained, M::DroppedEdge, &["successor_uncovered"], &[]),
         (&drained, M::InjectedFalseHit, &["successor_uncovered"], &[]),
         (
@@ -436,8 +517,63 @@ fn every_mutation_gives_its_exact_violation_classes() {
         (
             &drained,
             M::RetargetedAnchor,
-            &["partial_anchor"],
-            &[("partial_anchor", 1)],
+            &["partial_anchor", "partial_union_cover"],
+            &[("partial_anchor", 1), ("partial_union_cover", 1)],
+        ),
+        // Partial-anchor well-foundedness: the anchor edge moves with the
+        // link, the residual inspection is unchanged, only the anchor rules
+        // fire (containment is not judged against an ill-founded anchor).
+        (
+            &drained,
+            M::SelfAnchoredPartial,
+            &["partial_anchor_kind", "partial_anchor_order"],
+            &[("partial_anchor_kind", 1), ("partial_anchor_order", 1)],
+        ),
+        (
+            &drained,
+            M::PartialAsAnchor,
+            &["partial_anchor_kind", "partial_anchor_order"],
+            &[("partial_anchor_kind", 1), ("partial_anchor_order", 1)],
+        ),
+        (
+            &drained,
+            M::PartialAnchorCycle,
+            &["partial_anchor_kind", "partial_anchor_order"],
+            &[("partial_anchor_kind", 2), ("partial_anchor_order", 2)],
+        ),
+        (
+            &drained,
+            M::NonInitialAnchor,
+            &["partial_anchor_order"],
+            &[("partial_anchor_order", 1)],
+        ),
+        // The D = cut - 1 layer inspected by nobody: the exact union cover
+        // fails (F10 re-inspects the derived D < cut slice, so no count moves).
+        (
+            &drained,
+            M::ShrunkResidual,
+            &["partial_residual", "partial_union_cover"],
+            &[("partial_residual", 1), ("partial_union_cover", 1)],
+        ),
+        // Route natives: a routed Apply domain's only covering edge, and a
+        // Route native's event count.
+        (
+            &routed,
+            M::DroppedRoutedEdge,
+            &["successor_uncovered"],
+            &[("successor_uncovered", 1)],
+        ),
+        (
+            &routed,
+            M::RoutedFalseHit,
+            &["successor_uncovered"],
+            &[("successor_uncovered", 1)],
+        ),
+        (
+            &routed,
+            M::MiscountedRouteEvents,
+            &["event_parity"],
+            &[("event_parity", 1)],
         ),
         (
             &drained,
