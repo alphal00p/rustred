@@ -721,5 +721,86 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 list(AUDIT.stream_walk(path))
 
 
+def build_rescued_run(directory, mutate=None, amend=True):
+    """A rescued walk: helper record 1 kept a frontier, the physics query phys-b
+    it absorbed is certified through the amended helper's closed record 6."""
+    directory = Path(directory)
+    run = build_run(directory)
+    result = run / "result.json"
+    top = json.loads(result.read_text())
+    queries_path = directory / "queries.json"
+    queries = json.loads(queries_path.read_text())
+    queries["queries"].append({"id": "phys-b", "owner": "01", "lower": [0, 1], "upper": [0, 3],
+                               "max_numerator_rank": 1, "power_bounds": dict(POWER)})
+    queries_path.write_text(json.dumps(queries, indent=1) + "\n")
+    records = top["domains"]
+    records[1].update(frontiers=[{"kind": "local_dispatch_frontier", "disposition": "Unresolved { x }"}],
+                      local_classification_discharged=False, descendant_closed=False)
+    records.append(native(6, "Apply", "01", [0, 1], [0, 5], 1, apply_stats(1, 0)))
+    amendment = {"schema": AUDIT.AMENDMENT_SCHEMA, "sequence": 1, "parent": "b" * 64,
+                 "queries": [{"id": "helper-rescue1", "owner": "01", "lower": [0, 1], "upper": [0, 5],
+                              "max_numerator_rank": 1, "power_bounds": dict(POWER)}]}
+    amendment_path = directory / "amendment-0001.json"
+    amendment_path.write_text(json.dumps(amendment) + "\n")
+    top.update(status="incomplete", all_scheduled_domains_resolved=False, frontiers=1, scheduled_nodes=7,
+               processed_nodes=7, committed_domains=7, completed_nodes=6, native_processed_nodes=6, events=10,
+               committed_events=10, contiguous_publication_watermark=7,
+               inputs=[{"id": "root-a", "domain": 0}, {"id": "helper-b", "domain": 1}, {"id": "phys-b", "domain": 1},
+                       {"id": "helper-rescue1", "domain": 6, "amendment": 1}],
+               amendments=[{"sequence": 1, "digest": "a" * 64, "parent": "b" * 64, "queries": 1, "first_input": 3,
+                            "first_domain": 6, "quarantined": 1, "resumed_generation": 2}],
+               query_certification={"queries_total": 4, "queries_certified": 3})
+    top["checkpoint"].update(committed_domains=7, completed_native_inspections=6, committed_events=10,
+                             contiguous_publication_watermark=7)
+    top["parallel"]["returned_inspections"] = 6
+    top["delegation"].update(all_ledger_obligations_discharged=False, logical_publications=7,
+                             native_publications=6, native_discharged=5, native_frontier_blocked=1)
+    top["descendant_closure"].update(initial_closed=1, total_domains=7, total_closed=6, unresolved_domains=1)
+    if mutate is not None:
+        mutate(top)
+    write_walk(result, run / "events.jsonl", directory / "checkpoint", queries, top)
+    request = json.loads((run / "request.json").read_text())
+    command = request["command"]
+    command[command.index("--max-queries") + 1] = "3"
+    command[command.index("--max-query-bytes") + 1] = str(queries_path.stat().st_size)
+    command[command.index("--checkpoint")] = "--resume"
+    if amend:
+        command += ["--amend-queries", str(amendment_path)]
+    (run / "request.json").write_text(json.dumps(request, indent=1) + "\n")
+    return run
+
+
+class RescuedWalkAuditTests(unittest.TestCase):
+    def test_rescued_walk_certifies_physics_queries_through_amended_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_rescued_run(Path(temporary))
+            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            self.assertEqual(report["audit"], "PASS", report["violations"])
+            rescue = report["certification"]["rescue"]
+            self.assertEqual(rescue["physics_queries"], {"total": 2, "certified": 2,
+                                                         "certified_through_amended_records": 1, "uncertified": []})
+            self.assertEqual(rescue["helper_records"]["not_closed_ids"], [1])
+            self.assertEqual(rescue["amendments"], 1)
+
+    def test_rescued_walk_negative_controls(self):
+        cases = {
+            "amended record open": lambda top: top["domains"][6].update(descendant_closed=False),
+            "frontier record claims closure": lambda top: top["domains"][1].update(descendant_closed=True),
+            "chain count": lambda top: top["amendments"].append(dict(top["amendments"][0], sequence=2)),
+            "amended input moved": lambda top: top["inputs"][3].update(domain=0),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                run = build_rescued_run(Path(temporary), mutate)
+                report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+                self.assertEqual(report["audit"], "FAIL", name)
+        with tempfile.TemporaryDirectory() as temporary:
+            # The same result without the amendment in the command: frontiers are a violation.
+            run = build_rescued_run(Path(temporary), amend=False)
+            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            self.assertEqual(report["audit"], "FAIL")
+            self.assertTrue(any("nonzero frontiers" in v for v in report["violations"]), report["violations"])
+
+
 if __name__ == "__main__":
     unittest.main()

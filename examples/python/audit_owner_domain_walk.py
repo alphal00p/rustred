@@ -51,6 +51,10 @@ POOL_ZERO = ("active_workers", "occupied_native_slots", "dispatched_uncommitted_
              "finished_uncommitted_domains", "worker_buffered_events",
              "worker_buffered_logical_bytes", "completed_escrow_entries")
 TOP_ZERO = ("queued_nodes", "frontiers", "failed_nodes", "pending_descendant_domains")
+AMENDMENT_SCHEMA = "rustred.owner-domain-walk-amendment.json.v1"
+# An amended (rescued) walk may keep frontier-blocked obligations: the
+# frontier-bearing nodes and their ancestors are quarantined, never required.
+RESCUE_BLOCKED = ("native_frontier_blocked", "delegated_frontier_blocked", "partial_initial_blocked")
 POWER_FIELDS = ("max_positive_power", "min_power_difference", "max_power_difference")
 
 
@@ -520,7 +524,9 @@ def locate(run, queries=None, command=None, receipt=None):
     inspectors = flag_value(argv, "--inspection-workers")
     lookahead = flag_value(argv, "--transfer-unreserved-lookahead")
     checkpoint = flag_value(argv, "--checkpoint") or flag_value(argv, "--resume")
+    amendments = [Path(argv[index + 1]) for index, item in enumerate(argv[:-1]) if item == "--amend-queries"]
     return {"command": argv, "queries": Path(queries_path), "receipt": receipt_path,
+            "amendments": amendments,
             "policy": flag_value(argv, "--publication-policy", "ordered"),
             "workers": None if workers is None else int(workers),
             "inspection_workers": None if inspectors is None else int(inspectors),
@@ -622,6 +628,87 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
     return report
 
 
+def rescue_certification(run, top, queries, amended, documents, raw_inputs, query_count, inputs, amended_inputs,
+                         total, containment, helper_pattern, require_closure, check, request_digest=None):
+    """Rescued walk: amendment chain structure, amended inputs, per-physics-query certification.
+
+    A query is certified iff some input record (of an original or an amended
+    query, in input order) is descendant-closed, has the phase of the query's
+    own record and contains the query (the audit's own lattice predicate).
+    With closure required, every physics query (id not matching the helper
+    pattern) must be certified; helper records may stay open (a frontier-
+    bearing helper is quarantined, never required).
+    """
+    chain = top.get("amendments")
+    chain = chain if isinstance(chain, list) else []
+    check(len(chain) == len(documents), "rescued walk: result amendments != command --amend-queries")
+    for index, (link, document) in enumerate(zip(chain, documents)):
+        link = link if isinstance(link, dict) else {}
+        check(link.get("sequence") == document.get("sequence") == index + 1,
+              f"rescued walk: amendment {index + 1} sequence")
+        parent = request_digest if index == 0 else (chain[index - 1] or {}).get("digest")
+        check(document.get("parent") == link.get("parent") and (parent is None or link.get("parent") == parent),
+              f"rescued walk: amendment {index + 1} does not chain from its parent")
+        check(link.get("queries") == len(document.get("queries") or []),
+              f"rescued walk: amendment {index + 1} query count")
+        check(link.get("first_input") == query_count + sum(len(d.get("queries") or []) for d in documents[:index]),
+              f"rescued walk: amendment {index + 1} first_input")
+    check(len(amended_inputs) == len(amended), "rescued walk: amended inputs != amended queries")
+    for position, ((sequence, row), (query_id, record)) in enumerate(zip(amended, amended_inputs)):
+        entry = raw_inputs[query_count + position] if query_count + position < len(raw_inputs) else {}
+        check(query_id == row.get("id") and entry.get("amendment") == sequence,
+              f"rescued walk: amended input {position} is not amended query {row.get('id')!r}")
+        check(type(record) is int and 0 <= record < total, f"amended query {row.get('id')!r}: no record")
+    everything = [*((query, record) for query, (_, record) in zip(queries, inputs)),
+                  *((row, record) for (_, row), (_, record) in zip(amended, amended_inputs))]
+    needed = {record for _, record in everything if type(record) is int}
+    rows = {}
+    for item in stream_walk(run / "result.json"):
+        if item[0] == "domain" and item[1].get("id") in needed:
+            rows[item[1]["id"]] = item[1]
+    candidates = [(record, rows.get(record)) for _, record in everything]
+    for (query, record), (_, row) in zip(everything[len(queries):], candidates[len(queries):]):
+        if row is not None:
+            check(row.get("phase") in ("Apply", "Route") and containment(box_of(row), box_of(
+                query, "max_numerator_rank", row.get("phase"))),
+                  f"amended query {query.get('id')!r} is not contained in its record {record}")
+    physics = {"total": 0, "certified": 0, "certified_through_amended_records": 0, "uncertified": []}
+    helper_records = set()
+    for position, (query, record) in enumerate(everything):
+        own = rows.get(record)
+        if re.search(helper_pattern, str(query.get("id"))):
+            if type(record) is int:
+                helper_records.add(record)
+            continue
+        physics["total"] += 1
+        phase = own.get("phase") if own is not None else "Apply"
+        inner = box_of(query, "max_numerator_rank", phase)
+        via = next((index for index, (candidate, row) in enumerate(candidates)
+                    if row is not None and row.get("descendant_closed") is True and row.get("phase") == phase
+                    and inner is not None and containment(box_of(row), inner)), None)
+        if via is None:
+            if len(physics["uncertified"]) < 1000:
+                physics["uncertified"].append(query.get("id"))
+            if require_closure:
+                check(False, f"closure required: physics query {query.get('id')!r} has no closed containing record")
+            continue
+        physics["certified"] += 1
+        physics["certified_through_amended_records"] += via >= len(queries)
+    open_helpers = sorted(record for record in helper_records
+                          if (rows.get(record) or {}).get("descendant_closed") is not True)
+    engine = top.get("query_certification")
+    engine = engine if isinstance(engine, dict) else {}
+    check(engine.get("queries_total") == len(everything), "rescued walk: engine query_certification total")
+    return {"scope": "per physics query through the first descendant-closed input record that contains it "
+                     "(this audit's lattice predicate); helper records reported, not required",
+            "amendments": len(documents), "amended_queries": len(amended),
+            "digest_check": "blake3 chain verified by the native resume and walk-verify-closure",
+            "physics_queries": physics,
+            "helper_records": {"total": len(helper_records), "not_closed": len(open_helpers),
+                               "not_closed_ids": open_helpers[:1000]},
+            "engine_queries_certified": engine.get("queries_certified")}
+
+
 def _audit(run, located, audit, expect_schema, require_closure=False, containment=None,
            helper_pattern="anchor"):
     check = audit.check
@@ -635,6 +722,24 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     arity = len(queries[0]["owner"])
     check(all(len(query["owner"]) == arity for query in queries), "queries must share one owner arity")
     check(arity <= 62, "owner arity above 62 is not supported by the bounded audit")
+    # Frontier rescue (resume-time amendments, the W1 rescue note): the
+    # command's --amend-queries files in chain order. Their byte digests are
+    # blake3-chained and checked by the native resume and walk-verify-closure;
+    # here the chain structure the result reports, the amended rows, their
+    # input records (containment) and the per-physics-query certification.
+    amended = []
+    amendment_documents = []
+    for path in located.get("amendments", []):
+        document = read_json(path)
+        check(document.get("schema") == AMENDMENT_SCHEMA, f"amendment {path}: schema != {AMENDMENT_SCHEMA}")
+        amendment_documents.append(document)
+        rows = document.get("queries")
+        check(isinstance(rows, list), f"amendment {path}: queries must be a list")
+        for row in rows if isinstance(rows, list) else []:
+            amended.append((document.get("sequence"), row))
+    rescue = bool(amendment_documents)
+    check(len({query["id"] for query in queries} | {row.get("id") for _, row in amended})
+          == len(queries) + len(amended), "amended query ids must be unique across the chain and the queries")
     # Aliased queries share a record, so the distinct initial records are a
     # prefix of at most one record per query; retain that bounded prefix.
     query_count = len(queries)
@@ -709,8 +814,11 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             initial[identity] = row
         if code == DELEGATED:
             check(row.get("local_inspection_finished") is False, f"record {identity}: alias claims local inspection")
-            check(row.get("responsibility_status") == "discharged_by_representative",
+            status = row.get("responsibility_status")
+            blocked = (rescue and isinstance(status, dict) and set(status) == {"blocked_by_representative_frontiers"})
+            check(status == "discharged_by_representative" or blocked,
                   f"record {identity}: alias responsibility_status")
+            check(not (blocked and claim is True), f"record {identity}: frontier-blocked alias reported closed")
             check(row.get("containment_authority") == NATIVE_AUTHORITY, f"record {identity}: alias containment authority")
             representative, resolved = row.get("representative_id"), row.get("final_representative_id")
             if check(type(representative) is int and representative > identity and type(resolved) is int and resolved >= 0,
@@ -733,16 +841,29 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         check(not (claim is True and (error is not None or frontiers != [])),
               f"record {identity}: descendant_closed despite a frontier or error")
         check(error is None, f"record {identity}: native error recorded")
-        check(frontiers == [], f"record {identity}: nonzero frontiers")
-        check(row.get("local_classification_discharged") is True, f"record {identity}: classification not discharged")
+        if rescue:
+            # Frontiers stay explicit, never closed; a frontier-free native
+            # is still discharged (its seal does not depend on the taint).
+            check(isinstance(frontiers, list), f"record {identity}: frontiers must be a list")
+            parity["rescue_frontier_records"] += frontiers != []
+            if code == NATIVE:
+                check(row.get("local_classification_discharged") is (frontiers == []),
+                      f"record {identity}: classification discharge != frontier-free")
+        else:
+            check(frontiers == [], f"record {identity}: nonzero frontiers")
+            check(row.get("local_classification_discharged") is True, f"record {identity}: classification not discharged")
         if code == NATIVE:
             check(row.get("local_inspection_finished") is True, f"record {identity}: native inspection unfinished")
         else:
             check(phase == "Apply", f"record {identity}: partial inspection outside Apply")
             check(row.get("local_inspection_finished") is False, f"record {identity}: partial claims full inspection")
             check(row.get("residual_inspection_finished") is True, f"record {identity}: residual inspection unfinished")
-            check(row.get("responsibility_status") == "discharged_by_residual_and_initial_anchor",
+            status = row.get("responsibility_status")
+            blocked = (rescue and isinstance(status, dict)
+                       and set(status) == {"blocked_by_residual_or_initial_anchor_frontiers"})
+            check(status == "discharged_by_residual_and_initial_anchor" or blocked,
                   f"record {identity}: partial responsibility_status")
+            check(not (blocked and claim is True), f"record {identity}: frontier-blocked partial reported closed")
             link = row.get("initial_overlap")
             link = link if isinstance(link, dict) else {}
             check(link.get("coordinates_and_rank_unchanged") is True, f"record {identity}: partial overlap changed coordinates")
@@ -798,7 +919,12 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     # (checked below); a later query may alias into an admitted record, so the
     # first query naming a record is the one that admitted it.
     inputs = top.get("inputs")
-    inputs = [(entry["id"], entry["domain"]) for entry in inputs] if isinstance(inputs, list) else []
+    raw_inputs = inputs if isinstance(inputs, list) else []
+    inputs = [(entry["id"], entry["domain"]) for entry in raw_inputs]
+    # Amended inputs follow the original ones (chain order); only the original
+    # queries admit the initial prefix.
+    amended_inputs = inputs[query_count:] if rescue else []
+    inputs = inputs[:query_count] if rescue else inputs
     admitting = {}
     for query_id, record in inputs:
         admitting.setdefault(record, query_id)
@@ -831,11 +957,20 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
                           f"record {identity}: partial anchor is not a same-owner Apply native inspection")
     native_count = sum(native_phases.values())
     check(native_count == total - kind_counts["delegated_not_inspected"], "native/alias partition mismatch")
-    check(top.get("status") == "locally_resolved" and top.get("error") is None, "walk status is not locally_resolved")
-    check(top.get("all_scheduled_domains_resolved") is True, "not all scheduled domains resolved")
+    if rescue:
+        # A rescued walk drains with its quarantined frontiers explicit.
+        frontier_free = top.get("frontiers") == 0
+        check(top.get("status") == ("locally_resolved" if frontier_free else "incomplete")
+              and top.get("error") is None, "rescued walk status is not locally_resolved/incomplete by frontiers")
+        check(top.get("all_scheduled_domains_resolved") is frontier_free,
+              "rescued walk all_scheduled_domains_resolved != frontier-free")
+    else:
+        check(top.get("status") == "locally_resolved" and top.get("error") is None, "walk status is not locally_resolved")
+        check(top.get("all_scheduled_domains_resolved") is True, "not all scheduled domains resolved")
     check(top.get("recursive_worklist_exhausted") is True, "recursive worklist not exhausted")
     for field in TOP_ZERO:
-        check(top.get(field) == 0, f"{field} must be 0")
+        if not (rescue and field == "frontiers"):
+            check(top.get(field) == 0, f"{field} must be 0")
     check(top.get("input_frontiers") == [], "input_frontiers must be empty")
     carried = resumed_attempts(located["resumed"], top.get("uncommitted_inspections"), kinds, check)
     for field in ("scheduled_nodes", "processed_nodes", "committed_domains"):
@@ -899,7 +1034,11 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     closure = top.get("descendant_closure")
     closure = closure if isinstance(closure, dict) else {}
     available = closure.get("available") is True
-    if require_closure:
+    if require_closure and rescue:
+        # Rescued walk: per physics query, below (the quarantined frontier
+        # cones stay open by construction).
+        check(available, "closure required: descendant closure unavailable")
+    elif require_closure:
         # Every certified root needs an exhausted, frontier-free, error-free
         # cone; the checks above make that global, so every node must be closed.
         check(available, "closure required: descendant closure unavailable")
@@ -935,19 +1074,35 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         "queries": {label: dict(counts) for label, counts in sorted(roles.items())},
         "record_closed_claims": dict(closed_claims),
     }
+    if rescue:
+        certification["rescue"] = rescue_certification(
+            run, top, queries, amended, amendment_documents, raw_inputs, query_count, inputs, amended_inputs,
+            total, containment, helper_pattern, require_closure, check)
     ledger = top.get("delegation")
     ledger = ledger if isinstance(ledger, dict) else {}
-    check(ledger.get("all_ledger_obligations_discharged") is True, "ledger obligations not discharged")
+    blocked = {field: ledger.get(field) for field in RESCUE_BLOCKED} if rescue else {}
+    blocked_total = sum(value for value in blocked.values() if type(value) is int)
+    check(ledger.get("all_ledger_obligations_discharged") is (blocked_total == 0),
+          "ledger obligations not discharged" if not rescue
+          else "rescued walk: ledger discharge != no frontier-blocked obligation")
     check(ledger.get("logical_publications") == total, "ledger logical_publications != records")
-    check(ledger.get("native_publications") == ledger.get("native_discharged") == native_count,
+    check(ledger.get("native_publications") == native_count
+          and type(ledger.get("native_discharged")) is int
+          and ledger.get("native_discharged") + (blocked.get("native_frontier_blocked") or 0) == native_count,
           "ledger native publications/discharges != native records")
-    check(ledger.get("delegated_publications") == ledger.get("delegated_resolved")
-          == ledger.get("transferred_obligations") == kind_counts["delegated_not_inspected"],
+    check(ledger.get("delegated_publications") == ledger.get("transferred_obligations")
+          == kind_counts["delegated_not_inspected"]
+          and ledger.get("delegated_resolved") == kind_counts["delegated_not_inspected"]
+          - (blocked.get("delegated_frontier_blocked") or 0),
           "ledger delegated counts != alias records")
     check(ledger.get("partial_initial_inspections") == kind_counts["partial_initial_overlap_inspection"],
           "ledger partial_initial_inspections != partial records")
     for field in LEDGER_ZERO:
-        check(ledger.get(field) == 0, f"ledger {field} must be 0")
+        if not (rescue and field in RESCUE_BLOCKED):
+            check(ledger.get(field) == 0, f"ledger {field} must be 0")
+    if rescue:
+        check((blocked.get("native_frontier_blocked") or 0) >= parity["rescue_frontier_records"],
+              "rescued walk: native_frontier_blocked < frontier-bearing native records")
     pool = top.get("parallel")
     pool = pool if isinstance(pool, dict) else {}
     # Attempt counters accumulate across checkpoint sessions. A paused session
