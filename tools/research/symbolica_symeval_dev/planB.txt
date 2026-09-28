@@ -1,0 +1,12 @@
+# symeval-dev session B (socket 1): gen-7 pending sample, cost order, pinned.
+# b = thread-owned Symbolica contexts + context seals (fable_5_1-symeval bf6195c7), shared owner programs, no replicas;
+# a = session A binary (anchor for cross-session comparison).
+b-k1     128      1 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+b-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+b-k24    128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k1     128      1 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+b-k96-r2 128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+b-k24-r2 128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+b-k1-r2  128      1 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-b-4a226c590d8d REPLICAS=1 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+c-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=12 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl

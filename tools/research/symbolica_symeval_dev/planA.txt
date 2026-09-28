@@ -1,0 +1,16 @@
+# symeval-dev session A (socket 1): gen-7 pending sample (9,000 natives), cost order, pinned.
+# a = shared owner programs (today's design), Symbolica dev 445b882d + 939c4de8 + 7b31114c, RustRed f05875b3 unchanged;
+# c = same binary with RUSTRED_HARNESS_REPLICAS (per-CCX private copies: 12 at K=96, 3 at K=24).
+a-k1     128      1 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+c-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=12 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k24    128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+c-k24    128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=3 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+c-k96-r2 128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=12 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k96-r2 128-223 96 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+c-k24-r2 128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=3 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k24-r2 128-151 24 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+a-k1-r2  128      1 none glibc BIN=/common/dev/rustred/TMP/symbolica-main/symeval-dev/bin/harness-a-6eca1a175620 REPLICAS=1 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+# o = W0.3 binary A (vendored Symbolica 953e26e2 + heap-pow patch, RustRed harness 8cd6fcda-era): pre-fix reference, same session
+o-k96    128-223 96 none glibc BIN=/common/dev/rustred/TMP/w0/harness/bin/rustred_app-harness-A-e168c1f03382 PASSES=4 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
+o-k1     128      1 none glibc BIN=/common/dev/rustred/TMP/w0/harness/bin/rustred_app-harness-A-e168c1f03382 SUBSET=0/2 ORDER=cost:/common/dev/rustred/TMP/w0/harness/pilot/gen7-k16-A/natives.jsonl
