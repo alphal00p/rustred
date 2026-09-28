@@ -699,6 +699,25 @@ mod tests {
                     };
                     targets.push(target);
                 }
+                if rng.below(2) == 0 {
+                    // A complementary pair split on an axis or in D: together
+                    // they cover q (or leave a one-layer gap), and in general
+                    // neither does alone.
+                    let gap = rng.below(3) == 0;
+                    let (mut low, mut high) = (q.clone(), q.clone());
+                    if rng.below(2) == 0 {
+                        let axis = rng.below(n as u64) as usize;
+                        let cut = q.lower[axis] + rng.below(3);
+                        low.upper[axis] = Some(cut);
+                        high.lower[axis] = cut + 1 + u64::from(gap);
+                    } else {
+                        let cut = rng.below(9) as i64 - 3;
+                        low.powers.max_power_difference = Some(cut);
+                        high.powers.min_power_difference = Some(cut + 1 + i64::from(gap));
+                    }
+                    targets.push(low);
+                    targets.push(high);
+                }
                 let refs: Vec<&Cell> = targets.iter().collect();
                 let truth = window
                     .iter()
