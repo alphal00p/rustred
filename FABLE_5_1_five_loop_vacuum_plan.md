@@ -433,3 +433,11 @@ pass at every commit; new tests accompany each package. Push to
   8da5839023532400299f35b8d66ca951d5dce4b876d63a04be76cc76f6b76b8c: strict Ordered identity with 4a17f9c7 on
   FG/BMW/H/X W6, four-all and four-all-p5 W6 and C-5F W16, and merged-verifier PASS with every root independently
   verified on each [M `TMP/integrator/identity-g3`]. ERRATA sections added to the master plan and the v3 note.
+- 2026-09-28 ~12:45-12:55 UTC: owner: give the launch command once the campaign has a realistic shot at finishing
+  (no longer "out of ideas"); do not overdo projections, launch a stable version, then monitor and iterate. A frontier
+  with a known rescue must never end the campaign (stop = pause; resume-time rescue keeps certified progress). At the
+  wall: stop and deliver. Gate scoring interleaved and load-matched, not overly strict. Orchestrator picks: I1 not
+  shipped for the launch; G2' required on any launched engine; RAM admission counts reclaimable ARC; both four-all
+  identity rows; restore time is a target. Launch Candidate 1 = legacy engine + SoA kernel + retire-swap fix +
+  [profile.campaign] + production G2' + frontier rescue + frontier stop + RAM guard + plan-v3 inputs (+ rebuilt I2
+  if it passes); the epoch engine continues as the next upgrade.

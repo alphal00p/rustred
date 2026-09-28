@@ -4844,3 +4844,6 @@ patch), I2 rebuilt and re-gated with a total-work cap, D7 always stop, D8 symbol
 items stay provisional or open and carry into W1/W2). The W0 lanes and W1.1/W1.4 (kernel, ops) are merged into
 `fable_5_1`; the merged legacy binary (sha256 8da58390...) keeps strict Ordered identity with 4a17f9c7 on C-4L,
 four-all, four-all-p5 and C-5F. Errata to the master plan and the v3 note: their section 11.
+Owner direction 2026-09-28 ~12:55 UTC: launch a stable Launch Candidate 1 (legacy engine + kernel + G2' + frontier
+rescue + campaign build) as soon as its key features pass their gates; then monitor the running campaign and let its
+performance decide the next improvements (epoch engine continues in parallel). Rescuable frontiers never end the run.
