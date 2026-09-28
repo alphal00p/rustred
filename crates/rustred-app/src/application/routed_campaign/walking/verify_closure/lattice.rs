@@ -658,7 +658,7 @@ mod tests {
         let (mut covered, mut union_only, mut uncovered) = (0, 0, 0);
         for n in 1..=3usize {
             let window = window_points(n);
-            for _ in 0..3000 {
+            for _ in 0..5000 {
                 let owner: Vec<bool> = (0..n).map(|_| rng.below(2) == 1).collect();
                 let q = random_cell(&mut rng, &owner);
                 if !(q.for_each_point(u64::MAX, |_| true).is_some()
@@ -699,15 +699,21 @@ mod tests {
                     };
                     targets.push(target);
                 }
-                if rng.below(2) == 0 {
+                if rng.below(3) != 0 {
                     // A complementary pair split on an axis or in D: together
                     // they cover q (or leave a one-layer gap), and in general
                     // neither does alone.
                     let gap = rng.below(3) == 0;
                     let (mut low, mut high) = (q.clone(), q.clone());
-                    if rng.below(2) == 0 {
-                        let axis = rng.below(n as u64) as usize;
-                        let cut = q.lower[axis] + rng.below(3);
+                    // Split strictly inside q's range on an axis where q
+                    // spans several values, so both halves are proper.
+                    let splittable: Vec<usize> = (0..n)
+                        .filter(|&a| q.upper[a].is_some_and(|u| u > q.lower[a]))
+                        .collect();
+                    if !splittable.is_empty() && rng.below(3) != 0 {
+                        let axis = splittable[rng.below(splittable.len() as u64) as usize];
+                        let span = q.upper[axis].expect("splittable") - q.lower[axis];
+                        let cut = q.lower[axis] + rng.below(span);
                         low.upper[axis] = Some(cut);
                         high.lower[axis] = cut + 1 + u64::from(gap);
                     } else {
