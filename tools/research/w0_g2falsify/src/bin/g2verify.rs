@@ -12,7 +12,9 @@
 //! n = x+1 active / n = -x inactive convention). The enumerated point count
 //! must equal the DP count of lib.rs `points`. Stamps, owners and kinds are
 //! the Python audit's job (--g2-residual-anchors). Verdict PASS iff no
-//! uncovered point, no count mismatch and no unverifiable record.
+//! uncovered point, no count mismatch and every union record enumerated
+//! (band records that cannot be enumerated are left to the audit's exact
+//! single-anchor slice containment and reported).
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use w0_g2falsify::*;
@@ -126,6 +128,7 @@ fn main() {
     let (mut checked, mut points_checked, mut uncovered, mut mismatched, mut unverifiable) =
         (0u64, 0u128, 0u64, 0u64, 0u64);
     let (mut union_records, mut band_records) = (0u64, 0u64);
+    let mut band_unverifiable = 0u64;
     let mut failures: Vec<Value> = Vec::new();
     for job in &jobs {
         let n = job.q.owner.len();
@@ -133,7 +136,11 @@ fn main() {
         high.min_power_difference = Some(high.min_power_difference.map_or(job.cut, |m| m.max(job.cut)));
         let expected = points(&job.q.owner, &job.q.lower, &job.q.upper, job.q.rank, high);
         let Some(expected) = expected.filter(|&p| p <= max_points) else {
-            unverifiable += 1;
+            if job.union.is_some() {
+                unverifiable += 1;
+            } else {
+                band_unverifiable += 1;
+            }
             continue;
         };
         let get = |id: u64| anchors.get(&id).filter(|a| a.owner == job.q.owner);
@@ -167,7 +174,11 @@ fn main() {
             }
         });
         if !ok {
-            unverifiable += 1;
+            if job.union.is_some() {
+                unverifiable += 1;
+            } else {
+                band_unverifiable += 1;
+            }
             continue;
         }
         checked += 1;
@@ -197,7 +208,9 @@ fn main() {
         "points_checked": points_checked as f64,
         "uncovered_points": uncovered,
         "count_mismatches": mismatched,
-        "unverifiable_records": unverifiable,
+        "unverifiable_union_records": unverifiable,
+        "band_records_not_enumerable": band_unverifiable,
+        "band_records_not_enumerable_scope": "infinite or >max-points or coordinate >= 63 band slices; their single-anchor slice containment is exact in the Python audit (--g2-residual-anchors)",
         "max_points_per_record": max_points as f64,
         "failures": failures,
         "verdict": verdict,
