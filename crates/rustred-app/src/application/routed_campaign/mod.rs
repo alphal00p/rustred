@@ -29,12 +29,12 @@ pub use walking::{
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkAmendment, OwnerDomainWalkApplySubdivision,
     OwnerDomainWalkCheckpointOptions, OwnerDomainWalkFrontierPolicy,
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-    OwnerDomainWalkRescuePlan, OwnerDomainWalkRescuePlanOptions, OwnerDomainWalkResult,
-    OwnerDomainWalkSchedulingPolicy, OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
-    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
-    OwnerDomainWalkVerifyScope, WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
-    owner_domain_walk_rescue_plan, owner_domain_walk_verify_closure,
-    owner_domain_walk_with_progress,
+    OwnerDomainWalkRescuePlan, OwnerDomainWalkRescuePlanOptions, OwnerDomainWalkRescueScope,
+    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerDomainWalkVerifyMutation,
+    OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReferenceLevers,
+    OwnerDomainWalkVerifyReinspect, OwnerDomainWalkVerifyScope,
+    WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION, owner_domain_walk_rescue_plan,
+    owner_domain_walk_verify_closure, owner_domain_walk_with_progress,
 };
 #[cfg(test)]
 mod tests;

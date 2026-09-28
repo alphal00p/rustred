@@ -374,7 +374,7 @@ USAGE:
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
     rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
-    rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-pattern TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
+    rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-pattern TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]

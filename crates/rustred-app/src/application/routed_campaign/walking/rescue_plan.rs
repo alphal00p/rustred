@@ -44,6 +44,7 @@ use std::path::PathBuf;
 
 const FLAG_SEALED: u8 = 1;
 const FLAG_INSPECTED: u8 = 2;
+const FLAG_CLOSED: u8 = 4;
 pub const OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA: &str = "rustred.walk-rescue-plan.json.v1";
 const MAX_EXAMPLES: usize = 20;
 
@@ -57,6 +58,20 @@ pub struct OwnerDomainWalkRescuePlanOptions {
     pub rescue_helpers_json: Option<String>,
     /// A helper domain may be added by at most this many amendments.
     pub max_repeats: usize,
+    /// Which helper roots a rescue retires (see `OwnerDomainWalkRescueScope`).
+    pub scope: OwnerDomainWalkRescueScope,
+}
+
+/// `Class` (default): every open helper root unbounded in a dimension of an
+/// observed known frontier class is superseded (retired as a live root) and
+/// every physics query it held gets a bounded helper, so no live cone can
+/// route unbounded descendants of that class again. `Tainted`: only the
+/// physics queries whose roots reach a frontier are re-covered (minimal, but
+/// live unbounded helpers can cascade new frontiers of the same class).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerDomainWalkRescueScope {
+    Class,
+    Tainted,
 }
 
 impl OwnerDomainWalkRescuePlanOptions {
@@ -66,6 +81,7 @@ impl OwnerDomainWalkRescuePlanOptions {
             helper_pattern: "anchor".into(),
             rescue_helpers_json: None,
             max_repeats: 3,
+            scope: OwnerDomainWalkRescueScope::Class,
         }
     }
 }
@@ -93,6 +109,9 @@ pub fn owner_domain_walk_rescue_plan(
 enum Class {
     UnboundedRank,
     UnboundedPositivePower,
+    /// An obligation an earlier rescue abandoned (dead cone): not a frontier
+    /// of the walk, only its bookkeeping; it needs no rescue.
+    Abandoned,
     Unknown,
 }
 
@@ -101,6 +120,7 @@ impl Class {
         match self {
             Self::UnboundedRank => "unbounded_rank_guard",
             Self::UnboundedPositivePower => "unbounded_positive_power_guard",
+            Self::Abandoned => "rescue_abandoned",
             Self::Unknown => "unknown",
         }
     }
@@ -176,12 +196,34 @@ fn plan<const N: usize>(
     let total = raw.domains.len();
     let domain = |id: usize| raw.domains[id].expand();
     // Frontier-bearing natives: inspected and unsealed.
-    let frontier_nodes: Vec<usize> = (0..total)
+    let mut frontier_nodes: Vec<usize> = (0..total)
         .filter(|&id| {
             let flag = raw.flags.get(id).copied().unwrap_or(0);
             flag & FLAG_INSPECTED != 0 && flag & FLAG_SEALED == 0
         })
         .collect();
+    // Inspections whose accepted, uncommitted prefix already holds frontiers
+    // (the A10 stop can fire inside a chunked publication).
+    let mut pending: BTreeMap<usize, Vec<(String, String)>> = BTreeMap::new();
+    for (id, details) in &raw.pending_frontiers {
+        if *id < total {
+            pending
+                .entry(*id)
+                .or_default()
+                .extend(details.iter().map(|f| {
+                    (
+                        f["kind"].as_str().unwrap_or("").to_owned(),
+                        f["disposition"].as_str().unwrap_or("").to_owned(),
+                    )
+                }));
+        }
+    }
+    for id in pending.keys() {
+        if !frontier_nodes.contains(id) {
+            frontier_nodes.push(*id);
+        }
+    }
+    frontier_nodes.sort_unstable();
     let wanted: BTreeSet<usize> = frontier_nodes.iter().copied().collect();
     // Their frontier records (kind and disposition of every entry).
     let mut entries: BTreeMap<usize, Vec<(String, String)>> = BTreeMap::new();
@@ -218,6 +260,9 @@ fn plan<const N: usize>(
             entries.insert(id, list);
         }
     }
+    for (id, list) in pending {
+        entries.entry(id).or_default().extend(list);
+    }
     let mut classes = BTreeMap::<&str, usize>::new();
     let mut node_classes = BTreeMap::<usize, Class>::new();
     let mut examples = Vec::new();
@@ -230,7 +275,13 @@ fn plan<const N: usize>(
             && list.iter().all(|(kind, disposition)| {
                 kind == "local_dispatch_frontier" && disposition.starts_with("Unresolved")
             });
-        let class = if !known {
+        let abandoned = !list.is_empty()
+            && list
+                .iter()
+                .all(|(kind, _)| kind == super::inspection::RESCUE_ABANDONED_KIND);
+        let class = if abandoned {
+            Class::Abandoned
+        } else if !known {
             Class::Unknown
         } else if d.rank.is_none() {
             Class::UnboundedRank
@@ -308,6 +359,52 @@ fn plan<const N: usize>(
         .collect();
     let is_helper = |id: &str| id.contains(options.helper_pattern.as_str());
     let root_domains: Vec<Option<Domain<N>>> = roots.iter().map(|root| root.map(&domain)).collect();
+    let closed = |id: usize| raw.flags.get(id).is_some_and(|f| f & FLAG_CLOSED != 0);
+    let class_rank = node_classes
+        .values()
+        .any(|&class| class == Class::UnboundedRank);
+    let class_power = node_classes
+        .values()
+        .any(|&class| class == Class::UnboundedPositivePower);
+    // Root records already superseded by the chain.
+    let superseded_before: BTreeSet<&str> = amendments
+        .iter()
+        .flat_map(|a| a.supersede.iter().map(String::as_str))
+        .collect();
+    let records_of = |ids: &BTreeSet<&str>| -> BTreeSet<usize> {
+        all.iter()
+            .zip(&roots)
+            .filter(|(q, _)| ids.contains(q.id.as_str()))
+            .filter_map(|(_, root)| *root)
+            .collect()
+    };
+    // Class scope: every open helper root unbounded in a dimension of an
+    // observed known class is retired as a live root, so no live cone can
+    // route unbounded descendants of that class again (the minimal scope
+    // can cascade: live unbounded helpers keep admitting fresh unbounded
+    // domains into quarantined owners). Closed roots stay (fully certified).
+    let mut supersede: BTreeSet<&str> = BTreeSet::new();
+    if options.scope == OwnerDomainWalkRescueScope::Class {
+        let before = records_of(&superseded_before);
+        for (query, (root, root_domain)) in all.iter().zip(roots.iter().zip(&root_domains)) {
+            let (Some(root), Some(root_domain)) = (root, root_domain) else {
+                continue;
+            };
+            let unbounded = (class_rank && root_domain.rank.is_none())
+                || (class_power && root_domain.powers.max_positive_power.is_none());
+            if is_helper(&query.id)
+                && unbounded
+                && !closed(*root)
+                && !before.contains(root)
+                && !superseded_before.contains(query.id.as_str())
+            {
+                supersede.insert(query.id.as_str());
+            }
+        }
+    }
+    let mut retired_ids = superseded_before.clone();
+    retired_ids.extend(supersede.iter().copied());
+    let retired = records_of(&retired_ids);
     let mut blocked = Vec::new();
     let mut physics_total = 0usize;
     for (index, query) in all.iter().enumerate() {
@@ -318,13 +415,16 @@ fn plan<const N: usize>(
         let Some(probe) = query_domain::<N>(query) else {
             continue;
         };
+        // Covered: a closed containing root, or one that is neither tainted
+        // nor retired (it can still close).
         let covered = roots.iter().zip(&root_domains).any(|(root, root_domain)| {
             let (Some(root), Some(root_domain)) = (root, root_domain) else {
                 return false;
             };
             let mut probe = probe.clone();
             probe.phase = root_domain.phase;
-            !tainted[*root] && rescue::contains(root_domain, &probe)
+            (closed(*root) || (!tainted[*root] && !retired.contains(root)))
+                && rescue::contains(root_domain, &probe)
         });
         if !covered {
             blocked.push(index);
@@ -387,7 +487,12 @@ fn plan<const N: usize>(
             amendment: None,
         });
     }
-    if blocked.is_empty() {
+    plan["superseded"] = json!(supersede.iter().collect::<Vec<_>>());
+    plan["rescue_scope"] = json!(match options.scope {
+        OwnerDomainWalkRescueScope::Class => "class",
+        OwnerDomainWalkRescueScope::Tainted => "tainted",
+    });
+    if blocked.is_empty() && supersede.is_empty() {
         plan["verdict"] = json!("no_amendment_needed");
         plan["reason"] = json!(
             "every physics query still has an input root outside the frontier taint; resume without a new amendment"
@@ -506,7 +611,7 @@ fn plan<const N: usize>(
         .map(|(_, source, id, _)| (id.as_str(), *source))
         .collect();
     let amendment = json!({"schema":rescue::AMENDMENT_SCHEMA,"sequence":sequence,"parent":parent,
-        "queries":rows,
+        "queries":rows,"supersede":supersede.iter().collect::<Vec<_>>(),
         "provenance":{"generator":"rustred walk-rescue-plan","plan_schema":OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA,
             "checkpoint_generation":raw.generation,"classes":plan["classes"].clone(),
             "frontier_nodes":frontier_nodes.len(),"helper_pattern":options.helper_pattern,
@@ -518,13 +623,14 @@ fn plan<const N: usize>(
     let digest = blake3::hash(text.as_bytes()).to_hex().to_string();
     plan["verdict"] = json!("rescue");
     plan["reason"] = json!(format!(
-        "{} physics quer{} blocked by frontier taint of known class; {} rescue helper(s) proposed",
+        "{} physics quer{} blocked by a frontier of known class; {} open helper root(s) of that class superseded; {} rescue helper(s) proposed",
         blocked.len(),
         if blocked.len() == 1 { "y" } else { "ies" },
+        supersede.len(),
         chosen.len()
     ));
     plan["amendment"] = json!({"sequence":sequence,"parent":parent,"digest":digest,
-        "queries":rows.len(),"helpers":chosen.iter().map(|(helper, source, id, covered)| json!({
+        "queries":rows.len(),"supersede":supersede.len(),"helpers":chosen.iter().map(|(helper, source, id, covered)| json!({
             "id":id,"owner":mask(&helper.owner),"rank":helper.rank,
             "max_positive_power":helper.powers.max_positive_power,"source":source,"covers":covered})).collect::<Vec<_>>()});
     Ok(OwnerDomainWalkRescuePlan {

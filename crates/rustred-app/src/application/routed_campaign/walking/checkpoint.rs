@@ -1014,6 +1014,9 @@ pub(super) struct RawCheckpoint<const N: usize> {
     pub verify_seconds: f64,
     /// The rescue amendment chain of the generation (`rescue.rs`).
     pub amendments: Vec<super::rescue::AmendmentRef>,
+    /// Frontier details accepted in an uncommitted prefix, by inspection ID
+    /// (an A10 stop can fire inside a chunked publication).
+    pub pending_frontiers: Vec<(usize, Vec<Value>)>,
 }
 
 pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint<N>, String> {
@@ -1073,6 +1076,19 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         .iter()
         .map(|segment| (directory.join(&segment.file), segment.count as usize))
         .collect();
+    let mut pending_frontiers = Vec::new();
+    if !meta.details.is_empty() {
+        let id = meta
+            .streams
+            .active
+            .map_or(meta.queue.next(), |ticket| ticket.parent);
+        pending_frontiers.push((id, meta.details.clone()));
+    }
+    for (ticket, context) in &meta.streams.parked {
+        if !context.frontier_details().is_empty() {
+            pending_frontiers.push((ticket.parent, context.frontier_details().to_vec()));
+        }
+    }
     Ok(RawCheckpoint {
         generation: manifest.generation,
         request: manifest.request.clone(),
@@ -1091,6 +1107,7 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         records,
         verify_seconds,
         amendments: manifest.amendments.clone(),
+        pending_frontiers,
     })
 }
 

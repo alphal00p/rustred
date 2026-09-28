@@ -300,6 +300,44 @@ fn inspect_options<const N: usize>(
     )
 }
 
+/// Frontier kind of a rescue-abandoned obligation (`rescue.rs`).
+pub(super) const RESCUE_ABANDONED_KIND: &str = "rescue_abandoned_dead_cone";
+
+/// A rescue-abandoned obligation: no live input root reaches it after a
+/// frontier rescue, so no query can certify through it. It is published
+/// without any native inspection, carrying one explicit frontier (so it
+/// never seals and nothing that reaches it can close) and no successor; the
+/// single accepted event is that frontier.
+pub(super) fn abandoned<const N: usize>(
+    domain: &Domain<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let _ = emit(Event::one(Effect::Frontier {
+        successor: false,
+        conditional: false,
+        value: json!({"kind":RESCUE_ABANDONED_KIND,
+            "reason":"frontier rescue: no live input root reaches this pending obligation; not inspected",
+            "reached_missing_rule_claim":false}),
+    }));
+    let stats = if domain.phase == Phase::Route {
+        NativeStats::Route(rustred::solver::CandidateDomainRouteStats {
+            events: 1,
+            ..Default::default()
+        })
+    } else {
+        NativeStats::Apply(OwnerAppliedStats {
+            events: 1,
+            ..Default::default()
+        })
+    };
+    Finished {
+        stats,
+        error: None,
+        error_kind: "none",
+        seconds: 0.0,
+    }
+}
+
 /// Reference inspection for the offline closure verifier: the unchanged
 /// native visitor with every walk lever off: no pre-admitted orthant
 /// shortcut, no job-local reuse cache, no initial-overlap planning and no

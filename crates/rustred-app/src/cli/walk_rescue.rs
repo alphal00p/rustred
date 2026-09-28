@@ -8,7 +8,9 @@ use super::args::{
 };
 use super::error::CliError;
 use super::io::{preflight_output_destination, read_bounded, write_output};
-use crate::{OwnerDomainWalkRescuePlanOptions, owner_domain_walk_rescue_plan};
+use crate::{
+    OwnerDomainWalkRescuePlanOptions, OwnerDomainWalkRescueScope, owner_domain_walk_rescue_plan,
+};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -21,6 +23,7 @@ pub(crate) struct WalkRescuePlanArgs {
     pub helper_pattern: String,
     pub rescue_helpers: Option<PathBuf>,
     pub max_repeats: usize,
+    pub scope: OwnerDomainWalkRescueScope,
     pub force: bool,
 }
 
@@ -35,6 +38,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         helper_pattern: defaults.helper_pattern,
         rescue_helpers: None,
         max_repeats: defaults.max_repeats,
+        scope: defaults.scope,
         force: false,
     };
     while let Some(option) = arguments.next() {
@@ -68,6 +72,20 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     "--max-repeats",
                     next_utf8_value(&mut arguments, "--max-repeats")?,
                 )?
+            }
+            "--rescue-scope" => {
+                let value = next_utf8_value(&mut arguments, "--rescue-scope")?;
+                args.scope = match value.as_str() {
+                    "class" => OwnerDomainWalkRescueScope::Class,
+                    "tainted" => OwnerDomainWalkRescueScope::Tainted,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--rescue-scope",
+                            value,
+                            expected: "class (default) or tainted",
+                        });
+                    }
+                };
             }
             "--force" => args.force = true,
             _ => return Err(ArgError::UnknownOption(option)),
@@ -103,6 +121,7 @@ pub(super) fn run(args: WalkRescuePlanArgs) -> Result<(), CliError> {
     let mut options = OwnerDomainWalkRescuePlanOptions::new(checkpoint);
     options.helper_pattern = args.helper_pattern.clone();
     options.max_repeats = args.max_repeats;
+    options.scope = args.scope;
     if let Some(path) = &args.rescue_helpers {
         let file = std::fs::File::open(path)
             .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;

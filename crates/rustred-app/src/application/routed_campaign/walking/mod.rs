@@ -67,7 +67,7 @@ pub use rescue::{
 };
 pub use rescue_plan::{
     OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA, OwnerDomainWalkRescuePlan,
-    OwnerDomainWalkRescuePlanOptions, owner_domain_walk_rescue_plan,
+    OwnerDomainWalkRescuePlanOptions, OwnerDomainWalkRescueScope, owner_domain_walk_rescue_plan,
 };
 pub use verify_closure::{
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
@@ -434,8 +434,9 @@ fn diagnostic_checkpoint<const N: usize>(
 /// One checkpoint opportunity of an A10 frontier stop. `trigger` holds the
 /// committed frontier count at session start (0 for a fresh walk, so initial
 /// input frontiers fire before any inspection; the restored count on
-/// resume). The first time the walk's count exceeds it, persist exactly that
-/// state (the frontier's record included) labelled with the stop reason,
+/// resume). The first time the walk's count exceeds it and no live inspection
+/// holds accepted but uncommitted frontier details (the frontier-bearing
+/// inspection has committed), persist exactly that state (its record included) labelled with the stop reason,
 /// journal the stop and cancel the way a stop request does; the walk's own
 /// final save after cancellation repeats the label. Taking `trigger` makes it
 /// fire at most once per session. Returns whether it fired.
@@ -448,7 +449,17 @@ fn frontier_stop_checkpoint<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<bool, String> {
-    let Some(baseline) = trigger.take_if(|baseline| state.frontiers > *baseline) else {
+    // Rescue (`rescue.rs`): an abandoned obligation's bookkeeping frontier
+    // and any frontier of a quarantined (non-live) inspection never stop the
+    // walk (0 in an unamended walk).
+    // The stop fires once the new frontier's inspection is committed: no
+    // live inspection may hold accepted but uncommitted frontier details (a
+    // stop inside a chunked stream would leave a half-published inspection
+    // whose resume must replay it).
+    let Some(baseline) = trigger.take_if(|baseline| {
+        state.frontiers.saturating_sub(state.rescue_quiet_frontiers) > *baseline
+            && !state.loud_frontier_prefix()
+    }) else {
         return Ok(false);
     };
     store.mark_stop_reason(work_policy::FRONTIER_STOP_REASON);
@@ -1258,6 +1269,7 @@ fn add_rescue_report<const N: usize>(
         return;
     };
     document["amendments"] = rescue::chain_json(store.amendments());
+    document["rescue_abandoned_domains_this_session"] = json!(state.rescue_abandoned);
     document["rescue_quarantined_domains"] = json!(
         (0..state.queue.domains.len())
             .filter(|&id| state.queue.is_quarantined(id))

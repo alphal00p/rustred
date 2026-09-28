@@ -86,6 +86,9 @@ pub(super) struct Parsed {
     pub digest: String,
     pub path: PathBuf,
     pub queries: Vec<query_input::Query>,
+    /// Input query ids whose root records stop being live roots (the class
+    /// rescue retires every open helper of the frontier's unbounded class).
+    pub supersede: Vec<String>,
 }
 
 fn is_digest(text: &str) -> bool {
@@ -112,7 +115,7 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
     if let Some(key) = object.keys().find(|k| {
         !matches!(
             k.as_str(),
-            "schema" | "sequence" | "parent" | "queries" | "provenance"
+            "schema" | "sequence" | "parent" | "queries" | "supersede" | "provenance"
         )
     }) {
         return Err(format!("amendment {name}: unknown field {key:?}"));
@@ -137,15 +140,31 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
     let rows = document["queries"]
         .as_array()
         .ok_or_else(|| format!("amendment {name}: queries must be an array"))?;
-    let text = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows}).to_string();
-    let queries = query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
-        .map_err(|e| format!("amendment {name}: {e}"))?;
+    let supersede = match document.get("supersede") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(ids)) => ids
+            .iter()
+            .map(|id| id.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("amendment {name}: supersede must list query ids"))?,
+        Some(_) => return Err(format!("amendment {name}: supersede must list query ids")),
+    };
+    // An amendment adds queries, supersedes roots, or both; never neither.
+    let queries = if rows.is_empty() && !supersede.is_empty() {
+        Vec::new()
+    } else {
+        let text =
+            json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows}).to_string();
+        query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
+            .map_err(|e| format!("amendment {name}: {e}"))?
+    };
     Ok(Parsed {
         sequence,
         parent,
         digest: amendment.digest(),
         path: amendment.path.clone(),
         queries,
+        supersede,
     })
 }
 
@@ -209,6 +228,14 @@ pub(super) fn check_chain(
                 amendment.digest,
                 saved.digest
             ));
+        }
+        for id in &amendment.supersede {
+            if !ids.contains(id.as_str()) {
+                return Err(format!(
+                    "amendment {} supersedes {id:?}, which is not an earlier query",
+                    amendment.path.display()
+                ));
+            }
         }
         for query in &amendment.queries {
             if !ids.insert(query.id.as_str()) {
@@ -345,18 +372,33 @@ pub(super) fn apply<const N: usize>(
     first_new: usize,
     observer: &impl Fn(Value),
 ) -> Result<(), String> {
-    let tainted = state.closure.borrow().tainted().ok_or(
-        "the frontier rescue needs the dependency monitor, which is unavailable in this checkpoint",
-    )?;
-    let quarantined = state.queue.install_quarantine(tainted)?;
+    // Frontier seeds: finished natives that kept frontiers (the tracker's
+    // inspected-unsealed nodes) and inspections whose accepted, uncommitted
+    // prefix already holds frontiers (an A10 stop inside a chunked stream).
+    let prefix_frontiers = frontier_seeds(state);
+    let tainted = state
+        .closure
+        .borrow()
+        .tainted_with(&prefix_frontiers)
+        .ok_or(
+            "the frontier rescue needs the dependency monitor, which is unavailable in this checkpoint",
+        )?;
+    // First the frontier taint and every superseded root record, so the
+    // amended queries never resolve into them (a superseded unbounded helper
+    // contains its owner's rescue helper).
+    let quarantined = tainted
+        .iter()
+        .map(|w| w.count_ones() as usize)
+        .sum::<usize>();
+    let mut first = tainted;
+    for record in superseded_records(inputs, amendments) {
+        if (record as usize) < state.queue.domains.len() {
+            first[record as usize / 64] |= 1 << (record % 64);
+        }
+    }
+    state.queue.install_quarantine(first)?;
     let resumed_generation = store.generation();
-    observer(
-        json!({"event":"rescue_quarantine","operation":"owner_domain_walk",
-        "quarantined_domains":quarantined,"admitted_domains":state.queue.domains.len(),
-        "amendments_recorded":store.amendments().len(),"amendments_new":amendments.len() - first_new,
-        "scope":"lookup quarantine of every node reaching a frontier-bearing native; certification unchanged",
-        "family_closure_claim":false}),
-    );
+    let recorded = store.amendments().len();
     let source_conditions = reducer.domain_routing_requires_source_conditions();
     for amendment in &amendments[first_new..] {
         let first_input = inputs.len();
@@ -401,6 +443,177 @@ pub(super) fn apply<const N: usize>(
             "first_input":first_input,"first_domain":first_domain,"family_closure_claim":false}),
         );
     }
+    abandon_dead_cones(
+        state,
+        inputs,
+        amendments,
+        quarantined,
+        recorded,
+        amendments.len() - first_new,
+        observer,
+    )
+}
+
+/// The root records of every query a chain amendment supersedes.
+fn superseded_records(inputs: &[Value], amendments: &[Parsed]) -> std::collections::BTreeSet<u64> {
+    let ids: std::collections::BTreeSet<&str> = amendments
+        .iter()
+        .flat_map(|a| a.supersede.iter().map(String::as_str))
+        .collect();
+    inputs
+        .iter()
+        .filter(|input| input["id"].as_str().is_some_and(|id| ids.contains(id)))
+        .filter_map(|input| input["domain"].as_u64())
+        .collect()
+}
+
+/// Bitset of the inspections whose accepted, uncommitted prefix holds frontiers.
+fn frontier_seeds<const N: usize>(state: &super::execution::State<N>) -> Vec<u64> {
+    let mut seeds = vec![0u64; state.queue.domains.len().div_ceil(64)];
+    for id in state.frontier_prefix_holders() {
+        if id < state.queue.domains.len() {
+            seeds[id / 64] |= 1 << (id % 64);
+        }
+    }
+    seeds
+}
+
+/// Liveness after the amendments: every node reachable over recorded edges
+/// from an untainted input root (original or amended) is live. An
+/// unpublished obligation no live root reaches is dead: no query can certify
+/// through it. Dead obligations and every node reaching one join the
+/// quarantine; dead, non-delegated obligations without a restored partial
+/// prefix are abandoned (published without inspection, one bookkeeping
+/// frontier each); a dead obligation with a partial prefix is inspected and
+/// every domain it newly admits dies with it (`Queue::mark_dead`). Live
+/// nodes are never quarantined (a node reaching a dead or frontier node
+/// would make its root reach it).
+fn abandon_dead_cones<const N: usize>(
+    state: &mut super::execution::State<N>,
+    inputs: &[Value],
+    amendments: &[Parsed],
+    tainted: usize,
+    recorded: usize,
+    new: usize,
+    observer: &impl Fn(Value),
+) -> Result<(), String> {
+    let unavailable = "the frontier rescue could not reserve its liveness scratch";
+    // Superseded root records (the class rescue) are not live roots, even
+    // when another query (a physics query absorbed by the helper) names them.
+    let superseded_ids: std::collections::BTreeSet<&str> = amendments
+        .iter()
+        .flat_map(|a| a.supersede.iter().map(String::as_str))
+        .collect();
+    let superseded: std::collections::BTreeSet<u64> = inputs
+        .iter()
+        .filter(|input| {
+            input["id"]
+                .as_str()
+                .is_some_and(|id| superseded_ids.contains(id))
+        })
+        .filter_map(|input| input["domain"].as_u64())
+        .collect();
+    let roots: Vec<usize> = inputs
+        .iter()
+        .filter_map(|input| input["domain"].as_u64())
+        .filter(|id| !superseded.contains(id))
+        .map(|id| id as usize)
+        .filter(|&id| id < state.queue.domains.len() && !state.queue.is_quarantined(id))
+        .collect();
+    let total = state.queue.domains.len();
+    let words = total.div_ceil(64);
+    let bit = |bits: &[u64], id: usize| bits.get(id / 64).is_some_and(|w| w >> (id % 64) & 1 != 0);
+    let set = |bits: &mut [u64], id: usize| bits[id / 64] |= 1 << (id % 64);
+    let closure = state.closure.borrow();
+    let live = closure
+        .reachable_from(roots.iter().copied())
+        .ok_or(unavailable)?;
+    let mut sources = vec![0u64; words];
+    let _ = closure.try_for_each_edge(|source, _| {
+        if source < total {
+            sources[source / 64] |= 1 << (source % 64);
+        }
+        std::ops::ControlFlow::<()>::Continue(())
+    });
+    for id in state.accepted_prefix_holders() {
+        if id < total {
+            sources[id / 64] |= 1 << (id % 64);
+        }
+    }
+    let ledger = state.queue.delegation.as_ref();
+    let mut dead = vec![0u64; words];
+    let mut abandon = vec![0u64; words];
+    let (mut dead_count, mut abandoned, mut partial, mut delegated) =
+        (0usize, 0usize, 0usize, 0usize);
+    for id in 0..total {
+        let published = ledger.map_or(id < state.queue.next, |l| l.is_published(id));
+        if published || bit(&live, id) {
+            continue;
+        }
+        if let Some(mut to) = ledger.and_then(|l| l.delegated_to(id)) {
+            // An unpublished alias of a live representative is live: it will
+            // seal through it.
+            while let Some(next) = ledger.and_then(|l| l.delegated_to(to)) {
+                to = next;
+            }
+            if bit(&live, to) {
+                continue;
+            }
+            set(&mut dead, id);
+            dead_count += 1;
+            delegated += 1;
+            continue;
+        }
+        set(&mut dead, id);
+        dead_count += 1;
+        if bit(&sources, id) {
+            partial += 1;
+        } else {
+            set(&mut abandon, id);
+            abandoned += 1;
+        }
+    }
+    let mut seeds = frontier_seeds(state);
+    seeds.resize(words.max(seeds.len()), 0);
+    for (word, bits) in dead.iter().enumerate() {
+        seeds[word] |= bits;
+    }
+    let quarantine = closure.tainted_with(&seeds).ok_or(unavailable)?;
+    drop(closure);
+    let quarantined = state.queue.install_quarantine(quarantine)?;
+    state.queue.set_abandoned(abandon)?;
+    // Worker-view epoch: the quarantined initial domains the shortcut views
+    // exclude from now on. A restored accepted prefix keeps the epoch it
+    // started under (epoch 0 = unfiltered, before any rescue), so its replay
+    // sees the same native stream.
+    let excluded: Vec<usize> = (0..state.initial_domain_count)
+        .filter(|&id| state.queue.is_quarantined(id))
+        .collect();
+    if state.rescue_worker_epochs.is_empty() {
+        state.rescue_worker_epochs.push(Vec::new());
+    }
+    if state.rescue_worker_epochs.last() != Some(&excluded) {
+        state.rescue_worker_epochs.push(excluded);
+    }
+    let restored = std::mem::take(&mut state.rescue_holder_epochs);
+    state.rescue_holder_epochs = state
+        .accepted_prefix_holders()
+        .into_iter()
+        .map(|id| (id, restored.get(&id).copied().unwrap_or(0)))
+        .collect();
+    let epoch = state.rescue_worker_epochs.len() - 1;
+    observer(
+        json!({"event":"rescue_quarantine","operation":"owner_domain_walk",
+        "frontier_tainted_domains":tainted,"live_input_roots":roots.len(),
+        "superseded_root_records":superseded.len(),
+        "dead_pending_domains":dead_count,"abandoned_domains":abandoned,
+        "dead_delegated_domains":delegated,"dead_partial_prefix_domains":partial,
+        "quarantined_domains":quarantined,"admitted_domains":total,
+        "worker_view_epoch":epoch,"restored_prefix_epochs":state.rescue_holder_epochs.iter().map(|(id, e)| [*id, *e]).collect::<Vec<_>>(),
+        "amendments_recorded":recorded,"amendments_new":new,
+        "scope":"lookup quarantine of every node reaching a frontier-bearing native or a dead obligation; dead obligations are published without inspection; certification unchanged",
+        "family_closure_claim":false}),
+    );
     Ok(())
 }
 
@@ -546,10 +759,37 @@ mod tests {
     }
 
     #[test]
+    fn supersede_lists_only_earlier_queries_and_may_stand_alone() {
+        let request = "e".repeat(64);
+        let text = |supersede: Value, queries: Value| OwnerDomainWalkAmendment {
+            path: "s.json".into(),
+            text: json!({"schema":AMENDMENT_SCHEMA,"sequence":1,"parent":request,
+                "queries":queries,"supersede":supersede})
+            .to_string(),
+        };
+        let alone = parse(&text(json!(["q"]), json!([])), 2).unwrap();
+        assert!(alone.queries.is_empty());
+        assert_eq!(alone.supersede, vec!["q".to_owned()]);
+        assert_eq!(check_chain(&[], &[alone], &request, &["q"]), Ok(0));
+        let unknown = parse(&text(json!(["nope"]), json!([])), 2).unwrap();
+        assert!(
+            check_chain(&[], &[unknown], &request, &["q"])
+                .unwrap_err()
+                .contains("not an earlier query")
+        );
+        assert!(
+            parse(&text(json!([]), json!([])), 2).is_err(),
+            "an empty amendment is refused"
+        );
+        assert!(parse(&text(json!([1]), json!([])), 2).is_err());
+    }
+
+    #[test]
     fn certification_uses_the_first_closed_containing_root() {
+        // One numerator axis, so the rank bound is geometry.
         let d = |rank: Option<u32>| Domain::<2> {
             phase: Phase::Apply,
-            owner: [true, true],
+            owner: [true, false],
             lower: vec![0, 0],
             upper: vec![None, None],
             rank,
