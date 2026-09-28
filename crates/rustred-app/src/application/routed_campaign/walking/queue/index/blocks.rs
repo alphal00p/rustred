@@ -62,13 +62,15 @@ const NARROW_MAX: u64 = u16::MAX as u64 - 1;
 const NARROW_NONE: u16 = u16::MAX;
 
 #[derive(Clone, Copy)]
-pub(in super::super) struct Coordinates<'a> {
+pub(in super::super::super) struct Coordinates<'a> {
     lower: &'a [u64],
     upper: &'a [Option<u64>],
 }
 
 impl<'a> Coordinates<'a> {
-    pub(in super::super) fn of<const N: usize>(summary: &'a DomainPowerSummary<N>) -> Option<Self> {
+    pub(in super::super::super) fn of<const N: usize>(
+        summary: &'a DomainPowerSummary<N>,
+    ) -> Option<Self> {
         summary.extrema().map(|extrema| Self {
             lower: extrema.lower(),
             upper: extrema.upper(),
@@ -81,7 +83,7 @@ impl<'a> Coordinates<'a> {
 /// Normalised u8 image of a nonempty summary's comparison fields (see the
 /// module documentation). `lossy` records whether any field saturated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in super::super) struct Lanes<const N: usize> {
+pub(in super::super::super) struct Lanes<const N: usize> {
     pub lower: [u8; N],
     pub upper: [u8; N],
     pub power: [u8; POWER_LANES],
@@ -119,7 +121,7 @@ impl LaneWriter {
 }
 
 /// The tight extrema a lane image is built from, in native widths.
-pub(in super::super) struct LaneSource<'a, const N: usize> {
+pub(in super::super::super) struct LaneSource<'a, const N: usize> {
     pub lower: &'a dyn Fn(usize) -> u128,
     pub upper: &'a dyn Fn(usize) -> Option<u128>,
     pub positive: (u128, Option<u128>),
@@ -468,7 +470,7 @@ impl<const N: usize> NarrowCoordinates<N> {
 // ---- the query side ---------------------------------------------------------
 
 /// Everything a scan needs from one query, computed once per lookup.
-pub(in super::super) struct Probe<'a, const N: usize> {
+pub(in super::super::super) struct Probe<'a, const N: usize> {
     coordinates: Option<Coordinates<'a>>,
     narrow: Option<NarrowCoordinates<N>>,
     word: u64,
@@ -479,7 +481,7 @@ pub(in super::super) struct Probe<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> Probe<'a, N> {
-    pub(in super::super) fn new(
+    pub(in super::super::super) fn new(
         coordinates: Option<Coordinates<'a>>,
         word: u64,
         lanes: Option<Lanes<N>>,
@@ -537,7 +539,7 @@ pub(super) struct Block<const N: usize> {
 pub(super) type BlockBox<const N: usize> = Box<[Block<N>; 1]>;
 
 /// One candidate as the index stores it.
-pub(in super::super) struct Entry<'a, const N: usize> {
+pub(in super::super::super) struct Entry<'a, const N: usize> {
     pub id: usize,
     pub coordinates: Option<Coordinates<'a>>,
     pub word: u64,

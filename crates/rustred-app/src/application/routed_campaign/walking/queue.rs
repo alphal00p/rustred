@@ -8,11 +8,14 @@ mod bits;
 pub(super) use bits::SessionCounters;
 mod compact;
 pub(super) use compact::CompactDomain;
+use compact::ExactIndex;
 #[cfg(test)]
 use compact::{COMPACT_RANGE_ERROR, MAX_COMPACT_COORDINATE};
-use compact::{CompactSummary, Digest, ExactIndex, Query, Stored};
+pub(super) use compact::{CompactSummary, Digest, Query, Stored, stored_image};
 mod index;
-use index::{AggregateIndex, Coordinates, Entry, Probe, Retire, Signature, Visit};
+pub(super) use index::{
+    AggregateIndex, Coordinates, Entry, IndexBytes, Insertion, Probe, Retire, Signature, Visit,
+};
 mod checkpoint;
 pub(super) use checkpoint::{Metadata as QueueMetadata, SortedBuckets, StoredBuckets};
 #[cfg(test)]
@@ -84,7 +87,7 @@ impl<const N: usize> Domain<N> {
     }
 }
 
-fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
+pub(super) fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
     container.is_none_or(|r| candidate.is_some_and(|s| s <= r))
 }
 
