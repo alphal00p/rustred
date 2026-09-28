@@ -4,6 +4,7 @@ mod coefficient;
 pub mod indexed;
 pub(crate) mod matrix;
 mod symbol;
+pub(crate) mod thread_owned;
 
 pub use coefficient::{
     Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomial,

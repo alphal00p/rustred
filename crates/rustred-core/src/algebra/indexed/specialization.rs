@@ -225,11 +225,13 @@ impl IndexedCoefficientContext {
         preflight: SpecializationPreflight,
     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
         let base_count = self.base.variables().len();
-        let mut result = self
-            .base
-            .template()
-            .numerator
-            .zero_with_capacity(source.nterms());
+        // Thread-owned context: the output and everything derived from it
+        // (normalization GCDs, zero loci) never touch the shared template's
+        // context and variable-map reference counts (`algebra::thread_owned`).
+        let mut result = crate::algebra::thread_owned::zero_with_capacity_thread_owned(
+            &self.base.template().numerator,
+            source.nterms(),
+        );
         for (coefficient, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
             let mut specialized = coefficient.clone();
             for (position, value) in assignment.iter().copied().enumerate() {
@@ -489,7 +491,9 @@ impl IndexedCoefficientContext {
     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
         let base_count = self.base.variables().len();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut result = source.clone();
+            // Equal value on a thread-owned context: `source` belongs to the
+            // shared owner program (`algebra::thread_owned`).
+            let mut result = crate::algebra::thread_owned::clone_thread_owned(source);
             for (position, value) in fixed_index_execution_order(fixed) {
                 let variable = base_count + position;
                 if result.degree(variable) != 0 {

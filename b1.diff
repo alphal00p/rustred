@@ -1,0 +1,74 @@
+diff --git a/crates/rustred-core/src/algebra/indexed/specialization.rs b/crates/rustred-core/src/algebra/indexed/specialization.rs
+index 90414ad2..01c05b57 100644
+--- a/crates/rustred-core/src/algebra/indexed/specialization.rs
++++ b/crates/rustred-core/src/algebra/indexed/specialization.rs
+@@ -225,11 +225,13 @@ impl IndexedCoefficientContext {
+         preflight: SpecializationPreflight,
+     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+         let base_count = self.base.variables().len();
+-        let mut result = self
+-            .base
+-            .template()
+-            .numerator
+-            .zero_with_capacity(source.nterms());
++        // Thread-owned context: the output and everything derived from it
++        // (normalization GCDs, zero loci) never touch the shared template's
++        // context and variable-map reference counts (`algebra::thread_owned`).
++        let mut result = crate::algebra::thread_owned::zero_with_capacity_thread_owned(
++            &self.base.template().numerator,
++            source.nterms(),
++        );
+         for (coefficient, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
+             let mut specialized = coefficient.clone();
+             for (position, value) in assignment.iter().copied().enumerate() {
+@@ -489,7 +491,9 @@ impl IndexedCoefficientContext {
+     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+         let base_count = self.base.variables().len();
+         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+-            let mut result = source.clone();
++            // Equal value on a thread-owned context: `source` belongs to the
++            // shared owner program (`algebra::thread_owned`).
++            let mut result = crate::algebra::thread_owned::clone_thread_owned(source);
+             for (position, value) in fixed_index_execution_order(fixed) {
+                 let variable = base_count + position;
+                 if result.degree(variable) != 0 {
+diff --git a/crates/rustred-core/src/algebra/indexed/translation.rs b/crates/rustred-core/src/algebra/indexed/translation.rs
+index 33756df1..16b6cb2b 100644
+--- a/crates/rustred-core/src/algebra/indexed/translation.rs
++++ b/crates/rustred-core/src/algebra/indexed/translation.rs
+@@ -262,7 +262,8 @@ impl IndexedCoefficientContext {
+         limits: IndexedAlgebraLimits,
+         preflight: TranslationPreflight,
+     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+-        let mut result = source.clone();
++        // Equal value on a thread-owned context (`algebra::thread_owned`).
++        let mut result = crate::algebra::thread_owned::clone_thread_owned(source);
+         let base_count = self.base.variables().len();
+         for (position, offset) in shift.iter().enumerate() {
+             if *offset == 0 {
+diff --git a/crates/rustred-core/src/algebra/mod.rs b/crates/rustred-core/src/algebra/mod.rs
+index 4c1947ee..d7d65d96 100644
+--- a/crates/rustred-core/src/algebra/mod.rs
++++ b/crates/rustred-core/src/algebra/mod.rs
+@@ -4,6 +4,7 @@ mod coefficient;
+ pub mod indexed;
+ pub(crate) mod matrix;
+ mod symbol;
++pub(crate) mod thread_owned;
+ 
+ pub use coefficient::{
+     Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomial,
+diff --git a/crates/rustred-core/src/solver/case/affine/chart.rs b/crates/rustred-core/src/solver/case/affine/chart.rs
+index 97b7b4ac..434dc8f7 100644
+--- a/crates/rustred-core/src/solver/case/affine/chart.rs
++++ b/crates/rustred-core/src/solver/case/affine/chart.rs
+@@ -329,7 +329,8 @@ fn specialize_fixed(
+     fixed: &[Option<i16>],
+     indices: &[usize],
+ ) -> CoefficientPolynomial {
+-    let mut result = polynomial.clone();
++    // Equal value on a thread-owned context (`algebra::thread_owned`).
++    let mut result = crate::algebra::thread_owned::clone_thread_owned(polynomial);
+     for (&index, value) in indices.iter().zip(fixed) {
+         if let Some(value) = value {
+             result = result.replace(index, &Integer::from(*value));
