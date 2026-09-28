@@ -3,9 +3,19 @@
 //! dispatched Apply domain Q against Native Apply anchors of the same
 //! (phase, owner) bucket that were committed strictly before Q's dispatch.
 //!
-//! Selected by `RUSTRED_WALK_G2_DONLY=1` (one anchor) or `=2` (up to two
-//! anchors); unset/0/off leaves the engine byte-identical (no store, no
-//! dispatch stamps, no record or report fields).
+//! Selected by `RUSTRED_WALK_G2_DONLY=1` (one anchor), `=2` (up to two
+//! anchors) or `=u` (pointwise union of anchors per D level, the plan's G2'
+//! restricted to a one-piece D-only residual); unset/0/off leaves the engine
+//! byte-identical (no store, no dispatch stamps, no record or report fields).
+//!
+//! Mode u: for a finite Q with at most `UNION_POINT_CAP` lattice points, the
+//! worker enumerates Q's points (from Q's tight extrema), assigns each point
+//! of the D levels from the top down to a committed anchor that contains it
+//! (the native `DomainPowerSummary::contains` of the one-point domain is the
+//! authority for every assignment), and cuts at the lowest D of the fully
+//! covered top run: the job inspects Q restricted to D <= c-1 (nothing if all
+//! levels are covered), with an edge to every anchor used. Infinite or larger
+//! Q, or a search over budget, fall back to the mode-2 plan.
 //!
 //! Plan: for the smallest cut c1 such that an anchor A1 contains Q restricted
 //! to D >= c1 (checked with the native `DomainPowerSummary::contains`; the
@@ -46,7 +56,12 @@ const CHUNK: usize = 1024;
 /// Cut values memoized per plan (D ranges of admitted domains are small).
 const MEMO_LIMIT: i128 = 4096;
 
-/// 0 off, 1 one anchor, 2 up to two anchors.
+/// Mode u: largest Q (lattice points) enumerated for the union plan.
+const UNION_POINT_CAP: usize = 1 << 18;
+/// Mode u: point-anchor membership tests allowed per plan beyond 64 per point.
+const UNION_TEST_BUDGET: u64 = 1 << 22;
+
+/// 0 off, 1 one anchor, 2 up to two anchors, 3 union (env value `u`).
 pub(super) fn mode() -> u8 {
     static MODE: OnceLock<u8> = OnceLock::new();
     *MODE.get_or_init(|| {
@@ -54,9 +69,14 @@ pub(super) fn mode() -> u8 {
             Err(_) | Ok("") | Ok("0") | Ok("off") => 0,
             Ok("1") => 1,
             Ok("2") => 2,
-            Ok(other) => panic!("RUSTRED_WALK_G2_DONLY={other}: expected 1, 2 or unset"),
+            Ok("u") => 3,
+            Ok(other) => panic!("RUSTRED_WALK_G2_DONLY={other}: expected 1, 2, u or unset"),
         };
-        if mode != 0 {
+        if mode == 3 {
+            eprintln!(
+                "W0 G2' D-only residual-anchor falsifier ACTIVE (union of committed Native anchors per D level)"
+            );
+        } else if mode != 0 {
             eprintln!(
                 "W0 G2' D-only residual-anchor falsifier ACTIVE (up to {mode} committed Native anchor(s))"
             );
@@ -89,11 +109,28 @@ pub(super) struct G2Info {
     pub residual_d_levels: u64,
     pub first_cut: i64,
     pub second: Option<SecondAnchor>,
+    /// Mode u: number of anchors in the union list (first = scope anchor);
+    /// the list itself is kept in the store until the commit takes it.
+    pub union_count: u32,
+    /// Mode u: points of Q's covered D levels checked natively.
+    pub union_points: u64,
+}
+
+fn mode_name(union: bool) -> &'static str {
+    if union {
+        "d_only_union_of_committed_native_anchors"
+    } else if mode() >= 2 {
+        "d_only_up_to_two_committed_native_anchors"
+    } else {
+        "d_only_single_committed_native_anchor"
+    }
 }
 
 impl G2Info {
     pub fn json(&self) -> Value {
-        json!({"mode":if mode() == 2 {"d_only_up_to_two_committed_native_anchors"} else {"d_only_single_committed_native_anchor"},
+        json!({"mode":mode_name(self.union_count > 0),
+            "union_anchor_count":self.union_count,
+            "union_points_checked":self.union_points,
             "anchor_commit_seq":self.anchor_commit_seq,
             "dispatch_snapshot":self.dispatch_snapshot,
             "first_cut":self.first_cut,
@@ -105,7 +142,7 @@ impl G2Info {
             "residual_d_levels":self.residual_d_levels,
             "anchors_scanned":self.anchors_scanned,
             "plan_micros":self.plan_micros,
-            "authority":"native_summary_contains_of_each_D_slice; anchors committed before dispatch"})
+            "authority":if self.union_count > 0 {"native_summary_contains_of_each_point_of_the_covered_D_levels_by_one_listed_anchor; anchors committed before dispatch"} else {"native_summary_contains_of_each_D_slice; anchors committed before dispatch"}})
     }
 }
 
@@ -148,6 +185,18 @@ impl<const N: usize> Compact<N> {
             numerator: (sat32(nl), nu.map_or(u32::MAX, sat32)),
             difference: (dl.map_or(i32::MIN, sati32), du.map_or(i32::MAX, sati32)),
         }
+    }
+    /// Necessary for a nonempty intersection (monotone images).
+    #[inline]
+    fn may_intersect(&self, o: &Self) -> bool {
+        self.positive.0 <= o.positive.1
+            && o.positive.0 <= self.positive.1
+            && self.numerator.0 <= o.numerator.1
+            && o.numerator.0 <= self.numerator.1
+            && self.difference.0 <= o.difference.1
+            && o.difference.0 <= self.difference.1
+            && self.lower.iter().zip(&o.upper).all(|(a, b)| a <= b)
+            && o.lower.iter().zip(&self.upper).all(|(a, b)| a <= b)
     }
     #[inline]
     fn may_contain(&self, o: &Self) -> bool {
@@ -203,6 +252,14 @@ struct ClassStats {
     partial: AtomicU64,
     full_cover: AtomicU64,
     second_anchor: AtomicU64,
+    union_plans: AtomicU64,
+    union_full: AtomicU64,
+    union_fallback: AtomicU64,
+    union_over_budget: AtomicU64,
+    union_candidates: AtomicU64,
+    union_points: AtomicU64,
+    union_tests: AtomicU64,
+    union_anchor_edges: AtomicU64,
     anchors_scanned: AtomicU64,
     prefilter_pass: AtomicU64,
     top_filter_pass: AtomicU64,
@@ -220,6 +277,11 @@ impl ClassStats {
             "no_dispatch_snapshot":l(&self.no_snapshot),"no_anchor":l(&self.no_anchor),
             "partial_residual":l(&self.partial),"full_cover":l(&self.full_cover),
             "plans_with_second_anchor":l(&self.second_anchor),
+            "union_cut_plans":l(&self.union_plans),"union_full_cover":l(&self.union_full),
+            "union_fallback_to_band_search":l(&self.union_fallback),
+            "union_over_budget":l(&self.union_over_budget),
+            "union_candidates":l(&self.union_candidates),"union_points_checked":l(&self.union_points),
+            "union_membership_tests":l(&self.union_tests),"union_anchor_edges":l(&self.union_anchor_edges),
             "anchors_scanned":l(&self.anchors_scanned),"compact_prefilter_pass":l(&self.prefilter_pass),
             "top_slice_filter_pass":l(&self.top_filter_pass),
             "slab_summaries":l(&self.slab_summaries),"plan_seconds":l(&self.plan_micros) as f64 * 1e-6,
@@ -235,6 +297,8 @@ pub(super) struct Store<const N: usize> {
     /// far (coordinator only). An anchor's seq is the stamp before its commit.
     committed: AtomicU64,
     dispatch: Mutex<HashMap<usize, u64>>,
+    /// Mode u: the union anchor list of each planned job (first = scope anchor).
+    unions: Mutex<HashMap<usize, Vec<SecondAnchor>>>,
     appended: AtomicU64,
     unusable: AtomicU64,
     classes: [ClassStats; CLASSES],
@@ -299,6 +363,153 @@ fn with_powers<const N: usize>(q: &Domain<N>, powers: DomainPowerBounds) -> Opti
     })
 }
 
+
+/// (A, R) of a point: A = t + sum of active x, R = sum of inactive x.
+fn aggregates<const N: usize>(owner: &[bool; N], x: &[u64; N]) -> (u128, u128) {
+    let mut a = 0u128;
+    let mut r = 0u128;
+    for (active, &v) in owner.iter().zip(x) {
+        if *active {
+            a += u128::from(v) + 1;
+        } else {
+            r += u128::from(v);
+        }
+    }
+    (a, r)
+}
+
+/// Point membership in a domain given its tight extrema (the domain equals
+/// their conjunction); a fast search predicate, the native `contains` of the
+/// one-point domain is checked separately for every assignment.
+fn member<const N: usize>(
+    e: &DomainPowerExtrema<N>,
+    x: &[u64; N],
+    a: u128,
+    r: u128,
+    d: i128,
+) -> bool {
+    let (pl, pu) = e.positive_power();
+    let (nl, nu) = e.numerator_rank();
+    let (dl, du) = e.power_difference();
+    pl <= a
+        && pu.is_none_or(|u| a <= u)
+        && nl <= r
+        && nu.is_none_or(|u| r <= u)
+        && dl.is_none_or(|l| l <= d)
+        && du.is_none_or(|u| d <= u)
+        && e.lower().iter().zip(x).all(|(l, v)| l <= v)
+        && e.upper().iter().zip(x).all(|(u, v)| u.is_none_or(|u| *v <= u))
+}
+
+/// Every lattice point of a finite domain from its tight extrema: coordinates
+/// (N u16 per point) and (D, point index). False if a coordinate is
+/// unbounded or above u16::MAX, or if there are more than `cap` points.
+fn enumerate_points<const N: usize>(
+    owner: &[bool; N],
+    e: &DomainPowerExtrema<N>,
+    cap: usize,
+    coords: &mut Vec<u16>,
+    levels: &mut Vec<(i128, u32)>,
+) -> bool {
+    struct Walk<'a, const N: usize> {
+        owner: &'a [bool; N],
+        lower: [u64; N],
+        upper: [u64; N],
+        rest_a: Vec<u128>,
+        rest_r: Vec<u128>,
+        a_bounds: (u128, Option<u128>),
+        r_bounds: (u128, Option<u128>),
+        d_bounds: (Option<i128>, Option<i128>),
+        x: [u64; N],
+        cap: usize,
+        coords: &'a mut Vec<u16>,
+        levels: &'a mut Vec<(i128, u32)>,
+        overflow: bool,
+    }
+    impl<const N: usize> Walk<'_, N> {
+        fn go(&mut self, axis: usize, a: u128, r: u128) {
+            if axis == N {
+                let (pl, pu) = self.a_bounds;
+                let (nl, nu) = self.r_bounds;
+                let (dl, du) = self.d_bounds;
+                let d = a as i128 - r as i128;
+                if a < pl
+                    || pu.is_some_and(|u| a > u)
+                    || r < nl
+                    || nu.is_some_and(|u| r > u)
+                    || dl.is_some_and(|l| d < l)
+                    || du.is_some_and(|u| d > u)
+                {
+                    return;
+                }
+                if self.levels.len() >= self.cap {
+                    self.overflow = true;
+                    return;
+                }
+                let index = self.levels.len() as u32;
+                self.coords.extend(self.x.iter().map(|&v| v as u16));
+                self.levels.push((d, index));
+                return;
+            }
+            for v in self.lower[axis]..=self.upper[axis] {
+                let (na, nr) = if self.owner[axis] {
+                    (a + u128::from(v) + 1, r)
+                } else {
+                    (a, r + u128::from(v))
+                };
+                if self.owner[axis] && self.a_bounds.1.is_some_and(|u| na + self.rest_a[axis + 1] > u) {
+                    break;
+                }
+                if !self.owner[axis] && self.r_bounds.1.is_some_and(|u| nr + self.rest_r[axis + 1] > u) {
+                    break;
+                }
+                self.x[axis] = v;
+                self.go(axis + 1, na, nr);
+                if self.overflow {
+                    return;
+                }
+            }
+        }
+    }
+    let mut upper = [0u64; N];
+    for (axis, bound) in e.upper().iter().enumerate() {
+        match bound {
+            Some(u) if *u <= u64::from(u16::MAX) => upper[axis] = *u,
+            _ => return false,
+        }
+    }
+    let lower = *e.lower();
+    // Minimal contributions of the axes after each position.
+    let mut rest_a = vec![0u128; N + 1];
+    let mut rest_r = vec![0u128; N + 1];
+    for axis in (0..N).rev() {
+        let (da, dr) = if owner[axis] {
+            (u128::from(lower[axis]) + 1, 0)
+        } else {
+            (0, u128::from(lower[axis]))
+        };
+        rest_a[axis] = rest_a[axis + 1] + da;
+        rest_r[axis] = rest_r[axis + 1] + dr;
+    }
+    let mut walk = Walk {
+        owner,
+        lower,
+        upper,
+        rest_a,
+        rest_r,
+        a_bounds: e.positive_power(),
+        r_bounds: e.numerator_rank(),
+        d_bounds: e.power_difference(),
+        x: [0; N],
+        cap,
+        coords,
+        levels,
+        overflow: false,
+    };
+    walk.go(0, 0, 0);
+    !walk.overflow
+}
+
 /// One search outcome: the anchor contains the whole query, or its
 /// D >= cut slice for the smallest such cut.
 enum Found<'a, const N: usize> {
@@ -313,6 +524,7 @@ impl<const N: usize> Store<N> {
                 buckets: RwLock::new(HashMap::new()),
                 committed: AtomicU64::new(0),
                 dispatch: Mutex::new(HashMap::new()),
+                unions: Mutex::new(HashMap::new()),
                 appended: AtomicU64::new(0),
                 unusable: AtomicU64::new(0),
                 classes: Default::default(),
@@ -331,6 +543,16 @@ impl<const N: usize> Store<N> {
         self.classes[class(owner)]
             .dispatch_stamps
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Coordinator at commit (or retention): the union anchor list of job
+    /// `id` (empty unless its plan was a mode-u union plan).
+    pub fn take_union(&self, id: usize) -> Vec<SecondAnchor> {
+        self.unions
+            .lock()
+            .expect("g2 union table")
+            .remove(&id)
+            .unwrap_or_default()
     }
 
     /// Coordinator: the dispatch did not happen after all.
@@ -436,7 +658,17 @@ impl<const N: usize> Store<N> {
             return None;
         };
         stats.plans.fetch_add(1, Ordering::Relaxed);
-        let result = self.plan_at(q, snapshot, cancellation, stats);
+        let result = if mode() == 3 {
+            match self.plan_union(id, q, snapshot, cancellation, stats) {
+                Ok(plan) => plan,
+                Err(()) => {
+                    stats.union_fallback.fetch_add(1, Ordering::Relaxed);
+                    self.plan_at(q, snapshot, cancellation, stats)
+                }
+            }
+        } else {
+            self.plan_at(q, snapshot, cancellation, stats)
+        };
         let micros = started.elapsed().as_micros() as u64;
         stats.plan_micros.fetch_add(micros, Ordering::Relaxed);
         let Some(mut plan) = result else {
@@ -453,6 +685,15 @@ impl<const N: usize> Store<N> {
             if info.second.is_some() {
                 stats.second_anchor.fetch_add(1, Ordering::Relaxed);
             }
+            if info.union_count > 0 {
+                stats.union_plans.fetch_add(1, Ordering::Relaxed);
+                stats
+                    .union_full
+                    .fetch_add(u64::from(info.full_cover), Ordering::Relaxed);
+                stats
+                    .union_anchor_edges
+                    .fetch_add(u64::from(info.union_count), Ordering::Relaxed);
+            }
             stats
                 .original_d_levels
                 .fetch_add(info.original_d_levels, Ordering::Relaxed);
@@ -461,6 +702,200 @@ impl<const N: usize> Store<N> {
                 .fetch_add(info.residual_d_levels, Ordering::Relaxed);
         }
         Some(plan)
+    }
+
+    /// Mode u (module doc). Err(()): not applicable (no finite extrema, more
+    /// than `UNION_POINT_CAP` points, over the test budget); the caller falls
+    /// back to the band search. Ok(None): no covered top D level.
+    fn plan_union(
+        &self,
+        id: usize,
+        q: &Domain<N>,
+        snapshot: u64,
+        cancellation: &AtomicBool,
+        stats: &ClassStats,
+    ) -> Result<Option<Plan<N>>, ()> {
+        let whole = summary(q, q.powers).ok_or(())?;
+        let qe = whole.extrema().ok_or(())?;
+        let (Some(qdlo), Some(qdhi)) = qe.power_difference() else {
+            return Err(());
+        };
+        let qcut = i64::try_from(qdlo).map_err(|_| ())?;
+        let mut coords: Vec<u16> = Vec::new();
+        let mut levels: Vec<(i128, u32)> = Vec::new();
+        if !enumerate_points(&q.owner, qe, UNION_POINT_CAP, &mut coords, &mut levels) {
+            return Err(());
+        }
+        let Some(bucket) = self
+            .buckets
+            .read()
+            .expect("g2 buckets")
+            .get(&q.owner)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let chunks = bucket.chunks.read().expect("g2 chunks").clone();
+        let target = Compact::of(qe);
+        let mut candidates: Vec<&Anchor<N>> = Vec::new();
+        let mut scanned = 0u64;
+        'outer: for chunk in &chunks {
+            let len = chunk.len.load(Ordering::Acquire);
+            for (index, slot) in chunk.scan[..len].iter().enumerate() {
+                let Some((seq, compact)) = slot.get() else {
+                    break 'outer;
+                };
+                // Append order is commit order: nothing later is visible.
+                if *seq >= snapshot {
+                    break 'outer;
+                }
+                scanned += 1;
+                if scanned % 4096 == 0 && cancellation.load(Ordering::Relaxed) {
+                    break 'outer;
+                }
+                if !compact.may_intersect(&target) {
+                    continue;
+                }
+                let Some(anchor) = chunk.full[index].get() else {
+                    break 'outer;
+                };
+                candidates.push(anchor);
+            }
+        }
+        stats.anchors_scanned.fetch_add(scanned, Ordering::Relaxed);
+        stats
+            .prefilter_pass
+            .fetch_add(candidates.len() as u64, Ordering::Relaxed);
+        stats
+            .union_candidates
+            .fetch_add(candidates.len() as u64, Ordering::Relaxed);
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        // D levels from the top down; each level is kept only if every one of
+        // its points is assigned to an anchor.
+        levels.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let point = |index: u32| -> [u64; N] {
+            std::array::from_fn(|axis| u64::from(coords[index as usize * N + axis]))
+        };
+        let mut order: Vec<usize> = (0..candidates.len()).collect();
+        let mut used: Vec<usize> = Vec::new();
+        let mut used_flag = vec![false; candidates.len()];
+        let budget = UNION_TEST_BUDGET + 64 * levels.len() as u64;
+        let (mut tests, mut checked) = (0u64, 0u64);
+        let mut covered_cut: Option<i128> = None;
+        let mut start = 0usize;
+        let mut assigned: Vec<(u32, usize)> = Vec::new();
+        let outcome = 'levels: loop {
+            if start >= levels.len() {
+                break 'levels Ok(());
+            }
+            let d = levels[start].0;
+            let end = start + levels[start..].iter().take_while(|l| l.0 == d).count();
+            assigned.clear();
+            for &(_, index) in &levels[start..end] {
+                let x = point(index);
+                let (a, r) = aggregates(&q.owner, &x);
+                let mut hit = None;
+                for (position, &candidate) in order.iter().enumerate() {
+                    tests += 1;
+                    if candidates[candidate]
+                        .summary
+                        .extrema()
+                        .is_some_and(|e| member(e, &x, a, r, d))
+                    {
+                        hit = Some(position);
+                        break;
+                    }
+                }
+                if tests > budget {
+                    stats.union_over_budget.fetch_add(1, Ordering::Relaxed);
+                    break 'levels Err(());
+                }
+                let Some(position) = hit else {
+                    // This level has an uncovered point: the cut stays above.
+                    break 'levels Ok(());
+                };
+                let candidate = order[position];
+                order[..=position].rotate_right(1);
+                assigned.push((index, candidate));
+            }
+            // Authority: the native inclusion of every one-point domain in its
+            // assigned anchor.
+            for &(index, candidate) in &assigned {
+                let x = point(index);
+                let upper: [Option<u64>; N] = x.map(Some);
+                let Ok(one) = DomainPowerSummary::try_new(
+                    q.owner,
+                    &x,
+                    &upper,
+                    None,
+                    DomainPowerBounds::default(),
+                ) else {
+                    break 'levels Err(());
+                };
+                if one.is_empty() || !candidates[candidate].summary.contains(&one) {
+                    break 'levels Err(());
+                }
+                if !used_flag[candidate] {
+                    used_flag[candidate] = true;
+                    used.push(candidate);
+                }
+                checked += 1;
+            }
+            covered_cut = Some(d);
+            start = end;
+        };
+        stats.union_tests.fetch_add(tests, Ordering::Relaxed);
+        stats.union_points.fetch_add(checked, Ordering::Relaxed);
+        outcome?;
+        let Some(cut) = covered_cut else {
+            return Ok(None);
+        };
+        let full = start >= levels.len();
+        let first = candidates[used[0]];
+        let list: Vec<SecondAnchor> = used
+            .iter()
+            .map(|&c| SecondAnchor {
+                id: candidates[c].id,
+                seq: candidates[c].seq,
+            })
+            .collect();
+        let count = u32::try_from(list.len()).map_err(|_| ())?;
+        let original = (qdhi - qdlo + 1).max(0) as u64;
+        let (scope_cut, residual) = if full {
+            (qcut, None)
+        } else {
+            let c = i64::try_from(cut).map_err(|_| ())?;
+            let low = low_powers(q.powers, c).ok_or(())?;
+            (c, Some(with_powers(q, low).ok_or(())?))
+        };
+        let info = G2Info {
+            anchor_commit_seq: first.seq,
+            dispatch_snapshot: snapshot,
+            full_cover: full,
+            anchors_scanned: scanned,
+            plan_micros: 0,
+            original_d_levels: original,
+            residual_d_levels: if full { 0 } else { (cut - qdlo).max(0) as u64 },
+            first_cut: scope_cut,
+            second: None,
+            union_count: count,
+            union_points: checked,
+        };
+        self.unions
+            .lock()
+            .expect("g2 union table")
+            .insert(id, list);
+        Ok(Some(Plan {
+            scope: InitialOverlapScope {
+                anchor_id: first.id,
+                cut: scope_cut,
+                residual_powers: low_powers(q.powers, scope_cut).ok_or(())?,
+                g2: Some(info),
+            },
+            residual,
+        }))
     }
 
     fn plan_at(
@@ -499,6 +934,8 @@ impl<const N: usize> Store<N> {
             residual_d_levels: residual_levels,
             first_cut,
             second,
+            union_count: 0,
+            union_points: 0,
         };
         let qcut = i64::try_from(qdlo).ok()?;
         let (a1, c1) = match first? {
@@ -530,7 +967,7 @@ impl<const N: usize> Store<N> {
             return None;
         }
         let residual1 = with_powers(q, low1)?;
-        if mode() == 2 {
+        if mode() >= 2 {
             let mut scanned2 = 0u64;
             let second = self.search(
                 &residual1,
@@ -729,8 +1166,9 @@ impl<const N: usize> Store<N> {
         for (name, stats) in CLASS_NAMES.iter().zip(&self.classes) {
             classes.insert((*name).to_owned(), stats.json());
         }
-        json!({"mode":if mode() == 2 {"d_only_up_to_two_committed_native_anchors"} else {"d_only_single_committed_native_anchor"},
-            "env":format!("RUSTRED_WALK_G2_DONLY={}", mode()),
+        json!({"mode":if mode() == 3 {"d_only_union_of_committed_native_anchors_with_band_fallback"} else {mode_name(false)},
+            "env":format!("RUSTRED_WALK_G2_DONLY={}", if mode() == 3 {"u".to_owned()} else {mode().to_string()}),
+            "union_point_cap":UNION_POINT_CAP,"union_test_budget":UNION_TEST_BUDGET,
             "scan":"per-bucket append-only commit-ordered list; compact saturating extrema prefilter, then native contains",
             "committed_apply_records":self.committed.load(Ordering::Relaxed),
             "anchors_appended":self.appended.load(Ordering::Relaxed),

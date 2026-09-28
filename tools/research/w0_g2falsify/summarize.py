@@ -16,8 +16,9 @@ from pathlib import Path
 SHA = sys.argv[1]
 RUNS = Path(sys.argv[2] if len(sys.argv) > 2 else "/common/dev/rustred/TMP/w0/g2falsify/runs")
 CLASSES = ("000011001001011", "011101110111000", "other")
-ARMS = ("on", "m1", "m2")
-ARM_NAME = {"off": "off", "on": "G2' 1 anchor", "m1": "G2' 1 anchor", "m2": "G2' <=2 anchors"}
+ARMS = ("on", "m1", "m2", "u")
+ARM_NAME = {"off": "off", "on": "G2' 1 anchor", "m1": "G2' 1 anchor", "m2": "G2' <=2 anchors",
+            "u": "G2' union per D level"}
 
 # (control name, family, label template with {arm} and {r})
 GROUPS = []
@@ -31,7 +32,7 @@ GROUPS.append(("C-HOT-sub r1a12 Ready W12", "hot", "hotsub-r1a12-{arm}-{r}-" + S
 def load(label, fam):
     d = RUNS / label / fam
     out = {}
-    for name in ("metrics", "g2stats", "pending", "audit"):
+    for name in ("metrics", "g2stats", "pending", "audit", "g2verify"):
         p = d / f"{name}.json"
         if p.exists() and p.stat().st_size:
             try:
@@ -77,7 +78,8 @@ def row(name, arm, r, rep):
             f"{fnum(float(m['traversal_seconds']) if m.get('traversal_seconds') else None, '{:,.1f}')} | "
             f"{fnum(int(m['scheduled_nodes']) if m.get('scheduled_nodes') else None)} | {fnum(p.get('peak_pending_domains'))} | "
             f"{fnum(p.get('pending_growth_per_completion_slope_to_peak'), '{:.3f}')} | "
-            f"{fnum(p.get('discovered_domains_per_native'), '{:.3f}')} | {a.get('audit', '-')} | "
+            f"{fnum(p.get('discovered_domains_per_native'), '{:.3f}')} | {a.get('audit', '-')}"
+            f"{' / ' + r['g2verify']['verdict'] if r.get('g2verify') else ''} | "
             f"{fnum(rec.get('foreign_busy_cpus_mean'), '{:.1f}')} | {fnum(rec.get('schedstat_run_delay_seconds'), '{:,.0f}')} | "
             f"{m.get('started_utc')} |")
 
@@ -85,7 +87,7 @@ def row(name, arm, r, rep):
 def main():
     print("| Control | Arm | Exit / status | Frontiers | Roots closed | Native calls Apply / Route | "
           "Inspector record-s | of which G2' plan-s | Slot-busy s | Traversal s | Scheduled domains | Peak pending | "
-          "Pending growth / completion (slope to peak) | Discovered / native | Audit | Foreign busy CPUs (mean) | Run delay s | Start (UTC) |")
+          "Pending growth / completion (slope to peak) | Discovered / native | Audit (/ g2verify) | Foreign busy CPUs (mean) | Run delay s | Start (UTC) |")
     print("|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|")
     pairs = []
     for name, fam, tmpl in GROUPS:

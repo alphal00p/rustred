@@ -3,7 +3,9 @@
 # same session, interleaved repeats. usage: session.sh BIN PHASE...
 #   phases: smoke c4l c5f hotsub post-c4l post-c5f post-hotsub   (binary B1: arms off/on)
 #           c4l3 post-c4l3 hotsub3 post-hotsub3 c5f3 post-c5f3     (binary B2: arms off/m1/m2)
-# Arm flags: off (unset), on|m1 (RUSTRED_WALK_G2_DONLY=1), m2 (=2).
+#           c4lx post-c4lx hotsubx post-hotsubx c5fx post-c5fx     (binary B3: arms off/m1/m2/u)
+# Arm flags: off (unset), on|m1 (RUSTRED_WALK_G2_DONLY=1), m2 (=2), u (=u, union).
+# Never edit this file while a session runs it: run a snapshot copy.
 # CPU halves are disjoint sets of physical cores (n and n+256 are SMT siblings).
 set -u
 BIN=$1; shift
@@ -17,13 +19,15 @@ ALL=16-31,272-287
 HOTQ=$ROOT/TMP/w0/falsify/inputs/hotsub-r1a12.json
 PY="nix develop $ROOT --command python"
 STATS=$T/target/release/g2stats
+VERIFY=$T/target/release/g2verify
 SHA=$(basename "$BIN" | sed 's/rustred-//')
 log() { echo "$(date -u +%FT%TZ) $*"; }
 
 arm() { # label family cpus policy workers on|off [extra run_arm args]
   local label=$1 fam=$2 cpus=$3 policy=$4 workers=$5 flag=$6; shift 6
   local env=()
-  case $flag in on|m1) env=(--env RUSTRED_WALK_G2_DONLY=1) ;; m2) env=(--env RUSTRED_WALK_G2_DONLY=2) ;; esac
+  case $flag in on|m1) env=(--env RUSTRED_WALK_G2_DONLY=1) ;; m2) env=(--env RUSTRED_WALK_G2_DONLY=2) ;;
+    u) env=(--env RUSTRED_WALK_G2_DONLY=u) ;; esac
   log "start $label/$fam cpus=$cpus policy=$policy W$workers g2=$flag"
   $PY $T/run_arm.py --binary "$BIN" --family "$fam" --label "$label" --cpus "$cpus" \
       --policy "$policy" --workers "$workers" --time-limit 3000 --grace 300 "${env[@]}" "$@" \
@@ -40,6 +44,10 @@ post() { # label family on|off : audit + g2stats + pending, pinned to the given 
       "${extra[@]}" --no-output > "$d/audit.json" 2> "$d/audit.err"
   log "audit $label/$fam: $(grep -o '"audit": "[A-Z]*"' $d/audit.json | head -1)"
   taskset -c "$cpus" nice -n 19 $STATS "$d/result.json" $union > "$d/g2stats.json" 2> "$d/g2stats.err"
+  if [ "$flag" != off ] && [ -x $VERIFY ]; then
+    taskset -c "$cpus" nice -n 19 $VERIFY "$d/result.json" > "$d/g2verify.json" 2> "$d/g2verify.err"
+    log "g2verify $label/$fam: $(grep -o '"verdict": "[A-Z]*"' $d/g2verify.json | head -1)"
+  fi
   taskset -c "$cpus" nice -n 19 $PY $T/pending.py "$d" > /dev/null 2> "$d/pending.err"
 }
 
@@ -171,6 +179,68 @@ for phase in "$@"; do
       i=0
       for l in ord-off-r1 ord-m1-r1 ord-m2-r1 rdy-off-r1 rdy-m1-r1 rdy-m2-r1 \
                ord-m2-r2 ord-m1-r2 ord-off-r2 rdy-m2-r2 rdy-m1-r2 rdy-off-r2; do
+        rest=${l#*-}; flag=${rest%-r*}; c=$((16 + i))
+        post c5f-$l-$SHA five-finite $flag $c,$((c + 256)) --union &
+        i=$((i + 1))
+      done
+      wait
+      for r in r1 r2; do
+        strict $ROOT/TMP/w0/oracle/runs/c5f-ordered/five-finite/result.json $OUT/c5f-ord-off-$r-$SHA/five-finite/result.json \
+               $OUT/c5f-ord-off-$r-$SHA/five-finite/strict-vs-4a17f9c7.txt
+      done
+      ;;
+    c4lx)
+      for fam in fg bmw h x; do
+        arm c4l-off-r1-$SHA $fam $A ordered 6 off & arm c4l-u-r1-$SHA $fam $B ordered 6 u & wait
+      done
+      for fam in fg bmw h x; do
+        arm c4l-u-r2-$SHA $fam $A ordered 6 u & arm c4l-off-r2-$SHA $fam $B ordered 6 off & wait
+      done
+      for fam in fg bmw h x; do
+        arm c4l-m2-r1-$SHA $fam $A ordered 6 m2 & arm c4l-m2-r2-$SHA $fam $B ordered 6 m2 & wait
+      done
+      ;;
+    post-c4lx)
+      for fam in fg bmw h x; do
+        post c4l-off-r1-$SHA $fam off 16-17,272-273 & post c4l-u-r1-$SHA $fam u 18-19,274-275 &
+        post c4l-off-r2-$SHA $fam off 20-21,276-277 & post c4l-u-r2-$SHA $fam u 22-23,278-279 &
+        post c4l-m2-r1-$SHA $fam m2 24-25,280-281 & post c4l-m2-r2-$SHA $fam m2 26-27,282-283 &
+        wait
+        for r in r1 r2; do
+          strict $ROOT/TMP/w0/oracle/runs/c4l-ordered/$fam/result.json $OUT/c4l-off-$r-$SHA/$fam/result.json \
+                 $OUT/c4l-off-$r-$SHA/$fam/strict-vs-4a17f9c7.txt
+        done
+      done
+      ;;
+    hotsubx)
+      for pair in off-r1:u-r1 m2-r1:off-r2 u-r2:m1-r1 m1-r2:m2-r2; do
+        la=${pair%%:*}; lb=${pair##*:}
+        arm hotsub-r1a12-$la-$SHA hot $A ready 12 ${la%-r*} --queries $HOTQ &
+        arm hotsub-r1a12-$lb-$SHA hot $B ready 12 ${lb%-r*} --queries $HOTQ &
+        wait
+      done
+      ;;
+    post-hotsubx)
+      i=0
+      for l in off-r1 u-r1 m2-r1 off-r2 u-r2 m1-r1 m1-r2 m2-r2; do
+        flag=${l%-r*}; c=$((16 + 2 * i))
+        post hotsub-r1a12-$l-$SHA hot $flag $c,$((c + 1)),$((c + 256)),$((c + 257)) --union &
+        i=$((i + 1))
+      done
+      wait
+      ;;
+    c5fx)
+      for l in ord-off-r1 ord-u-r1 ord-m2-r1 rdy-off-r1 rdy-u-r1 rdy-m2-r1 \
+               ord-m2-r2 ord-u-r2 ord-off-r2 rdy-m2-r2 rdy-u-r2 rdy-off-r2; do
+        pol=${l%%-*}; rest=${l#*-}; flag=${rest%-r*}
+        policy=ordered; [ "$pol" = rdy ] && policy=ready
+        arm c5f-$l-$SHA five-finite $ALL $policy 24 $flag
+      done
+      ;;
+    post-c5fx)
+      i=0
+      for l in ord-off-r1 ord-u-r1 ord-m2-r1 rdy-off-r1 rdy-u-r1 rdy-m2-r1 \
+               ord-m2-r2 ord-u-r2 ord-off-r2 rdy-m2-r2 rdy-u-r2 rdy-off-r2; do
         rest=${l#*-}; flag=${rest%-r*}; c=$((16 + i))
         post c5f-$l-$SHA five-finite $flag $c,$((c + 256)) --union &
         i=$((i + 1))

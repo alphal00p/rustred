@@ -51,8 +51,9 @@ pub struct Ledger<K> {
     /// W0 G2' falsifier (throwaway, never persisted): partial anchors may be
     /// any committed same-key Native entry, resolved transitively.
     pub(super) g2_anchors: bool,
-    /// W0 G2' falsifier: optional second anchor per partial entry.
-    pub(super) g2_second: std::collections::HashMap<usize, usize>,
+    /// W0 G2' falsifier: further anchors per partial entry (mode 2's second
+    /// band anchor, or the union anchors of mode u beyond the first).
+    pub(super) g2_second: std::collections::HashMap<usize, Vec<usize>>,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -231,13 +232,13 @@ impl<K: Copy + Eq> Ledger<K> {
         &mut self,
         id: usize,
         anchor: usize,
-        second: Option<usize>,
+        extra: &[usize],
     ) -> Result<(), Error> {
         if !self.g2_anchors {
             return Err(Error::InvalidInitialAnchor);
         }
         self.check_publisher(id)?;
-        for source in std::iter::once(anchor).chain(second) {
+        for &source in std::iter::once(&anchor).chain(extra) {
             if source == id || source >= self.entries.len() {
                 return Err(Error::InvalidInitialAnchor);
             }
@@ -251,7 +252,7 @@ impl<K: Copy + Eq> Ledger<K> {
                 return Err(Error::InvalidInitialAnchor);
             }
         }
-        if second == Some(anchor) {
+        if extra.contains(&anchor) {
             return Err(Error::InvalidInitialAnchor);
         }
         let entry = &mut self.entries[id];
@@ -262,8 +263,8 @@ impl<K: Copy + Eq> Ledger<K> {
         }
         entry.initial_anchor =
             NonZeroUsize::new(anchor.checked_add(1).ok_or(Error::InvalidInitialAnchor)?);
-        if let Some(second) = second {
-            self.g2_second.insert(id, second);
+        if !extra.is_empty() {
+            self.g2_second.insert(id, extra.to_vec());
         }
         self.partial_initial_inspections += 1;
         Ok(())

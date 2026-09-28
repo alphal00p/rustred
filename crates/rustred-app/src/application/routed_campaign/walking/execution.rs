@@ -661,11 +661,31 @@ impl<const N: usize> State<N> {
         // An outer publisher error means the native stream was NOT completely
         // admitted, even if a later buffered Finished itself has no error.
         let frontier_count = self.details.len();
+        // W0 G2' falsifier: the anchors beyond the scope anchor (mode 2's
+        // second anchor, or the rest of a mode-u union list).
+        let mut g2_union = Vec::new();
+        let mut g2_extra = Vec::new();
+        if let Some(info) = partial_scope.and_then(|scope| scope.g2) {
+            if info.union_count > 0 {
+                g2_union = self.g2.as_ref().map(|g2| g2.take_union(id)).unwrap_or_default();
+                let consistent = g2_union.len() == info.union_count as usize
+                    && partial_scope.is_some_and(|scope| {
+                        g2_union.first().is_some_and(|a| a.id == scope.anchor_id)
+                    });
+                if !consistent {
+                    self.error
+                        .get_or_insert_with(|| "W0 G2' union anchor list mismatch".into());
+                }
+                g2_extra.extend(g2_union.iter().skip(1).map(|a| a.id));
+            } else {
+                g2_extra.extend(info.second.map(|s| s.id));
+            }
+        }
         if let Some(ledger) = &mut self.queue.delegation {
             use super::delegation::NativeOutcome;
             if let Some(scope) = partial_scope {
-                let linked = if let Some(info) = scope.g2 {
-                    ledger.record_residual_anchor(id, scope.anchor_id, info.second.map(|s| s.id))
+                let linked = if scope.g2.is_some() {
+                    ledger.record_residual_anchor(id, scope.anchor_id, &g2_extra)
                 } else {
                     ledger.record_initial_overlap(id, scope.anchor_id)
                 };
@@ -695,8 +715,8 @@ impl<const N: usize> State<N> {
             closure.discovered(self.queue.domains.len());
             if let Some(scope) = partial_scope {
                 closure.edge(id, scope.anchor_id);
-                if let Some(second) = scope.g2.and_then(|info| info.second) {
-                    closure.edge(id, second.id);
+                for &extra in &g2_extra {
+                    closure.edge(id, extra);
                 }
             }
             closure.finish(
@@ -752,6 +772,17 @@ impl<const N: usize> State<N> {
                     // Mode 2: anchor_id covers D >= first_cut only.
                     record["initial_overlap"]["covered_slice"] =
                         json!("original_intersect_D_ge_first_cut_see_g2_residual_anchor");
+                }
+                if info.union_count > 0 {
+                    // Mode u: the D >= cut slice is covered by the union.
+                    record["initial_overlap"]["covered_slice"] =
+                        json!("original_intersect_D_ge_cut_by_union_see_g2_residual_anchor");
+                    record["g2_residual_anchor"]["union_anchors"] = json!(
+                        g2_union
+                            .iter()
+                            .map(|a| json!({"anchor_id":a.id,"anchor_commit_seq":a.seq}))
+                            .collect::<Vec<_>>()
+                    );
                 }
             }
         }
@@ -1830,6 +1861,16 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
                     "responsibility_published":false});
                 if let Some(info) = scope.g2 {
                     record["g2_residual_anchor"] = info.json();
+                    if info.union_count > 0
+                        && let Some(g2) = &state.g2
+                    {
+                        record["g2_residual_anchor"]["union_anchors"] = json!(
+                            g2.take_union(id)
+                                .iter()
+                                .map(|a| json!({"anchor_id":a.id,"anchor_commit_seq":a.seq}))
+                                .collect::<Vec<_>>()
+                        );
+                    }
                 }
             }
             state.uncommitted.push(record);

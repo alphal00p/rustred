@@ -139,7 +139,7 @@ impl<K: Copy + Eq> Ledger<K> {
 
 impl<K: Copy + Eq> Ledger<K> {
     /// W0 G2' falsifier: the final status of an entry, following its residual
-    /// anchors (one or two; anchors may be partial themselves). Anchor links
+    /// anchors (one, two, or a union list; anchors may be partial). Anchor links
     /// are strictly ordered in commit time, so the graph is a DAG; a stack
     /// deeper than the entry count is an invariant violation (cycle).
     fn anchor_dag_status(
@@ -162,25 +162,22 @@ impl<K: Copy + Eq> Ledger<K> {
                 return Err(Error::InvalidInitialAnchor);
             }
             let own = local_status(local);
-            let anchors = [
-                entry.initial_anchor.map(|a| a.get() - 1),
-                self.g2_second.get(&node).copied(),
-            ];
+            let extra = self.g2_second.get(&node).map_or(&[][..], Vec::as_slice);
+            let first = entry.initial_anchor.map(|a| a.get() - 1);
+            let anchors = || first.iter().chain(extra);
             if own != ResolutionStatus::Discharged {
                 memo[node] = Some(own);
                 stack.pop();
                 continue;
             }
-            if anchors.iter().flatten().any(|&a| a >= memo.len()) {
+            if anchors().any(|&a| a >= memo.len()) {
                 return Err(Error::InvalidInitialAnchor);
             }
-            if let Some(&pending) = anchors.iter().flatten().find(|&&a| memo[a].is_none()) {
+            if let Some(&pending) = anchors().find(|&&a| memo[a].is_none()) {
                 stack.push(pending);
                 continue;
             }
-            let status = anchors
-                .iter()
-                .flatten()
+            let status = anchors()
                 .map(|&a| memo[a].expect("resolved anchor"))
                 .find(|s| *s != ResolutionStatus::Discharged)
                 .unwrap_or(ResolutionStatus::Discharged);

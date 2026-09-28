@@ -764,6 +764,9 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             second = g2.get("second_anchor")
             if isinstance(second, dict):
                 needed.add(second.get("anchor_id"))
+            for item in g2.get("union_anchors") or []:
+                if isinstance(item, dict):
+                    needed.add(item.get("anchor_id"))
         anchor_boxes = {}
         for item in stream_walk(run / "result.json"):
             if item[0] == "domain" and item[1].get("id") in needed:
@@ -782,8 +785,9 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
                   f"record {identity}: G2' {what} anchor stamp {stamp!r} != stream stamp {anchor_seq}")
             check(type(dispatch) is int and anchor_seq < dispatch <= own_seq,
                   f"record {identity}: G2' {what} anchor not committed before dispatch ({anchor_seq}, {dispatch!r}, {own_seq})")
-            check(anchor_box[1] == inner[1] and containment(anchor_box, inner),
-                  f"record {identity}: G2' {what} D slice not contained in anchor {anchor}")
+            if inner is not None:
+                check(anchor_box[1] == inner[1] and containment(anchor_box, inner),
+                      f"record {identity}: G2' {what} D slice not contained in anchor {anchor}")
 
         for identity, box, anchor, cut, residual, g2 in g2_partials:
             g2_counts["records"] += 1
@@ -794,9 +798,29 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             owner, ph, lower, upper, rank, positive, least, most = box
             if not check(type(first_cut) is int and first_cut >= cut, f"record {identity}: G2' first_cut {first_cut!r} < cut"):
                 continue
-            # First anchor: the D >= first_cut slice.
-            anchor_ok(identity, anchor, g2.get("anchor_commit_seq"), dispatch, own_seq, high_slice(box, first_cut), "first")
-            if isinstance(second, dict):
+            union = g2.get("union_anchors")
+            if union is not None:
+                # Mode u: the D >= cut slice is covered pointwise by the union
+                # of the listed anchors. Stamps, owner and kind are checked
+                # here; the pointwise union containment is re-checked by the
+                # independent enumerator tools/research/w0_g2falsify g2verify.
+                g2_counts["union"] += 1
+                ids = [item.get("anchor_id") if isinstance(item, dict) else None for item in union]
+                if not check(isinstance(union, list) and union and ids[0] == anchor and len(set(ids)) == len(ids)
+                             and g2.get("union_anchor_count") == len(union) and second is None and first_cut == cut,
+                             f"record {identity}: G2' malformed union anchor list"):
+                    continue
+                g2_counts["union_anchor_edges"] += len(union)
+                for item in union:
+                    anchor_ok(identity, item.get("anchor_id"), item.get("anchor_commit_seq"), dispatch, own_seq, None,
+                              "union")
+            else:
+                # First anchor: the D >= first_cut slice.
+                anchor_ok(identity, anchor, g2.get("anchor_commit_seq"), dispatch, own_seq, high_slice(box, first_cut),
+                          "first")
+            if union is not None:
+                pass
+            elif isinstance(second, dict):
                 g2_counts["second_anchor"] += 1
                 band = (owner, ph, lower, upper, rank, positive, _floor(least, cut), _cap(most, first_cut - 1))
                 anchor_ok(identity, second.get("anchor_id"), second.get("anchor_commit_seq"), dispatch, own_seq,
