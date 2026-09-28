@@ -138,6 +138,7 @@ impl<const N: usize> Queue<N> {
     }
     /// Validate and rebuild lookup structures; never re-admit or reorder.
     /// Domains arrive already range-checked (`CompactDomain::restore`).
+    #[cfg(test)]
     pub(in super::super) fn restore_from_parts(
         m: Metadata,
         domains: Vec<CompactDomain<N>>,
@@ -145,7 +146,37 @@ impl<const N: usize> Queue<N> {
         ledger: Option<StoredLedger>,
         phases: &mut Phases,
     ) -> Result<Self, String> {
-        Self::restore_with_index(m, domains, buckets, ledger, ExactIndex::new(), phases)
+        Self::restore_with_index(
+            m,
+            domains,
+            buckets,
+            ledger,
+            ExactIndex::new(),
+            false,
+            phases,
+        )
+    }
+
+    /// `restore_from_parts` of an amended walk (`rescue.rs`): exact duplicates
+    /// are admitted (the rescue re-admits a domain whose earlier ID is
+    /// quarantined); `install_quarantine` then checks every duplicate group.
+    pub(in super::super) fn restore_from_parts_amended(
+        m: Metadata,
+        domains: Vec<CompactDomain<N>>,
+        buckets: StoredBuckets,
+        ledger: Option<StoredLedger>,
+        amended: bool,
+        phases: &mut Phases,
+    ) -> Result<Self, String> {
+        Self::restore_with_index(
+            m,
+            domains,
+            buckets,
+            ledger,
+            ExactIndex::new(),
+            amended,
+            phases,
+        )
     }
 
     /// `restore_from_parts` into an empty exact index, whose key function a
@@ -156,6 +187,7 @@ impl<const N: usize> Queue<N> {
         buckets: StoredBuckets,
         ledger: Option<StoredLedger>,
         exact: ExactIndex<N>,
+        duplicates: bool,
         phases: &mut Phases,
     ) -> Result<Self, String> {
         if m.next > domains.len()
@@ -173,8 +205,10 @@ impl<const N: usize> Queue<N> {
         q.domains = domains;
         for (id, domain) in q.domains.iter().enumerate() {
             let key = q.exact.key(domain);
-            let Err(miss) = q.exact.get(key, domain, &q.domains) else {
-                return Err("duplicate checkpoint exact domain".into());
+            let miss = match q.exact.get(key, domain, &q.domains) {
+                Err(miss) => miss,
+                Ok(_) if duplicates => Miss::duplicate(),
+                Ok(_) => return Err("duplicate checkpoint exact domain".into()),
             };
             q.exact
                 .try_reserve(key, miss)
@@ -336,7 +370,15 @@ impl<const N: usize> Queue<N> {
             .iter()
             .map(CompactDomain::restore)
             .collect::<Result<_, _>>()?;
-        Self::restore_with_index(m, domains, buckets, ledger, exact, &mut Phases::default())
+        Self::restore_with_index(
+            m,
+            domains,
+            buckets,
+            ledger,
+            exact,
+            false,
+            &mut Phases::default(),
+        )
     }
 }
 impl<'de, const N: usize> Deserialize<'de> for Queue<N> {

@@ -104,6 +104,10 @@ pub(super) struct Store {
     /// stop); like `diagnostic_pause`, optional free-form metadata repeated by
     /// every later save of the session and never inherited by a resume.
     stop_reason: Option<&'static str>,
+    /// The rescue amendment chain (`rescue.rs`): the resumed manifest's,
+    /// extended by the amendments this session applied; every later
+    /// manifest carries it.
+    amendments: Vec<super::rescue::AmendmentRef>,
     #[cfg(test)]
     fail_section: Option<Section>,
     #[cfg(test)]
@@ -326,6 +330,10 @@ impl Store {
         } else {
             None
         };
+        let amendments = manifest
+            .as_ref()
+            .map(|m| m.amendments.clone())
+            .unwrap_or_default();
         Ok(Some(Self {
             options,
             _lock: lock,
@@ -343,6 +351,7 @@ impl Store {
             pending_events,
             diagnostic_pause: None,
             stop_reason: None,
+            amendments,
             #[cfg(test)]
             fail_section: None,
             #[cfg(test)]
@@ -422,6 +431,29 @@ impl Store {
         self.stop_reason = Some(reason);
         self.last_stamp = None;
     }
+    /// The rescue amendment chain recorded so far (see the field).
+    pub(super) fn amendments(&self) -> &[super::rescue::AmendmentRef] {
+        &self.amendments
+    }
+    /// The request digest every checkpoint of this walk is bound to: the
+    /// parent of the first rescue amendment.
+    pub(super) fn request_digest(&self) -> &str {
+        &self.request
+    }
+    /// The generation of the retained manifest (0 before the first save).
+    pub(super) fn generation(&self) -> u64 {
+        self.manifest.as_ref().map_or(0, |m| m.generation)
+    }
+    /// Whether the resumed generation holds walk state (not a bootstrap).
+    pub(super) fn resumed_state(&self) -> bool {
+        self.options.resume && self.manifest.as_ref().is_some_and(|m| m.kind == "state")
+    }
+    /// Append one applied amendment; the next save (forced right after the
+    /// resume) persists it atomically with the admitted domains and inputs.
+    pub(super) fn record_amendment(&mut self, amendment: super::rescue::AmendmentRef) {
+        self.amendments.push(amendment);
+        self.last_stamp = None;
+    }
     fn effective_interval(&self) -> f64 {
         (self.options.interval_seconds as f64).max(20.0 * self.last_save_seconds)
     }
@@ -468,6 +500,7 @@ impl Store {
                 ..Default::default()
             },
             metadata: metadata.clone(),
+            amendments: Vec::new(),
         };
         self.publish(manifest)?;
         Ok(Some(
@@ -908,6 +941,7 @@ impl Store {
             executable_first: executable_first.clone(),
             sections: new_sections,
             metadata: Value::Null,
+            amendments: self.amendments.clone(),
         };
         manifest.validate_structure()?;
         let mut metadata = json!({"state":"saved","directory":directory,"generation":generation,"state_path":meta_path,
@@ -978,6 +1012,8 @@ pub(super) struct RawCheckpoint<const N: usize> {
     /// Record sidecar segment files in ID-tile order with their line counts.
     pub records: Vec<(PathBuf, usize)>,
     pub verify_seconds: f64,
+    /// The rescue amendment chain of the generation (`rescue.rs`).
+    pub amendments: Vec<super::rescue::AmendmentRef>,
 }
 
 pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint<N>, String> {
@@ -1054,6 +1090,7 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         domains,
         records,
         verify_seconds,
+        amendments: manifest.amendments.clone(),
     })
 }
 

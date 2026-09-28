@@ -10,7 +10,7 @@ use super::io::{preflight_output_destination, write_output};
 use crate::{
     OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
     OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
-    owner_domain_walk_verify_closure,
+    OwnerDomainWalkVerifyScope, owner_domain_walk_verify_closure,
 };
 use serde_json::Value;
 use std::ffi::OsString;
@@ -38,6 +38,7 @@ pub(crate) struct WalkVerifyClosureArgs {
     /// None: the command file's sibling result.json when it exists.
     pub result: Option<PathBuf>,
     pub no_result: bool,
+    pub certification_scope: OwnerDomainWalkVerifyScope,
 }
 
 pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -63,6 +64,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         force: false,
         result: None,
         no_result: false,
+        certification_scope: OwnerDomainWalkVerifyScope::Auto,
     };
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -162,6 +164,21 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                 args.result = Some(PathBuf::from(next_value(&mut arguments, "--result")?))
             }
             "--no-result" => args.no_result = true,
+            "--certification-scope" => {
+                let value = next_utf8_value(&mut arguments, "--certification-scope")?;
+                args.certification_scope = match value.as_str() {
+                    "auto" => OwnerDomainWalkVerifyScope::Auto,
+                    "all-roots" => OwnerDomainWalkVerifyScope::AllRoots,
+                    "physics-queries" => OwnerDomainWalkVerifyScope::PhysicsQueries,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--certification-scope",
+                            value,
+                            expected: "auto (default), all-roots or physics-queries",
+                        });
+                    }
+                };
+            }
             _ => return Err(ArgError::UnknownOption(option)),
         }
     }
@@ -195,7 +212,7 @@ fn parse_reinspect(value: &str) -> Option<OwnerDomainWalkVerifyReinspect> {
 
 /// The walk argv: a JSON list of strings (`command.json`) or an object with
 /// a `command` list (`request.json`).
-fn walk_argv(path: &PathBuf) -> Result<Vec<OsString>, CliError> {
+pub(super) fn walk_argv(path: &PathBuf) -> Result<Vec<OsString>, CliError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
     let value: Value = serde_json::from_str(&text)
@@ -237,6 +254,7 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
     options.max_violations = args.max_violations;
     options.union_sample = args.union_sample;
     options.union_sample_seed = args.union_sample_seed;
+    options.certification_scope = args.certification_scope;
     options.result = if args.no_result {
         None
     } else {

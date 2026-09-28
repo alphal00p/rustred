@@ -183,7 +183,11 @@ impl<const N: usize> Queue<N> {
         }
         // An unrepresentable domain is refused by the ordered commit itself.
         let &(compact, key) = key?;
-        if self.exact.get(key, &compact, &self.domains).is_ok() {
+        if self
+            .exact
+            .get_live(key, &compact, &self.domains, &self.quarantine)
+            .is_ok()
+        {
             return None;
         }
         let query = Query::new(
@@ -208,7 +212,12 @@ impl<const N: usize> Queue<N> {
             // bucket dominates this one's rank, so the ordered commit returns
             // an orthant hit too (or an exact hit, checked before it).
             if bucket
-                .orthant_hit(&self.domains, compact.bucket_code(), domain.rank)
+                .orthant_hit(
+                    &self.domains,
+                    &self.quarantine,
+                    compact.bucket_code(),
+                    domain.rank,
+                )
                 .is_some()
             {
                 // Commit must still reproduce the ordinary summary preflight

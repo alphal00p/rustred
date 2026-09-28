@@ -282,6 +282,19 @@ pub struct OwnerDomainWalkVerifyOptions {
     /// validation (`union_sample`; 0 disables), and its seed.
     pub union_sample: usize,
     pub union_sample_seed: u64,
+    /// Which roots a PASS requires (see `OwnerDomainWalkVerifyScope`).
+    pub certification_scope: OwnerDomainWalkVerifyScope,
+}
+
+/// Roots a `--require-closure` PASS certifies. `Auto` is `AllRoots` for an
+/// unamended walk and `PhysicsQueries` for a walk with rescue amendments:
+/// every physics query (id without the helper pattern) through its first
+/// closed containing input root; helper roots are reported, not required.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerDomainWalkVerifyScope {
+    Auto,
+    AllRoots,
+    PhysicsQueries,
 }
 impl OwnerDomainWalkVerifyOptions {
     pub fn new(checkpoint: impl Into<PathBuf>) -> Self {
@@ -299,6 +312,7 @@ impl OwnerDomainWalkVerifyOptions {
             reference_levers: OwnerDomainWalkVerifyReferenceLevers::Off,
             union_sample: 0,
             union_sample_seed: 1,
+            certification_scope: OwnerDomainWalkVerifyScope::Auto,
         }
     }
 }
@@ -1696,6 +1710,57 @@ fn verify<const N: usize>(
         engine_open_oracle_closed += u64::from(!flag_closed && closed[id]);
     }
     let cyclic = graph.cyclic();
+    // Rescue amendments (`rescue.rs`): the command must name exactly the
+    // checkpoint's recorded chain, each file bound by its digest and chained
+    // from the request binding. Amended queries follow the original ones.
+    let amended = match request
+        .amendments
+        .iter()
+        .map(|a| super::rescue::parse(a, N))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            violations.add("amendment_chain", || error);
+            Vec::new()
+        }
+    };
+    {
+        let original: Vec<&str> = queries.iter().map(|q| q.id.as_str()).collect();
+        if let Err(error) = super::rescue::check_chain(
+            &loaded.raw.amendments,
+            &amended,
+            &loaded.raw.request,
+            &original,
+        ) {
+            violations.add("amendment_chain", || error);
+        } else if amended.len() != loaded.raw.amendments.len() {
+            violations.add("amendment_chain", || {
+                format!(
+                    "the command supplies {} amendments, the checkpoint records {}",
+                    amended.len(),
+                    loaded.raw.amendments.len()
+                )
+            });
+        }
+    }
+    let amended_start = queries.len();
+    let queries: Vec<&matching::input::Query> = queries
+        .iter()
+        .chain(amended.iter().flat_map(|a| a.queries.iter()))
+        .collect();
+    let amendment_of: Vec<Option<u64>> = (0..queries.len())
+        .map(|index| {
+            let mut offset = amended_start;
+            for amendment in &amended {
+                if index >= offset && index < offset + amendment.queries.len() {
+                    return Some(amendment.sequence);
+                }
+                offset += amendment.queries.len();
+            }
+            None
+        })
+        .collect();
     // Roots: every query's record, authenticated by the request binding.
     let mut root_of_query = Vec::new();
     let mut admitting = BTreeMap::<usize, usize>::new();
@@ -1715,6 +1780,36 @@ fn verify<const N: usize>(
             violations.add("root_mapping", || {
                 format!("saved input {index} is not query {}", query.id)
             });
+        }
+        if let Some(sequence) = amendment_of[index] {
+            // An amended query resolves to any admitted record (a new one, or
+            // an existing record outside the quarantine that contains it).
+            if entry.and_then(|e| e["amendment"].as_u64()) != Some(sequence) {
+                violations.add("root_mapping", || {
+                    format!(
+                        "saved input {index} is not amended query {} of amendment {sequence}",
+                        query.id
+                    )
+                });
+            }
+            let Some(record) = record.filter(|&r| r < total) else {
+                violations.add("root_mapping", || {
+                    format!("amended query {} has no record", query.id)
+                });
+                root_of_query.push(None);
+                continue;
+            };
+            admitting.entry(record).or_insert(index);
+            if !containment.contains(&ccell(&loaded.domains[record]), &query_cell(query)) {
+                violations.add("root_mapping", || {
+                    format!(
+                        "amended query {} is not contained in record {record}",
+                        query.id
+                    )
+                });
+            }
+            root_of_query.push(Some(record));
+            continue;
         }
         let Some(record) = record.filter(|&r| r < initial_count && r < total) else {
             violations.add("root_mapping", || {
@@ -1820,6 +1915,83 @@ fn verify<const N: usize>(
         root_state.insert(root, (closed[root], fully_reinspected));
         root_rows.push(row);
     }
+    // Certification scope. An amended walk (frontier rescue, `rescue.rs`)
+    // certifies PER PHYSICS QUERY (ids without the helper pattern): through
+    // the first input root, in input order, that is oracle-closed and
+    // contains the query (same phase as the query's own root; exact lattice
+    // inclusion). Only those certifying roots are required (roots_total);
+    // helper roots are reported separately and may stay open. A physics
+    // query without such a root requires its own root, which then fails.
+    let all_root_state = root_state.clone();
+    let physics_scope = match options.certification_scope {
+        OwnerDomainWalkVerifyScope::AllRoots => false,
+        OwnerDomainWalkVerifyScope::PhysicsQueries => true,
+        OwnerDomainWalkVerifyScope::Auto => !amended.is_empty(),
+    };
+    let mut physics_report = Value::Null;
+    let mut helper_report = Value::Null;
+    let root_state = if physics_scope {
+        let mut required = BTreeMap::new();
+        let (mut total_physics, mut certified) = (0usize, 0usize);
+        let mut uncertified = Vec::new();
+        let mut via_amendment = 0usize;
+        for (index, query) in queries.iter().enumerate() {
+            if query.id.contains(options.helper_pattern.as_str()) {
+                continue;
+            }
+            total_physics += 1;
+            let cell = query_cell(query);
+            let own = root_of_query[index];
+            let phase = own.map_or(Phase::Apply, |r| loaded.domains[r].phase());
+            let via = root_of_query.iter().enumerate().find_map(|(input, root)| {
+                let root = (*root)?;
+                (closed[root]
+                    && loaded.domains[root].phase() == phase
+                    && containment.contains(&ccell(&loaded.domains[root]), &cell))
+                .then_some((input, root))
+            });
+            match via {
+                Some((input, root)) => {
+                    certified += 1;
+                    via_amendment += usize::from(amendment_of[input].is_some());
+                    required.insert(root, all_root_state[&root]);
+                }
+                None => {
+                    if uncertified.len() < 1_000 {
+                        uncertified.push(query.id.clone());
+                    }
+                    if let Some(root) = own {
+                        required.insert(root, all_root_state[&root]);
+                    }
+                    if options.require_closure {
+                        violations.add("closure_required", || {
+                            format!("physics query {} has no closed containing root", query.id)
+                        });
+                    }
+                }
+            }
+        }
+        let helper_roots: std::collections::BTreeSet<usize> = queries
+            .iter()
+            .zip(&root_of_query)
+            .filter(|(query, _)| query.id.contains(options.helper_pattern.as_str()))
+            .filter_map(|(_, root)| *root)
+            .collect();
+        let open: Vec<usize> = helper_roots
+            .iter()
+            .copied()
+            .filter(|&r| !closed[r])
+            .collect();
+        physics_report = json!({"total":total_physics,"certified":certified,
+            "certified_through_amended_roots":via_amendment,"uncertified":uncertified,
+            "certifying_roots":required.len()});
+        helper_report = json!({"total":helper_roots.len(),"closed":helper_roots.len() - open.len(),
+            "not_closed":open.iter().take(1_000).collect::<Vec<_>>(),"required":false,
+            "note":"helper roots are auxiliary; a frontier-bearing helper may stay uncertified once every physics query it held is certified through a closed containing root"});
+        required
+    } else {
+        root_state
+    };
     if options.require_closure {
         for (&root, &(is_closed, _)) in &root_state {
             if !is_closed {
@@ -1872,6 +2044,10 @@ fn verify<const N: usize>(
             root_state.len() - roots_not_independently_verified,
             root_state.len()
         ),
+        _ if options.require_closure && physics_scope => {
+            "no violation; every native re-inspected; every physics query certified through a closed, independently verified containing root (helper roots reported separately)"
+                .to_string()
+        }
         _ if options.require_closure => {
             "no violation; every native re-inspected; every root closed and independently verified"
                 .to_string()
@@ -1888,7 +2064,7 @@ fn verify<const N: usize>(
         let entry = classes.entry(class).or_default();
         *entry.entry("total").or_default() += 1;
         let state = root
-            .and_then(|r| root_state.get(&r))
+            .and_then(|r| all_root_state.get(&r))
             .copied()
             .unwrap_or((false, false));
         let admitted = root.is_some_and(|r| admitting.get(&r) == Some(&index));
@@ -1915,6 +2091,11 @@ fn verify<const N: usize>(
         "roots_total": root_state.len(),
         "roots_independently_verified": roots_independently_verified,
         "closure_required": options.require_closure,
+        "certification_scope": if physics_scope { "physics_queries_through_closed_containing_roots" } else { "all_roots" },
+        "physics_queries": physics_report,
+        "helper_roots": helper_report,
+        "amendments": {"count": amended.len(), "digests": amended.iter().map(|a| a.digest.as_str()).collect::<Vec<_>>(),
+            "amended_queries": queries.len() - amended_start},
         "family_closure_claim": false,
         "scope": "re-derived dependency closure (coinductive: sealed cycles count as closed) and reference re-inspection coverage of saved natives; not IBP replay, descent or termination",
         "reference": {

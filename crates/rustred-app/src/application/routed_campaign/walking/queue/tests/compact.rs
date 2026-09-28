@@ -184,6 +184,7 @@ fn differential<const N: usize>(pairs: usize, seed: u64) -> Tally {
         let stored = Stored {
             domains: &domains,
             summaries: &summaries,
+            quarantine: &[],
         };
         let (qa, qb) = (
             Query::new(sa.clone(), a.phase),

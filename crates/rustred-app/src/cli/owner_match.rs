@@ -66,8 +66,10 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     } else {
         "owner_domain_match"
     };
+    let amendments = read_amendments(&args)?;
     let result = if walking {
-        let walk = walk_request(request, &args);
+        let mut walk = walk_request(request, &args);
+        walk.amendments = amendments;
         owner_domain_walk_with_progress(walk, &cancellation, |mut event| {
             event["operation"] = json!(operation);
             monitor.observe(event);
@@ -246,7 +248,34 @@ pub(crate) fn walk_request_from_argv(
         .map_err(str::to_owned)?;
     preflight_checkpoint_paths(&args).map_err(|e| e.to_string())?;
     let request = match_request(&args).map_err(|e| e.to_string())?;
-    Ok(walk_request(request, &args))
+    let mut walk = walk_request(request, &args);
+    walk.amendments = read_amendments(&args).map_err(|e| e.to_string())?;
+    Ok(walk)
+}
+
+/// The rescue amendment files, read whole (bounded) in chain order.
+fn read_amendments(
+    args: &OwnerDomainMatchArgs,
+) -> Result<Vec<crate::OwnerDomainWalkAmendment>, CliError> {
+    args.amend_queries
+        .iter()
+        .map(|path| {
+            let file = File::open(path)
+                .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
+            let bytes = read_bounded(
+                file,
+                "rescue amendment",
+                crate::OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES,
+            )?;
+            let text = String::from_utf8(bytes).map_err(|_| {
+                CliError::Input(format!("{}: amendment must be UTF-8", path.display()))
+            })?;
+            Ok(crate::OwnerDomainWalkAmendment {
+                path: path.clone(),
+                text,
+            })
+        })
+        .collect()
 }
 
 /// Requested steering must not rebrand Ready's flat-ID v5, its compact paused
@@ -358,6 +387,7 @@ fn preflight_checkpoint_paths(args: &OwnerDomainMatchArgs) -> Result<(), CliErro
     .into_iter()
     .chain(args.events.iter())
     .chain(args.stop_file.iter())
+    .chain(args.amend_queries.iter())
     {
         if super::candidates::resolved_location(path)?.starts_with(&directory) {
             return Err(CliError::Input(

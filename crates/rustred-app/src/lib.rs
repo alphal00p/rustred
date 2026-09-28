@@ -6,22 +6,24 @@ mod cli;
 mod test_gates;
 
 pub use application::{
+    OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
     OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
-    OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
-    OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainMatchRequest, OwnerDomainMatchResult,
-    OwnerDomainScanRequest, OwnerDomainScanResult, OwnerDomainWalkApplySubdivision,
-    OwnerDomainWalkCheckpointOptions, OwnerDomainWalkFrontierPolicy,
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
+    OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA,
+    OWNER_DOMAIN_WALK_SEMANTICS_VERSION, OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainMatchRequest,
+    OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
+    OwnerDomainWalkAmendment, OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
+    OwnerDomainWalkFrontierPolicy, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
+    OwnerDomainWalkRequest, OwnerDomainWalkRescuePlan, OwnerDomainWalkRescuePlanOptions,
     OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerDomainWalkVerifyMutation,
     OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReferenceLevers,
-    OwnerDomainWalkVerifyReinspect, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,
-    RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
+    OwnerDomainWalkVerifyReinspect, OwnerDomainWalkVerifyScope, OwnerGuardedApplyRequest,
+    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
     RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
     RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
     RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
-    owner_domain_scan_with_progress, owner_domain_walk_verify_closure,
-    owner_domain_walk_with_progress, owner_guarded_apply_with_progress,
-    routed_campaign_with_progress,
+    owner_domain_scan_with_progress, owner_domain_walk_rescue_plan,
+    owner_domain_walk_verify_closure, owner_domain_walk_with_progress,
+    owner_guarded_apply_with_progress, routed_campaign_with_progress,
 };
 pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
 

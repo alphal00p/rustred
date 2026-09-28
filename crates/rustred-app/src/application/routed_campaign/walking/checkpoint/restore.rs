@@ -243,7 +243,16 @@ pub(super) fn restore<const N: usize>(
         initial_domain_count,
         initial_entry_domains_inspected,
     ] = meta.counters;
-    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
+    // An amended walk (`rescue.rs`) may hold exact duplicates of quarantined
+    // domains; the quarantine installed after restore checks every group.
+    let queue = Queue::<N>::restore_from_parts_amended(
+        meta.queue,
+        domains,
+        buckets,
+        ledger,
+        !manifest.amendments.is_empty(),
+        &mut phases,
+    )?;
     if initial_domain_count > queue.domains.len()
         || meta.route_joint_support_masks_pruned > route_masks
         || initial_entry_domains_inspected > initial_domain_count

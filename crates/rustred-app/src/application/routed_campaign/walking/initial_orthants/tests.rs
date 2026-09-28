@@ -118,6 +118,7 @@ fn initial_orthants_optional_caps_cancel_and_later_admission_fall_back() {
             &AtomicBool::new(false),
             max_buckets,
             bytes,
+            &|_| false,
         );
         assert_eq!(snapshot.ranks.len(), expected);
         assert_eq!(

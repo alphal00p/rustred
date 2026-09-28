@@ -1029,7 +1029,17 @@ fn run_configured<const N: usize>(
     }
     // Capture actual initial admissions only. This immutable borrowed snapshot
     // is shared across scoped workers and never observes later queue growth.
-    let initial = if enabled {
+    // An amended walk's rescue quarantine (`rescue.rs`) also binds the
+    // worker-side shortcuts: no quarantined initial orthant or anchor.
+    let quarantine = state.queue.quarantine_active();
+    let initial = if enabled && quarantine {
+        let queue = &state.queue;
+        InitialOrthants::from_initial_excluding(
+            &queue.expand_prefix(state.initial_domain_count),
+            cancellation,
+            &|id| queue.is_quarantined(id),
+        )
+    } else if enabled {
         InitialOrthants::from_initial(
             &state.queue.expand_prefix(state.initial_domain_count),
             cancellation,
@@ -1047,7 +1057,14 @@ fn run_configured<const N: usize>(
             state.error = Some("initial D-band reuse requires a protected initial prefix".into());
             return;
         };
-        InitialOverlapIndex::from_initial(&state.queue.expand_prefix(prefix), cancellation)
+        let index =
+            InitialOverlapIndex::from_initial(&state.queue.expand_prefix(prefix), cancellation);
+        if quarantine {
+            let queue = &state.queue;
+            index.without_anchors(&|id| queue.is_quarantined(id))
+        } else {
+            index
+        }
     } else {
         InitialOverlapIndex::empty()
     };

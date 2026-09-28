@@ -121,6 +121,8 @@ impl RoutedProgress {
                     | "checkpoint_executable_changed"
                     | "diagnostic_pause"
                     | "frontier_stop"
+                    | "rescue_quarantine"
+                    | "rescue_amendment_applied"
             )
         );
         let milestone = checkpoint.then(|| event.clone());
@@ -129,7 +131,13 @@ impl RoutedProgress {
         // but leave the dashboard's latest progress record in place.
         if !matches!(
             event["event"].as_str(),
-            Some("checkpoint_skipped_unchanged" | "diagnostic_pause" | "frontier_stop")
+            Some(
+                "checkpoint_skipped_unchanged"
+                    | "diagnostic_pause"
+                    | "frontier_stop"
+                    | "rescue_quarantine"
+                    | "rescue_amendment_applied"
+            )
         ) {
             *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
         }
@@ -672,6 +680,51 @@ mod tests {
             .collect();
         assert_eq!(stops.len(), 1);
         assert_eq!(stops[0]["frontiers"], 4);
+    }
+
+    #[test]
+    fn rescue_receipts_are_journaled_milestones() {
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let monitor = RoutedProgress::start(
+            Box::new(Shared(Arc::clone(&bytes))),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        );
+        monitor.observe(json!({"event":"domain_progress","completed_nodes":3}));
+        monitor.observe(json!({"event":"rescue_quarantine","quarantined_domains":5}));
+        monitor.observe(json!({"event":"rescue_amendment_applied","sequence":1,"queries":2}));
+        let (_, latest) = monitor.latest.lock().unwrap().clone();
+        assert_eq!(latest["event"], "domain_progress");
+        monitor.finish().unwrap();
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let events: Vec<String> = text
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<Value>(line).unwrap()["event"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert!(
+            events.contains(&"rescue_quarantine".to_owned()),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&"rescue_amendment_applied".to_owned()),
+            "{events:?}"
+        );
     }
 
     #[test]

@@ -168,6 +168,12 @@ pub(super) struct Manifest {
     pub executable_first: String,
     pub sections: Sections,
     pub metadata: Value,
+    /// Resume-time rescue amendments applied to this walk, in chain order
+    /// (`rescue.rs`). Never serialized when empty, so the manifest of an
+    /// unamended walk is byte-identical to the historical one; an amended
+    /// manifest is refused by binaries without the rescue (unknown field).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<super::super::rescue::AmendmentRef>,
 }
 /// One referenced file: name, byte length and blake3 hex digest.
 pub(super) struct FileRef<'a> {
@@ -370,6 +376,7 @@ mod tests {
                 records: Some(Segmented::default()),
             },
             metadata: json!({}),
+            amendments: Vec::new(),
         };
         manifest.validate_structure().unwrap();
         let mut gap = manifest.clone();

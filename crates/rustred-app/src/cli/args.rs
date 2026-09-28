@@ -168,6 +168,7 @@ pub(crate) enum Command {
     CampaignShards(Vec<OsString>),
     CampaignMonitor(Vec<OsString>),
     WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
+    WalkRescuePlan(super::walk_rescue::WalkRescuePlanArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -281,6 +282,7 @@ pub(crate) fn parse_args(
         "owner-domain-match" => owner_match::parse(arguments),
         "owner-guarded-apply" => owner_guarded::parse(arguments),
         "walk-verify-closure" => super::walk_verify::parse(arguments),
+        "walk-rescue-plan" => super::walk_rescue::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -355,7 +357,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-query-bytes N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--frontier-policy record|stop] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-query-bytes N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--frontier-policy record|stop] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]] [--resume DIR [--amend-queries AMENDMENT.json]...]]
     rustred owner-domain-scan --manifest SELECTION.json (--max-numerator-rank R | --unbounded-rank) --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N] [--factor-census [--factor-census-numerators] [--factor-census-max-terms N]]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--entry-domains DOMAINS.json] [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -371,7 +373,8 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
-    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--max-violations N] [--force]
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
+    rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-pattern TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -696,6 +699,25 @@ walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same
 format, schema and walk semantics version.
+
+`--amend-queries FILE` (repeatable, only with --resume) applies the resume-time
+frontier rescue: an append-only, digest-chained amendment (schema
+rustred.owner-domain-walk-amendment.json.v1: sequence, parent digest, query
+rows) that adds protected queries, typically bounded helpers covering the
+physics region of a frontier-bearing helper. The first amendment chains from
+the checkpoint's request binding, each later one from the previous file's
+blake3 digest; every recorded amendment must be supplied again, in order.
+An amended walk quarantines, at every resume, every node that reaches a
+frontier (no later lookup resolves into it) and reports per-query
+certification through any closed containing input root.
+
+`walk-rescue-plan` reads one saved walk generation (named like
+walk-verify-closure by its argv, with every recorded --amend-queries),
+classifies its frontiers (known rescues: guard obstructions on rank- or
+positive-power-unbounded nodes) and writes the next amendment for the physics
+queries (ids without --helper-pattern) that the frontier taint blocks. Exit 0
+for verdicts rescue, no_amendment_needed and no_frontier; exit 1 when the
+owner must decide (unknown_frontier_class, rescue_exhausted).
 
 `walk-verify-closure` is an offline oracle over one saved CP5 walk
 generation, named by the walk's own owner-domain-match argv (a JSON list, or

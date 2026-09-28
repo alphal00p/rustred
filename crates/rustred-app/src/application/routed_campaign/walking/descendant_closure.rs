@@ -337,6 +337,38 @@ impl Tracker {
         bytes
     }
 
+    /// Frontier taint for the resume-time rescue (`rescue.rs`): a bitset (one
+    /// bit per node) of every node that reaches, over recorded edges, a node
+    /// that finished its inspection unsealed (a native that kept frontiers;
+    /// a failed inspection never reaches a checkpoint). Such a node can never
+    /// close, so neither can any node in the set. Pending nodes are not
+    /// tainted by themselves. None when the monitor is unavailable (the
+    /// rescue then refuses: it cannot tell which nodes are blocked).
+    pub fn tainted(&self) -> Option<Vec<u64>> {
+        if self.unavailable.is_some() {
+            return None;
+        }
+        let nodes = self.flags.len();
+        let mut tainted = vec![0u64; nodes.div_ceil(64)];
+        let mut stack: Vec<u32> = Vec::new();
+        for (id, &flag) in self.flags.iter().enumerate() {
+            if flag & FLAG_INSPECTED != 0 && flag & FLAG_SEALED == 0 {
+                tainted[id / 64] |= 1 << (id % 64);
+                stack.push(id as u32);
+            }
+        }
+        while let Some(id) = stack.pop() {
+            for source in self.edges.incoming(id as usize) {
+                let (word, bit) = (source as usize / 64, 1u64 << (source % 64));
+                if tainted[word] & bit == 0 {
+                    tainted[word] |= bit;
+                    stack.push(source);
+                }
+            }
+        }
+        Some(tainted)
+    }
+
     pub fn closed(&self, id: usize) -> Option<bool> {
         self.unavailable
             .is_none()

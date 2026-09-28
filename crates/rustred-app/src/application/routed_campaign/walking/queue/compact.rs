@@ -313,6 +313,14 @@ pub(super) struct Miss {
     collides: bool,
 }
 
+impl Miss {
+    /// The miss of an exact duplicate an amended walk admits on purpose (its
+    /// earlier equal ID is quarantined): publication goes to `overflow`.
+    pub fn duplicate() -> Self {
+        Self { collides: true }
+    }
+}
+
 /// Exact-duplicate index. A digest hit is only a candidate: the stored compact
 /// domain is compared field by field, and genuinely different domains with
 /// the same digest live in `overflow`, so lookups never depend on the digest
@@ -374,6 +382,65 @@ impl<const N: usize> ExactIndex<N> {
             .get(&key)
             .and_then(|ids| ids.iter().copied().find(|&id| domains[id] == *candidate))
             .ok_or(Miss { collides: true })
+    }
+
+    /// `get` that skips IDs in the rescue quarantine (`rescue.rs`): the first
+    /// non-quarantined ID holding exactly `candidate`. An amended walk may
+    /// hold exact duplicates, a quarantined ID and the later live one (in
+    /// `overflow`, in admission order). An empty quarantine is plain `get`.
+    pub fn get_live(
+        &self,
+        key: Digest,
+        candidate: &CompactDomain<N>,
+        domains: &[CompactDomain<N>],
+        quarantine: &[u64],
+    ) -> Result<usize, Miss> {
+        if quarantine.is_empty() {
+            return self.get(key, candidate, domains);
+        }
+        let Some(&id) = self.primary.get(&key) else {
+            return Err(Miss { collides: false });
+        };
+        if domains[id] == *candidate && !quarantined(quarantine, id) {
+            return Ok(id);
+        }
+        self.overflow
+            .get(&key)
+            .and_then(|ids| {
+                ids.iter()
+                    .copied()
+                    .find(|&id| domains[id] == *candidate && !quarantined(quarantine, id))
+            })
+            .ok_or(Miss { collides: true })
+    }
+
+    /// Every exact-duplicate group (IDs of one domain, ascending), for the
+    /// quarantine consistency check of an amended walk.
+    pub fn duplicate_groups(&self, domains: &[CompactDomain<N>]) -> Vec<Vec<usize>> {
+        let mut groups = Vec::new();
+        for (key, ids) in &self.overflow {
+            let mut all: Vec<usize> = self.primary.get(key).copied().into_iter().collect();
+            all.extend_from_slice(ids);
+            let mut seen = vec![false; all.len()];
+            for i in 0..all.len() {
+                if seen[i] {
+                    continue;
+                }
+                let mut group = vec![all[i]];
+                for j in i + 1..all.len() {
+                    if !seen[j] && domains[all[j]] == domains[all[i]] {
+                        seen[j] = true;
+                        group.push(all[j]);
+                    }
+                }
+                if group.len() > 1 {
+                    group.sort_unstable();
+                    groups.push(group);
+                }
+            }
+        }
+        groups.sort_unstable();
+        groups
     }
 
     #[cfg(test)]
@@ -766,16 +833,29 @@ pub(super) fn stored_image<const N: usize>(
 pub(super) struct Stored<'a, const N: usize> {
     pub domains: &'a [CompactDomain<N>],
     pub summaries: &'a [CompactSummary<N>],
+    /// Rescue quarantine bitset (`rescue.rs`); empty unless the walk was
+    /// amended. A quarantined ID is never a forward (containing) positive.
+    pub quarantine: &'a [u64],
+}
+
+/// Whether `id` is in the rescue quarantine bitset (false when it is empty).
+#[inline]
+pub(in super::super) fn quarantined(quarantine: &[u64], id: usize) -> bool {
+    quarantine
+        .get(id >> 6)
+        .is_some_and(|word| word >> (id & 63) & 1 != 0)
 }
 
 impl<const N: usize> Stored<'_, N> {
     /// Exact native inclusion `stored[id] ⊇ query` within the query's
     /// (phase, owner) bucket (A1: a candidate of another bucket is never a
-    /// positive, even for an empty query).
+    /// positive, even for an empty query). A quarantined container is never
+    /// a positive (the rescue keeps new work out of frontier-tainted cones).
     #[inline]
     pub fn contains(&self, id: usize, query: &Query<N>) -> bool {
         let (phase, owner) = query.bucket;
-        self.domains[id].same_bucket(phase, owner)
+        (self.quarantine.is_empty() || !quarantined(self.quarantine, id))
+            && self.domains[id].same_bucket(phase, owner)
             && self.summaries[id]
                 .contains(&query.compact)
                 .unwrap_or_else(|| self.domains[id].native_summary().contains(&query.core))
