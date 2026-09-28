@@ -377,6 +377,8 @@ struct Node {
     /// Alias representative or partial anchor.
     link: usize,
     cut: i64,
+    /// Rescue-abandoned (published without inspection; never re-inspected).
+    abandoned: bool,
 }
 impl Node {
     const MISSING: Self = Self {
@@ -389,6 +391,7 @@ impl Node {
         accepted: None,
         link: usize::MAX,
         cut: 0,
+        abandoned: false,
     };
     fn native(&self) -> bool {
         matches!(self.kind, Kind::Native | Kind::Partial)
@@ -447,6 +450,9 @@ struct RecordRow {
     representative_id: Option<usize>,
     #[serde(default)]
     initial_overlap: Option<OverlapRow>,
+    /// Rescue: an obligation published without inspection (`rescue.rs`).
+    #[serde(default)]
+    rescue_abandoned: Option<bool>,
 }
 
 fn cell<const N: usize>(domain: &Domain<N>) -> Cell {
@@ -737,7 +743,25 @@ fn record_node<const N: usize>(
         accepted: row.accepted_events,
         link: usize::MAX,
         cut: 0,
+        abandoned: row.rescue_abandoned == Some(true),
     };
+    if node.abandoned {
+        // Exactly one bookkeeping frontier, one accepted event, nothing else.
+        let marker = row.frontiers.as_deref().is_some_and(|f| {
+            f.len() == 1 && f[0]["kind"] == super::inspection::RESCUE_ABANDONED_KIND
+        });
+        if row.record_kind != "native_inspection"
+            || !marker
+            || node.error
+            || node.events != Some(1)
+            || node.successors.unwrap_or(0) != 0
+            || node.finished
+        {
+            violations.add("rescue_abandoned", || {
+                format!("record {id} is not a well-formed rescue-abandoned record")
+            });
+        }
+    }
     match row.record_kind.as_str() {
         "native_inspection" => {}
         "partial_initial_overlap_inspection" => {
@@ -1121,9 +1145,16 @@ fn reinspect<const N: usize>(
                 let fits = |(_, phase, outer): &(usize, Phase, Cell)| {
                     *phase == admitted.phase && ctx.containment.contains(outer, &inner)
                 };
+                // Targets are sorted by id, which follows the admission order
+                // of fresh successors, so the scan resumes after the last
+                // match (wrapping). Any fitting target covers; the order only
+                // keeps a node with ~1M successors linear, not quadratic.
                 if recent < targets.len() && fits(&targets[recent]) {
                     local.covered_direct += 1;
-                } else if let Some(index) = targets.iter().position(fits) {
+                } else if let Some(index) = (recent + 1..targets.len())
+                    .chain(0..recent.min(targets.len()))
+                    .find(|&index| fits(&targets[index]))
+                {
                     recent = index;
                     local.covered_direct += 1;
                 } else if alias_chain_covers(
@@ -1284,7 +1315,11 @@ fn run_reinspection<const N: usize>(
     let started = Instant::now();
     let nodes = &ctx.loaded.nodes;
     let total = nodes.len();
-    let candidates: Vec<usize> = (0..total).filter(|&id| nodes[id].native()).collect();
+    // Rescue-abandoned records were never inspected: nothing to re-derive
+    // (they never seal, so no certified cone contains one).
+    let candidates: Vec<usize> = (0..total)
+        .filter(|&id| nodes[id].native() && !nodes[id].abandoned)
+        .collect();
     let selected: Vec<usize> = match options.reinspect {
         OwnerDomainWalkVerifyReinspect::All => candidates.clone(),
         OwnerDomainWalkVerifyReinspect::None => Vec::new(),
@@ -1593,6 +1628,13 @@ fn verify<const N: usize>(
                 Kind::Alias => "aliases",
             })
             .or_default() += 1;
+        if node.abandoned && (loaded.raw.amendments.is_empty() || !graph.out(id).is_empty()) {
+            violations.add("rescue_abandoned", || {
+                format!(
+                    "record {id}: rescue-abandoned outside an amended walk or with dependency edges"
+                )
+            });
+        }
         if (flag & FLAG_SEALED != 0) != sealed[id] {
             violations.add("seal_parity", || {
                 format!(
