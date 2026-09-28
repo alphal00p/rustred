@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# usage: contend.sh BIN SECONDS OUTDIR COPIES FILTER...   (equal-priority contention: COPIES loops per filter)
+# usage: contend.sh BIN SECONDS OUTDIR COPIES FILTER...   (equal-priority contention: COPIES loops per filter;
+#        an empty FILTER "" runs the whole test binary, logged as all-<copy>.log)
 # A run counts as ok only when the test binary exits 0 AND its LAST libtest
 # summary line is "test result: ok." (an isolated() child's output embedded in
 # a parent's failure message can contain an earlier "test result: ok" line).
@@ -14,10 +15,10 @@ for f in "$@"; do
   for c in $(seq 1 $COPIES); do
     (
       i=0
-      log=$OUT/$(echo $f | tr ':' '_')-$c.log
+      name=$(echo "$f" | tr ':' '_'); log=$OUT/${name:-all}-$c.log
       while [ $(date +%s) -lt $end ]; do
         i=$((i+1))
-        out=$(taskset -c $CPUS nice -n 5 $BIN $f 2>&1); rc=$?
+        out=$(taskset -c $CPUS nice -n 5 $BIN "$f" 2>&1); rc=$?
         last=$(printf '%s\n' "$out" | grep -E '^test result: ' | tail -1)
         if [ $rc = 0 ] && [ "${last#test result: ok.}" != "$last" ]; then echo "ok" >> $log
         else echo "FAIL iteration $i rc=$rc" >> $log; printf '%s\n' "$out" | grep -E '^test .* FAILED|panicked' | head -5 >> $log; fi

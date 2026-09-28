@@ -66,7 +66,7 @@ def read(path):
 
 
 def launch(argv, out, cpus, nice):
-    env = dict(os.environ, **rc.ENV_ONE, OMP_THREAD_LIMIT="1", TMPDIR=str(ROOT / "TMP"), SYMBOLICA_HIDE_BANNER="1")
+    env = dict(os.environ, **{**rc.ENV_ONE, "OMP_THREAD_LIMIT": "1"}, TMPDIR=str(ROOT / "TMP"), SYMBOLICA_HIDE_BANNER="1")
     out.mkdir(parents=True, exist_ok=True)
     (out / "argv.json").write_text(json.dumps(argv, indent=1))
     return subprocess.Popen(argv, cwd=ROOT, env=env, stdout=open(out / "stdout", "w"),

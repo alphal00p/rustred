@@ -140,6 +140,8 @@ class Poller(threading.Thread):
         self.stop = threading.Event()
         self.tasks = {}  # tid -> (comm, cpu_ns, delay_ns, slices)
         self.peak_rss = 0
+        self.rss_now = 0
+        self.events = Path(series_path).with_name("events.jsonl")
         self.series = open(series_path, "w")
         self.t0 = time.time()
         self.foreign = []  # foreign busy CPUs per ~1 s sample
@@ -164,7 +166,8 @@ class Poller(threading.Thread):
             with open(base + "/status") as f:
                 for line in f:
                     if line.startswith("VmRSS:"):
-                        self.peak_rss = max(self.peak_rss, int(line.split()[1]) * 1024)
+                        self.rss_now = int(line.split()[1]) * 1024
+                        self.peak_rss = max(self.peak_rss, self.rss_now)
                         break
             tids = os.listdir(base + "/task")
         except OSError:
@@ -198,7 +201,8 @@ class Poller(threading.Thread):
             alive = self.sample()
             now = time.time()
             if alive and now - last_write >= 1.0:
-                row = {"t": round(now - self.t0, 3), "rss": self.peak_rss}
+                row = {"t": round(now - self.t0, 3), "rss": self.peak_rss, "rss_now": self.rss_now}
+                row.update(self.walk_counters())
                 row.update(self.totals())
                 busy = proc_stat_cpus(self.cpus)[0] / CLK_TCK
                 own = row["threads_cpu_seconds"]
@@ -212,6 +216,22 @@ class Poller(threading.Thread):
                 last_write = now
             self.stop.wait(self.interval)
         self.series.close()
+
+    def walk_counters(self):
+        """Latest scheduled/committed domain counts from the tail of the events journal."""
+        try:
+            size = self.events.stat().st_size
+            with open(self.events, "rb") as stream:
+                stream.seek(max(0, size - 262_144))
+                tail = stream.read()
+        except OSError:
+            return {}
+        out = {}
+        for key in (b"scheduled_nodes", b"committed_domains"):
+            found = re.findall(rb'"' + key + rb'":\s*(\d+)', tail)
+            if found:
+                out[key.decode()] = int(found[-1])
+        return out
 
     def recorder(self):
         return {"samples": len(self.foreign), "run_cpus": len(self.cpus),

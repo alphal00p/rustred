@@ -11,9 +11,18 @@
 #       from S1's record checkpoint of the same binary); a mid-walk pause/resume
 #       under stop (same binary); two cross-binary mid-walk resumes
 #       4a17f9c7 -> campaign+mimalloc and 4a17f9c7 -> campaign (record).
-# usage: socket1_fix_sessions.sh S1|S2 RELEASE CAMPAIGN MIMALLOC
+#   S3: N3 RSS pilot (directive 0.1.2): C-HOT (hot owner 011101110111000, the
+#       full hot box) Ordered W48, campaign on CPUs 128-175 and campaign+mimalloc
+#       on 176-223 concurrently, cooperative stop at 45 min; marginal RSS per
+#       discovered domain over the second half (rss_fit.py). Ordered makes the
+#       two arms' domain sequences identical, so RSS is compared at matched
+#       domain counts; concurrent arms perturb CPU timing, not RSS.
+#   S2 also runs the release app lib test executable APP_EXE once on 64
+#   socket-1 CPUs, so its W50 worker-loop variants (vacuous skips on the 16-CPU
+#   lane mask) execute.
+# usage: socket1_fix_sessions.sh S1|S2|S3 RELEASE CAMPAIGN MIMALLOC [APP_EXE]
 set -u
-S=$1; REL=$2; CAM=$3; MI=$4
+S=$1; REL=$2; CAM=$3; MI=$4; APP=${5:-}
 ROOT=/common/dev/rustred
 OPS=$ROOT/.claude/worktrees/agent-ade877816b107b1cf/tools/research/ops
 PY=/nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
@@ -23,7 +32,7 @@ LOG=$ROOT/TMP/w1-ops/runs/socket1-fix-$S.log
 export TMPDIR=$ROOT/TMP
 echo "$(date -u +%FT%TZ) $S queued on socket1.lock" >> $LOG
 flock -w 14400 $ROOT/TMP/locks/socket1.lock bash -c '
-  S='"$S"'; REL='"$REL"'; CAM='"$CAM"'; MI='"$MI"'; OPS='"$OPS"'; PY='"$PY"'; REF='"$REF"'; LEGACY='"$LEGACY"'
+  S='"$S"'; REL='"$REL"'; CAM='"$CAM"'; MI='"$MI"'; APP='"$APP"'; OPS='"$OPS"'; PY='"$PY"'; REF='"$REF"'; LEGACY='"$LEGACY"'
   ROOT=/common/dev/rustred
   echo "$(date -u +%FT%TZ) $S socket1.lock acquired; MemAvailable $(awk "/MemAvailable/{print int(\$2/1048576)}" /proc/meminfo) GiB"
   end=$(( $(date +%s) + 3500 ))
@@ -32,8 +41,22 @@ flock -w 14400 $ROOT/TMP/locks/socket1.lock bash -c '
     ORACLE=all ORACLE_ASYNC=1 ORACLE_CPUS=192-223 ORACLE_THREADS=32 timeout $(left) \
       $OPS/ab_session.sh n3r2c5f 2 "release=$REL campaign=$CAM campaignmi=$MI" five-finite 128-177 50
     echo "$(date -u +%FT%TZ) S1 ab_session exit $?"
+  elif [ "$S" = S3 ]; then
+    R=$ROOT/TMP/w1-ops/runs
+    HQ=$ROOT/TMP/qcd-feynman-d9d10-pilot-hot-owner/queries.json
+    $PY $OPS/knob_run.py --binary $CAM --family hot-sub --queries $HQ --label n3r2rss-campaign --cpus 128-175 \
+      --policy ordered --workers 48 --timeout-seconds 2700 --keep-result &
+    $PY $OPS/knob_run.py --binary $MI --family hot-sub --queries $HQ --label n3r2rss-campaignmi --cpus 176-223 \
+      --policy ordered --workers 48 --timeout-seconds 2700 --keep-result &
+    wait
+    $PY $OPS/rss_fit.py $R/n3r2rss-campaign/hot-sub $R/n3r2rss-campaignmi/hot-sub
   else
     R=$ROOT/TMP/w1-ops/runs
+    if [ -n "$APP" ]; then
+      (cd $ROOT/.claude/worktrees/agent-ade877816b107b1cf/crates/rustred-app && \
+        taskset -c 128-191 nice -n 5 $APP > $R/app-lib-socket1-64cpu.log 2>&1)
+      echo "APP-LIB 64 CPUs exit $? $(grep -E "^test result:" $R/app-lib-socket1-64cpu.log | tail -1) skip_markers=$(grep -c "^SKIPPED" $R/app-lib-socket1-64cpu.log)"
+    fi
     # (a) C-5F under the stop policy (no frontier expected).
     timeout $(left) $PY $OPS/knob_run.py --binary $MI --family five-finite --label n3r2c5f-stop-campaignmi \
       --cpus 128-177 --policy ordered --workers 50 --keep-result --native-args "--frontier-policy stop"

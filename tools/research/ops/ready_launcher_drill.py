@@ -21,6 +21,11 @@ every policy), staged into a fresh campaign directory under the run label
      substituted from the Record checkpoint): verdict PASS with full F10
      re-inspection, roots_total equal to the Ordered fixture reference, audit
      violation kinds within the reference's (Ready record indices differ).
+     The audit also reads the supervisor receipt, which the bare W0.2
+     reference run lacks: a walk that ends with explicit frontiers exits 4
+     (as the Ordered fixture itself did), so "resource receipt exit_status
+     != 0" is admitted exactly when the final native status is incomplete
+     with frontiers > 0 and the receipt's exit status is 4.
 
 usage: ready_launcher_drill.py --binary BIN --label L [--cpus 80-85] [--workers 6]
 """
@@ -184,6 +189,12 @@ def main():
     reference_audit = read(REFERENCE[1])
     audit = read(out / "oracle-stop-final" / "audit.json")
     extra = sorted(kinds(audit.get("violations", [])) - kinds(reference_audit.get("violations", [])))
+    receipt = read(final_run / "supervisor-result.json")
+    admitted = []
+    if (final.get("status") == "incomplete" and (final.get("frontiers") or 0) > 0
+            and receipt.get("exit_status") == 4 and "resource receipt exit_status != 0" in extra):
+        extra.remove("resource receipt exit_status != 0")
+        admitted.append("resource receipt exit_status != 0 (final native status incomplete with frontiers: exit 4)")
     reference = read(REFERENCE[0])
     summary["oracle_stop_final"] = {
         "verdict": gate.get("verdict"), "verdict_reason": gate.get("verdict_reason"),
@@ -191,6 +202,7 @@ def main():
         "roots_total": gate.get("roots_total"),
         "ordered_reference_roots": [reference.get("roots_independently_verified"), reference.get("roots_total")],
         "audit": gate.get("audit"), "audit_violation_kinds_outside_reference": extra,
+        "admitted_audit_violation_kinds": admitted,
         "exact_ordered_reference_gate": gate.get("gate"), "binding_substitution": gate.get("binding_substitution")}
     ok = (gate.get("verdict") == "PASS" and "every native re-inspected" in (gate.get("verdict_reason") or "")
           and gate.get("roots_total") == reference.get("roots_total") and not extra)
