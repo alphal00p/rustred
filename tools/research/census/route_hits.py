@@ -5,16 +5,21 @@ usage: route_hits.py RECEIPT_DIR [HITS_DIR] [REPS]
 
 Joins RECEIPT_DIR/gen7-route-rows.jsonl (census route --rows) with
 HITS_DIR/gen7-route-hits-rows.jsonl (census route-hits --rows; HITS_DIR defaults
-to RECEIPT_DIR/hits) and reads HITS_DIR/gen7-route-hits.json (exact totals).
-Only prints.
+to RECEIPT_DIR/hits), and reads HITS_DIR/gen7-route-hits.json (exact later-hit
+totals) and HITS_DIR/gen7-route-hits-pps.jsonl (census route-hits --pps-adm:
+admitted domains drawn PPS by their later hits, with their coverage at
+admission). Only prints.
 
 1. Later hits. A domain that an admission-time union cover never creates cannot
    receive the requests that later land on it (distinct transition in-edges from
    inspected sources and alias in-edges, excluding its creator edge and self edges).
    Each of them needs its own admission under the lever: a single-container hit
    elsewhere (k' = 1 anchor) or a union test and a k'-anchor alias (k' <= a, the
-   anchors of the domain's own cover). Reports the HT mean later hits h of covered
-   and uncovered domains, the redirected-request count and the net RSS factor
+   anchors of the domain's own cover). The later hits are heavy-tailed (old hub
+   domains), so the redirected total T comes from the PPS-by-later-hits sample
+   (Hansen-Hurwitz: exact total x covered share of the draws), h = T / N_cov with
+   N_cov from the uniform admission sample. Reports T, h, the admission-request
+   count and the net RSS factor
        1 / ((1 - c) + c [(a - 1) + h (k' - 1)] e / B)
    at the late (admission g7) mix for k' = 1 and k' = a, with B = 0.5-0.84 KB/domain
    and e = 8-16 B/edge [E].
@@ -74,16 +79,6 @@ def later(r):
     return r["h"]["later_transition"] + r["h"]["later_alias"]
 
 
-def boot(strata, fn, reps=REPS):
-    rnd = random.Random(1)
-    vals = []
-    for _ in range(reps):
-        bs = {st: [rnd.choice(v) for _ in v] for st, v in strata.items()}
-        vals.append(fn(bs))
-    m = sum(vals) / len(vals)
-    return math.sqrt(sum((x - m) ** 2 for x in vals) / (len(vals) - 1))
-
-
 def table(head, body):
     out = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     out += ["| " + " | ".join(str(c) for c in b) + " |" for b in body]
@@ -123,44 +118,76 @@ for k, v in sorted(exact.items(), key=lambda kv: kv[0]):
         body.append([k, num(v["domains"]), f"{v['mean_later_transition']:.2f}", f"{v['mean_later_alias']:.3f}", f"{100 * v['share_without_later_hits']:.1f}%"])
 table(["phase|admission gen", "domains", "mean later transition in-edges", "mean later alias in-edges", "no later hit"], body)
 
+# PPS-by-later-hits sample (census route-hits --pps-adm): hit-weighted coverage at admission.
+PPS = collections.defaultdict(list)
+for line in open(os.path.join(hd, "gen7-route-hits-pps.jsonl")):
+    q = json.loads(line)
+    PPS[q["phase"]].append(q)
+PJ = hj["pps_by_later_hits_at_admission"]
+K = PJ["draws_per_phase"]
+qcov = lambda q, s: q["evals"][s] is not None and q["evals"][s]["uncovered"] == 0
+qa = lambda q, s: max(q["evals"][s]["anchors_used"], 1)
+
+
+def pps_mean(ph, f):
+    """Hansen-Hurwitz mean over the K PPS draws of phase ph (with multiplicity) and its standard error."""
+    ys = [(f(q), q["mult"]) for q in PPS[ph]]
+    k = sum(m for _, m in ys)
+    assert k == K, (k, K)
+    m = sum(y * w for y, w in ys) / k
+    v = sum(w * (y - m) ** 2 for y, w in ys) / (k - 1)
+    return m, math.sqrt(v / k)
+
+
 H = {}  # (phase, set) -> dict
-print("Later hits of domains covered / not covered at admission (HT means over draws; SE from a stratified bootstrap):")
+print(f"Later hits landing on domains covered at admission. Redirected hits T = (exact later hits of the phase) x (share of the {K} PPS-by-later-hits")
+print("draws per phase that are covered) [M, Hansen-Hurwitz; SE from the binomial draw]; h = T / N_cov with N_cov from the uniform admission sample.")
+print("The uniform-sample h (HT mean over the covered uniform draws) under-samples the heavy tail (see the consistency table) and is shown for comparison.")
 print()
 body = []
-for ph in ["both", "Route", "Apply"]:
+for ph in ["Route", "Apply", "both"]:
     for s in ADM:
-        def stat(strata, ph=ph, s=s, flt=None, covered=True):
-            rs = [r for r in flat(strata, PH[ph]) if cov(r, s) == covered and (flt is None or flt(r))]
-            W = sum(r["ht"] for r in rs)
-            return sum(r["ht"] * later(r) for r in rs) / W if W else float("nan")
         rs = [r for r in flat(A, PH[ph]) if cov(r, s)]
-        W = sum(r["ht"] for r in rs)
-        tr = sum(r["ht"] * r["h"]["later_transition"] for r in rs) / W
-        al = sum(r["ht"] * r["h"]["later_alias"] for r in rs) / W
-        z = sum(r["ht"] * (later(r) == 0) for r in rs) / W
-        h = tr + al
-        he = stat(A, flt=early)
-        hn = stat(A, covered=False)
-        sd = boot(A, stat)
-        H[(ph, s)] = {"covered": W, "h": h, "h_early": he, "h_sd": sd}
-        body.append([ph, s, num(W), f"{tr:.2f}", f"{al:.3f}", f"**{h:.2f}** ± {sd:.2f}", f"{he:.2f}", f"{100 * z:.1f}%", f"{hn:.2f}", num(W * h)])
-table(["phase", "anchor set at admission", "covered domains", "later transition", "later alias", "later hits h (covered)", "h, admissions g2-g6",
-       "covered without later hit", "h (not covered)", "redirected later hits N_cov x h (history, first level)"], body)
+        Nc = sum(r["ht"] for r in rs)
+        hu = sum(r["ht"] * later(r) for r in rs) / Nc
+        z = sum(r["ht"] * (later(r) == 0) for r in rs) / Nc
+        x1 = sum(r["ht"] * (max(r["evals"][s]["anchors_used"], 1) - 1) for r in rs) / Nc
+        phs = ["Route", "Apply"] if ph == "both" else [ph]
+        T = Tv = Z = Zv = an = 0.0
+        for p in phs:
+            Wp = PJ["by_phase"][p]["later_hits_total"]
+            m, se = pps_mean(p, lambda q: float(qcov(q, s)))
+            T += Wp * m
+            Tv += (Wp * se) ** 2
+            mz, sz = pps_mean(p, lambda q: (qa(q, s) - 1) * qcov(q, s))
+            Z += Wp * mz
+            Zv += (Wp * sz) ** 2
+            ma, _ = pps_mean(p, lambda q: float(qcov(q, "natives_before_creator_commit") and not qcov(q, "all_earlier_ids")))
+            an += Wp * ma
+        Wt = sum(PJ["by_phase"][p]["later_hits_total"] for p in phs)
+        H[(ph, s)] = {"covered": Nc, "T": T, "T_se": math.sqrt(Tv), "h": T / Nc, "h_uniform": hu, "x1": x1, "Z": Z, "Z_se": math.sqrt(Zv)}
+        body.append([ph, s, num(Nc), f"{100 * T / Wt:.1f}% ± {100 * math.sqrt(Tv) / Wt:.1f}", f"**{num(T)}** ± {num(math.sqrt(Tv))}", f"**{T / Nc:.2f}**", f"{hu:.2f}",
+                     f"{100 * z:.1f}%", f"{x1:.1f}", f"{Z / Nc:.1f}", f"{100 * an / Wt:.2f}%"])
+table(["phase", "anchor set at admission", "covered domains N_cov (uniform)", "share of later hits on covered domains (PPS)", "redirected later hits T (history)",
+       "h = T / N_cov", "h, uniform sample", "covered without later hit (uniform)", "E[a_i - 1] (uniform)", "E_hits[(a_i - 1)] x T / N_cov",
+       "hits with merged-native cover but no earlier-ID cover (set-nesting anomaly)"], body)
 
 # ------------------------------------------------------------ admission requests
 tot_adm = exact["Route|all"]["domains"] + exact["Apply|all"]["domains"]
-print(f"Admission requests under an admission-time union cover (history, first level [E]; today's misses = the {num(tot_adm)} admitted domains):")
+tot_hits = PJ["by_phase"]["Route"]["later_hits_total"] + PJ["by_phase"]["Apply"]["later_hits_total"]
+print(f"Admission requests under an admission-time union cover (history, first level [E]; today's misses = the {num(tot_adm)} admitted domains;")
+print(f"later hits of all admitted domains {num(tot_hits)} distinct edges). A redirected hit needs a single-container search elsewhere and, when that fails")
+print("(k' > 1), a union test; the redirected count is in distinct edges, a lower bound on requests (repeats of one source collapse onto one edge).")
 print()
 body = []
 for s in ADM:
     x = H[("both", s)]
-    red = x["covered"] * x["h"]
-    body.append([s, num(tot_adm), num(x["covered"]), num(red), f"{num(tot_adm)} - {num(tot_adm + red)}", f"{(tot_adm + red) / tot_adm:.2f}x"])
-table(["anchor set", "misses today (each runs a union test)", "domains avoided", "redirected later hits (distinct edges; >= requests' lower bound)",
-       "union tests: misses only (k'=1 hits) - misses + every redirected hit", "upper / today's misses"], body)
+    body.append([s, num(tot_adm), num(x["covered"]), f"{num(x['T'])} ± {num(x['T_se'])}", f"{num(tot_adm)} - {num(tot_adm + x['T'])}",
+                 f"{(tot_adm + x['T']) / tot_adm:.2f}x"])
+table(["anchor set", "misses today (each runs a union test)", "domains avoided", "redirected later hits T",
+       "union tests: misses only (every redirected hit single-contained) - misses + every redirected hit", "upper / today's misses"], body)
 
 # ------------------------------------------------------------ net RSS factor
-J = json.load(open(os.path.join(d, "gen7-route.json")))
 
 
 def late_share(ph, s):
@@ -175,34 +202,33 @@ def factor(c, extra, B, e):
 
 
 print("Net RSS factor at the late (admission g7) mix [E, first level]: 1 / ((1 - c) + c x e / B), B = 0.5-0.84 KB/domain, e = 8-16 B/edge,")
-print("c = late avoided share. Extra edges per avoided domain x (HT mean over covered draws, all admission generations; a_i = anchors of the")
-print("draw's cover, greedy first-hit, single container = 1; h_i = its later hits): k' = 1 (every redirected hit finds a single container):")
-print("x = E[a_i - 1]; k' = a_i (every redirected hit needs as many anchors as the cover; worst case): x = E[(a_i - 1)(1 + h_i)].")
+print("c = late avoided share. x = extra edges per avoided domain over its history: k' = 1 (every redirected hit finds a single container):")
+print("x = E[a_i - 1] (uniform sample; a_i = anchors of the cover, greedy first-hit, single container = 1); k' = a_i (every redirected hit")
+print("needs as many anchors as the cover; worst case): x = E[a_i - 1] + sum_cov (a_i - 1) h_i / N_cov, the sum from the PPS-by-later-hits sample.")
+print("h is the later hits of a covered domain of any admission generation (history); a g7 admission's own future hits are not observed.")
 print()
 body = []
+RSS = {}
 for ph in ["both", "Route"]:
     for s in ADM:
         c = late_share(ph, s)
-        rs = [r for r in flat(A, PH[ph]) if cov(r, s)]
-        W = sum(r["ht"] for r in rs)
-        ai = lambda r: max(r["evals"][s]["anchors_used"], 1)
-        a_json = sum(r["ht"] * r["evals"][s]["anchors_used"] for r in rs) / W
-        a = sum(r["ht"] * ai(r) for r in rs) / W
-        x1 = sum(r["ht"] * (ai(r) - 1) for r in rs) / W
-        xa = sum(r["ht"] * (ai(r) - 1) * (1 + later(r)) for r in rs) / W
-        rse = [r for r in rs if early(r)]
-        We = sum(r["ht"] for r in rse)
-        xae = sum(r["ht"] * (ai(r) - 1) * (1 + later(r)) for r in rse) / We
+        x = H[(ph, s)]
+        x1 = x["x1"]
+        xa = x1 + x["Z"] / x["covered"]
         k1 = (factor(c, x1, KB[0], EB[1]), factor(c, x1, KB[1], EB[0]))
         ka = (factor(c, xa, KB[0], EB[1]), factor(c, xa, KB[1], EB[0]))
-        kae = (factor(c, xae, KB[0], EB[1]), factor(c, xae, KB[1], EB[0]))
-        body.append([ph, s, f"{100 * c:.1f}%", f"{1 / (1 - c):.2f}x", f"{a:.1f} ({a_json:.1f})", f"{H[(ph, s)]['h']:.2f}", f"{x1:.1f}", f"{xa:.1f} / {xae:.1f}",
-                     f"{k1[0]:.2f}-{k1[1]:.2f}x", f"{ka[0]:.2f}-{ka[1]:.2f}x", f"{kae[0]:.2f}-{kae[1]:.2f}x",
-                     f"**{min(ka[0], kae[0]):.2f}-{k1[1]:.2f}x**", f"{xa * EB[0]:.0f}-{xa * EB[1]:.0f} B"])
-table(["lever phases", "anchor set", "late avoided share c", "factor without edges", "a (JSON mean, single = 0)", "h", "x at k'=1",
-       "x at k'=a (all / g2-g6)", "net, k'=1", "net, k'=a (all gens)", "net, k'=a (g2-g6 draws)", "stated range", "edge bytes per avoided domain at k'=a (e = 8-16 B)"], body)
+        RSS[(ph, s)] = (c, k1, ka)
+        body.append([ph, s, f"{100 * c:.1f}%", f"{1 / (1 - c):.2f}x", f"{x1:.1f}", f"{x['h']:.2f}", f"{xa:.1f}",
+                     f"{k1[0]:.2f}-{k1[1]:.2f}x", f"{ka[0]:.2f}-{ka[1]:.2f}x", f"**{ka[0]:.2f}-{k1[1]:.2f}x**",
+                     f"{x1 * EB[0]:.0f}-{x1 * EB[1]:.0f} B", f"{xa * EB[0]:.0f}-{xa * EB[1]:.0f} B"])
+table(["lever phases", "anchor set", "late avoided share c", "factor without edges", "x at k'=1", "h", "x at k'=a",
+       "net, k'=1", "net, k'=a", "stated range (worst k'=a, B 0.5, e 16 - best k'=1, B 0.84, e 8)",
+       "edge bytes per avoided domain, k'=1", "edge bytes per avoided domain, k'=a"], body)
+print("Break-even: the lever saves RSS only while x e < B, i.e. x < 31-105 extra edges per avoided domain (B 0.5-0.84 KB, e 16-8 B).")
+print()
 
 # ------------------------------------------------ 2. calibrated pending creation weights
+J = json.load(open(os.path.join(d, "gen7-route.json")))
 N = rows["route_natives"]
 P = rows["route_pending"]
 g67 = lambda r: r["stratum"][:2] in ("g6", "g7")

@@ -1272,8 +1272,82 @@ pub fn hits(dir: &Path, opts: &Opts) {
         nrows += 1;
         *by_sample.entry(sample).or_default() += 1;
     }
+    // Optional: admitted domains drawn PPS by their later hits (per phase),
+    // with their coverage at admission. The share of draws that are covered
+    // is the share of later hits that land on a covered domain (Hansen-
+    // Hurwitz), i.e. the redirected requests of an admission-time union
+    // cover, without the heavy-tail variance of a uniform draw.
+    let kp = opts.num("pps-adm", 0usize);
+    let mut pps_out = Value::Null;
+    if kp > 0 {
+        let n = ck.n;
+        let sums = util::dom_sums(&ck.doms, n);
+        let seed = opts.num("seed", 20260928u64);
+        let (natives, all) = pools(&ck, &sums, &[0, 1]);
+        let ctx = Ctx { ck: &ck, n, natives, all, series: None, wait: 0.0, cap: opts.num("cap", 2.0e6f64), samples: opts.num("samples", 20000usize) };
+        eprintln!("route-hits: pools built ({:.1} s)", t0.elapsed().as_secs_f64());
+        let creator_seq = |id: usize| -> u32 {
+            let c = e.creator[id];
+            if c == NONE {
+                return 0;
+            }
+            let ix = ck.native_of[c as usize];
+            if ix == NONE { 0 } else { ck.recs[ix as usize].seq }
+        };
+        let sets_a = ["all_earlier_ids", "earlier_non_delegated", "natives_before_creator_commit"];
+        let mut rng = Rng::new(seed ^ 0x5151);
+        let mut f = opts.get("pps-rows").map(|p| std::io::BufWriter::new(std::fs::File::create(p).unwrap()));
+        let mut summ = serde_json::Map::new();
+        for (ph, phname) in [(1u8, "Route"), (0u8, "Apply")] {
+            let adm: Vec<usize> = (0..nd).filter(|&id| e.creator[id] != NONE && !sums[id].empty && ck.doms[id].phase == ph).collect();
+            let w: Vec<f64> = adm.iter().map(|&id| { let (tr, al) = later(id); (tr + al) as f64 }).collect();
+            let wsum: f64 = w.iter().sum();
+            let plan = pps(&w, kp, &mut rng);
+            let evs: Vec<(usize, usize, Vec<Option<Eval>>)> = plan
+                .par_iter()
+                .map(|&(ix, mult)| {
+                    let id = adm[ix];
+                    let mut rng = Rng::new(seed ^ (id as u64).wrapping_mul(0x2545F4914F6CDD1D));
+                    let v = vec![
+                        ctx.eval(id, NONE, 0.0, "all_earlier_ids", &mut rng),
+                        ctx.eval(id, NONE, 0.0, "earlier_non_delegated", &mut rng),
+                        ctx.eval(id, creator_seq(id), 0.0, "natives_before_commit", &mut rng),
+                    ];
+                    (id, mult, v)
+                })
+                .collect();
+            let mut cov = [0f64; 3];
+            let mut unev = [0f64; 3];
+            for (id, mult, v) in &evs {
+                for si in 0..3 {
+                    match &v[si] {
+                        None => unev[si] += *mult as f64,
+                        Some(ev) => cov[si] += *mult as f64 * (ev.uncovered == 0.0) as u8 as f64,
+                    }
+                }
+                if let Some(f) = f.as_mut() {
+                    let (tr, al) = later(*id);
+                    let ev: BTreeMap<&str, Value> = sets_a
+                        .iter()
+                        .zip(v)
+                        .map(|(s, ev)| (*s, ev.as_ref().map_or(Value::Null, |e| json!({"uncovered": e.uncovered, "points": e.points, "exact": e.exact,
+                            "single": e.single_container, "anchors_used": e.anchors_used, "candidates": e.candidates}))))
+                        .collect();
+                    writeln!(f, "{}", json!({"phase": phname, "id": id, "mult": mult, "later_transition": tr, "later_alias": al,
+                        "admission_gen": util::id_gen(&ck.m, *id), "class": CLS[class(*id)], "evals": ev})).unwrap();
+                }
+            }
+            let k = kp as f64;
+            summ.insert(phname.into(), json!({"admitted": adm.len(), "later_hits_total": wsum, "draws": kp, "distinct": evs.len(),
+                "hit_weighted_covered_share": sets_a.iter().zip(cov).map(|(s, c)| (s.to_string(), json!(c / k))).collect::<BTreeMap<_, _>>(),
+                "hit_weighted_unevaluated_share": sets_a.iter().zip(unev).map(|(s, c)| (s.to_string(), json!(c / k))).collect::<BTreeMap<_, _>>(),
+                "redirected_hits_estimate(later_hits_total x covered share)": sets_a.iter().zip(cov).map(|(s, c)| (s.to_string(), json!(wsum * c / k))).collect::<BTreeMap<_, _>>()}));
+            eprintln!("route-hits: PPS {phname} done ({:.1} s)", t0.elapsed().as_secs_f64());
+        }
+        pps_out = json!({"draws_per_phase": kp, "weight": "later hits (transition + alias, creator and self edges excluded)", "by_phase": summ});
+    }
     let report = json!({"dir": dir, "generation": ck.m.generation, "rows_in": rin, "rows": nrows, "rows_by_sample": by_sample,
-        "edges": e.counts, "model[E]": model.summary(),
+        "edges": e.counts, "model[E]": model.summary(), "pps_by_later_hits_at_admission": pps_out,
         "in_edge_totals[transition from Route, transition from Apply, alias, self]": (0..4).map(|k| ind[k].iter().map(|&x| x as u64).sum::<u64>()).collect::<Vec<_>>(),
         "later_hits_exact(admitted domains; excludes the creator edge and self edges)": totals});
     println!("{}", serde_json::to_string_pretty(&report).unwrap());

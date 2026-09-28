@@ -102,7 +102,7 @@ enumerable) count as uncovered, gate failed, full residual and full cost.
 ```
 census route            CKPT [--series S --wait W] [--per N] [--kc N] [--per-adm N] [--max-up N] [--rows R.jsonl]
 census route-saturation CKPT [--draws N] [--seed S]
-census route-hits       CKPT --rows-in ROUTE_ROWS.jsonl [--rows OUT.jsonl]   # later hits + predictor per row
+census route-hits       CKPT --rows-in ROUTE_ROWS.jsonl [--rows OUT.jsonl] [--pps-adm K --pps-rows P.jsonl]   # later hits + predictor per row; K admitted domains per phase drawn PPS by later hits
 routecensus_batch.sh CENSUS_BIN OUT [gen7 gen7-sat gen7-sat-seed2 gen7-w300 gen6 gen3 c5f]
 route_tables.py OUT                 # tables of docs/research/fable51_w0_routecensus_2026-09-28.md
 route_boot.py OUT/gen7-route-rows.jsonl [REPS]   # stratified bootstrap SEs, sampled-verdict shares, per-owner view
