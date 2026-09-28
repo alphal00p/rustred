@@ -425,3 +425,11 @@ pass at every commit; new tests accompany each package. Push to
   per-CCX owner-program replicas instead of any Symbolica patch (root cause: shared Arc<PolynomialContext> refcount);
   I2 rebuilt per owner frame and re-gated with a total-work cap; D7 always stop; D8 symbolic closure; D6, D1(b), D4
   "no" by measurement; I1b dropped.
+- 2026-09-28: W0 complete; see `docs/research/fable51_w0_results_2026-09-27.md`. Merge train into `fable_5_1`
+  (integrator): oracle (with the gate-helper fix: mutated, partially re-inspected and undeclared as-run reports never
+  pass; audit pairing is a conjunction), harness (with root-diagnostics), c4l-combined, inputs, census, routecensus,
+  baseline, symbolica, wv, intel (without the admission-trace engine feature), knobs / widen / g2falsify (tools and
+  notes only; their engine knob and env-gated falsifiers stay on their branches), ops, kernel. Merged binary sha256
+  8da5839023532400299f35b8d66ca951d5dce4b876d63a04be76cc76f6b76b8c: strict Ordered identity with 4a17f9c7 on
+  FG/BMW/H/X W6, four-all and four-all-p5 W6 and C-5F W16, and merged-verifier PASS with every root independently
+  verified on each [M `TMP/integrator/identity-g3`]. ERRATA sections added to the master plan and the v3 note.

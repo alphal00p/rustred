@@ -4840,3 +4840,7 @@ launch (no cpuset), no ZFS ARC cap, host MemAvailable save-and-stop floor 50 GB,
 skeleton beating the legacy + SoA-kernel comparator by >= 1.5x (else MVP-B / MVP-A fallback, reported to the owner).
 Owner answers 2026-09-28 ~09:40 UTC: G2' residual anchors allowed (S7 amended), per-CCX replicas (no Symbolica
 patch), I2 rebuilt and re-gated with a total-work cap, D7 always stop, D8 symbolic closure.
+2026-09-28: W0 complete; see `docs/research/fable51_w0_results_2026-09-27.md` (gates 0.2-0.9 graded there; several
+items stay provisional or open and carry into W1/W2). The W0 lanes and W1.1/W1.4 (kernel, ops) are merged into
+`fable_5_1`; the merged legacy binary (sha256 8da58390...) keeps strict Ordered identity with 4a17f9c7 on C-4L,
+four-all, four-all-p5 and C-5F. Errata to the master plan and the v3 note: their section 11.
