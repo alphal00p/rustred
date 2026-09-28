@@ -127,7 +127,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     ArgError::InvalidValue {
                         option: "--mutate",
                         value,
-                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour, self-anchored-partial, partial-as-anchor, partial-anchor-cycle, non-initial-anchor, route-partial, shrunk-residual, dropped-routed-edge, routed-false-hit, miscounted-route-events",
+                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour, self-anchored-partial, partial-as-anchor, partial-anchor-cycle, non-initial-anchor, route-partial, shrunk-residual, dropped-routed-edge, routed-false-hit, miscounted-route-events, g2-shrunk-residual, g2-late-anchor, g2-inadmissible-anchor, g2-dropped-anchor-edge, g2-anchor-cycle",
                     },
                 )?);
             }

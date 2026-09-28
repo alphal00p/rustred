@@ -27,10 +27,11 @@ pub use walking::{
     OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkApplySubdivision,
     OwnerDomainWalkCheckpointOptions, OwnerDomainWalkFrontierPolicy,
-    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, OwnerDomainWalkVerifyMutation,
-    OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReferenceLevers,
-    OwnerDomainWalkVerifyReinspect, WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+    OwnerDomainWalkG2ResidualAnchors, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
+    OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
+    WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
     owner_domain_walk_verify_closure, owner_domain_walk_with_progress,
 };
 #[cfg(test)]

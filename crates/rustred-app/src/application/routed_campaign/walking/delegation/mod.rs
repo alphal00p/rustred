@@ -5,10 +5,12 @@
 //! containment authority under one immutable snapshot and the same phase/owner.
 //! Native event streams and diagnostic payloads remain owned by the scheduler.
 
+mod g2_log;
 mod ledger;
 mod resolution;
 mod types;
 
+pub(super) use g2_log::{G2Log, Row as G2Row};
 pub(super) use ledger::Ledger;
 pub(super) use ledger::{LedgerRef, StoredLedger};
 pub use types::SchedulingPolicy;

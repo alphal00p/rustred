@@ -93,6 +93,7 @@ impl Config {
                 "--bounded-refinement-axes"
                 | "--max-guard-univariate-degree"
                 | "--transfer-unreserved-lookahead"
+                | "--g2-residual-anchors"
                 | "--inspection-workers"
                 | "--apply-subdivision-axis"
                 | "--apply-subdivision-cut"

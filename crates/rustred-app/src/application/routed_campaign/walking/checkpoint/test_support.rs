@@ -352,6 +352,53 @@ impl Fixture {
                 sections::write_records(&mut bytes, records).unwrap();
                 self.install(section, file, bytes, records.len());
             }
+            Section::Anchors => {
+                // JSON image: [[id, kind, stamp, snapshot, lo, hi, [anchors]], ...]
+                let mut log = super::super::delegation::G2Log::new(0);
+                for segment in &files {
+                    sections::read_anchors(
+                        &self.read(&segment.file),
+                        &identity,
+                        segment.first as usize,
+                        segment.count as usize,
+                        &mut log,
+                    )
+                    .unwrap();
+                }
+                let mut value = json!(
+                    log.rows
+                        .iter()
+                        .map(|r| json!([
+                            r.id,
+                            r.kind,
+                            r.stamp,
+                            r.snapshot,
+                            r.band.0,
+                            r.band.1,
+                            log.anchors_of(r)
+                        ]))
+                        .collect::<Vec<_>>()
+                );
+                edit(&mut value);
+                let mut rebuilt = super::super::delegation::G2Log::new(0);
+                for row in value.as_array().unwrap() {
+                    let anchors: Vec<u32> = serde_json::from_value(row[6].clone()).unwrap();
+                    rebuilt.rows.push(super::super::delegation::G2Row {
+                        id: row[0].as_u64().unwrap() as u32,
+                        kind: row[1].as_u64().unwrap() as u8,
+                        stamp: row[2].as_u64().unwrap(),
+                        snapshot: row[3].as_u64().unwrap(),
+                        band: (row[4].as_i64().unwrap(), row[5].as_i64().unwrap()),
+                        anchors_start: rebuilt.anchors.len() as u64,
+                        anchors_len: anchors.len() as u32,
+                    });
+                    rebuilt.anchors.extend(anchors);
+                }
+                let count = rebuilt.rows.len();
+                let mut bytes = Vec::new();
+                sections::write_anchors(&mut bytes, &identity, &rebuilt, 0, count).unwrap();
+                self.install(section, file, bytes, count);
+            }
         }
         assert!(HEADER_BYTES == 32);
     }

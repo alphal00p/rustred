@@ -169,6 +169,12 @@ impl<const N: usize> CompactDomain<N> {
         (value != INFINITE_COORDINATE).then_some(u64::from(value))
     }
 
+    /// Raw coordinate bounds, `u16::MAX` being +infinity (every finite
+    /// coordinate is smaller). Read by the G2' anchor index's hot loops.
+    pub(in super::super) fn raw_bounds(&self) -> (&[u16; N], &[u16; N]) {
+        (&self.lower, &self.upper)
+    }
+
     /// `Domain::contains` on the encoded fields.
     pub(super) fn contains(&self, other: &Self) -> bool {
         self.phase == other.phase

@@ -4,12 +4,16 @@
 //! never loaded: the record sidecar is reconstructed from the manifest's
 //! segment list and cross-checked through the ledger and closure state.
 use super::super::{
+    delegation::G2Log,
     descendant_closure::Tracker,
     execution::{
         PROGRESS_ACCEPTED_EVENTS, State,
+        g2::lent_scope,
         records::{self, RecordSink, Sidecar},
     },
-    queue::Queue,
+    g2::kind,
+    queue::{CompactDomain, Domain, Phase, Queue},
+    verify_closure::lattice::Cell,
 };
 use super::manifest::{Manifest, Section};
 use super::sections::{self, Identity};
@@ -243,7 +247,39 @@ pub(super) fn restore<const N: usize>(
         initial_domain_count,
         initial_entry_domains_inspected,
     ] = meta.counters;
-    let queue = Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
+    let mut queue =
+        Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
+    if let Some(anchors) = &s.anchors {
+        let started = Instant::now();
+        let mut log = G2Log::new(meta.counters[10]);
+        for segment in &anchors.segments {
+            let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
+            let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
+            sections::read_anchors(
+                &read_section(dir, &segment.file, segment.bytes)?,
+                &identity,
+                first,
+                count,
+                &mut log,
+            )?;
+        }
+        if log.rows.len() as u64 != anchors.total {
+            return Err("checkpoint G2' log disagrees with its manifest total".into());
+        }
+        let ledger = queue
+            .delegation
+            .as_mut()
+            .ok_or("checkpoint G2' log without a responsibility ledger")?;
+        ledger.attach_g2(log)?;
+        phases.since("g2_log_decode", started);
+        let started = Instant::now();
+        let domains = &queue.domains;
+        let ledger = queue.delegation.as_ref().expect("attached");
+        ledger.validate_g2(|id| domains.get(id).is_some_and(|d| d.phase() == Phase::Apply))?;
+        validate_g2_cover(ledger.g2().expect("attached"), domains)?;
+        phases.since("g2_log_validate", started);
+    }
+    let queue = queue;
     if initial_domain_count > queue.domains.len()
         || meta.route_joint_support_masks_pruned > route_masks
         || initial_entry_domains_inspected > initial_domain_count
@@ -386,6 +422,63 @@ fn derive_accepted_events(sidecar: &Sidecar, native_records: usize) -> Result<us
     Ok(accepted)
 }
 
+fn g2_cell<const N: usize>(domain: &Domain<N>) -> Cell {
+    Cell {
+        owner: domain.owner.to_vec(),
+        lower: domain.lower.clone(),
+        upper: domain.upper.clone(),
+        rank: domain.rank,
+        powers: domain.powers,
+    }
+}
+
+/// Exact cover of every G2' record: `Q <= residual u (lent scopes of its
+/// anchors)`, decided by the lattice predicate (`Cell::covered_by_union`),
+/// with lattice-point enumeration when the region budget cannot decide.
+pub(super) fn validate_g2_cover<const N: usize>(
+    log: &G2Log,
+    domains: &[CompactDomain<N>],
+) -> Result<(), String> {
+    let mut by_id = std::collections::HashMap::with_capacity(log.rows.len());
+    for row in &log.rows {
+        by_id.insert(row.id, *row);
+    }
+    let failures = log
+        .rows
+        .par_iter()
+        .filter(|row| matches!(row.kind, kind::G2_RESIDUAL | kind::G2_FULL_COVER))
+        .filter(|row| {
+            let q = domains[row.id as usize].expand();
+            let mut targets = Vec::with_capacity(row.anchors_len as usize + 1);
+            if row.kind == kind::G2_RESIDUAL {
+                let mut residual = q.clone();
+                residual.powers =
+                    super::super::g2::residual_powers(q.powers, row.band.0, row.band.1);
+                targets.push(g2_cell(&residual));
+            }
+            for anchor in log.anchors_of(row) {
+                let Some(anchor_row) = by_id.get(anchor) else {
+                    return true;
+                };
+                let domain = domains[*anchor as usize].expand();
+                targets.push(g2_cell(&lent_scope(&domain, anchor_row)));
+            }
+            let refs: Vec<&Cell> = targets.iter().collect();
+            let whole = g2_cell(&q);
+            let covered = whole
+                .covered_by_union(&refs, 1 << 16)
+                .or_else(|| whole.brute_force_covered_by_union(&refs, 1 << 20));
+            covered != Some(true)
+        })
+        .count();
+    if failures != 0 {
+        return Err(format!(
+            "checkpoint G2' record not covered by its residual and anchors ({failures} records)"
+        ));
+    }
+    Ok(())
+}
+
 /// Checkpoint dependency endpoints are u32 (the edge section's width).
 fn edge_key(source: usize, target: usize) -> Result<u64, String> {
     let endpoint = |id: usize| u32::try_from(id).map_err(|_| "dependency endpoint exceeds u32");
@@ -450,6 +543,17 @@ pub(super) fn validate_ledger_closure<const N: usize>(state: &State<N>) -> Resul
     }
     if ledger.is_none() && unsealed_inspected > state.frontiers {
         return Err("dependency seal disagrees with native publication".into());
+    }
+    // G2' anchor edges.
+    if let Some(log) = ledger.and_then(|l| l.g2()) {
+        for row in &log.rows {
+            for &anchor in log.anchors_of(row) {
+                if required.try_reserve(1).is_err() {
+                    return Err("dependency record validation allocation".into());
+                }
+                required.insert(edge_key(row.id as usize, anchor as usize)?);
+            }
+        }
     }
     // Internal iteration over the CSR and the log, stopping once every
     // required edge was seen (order unspecified; the check does not need one).

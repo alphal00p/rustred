@@ -16,6 +16,17 @@
 //!   well-founded: no self-anchor, partial-on-partial chain or anchor cycle),
 //!   its D >= cut slice lies in that anchor, its recorded residual is the
 //!   D < cut slice, and Q lies in anchor u residual (exact union cover);
+//! - every G2' residual-anchor record (`g2_residual_anchor_inspection`) is
+//!   an Apply record at or after the initial prefix whose recorded merge
+//!   stamp is its own position in the publication stream (re-derived here
+//!   from the record order), whose snapshot stamp is at most that position,
+//!   and each of whose anchors carries its edge, its true position as stamp,
+//!   a position strictly below the snapshot (merge order is well-founded: no
+//!   self-anchor or anchor cycle), the same (phase, owner) and an admissible
+//!   kind: a Native inspection, an initial-D-band partial (lending only its
+//!   D < cut slice) or a G2' record with a residual (lending its domain),
+//!   sealed (0 frontiers, no error); and Q lies in residual u anchor scopes
+//!   (exact multi-target union cover, `covered_by_union`);
 //! - closure is re-derived from the edge set (reverse reachability from
 //!   unsealed nodes, cross-checked by forward cones per root); an engine
 //!   closed flag that the oracle does not re-derive is a false claim;
@@ -37,8 +48,10 @@
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
 #[cfg(test)]
 mod e2e_tests;
+#[cfg(test)]
+mod g2_e2e_tests;
 mod graph;
-mod lattice;
+pub(super) mod lattice;
 mod result_binding;
 mod union_sample;
 
@@ -190,9 +203,23 @@ pub enum OwnerDomainWalkVerifyMutation {
     RoutedFalseHit,
     /// One Route native's event count off by one, saved counter adjusted.
     MiscountedRouteEvents,
+    /// A G2' record's recorded residual D band shrunk by one D layer (its
+    /// highest level, which holds a point no anchor covers).
+    G2ShrunkResidual,
+    /// A G2' anchor replaced (record and edge) by a record merged at or after
+    /// the snapshot, with that record's true stamp.
+    G2LateAnchor,
+    /// A G2' anchor replaced (record and edge) by an earlier record that is
+    /// neither a Native inspection nor a validated G2' record (an alias, a
+    /// G2' full cover or a Route record).
+    G2InadmissibleAnchor,
+    /// The edge to one G2' anchor dropped.
+    G2DroppedAnchorEdge,
+    /// Two G2' records made anchors of each other (records and edges).
+    G2AnchorCycle,
 }
 impl OwnerDomainWalkVerifyMutation {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 30] = [
         Self::DroppedEdge,
         Self::RetargetedAlias,
         Self::DroppedFrontierRecord,
@@ -218,6 +245,11 @@ impl OwnerDomainWalkVerifyMutation {
         Self::DroppedRoutedEdge,
         Self::RoutedFalseHit,
         Self::MiscountedRouteEvents,
+        Self::G2ShrunkResidual,
+        Self::G2LateAnchor,
+        Self::G2InadmissibleAnchor,
+        Self::G2DroppedAnchorEdge,
+        Self::G2AnchorCycle,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -246,6 +278,11 @@ impl OwnerDomainWalkVerifyMutation {
             Self::DroppedRoutedEdge => "dropped-routed-edge",
             Self::RoutedFalseHit => "routed-false-hit",
             Self::MiscountedRouteEvents => "miscounted-route-events",
+            Self::G2ShrunkResidual => "g2-shrunk-residual",
+            Self::G2LateAnchor => "g2-late-anchor",
+            Self::G2InadmissibleAnchor => "g2-inadmissible-anchor",
+            Self::G2DroppedAnchorEdge => "g2-dropped-anchor-edge",
+            Self::G2AnchorCycle => "g2-anchor-cycle",
         }
     }
     pub fn parse(name: &str) -> Option<Self> {
@@ -349,6 +386,8 @@ enum Kind {
     Native,
     Partial,
     Alias,
+    /// G2' residual-anchor record (its residual, if any, inspected natively).
+    G2,
 }
 
 #[derive(Clone, Copy)]
@@ -377,7 +416,7 @@ impl Node {
         cut: 0,
     };
     fn native(&self) -> bool {
-        matches!(self.kind, Kind::Native | Kind::Partial)
+        matches!(self.kind, Kind::Native | Kind::Partial | Kind::G2)
     }
 }
 
@@ -401,6 +440,27 @@ struct OverlapRow {
     anchor_id: usize,
     cut: i64,
     residual_power_bounds: PowersRow,
+}
+#[derive(Clone, Debug, Deserialize)]
+struct G2AnchorRow {
+    id: usize,
+    stamp: u64,
+    kind: String,
+}
+#[derive(Deserialize)]
+struct G2RecordRow {
+    merge_stamp: Option<u64>,
+    snapshot_stamp: u64,
+    residual_power_bounds: Option<PowersRow>,
+    anchors: Vec<G2AnchorRow>,
+}
+/// A G2' record as published (checked in `check_g2`, after any mutation).
+#[derive(Clone, Debug)]
+struct G2Info {
+    merge_stamp: Option<u64>,
+    snapshot: u64,
+    residual: Option<DomainPowerBounds>,
+    anchors: Vec<G2AnchorRow>,
 }
 #[derive(Deserialize)]
 struct StatsRow {
@@ -433,6 +493,8 @@ struct RecordRow {
     representative_id: Option<usize>,
     #[serde(default)]
     initial_overlap: Option<OverlapRow>,
+    #[serde(default)]
+    g2_residual_anchors: Option<G2RecordRow>,
 }
 
 fn cell<const N: usize>(domain: &Domain<N>) -> Cell {
@@ -481,6 +543,14 @@ struct Containment {
     union_undecided: AtomicU64,
     union_compared: AtomicU64,
     union_disagreements: AtomicU64,
+    /// G2' records: exact multi-target cover Q <= residual u anchor scopes,
+    /// cross-checked by enumeration on small Q.
+    g2_checks: AtomicU64,
+    g2_covered: AtomicU64,
+    g2_not_covered: AtomicU64,
+    g2_undecided: AtomicU64,
+    g2_brute: AtomicU64,
+    g2_disagreements: AtomicU64,
 }
 impl Containment {
     fn new(max_points: u64, budget: u64) -> Self {
@@ -499,7 +569,35 @@ impl Containment {
             union_undecided: AtomicU64::new(0),
             union_compared: AtomicU64::new(0),
             union_disagreements: AtomicU64::new(0),
+            g2_checks: AtomicU64::new(0),
+            g2_covered: AtomicU64::new(0),
+            g2_not_covered: AtomicU64::new(0),
+            g2_undecided: AtomicU64::new(0),
+            g2_brute: AtomicU64::new(0),
+            g2_disagreements: AtomicU64::new(0),
         }
+    }
+    /// G2': exact `whole <= t_1 u ... u t_k` (None: undecided), and whether
+    /// lattice enumeration (small Q only) disagrees with it.
+    fn g2_union(&self, whole: &Cell, targets: &[&Cell]) -> (Option<bool>, bool) {
+        self.g2_checks.fetch_add(1, Ordering::Relaxed);
+        let covered = whole.covered_by_union(targets, 1 << 18);
+        let counter = match covered {
+            None => &self.g2_undecided,
+            Some(true) => &self.g2_covered,
+            Some(false) => &self.g2_not_covered,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        let mut disagrees = false;
+        if self.max_points > 0
+            && let Some(brute) = whole.brute_force_covered_by_union(targets, self.max_points)
+        {
+            self.g2_brute.fetch_add(1, Ordering::Relaxed);
+            disagrees = covered.is_some_and(|c| c != brute);
+            self.g2_disagreements
+                .fetch_add(u64::from(disagrees), Ordering::Relaxed);
+        }
+        (covered, disagrees)
     }
     /// `whole <= t_1 u ... u t_k`, exact (None: region budget exhausted),
     /// and whether it disagrees with `slice_included` (the anchor contains
@@ -571,7 +669,15 @@ impl Containment {
                 "compared_with_slice_inclusion":self.union_compared.load(Ordering::Relaxed),
                 "disagreements_with_slice_inclusion":self.union_disagreements.load(Ordering::Relaxed),
                 "predicate":"exact Q <= anchor u recorded residual (lattice.rs covered_by_union), on partial records with a well-founded anchor",
-                "scope":"D-cut identity check, not a multi-target validation: with the recorded residual equal to the D < cut slice (partial_residual), {anchor, residual} partitions Q along D and the union cover is logically the single-target D >= cut slice inclusion; genuine multi-target covers are validated by union_sample"}})
+                "scope":"D-cut identity check, not a multi-target validation: with the recorded residual equal to the D < cut slice (partial_residual), {anchor, residual} partitions Q along D and the union cover is logically the single-target D >= cut slice inclusion; genuine multi-target covers are validated by union_sample"},
+            "g2_union_cover":{
+                "checks":self.g2_checks.load(Ordering::Relaxed),
+                "covered":self.g2_covered.load(Ordering::Relaxed),
+                "not_covered":self.g2_not_covered.load(Ordering::Relaxed),
+                "undecided":self.g2_undecided.load(Ordering::Relaxed),
+                "brute_force_cross_checks":self.g2_brute.load(Ordering::Relaxed),
+                "brute_force_disagreements":self.g2_disagreements.load(Ordering::Relaxed),
+                "predicate":"exact Q <= recorded residual u anchor scopes (lattice.rs covered_by_union, region budget 2^18), on G2' records with well-founded admissible anchors; cross-checked by lattice enumeration when Q has at most brute_force_max_points points"}})
     }
 }
 
@@ -587,6 +693,11 @@ struct Loaded<const N: usize> {
     /// inspected natively (checked against the D < cut slice and used in the
     /// exact union cover `Q <= anchor u residual`).
     residuals: BTreeMap<usize, DomainPowerBounds>,
+    /// G2' records as published.
+    g2: BTreeMap<usize, G2Info>,
+    /// Position of each record in the publication stream (its merge stamp,
+    /// re-derived from the record order; u64::MAX: unpublished).
+    positions: Vec<u64>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -631,6 +742,8 @@ fn load<const N: usize>(
         Vec::new()
     };
     let mut residuals = BTreeMap::new();
+    let mut g2 = BTreeMap::new();
+    let mut positions = vec![u64::MAX; total];
     let mut records = 0usize;
     for (path, count) in &raw.records {
         let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -654,7 +767,19 @@ fn load<const N: usize>(
             } else {
                 serde_json::from_str(&line).map_err(parse_error)?
             };
-            record_node(&row, &domains, &mut nodes, &mut residuals, violations);
+            if let Some(slot) = positions.get_mut(row.id)
+                && *slot == u64::MAX
+            {
+                *slot = (records + lines - 1) as u64;
+            }
+            record_node(
+                &row,
+                &domains,
+                &mut nodes,
+                &mut residuals,
+                &mut g2,
+                violations,
+            );
         }
         if lines != *count {
             violations.add("structure", || {
@@ -675,6 +800,8 @@ fn load<const N: usize>(
         nodes,
         digests: record_digests,
         residuals,
+        g2,
+        positions,
     })
 }
 
@@ -683,6 +810,7 @@ fn record_node<const N: usize>(
     domains: &[CompactDomain<N>],
     nodes: &mut [Node],
     residuals: &mut BTreeMap<usize, DomainPowerBounds>,
+    g2: &mut BTreeMap<usize, G2Info>,
     violations: &mut Violations,
 ) {
     let id = row.id;
@@ -738,6 +866,26 @@ fn record_node<const N: usize>(
                 }
                 None => violations.add("partial_anchor", || {
                     format!("record {id} has no overlap link")
+                }),
+            }
+        }
+        "g2_residual_anchor_inspection" => {
+            node.kind = Kind::G2;
+            node.finished = row.residual_inspection_finished == Some(true);
+            match &row.g2_residual_anchors {
+                Some(block) => {
+                    g2.insert(
+                        id,
+                        G2Info {
+                            merge_stamp: block.merge_stamp,
+                            snapshot: block.snapshot_stamp,
+                            residual: block.residual_power_bounds.as_ref().map(PowersRow::bounds),
+                            anchors: block.anchors.clone(),
+                        },
+                    );
+                }
+                None => violations.add("g2_anchor_kind", || {
+                    format!("G2' record {id} has no anchor block")
                 }),
             }
         }
@@ -800,11 +948,27 @@ fn high_slice(mut cell: Cell, cut: i64) -> Cell {
 /// F8 on records alone: natives seal with 0 frontiers, no error and a
 /// finished (residual) inspection plus their anchor edge; aliases seal with
 /// their representative edge.
+#[cfg(test)]
 fn sealed(nodes: &[Node], graph: &Graph) -> Vec<bool> {
+    sealed_with(nodes, &BTreeMap::new(), graph)
+}
+
+/// `sealed` with G2' records: sealed like a partial, with every anchor edge.
+fn sealed_with(nodes: &[Node], g2: &BTreeMap<usize, G2Info>, graph: &Graph) -> Vec<bool> {
     nodes
         .iter()
         .enumerate()
         .map(|(id, node)| match node.kind {
+            Kind::G2 => {
+                !node.error
+                    && node.frontiers == 0
+                    && node.finished
+                    && g2.get(&id).is_some_and(|info| {
+                        info.anchors
+                            .iter()
+                            .all(|a| a.id < nodes.len() && graph.has_edge(id, a.id))
+                    })
+            }
             Kind::Native => !node.error && node.frontiers == 0 && node.finished,
             Kind::Partial => {
                 !node.error
@@ -927,6 +1091,161 @@ fn check_partial<const N: usize>(
     }
 }
 
+/// A G2' record's obligations (module note). Classes: `g2_phase`,
+/// `g2_initial` (R1: never an initial ID), `g2_merge_stamp` (the recorded
+/// stamp is the record's own publication position), `g2_snapshot` (at most
+/// that position), `g2_residual` (a D restriction of Q), `missing_edge`,
+/// `g2_anchor_stamp` (the anchor's true position), `g2_anchor_order` (merged
+/// strictly before the snapshot: positions strictly decrease along anchor
+/// links, so they are well-founded), `g2_anchor_kind` (Native, initial-D-band
+/// partial or a G2' record with a residual, sealed; recorded kind agrees),
+/// `g2_anchor_bucket` (same phase and owner) and, against well-founded
+/// admissible anchors only, `g2_union_cover` (exact Q <= residual u scopes).
+fn check_g2<const N: usize>(
+    id: usize,
+    loaded: &Loaded<N>,
+    graph: &Graph,
+    containment: &Containment,
+    initial_count: usize,
+    violations: &mut Violations,
+) {
+    let (nodes, domains) = (&loaded.nodes, &loaded.domains);
+    let Some(info) = loaded.g2.get(&id) else {
+        return;
+    };
+    let phase = domains[id].phase();
+    if phase != Phase::Apply {
+        violations.add("g2_phase", || {
+            format!(
+                "G2' record {id} is a {phase:?} record: residual inspection exists only in Apply"
+            )
+        });
+    }
+    if id < initial_count {
+        violations.add("g2_initial", || {
+            format!("G2' record {id} is an initial record ({initial_count} initial records)")
+        });
+    }
+    let own = loaded.positions[id];
+    if info.merge_stamp != Some(own) {
+        violations.add("g2_merge_stamp", || {
+            format!(
+                "G2' record {id}: recorded merge stamp {:?}, publication position {own}",
+                info.merge_stamp
+            )
+        });
+    }
+    if info.snapshot > own {
+        violations.add("g2_snapshot", || {
+            format!(
+                "G2' record {id}: snapshot stamp {} after its own publication position {own}",
+                info.snapshot
+            )
+        });
+    }
+    let whole = ccell(&domains[id]);
+    let mut targets: Vec<Cell> = Vec::new();
+    if let Some(residual) = info.residual {
+        if residual.max_positive_power != whole.powers.max_positive_power
+            || residual.min_power_difference.is_none()
+            || residual.max_power_difference.is_none()
+        {
+            violations.add("g2_residual", || {
+                format!("G2' record {id}: residual {residual:?} is not a D band of the domain")
+            });
+        }
+        targets.push(Cell {
+            powers: residual,
+            ..whole.clone()
+        });
+    }
+    if info.anchors.is_empty() {
+        violations.add("g2_anchor_kind", || {
+            format!("G2' record {id} has no anchor")
+        });
+    }
+    let mut admissible = true;
+    for anchor in &info.anchors {
+        let a = anchor.id;
+        if a >= nodes.len() || nodes[a].kind == Kind::Missing {
+            violations.add("g2_anchor_kind", || {
+                format!("G2' record {id}: anchor {a} has no record")
+            });
+            admissible = false;
+            continue;
+        }
+        if !graph.has_edge(id, a) {
+            violations.add("missing_edge", || {
+                format!("G2' record {id} has no edge to anchor {a}")
+            });
+        }
+        let position = loaded.positions[a];
+        if position != anchor.stamp {
+            violations.add("g2_anchor_stamp", || {
+                format!(
+                    "G2' record {id}: anchor {a} stamp {} but publication position {position}",
+                    anchor.stamp
+                )
+            });
+        }
+        if position >= info.snapshot {
+            violations.add("g2_anchor_order", || {
+                format!(
+                    "G2' record {id}: anchor {a} published at {position}, not before the snapshot {}",
+                    info.snapshot
+                )
+            });
+            admissible = false;
+        }
+        let node = &nodes[a];
+        let (kind_ok, scope) = match (anchor.kind.as_str(), node.kind) {
+            ("native", Kind::Native) => (true, ccell(&domains[a])),
+            ("initial_d_band", Kind::Partial) => (true, low_slice(ccell(&domains[a]), node.cut)),
+            ("g2_residual", Kind::G2) => (
+                loaded.g2.get(&a).is_some_and(|i| i.residual.is_some()),
+                ccell(&domains[a]),
+            ),
+            _ => (false, ccell(&domains[a])),
+        };
+        if !kind_ok || node.error || node.frontiers != 0 || !node.finished {
+            violations.add("g2_anchor_kind", || {
+                format!(
+                    "G2' record {id}: anchor {a} ({:?}, recorded {:?}, error {}, {} frontiers) is not a sealed Native, initial-D-band or G2' residual record",
+                    node.kind, anchor.kind, node.error, node.frontiers
+                )
+            });
+            admissible = false;
+            continue;
+        }
+        if domains[a].phase() != phase || domains[a].owner() != domains[id].owner() {
+            violations.add("g2_anchor_bucket", || {
+                format!("G2' record {id}: anchor {a} is in another (phase, owner) bucket")
+            });
+            admissible = false;
+            continue;
+        }
+        targets.push(scope);
+    }
+    if !admissible {
+        return;
+    }
+    let refs: Vec<&Cell> = targets.iter().collect();
+    let (covered, disagrees) = containment.g2_union(&whole, &refs);
+    if covered != Some(true) || disagrees {
+        violations.add("g2_union_cover", || {
+            format!(
+                "G2' record {id}: exact cover by its residual and {} anchors is {covered:?}{}",
+                info.anchors.len(),
+                if disagrees {
+                    " and disagrees with lattice enumeration"
+                } else {
+                    ""
+                }
+            )
+        });
+    }
+}
+
 struct Ctx<'a, const N: usize> {
     request: &'a OwnerDomainWalkRequest,
     reducer: &'a RoutedCandidateReducer<N>,
@@ -999,6 +1318,11 @@ fn inspected_domain<const N: usize>(loaded: &Loaded<N>, id: usize) -> Domain<N> 
     let mut domain = loaded.domains[id].expand();
     if node.kind == Kind::Partial {
         domain.powers = residual(domain.powers, node.cut);
+    }
+    if node.kind == Kind::G2
+        && let Some(residual) = loaded.g2.get(&id).and_then(|info| info.residual)
+    {
+        domain.powers = residual;
     }
     domain
 }
@@ -1076,6 +1400,26 @@ fn reinspect<const N: usize>(
     violations: &mut Violations,
 ) {
     let node = ctx.loaded.nodes[id];
+    if node.kind == Kind::G2
+        && ctx
+            .loaded
+            .g2
+            .get(&id)
+            .is_none_or(|info| info.residual.is_none())
+    {
+        // A G2' full cover inspects nothing: it must record nothing.
+        let local = Tally {
+            inspected: 1,
+            ..Tally::default()
+        };
+        tally.add(&local);
+        if node.error || node.frontiers != 0 || node.events.unwrap_or(0) != 0 {
+            violations.add("event_parity", || {
+                format!("G2' full cover {id} records events, frontiers or an error")
+            });
+        }
+        return;
+    }
     let domain = inspected_domain(ctx.loaded, id);
     let targets = targets_of(ctx, id);
     let mut events = 0u64;
@@ -1563,7 +1907,7 @@ fn verify<const N: usize>(
     let graph = Graph::from_edges(total, &loaded.raw.edges).map_err(AppError::input)?;
     // The CSR holds every edge; the raw pair list is not used again.
     loaded.raw.edges = Vec::new();
-    let sealed = sealed(&loaded.nodes, &graph);
+    let sealed = sealed_with(&loaded.nodes, &loaded.g2, &graph);
     let loaded = &loaded;
     let nodes = &loaded.nodes;
     let flags = &loaded.raw.flags;
@@ -1577,6 +1921,7 @@ fn verify<const N: usize>(
                 Kind::Native => "natives",
                 Kind::Partial => "partials",
                 Kind::Alias => "aliases",
+                Kind::G2 => "g2_records",
             })
             .or_default() += 1;
         if (flag & FLAG_SEALED != 0) != sealed[id] {
@@ -1615,6 +1960,14 @@ fn verify<const N: usize>(
                 &loaded.nodes,
                 &loaded.domains,
                 &loaded.residuals,
+                &graph,
+                &containment,
+                initial_count,
+                &mut violations,
+            ),
+            Kind::G2 => check_g2(
+                id,
+                loaded,
                 &graph,
                 &containment,
                 initial_count,
@@ -1954,6 +2307,7 @@ fn verify<const N: usize>(
         "queries": {"count": queries.len(),
             "blake3": blake3::hash(request.matching.queries_json.as_bytes()).to_hex().to_string()},
         "counts": {"domains": total, "edges": edge_records,
+            "g2_residual_records": loaded.g2.values().filter(|info| info.residual.is_some()).count(),
             "duplicate_edges": graph.duplicate_edges(), "records": counts,
             "sealed": sealed.iter().filter(|&&s| s).count(),
             "oracle_closed": closed.iter().filter(|&&c| c).count(),
@@ -2058,6 +2412,32 @@ enum Plan {
     /// anchor edge moves with the link.
     Relink(Vec<(usize, usize, usize)>),
     Whole,
+    G2(G2Edit),
+}
+
+/// G2' mutations (records and edges).
+enum G2Edit {
+    /// Residual D band of `id` loses its highest layer (None: now empty).
+    Shrink {
+        id: usize,
+        to: Option<(i64, i64)>,
+    },
+    /// Anchor slot `slot` of `id` replaced by record `to` (stamp = its true
+    /// position, recorded kind `kind`); the edge moves with it.
+    Replace {
+        id: usize,
+        slot: usize,
+        to: usize,
+        kind: &'static str,
+    },
+    DropEdge {
+        id: usize,
+        anchor: usize,
+    },
+    Cycle {
+        a: usize,
+        b: usize,
+    },
 }
 
 /// BFS depth of every node from the query records (None: unreachable).
@@ -2343,6 +2723,11 @@ fn plan_mutation<const N: usize>(
                 Plan::NotApplicable("no partial record with a nonempty D = cut - 1 layer".into()),
                 |id| Plan::Node { id, depth: None },
             ),
+        M::G2ShrunkResidual
+        | M::G2LateAnchor
+        | M::G2InadmissibleAnchor
+        | M::G2DroppedAnchorEdge
+        | M::G2AnchorCycle => plan_g2_mutation(ctx, kind),
         M::MiscountedRouteEvents => (0..nodes.len())
             .find(|&id| {
                 nodes[id].kind == Kind::Native
@@ -2466,6 +2851,185 @@ fn plan_mutation<const N: usize>(
 
 /// Applies `plan`; returns the report and, for HiddenError, the node whose
 /// reference inspection must fail.
+fn plan_g2_mutation<const N: usize>(ctx: &Ctx<'_, N>, kind: OwnerDomainWalkVerifyMutation) -> Plan {
+    use OwnerDomainWalkVerifyMutation as M;
+    let loaded = ctx.loaded;
+    let (nodes, domains, g2) = (&loaded.nodes, &loaded.domains, &loaded.g2);
+    let with_anchor = || g2.iter().find(|(_, info)| !info.anchors.is_empty());
+    let same_bucket = |x: usize, y: usize| {
+        domains[x].phase() == domains[y].phase() && domains[x].owner() == domains[y].owner()
+    };
+    match kind {
+        M::G2ShrunkResidual => {
+            let pick = g2
+                .iter()
+                .filter_map(|(&id, info)| {
+                    let r = info.residual?;
+                    Some((id, r.min_power_difference?, r.max_power_difference?))
+                })
+                .min_by_key(|&(id, lo, hi)| (lo == hi, id));
+            match pick {
+                Some((id, lo, hi)) => Plan::G2(G2Edit::Shrink {
+                    id,
+                    to: (lo < hi).then_some((lo, hi - 1)),
+                }),
+                None => Plan::NotApplicable("no G2' record with a residual".into()),
+            }
+        }
+        M::G2LateAnchor => {
+            for (&id, info) in g2.iter().filter(|(_, info)| !info.anchors.is_empty()) {
+                let late = (0..nodes.len()).find(|&b| {
+                    b != id
+                        && nodes[b].kind == Kind::Native
+                        && same_bucket(b, id)
+                        && loaded.positions[b] != u64::MAX
+                        && loaded.positions[b] >= info.snapshot
+                });
+                if let Some(to) = late {
+                    return Plan::G2(G2Edit::Replace {
+                        id,
+                        slot: 0,
+                        to,
+                        kind: "native",
+                    });
+                }
+            }
+            Plan::NotApplicable("no same-bucket Native record merged after a G2' snapshot".into())
+        }
+        M::G2InadmissibleAnchor => {
+            for (&id, info) in g2.iter().filter(|(_, info)| !info.anchors.is_empty()) {
+                let early = |b: usize| {
+                    b != id
+                        && loaded.positions[b] != u64::MAX
+                        && loaded.positions[b] < info.snapshot
+                };
+                let inadmissible = (0..nodes.len())
+                    .filter(|&b| {
+                        early(b)
+                            && match nodes[b].kind {
+                                Kind::Alias => true,
+                                Kind::G2 => g2.get(&b).is_some_and(|i| i.residual.is_none()),
+                                Kind::Native => domains[b].phase() == Phase::Route,
+                                _ => false,
+                            }
+                    })
+                    .min_by_key(|&b| (nodes[b].kind != Kind::Alias, !same_bucket(b, id), b));
+                if let Some(to) = inadmissible {
+                    return Plan::G2(G2Edit::Replace {
+                        id,
+                        slot: 0,
+                        to,
+                        kind: "native",
+                    });
+                }
+            }
+            Plan::NotApplicable("no alias, G2' full cover or Route record before a snapshot".into())
+        }
+        M::G2DroppedAnchorEdge => match with_anchor() {
+            Some((&id, info)) => Plan::G2(G2Edit::DropEdge {
+                id,
+                anchor: info.anchors[0].id,
+            }),
+            None => Plan::NotApplicable("no G2' record with an anchor".into()),
+        },
+        M::G2AnchorCycle => {
+            let residual: Vec<usize> = g2
+                .iter()
+                .filter(|(_, info)| info.residual.is_some())
+                .map(|(&id, _)| id)
+                .collect();
+            let pair = residual.iter().enumerate().find_map(|(i, &a)| {
+                residual[i + 1..]
+                    .iter()
+                    .find(|&&b| same_bucket(a, b))
+                    .map(|&b| (a, b))
+            });
+            let pair = pair.or_else(|| match residual[..] {
+                [a, b, ..] => Some((a, b)),
+                _ => None,
+            });
+            match pair {
+                Some((a, b)) => Plan::G2(G2Edit::Cycle { a, b }),
+                None => Plan::NotApplicable("fewer than two G2' residual records".into()),
+            }
+        }
+        _ => unreachable!("G2' mutation kind"),
+    }
+}
+
+fn apply_g2_mutation<const N: usize>(loaded: &mut Loaded<N>, edit: G2Edit, report: &mut Value) {
+    let positions = &loaded.positions;
+    let kind_of = |nodes: &[Node], g2: &BTreeMap<usize, G2Info>, b: usize| -> &'static str {
+        match nodes[b].kind {
+            Kind::Partial => "initial_d_band",
+            Kind::G2 if g2.get(&b).is_some_and(|i| i.residual.is_some()) => "g2_residual",
+            _ => "native",
+        }
+    };
+    match edit {
+        G2Edit::Shrink { id, to } => {
+            let info = loaded.g2.get_mut(&id).expect("planned G2' record");
+            let from = info
+                .residual
+                .map(|r| (r.min_power_difference, r.max_power_difference));
+            match to {
+                Some((lo, hi)) => {
+                    let residual = info.residual.as_mut().expect("residual");
+                    residual.min_power_difference = Some(lo);
+                    residual.max_power_difference = Some(hi);
+                }
+                None => info.residual = None,
+            }
+            report["node"] = json!(id);
+            report["residual_d_band"] = json!({"from": from, "to": to});
+        }
+        G2Edit::Replace { id, slot, to, kind } => {
+            let info = loaded.g2.get_mut(&id).expect("planned G2' record");
+            let from = info.anchors[slot].id;
+            info.anchors[slot] = G2AnchorRow {
+                id: to,
+                stamp: positions[to],
+                kind: kind.to_owned(),
+            };
+            for edge in &mut loaded.raw.edges {
+                if (edge.0 as usize, edge.1 as usize) == (id, from) {
+                    edge.1 = to as u32;
+                }
+            }
+            report["node"] = json!(id);
+            report["anchor_from"] = json!(from);
+            report["anchor_to"] = json!(to);
+            report["anchor_to_position"] = json!(positions[to]);
+            report["snapshot"] = json!(info.snapshot);
+        }
+        G2Edit::DropEdge { id, anchor } => {
+            loaded
+                .raw
+                .edges
+                .retain(|&(s, t)| (s as usize, t as usize) != (id, anchor));
+            report["edge"] = json!([id, anchor]);
+        }
+        G2Edit::Cycle { a, b } => {
+            for (x, y) in [(a, b), (b, a)] {
+                let kind = kind_of(&loaded.nodes, &loaded.g2, y);
+                let stamp = positions[y];
+                loaded
+                    .g2
+                    .get_mut(&x)
+                    .expect("planned G2' record")
+                    .anchors
+                    .push(G2AnchorRow {
+                        id: y,
+                        stamp,
+                        kind: kind.to_owned(),
+                    });
+                loaded.raw.edges.push((x as u32, y as u32));
+            }
+            report["cycle"] = json!([a, b]);
+        }
+    }
+}
+
 fn apply_mutation<const N: usize>(
     loaded: &mut Loaded<N>,
     kind: OwnerDomainWalkVerifyMutation,
@@ -2527,6 +3091,7 @@ fn apply_mutation<const N: usize>(
                     .collect::<Vec<_>>()
             );
         }
+        Plan::G2(edit) => apply_g2_mutation(loaded, edit, &mut report),
         Plan::Query { index, to } => {
             report["query_index"] = json!(index);
             report["from"] = loaded.raw.inputs[index]["domain"].clone();
@@ -2579,7 +3144,7 @@ fn apply_mutation<const N: usize>(
                     *flag |= FLAG_SEALED;
                     // The engine's closed flags and closure counters agree
                     // with the forged seal.
-                    let sealed = sealed(&loaded.nodes, graph);
+                    let sealed = sealed_with(&loaded.nodes, &loaded.g2, graph);
                     let closed = graph.closed(&sealed);
                     for (flag, &is_closed) in loaded.raw.flags.iter_mut().zip(&closed) {
                         if is_closed {
@@ -2668,12 +3233,14 @@ mod tests {
         let saved = compact(&domains);
         let mut nodes = vec![Node::MISSING; 5];
         let mut residuals = BTreeMap::new();
+        let mut g2 = BTreeMap::new();
         let mut violations = Violations::new(50);
         record_node(
             &row(0, "native_inspection", &domains[0], json!({})),
             &saved,
             &mut nodes,
             &mut residuals,
+            &mut g2,
             &mut violations,
         );
         record_node(
@@ -2686,6 +3253,7 @@ mod tests {
             &saved,
             &mut nodes,
             &mut residuals,
+            &mut g2,
             &mut violations,
         );
         record_node(
@@ -2698,6 +3266,7 @@ mod tests {
             &saved,
             &mut nodes,
             &mut residuals,
+            &mut g2,
             &mut violations,
         );
         record_node(
@@ -2710,12 +3279,20 @@ mod tests {
             &saved,
             &mut nodes,
             &mut residuals,
+            &mut g2,
             &mut violations,
         );
         assert!(violations.by_class.contains_key("accepted_events"));
         let mut wrong = row(4, "native_inspection", &domains[4], json!({}));
         wrong.upper = vec![Some(5), Some(2)];
-        record_node(&wrong, &saved, &mut nodes, &mut residuals, &mut violations);
+        record_node(
+            &wrong,
+            &saved,
+            &mut nodes,
+            &mut residuals,
+            &mut g2,
+            &mut violations,
+        );
         assert!(violations.by_class.contains_key("domain_parity"));
         let graph = Graph::from_edges(5, &[(0, 1), (1, 2)]).unwrap();
         assert_eq!(sealed(&nodes, &graph), [true, true, false, false, true]);

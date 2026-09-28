@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 mod admission;
 mod delegation;
+pub(super) mod g2;
 pub(super) mod owner_batches;
 mod publication;
 pub(super) mod records;
@@ -102,6 +103,10 @@ pub(super) struct State<const N: usize> {
     admission: admission::Metrics,
     replay: Option<replay::Replay>,
     pub(super) streams: streams::Streams,
+    /// G2' residual anchors (Some only when requested, from session start).
+    pub(super) g2: Option<std::sync::Arc<super::g2::Store<N>>>,
+    /// Plans pinned by a restore, installed into the store at session start.
+    g2_pins: Vec<(usize, super::g2::Outcome)>,
 }
 impl<const N: usize> State<N> {
     fn parts(
@@ -162,6 +167,8 @@ impl<const N: usize> State<N> {
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+            g2: None,
+            g2_pins: Vec::new(),
         }
     }
     pub(super) fn change_stamp(&self) -> ChangeStamp {
@@ -190,6 +197,9 @@ impl<const N: usize> State<N> {
         if self.ready() {
             metadata[PROGRESS_ACCEPTED_EVENTS] = json!(self.records_accepted_events);
         }
+        if let Some(pins) = self.g2_pins_json() {
+            metadata[g2::PROGRESS_G2_PINS] = pins;
+        }
         metadata
     }
     #[cfg(test)]
@@ -199,6 +209,10 @@ impl<const N: usize> State<N> {
         metadata
     }
     pub(super) fn restore_checkpoint_progress(&mut self, mut value: Value) -> Result<(), String> {
+        let pins = value
+            .as_object_mut()
+            .and_then(|object| object.remove(g2::PROGRESS_G2_PINS));
+        self.g2_restore_pins(pins)?;
         self.physical_enabled = value["physical_enabled"]
             .as_bool()
             .ok_or("missing physical policy")?;
@@ -629,10 +643,18 @@ impl<const N: usize> State<N> {
             NativeStats::ApplyPartial(_, scope) => Some(scope),
             _ => None,
         };
+        let g2_scope = match native_stats {
+            NativeStats::ApplyG2(_, scope) => Some(scope),
+            _ => None,
+        };
         let native_cancelled = error_kind == "cancelled";
         self.error = self.error.take().or(native_error);
+        // G2': the worker's plan (also consumes a whole-inspection decision).
+        let g2_plan = self.g2_take(id, g2_scope);
         let (stats, optional, truncated) = match native_stats {
-            NativeStats::Apply(stats) | NativeStats::ApplyPartial(stats, _) => {
+            NativeStats::Apply(stats)
+            | NativeStats::ApplyPartial(stats, _)
+            | NativeStats::ApplyG2(stats, _) => {
                 if let Err(error) = self.optional.add(stats) {
                     self.error.get_or_insert_with(|| error.into());
                 }
@@ -662,12 +684,16 @@ impl<const N: usize> State<N> {
         // admitted, even if a later buffered Finished itself has no error.
         let frontier_count = self.details.len();
         if let Some(ledger) = &mut self.queue.delegation {
-            use super::delegation::NativeOutcome;
             if let Some(scope) = partial_scope {
                 if let Err(error) = ledger.record_initial_overlap(id, scope.anchor_id) {
                     self.error.get_or_insert_with(|| error.to_string());
                 }
             }
+        }
+        // G2' log row (before the publication that consumes its stamp).
+        let g2_logged = self.g2_log(id, g2_plan.as_ref(), partial_scope);
+        if let Some(ledger) = &mut self.queue.delegation {
+            use super::delegation::NativeOutcome;
             let outcome = if self.error.is_none() {
                 NativeOutcome::Completed {
                     unresolved_frontiers: frontier_count,
@@ -690,6 +716,9 @@ impl<const N: usize> State<N> {
             closure.discovered(self.queue.domains.len());
             if let Some(scope) = partial_scope {
                 closure.edge(id, scope.anchor_id);
+            }
+            for anchor in g2_plan.iter().flat_map(|plan| &plan.anchors) {
+                closure.edge(id, anchor.id as usize);
             }
             closure.finish(
                 id,
@@ -739,6 +768,20 @@ impl<const N: usize> State<N> {
                 "coordinates_and_rank_unchanged":true,
                 "authority":"same_snapshot_phase_owner_native_summary"});
         }
+        if let Some(plan) = &g2_plan {
+            record["record_kind"] = json!("g2_residual_anchor_inspection");
+            record["native_inspection_scope"] = json!(if plan.residual.is_some() {
+                "g2_residual_D_band"
+            } else {
+                "none_covered_by_g2_anchors"
+            });
+            record["local_inspection_finished"] = json!(false);
+            record["residual_inspection_finished"] = json!(self.error.is_none());
+            // Filled from the typed ledger at finalization (anchors resolved).
+            record["local_classification_discharged"] = json!(false);
+            record["g2_residual_anchors"] =
+                Self::g2_record_json(plan, &domain, g2_logged.map(|(stamp, _)| stamp));
+        }
         if let (Some(optional), Some(stats)) = (optional, truncated) {
             record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
             record["optional_refusal_provenance_scope"] = json!("first_per_phase_per_query");
@@ -784,6 +827,7 @@ impl<const N: usize> State<N> {
         if let Err(error) = self.records.get_mut().push(record) {
             self.error.get_or_insert(error);
         }
+        self.g2_index(id, g2_logged, frontier_count);
         if self.ready() {
             self.streams.initial_published += usize::from(id < self.initial_domain_count);
             self.queue.next = self
@@ -921,7 +965,9 @@ fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
 }
 pub(super) fn native_stats(stats: NativeStats) -> Value {
     match stats {
-        NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => stats_json(s),
+        NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) | NativeStats::ApplyG2(s, _) => {
+            stats_json(s)
+        }
         NativeStats::Route(s) => route_stats(s),
     }
 }
@@ -1051,6 +1097,12 @@ fn run_configured<const N: usize>(
     } else {
         InitialOverlapIndex::empty()
     };
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off
+        && let Err(error) = state.g2_setup()
+    {
+        state.error = Some(error);
+        return;
+    }
     if request.reuse_initial_d_bands {
         state.initial_overlap_report = Some(overlap.build_report());
         observer(
@@ -1073,6 +1125,8 @@ fn run_configured<const N: usize>(
         );
     }
     let physical_enabled = state.physical_enabled;
+    let g2 = state.g2.clone();
+    let g2 = g2.as_deref();
     run_pool(
         state,
         request,
@@ -1080,11 +1134,24 @@ fn run_configured<const N: usize>(
         observer,
         checkpointing,
         maybe_save,
-        |raw, domain, stop, emit| match Ticket::decode(raw, physical_enabled).part {
-            Some(part) => {
+        |raw, domain, stop, emit| match (Ticket::decode(raw, physical_enabled).part, g2) {
+            (Some(part), _) => {
                 inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
             }
-            None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
+            (None, Some(store)) => inspection::inspect_g2(
+                reducer,
+                Ticket::decode(raw, physical_enabled).parent,
+                domain,
+                request,
+                stop,
+                &initial,
+                &overlap,
+                store,
+                emit,
+            ),
+            (None, None) => {
+                inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit)
+            }
         },
     );
     #[cfg(test)]
@@ -1762,6 +1829,14 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
                     "coordinates_and_rank_unchanged":true,
                     "responsibility_published":false});
             }
+            let taken = state.g2.as_ref().and_then(|store| store.take(id));
+            if finished.g2_scope().is_some()
+                && let Some(super::g2::Outcome::Planned(plan)) = taken.as_deref()
+            {
+                record["native_inspection_scope"] = json!("g2_residual_D_band_or_none");
+                record["g2_residual_anchors"] = State::<N>::g2_record_json(plan, &domain, None);
+                record["g2_residual_anchors"]["responsibility_published"] = json!(false);
+            }
             state.uncommitted.push(record);
         }
     }
@@ -1862,6 +1937,7 @@ fn serial<const N: usize>(
     maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
 ) {
     let previous_parallel = state.parallel.clone();
+    let g2 = state.g2.clone();
     let mut attempted = 0usize;
     let mut native = 0usize;
     let mut returned = 0usize;
@@ -1986,15 +2062,28 @@ fn serial<const N: usize>(
                     initial,
                     &mut emit,
                 ),
-                None => inspection::inspect(
-                    reducer,
-                    &domain,
-                    request,
-                    cancellation,
-                    initial,
-                    overlap,
-                    &mut emit,
-                ),
+                None => match g2.as_deref() {
+                    Some(store) => inspection::inspect_g2(
+                        reducer,
+                        id,
+                        &domain,
+                        request,
+                        cancellation,
+                        initial,
+                        overlap,
+                        store,
+                        &mut emit,
+                    ),
+                    None => inspection::inspect(
+                        reducer,
+                        &domain,
+                        request,
+                        cancellation,
+                        initial,
+                        overlap,
+                        &mut emit,
+                    ),
+                },
             }
         }));
         match result {

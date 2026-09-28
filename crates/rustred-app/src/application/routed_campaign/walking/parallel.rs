@@ -425,7 +425,8 @@ impl<const N: usize> Pool<N> {
         let mut state = self.lock();
         let (rules, predicates, optional) = match finished.stats {
             super::inspection::NativeStats::Apply(s)
-            | super::inspection::NativeStats::ApplyPartial(s, _) => (
+            | super::inspection::NativeStats::ApplyPartial(s, _)
+            | super::inspection::NativeStats::ApplyG2(s, _) => (
                 s.matching.rules,
                 s.matching.predicates,
                 s.optional_coefficient_refusals,

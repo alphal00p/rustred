@@ -132,6 +132,10 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
     if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
         value["frontier_policy"] = json!(request.frontier_policy.name());
     }
+    // G2' residual anchors change which records exist: bound; Off adds no key.
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off {
+        value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
+    }
     value
 }
 fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
@@ -725,6 +729,9 @@ impl Store {
                 },
             ),
         };
+        let g2_log = state.queue.delegation.as_ref().and_then(|l| l.g2());
+        let anchors_plan =
+            g2_log.map(|log| plan(previous.and_then(|s| s.anchors.as_ref()), log.rows.len()));
         let buckets = state.queue.checkpoint_buckets();
         let ledger = state.queue.checkpoint_ledger();
         let ledger_entries = state.queue.delegation.as_ref().map_or(0, |l| l.len());
@@ -814,6 +821,17 @@ impl Store {
                 Box::new(move |out| sections::write_records(out, &records[first..])),
             ));
         }
+        if let (Some(log), Some(anchors)) = (g2_log, anchors_plan.as_ref())
+            && anchors.count > 0
+        {
+            let (first, count) = (anchors.first, anchors.count);
+            jobs.push((
+                Section::Anchors,
+                first,
+                count,
+                Box::new(move |out| sections::write_anchors(out, &identity, log, first, count)),
+            ));
+        }
         #[cfg(test)]
         let injected = self.fail_section;
         #[cfg(not(test))]
@@ -866,11 +884,13 @@ impl Store {
                 });
             }
         }
-        for (section, plan) in [
-            (Section::Domains, domains_plan),
-            (Section::Edges, edges_plan),
-            (Section::Records, records_plan),
-        ] {
+        let segmented_plans = [
+            Some((Section::Domains, domains_plan)),
+            Some((Section::Edges, edges_plan)),
+            Some((Section::Records, records_plan)),
+            anchors_plan.map(|plan| (Section::Anchors, plan)),
+        ];
+        for (section, plan) in segmented_plans.into_iter().flatten() {
             let mut segments = plan.keep;
             if let Some(w) = written.iter().find(|w| w.section == section) {
                 segments.push(Segment {

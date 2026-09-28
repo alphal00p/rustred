@@ -59,6 +59,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_containment_checks: Option<usize>,
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
     pub reuse_initial_d_bands: bool,
+    pub g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors,
     pub unbounded_work: bool,
     pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
     pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
@@ -109,6 +110,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_containment_checks: None,
         transfer_unreserved_lookahead: None,
         reuse_initial_d_bands: false,
+        g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors::Off,
         unbounded_work: false,
         checkpoint: None,
         apply_subdivision: None,
@@ -166,6 +168,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-containment-checks" => "--max-containment-checks",
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands" => "--reuse-initial-d-bands",
+            "--g2-residual-anchors" => "--g2-residual-anchors",
             "--unbounded-work" => "--unbounded-work",
             "--checkpoint" => "--checkpoint",
             "--resume" => "--resume",
@@ -245,6 +248,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                         option: name,
                         value,
                         expected: "record or stop",
+                    })?;
+            }
+            "--g2-residual-anchors" => {
+                result.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::parse(&value)
+                    .ok_or(ArgError::InvalidValue {
+                        option: name,
+                        value,
+                        expected: "off or union",
                     })?;
             }
             "--bounded-refinement-axes" => {
@@ -447,6 +458,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-containment-checks",
             "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands",
+            "--g2-residual-anchors",
             "--route-domain-overcover",
             "--route-joint-source-support-pruning",
             "--max-route-masks-per-query",
@@ -489,6 +501,23 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         return Err(ArgError::InvalidCombination(
             "--reuse-initial-d-bands requires --transfer-unreserved-lookahead",
         ));
+    }
+    if result.g2_residual_anchors != crate::OwnerDomainWalkG2ResidualAnchors::Off {
+        if result.transfer_unreserved_lookahead.is_none() {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union requires --transfer-unreserved-lookahead",
+            ));
+        }
+        if result.apply_subdivision.is_some() {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union does not support physical Apply subdivision",
+            ));
+        }
+        if result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union requires ordered or ready publication",
+            ));
+        }
     }
     Ok(Command::OwnerDomainMatch(result))
 }

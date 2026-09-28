@@ -5,6 +5,7 @@ mod delegation;
 mod descendant_closure;
 mod diagnostics;
 mod execution;
+mod g2;
 mod index_report;
 mod initial_orthants;
 mod initial_overlap;
@@ -35,6 +36,7 @@ pub use checkpoint::{
     OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OwnerDomainWalkCheckpointOptions,
 };
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
+pub use g2::G2ResidualAnchors as OwnerDomainWalkG2ResidualAnchors;
 
 /// Resume binding for saved walk state. A CP5 checkpoint records this value
 /// and `--resume` refuses any executable whose value differs; a different
@@ -92,6 +94,9 @@ pub struct OwnerDomainWalkRequest {
     /// Opt-in exact high-D overlap reuse against pinned initial Apply domains.
     /// Requires TransferUnreserved; native work covers the remaining low band.
     pub reuse_initial_d_bands: bool,
+    /// Opt-in G2' residual anchors (dispatch-time D-band residual inspection
+    /// against the union of merged anchors; requires TransferUnreserved).
+    pub g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors,
     pub max_domains: usize,
     /// Committed logical callbacks, not speculative native attempts or bytes.
     pub max_events: usize,
@@ -119,6 +124,7 @@ impl OwnerDomainWalkRequest {
             publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
+            g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
@@ -275,6 +281,7 @@ impl OwnerDomainWalkResult {
             "native_processed_nodes",
             "reuse_initial_d_bands",
             "partial_initial_inspections",
+            "g2_residual_anchors",
             "initial_overlap_index",
             "requested_max_queries",
             "requested_max_query_bytes",
@@ -530,6 +537,23 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
             "initial D-band reuse requires TransferUnreserved scheduling",
         ));
     }
+    if request.g2_residual_anchors != OwnerDomainWalkG2ResidualAnchors::Off {
+        if request.scheduling_policy == OwnerDomainWalkSchedulingPolicy::InspectAll {
+            return Err(AppError::input(
+                "G2' residual anchors require TransferUnreserved scheduling",
+            ));
+        }
+        if request.apply_subdivision.is_some() {
+            return Err(AppError::input(
+                "G2' residual anchors do not support Apply subdivision",
+            ));
+        }
+        if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
+            return Err(AppError::input(
+                "G2' residual anchors require Ordered or Ready publication",
+            ));
+        }
+    }
     Ok(diagnostic_pause)
 }
 
@@ -570,6 +594,9 @@ pub fn owner_domain_walk_with_progress(
         admitted["reuse_initial_d_bands"] = json!(true);
         admitted["partial_inspection_policy"] =
             json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
+    }
+    if request.g2_residual_anchors != OwnerDomainWalkG2ResidualAnchors::Off {
+        admitted["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
     }
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
         admitted["publication_policy"] = json!("owner_batched");
@@ -858,6 +885,20 @@ fn run<const N: usize>(
         inputs = restored.inputs;
         input_frontiers = restored.input_frontiers;
     }
+    // G2' log: started with the walk (before its first save); a restored
+    // ledger carries the log iff its checkpoint was written with G2' on (the
+    // request binding makes these agree).
+    let g2_on = request.g2_residual_anchors != OwnerDomainWalkG2ResidualAnchors::Off;
+    if let Some(ledger) = state.queue.delegation.as_mut() {
+        if g2_on && !resumed {
+            ledger.enable_g2(state.initial_domain_count);
+        }
+        if g2_on != ledger.g2().is_some() {
+            return Err(AppError::input(
+                "checkpoint G2' residual-anchor log disagrees with the request",
+            ));
+        }
+    }
     // A10: the frontier stop fires on the first frontier committed beyond
     // this session's starting count: 0 for a fresh walk (so its initial
     // input frontiers fire before any inspection), the restored count on
@@ -992,6 +1033,7 @@ fn run<const N: usize>(
         add_frontier_policy(&mut document, request, frontier_stopped);
         state.add_delegation_progress(&mut document);
         state.add_ready_progress(&mut document);
+        state.add_g2_report(&mut document);
         document["descendant_closure"] = state.closure_json();
         drop(state);
         finish_timing(&mut document, started, prepared);
@@ -1151,6 +1193,7 @@ fn run<const N: usize>(
             "count_scope":"initial_apply_only",
             "max_logical_entry_bytes":initial_overlap::MAX_ENTRY_BYTES,"container_overhead_and_rss_excluded":true});
     }
+    state.add_g2_report(&mut document);
     drop(state);
     finish_timing(&mut document, started, prepared);
     observer(OwnerDomainWalkResult::completion_progress(&document));

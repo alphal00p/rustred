@@ -3,7 +3,7 @@
 //! width payloads are validated by byte length before any decoding. Digests
 //! are computed while writing through `HashingWriter`; nothing is re-read.
 use super::super::{
-    delegation::{LedgerRef, StoredLedger},
+    delegation::{G2Log, G2Row, LedgerRef, StoredLedger},
     descendant_closure::{Counters as ClosureCounters, Tracker},
     diagnostics::{OptionalCounts, OptionalRefusals},
     execution::streams::Streams,
@@ -28,6 +28,7 @@ pub(super) enum Tag {
     Nodes,
     Ledger,
     Index,
+    Anchors,
 }
 impl Tag {
     pub fn bytes(self) -> [u8; 4] {
@@ -37,6 +38,7 @@ impl Tag {
             Self::Nodes => *b"NODE",
             Self::Ledger => *b"LEDG",
             Self::Index => *b"INDX",
+            Self::Anchors => *b"G2LG",
         }
     }
     fn parse(bytes: [u8; 4]) -> Option<Self> {
@@ -46,6 +48,7 @@ impl Tag {
             Self::Nodes,
             Self::Ledger,
             Self::Index,
+            Self::Anchors,
         ]
         .into_iter()
         .find(|tag| tag.bytes() == bytes)
@@ -414,6 +417,110 @@ pub(super) fn read_index(bytes: &[u8], identity: &Identity) -> Result<StoredBuck
         return Err("checkpoint index length disagrees with its header".into());
     }
     Ok(buckets)
+}
+
+// ---- anchors: G2' log rows in merge order, then their anchor IDs ---------
+// Row (48 bytes, little endian): id u32, kind u8, 3 zero bytes, stamp u64,
+// snapshot u64, band lo i64, band hi i64, anchor count u32, 4 zero bytes.
+// The segment's anchor IDs (u32 each) follow its rows in row order.
+const G2_ROW_BYTES: usize = 48;
+pub(super) fn write_anchors(
+    out: &mut (impl Write + ?Sized),
+    identity: &Identity,
+    log: &G2Log,
+    first: usize,
+    count: usize,
+) -> Result<(), String> {
+    let rows = log
+        .rows
+        .get(first..first + count)
+        .ok_or("G2' log segment beyond the log")?;
+    out.write_all(&Header::new(Tag::Anchors, identity, count, first)?.encode())
+        .map_err(io_error)?;
+    let mut buffer = Vec::with_capacity(65536);
+    for row in rows {
+        buffer.extend_from_slice(&row.id.to_le_bytes());
+        buffer.extend_from_slice(&[row.kind, 0, 0, 0]);
+        buffer.extend_from_slice(&row.stamp.to_le_bytes());
+        buffer.extend_from_slice(&row.snapshot.to_le_bytes());
+        buffer.extend_from_slice(&row.band.0.to_le_bytes());
+        buffer.extend_from_slice(&row.band.1.to_le_bytes());
+        buffer.extend_from_slice(&row.anchors_len.to_le_bytes());
+        buffer.extend_from_slice(&[0; 4]);
+        if buffer.len() + G2_ROW_BYTES > buffer.capacity() {
+            out.write_all(&buffer).map_err(io_error)?;
+            buffer.clear();
+        }
+    }
+    for row in rows {
+        for anchor in log.anchors_of(row) {
+            buffer.extend_from_slice(&anchor.to_le_bytes());
+            if buffer.len() + 4 > buffer.capacity() {
+                out.write_all(&buffer).map_err(io_error)?;
+                buffer.clear();
+            }
+        }
+    }
+    out.write_all(&buffer).map_err(io_error)
+}
+pub(super) fn read_anchors(
+    bytes: &[u8],
+    identity: &Identity,
+    first: usize,
+    count: usize,
+    log: &mut G2Log,
+) -> Result<(), String> {
+    let header = Header::parse(bytes)?;
+    let count = header.expect(Tag::Anchors, identity, Some(count), Some(first))?;
+    if first != log.rows.len() {
+        return Err("checkpoint G2' log segments are not contiguous".into());
+    }
+    let payload = &bytes[HEADER_BYTES..];
+    let rows_bytes = count
+        .checked_mul(G2_ROW_BYTES)
+        .filter(|&n| n <= payload.len())
+        .ok_or("checkpoint G2' log segment is shorter than its rows")?;
+    let u32_at = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().expect("4"));
+    let u64_at = |b: &[u8], at: usize| u64::from_le_bytes(b[at..at + 8].try_into().expect("8"));
+    let mut anchors_total = 0usize;
+    log.rows
+        .try_reserve(count)
+        .map_err(|_| "checkpoint G2' log allocation")?;
+    let mut start = log.anchors.len() as u64;
+    for raw in payload[..rows_bytes].chunks_exact(G2_ROW_BYTES) {
+        if raw[5..8] != [0; 3] || raw[44..48] != [0; 4] {
+            return Err("checkpoint G2' log row has nonzero padding".into());
+        }
+        let anchors_len = u32_at(raw, 40);
+        let row = G2Row {
+            id: u32_at(raw, 0),
+            kind: raw[4],
+            stamp: u64_at(raw, 8),
+            snapshot: u64_at(raw, 16),
+            band: (u64_at(raw, 24) as i64, u64_at(raw, 32) as i64),
+            anchors_start: start,
+            anchors_len,
+        };
+        start += u64::from(anchors_len);
+        anchors_total = anchors_total
+            .checked_add(anchors_len as usize)
+            .ok_or("checkpoint G2' anchor count overflow")?;
+        log.rows.push(row);
+    }
+    let expected = anchors_total
+        .checked_mul(4)
+        .and_then(|n| n.checked_add(rows_bytes))
+        .ok_or("checkpoint G2' log length overflow")?;
+    if payload.len() != expected {
+        return Err("checkpoint G2' log length disagrees with its rows".into());
+    }
+    log.anchors
+        .try_reserve(anchors_total)
+        .map_err(|_| "checkpoint G2' log allocation")?;
+    for raw in payload[rows_bytes..].chunks_exact(4) {
+        log.anchors.push(u32_at(raw, 0));
+    }
+    Ok(())
 }
 
 /// Decode a section payload (after its header) as any serde shape (tests).
