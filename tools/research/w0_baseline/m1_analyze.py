@@ -66,6 +66,37 @@ def duty_between(a, b):
                 "prep_us_per_parallel_batch": 1e6 * prep / batches if batches else None,
                 "speculative_admission_requests": requests,
                 "speculative_checks_per_request": checks / requests if requests else None})
+    # W1.1 SoA kernel timers (binaries from d9163195 on; absent on 4a17f9c7/7eed68fc).
+    # coordinator_duty.admission_kernel: coordinator scan wall, NESTED inside ordered_commit_seconds.
+    # admission_preparation.speculative_kernel: helper scan wall summed over helpers (inside preparation).
+    ka, kb = da.get("admission_kernel") or {}, db.get("admission_kernel") or {}
+    if isinstance(kb, dict) and kb:
+        k = {}
+        for key in ("forward_scans", "forward_candidates", "forward_word_rejections", "forward_lane_rejections",
+                    "forward_exact_tests", "forward_scan_seconds", "reverse_scans", "reverse_candidates",
+                    "reverse_word_rejections", "reverse_lane_rejections", "reverse_exact_tests",
+                    "reverse_scan_seconds"):
+            if kb.get(key) is not None:
+                k[key] = kb[key] - (ka.get(key) or 0)
+        scan = k.get("forward_scan_seconds", 0.0) + k.get("reverse_scan_seconds", 0.0)
+        commit_bucket = db.get("ordered_commit_seconds", 0.0) - da.get("ordered_commit_seconds", 0.0)
+        k["scan_seconds"] = scan
+        k["scan_share_of_coordinator_wall"] = scan / wall if wall > 0 else None
+        k["scan_share_of_ordered_commit"] = scan / commit_bucket if commit_bucket > 0 else None
+        for side in ("forward", "reverse"):
+            cand = k.get(f"{side}_candidates")
+            k[f"{side}_ns_per_candidate"] = 1e9 * k.get(f"{side}_scan_seconds", 0.0) / cand if cand else None
+        out["admission_kernel"] = k
+    sa, sb = pa.get("speculative_kernel") or {}, pb.get("speculative_kernel") or {}
+    if isinstance(sb, dict) and sb:
+        key = "scan_wall_seconds_summed_over_helpers"
+        scan = (sb.get(key) or 0.0) - (sa.get(key) or 0.0)
+        cand = (sb.get("candidates") or 0) - (sa.get("candidates") or 0)
+        out["speculative_kernel"] = {
+            key: scan, "candidates": cand,
+            "ns_per_candidate": 1e9 * scan / cand if cand else None,
+            "helper_cpus_equivalent": scan / wall if wall > 0 else None,
+            "per_request": cand / requests if requests else None}
     return out
 
 
