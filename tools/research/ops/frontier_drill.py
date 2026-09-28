@@ -8,11 +8,19 @@ rewritten), in one of three modes:
   stop      --frontier-policy stop: session 1 must stop at the first frontier with exit 4, a paused
             receipt with stop_reason frontier_policy, a frontier_stop journal event and a saved
             checkpoint labelled stop_reason; every later session resumes (--resume, same policy) and
-            stops at the next new frontier, until a session ends without pausing. The final report is
-            compared strictly with the fixture's record-policy result.
-  record    no flag (the historical default): one fresh walk, strict compare with the fixture.
+            stops at the next new frontier, until a session ends without pausing. Each stop is
+            pinned to the fixture: session k stops inside the next frontier record i_k of the
+            fixture's Ordered record list (frontier count in (F_{k-1}, F_k], committed domains i_k or
+            i_k + 1), so a late stop fails. The final report is compared strictly with the fixture's
+            record-policy result, and the final checkpoint (every generation's edge log) is verified
+            by the oracle (oracle_check.py, binding substituted from this binary's own record
+            checkpoint, session-00-record): verdict PASS with full F10 re-inspection, the fixture's
+            60/124 independently verified roots and the fixture audit's violation list.
+  record    no flag (the historical default): one fresh walk, strict compare with the fixture, oracle
+            gate against the fixture reference.
   binding   copies the fixture's own 4a17f9c7 CP5 checkpoint and resumes it with BIN under record
-            (must be accepted: identical request binding) and under stop (must be refused).
+            (must be accepted: identical request binding; strict compare and oracle gate) and under
+            stop (must be refused).
 
 Never writes into the fixture directory. Usage:
   frontier_drill.py --binary BIN --mode stop|record|binding --label L [--cpus 80-85]
@@ -28,6 +36,9 @@ from pathlib import Path
 
 ROOT = Path("/common/dev/rustred")
 FIXTURE = ROOT / "TMP/w0/oracle/runs/frontier-fixture/fg"
+REFERENCE = (ROOT / "TMP/w0/oracle/r2/verify/frontier-fixture-fg.json",
+             ROOT / "TMP/w0/oracle/r2/audits/frontier-fixture-fg.json")
+ORACLE = ROOT / ".claude/worktrees/agent-ade877816b107b1cf/tools/research/ops/oracle_check.py"
 OUT_ROOT = ROOT / "TMP/w1-ops/runs"
 COMPARE = ROOT / ".claude/worktrees/agent-ade877816b107b1cf/examples/python/compare_walk_records.py"
 ENV_ONE = {name: "1" for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
@@ -90,7 +101,54 @@ def strict(reference, candidate, output, ignore_top=()):
             "explicitly_ignored_top_level": list(ignore_top)}
 
 
+def fixture_prefix():
+    """Input frontiers and cumulative frontiers after each record of the Ordered fixture."""
+    document = json.loads((FIXTURE / "result.json").read_text())
+    total = len(document.get("input_frontiers") or [])
+    start = total
+    cumulative = []
+    for record in document["domains"]:
+        frontiers = record.get("frontiers")
+        total += len(frontiers) if isinstance(frontiers, list) else int(frontiers or 0)
+        cumulative.append(total)
+    return start, cumulative
+
+
+def pin(row, start, prefix):
+    """The stop point of a session that started at `start` frontiers (see the module doc)."""
+    inputs, cumulative = prefix
+    if inputs > start:
+        return {"next_frontier_record": None, "expected": [0, inputs],
+                "ok": (row["committed_domains"], row["frontiers"]) == (0, inputs), "exact": True}
+    index = next(i for i, total in enumerate(cumulative) if total > start)
+    before = inputs if index == 0 else cumulative[index - 1]
+    ok = (before < row["frontiers"] <= cumulative[index]
+          and row["committed_domains"] in (index, index + 1))
+    return {"next_frontier_record": index, "expected": [index, cumulative[index]], "ok": ok,
+            "exact": (row["committed_domains"], row["frontiers"]) == (index, cumulative[index])}
+
+
+def oracle(run, argv_path, checkpoint, out, cpus, binding_from=None):
+    command = [sys.executable, str(ORACLE), str(run), "--command", str(argv_path), "--checkpoint",
+               str(checkpoint), "--expect-reference", *map(str, REFERENCE), "--out", str(out),
+               "--cpus", cpus, "--threads", str(len(cpu_list(cpus)))]
+    if binding_from is not None:
+        command += ["--binding-from", str(binding_from)]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    lines = completed.stdout.strip().splitlines()
+    return json.loads(lines[-1]) if lines else {"gate": "ERROR", "stderr": completed.stderr[-2000:]}
+
+
 def main():
+    summary = {}
+    try:
+        drill(summary)
+    finally:
+        if summary.get("out"):
+            json.dump(summary, open(Path(summary["out"]) / "summary.json", "w"), indent=1)
+
+
+def drill(summary):
     p = argparse.ArgumentParser()
     p.add_argument("--binary", required=True)
     p.add_argument("--mode", required=True, choices=("stop", "record", "binding"))
@@ -103,8 +161,8 @@ def main():
         sys.exit(f"refusing to overwrite {out}")
     out.mkdir(parents=True)
     reference = FIXTURE / "result.json"
-    summary = {"binary": args.binary, "mode": args.mode, "fixture": str(FIXTURE), "cpus": args.cpus,
-               "sessions": [], "family_closure_claim": False}
+    summary.update({"binary": args.binary, "mode": args.mode, "fixture": str(FIXTURE), "cpus": args.cpus,
+                    "out": str(out), "sessions": [], "family_closure_claim": False})
     if args.mode == "binding":
         checkpoint = out / "checkpoint-4a17f9c7-copy"
         shutil.copytree(FIXTURE / "checkpoint", checkpoint)
@@ -125,6 +183,11 @@ def main():
             summary["record_resume_strict"] = strict(reference, out / "resume-record/result.json",
                                                      out / "resume-record/strict-vs-fixture.json",
                                                      ("uncommitted_inspections",))
+            summary["record_resume_oracle"] = oracle(out / "resume-record", out / "resume-record/argv.json",
+                                                     checkpoint, out / "oracle-resume-record", args.cpus)
+        assert summary["record_resume_accepted"] and summary["stop_resume_refused"], summary
+        assert summary["record_resume_strict"]["verdict"] == "PASS", summary
+        assert summary["record_resume_oracle"]["gate"] == "PASS", summary
     elif args.mode == "record":
         session = out / "session-01"
         code, seconds = run(argv_for(args.binary, session, out / "checkpoint", False, None), session, cpus)
@@ -133,7 +196,20 @@ def main():
                                     "status": document.get("status"), "frontiers": document.get("frontiers"),
                                     "frontier_policy_key_present": "frontier_policy" in document})
         summary["strict_vs_fixture"] = strict(reference, session / "result.json", session / "strict-vs-fixture.json")
+        summary["oracle"] = oracle(session, session / "argv.json", out / "checkpoint", out / "oracle", args.cpus)
+        assert summary["strict_vs_fixture"]["verdict"] == "PASS", summary
+        assert summary["oracle"]["gate"] == "PASS", summary
     else:
+        # This binary's own record walk: the Record binding for the oracle's substitution.
+        session = out / "session-00-record"
+        code, seconds = run(argv_for(args.binary, session, out / "checkpoint-record", False, None), session, cpus)
+        summary["record_session"] = {"exit_code": code, "seconds": round(seconds, 3),
+                                     "strict_vs_fixture": strict(reference, session / "result.json",
+                                                                 session / "strict-vs-fixture.json")}
+        prefix = fixture_prefix()
+        summary["fixture_frontier_prefix"] = {"input_frontiers": prefix[0],
+                                              "frontier_records": [[i, total] for i, total in enumerate(prefix[1])
+                                                                   if total > (prefix[1][i - 1] if i else prefix[0])]}
         checkpoint = out / "checkpoint"
         previous = 0
         for number in range(1, 201):
@@ -152,6 +228,8 @@ def main():
                    "checkpoint_generation": manifest.get("generation"),
                    "checkpoint_paused": manifest["metadata"].get("paused"),
                    "checkpoint_stop_reason": manifest["metadata"].get("stop_reason")}
+            if document.get("status") == "paused":
+                row["pin"] = pin(row, previous, prefix)
             summary["sessions"].append(row)
             print(json.dumps(row), flush=True)
             if document.get("status") != "paused":
@@ -159,14 +237,20 @@ def main():
             assert code == 4 and row["stop_reason"] == "frontier_policy" and fired, row
             assert row["checkpoint_paused"] is True and row["checkpoint_stop_reason"] == "frontier_policy", row
             assert row["session_start_frontiers"] == previous and row["frontiers"] > previous, row
+            assert row["pin"]["ok"], row
             previous = row["frontiers"]
         summary["stops"] = sum(1 for row in summary["sessions"] if row["status"] == "paused")
+        summary["stops_exactly_at_kth_frontier_record"] = sum(
+            1 for row in summary["sessions"] if row.get("pin", {}).get("exact"))
         # Session receipts (frontier_policy, stop_reason) and resume bookkeeping
         # (uncommitted_inspections) are the only admitted top-level differences.
         summary["final_strict_vs_fixture"] = strict(reference, session / "result.json",
                                                     session / "strict-vs-fixture.json",
                                                     ("frontier_policy", "stop_reason", "uncommitted_inspections"))
-    json.dump(summary, open(out / "summary.json", "w"), indent=1)
+        summary["final_oracle"] = oracle(session, session / "argv.json", checkpoint, out / "oracle-final", args.cpus,
+                                         binding_from=out / "checkpoint-record")
+        assert summary["final_strict_vs_fixture"]["verdict"] == "PASS", summary
+        assert summary["final_oracle"]["gate"] == "PASS", summary
     print(json.dumps({key: value for key, value in summary.items() if key != "sessions"}, indent=1))
 
 
