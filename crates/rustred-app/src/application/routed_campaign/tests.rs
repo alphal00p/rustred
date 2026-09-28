@@ -2,6 +2,7 @@ use super::*;
 use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candidate_bundle};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod bounded_routing;
+mod epoch_walk;
 mod frontier_policy;
 mod guarded_apply;
 mod index_admission;
