@@ -2926,20 +2926,13 @@ fn plan_g2_mutation<const N: usize>(ctx: &Ctx<'_, N>, kind: OwnerDomainWalkVerif
             Plan::NotApplicable("no alias, G2' full cover or Route record before a snapshot".into())
         }
         M::G2DroppedAnchorEdge => {
-            // Prefer an anchor edge that carries no successor coverage: its
-            // (record, anchor) pair occurs once among the saved edges.
-            let mut counts: std::collections::HashMap<(u32, u32), u32> =
-                std::collections::HashMap::new();
-            for &edge in &loaded.raw.edges {
-                *counts.entry(edge).or_default() += 1;
-            }
-            let single = g2.iter().find_map(|(&id, info)| {
-                info.anchors
-                    .iter()
-                    .find(|a| counts.get(&(id as u32, a.id as u32)) == Some(&1))
-                    .map(|a| (id, a.id))
-            });
-            match single.or_else(|| with_anchor().map(|(&id, info)| (id, info.anchors[0].id))) {
+            // Prefer a G2' full cover: it makes no native call, so its anchor
+            // edges carry no successor coverage and only the anchor rules fire.
+            let full_cover = g2
+                .iter()
+                .find(|(_, info)| info.residual.is_none() && !info.anchors.is_empty())
+                .map(|(&id, info)| (id, info.anchors[0].id));
+            match full_cover.or_else(|| with_anchor().map(|(&id, info)| (id, info.anchors[0].id))) {
                 Some((id, anchor)) => Plan::G2(G2Edit::DropEdge { id, anchor }),
                 None => Plan::NotApplicable("no G2' record with an anchor".into()),
             }

@@ -191,7 +191,7 @@ fn g2_activation_on_resume_of_a_checkpoint_written_without_g2() {
         crate::cli::walk_request_from_argv(walk_argv(&dir.0, fixture.lookahead, &[])).unwrap();
     let stop = AtomicBool::new(false);
     let paused = crate::owner_domain_walk_with_progress(off, &stop, |event| {
-        if event["committed_domains"].as_u64().is_some_and(|c| c >= 40) {
+        if event["committed_domains"].as_u64().is_some_and(|c| c >= 12) {
             stop.store(true, Ordering::Release);
         }
     })

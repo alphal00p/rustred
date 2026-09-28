@@ -821,6 +821,7 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         phases[phase] += 1
         ranks[rank] += 1
         kinds[identity] = code
+        position[identity] = count - 1
         owner_phase[identity] = ((int(owner, 2) << 1) | int(phase == "Route")) if valid_owner else SENTINEL
         if identity < query_count:
             initial[identity] = row
@@ -852,7 +853,6 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         check(error is None, f"record {identity}: native error recorded")
         check(frontiers == [], f"record {identity}: nonzero frontiers")
         check(row.get("local_classification_discharged") is True, f"record {identity}: classification not discharged")
-        position[identity] = count - 1
         if code == NATIVE:
             check(row.get("local_inspection_finished") is True, f"record {identity}: native inspection unfinished")
         elif code == G2:
