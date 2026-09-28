@@ -1,0 +1,16 @@
+[package]
+name = "w0_falsify"
+version = "0.1.0"
+edition = "2021"
+description = "W0.9 falsifier tools (throwaway, read-only): walk record statistics and the dense/sparse level-cell oracle"
+
+# Standalone: not a member of the rustred workspace.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+debug = false
