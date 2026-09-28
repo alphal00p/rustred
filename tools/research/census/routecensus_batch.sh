@@ -60,8 +60,8 @@ for s in $steps; do
   case $s in
     gen7) run gen7-route route "$wt/TMP/gen7" --series v2-series.txt --wait 30 --per 400 --kc 4000 --rows gen7-route-rows.jsonl ;;
     gen7-w300) run gen7-route-w300 route "$wt/TMP/gen7" --series v2-series.txt --wait 300 --per 400 --kc 4000 ;;
-    gen7-apply) run gen7-route-apply route-apply "$wt/TMP/gen7" --series v2-series.txt --wait 30 --per 200 ;;
-    c5f-apply) cp -n /common/dev/rustred/TMP/w0/census/receipt-v4/c5f/series.txt c5f-series.txt; run c5f-route-apply route-apply "$wt/TMP/ctl/c5f" --series c5f-series.txt --wait 1 --per 300 ;;
+    gen7-apply) run gen7-route-apply route-apply "$wt/TMP/gen7" --series v2-series.txt --wait 30 --per 200 --rows gen7-route-apply-rows.jsonl ;;
+    c5f-apply) cp -n /common/dev/rustred/TMP/w0/census/receipt-v4/c5f/series.txt c5f-series.txt; run c5f-route-apply route-apply "$wt/TMP/ctl/c5f" --series c5f-series.txt --wait 1 --per 300 --rows c5f-route-apply-rows.jsonl ;;
     gen7-sat) run gen7-route-saturation route-saturation "$wt/TMP/gen7" --draws 4000 ;;
     gen7-sat-seed2) run gen7-route-saturation-seed2 route-saturation "$wt/TMP/gen7" --draws 4000 --seed 2 ;;
     gen6) run gen6-route route "$wt/TMP/gen6" --series v2-series.txt --wait 30 --per 200 --kc 2000 --rows gen6-route-rows.jsonl ;;

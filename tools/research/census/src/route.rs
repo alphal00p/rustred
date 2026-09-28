@@ -1058,6 +1058,24 @@ pub fn apply_natives(dir: &Path, opts: &Opts) {
         })
         .collect();
     eprintln!("route-apply: apply_natives done ({:.1} s)", t0.elapsed().as_secs_f64());
+    if let Some(p) = opts.get("rows") {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(p).unwrap());
+        for d in &draws {
+            let evs: BTreeMap<&str, Value> = sets_h
+                .iter()
+                .zip(&d.evs)
+                .map(|(s, ev)| {
+                    (*s, ev.as_ref().map_or(Value::Null, |e| json!({"points": e.points, "exact": e.exact, "candidates": e.candidates,
+                        "single": e.single_container, "uncovered": e.uncovered, "anchors_used": e.anchors_used, "d_only": [e.d_only.pieces, e.d_only.points],
+                        "hull": e.hull.points})))
+                })
+                .collect();
+            let w: BTreeMap<&str, f64> = wn_h.iter().zip(&d.w).map(|(k, v)| (*k, *v)).collect();
+            let row = json!({"sample": "apply_natives", "id": d.id, "owner": ck.doms[d.id as usize].owner_string(n),
+                "rank": ck.doms[d.id as usize].rank, "stratum": stratum_name(d.stratum), "ht": d.ht, "w": w, "evals": evs});
+            writeln!(f, "{row}").unwrap();
+        }
+    }
     let tot_created: f64 = an.iter().map(|r| (e.cre[0][r.id as usize] + e.cre[1][r.id as usize]) as f64).sum();
     let report = json!({"dir": dir, "generation": ck.m.generation,
         "params": {"per": per, "seed": seed, "wait": opts.num("wait", 30f64), "series": opts.get("series")},

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stratified bootstrap standard errors of the routecensus key shares.
 
-usage: route_boot.py RECEIPT_DIR/gen7-route-rows.jsonl [REPS]
+usage: route_boot.py RECEIPT_DIR/gen7-route-rows.jsonl[,APPLY_ROWS.jsonl] [REPS]
 
 Resamples distinct draws within each stratum (Horvitz-Thompson weights kept)
 and reports each share with its bootstrap standard deviation. Also reports
@@ -15,9 +15,10 @@ import random
 import sys
 
 rows = collections.defaultdict(lambda: collections.defaultdict(list))
-for line in open(sys.argv[1]):
-    r = json.loads(line)
-    rows[r["sample"]][r["stratum"]].append(r)
+for path in sys.argv[1].split(","):
+    for line in open(path):
+        r = json.loads(line)
+        rows[r["sample"]][r["stratum"]].append(r)
 REPS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
 
 
@@ -65,6 +66,11 @@ cases = [
     ("route_natives", "earlier_non_delegated", "created", None, ""),
     ("route_natives", "all_earlier_ids", "created", None, ""),
 ]
+if "apply_natives" in rows:  # census route-apply --rows
+    for s, w in [("natives_before_dispatch", "count"), ("natives_before_dispatch", "successors"), ("natives_before_dispatch", "created"),
+                 ("earlier_non_delegated", "created"), ("all_earlier_ids", "created")]:
+        cases.append(("apply_natives", s, w, None, ""))
+    cases.append(("apply_natives", "natives_before_dispatch", "created", lambda r: r["stratum"].startswith("g7"), "g7"))
 for s in ["natives_before_creator_commit", "earlier_non_delegated", "all_earlier_ids"]:
     for flt, lab in [(route, "Route"), (apply_, "Apply"), (rg7, "Route g7"), (ag7, "Apply g7"), (g7, "g7 both")]:
         cases.append(("all_domains_at_admission", s, "count", flt, lab))

@@ -321,6 +321,47 @@ def ram_rate(j, bygen):
     print()
 
 
+def dispatch_view(j, a, bygen):
+    """First-level domain creations avoided by a dispatch-time full-cover alias (a covered job emits no successors),
+    Apply jobs (route-apply) and Route jobs (route), next to the admission-time union cover [E]."""
+    fa = j["fanout_apply_natives"]["by_record_generation"]
+    fr = j["fanout_route_natives"]["by_record_generation"]
+    rc = j["route_natives"]["coverage"]
+    ac = a["apply_natives"]["coverage"]
+    ndom = sum(v["population"] for v in bygen.values())
+    last = "g%d" % j["generation"]
+    ca_last = fa[last]["created_route"]["sum"] + fa[last]["created_apply"]["sum"]
+    cr_last = fr[last]["created_route"]["sum"] + fr[last]["created_apply"]["sum"]
+    cra = j["fanout_route_natives"]["all"]
+    cr_tot = cra["created_route"]["sum"] + cra["created_apply"]["sum"]
+    ca_tot = a["apply_natives"]["created_exact_total"]
+    rows = []
+    for x, adm in [("natives_before_dispatch", "natives_before_creator_commit"), ("earlier_non_delegated", "earlier_non_delegated"),
+                   ("all_earlier_ids", "all_earlier_ids")]:
+        sa = ac[x]["by_weight"]["created"]["fully_covered_share"]
+        sr = rc[x]["by_weight"]["created"]["fully_covered_share"]
+        ga = ac[x]["by_group"]["record_" + last]["created"]["fully_covered_share"]
+        gr = rc[x]["by_group"]["record_" + last]["created"]["fully_covered_share"]
+        hist = ca_tot * sa + cr_tot * sr
+        late = (ca_last * ga + cr_last * gr) / (ca_last + cr_last)
+        late_a = ca_last * ga / (ca_last + cr_last)
+        adm_hist = sum(v["population"] * v[adm] for v in bygen.values())
+        adm_late = [k for k in bygen if k.endswith("admission_" + last)]
+        al = sum(bygen[k]["population"] * bygen[k][adm] for k in adm_late) / sum(bygen[k]["population"] for k in adm_late)
+        rows.append([x, f"{pct(ac[x]['by_weight']['count']['fully_covered_share'])} / {pct(rc[x]['by_weight']['count']['fully_covered_share'])}",
+                     f"{pct(sa)} / {pct(sr)}", f"{num(ca_tot * sa)} + {num(cr_tot * sr)} = {num(hist)} ({pct(hist / ndom)})",
+                     f"{hist * KB_PER_DOMAIN[0] / 1e6:.1f}-{hist * KB_PER_DOMAIN[1] / 1e6:.1f} GB",
+                     f"{pct(late_a)} ({1 / (1 - late_a):.2f}x)", f"{pct(late)} ({1 / (1 - late):.2f}x)",
+                     f"{adm}: {num(adm_hist)} ({pct(adm_hist / ndom)}); {pct(al)} ({1 / (1 - al):.2f}x)"])
+    print(f"Dispatch-time full-cover alias vs admission-time union cover (first level [E]; history = all {num(ndom)} admitted domains, "
+          f"late = creations by record-g{j['generation']} natives / admissions in g{j['generation']}):")
+    print()
+    print(table(["anchor set (dispatch)", "jobs covered Apply / Route (count)", "creations covered Apply / Route",
+                 "history: creations avoided Apply + Route", "bytes at 0.5-0.84 KB", "late: Apply jobs only (G2' alias)",
+                 "late: Apply + Route jobs", "admission-time same rule: history; late"], rows))
+    print()
+
+
 def route_step(d, step, full=True):
     j = load(d, f"{step}-route.json")
     if j is None:
@@ -355,6 +396,14 @@ def route_step(d, step, full=True):
     if full:
         anchors(j)
         ram_rate(j, bygen)
+        a = load(d, f"{step}-route-apply.json") or load(os.path.join(d, "apply-rc5"), f"{step}-route-apply.json")
+        if a is not None:
+            coverage(a["apply_natives"], ["natives_before_dispatch", "natives_before_commit", "earlier_non_delegated", "all_earlier_ids"],
+                     ["count", "seconds", "successors", "out_edges", "created", "created_apply", "created_route", "descendants", "points"],
+                     "Apply natives (historical; census route-apply; seconds weight from uniform strata, see W0.7 PPS for CPU)")
+            by_group(a["apply_natives"], ["natives_before_dispatch", "all_earlier_ids"], ["count", "seconds", "created"],
+                     "Apply natives by record generation")
+            dispatch_view(j, a, bygen)
     return j, t
 
 
