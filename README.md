@@ -357,8 +357,6 @@ is needed:
 
 ```bash
 git submodule update --init --recursive vendor/symbolica
-git -C vendor/symbolica apply --check ../../patches/symbolica/heap-pow-wide-radix.patch
-git -C vendor/symbolica apply ../../patches/symbolica/heap-pow-wide-radix.patch
 export SYMBOLICA_LICENSE="<your Symbolica 3 license>"
 cargo fetch --locked
 cargo check --workspace --locked --offline
@@ -366,15 +364,16 @@ cargo build --release --locked --offline
 ```
 
 The local checkout needs the usual native GMP/MPFR development prerequisites.
-The required [heap-power radix correction](patches/symbolica/README.md) is applied
-once to a clean submodule; if patch admission fails, check for an already-applied
-fix or a different revision rather than overwriting vendor changes.
+The submodule pins unmodified upstream Symbolica `dev` (`ef0db494`, which
+contains the multithreaded polynomial-context fix `939c4de8` and the `heap_pow`
+overflow fix `7b31114c`); no local Symbolica patch is applied. Native `.rrbin`
+artifacts written by older RustRed builds (Symbolica export format 5) are
+rejected with an error naming the header converter
+`examples/python/convert_native_v5_to_v6.py`.
 
-The public base revision `953e26e2754e9a4b918404fbdea590725d8e863d` does not
-contain that correction; using its unmodified Git dependencies is not equivalent
-to this patched checkout. To use Git dependencies instead, select one compatible
-fixed revision (or your patched fork) for all three `[patch.crates-io]` entries:
-`symbolica`, `numerica`, and `graphica`. Leave versions and features unchanged.
+To use Git dependencies instead, select one compatible revision for all three
+`[patch.crates-io]` entries: `symbolica`, `numerica`, and `graphica`. Leave
+versions and features unchanged.
 
 Then refresh the dependency source entries in the lockfile and build:
 
