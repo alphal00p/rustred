@@ -188,5 +188,64 @@ class MultisetComparisonTests(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout)["shape"], "kind")
 
 
+
+class InvalidComparisonTests(unittest.TestCase):
+    """A void run never compares equal: empty walks and nonzero run exits are INVALID."""
+
+    def test_empty_walks_are_invalid_unless_allowed(self):
+        def empty(top):
+            top["domains"] = []
+
+        with tempfile.TemporaryDirectory() as temporary:
+            a = walk(Path(temporary) / "a", mutate=empty)
+            b = walk(Path(temporary) / "b", mutate=empty)
+            for compare in (COMPARE.strict_compare, COMPARE.multiset_compare):
+                report = compare(a, b)
+                self.assertEqual(report["verdict"], "INVALID", report)
+                self.assertEqual(len(report["invalid_reasons"]), 2)
+                self.assertEqual(compare(a, b, allow_empty=True)["verdict"], "PASS")
+            result = subprocess.run([sys.executable, "-B", COMPARE.__file__, "--mode", "strict", str(a), str(b)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["verdict"], "INVALID")
+            result = subprocess.run([sys.executable, "-B", COMPARE.__file__, "--mode", "strict", "--allow-empty",
+                                     str(a), str(b)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_failed_walks_and_failed_run_exits_are_invalid(self):
+        def incomplete(top):
+            top["status"] = "incomplete"
+
+        def failed(top):
+            top["status"] = "preparation_error"
+            top["error"] = "requested n_cores 24 exceeds the 16 logical cores"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            a = walk(Path(temporary) / "a")
+            b = walk(Path(temporary) / "b")
+            self.assertEqual(COMPARE.strict_compare(a, b)["verdict"], "PASS")
+            (a.parent / "metrics.json").write_text(json.dumps({"exit_code": 0}))
+            self.assertEqual(COMPARE.strict_compare(a, b)["verdict"], "PASS")
+            (b.parent / "metrics.json").write_text(json.dumps({"exit_code": 4}))
+            for compare in (COMPARE.strict_compare, COMPARE.multiset_compare):
+                report = compare(a, b)
+                self.assertEqual(report["verdict"], "INVALID", report)
+                self.assertIn("exit_code 4", report["invalid_reasons"][0])
+            # A finished walk with an open classification exits 4 by design.
+            c = walk(Path(temporary) / "c", mutate=incomplete)
+            d = walk(Path(temporary) / "d", mutate=incomplete)
+            (d.parent / "metrics.json").write_text(json.dumps({"exit_code": 4}))
+            self.assertEqual(COMPARE.strict_compare(c, d)["verdict"], "PASS")
+            # A walk that reports an error is void even without metrics.
+            e = walk(Path(temporary) / "e", mutate=failed)
+            report = COMPARE.strict_compare(c, e)
+            self.assertEqual(report["verdict"], "INVALID")
+            self.assertIn("preparation_error", report["invalid_reasons"][0])
+            # --allow-empty does not waive a failed run; --allow-failed does.
+            self.assertEqual(COMPARE.strict_compare(a, b, allow_empty=True)["verdict"], "INVALID")
+            self.assertEqual(COMPARE.strict_compare(a, b, allow_failed=True)["verdict"], "PASS")
+            (b.parent / "metrics.json").write_text("not json")
+            self.assertIn("unreadable", COMPARE.strict_compare(a, b)["invalid_reasons"][0])
+
 if __name__ == "__main__":
     unittest.main()
