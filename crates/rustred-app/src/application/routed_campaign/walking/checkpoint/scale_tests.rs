@@ -14,9 +14,21 @@
 //! RUSTRED_CHECKPOINT_RESTORE_REQUEST=<campaign run>/request.json \
 //! RUSTRED_CHECKPOINT_RESTORE_RECEIPT=<new file under TMP/> \
 //! [RUSTRED_CHECKPOINT_RESTORE_SAVER_EXECUTABLE=<binary that wrote it>] \
+//! [RUSTRED_CHECKPOINT_RESTORE_MANIFEST=<byte-identical selection.json>] \
+//! [RUSTRED_CHECKPOINT_RESTORE_OWNER_BASE=<directory with identical owners>] \
+//! [RUSTRED_CHECKPOINT_RESTORE_QUERIES=<byte-identical queries.json>] \
 //! RAYON_NUM_THREADS=1 cargo test --release -p rustred-app --lib \
 //!     restore_copied_production_checkpoint -- --ignored --nocapture
 //! ```
+//!
+//! The three optional input overrides replace the `--manifest`,
+//! `--owner-base` and `--queries` values of the frozen argv, so a live
+//! campaign's input directory need not be read. They weaken nothing: the
+//! request binding covers the selection and query bytes and the owner binding
+//! covers every owner payload digest, so a copy that differs is refused.
+//!
+//! `root_blockers_tests.rs` runs a read-only analysis on the same restored
+//! state through [`RestoredAnalysis`].
 //!
 //! Scope: no walk, no native owner import (the preparation is cancelled right
 //! after the owner digests are bound), no save. Restored memory therefore
@@ -38,9 +50,40 @@ const DIRECTORY: &str = "RUSTRED_CHECKPOINT_RESTORE_DIRECTORY";
 const REQUEST: &str = "RUSTRED_CHECKPOINT_RESTORE_REQUEST";
 const RECEIPT: &str = "RUSTRED_CHECKPOINT_RESTORE_RECEIPT";
 const SAVER: &str = "RUSTRED_CHECKPOINT_RESTORE_SAVER_EXECUTABLE";
+/// Optional replacements of the argv's input paths (see module docs).
+const INPUT_OVERRIDES: [(&str, &str); 3] = [
+    ("--manifest", "RUSTRED_CHECKPOINT_RESTORE_MANIFEST"),
+    ("--owner-base", "RUSTRED_CHECKPOINT_RESTORE_OWNER_BASE"),
+    ("--queries", "RUSTRED_CHECKPOINT_RESTORE_QUERIES"),
+];
+
+/// Read-only work on the restored state after every validation passed and
+/// before it is dropped. The restore-at-scale test itself runs none.
+pub(super) trait RestoredAnalysis {
+    fn analyze<const N: usize>(
+        &mut self,
+        request: &OwnerDomainWalkRequest,
+        selection: &input::Selection,
+        restored: &restore::Restored<N>,
+        receipt: &mut Value,
+    ) -> Result<(), String>;
+}
+
+struct NoAnalysis;
+impl RestoredAnalysis for NoAnalysis {
+    fn analyze<const N: usize>(
+        &mut self,
+        _: &OwnerDomainWalkRequest,
+        _: &input::Selection,
+        _: &restore::Restored<N>,
+        _: &mut Value,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 /// `VmRSS`/`VmHWM`/`VmPeak` of this process, in bytes.
-fn memory() -> Value {
+pub(super) fn memory() -> Value {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
         status
@@ -75,11 +118,13 @@ fn listing(directory: &Path) -> Vec<Value> {
 /// point at the copy with `--resume` (as the supervisors do), and the output,
 /// event and stop paths move to never-created scratch names outside it (they
 /// are transport, not part of the request binding, and nothing here opens
-/// them). Every other option is kept verbatim.
+/// them). `inputs` replaces the value of each named input option (bound by
+/// content, see module docs). Every other option is kept verbatim.
 fn resume_argv(
     command: &[String],
     directory: &Path,
     scratch: &Path,
+    inputs: &[(&'static str, PathBuf)],
 ) -> Result<(Vec<OsString>, Vec<Value>), String> {
     let mut argv = Vec::with_capacity(command.len());
     let mut rewrites = Vec::new();
@@ -97,7 +142,10 @@ fn resume_argv(
             "--output" => Some(("--output", scratch.join("result.json"))),
             "--events" => Some(("--events", scratch.join("events.jsonl"))),
             "--stop-file" => Some(("--stop-file", scratch.join("stop-request.json"))),
-            _ => None,
+            other => inputs
+                .iter()
+                .find(|(option, _)| *option == other)
+                .map(|(option, path)| (*option, path.clone())),
         };
         match replacement {
             Some((option, path)) => {
@@ -122,12 +170,14 @@ fn seconds(started: Instant) -> f64 {
     started.elapsed().as_secs_f64()
 }
 
-/// Everything a resume does before its first walk step, for one arity.
+/// Everything a resume does before its first walk step, for one arity, then
+/// `analysis` on the validated state.
 fn restore_without_walking<const N: usize>(
     request: &OwnerDomainWalkRequest,
     selection: &input::Selection,
     load_limits: crate::CandidateOwnerLoadLimits,
     receipt: &mut Value,
+    analysis: &mut impl RestoredAnalysis,
 ) -> Result<(), String> {
     let events = RefCell::new(Vec::<Value>::new());
     let observer = |event: Value| events.borrow_mut().push(event);
@@ -153,6 +203,9 @@ fn restore_without_walking<const N: usize>(
         receipt["executable"]["saver_matches_saved"] = json!(blake3 == manifest.executable);
     }
     receipt["open_events"] = json!(open_events);
+    // The owner payload digests this checkpoint bound (read by analyses that
+    // must re-import the same owners elsewhere, e.g. the W0.3 fixture).
+    receipt["owner_digests"] = json!(manifest.owners);
 
     let started = Instant::now();
     let restored = store
@@ -270,6 +323,10 @@ fn restore_without_walking<const N: usize>(
         ));
     }
     let started = Instant::now();
+    analysis.analyze::<N>(request, selection, &restored, receipt)?;
+    receipt["timings"]["analysis_seconds"] = json!(seconds(started));
+    receipt["memory"]["after_analysis"] = memory();
+    let started = Instant::now();
     drop(restored);
     drop(store);
     receipt["timings"]["drop_seconds"] = json!(seconds(started));
@@ -280,6 +337,23 @@ fn restore_without_walking<const N: usize>(
 #[test]
 #[ignore = "needs a copied production CP5 checkpoint and its campaign request (see module docs)"]
 fn restore_copied_production_checkpoint() {
+    restore_copied_checkpoint(
+        "restore_copied_production_checkpoint",
+        "rustred.checkpoint-restore-at-scale.v1",
+        "checkpoint-restore-receipt",
+        &mut NoAnalysis,
+    );
+}
+
+/// The restore-at-scale procedure (module docs) followed by `analysis`; the
+/// receipt is written under `schema`, and the test fails on any refusal, on
+/// an analysis error or when the checkpoint directory changed.
+pub(super) fn restore_copied_checkpoint(
+    test: &str,
+    schema: &str,
+    default_receipt_prefix: &str,
+    analysis: &mut impl RestoredAnalysis,
+) {
     let started = Instant::now();
     let unix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -292,7 +366,7 @@ fn restore_copied_production_checkpoint() {
         || {
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../TMP")
-                .join(format!("checkpoint-restore-receipt-{unix}.json"))
+                .join(format!("{default_receipt_prefix}-{unix}.json"))
         },
         PathBuf::from,
     );
@@ -300,8 +374,8 @@ fn restore_copied_production_checkpoint() {
         .parent()
         .expect("receipt directory")
         .join("unused-cli-outputs");
-    let mut receipt = json!({"schema":"rustred.checkpoint-restore-at-scale.v1",
-        "test":"restore_copied_production_checkpoint","started_unix_time":unix,
+    let mut receipt = json!({"schema":schema,
+        "test":test,"started_unix_time":unix,
         "directory":directory,"request_file":request_file,
         "walk_semantics_version":WALK_SEMANTICS_VERSION,
         "rayon_threads":rayon::current_num_threads(),
@@ -320,7 +394,14 @@ fn restore_copied_production_checkpoint() {
         .iter()
         .map(|argument| argument.as_str().expect("argv string").to_owned())
         .collect();
-    let (argv, rewrites) = resume_argv(&command, &directory, &scratch).expect("resume argv");
+    let inputs: Vec<(&'static str, PathBuf)> = INPUT_OVERRIDES
+        .iter()
+        .filter_map(|&(option, variable)| {
+            std::env::var_os(variable).map(|path| (option, PathBuf::from(path)))
+        })
+        .collect();
+    let (argv, rewrites) =
+        resume_argv(&command, &directory, &scratch, &inputs).expect("resume argv");
     receipt["argv_original"] = json!(command);
     receipt["argv_resume"] = json!(
         argv.iter()
@@ -353,7 +434,7 @@ fn restore_copied_production_checkpoint() {
     drop(queries);
 
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => restore_without_walking::<$n>(&request, &selection, load_limits, &mut receipt),)*
+        $($n => restore_without_walking::<$n>(&request, &selection, load_limits, &mut receipt, analysis),)*
         _ => Err(format!("unsupported arity {arity}")),
     }} }
     let outcome = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
@@ -381,7 +462,7 @@ fn restore_copied_production_checkpoint() {
         serde_json::to_string_pretty(&json!({"timings":receipt["timings"],
             "memory":receipt["memory"],"counts":receipt["counts"],
             "executable":receipt["executable"],"passed":receipt["passed"],
-            "error":receipt["error"]}))
+            "error":receipt["error"],"analysis_summary":receipt["analysis_summary"]}))
         .expect("summary JSON")
     );
     outcome.expect("restore without walking");
@@ -409,7 +490,7 @@ fn resume_argv_points_the_checkpoint_at_the_copy_and_keeps_policy() {
     .map(str::to_owned)
     .to_vec();
     let (argv, rewrites) =
-        resume_argv(&command, Path::new("/copy"), Path::new("/scratch")).expect("argv");
+        resume_argv(&command, Path::new("/copy"), Path::new("/scratch"), &[]).expect("argv");
     let argv: Vec<_> = argv.iter().map(|a| a.to_str().unwrap()).collect();
     assert_eq!(
         argv,
@@ -433,8 +514,49 @@ fn resume_argv_points_the_checkpoint_at_the_copy_and_keeps_policy() {
     assert_eq!(rewrites.len(), 4);
     let without: Vec<String> = command[..10].to_vec();
     assert!(
-        resume_argv(&without, Path::new("/copy"), Path::new("/scratch"))
+        resume_argv(&without, Path::new("/copy"), Path::new("/scratch"), &[])
             .unwrap_err()
             .contains("--checkpoint")
     );
+}
+
+#[test]
+fn resume_argv_replaces_only_the_named_input_paths() {
+    let command: Vec<String> = [
+        "/campaign/bin/rustred",
+        "owner-domain-match",
+        "--manifest",
+        "/campaign/inputs/selection.json",
+        "--owner-base",
+        "/campaign/inputs",
+        "--queries",
+        "/campaign/inputs/queries.json",
+        "--checkpoint",
+        "/campaign/checkpoints/main",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let inputs = [
+        ("--manifest", PathBuf::from("/copy-inputs/selection.json")),
+        ("--owner-base", PathBuf::from("/copy-inputs")),
+    ];
+    let (argv, rewrites) =
+        resume_argv(&command, Path::new("/copy"), Path::new("/scratch"), &inputs).expect("argv");
+    let argv: Vec<_> = argv.iter().map(|a| a.to_str().unwrap()).collect();
+    assert_eq!(
+        argv,
+        [
+            "/campaign/bin/rustred",
+            "owner-domain-match",
+            "--manifest",
+            "/copy-inputs/selection.json",
+            "--owner-base",
+            "/copy-inputs",
+            "--queries",
+            "/campaign/inputs/queries.json",
+            "--resume",
+            "/copy",
+        ]
+    );
+    assert_eq!(rewrites.len(), 3);
 }

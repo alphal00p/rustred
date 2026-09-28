@@ -13,7 +13,11 @@
 //! the owner digests and `WALK_SEMANTICS_VERSION`; the executable digest is
 //! recorded and reported, never a refusal.
 pub(super) mod manifest;
+#[cfg(all(test, feature = "cli"))]
+mod reinspection_tests;
 pub(super) mod restore;
+#[cfg(all(test, feature = "cli"))]
+mod root_blockers_tests;
 #[cfg(all(test, feature = "cli"))]
 mod scale_tests;
 pub(super) mod sections;

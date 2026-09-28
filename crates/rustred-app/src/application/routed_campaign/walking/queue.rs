@@ -61,7 +61,7 @@ impl<const N: usize> Domain<N> {
     /// historical scan and to measure additional semantic reuse. The queue
     /// evaluates it as `CompactDomain::contains`; this is the reference form.
     #[cfg(test)]
-    fn contains(&self, other: &Self) -> bool {
+    pub(super) fn contains(&self, other: &Self) -> bool {
         self.phase == other.phase
             && self.owner == other.owner
             && rank_contains(self.rank, other.rank)

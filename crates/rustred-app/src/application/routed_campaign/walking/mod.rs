@@ -13,6 +13,8 @@ mod parallel;
 mod physical_parts;
 mod publication;
 mod queue;
+#[cfg(all(test, feature = "cli"))]
+mod reinspection;
 mod reuse;
 mod routing;
 mod verify_closure;
