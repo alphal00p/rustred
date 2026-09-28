@@ -159,7 +159,7 @@ for ph in ["Route", "Apply", "both"]:
             m, se = pps_mean(p, lambda q: float(qcov(q, s)))
             T += Wp * m
             Tv += (Wp * se) ** 2
-            mz, sz = pps_mean(p, lambda q: (qa(q, s) - 1) * qcov(q, s))
+            mz, sz = pps_mean(p, lambda q: (qa(q, s) - 1) if qcov(q, s) else 0.0)
             Z += Wp * mz
             Zv += (Wp * sz) ** 2
             ma, _ = pps_mean(p, lambda q: float(qcov(q, "natives_before_creator_commit") and not qcov(q, "all_earlier_ids")))
@@ -260,8 +260,9 @@ print()
 print("Historical Route natives of record g6-g7 (the model generations; leave-one-out predictor): coverage-status ratios.")
 print()
 body = []
+OFF = {}
 for hs in ["natives_before_dispatch", "natives_before_commit", "earlier_non_delegated", "all_earlier_ids"]:
-    for w in ["created", "successors"]:
+    for w in ["created", "successors", "created_route", "created_apply"]:
         cs, ms, ps = hist_shares(N, hs, *WK[w])
         R = ratios(N, hs, *WK[w])
         # out-of-sample: fit on g6, predict g7
@@ -271,6 +272,7 @@ for hs in ["natives_before_dispatch", "natives_before_commit", "earlier_non_dele
         pu = sum(r["ht"] * r["h"]["pred_loo"][WK[w][1]] * R6[False] for r in g7 if not cov(r, hs))
         m7 = sum(r["ht"] * r["w"][WK[w][0]] for r in g7 if cov(r, hs)) / sum(r["ht"] * r["w"][WK[w][0]] for r in g7)
         raw7 = sum(r["ht"] * r["h"]["pred_loo"][WK[w][1]] for r in g7 if cov(r, hs)) / sum(r["ht"] * r["h"]["pred_loo"][WK[w][1]] for r in g7)
+        OFF[(hs, w)] = m7 - pc / (pc + pu)
         body.append([hs, w, f"{100 * cs:.1f}%", f"{100 * ms:.1f}%", f"{100 * ps:.1f}%", f"{R[True]:.3f}", f"{R[False]:.3f}",
                      f"{100 * m7:.1f}%", f"{100 * raw7:.1f}%", f"{100 * pc / (pc + pu):.1f}%"])
 table(["historical anchor set", "weight", "count share", "measured weight share", "raw predicted share (LOO)", "R covered", "R not covered",
@@ -310,8 +312,13 @@ for ps in PEND:
         sd = math.sqrt(sum((x - m) ** 2 for x in vals) / (len(vals) - 1))
         mt = sum(tots) / len(tots)
         sdt = math.sqrt(sum((x - mt) ** 2 for x in tots) / (len(tots) - 1))
+        off = OFF[(hs, w)]
+        c_up = (c_cal / (c_cal + u_cal) + off) * (c_cal + u_cal)
         gb = f"{c_cal * KB[0] / 1e6:.1f}-{c_cal * KB[1] / 1e6:.1f} GB" if w.startswith("created") else "-"
+        gbu = f"{c_up * KB[0] / 1e6:.1f}-{c_up * KB[1] / 1e6:.1f} GB" if w.startswith("created") else "-"
         body.append([ps, hs, w, f"{100 * c_raw / (c_raw + u_raw):.1f}%", f"**{100 * c_cal / (c_cal + u_cal):.1f}%** ± {100 * sd:.1f}",
-                     num(c_raw), f"{num(c_cal)} ± {num(sdt)}", gb])
+                     f"{100 * off:+.1f} pp", f"{100 * (c_cal / (c_cal + u_cal) + off):.1f}%",
+                     num(c_raw), f"{num(c_cal)} ± {num(sdt)}", num(c_up), gb, gbu])
 table(["pending anchor set", "calibrated by (historical rule)", "weight", "raw predicted share", "calibrated share",
-       "raw covered total", "calibrated covered total", "calibrated bytes at 0.5-0.84 KB"], body)
+       "g6->g7 out-of-sample offset (measured - calibrated)", "calibrated + offset",
+       "raw covered total", "calibrated covered total", "covered total at calibrated + offset", "bytes (calibrated)", "bytes (calibrated + offset)"], body)
