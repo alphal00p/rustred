@@ -11,18 +11,65 @@ summary row). Pairs are given as ORIG:I2 labels; for each pair the gate metric
 and the total-work ratios (natives, Apply natives, discovered domains, edges,
 own CPU) are reported.
 
-Usage: c5f_gate.py ROOT ORIG:I2 [ORIG:I2 ...] [--output OUT.json]
+Oracle rule (HANDOFF_opus_5_5.md 0.1 item 6): a gate verdict is accepted only
+when every arm also has an independent closure-verifier report
+(`rustred walk-verify-closure --require-closure`, full F10 re-inspection) with
+verdict == PASS AND roots_independently_verified == roots_total >= 1 and
+family_closure_claim false, AND the oracle branch is merged into the base
+branch. The record audit (audit.json) alone gives at most PROVISIONAL.
+Reports are looked up as VERIFY_DIR/<label>.json (--verify-dir); the merge
+state is taken from git (--oracle-branch merged into --base-branch).
+
+Final verdict per pair (`w13_gate`):
+  PASS         metric passes, record audits PASS, oracle gates PASS, oracle branch merged
+  PROVISIONAL  metric passes and record audits PASS, but an oracle report is missing
+               ("record audit only") or the oracle branch is not merged
+  FAIL         metric fails, or any record audit or any present oracle report fails
+
+Usage: c5f_gate.py ROOT ORIG:I2 [ORIG:I2 ...] [--verify-dir DIR] [--output OUT.json]
 """
 import argparse
 import csv
 import json
 from pathlib import Path
 import re
+import subprocess
 
 
-def arm(root, label):
+def oracle_gate(report_path):
+    """(status, reasons): status PASS / FAIL / MISSING for one walk-verify-closure report."""
+    if report_path is None or not report_path.exists():
+        return "MISSING", ["no walk-verify-closure report"]
+    report = json.loads(report_path.read_text())
+    reasons = []
+    schema = report.get("schema")
+    if not isinstance(schema, str) or not schema.startswith("rustred.walk-verify-closure."):
+        reasons.append(f"schema {schema!r}")
+    if report.get("verdict") != "PASS":
+        reasons.append(f"verdict {report.get('verdict')!r}")
+    total, verified = report.get("roots_total"), report.get("roots_independently_verified")
+    if not isinstance(total, int) or not isinstance(verified, int):
+        reasons.append(f"missing roots_total={total!r} / roots_independently_verified={verified!r}")
+    elif total < 1 or verified != total:
+        reasons.append(f"roots_independently_verified {verified} != roots_total {total}")
+    if report.get("family_closure_claim") is not False:
+        reasons.append("family_closure_claim is not false")
+    return ("FAIL" if reasons else "PASS"), reasons
+
+
+def branch_merged(repo, branch, base):
+    try:
+        code = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", branch, base],
+                              capture_output=True).returncode
+    except OSError:
+        return None
+    return {0: True, 1: False}.get(code)
+
+
+def arm(root, label, verify_dir=None):
     d = root / label / "five-finite"
     audit = json.loads((d / "audit.json").read_text())
+    oracle, oracle_reasons = oracle_gate(verify_dir / f"{label}.json" if verify_dir else None)
     metrics = json.loads((d / "metrics.json").read_text())
     summary = json.loads((d / "census/summary.json").read_text())
     edges = {}
@@ -46,6 +93,7 @@ def arm(root, label):
     natives = int(metrics["completed_nodes"])
     return {
         "label": label, "audit": audit.get("audit"), "violations": len(audit.get("violations") or []),
+        "oracle_gate": oracle, "oracle_reasons": oracle_reasons,
         "all_local_obligations_discharged": audit.get("all_local_obligations_discharged"),
         "exit_code": metrics["exit_code"], "drained": metrics["exit_code"] == 0 and metrics.get("queued_nodes") == "0",
         "cpus": metrics["cpus"], "manifest_sha256": metrics["manifest_sha256"], "binary_sha256": metrics["binary_sha256"],
@@ -69,19 +117,37 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("root", type=Path)
     p.add_argument("pairs", nargs="+")
+    p.add_argument("--verify-dir", type=Path, help="directory of walk-verify-closure reports <label>.json")
+    p.add_argument("--repo", type=Path, default=Path("/common/dev/rustred"))
+    p.add_argument("--oracle-branch", default="fable_5_1-v3-oracle")
+    p.add_argument("--base-branch", default="fable_5_1")
     p.add_argument("--output", type=Path)
     args = p.parse_args(argv)
-    out = {"pairs": []}
+    merged = branch_merged(args.repo, args.oracle_branch, args.base_branch)
+    out = {"pairs": [], "oracle_branch": args.oracle_branch, "base_branch": args.base_branch,
+           "oracle_branch_merged": merged, "verify_dir": str(args.verify_dir) if args.verify_dir else None}
     for spec in args.pairs:
         o_label, _, i_label = spec.partition(":")
-        o, i = arm(args.root, o_label), arm(args.root, i_label)
+        o, i = arm(args.root, o_label, args.verify_dir), arm(args.root, i_label, args.verify_dir)
         ratio = {k: i[k] / o[k] for k in ("natives", "apply_natives", "route_natives", "discovered", "apply_domains",
                                          "edges", "own_cpu_seconds", "inspector_slot_busy_seconds",
                                          "containment_checks") if o.get(k) and i.get(k) is not None}
         change = i["route_route_per_route_native"] / o["route_route_per_route_native"] - 1.0
         gate = change <= -0.20 and o["audit"] == "PASS" and i["audit"] == "PASS"
+        oracles = (o["oracle_gate"], i["oracle_gate"])
+        if not gate or "FAIL" in oracles:
+            final = "FAIL"
+        elif "MISSING" in oracles:
+            final = "PROVISIONAL (record audit only)"
+        elif merged is not True:
+            final = "PROVISIONAL (oracle PASS, oracle branch not merged)"
+        else:
+            final = "PASS"
         out["pairs"].append({"orig": o, "i2": i, "route_route_per_route_native_change": change,
-                             "w13_gate_as_worded": "PASS" if gate else "FAIL", "i2_over_orig": ratio})
+                             "w13_gate_as_worded": "PASS" if gate else "FAIL",
+                             "record_audit_and_metric": "PASS" if gate else "FAIL",
+                             "oracle_gates": {"orig": o["oracle_gate"], "i2": i["oracle_gate"]},
+                             "w13_gate": final, "i2_over_orig": ratio})
     text = json.dumps(out, indent=1, sort_keys=True)
     if args.output:
         args.output.write_text(text + "\n")
@@ -89,9 +155,11 @@ def main(argv=None):
         o, i, r = pair["orig"], pair["i2"], pair["i2_over_orig"]
         print(f"{o['label']} vs {i['label']} ({o['policy']}; CPUs {o['cpus']} / {i['cpus']}; foreign "
               f"{o['foreign_share']:.3f} / {i['foreign_share']:.3f}); audits {o['audit']} / {i['audit']}; drained "
-              f"{o['drained']} / {i['drained']}")
+              f"{o['drained']} / {i['drained']}; oracle {o['oracle_gate']} / {i['oracle_gate']} "
+              f"(oracle branch merged: {merged})")
         print(f"  R->R per Route native {o['route_route_per_route_native']:.3f} -> {i['route_route_per_route_native']:.3f} "
-              f"({100 * pair['route_route_per_route_native_change']:+.1f} %): gate as worded {pair['w13_gate_as_worded']}")
+              f"({100 * pair['route_route_per_route_native_change']:+.1f} %): metric+record audit "
+              f"{pair['record_audit_and_metric']}; gate {pair['w13_gate']}")
         print(f"  natives {o['natives']:,} -> {i['natives']:,} (x{r['natives']:.3f}); Apply natives {o['apply_natives']:,} -> "
               f"{i['apply_natives']:,} (x{r['apply_natives']:.3f}); Route natives {o['route_natives']:,} -> {i['route_natives']:,} "
               f"(x{r['route_natives']:.3f})")
