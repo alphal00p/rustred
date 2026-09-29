@@ -104,6 +104,29 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:53 UTC — build-profile failure and explicit four-loop gate
+
+- [M] Corrected `f3f707af` app-opt0 compilation failed at linking, not type
+  checking or test execution. App object text totals2,294,648,001bytes, exceeding
+  the signed2GiB relative-address range; binutils reports PC32/GOTPCREL overflow.
+  No executable was emitted. Guard exit101/no resource stop,1178.571s,
+  minimum host headroom663,890,014,208bytes. The failure receipt is retained in
+  `TMP/codex-parallel-validation.RPJKV5/native-build-f3f707af-opt0/`.
+- [D] Return to the known-working app-opt1 correctness profile; no speculative
+  linker/code-model workaround and no weakening of the complete-suite gate.
+  `epoch_g2_rescue_impl` reached its thread limit after delivering the diagnosis;
+  active `stage_a_release` takes over the build/run, with root resource oversight.
+  The separate optimized campaign binary and its timing remain pending.
+- [M] Stage A frozen binary SHA256 rechecked successfully; its clone is clean
+  at pushed931d006c. The user received exact pause/preview/upgrade/resume commands
+  for their existing Zellij tab. Root did not operate production.
+- [D] User explicitly requires the combined four-family physics-capped control
+  to be faster or at least on par. Add this no-regression gate to the shortened
+  plan and delivery report, using repeated matched current-Ready+Union versus
+  rolling+Union runs, identical scope/resources and common cold-All cost.
+  Preserve all existing control queries, including helpers. No Stage B timing
+  has run yet; no performance pass is claimed.
+
 ### 2026-09-29 16:40 UTC — settle the matched deliverable before measuring
 
 - [D] Root and independent `stage_a_release` review agree that the common

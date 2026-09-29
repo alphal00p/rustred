@@ -191,6 +191,11 @@ Relative schedule after approval:
 - Use existing measurements for genuinely unchanged components. For the new
   parallel engine measure whole-command time, CPU, RSS, work volume and useful
   concurrency against current G2-enabled legacy, not just LC2 with G2 off.
+  The user's follow-up makes the combined four-family physics-capped control
+  an explicit no-regression gate: repeated matched native-plus-cold runs must
+  be faster or demonstrably on par, on identical inputs and resources. Noise
+  or incomplete runs are inconclusive, not a pass. Keep the control's existing
+  helper obligations; do not narrow it to improve the comparison.
   Retain the agreed matched 1.5x deployment gate and two-pair principle. A correct
   but slower or inconclusive build may be shipped as experimental, not advertised
   as a qualified faster replacement. Correctness failures block launch advice.

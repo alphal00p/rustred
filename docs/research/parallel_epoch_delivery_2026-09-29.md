@@ -98,6 +98,9 @@ Python can automatically resume with a rescue amendment.
   scopes are FG, BMW, H, X, combined four-loop, finite five-loop and hot-sector.
   Both sides use the same future optimized binary and the same query bytes.
 - Adaptive comparisons: pending; no benefit claimed.
+- Combined four-family physics-capped performance is an explicit acceptance
+  gate: repeated matched verified-closure runs must be faster or on par with
+  current optimized Ready+Union. Inconclusive measurements are not a pass.
 - W50: planned separately from mechanical thread/lifecycle tests, conditional
   on successful lower-width native and cold controls.
 
