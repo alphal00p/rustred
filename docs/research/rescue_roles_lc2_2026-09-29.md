@@ -74,8 +74,9 @@ Native execution is **pending** the integrator's combined G2/rescue release
 build, to avoid a duplicate expensive compilation. No production
 campaign was started, stopped, resumed or edited during this integration.
 
-The focused frontend matrix ran 161 tests: 160 passed, one optional test
-requiring an explicitly supplied native entry-plan executable was skipped.
+The focused frontend matrix ran 161 tests: 160 passed, one optional full
+skeleton-enumeration test gated by `RUSTRED_SLOW_TESTS=1` was skipped; that
+test does not require a native executable.
 It includes `test_owner_query_roles`, `test_frontier_rescue`,
 `test_audit_owner_domain_walk`, `test_stage_saved_owner_campaign`,
 `test_plan_renormalization_entry_queries`, `test_ram_guard_frontier_policy`,
