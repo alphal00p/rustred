@@ -6,6 +6,47 @@ The governing scope and operational limits are in `CODEX_PROGRESS_PLAN.md`.
 
 ## Current priority after the G2 correctness controls
 
+### Post-G2 disposition of algebraic shortcuts (09:10 UTC)
+
+The later qualified profile is recorded in
+[the post-G2 report](codex_post_g2_profile_2026-09-29.md). A separately authored
+N1/N4 source/API reassessment was independently reviewed by root and
+`joint_support_pruning`; full local evidence is
+`TMP/codex-n1-n4-post-g2-reassessment-2026-09-29.md` (SHA256
+`10e2b79c11ab11307f591a440c155712bab86a3a3ef3627d3498f0979af13f95`).
+
+Both implementations remain **deferred**, with these explicit reopening tests:
+
+- **N1:** count genuinely expensive matching predicates whose *occurring index
+  support* is entirely fixed by the existing checked coordinate bounds. A
+  nonzero native finite-field evaluation then proves the restricted polynomial
+  is nonzero over formal base parameters; it does not prove nonvanishing at
+  every numerical parameter value. Sampling an unfixed index cannot establish
+  this uniform domain property. Zero/unlucky evaluations use the exact path.
+  Symbolica's pinned and current public `evaluate_with_coeff_map`, exponent
+  iterators and finite-field conversion APIs already supply the algebra.
+  A capped observational test must return the old exact result and charge
+  support scans, evaluation, fallback, and all input/resource admission checks.
+  Restricted-result limits cannot be silently replaced by weaker preflight
+  checks. No eligible costly calls or no net saving falsifies the optimization.
+- **N4:** the finite diagnostic recorded **zero pre-admitted full-orthant hits**;
+  its initial request has finite upper/A/D bounds. Its 3,493,943 job-local reuse
+  hits, alongside 12,502,912 reported successors, mix Route and Apply and do not attribute
+  singleton coefficient cost. Earlier scheduling reuse is not closed coverage.
+  Before implementation, a bounded observational join must establish actual
+  expensive non-affine singleton Apply reuse, charging added lookup costs.
+  Preserve original poles (including cancelled terms), zero/conditional
+  semantics, child validity/descent, exact image/guard geometry, dependencies,
+  quarantine and cancellation. Never fabricate coefficients for the public
+  visitor or cache work before a successful Continue. No useful attributable
+  saving falsifies this proposal.
+
+Neither opportunity probe has been implemented or measured. Throttled
+instruction-location percentages cannot supply their missing cost attribution,
+and their hypothetical savings must not be double-counted. These dispositions
+do not delay the independently source-reviewed narrow N2 buffer reuse and
+epoch validation, nor authorize a production restart.
+
 Read-only bounded extraction from the completed Ordered finite-five-loop
 control changes the next profiling question, not any implementation decision.
 Evidence: `TMP/codex-integration/post_g2_profile_priority_2026-09-29.md` and
