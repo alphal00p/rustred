@@ -44,19 +44,19 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 14:15 UTC
+## Current shortened-delivery ownership — 2026-09-29 14:47 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
 
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
-| Compatible Stage A executable | active | `stage_a_release`, root independent review | Isolated optimized build at final link; then actual copied FG248 pause/upgrade/resume/cold control, freeze and push |
-| Rolling Epoch controller and lookup replicas | active | `epoch_rolling_impl`, root review | Finish controller/oversized-cut/replay tests; integrate and run native checks |
+| Compatible Stage A executable | validated; push active | `stage_a_release`, root independent review | Optimized binary frozen; Ordered and Ready native pause/upgrade/resume/cold drills PASS; publish delivery document and notify user |
+| Rolling Epoch controller and lookup replicas | integrated; native validation pending | `epoch_rolling_impl`, root review | Finish narrow rescue snapshot/watermark composition, then consolidated native checks |
 | Fresh CP6 G2 Union | delivered source; validation active | `epoch_g2_rescue_impl`, root review | Integrated `714970bc`; execute real save/restore/cold tests |
-| CP6 rescue and required scope | active | `epoch_g2_rescue_impl`, root/rolling critique | Explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation |
-| Adaptive dispatch | delivered source; integration active | `stage_a_release`, root independent review | Integrated `6eceea28`; wire successful-publication observations and execute native/pilot tests |
-| CLI/Python policy surfaces | delivered source; native validation pending | root, independent review by other lanes | Rolling/adaptive steering has100 passing Python tests; native compilation and end-to-end checks remain |
+| CP6 rescue and required scope | integrated; native validation pending | `epoch_g2_rescue_impl`, root/rolling critique | `1bacf9d9`: explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; compile/run combined tests |
+| Adaptive dispatch | integrated; native validation pending | `stage_a_release`, root independent review | Successful-publication observations wired; execute native/pilot tests |
+| CLI/Python policy surfaces | delivered source; native validation pending | root, independent review by other lanes | 103 Python lifecycle tests PASS; native compilation and end-to-end checks remain |
 | Algebraic input/pivot ordering review | delivered | `stage_a_release`, root | Retain natural saved programs; no qualified replacement. Reopen only with the documented small prescreen |
 | Matched performance and deployment | pending | root, independent interpretation audit | Freeze integrated source; matched current-G2 legacy comparisons and cold controls; no speedup claim yet |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
@@ -103,6 +103,42 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 14:47 UTC — Stage A native delivery gates pass; rescue integrated
+
+- [M] Stage A optimized campaign build completed in3566.486s, source
+  `986d046e`, executable SHA256
+  `0995f0fda2637eb4bf0bdc5b46249aba9c6f4ba513196143a2b07d3aaa739c21`.
+  Frozen executable is `TMP/codex-stage-a.2RU3AX/candidate-bin/rustred-986d046e`.
+  Root independently checked its hash, CP5 probe and delivery evidence.
+- [M] Genuine old-binary pause/new-binary resume drills pass for Ordered/W6
+  and Ready/W6, both G2 Off, with unchanged input bytes/options, durable old
+  checkpoint copies, history-only rollback probes, native full cold reinspection
+  and Python audit. Ordered:98909 domains/248 roots; Ready:98881/248; all closed.
+  Whole drills42.018s/39.443s are correctness checks, not solver-speed comparisons.
+  Evidence: `TMP/codex-stage-a.2RU3AX/native-upgrade-smoke-{ordered-v3,ready}/`.
+  Earlier controller-field/thread-cap mistakes remain recorded as incomplete.
+  These are representative controls, not a60.7GB full LC2 replay.
+- [M] Stable delivery source/docs independently approved for fast-forward push.
+  No production operation performed. Plain upgrade retains frozen G2 Off;
+  do not attribute the earlier Union savings to this compatible upgrade.
+- [M] CP6 rescue source `69490a40` integrated as `1bacf9d9`, retaining adaptive
+  metadata beside append-only amendment identities. All new CP6 checkpoints use
+  manifest2/scalar3/semantics3; CP5 is unchanged. Root CLI/Python bridge
+  `5742a3bb` requires a reconciled durable final handoff before automatic rescue.
+  StoreOwner quarantine/replica and replay-watermark composition is the last
+  narrow integration slice before consolidated native compilation.
+- [M] Combined Python lifecycle suite passes103 tests in12.223s; evidence
+  `TMP/codex-epoch-rescue-frontend-1439/`. Earlier1437 invocation had two wrong
+  module names and is not counted. CP6 measurement-adapter tests pass12 in
+  `TMP/codex-epoch-cp6-controls-1430/`. These do not replace actual native gates.
+- [M] Rolling source passed independent audit by `stage_a_release`; root
+  separately audited adaptive dispatch and the rescue steering correction.
+  Native performance remains unmeasured. A frozen7-scope/24-arm control plan
+  plus conditional W50 pair is prepared, not executed, in
+  `TMP/codex-rolling-measurements.eBFGjR/`. It uses the same future optimized
+  executable for Ready+Union and rolling+Union, including common cold-All costs.
+  This is an allocation queue, not a promise to fit every worst-case arm.
 
 ### 2026-09-29 14:25 UTC — integrated metadata checks and live bottleneck snapshot
 
