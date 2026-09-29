@@ -96,6 +96,12 @@ pub(super) struct Store {
     last_stamp: Option<ChangeStamp>,
     verify_seconds: f64,
     pending_events: Vec<Value>,
+    /// G2' activation record (a binding amendment from off to union): set by
+    /// the activating resume and inherited from the manifest metadata by every
+    /// later session, so each later generation repeats it.
+    g2_activation: Option<Value>,
+    /// This session activated G2' on a checkpoint written without it.
+    g2_activating: bool,
     /// Label of a diagnostic pause this process triggered; every later save
     /// of the session repeats it in the manifest metadata (a free-form
     /// object, so older readers and older manifests are unaffected).
@@ -104,6 +110,10 @@ pub(super) struct Store {
     /// stop); like `diagnostic_pause`, optional free-form metadata repeated by
     /// every later save of the session and never inherited by a resume.
     stop_reason: Option<&'static str>,
+    /// The rescue amendment chain (`rescue.rs`): the resumed manifest's,
+    /// extended by the amendments this session applied; every later
+    /// manifest carries it.
+    amendments: Vec<super::rescue::AmendmentRef>,
     #[cfg(test)]
     fail_section: Option<Section>,
     #[cfg(test)]
@@ -113,6 +123,48 @@ fn binding(request: &OwnerDomainWalkRequest) -> String {
     blake3::hash(binding_value(request).to_string().as_bytes())
         .to_hex()
         .to_string()
+}
+
+/// Authenticate the one supported request transition using the actual bound
+/// request, not a digest asserted by saved metadata. No other request fields
+/// (including query roles and bounds) may change at G2' activation.
+fn g2_activation_before(
+    request: &OwnerDomainWalkRequest,
+    current: &str,
+    activation: Option<&Value>,
+) -> Result<Option<String>, String> {
+    let Some(activation) = activation.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let mut off = request.clone();
+    off.g2_residual_anchors = super::OwnerDomainWalkG2ResidualAnchors::Off;
+    let before = binding(&off);
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Union
+        || current != binding(request)
+        || activation["from"] != "off"
+        || activation["to"] != "union"
+        || activation["binding_before"].as_str() != Some(before.as_str())
+        || activation["binding_after"].as_str() != Some(current)
+    {
+        return Err("invalid G2' activation request binding receipt".into());
+    }
+    Ok(Some(before))
+}
+
+/// One immutable rescue chain base, shared by walker, verifier and planner.
+/// Only an already-recorded chain may retain the authenticated pre-activation
+/// binding. A first amendment created after activation binds the current one.
+pub(super) fn rescue_chain_base(
+    request: &OwnerDomainWalkRequest,
+    current: &str,
+    activation: Option<&Value>,
+    recorded: &[super::rescue::AmendmentRef],
+) -> Result<String, String> {
+    let before = g2_activation_before(request, current, activation)?;
+    Ok(match before {
+        Some(before) if recorded.first().is_some_and(|first| first.parent == before) => before,
+        _ => current.to_owned(),
+    })
 }
 /// The bound request value (see `binding`).
 fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
@@ -131,6 +183,10 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
     // behaviour) adds no key, so every existing CP5 binding is unchanged.
     if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
         value["frontier_policy"] = json!(request.frontier_policy.name());
+    }
+    // G2' residual anchors change which records exist: bound; Off adds no key.
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off {
+        value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
     }
     value
 }
@@ -299,8 +355,37 @@ impl Store {
         };
         let mut pending_events = Vec::new();
         let mut verify_seconds = 0.0;
+        let mut g2_activation = None;
+        let mut g2_activating = false;
         let manifest = if options.resume {
             let m = manifest::read(&options.directory.join("latest.json"))?;
+            g2_activation = Some(m.metadata["g2_activation"].clone()).filter(|v| !v.is_null());
+            // G2' activation: a checkpoint bound to this request with G2' off
+            // (and never written with G2') may continue with G2' on. The
+            // amendment is recorded in every later generation's metadata.
+            let mut request_binding = request_binding.clone();
+            if request.g2_activate_on_resume
+                && m.request != request_binding
+                && m.kind == "state"
+                && m.sections.anchors.is_none()
+            {
+                let mut off = request.clone();
+                off.g2_residual_anchors = super::OwnerDomainWalkG2ResidualAnchors::Off;
+                if m.request == binding(&off) {
+                    g2_activation = Some(
+                        json!({"from":"off","to":request.g2_residual_anchors.name(),
+                        "generation":m.generation,"binding_before":m.request,"binding_after":request_binding,
+                        "committed_domains":m.metadata["committed_domains"],"activated_unix_time":unix_time()?}),
+                    );
+                    g2_activating = true;
+                    pending_events.push(
+                        json!({"event":"g2_activation_requested","operation":"owner_domain_walk",
+                        "generation":m.generation,"family_closure_claim":false}),
+                    );
+                    request_binding = m.request.clone();
+                }
+            }
+            g2_activation_before(request, &binding(request), g2_activation.as_ref())?;
             // The ledger section is optional in the manifest, so its presence
             // is bound to the request here; a manifest without it must not
             // resume a transfer campaign as InspectAll.
@@ -326,6 +411,10 @@ impl Store {
         } else {
             None
         };
+        let amendments = manifest
+            .as_ref()
+            .map(|m| m.amendments.clone())
+            .unwrap_or_default();
         Ok(Some(Self {
             options,
             _lock: lock,
@@ -341,8 +430,11 @@ impl Store {
             last_stamp: None,
             verify_seconds,
             pending_events,
+            g2_activation,
+            g2_activating,
             diagnostic_pause: None,
             stop_reason: None,
+            amendments,
             #[cfg(test)]
             fail_section: None,
             #[cfg(test)]
@@ -393,7 +485,12 @@ impl Store {
         // was, so continuing the walk flips the flag with exactly one write.
         let mut stamp = restored.state.change_stamp();
         stamp.paused = m.metadata["paused"] == true;
-        self.last_stamp = Some(stamp);
+        // Activation changes the request binding, G2 log and pinned decisions
+        // without necessarily publishing any new domain. The first forced
+        // save must durably record that transition even for a drained walk.
+        // A successful save installs its normal stamp; ordinary resumes keep
+        // the historical unchanged-prefix fast path.
+        self.last_stamp = (!self.g2_activating).then_some(stamp);
         let mut report = restored.report.clone();
         report["directory"] = json!(self.options.directory);
         report["generation"] = json!(m.generation);
@@ -406,6 +503,13 @@ impl Store {
             "restore":report,"family_closure_claim":false}),
         );
         Ok(Some(restored))
+    }
+    /// Whether this session activates G2' on a checkpoint written without it.
+    pub(super) fn g2_activating(&self) -> bool {
+        self.g2_activating
+    }
+    pub(super) fn g2_activation(&self) -> Option<&Value> {
+        self.g2_activation.as_ref()
     }
     pub(super) fn metadata(&self) -> Option<&Value> {
         self.manifest.as_ref().map(|m| &m.metadata)
@@ -420,6 +524,29 @@ impl Store {
     /// frontiers right after the forced first save).
     pub(super) fn mark_stop_reason(&mut self, reason: &'static str) {
         self.stop_reason = Some(reason);
+        self.last_stamp = None;
+    }
+    /// The rescue amendment chain recorded so far (see the field).
+    pub(super) fn amendments(&self) -> &[super::rescue::AmendmentRef] {
+        &self.amendments
+    }
+    /// Current request digest; a pre-activation rescue chain can retain its
+    /// separately authenticated original base (`rescue_chain_base`).
+    pub(super) fn request_digest(&self) -> &str {
+        &self.request
+    }
+    /// The generation of the retained manifest (0 before the first save).
+    pub(super) fn generation(&self) -> u64 {
+        self.manifest.as_ref().map_or(0, |m| m.generation)
+    }
+    /// Whether the resumed generation holds walk state (not a bootstrap).
+    pub(super) fn resumed_state(&self) -> bool {
+        self.options.resume && self.manifest.as_ref().is_some_and(|m| m.kind == "state")
+    }
+    /// Append one applied amendment; the next save (forced right after the
+    /// resume) persists it atomically with the admitted domains and inputs.
+    pub(super) fn record_amendment(&mut self, amendment: super::rescue::AmendmentRef) {
+        self.amendments.push(amendment);
         self.last_stamp = None;
     }
     fn effective_interval(&self) -> f64 {
@@ -468,6 +595,7 @@ impl Store {
                 ..Default::default()
             },
             metadata: metadata.clone(),
+            amendments: Vec::new(),
         };
         self.publish(manifest)?;
         Ok(Some(
@@ -725,6 +853,9 @@ impl Store {
                 },
             ),
         };
+        let g2_log = state.queue.delegation.as_ref().and_then(|l| l.g2());
+        let anchors_plan =
+            g2_log.map(|log| plan(previous.and_then(|s| s.anchors.as_ref()), log.rows.len()));
         let buckets = state.queue.checkpoint_buckets();
         let ledger = state.queue.checkpoint_ledger();
         let ledger_entries = state.queue.delegation.as_ref().map_or(0, |l| l.len());
@@ -814,6 +945,17 @@ impl Store {
                 Box::new(move |out| sections::write_records(out, &records[first..])),
             ));
         }
+        if let (Some(log), Some(anchors)) = (g2_log, anchors_plan.as_ref())
+            && anchors.count > 0
+        {
+            let (first, count) = (anchors.first, anchors.count);
+            jobs.push((
+                Section::Anchors,
+                first,
+                count,
+                Box::new(move |out| sections::write_anchors(out, &identity, log, first, count)),
+            ));
+        }
         #[cfg(test)]
         let injected = self.fail_section;
         #[cfg(not(test))]
@@ -866,11 +1008,13 @@ impl Store {
                 });
             }
         }
-        for (section, plan) in [
-            (Section::Domains, domains_plan),
-            (Section::Edges, edges_plan),
-            (Section::Records, records_plan),
-        ] {
+        let segmented_plans = [
+            Some((Section::Domains, domains_plan)),
+            Some((Section::Edges, edges_plan)),
+            Some((Section::Records, records_plan)),
+            anchors_plan.map(|plan| (Section::Anchors, plan)),
+        ];
+        for (section, plan) in segmented_plans.into_iter().flatten() {
             let mut segments = plan.keep;
             if let Some(w) = written.iter().find(|w| w.section == section) {
                 segments.push(Segment {
@@ -908,6 +1052,7 @@ impl Store {
             executable_first: executable_first.clone(),
             sections: new_sections,
             metadata: Value::Null,
+            amendments: self.amendments.clone(),
         };
         manifest.validate_structure()?;
         let mut metadata = json!({"state":"saved","directory":directory,"generation":generation,"state_path":meta_path,
@@ -923,6 +1068,9 @@ impl Store {
         }
         if let Some(reason) = self.stop_reason {
             metadata["stop_reason"] = json!(reason);
+        }
+        if let Some(activation) = &self.g2_activation {
+            metadata["g2_activation"] = activation.clone();
         }
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
@@ -978,6 +1126,12 @@ pub(super) struct RawCheckpoint<const N: usize> {
     /// Record sidecar segment files in ID-tile order with their line counts.
     pub records: Vec<(PathBuf, usize)>,
     pub verify_seconds: f64,
+    /// The rescue amendment chain of the generation (`rescue.rs`).
+    pub amendments: Vec<super::rescue::AmendmentRef>,
+    /// Frontier details accepted in an uncommitted prefix, by inspection ID
+    /// (an A10 stop can fire inside a chunked publication).
+    pub pending_frontiers: Vec<(usize, Vec<Value>)>,
+    pub g2_activation: Option<Value>,
 }
 
 pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint<N>, String> {
@@ -1037,7 +1191,25 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         .iter()
         .map(|segment| (directory.join(&segment.file), segment.count as usize))
         .collect();
+    let mut pending_frontiers = Vec::new();
+    if !meta.details.is_empty() {
+        let id = meta
+            .streams
+            .active
+            .map_or(meta.queue.next(), |ticket| ticket.parent);
+        pending_frontiers.push((id, meta.details.clone()));
+    }
+    for (ticket, context) in &meta.streams.parked {
+        if !context.frontier_details().is_empty() {
+            pending_frontiers.push((ticket.parent, context.frontier_details().to_vec()));
+        }
+    }
     Ok(RawCheckpoint {
+        g2_activation: manifest
+            .metadata
+            .get("g2_activation")
+            .filter(|v| !v.is_null())
+            .cloned(),
         generation: manifest.generation,
         request: manifest.request.clone(),
         publication_policy: manifest.publication_policy.clone(),
@@ -1054,6 +1226,8 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         domains,
         records,
         verify_seconds,
+        amendments: manifest.amendments.clone(),
+        pending_frontiers,
     })
 }
 
@@ -1097,6 +1271,58 @@ mod tests {
             rank: None,
             powers: Default::default(),
         }
+    }
+
+    #[test]
+    fn g2_rescue_chain_base_authenticates_actual_before_after_and_preserves_only_recorded_base() {
+        let mut on = request(Path::new("unused-checkpoint"));
+        let before = binding(&on);
+        on.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Union;
+        let after = binding(&on);
+        let receipt = json!({"from":"off", "to":"union",
+            "binding_before":before, "binding_after":after});
+        let mut recorded = vec![super::super::rescue::AmendmentRef {
+            sequence: 1,
+            digest: "d".repeat(64),
+            parent: before.clone(),
+            queries: 1,
+            first_input: 1,
+            first_domain: 1,
+            quarantined: 1,
+            resumed_generation: 1,
+        }];
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &recorded).unwrap(),
+            before
+        );
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &[]).unwrap(),
+            after
+        );
+        recorded[0].parent = after.clone();
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &recorded).unwrap(),
+            after
+        );
+        for key in ["binding_before", "binding_after", "from", "to"] {
+            let mut corrupt = receipt.clone();
+            corrupt[key] = json!("changed");
+            assert!(
+                rescue_chain_base(&on, &after, Some(&corrupt), &recorded).is_err(),
+                "{key}"
+            );
+        }
+        for key in ["binding_before", "binding_after"] {
+            let mut corrupt = receipt.clone();
+            corrupt.as_object_mut().unwrap().remove(key);
+            assert!(rescue_chain_base(&on, &after, Some(&corrupt), &[]).is_err());
+        }
+        let mut changed = on.clone();
+        changed.matching.queries_json = "different exact query roles or bounds".into();
+        assert!(
+            rescue_chain_base(&changed, &binding(&changed), Some(&receipt), &recorded).is_err()
+        );
+        assert!(rescue_chain_base(&on, &after, Some(&json!(false)), &recorded).is_err());
     }
     /// Ledger, retirement alias, dependency edges and records: every section
     /// non-empty and mutually consistent, so it resumes.
@@ -1330,6 +1556,27 @@ mod tests {
         drop(Store::open(&request).unwrap().unwrap());
         request.frontier_policy = OwnerDomainWalkFrontierPolicy::Record;
         assert!(Store::open(&request).is_err());
+        fs::remove_dir_all(path).unwrap();
+    }
+    /// G2' union is bound (and refuses an off resume); off adds no key, so
+    /// the binding of every existing request is unchanged.
+    #[test]
+    fn g2_residual_anchor_policy_is_checkpoint_bound_and_off_is_historical() {
+        let path = test_directory();
+        let mut request = request(&path);
+        let off = binding(&request);
+        assert!(binding_value(&request).get("g2_residual_anchors").is_none());
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        request.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Union;
+        assert_ne!(binding(&request), off);
+        assert_eq!(binding_value(&request)["g2_residual_anchors"], "union");
+        assert!(Store::open(&request).is_err());
+        request.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Off;
+        assert_eq!(binding(&request), off);
+        drop(Store::open(&request).unwrap().unwrap());
         fs::remove_dir_all(path).unwrap();
     }
     #[test]
@@ -1875,6 +2122,11 @@ mod tests {
         let fixture = Fixture::save(&ledger_fixture());
         let manifest = fixture.manifest();
         for section in Section::ALL {
+            if section == Section::Anchors {
+                // Present only with G2' residual anchors (absent key, not null).
+                assert!(manifest["sections"].get("anchors").is_none());
+                continue;
+            }
             assert!(
                 !manifest["sections"][section.name()].is_null(),
                 "{}",

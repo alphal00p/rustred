@@ -74,6 +74,7 @@ pub enum Error {
     FiniteContainmentCap,
     InvalidInitialPhase,
     InvalidInitialAnchor,
+    InvalidG2Anchor,
 }
 
 impl std::fmt::Display for Error {
@@ -97,6 +98,7 @@ impl std::fmt::Display for Error {
             }
             Self::InvalidInitialPhase => "invalid protected initial-admission phase",
             Self::InvalidInitialAnchor => "invalid initial-overlap responsibility anchor",
+            Self::InvalidG2Anchor => "invalid G2' residual-anchor responsibility link",
         })
     }
 }
@@ -140,6 +142,10 @@ pub struct Summary {
     pub maximum_alias_depth: usize,
     pub partial_initial_inspections: usize,
     pub partial_initial_blocked: usize,
+    /// G2' records (residual or full cover) and those whose resolved status
+    /// is not discharged (own residual or an anchor, transitively).
+    pub g2_records: usize,
+    pub g2_blocked: usize,
 }
 
 impl Summary {

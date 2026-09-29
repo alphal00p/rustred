@@ -33,6 +33,7 @@ impl<K: Copy + Eq> Ledger<K> {
             delegated_publications: self.delegated_publications,
             ..Summary::default()
         };
+        let g2 = self.g2_statuses()?;
         for id in (0..self.entries.len()).rev() {
             let entry = &self.entries[id];
             by_id[id] = match entry.responsibility {
@@ -63,7 +64,13 @@ impl<K: Copy + Eq> Ledger<K> {
                 }
                 Responsibility::Local(local) => {
                     let mut status = local_status(local);
-                    if let Some(anchor) = entry.initial_anchor {
+                    if let Some(resolved) = g2.as_ref().and_then(|g2| g2.status(self, id)) {
+                        summary.g2_records += 1;
+                        status = resolved;
+                        if status != ResolutionStatus::Discharged {
+                            summary.g2_blocked += 1;
+                        }
+                    } else if let Some(anchor) = entry.initial_anchor {
                         summary.partial_initial_inspections += 1;
                         let anchor = anchor.get() - 1;
                         let prefix = self
@@ -117,6 +124,67 @@ impl<K: Copy + Eq> Ledger<K> {
             };
         }
         Ok(ResolutionReport { by_id, summary })
+    }
+
+    /// Resolved statuses of the G2' log's rows, in merge order: a G2' record
+    /// is its own residual's status, else the first non-discharged status of
+    /// its anchors (older rows, already resolved); an initial-D-band anchor
+    /// carries its initial anchor's raw status like the reverse pass does.
+    fn g2_statuses(&self) -> Result<Option<G2Statuses>, Error> {
+        let Some(log) = self.g2.as_ref() else {
+            return Ok(None);
+        };
+        let mut statuses = Vec::new();
+        statuses
+            .try_reserve_exact(log.rows.len())
+            .map_err(|_| Error::Allocation)?;
+        for row in &log.rows {
+            let entry = self
+                .entries
+                .get(row.id as usize)
+                .ok_or(Error::InvalidG2Anchor)?;
+            let Responsibility::Local(local) = entry.responsibility else {
+                return Err(Error::InvalidG2Anchor);
+            };
+            let mut status = local_status(local);
+            if status == ResolutionStatus::Discharged
+                && let Some(anchor) = entry.initial_anchor
+            {
+                let Responsibility::Local(anchor_local) =
+                    self.entries[anchor.get() - 1].responsibility
+                else {
+                    return Err(Error::InvalidInitialAnchor);
+                };
+                status = local_status(anchor_local);
+            }
+            for &anchor in log.anchors_of(row) {
+                if status != ResolutionStatus::Discharged {
+                    break;
+                }
+                let index = self
+                    .entries
+                    .get(anchor as usize)
+                    .map(|e| e.g2_row)
+                    .filter(|&index| index != super::g2_log::NONE)
+                    .ok_or(Error::InvalidG2Anchor)? as usize;
+                status = *statuses.get(index).ok_or(Error::InvalidG2Anchor)?;
+            }
+            statuses.push(status);
+        }
+        Ok(Some(G2Statuses(statuses)))
+    }
+}
+
+struct G2Statuses(Vec<ResolutionStatus>);
+impl G2Statuses {
+    /// The resolved status of a G2' record (None for any other entry).
+    fn status<K: Copy + Eq>(&self, ledger: &Ledger<K>, id: usize) -> Option<ResolutionStatus> {
+        let row = ledger.g2_row(id)?;
+        matches!(
+            row.kind,
+            super::g2_log::kind::G2_RESIDUAL | super::g2_log::kind::G2_FULL_COVER
+        )
+        .then(|| self.0[ledger.entries[id].g2_row as usize])
     }
 }
 

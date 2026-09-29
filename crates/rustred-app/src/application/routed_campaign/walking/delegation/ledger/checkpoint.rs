@@ -126,6 +126,7 @@ impl StoredLedger {
                 delegated_published: e.delegated_published.unwrap_or_else(|| {
                     id < self.cursor && matches!(e.responsibility, Responsibility::Delegate { .. })
                 }),
+                g2_row: super::super::g2_log::NONE,
             })
             .collect();
         for (id, e) in entries.iter().enumerate() {
@@ -186,6 +187,7 @@ impl StoredLedger {
             initial_admission: false,
             protected_initial_prefix: self.protected_initial_prefix,
             partial_initial_inspections: self.partial_initial_inspections,
+            g2: None,
         };
         ledger.restore_normalize_started()?;
         Ok(ledger)

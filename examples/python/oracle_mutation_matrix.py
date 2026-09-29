@@ -35,6 +35,13 @@ INCOMPLETE 9):
   PASS verdict and the frontier fixture's plain PASS (consistent, but only
   60/124 roots closed).
 
+G2' residual-anchor rows (`g2-*`) need a drained walk run with
+`--g2-residual-anchors union` (`--g2-run`); they must FAIL with their exact
+classes: a residual shrunk by one D layer, an anchor merged at or after the
+snapshot, an anchor that is neither Native nor a validated G2' record, a
+dropped anchor edge and an anchor cycle. The unmutated G2' walk must PASS the
+gate like the drained run.
+
 Rows whose mutation needs structure a fixture lacks (partial records, a
 second initial record, Route natives that route Apply domains) are decided
 from the unmutated baseline report: when the baseline proves the structure
@@ -117,6 +124,16 @@ RUST_MUTATIONS = {
     "hidden-frontier": ("frontier", "FAIL", {"frontier_parity", "closure_required"}, "more",
                         {"frontier_parity": 1}),
     "seal-with-frontier": ("frontier", "FAIL", {"seal_parity", "closure_required"}, "same", {"seal_parity": 1}),
+    # G2' residual anchors (drained G2' walk; exact classes calibrated on C-4L FG Ordered W6 with
+    # --g2-residual-anchors union, whose G2' residuals are single D levels: the shrunk residual becomes an
+    # empty band, so the F10 full-cover rule also fires as event_parity).
+    "g2-shrunk-residual": ("g2", "FAIL", {"g2_union_cover", "event_parity"}, "same",
+                           {"g2_union_cover": 1, "event_parity": 1}, ("g2_residual",)),
+    "g2-late-anchor": ("g2", "FAIL", {"g2_anchor_order"}, "same", {"g2_anchor_order": 1}, ("g2",)),
+    "g2-inadmissible-anchor": ("g2", "FAIL", {"g2_anchor_kind"}, "same", {"g2_anchor_kind": 1}, ("g2",)),
+    "g2-dropped-anchor-edge": ("g2", "FAIL", {"missing_edge", "seal_parity", "false_closure", "closure_required"},
+                               "fewer", {"missing_edge": 1, "seal_parity": 1}, ("g2",)),
+    "g2-anchor-cycle": ("g2", "FAIL", {"g2_anchor_order"}, "same", {}, ("two_g2_residual",)),
 }
 
 
@@ -228,6 +245,90 @@ def mutate_route_partial(document):
     return {"partial": rows[0]["id"]}
 
 
+def g2_rows(document):
+    return [row for row in document["domains"] if row.get("record_kind") == "g2_residual_anchor_inspection"]
+
+
+def mutate_g2_shrunk_residual(document):
+    """Drop the highest D level of a G2' residual band (a single-level band becomes a full-cover claim)."""
+    rows = [row for row in g2_rows(document) if row["g2_residual_anchors"].get("residual_power_bounds")]
+    rows.sort(key=lambda row: (row["g2_residual_anchors"]["residual_power_bounds"]["min_power_difference"]
+                               == row["g2_residual_anchors"]["residual_power_bounds"]["max_power_difference"],
+                               row["id"]))
+    for row in rows:
+        block = row["g2_residual_anchors"]
+        residual = block["residual_power_bounds"]
+        if residual["min_power_difference"] < residual["max_power_difference"]:
+            residual["max_power_difference"] -= 1
+            block["residual_d_band"] = [residual["min_power_difference"], residual["max_power_difference"]]
+        else:
+            block["residual_power_bounds"] = block["residual_d_band"] = None
+            block["residual_pieces"] = 0
+        return {"record": row["id"], "residual": block["residual_power_bounds"]}
+    return None
+
+
+def _positions(document):
+    return {row["id"]: index for index, row in enumerate(document["domains"])}
+
+
+def _replace_anchor(row, other, positions):
+    block = row["g2_residual_anchors"]
+    detail = {"record": row["id"], "from": block["anchors"][0]["id"], "to": other["id"]}
+    block["anchors"][0] = {"id": other["id"], "stamp": positions[other["id"]], "kind": "native", "scope": "domain"}
+    block["anchors"].sort(key=lambda a: a["stamp"])
+    return detail
+
+
+def mutate_g2_late_anchor(document):
+    """Replace an anchor by a same-owner Apply Native record merged at or after the snapshot."""
+    positions = _positions(document)
+    for row in g2_rows(document):
+        block = row["g2_residual_anchors"]
+        for other in document["domains"]:
+            if (other.get("record_kind") == "native_inspection" and other["id"] != row["id"]
+                    and other["owner"] == row["owner"] and other["phase"] == "Apply"
+                    and positions[other["id"]] >= block["snapshot_stamp"]):
+                return _replace_anchor(row, other, positions)
+    return None
+
+
+def mutate_g2_inadmissible_anchor(document):
+    positions = _positions(document)
+
+    def inadmissible(other, row):
+        kind = other.get("record_kind")
+        if kind == "delegated_not_inspected":
+            return 0 if other["owner"] == row["owner"] else 1
+        if kind == "g2_residual_anchor_inspection" and other["g2_residual_anchors"].get("residual_power_bounds") is None:
+            return 2
+        if other.get("phase") == "Route":
+            return 3
+        return None
+
+    for row in g2_rows(document):
+        block = row["g2_residual_anchors"]
+        ranked = sorted((rank, other["id"], other) for other in document["domains"]
+                        if other["id"] != row["id"] and positions[other["id"]] < block["snapshot_stamp"]
+                        for rank in [inadmissible(other, row)] if rank is not None)
+        if ranked:
+            return _replace_anchor(row, ranked[0][2], positions)
+    return None
+
+
+def mutate_g2_anchor_cycle(document):
+    positions = _positions(document)
+    rows = [row for row in g2_rows(document) if row["g2_residual_anchors"].get("residual_power_bounds")]
+    if len(rows) < 2:
+        return None
+    first, second = rows[0], rows[1]
+    for x, y in ((first, second), (second, first)):
+        x["g2_residual_anchors"]["anchors"].append({"id": y["id"], "stamp": positions[y["id"]],
+                                                    "kind": "g2_residual", "scope": "domain"})
+        x["g2_residual_anchors"]["anchors"].sort(key=lambda a: a["stamp"])
+    return {"cycle": [first["id"], second["id"]]}
+
+
 def mutate_remapped_query(document):
     """Resolve a later query to an earlier same-owner initial record that does not contain it.
 
@@ -287,11 +388,24 @@ PYTHON_MUTATIONS = {
                         "initial entry obligations not discharged", "inputs do not map every query to an initial record",
                         "query Q: no initial record", "query Q: power_bounds changed", "query Q: upper changed"}),
 }
+# Normalized kinds: `normalized` rewrites every number, so "G2'" reads "GN'".
+PYTHON_MUTATIONS.update({
+    "g2-shrunk-residual": ("g2", mutate_g2_shrunk_residual,
+                           {"record N: GN' domain not covered by its residual and anchors (False)"}),
+    "g2-late-anchor": ("g2", mutate_g2_late_anchor,
+                       {"record N: GN' anchor N not merged before the snapshot"}),
+    "g2-inadmissible-anchor": ("g2", mutate_g2_inadmissible_anchor,
+                               {"record N: GN' anchor N ('native') is not a same-owner Apply Native, "
+                                "initial-D-band or GN' residual record"}),
+    "g2-anchor-cycle": ("g2", mutate_g2_anchor_cycle,
+                        {"record N: GN' anchor N not merged before the snapshot"}),
+})
 PYTHON_NOT_OBSERVABLE = {
     "dropped-edge": "result.json carries no dependency edges",
     "injected-false-hit": "result.json carries no dependency edges (successor-level false hit)",
     "hidden-error": "the audit does not re-inspect natives",
     "miscounted-events": "consistent per-record and global counts; the audit does not re-inspect natives",
+    "g2-dropped-anchor-edge": "result.json carries no dependency edges",
 }
 
 
@@ -312,7 +426,7 @@ def python_matrix(runs):
             continue
         report = AUDIT.audit_walk(run, command=Path(run) / "command.json", require_closure=True)
         baselines[name] = {normalized(v) for v in report["violations"]}
-        expected = "PASS" if name == "drained" else "FAIL"
+        expected = "PASS" if name in ("drained", "g2") else "FAIL"
         rows.append({"oracle": "python-audit", "run": name, "mutation": None, "expected": expected,
                      "verdict": report["audit"], "ok": report["audit"] == expected,
                      "violations": report["violations"][:5]})
@@ -391,7 +505,7 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
         gate_reasons = GATE.gate(report)
         # A mutated report is a negative control: it never passes the gate, even
         # when the mutation is benign and the verdict stays PASS.
-        gate_expected = expected_verdict == "PASS" and run_name == "drained" and mutation is None
+        gate_expected = expected_verdict == "PASS" and run_name in ("drained", "g2") and mutation is None
         checks["gate"] = (not gate_reasons) == gate_expected
         return {"oracle": "walk-verify-closure", "run": run_name, "mutation": mutation, "label": label,
                 "args": extra, "expected": expected_verdict, "expected_classes": sorted(expected_classes),
@@ -406,7 +520,7 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
         verified = sum(entry.get("independently_verified", 0) for entry in classes.values())
         return {"no_root_independently_verified": verified == 0}
 
-    names = [name for name in ("drained", "frontier") if runs.get(name) is not None]
+    names = [name for name in ("drained", "frontier", "g2") if runs.get(name) is not None]
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         plains = list(pool.map(lambda name: row_for(f"baseline-{name}", name, None, [], "PASS", set()), names))
     structure = {}
@@ -418,6 +532,9 @@ def rust_matrix(binary, runs, directory, threads, frontier_expect, jobs=1):
         tally = (report.get("reinspection") or {}).get("tally") or {}
         structure[name] = {"partials": records.get("partials", 0) >= 1,
                            "two_partials": records.get("partials", 0) >= 2,
+                           "g2": records.get("g2_records", 0) >= 1,
+                           "g2_residual": (counts.get("g2_residual_records") or 0) >= 1,
+                           "two_g2_residual": (counts.get("g2_residual_records") or 0) >= 2,
                            "multi_initial": (counts.get("initial_records") or 0) >= 2,
                            "routed": (tally.get("admitted_routed_domains") or 0) >= 1}
     later = []
@@ -480,6 +597,7 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", type=Path, required=True, help="drained walk run directory (command.json, result.json)")
     parser.add_argument("--frontier-run", type=Path, help="walk run directory that retains frontiers")
+    parser.add_argument("--g2-run", type=Path, help="drained walk run with --g2-residual-anchors union")
     parser.add_argument("--frontier-expect-closed", help="exact closed/total roots of the frontier run, e.g. 60/124")
     parser.add_argument("--rustred", type=Path, help="rustred executable with walk-verify-closure")
     parser.add_argument("--threads", type=int, default=1, help="threads per verifier process")
@@ -490,7 +608,7 @@ def main(argv=None):
     parser.add_argument("--skip-partial-rows", action="store_true",
                         help="skip the partial/no re-inspection INCOMPLETE rows (when splitting a matrix in two runs)")
     args = parser.parse_args(argv)
-    runs = {"drained": args.run, "frontier": args.frontier_run}
+    runs = {"drained": args.run, "frontier": args.frontier_run, "g2": args.g2_run}
     frontier_expect = None
     if args.frontier_expect_closed:
         closed, total = args.frontier_expect_closed.split("/")

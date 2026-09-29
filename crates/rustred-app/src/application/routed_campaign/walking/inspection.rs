@@ -165,6 +165,8 @@ impl<const N: usize> Event<N> {
 pub(super) enum NativeStats {
     Apply(OwnerAppliedStats),
     ApplyPartial(OwnerAppliedStats, InitialOverlapScope),
+    /// G2' plan: the residual D band only (stats zero for a full cover).
+    ApplyG2(OwnerAppliedStats, super::g2::G2Scope),
     Route(rustred::solver::CandidateDomainRouteStats),
 }
 pub(super) struct Finished {
@@ -180,9 +182,17 @@ impl Finished {
             _ => None,
         }
     }
+    pub fn g2_scope(&self) -> Option<super::g2::G2Scope> {
+        match self.stats {
+            NativeStats::ApplyG2(_, scope) => Some(scope),
+            _ => None,
+        }
+    }
     pub fn native_operations(&self) -> usize {
         match self.stats {
-            NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => s.native_operations,
+            NativeStats::Apply(s)
+            | NativeStats::ApplyPartial(s, _)
+            | NativeStats::ApplyG2(s, _) => s.native_operations,
             NativeStats::Route(_) => 0,
         }
     }
@@ -232,29 +242,123 @@ fn inspect_untapped<const N: usize>(
     overlap: &InitialOverlapIndex<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
-    if request.reuse_initial_d_bands {
-        let started = Instant::now();
-        if let Some(plan) = overlap.plan(domain, cancellation) {
-            // Exactly one unchanged native visitor; the residual is NOT a
-            // queue child and cannot be suppressed by its original parent.
-            let mut finished = inspect_options(
-                reducer,
-                &plan.residual,
-                request,
-                cancellation,
-                initial,
-                true,
-                emit,
-            );
-            let NativeStats::Apply(stats) = finished.stats else {
-                unreachable!("Apply-only initial overlap");
-            };
-            finished.stats = NativeStats::ApplyPartial(stats, plan.scope);
-            finished.seconds = started.elapsed().as_secs_f64();
-            return finished;
-        }
+    if let Some(finished) = inspect_initial_overlap(
+        reducer,
+        domain,
+        request,
+        cancellation,
+        initial,
+        overlap,
+        emit,
+    ) {
+        return finished;
     }
     inspect_options(reducer, domain, request, cancellation, initial, true, emit)
+}
+
+fn inspect_initial_overlap<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Option<Finished> {
+    if !request.reuse_initial_d_bands {
+        return None;
+    }
+    let started = Instant::now();
+    let plan = overlap.plan(domain, cancellation)?;
+    // Exactly one unchanged native visitor; the residual is NOT a
+    // queue child and cannot be suppressed by its original parent.
+    let mut finished = inspect_options(
+        reducer,
+        &plan.residual,
+        request,
+        cancellation,
+        initial,
+        true,
+        emit,
+    );
+    let NativeStats::Apply(stats) = finished.stats else {
+        unreachable!("Apply-only initial overlap");
+    };
+    finished.stats = NativeStats::ApplyPartial(stats, plan.scope);
+    finished.seconds = started.elapsed().as_secs_f64();
+    Some(finished)
+}
+
+/// `inspect` with G2' residual anchors: the initial-D-band plan keeps
+/// precedence; an eligible Apply job then inspects only its planned residual
+/// D band (nothing for a full cover). The decision is handed to the
+/// coordinator through the store before any event is emitted. Record seconds
+/// include the plan.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn inspect_g2<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    id: usize,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
+    store: &super::g2::Store<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    if !store.eligible(id, domain) {
+        return inspect(
+            reducer,
+            domain,
+            request,
+            cancellation,
+            initial,
+            overlap,
+            emit,
+        );
+    }
+    if let Some(finished) = inspect_initial_overlap(
+        reducer,
+        domain,
+        request,
+        cancellation,
+        initial,
+        overlap,
+        emit,
+    ) {
+        return finished;
+    }
+    let started = Instant::now();
+    let outcome = store.decide(id, domain, cancellation);
+    let super::g2::Outcome::Planned(plan) = &*outcome else {
+        let mut finished =
+            inspect_options(reducer, domain, request, cancellation, initial, true, emit);
+        finished.seconds = started.elapsed().as_secs_f64();
+        return finished;
+    };
+    let mut finished = match plan.residual_domain(domain) {
+        Some(residual) => inspect_options(
+            reducer,
+            &residual,
+            request,
+            cancellation,
+            initial,
+            true,
+            emit,
+        ),
+        None => Finished {
+            stats: NativeStats::Apply(OwnerAppliedStats::default()),
+            error: None,
+            error_kind: "none",
+            seconds: 0.0,
+        },
+    };
+    let NativeStats::Apply(stats) = finished.stats else {
+        unreachable!("Apply-only G2' residual");
+    };
+    finished.stats = NativeStats::ApplyG2(stats, plan.scope());
+    finished.seconds = started.elapsed().as_secs_f64();
+    finished
 }
 
 /// Private cache-off reference seam for tests/controlled experiments. No new
@@ -298,6 +402,44 @@ fn inspect_options<const N: usize>(
         initial,
         &mut |event| cache.forward(event, emit),
     )
+}
+
+/// Frontier kind of a rescue-abandoned obligation (`rescue.rs`).
+pub(super) const RESCUE_ABANDONED_KIND: &str = "rescue_abandoned_dead_cone";
+
+/// A rescue-abandoned obligation: no live input root reaches it after a
+/// frontier rescue, so no query can certify through it. It is published
+/// without any native inspection, carrying one explicit frontier (so it
+/// never seals and nothing that reaches it can close) and no successor; the
+/// single accepted event is that frontier.
+pub(super) fn abandoned<const N: usize>(
+    domain: &Domain<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let _ = emit(Event::one(Effect::Frontier {
+        successor: false,
+        conditional: false,
+        value: json!({"kind":RESCUE_ABANDONED_KIND,
+            "reason":"frontier rescue: no live input root reaches this pending obligation; not inspected",
+            "reached_missing_rule_claim":false}),
+    }));
+    let stats = if domain.phase == Phase::Route {
+        NativeStats::Route(rustred::solver::CandidateDomainRouteStats {
+            events: 1,
+            ..Default::default()
+        })
+    } else {
+        NativeStats::Apply(OwnerAppliedStats {
+            events: 1,
+            ..Default::default()
+        })
+    };
+    Finished {
+        stats,
+        error: None,
+        error_kind: "none",
+        seconds: 0.0,
+    }
 }
 
 /// Reference inspection for the offline closure verifier: the unchanged

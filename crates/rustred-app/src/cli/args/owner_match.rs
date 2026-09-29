@@ -59,10 +59,14 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_containment_checks: Option<usize>,
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
     pub reuse_initial_d_bands: bool,
+    pub g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors,
+    pub g2_activate_on_resume: bool,
     pub unbounded_work: bool,
     pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
     pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
     pub apply_cell_refinement_max_cardinality: Option<NonZeroUsize>,
+    /// Resume-time rescue amendments, in chain order (repeatable option).
+    pub amend_queries: Vec<PathBuf>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -109,10 +113,13 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_containment_checks: None,
         transfer_unreserved_lookahead: None,
         reuse_initial_d_bands: false,
+        g2_residual_anchors: crate::OwnerDomainWalkG2ResidualAnchors::Off,
+        g2_activate_on_resume: false,
         unbounded_work: false,
         checkpoint: None,
         apply_subdivision: None,
         apply_cell_refinement_max_cardinality: None,
+        amend_queries: Vec::new(),
     };
     let mut checkpoint_path = None;
     let mut resume_path = None;
@@ -123,6 +130,20 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut arguments = arguments.peekable();
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        // The one repeatable option: every rescue amendment of the chain.
+        if option == "--amend-queries" {
+            let value = next_utf8_value(&mut arguments, "--amend-queries")?;
+            if value.is_empty() || value == "-" {
+                return Err(ArgError::InvalidValue {
+                    option: "--amend-queries",
+                    value,
+                    expected: "a filesystem path",
+                });
+            }
+            result.amend_queries.push(PathBuf::from(value));
+            seen.insert("--amend-queries");
+            continue;
+        }
         let name = match option.as_str() {
             "--manifest" => "--manifest",
             "--queries" => "--queries",
@@ -166,6 +187,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-containment-checks" => "--max-containment-checks",
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands" => "--reuse-initial-d-bands",
+            "--g2-residual-anchors" => "--g2-residual-anchors",
+            "--g2-activate-on-resume" => "--g2-activate-on-resume",
             "--unbounded-work" => "--unbounded-work",
             "--checkpoint" => "--checkpoint",
             "--resume" => "--resume",
@@ -197,6 +220,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--reuse-initial-d-bands" {
             result.reuse_initial_d_bands = true;
+            continue;
+        }
+        if name == "--g2-activate-on-resume" {
+            result.g2_activate_on_resume = true;
             continue;
         }
         if name == "--unbounded-work" {
@@ -245,6 +272,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                         option: name,
                         value,
                         expected: "record or stop",
+                    })?;
+            }
+            "--g2-residual-anchors" => {
+                result.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::parse(&value)
+                    .ok_or(ArgError::InvalidValue {
+                        option: name,
+                        value,
+                        expected: "off or union",
                     })?;
             }
             "--bounded-refinement-axes" => {
@@ -328,6 +363,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if checkpoint_path.is_some() && resume_path.is_some() {
         return Err(ArgError::InvalidCombination(
             "--checkpoint and --resume are mutually exclusive",
+        ));
+    }
+    if !result.amend_queries.is_empty() && resume_path.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--amend-queries requires --resume (a rescue amends a saved walk)",
         ));
     }
     let resume = resume_path.is_some();
@@ -438,6 +478,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--apply-subdivision-axis",
             "--apply-subdivision-cut",
             "--apply-cell-refinement-max-cardinality",
+            "--amend-queries",
             "--inspection-workers",
             "--publication-policy",
             "--max-domains",
@@ -447,6 +488,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-containment-checks",
             "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands",
+            "--g2-residual-anchors",
+            "--g2-activate-on-resume",
             "--route-domain-overcover",
             "--route-joint-source-support-pruning",
             "--max-route-masks-per-query",
@@ -490,6 +533,31 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--reuse-initial-d-bands requires --transfer-unreserved-lookahead",
         ));
     }
+    if result.g2_residual_anchors != crate::OwnerDomainWalkG2ResidualAnchors::Off {
+        if result.transfer_unreserved_lookahead.is_none() {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union requires --transfer-unreserved-lookahead",
+            ));
+        }
+        if result.apply_subdivision.is_some() {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union does not support physical Apply subdivision",
+            ));
+        }
+        if result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched {
+            return Err(ArgError::InvalidCombination(
+                "--g2-residual-anchors union requires ordered or ready publication",
+            ));
+        }
+    }
+    if result.g2_activate_on_resume
+        && (result.g2_residual_anchors == crate::OwnerDomainWalkG2ResidualAnchors::Off
+            || !result.checkpoint.as_ref().is_some_and(|c| c.resume))
+    {
+        return Err(ArgError::InvalidCombination(
+            "--g2-activate-on-resume requires --resume and --g2-residual-anchors union",
+        ));
+    }
     Ok(Command::OwnerDomainMatch(result))
 }
 
@@ -498,6 +566,38 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn g2_residual_anchors_parse_and_require_the_ledger() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let Command::OwnerDomainMatch(args) = parse(base).unwrap() else {
+            panic!("match command")
+        };
+        assert_eq!(
+            args.g2_residual_anchors,
+            crate::OwnerDomainWalkG2ResidualAnchors::Off
+        );
+        let Command::OwnerDomainMatch(args) = parse(&format!(
+            "{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors union"
+        ))
+        .unwrap() else {
+            panic!("match command")
+        };
+        assert_eq!(
+            args.g2_residual_anchors,
+            crate::OwnerDomainWalkG2ResidualAnchors::Union
+        );
+        for bad in [
+            format!("{base} --g2-residual-anchors union"),
+            format!("{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors maybe"),
+            "--manifest m --queries q --output o --g2-residual-anchors union".to_owned(),
+            format!(
+                "{base} --transfer-unreserved-lookahead 256 --g2-residual-anchors union --publication-policy owner-batched"
+            ),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

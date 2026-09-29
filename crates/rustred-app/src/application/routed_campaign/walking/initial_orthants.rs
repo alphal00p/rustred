@@ -22,13 +22,25 @@ impl<const N: usize> InitialOrthants<N> {
         }
     }
     pub fn from_initial(domains: &[Arc<Domain<N>>], cancellation: &AtomicBool) -> Self {
-        Self::with_limits(domains, cancellation, MAX_BUCKETS, MAX_ENTRY_BYTES)
+        Self::with_limits(domains, cancellation, MAX_BUCKETS, MAX_ENTRY_BYTES, &|_| {
+            false
+        })
+    }
+    /// `from_initial` without the IDs `exclude` names (the rescue quarantine,
+    /// `rescue.rs`): a quarantined orthant is never a shortcut target.
+    pub fn from_initial_excluding(
+        domains: &[Arc<Domain<N>>],
+        cancellation: &AtomicBool,
+        exclude: &dyn Fn(usize) -> bool,
+    ) -> Self {
+        Self::with_limits(domains, cancellation, MAX_BUCKETS, MAX_ENTRY_BYTES, exclude)
     }
     fn with_limits(
         domains: &[Arc<Domain<N>>],
         cancellation: &AtomicBool,
         max_buckets: usize,
         max_bytes: usize,
+        exclude: &dyn Fn(usize) -> bool,
     ) -> Self {
         let mut snapshot = Self::empty();
         let max_buckets =
@@ -40,7 +52,7 @@ impl<const N: usize> InitialOrthants<N> {
             if cancellation.load(Ordering::Acquire) {
                 break;
             }
-            if !domain.is_full_orthant() {
+            if !domain.is_full_orthant() || exclude(id) {
                 continue;
             }
             let key = (domain.phase, domain.owner);

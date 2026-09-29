@@ -14,6 +14,13 @@ pub(in super::super) struct Context {
     replay: Option<replay::Replay>,
 }
 
+impl Context {
+    /// Frontier details this parked stream accepted but did not commit yet.
+    pub(in super::super) fn frontier_details(&self) -> &[Value] {
+        &self.details
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub(in super::super) struct Streams {
     pub active: Option<Ticket>,
@@ -54,6 +61,64 @@ impl<const N: usize> State<N> {
             .iter()
             .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
             .count()
+    }
+    /// IDs whose restored inspection already holds an accepted prefix (the
+    /// Ordered publisher, or a mounted or parked Ready stream): their replay
+    /// must see the same native stream again, so the rescue never abandons
+    /// them (`rescue.rs`).
+    pub(in super::super) fn accepted_prefix_holders(&self) -> Vec<usize> {
+        let mut ids = Vec::new();
+        if self
+            .replay
+            .as_ref()
+            .is_some_and(|r| r.accepted_events() > 0)
+        {
+            ids.push(
+                self.streams
+                    .active
+                    .map_or(self.queue.next, |ticket| ticket.parent),
+            );
+        }
+        ids.extend(
+            self.streams
+                .parked
+                .iter()
+                .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
+                .map(|(ticket, _)| ticket.parent),
+        );
+        ids.extend(self.g2_pinned_holders());
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+    /// IDs whose accepted but uncommitted prefix already holds frontier
+    /// details (an A10 stop can fire inside a chunked publication): their
+    /// record will keep those frontiers, so the rescue taints them now.
+    /// Whether a live (non-quarantined) inspection holds accepted but
+    /// uncommitted frontier details: the A10 stop waits for its commit, so a
+    /// stop never leaves a frontier-bearing inspection half-published.
+    pub(in super::super) fn loud_frontier_prefix(&self) -> bool {
+        self.frontier_prefix_holders()
+            .into_iter()
+            .any(|id| !self.queue.is_quarantined(id))
+    }
+    pub(in super::super) fn frontier_prefix_holders(&self) -> Vec<usize> {
+        let mut ids = Vec::new();
+        if !self.details.is_empty() {
+            ids.push(
+                self.streams
+                    .active
+                    .map_or(self.queue.next, |ticket| ticket.parent),
+            );
+        }
+        ids.extend(
+            self.streams
+                .parked
+                .iter()
+                .filter(|(_, c)| !c.details.is_empty())
+                .map(|(ticket, _)| ticket.parent),
+        );
+        ids
     }
     /// The multi-prefix resume gate's state: at least two positive unfinished
     /// accepted prefixes plus a published record beyond the contiguous

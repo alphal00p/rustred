@@ -42,7 +42,9 @@ _AUDIT_SPEC.loader.exec_module(AUDIT)
 
 IGNORED_TOP_LEVEL = frozenset({"checkpoint", "parallel", "worker_allocation", "workers",
                                "requested_inspection_workers", "scheduling_policy", "timing_scope",
-                               "traversal_timing_boundary", "resume_supported", "domains"})
+                               "traversal_timing_boundary", "resume_supported", "domains",
+                               # G2' anchor-index telemetry: run structure and timing, not walk state.
+                               "g2_index_telemetry"})
 # Closure-monitor telemetry driven by wall time (refresh cadence and scratch/storage
 # estimates); the semantic closure keys (edges, revisions, closed counts) stay compared.
 CLOSURE_TELEMETRY = frozenset({"refresh_count", "refresh_scratch_estimate_bytes",
@@ -50,7 +52,8 @@ CLOSURE_TELEMETRY = frozenset({"refresh_count", "refresh_scratch_estimate_bytes"
 GEOMETRY_FIELDS = ("phase", "owner", "lower", "upper", "rank", "power_bounds")
 KIND_FIELDS = ("record_kind", "responsibility_status", "local_inspection_finished",
                "residual_inspection_finished")
-DISCHARGED_STATUS = ("discharged_by_representative", "discharged_by_residual_and_initial_anchor")
+DISCHARGED_STATUS = ("discharged_by_representative", "discharged_by_residual_and_initial_anchor",
+                     "discharged_by_residual_and_g2_anchors")
 SHAPES = ("geometry", "discharged", "kind")
 EXAMPLE_LIMIT = 20
 RETAINED_SHAPES = 100_000

@@ -153,6 +153,16 @@ impl<const N: usize> State<N> {
             "partial_initial_blocked":s.partial_initial_blocked,
             "resolution_scope":"local_obligations_including_partial_anchor_dependencies; not_unique_native_failure_or_frontier_sources; global_frontiers_and_errors_are_separate"
         }));
+        let mut summary = summary;
+        if ledger.g2().is_some()
+            && let Some(value) = summary.as_mut()
+        {
+            value["g2_records"] = json!(s.g2_records);
+            value["g2_blocked"] = json!(s.g2_blocked);
+            value["resolution_scope"] = json!(
+                "local_obligations_including_partial_and_g2_anchor_dependencies; not_unique_native_failure_or_frontier_sources; global_frontiers_and_errors_are_separate"
+            );
+        }
         (summary, Some(report.by_id))
     }
 
@@ -175,7 +185,8 @@ impl<const N: usize> State<N> {
 /// strings of the former in-place mutation; every other record is untouched.
 pub(super) fn annotate_resolution(record: &mut Value, by_id: &[Resolution]) {
     let partial = record["record_kind"] == "partial_initial_overlap_inspection";
-    if record["record_kind"] != "delegated_not_inspected" && !partial {
+    let g2 = record["record_kind"] == "g2_residual_anchor_inspection";
+    if record["record_kind"] != "delegated_not_inspected" && !partial && !g2 {
         return;
     }
     let Some(&resolution) = record["id"]
@@ -185,6 +196,20 @@ pub(super) fn annotate_resolution(record: &mut Value, by_id: &[Resolution]) {
     else {
         return;
     };
+    if g2 {
+        record["local_classification_discharged"] =
+            json!(resolution.status == ResolutionStatus::Discharged);
+        record["responsibility_status"] = match resolution.status {
+            ResolutionStatus::Pending => json!("pending_residual_or_g2_anchor"),
+            ResolutionStatus::Discharged => json!("discharged_by_residual_and_g2_anchors"),
+            ResolutionStatus::UnresolvedFrontiers { count } => {
+                json!({"blocked_by_residual_or_g2_anchor_frontiers":count})
+            }
+            ResolutionStatus::Failed => json!("blocked_by_residual_or_g2_anchor_failure"),
+            ResolutionStatus::Cancelled => json!("blocked_by_residual_or_g2_anchor_cancellation"),
+        };
+        return;
+    }
     if partial {
         record["local_classification_discharged"] =
             json!(resolution.status == ResolutionStatus::Discharged);

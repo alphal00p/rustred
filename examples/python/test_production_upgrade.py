@@ -91,7 +91,10 @@ class ExecutableUpgradeTests(unittest.TestCase):
         inputs.mkdir(parents=True)
         (inputs / "selection.json").write_text("{}")
         (inputs / "queries.json").write_text(json.dumps({
-            "schema": "rustred.owner-domain-queries.json.v2", "queries": [{}]}))
+            "schema": "rustred.owner-domain-queries.json.v2",
+            "query_roles": {"required": ["root"], "auxiliary": []},
+            "queries": [{"id": "root", "owner": "1", "lower": [0], "upper": [None],
+                         "max_numerator_rank": 0}]}))
         (inputs / "input-receipt.json").write_text(json.dumps({
             "selection_sha256": PRODUCTION.digest(inputs / "selection.json"),
             "queries_sha256": PRODUCTION.digest(inputs / "queries.json"), "owners": []}))

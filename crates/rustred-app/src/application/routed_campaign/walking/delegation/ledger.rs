@@ -27,6 +27,9 @@ pub(super) struct Entry<K> {
     /// Alias publication is explicit: Ready may publish beyond the watermark.
     /// Native entries always leave this false.
     pub delegated_published: bool,
+    /// Row of this record in the G2' log (`g2_log::NONE` when absent). Fits
+    /// the entry's padding: the in-memory entry stays 48 bytes at N = 15.
+    pub g2_row: u32,
 }
 
 /// One queue-local immutable snapshot. K is the exact phase/owner key, normally
@@ -48,6 +51,8 @@ pub struct Ledger<K> {
     initial_admission: bool,
     pub(super) protected_initial_prefix: Option<usize>,
     partial_initial_inspections: usize,
+    /// G2' residual anchors: None unless the walk requested them.
+    pub(super) g2: Option<super::g2_log::G2Log>,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -70,6 +75,7 @@ impl<K: Copy + Eq> Ledger<K> {
             initial_admission: false,
             protected_initial_prefix: None,
             partial_initial_inspections: 0,
+            g2: None,
         })
     }
 
@@ -260,6 +266,7 @@ impl<K: Copy + Eq> Ledger<K> {
             responsibility: Responsibility::Local(Local::Unreserved),
             initial_anchor: None,
             delegated_published: false,
+            g2_row: super::g2_log::NONE,
         });
         self.reserve_horizon();
         Ok(())

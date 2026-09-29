@@ -3,11 +3,13 @@ use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candid
 use std::sync::atomic::{AtomicU64, Ordering};
 mod bounded_routing;
 mod frontier_policy;
+mod g2_rescue;
 mod guarded_apply;
 mod index_admission;
 mod owner_batches;
 mod power_domains;
 mod record_sidecar;
+mod rescue;
 
 #[test]
 fn shared_snapshot_exposes_first_failure_while_native_calls_drain() {

@@ -23,6 +23,9 @@ use std::time::{Duration, Instant};
 
 mod admission;
 mod delegation;
+pub(super) mod g2;
+#[cfg(test)]
+mod g2_rescue_tests;
 pub(super) mod owner_batches;
 mod publication;
 pub(super) mod records;
@@ -37,6 +40,11 @@ pub(super) use delegation::scheduling_policy_json;
 /// still be resumed by them (executable-history rollback). A checkpoint
 /// without the key (written by those binaries) derives it on restore.
 pub(super) const PROGRESS_ACCEPTED_EVENTS: &str = "records_accepted_events";
+
+/// Rescue (`rescue.rs`): worker-view epochs and the epoch of every accepted
+/// prefix, in the free-form progress value of an amended walk only.
+pub(super) const PROGRESS_RESCUE_EPOCHS: &str = "rescue_worker_epochs";
+pub(super) const PROGRESS_RESCUE_HOLDERS: &str = "rescue_prefix_epochs";
 
 /// Cheap summary of the persisted walk state that can change between saves.
 /// Equal stamps mean the retained generation already holds this state.
@@ -79,6 +87,13 @@ pub(super) struct State<const N: usize> {
     pub pre_admitted_orthant_hits: usize,
     pub optional: OptionalCounts,
     pub frontiers: usize,
+    /// Rescue-abandoned obligations published in THIS session (`rescue.rs`).
+    pub rescue_abandoned: usize,
+    /// Frontiers accepted in THIS session that the A10 stop ignores: the
+    /// bookkeeping frontier of an abandoned obligation, and every frontier a
+    /// quarantined (non-live) inspection reports, which no live root can
+    /// reach. Both are counted in `frontiers` and stay explicit records.
+    pub rescue_quiet_frontiers: usize,
     pub completed: usize,
     /// Actual native records, including failed partial publisher retention.
     /// Delegation cursor advances never increment this counter.
@@ -102,6 +117,16 @@ pub(super) struct State<const N: usize> {
     admission: admission::Metrics,
     replay: Option<replay::Replay>,
     pub(super) streams: streams::Streams,
+    /// G2' residual anchors (Some only when requested, from session start).
+    pub(super) g2: Option<std::sync::Arc<super::g2::Store<N>>>,
+    /// Plans pinned by a restore, installed into the store at session start.
+    g2_pins: Vec<(usize, super::g2::Outcome)>,
+    /// Rescue (`rescue.rs`): the worker-view epochs of an amended walk, each
+    /// the sorted initial IDs its shortcut views exclude (epoch 0: none),
+    /// and the epoch each restored accepted-prefix inspection replays under.
+    /// Empty for every unamended walk (nothing persisted).
+    pub(super) rescue_worker_epochs: Vec<Vec<usize>>,
+    pub(super) rescue_holder_epochs: std::collections::BTreeMap<usize, usize>,
 }
 impl<const N: usize> State<N> {
     fn parts(
@@ -141,6 +166,8 @@ impl<const N: usize> State<N> {
             pre_admitted_orthant_hits: 0,
             optional: OptionalCounts::default(),
             frontiers,
+            rescue_abandoned: 0,
+            rescue_quiet_frontiers: 0,
             completed: 0,
             native_records: 0,
             routed: 0,
@@ -159,9 +186,13 @@ impl<const N: usize> State<N> {
             physical_progress: None,
             replay: None,
             streams: streams::Streams::default(),
+            rescue_worker_epochs: Vec::new(),
+            rescue_holder_epochs: std::collections::BTreeMap::new(),
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+            g2: None,
+            g2_pins: Vec::new(),
         }
     }
     pub(super) fn change_stamp(&self) -> ChangeStamp {
@@ -190,6 +221,28 @@ impl<const N: usize> State<N> {
         if self.ready() {
             metadata[PROGRESS_ACCEPTED_EVENTS] = json!(self.records_accepted_events);
         }
+        if let Some(pins) = self.g2_pins_json() {
+            metadata[g2::PROGRESS_G2_PINS] = pins;
+        }
+        if !self.rescue_worker_epochs.is_empty() {
+            // Rescue (`rescue.rs`): the view each accepted prefix replays under.
+            let current = self.rescue_worker_epochs.len() - 1;
+            let holders: Vec<[usize; 2]> = self
+                .accepted_prefix_holders()
+                .into_iter()
+                .map(|id| {
+                    [
+                        id,
+                        self.rescue_holder_epochs
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(current),
+                    ]
+                })
+                .collect();
+            metadata[PROGRESS_RESCUE_EPOCHS] = json!(self.rescue_worker_epochs);
+            metadata[PROGRESS_RESCUE_HOLDERS] = json!(holders);
+        }
         metadata
     }
     #[cfg(test)]
@@ -199,6 +252,25 @@ impl<const N: usize> State<N> {
         metadata
     }
     pub(super) fn restore_checkpoint_progress(&mut self, mut value: Value) -> Result<(), String> {
+        let pins = value
+            .as_object_mut()
+            .and_then(|object| object.remove(g2::PROGRESS_G2_PINS));
+        self.g2_restore_pins(pins)?;
+        if let Some(epochs) = value.get(PROGRESS_RESCUE_EPOCHS) {
+            self.rescue_worker_epochs = serde_json::from_value(epochs.clone())
+                .map_err(|e| format!("invalid rescue worker epochs: {e}"))?;
+            let holders: Vec<[usize; 2]> =
+                serde_json::from_value(value[PROGRESS_RESCUE_HOLDERS].clone())
+                    .map_err(|e| format!("invalid rescue prefix epochs: {e}"))?;
+            if holders
+                .iter()
+                .any(|&[_, epoch]| epoch >= self.rescue_worker_epochs.len())
+            {
+                return Err("rescue prefix epoch outside the saved epochs".into());
+            }
+            self.rescue_holder_epochs =
+                holders.into_iter().map(|[id, epoch]| (id, epoch)).collect();
+        }
         self.physical_enabled = value["physical_enabled"]
             .as_bool()
             .ok_or("missing physical policy")?;
@@ -540,6 +612,12 @@ impl<const N: usize> State<N> {
                     .try_reserve(1)
                     .map_err(|_| "frontier allocation")?;
                 self.frontiers += 1;
+                if self.queue.quarantine_active()
+                    && (value["kind"] == inspection::RESCUE_ABANDONED_KIND
+                        || self.queue.is_quarantined(self.dependency_source()))
+                {
+                    self.rescue_quiet_frontiers += 1;
+                }
                 self.details.push(value);
             }
             Effect::Optional(d) => self.refusals.record(
@@ -601,7 +679,15 @@ impl<const N: usize> State<N> {
                 &self.queue.domain(self.queue.next),
             );
         }
-        let (target, _) = admit(&mut self.queue)?;
+        let (target, new) = admit(&mut self.queue)?;
+        // Rescue (`rescue.rs`): a dead obligation still being inspected (a
+        // restored partial prefix) admits only dead domains.
+        if new
+            && self.queue.quarantine_active()
+            && self.queue.is_quarantined(self.dependency_source())
+        {
+            self.queue.mark_dead(target);
+        }
         self.dependency(target);
         Ok(())
     }
@@ -629,10 +715,18 @@ impl<const N: usize> State<N> {
             NativeStats::ApplyPartial(_, scope) => Some(scope),
             _ => None,
         };
+        let g2_scope = match native_stats {
+            NativeStats::ApplyG2(_, scope) => Some(scope),
+            _ => None,
+        };
         let native_cancelled = error_kind == "cancelled";
         self.error = self.error.take().or(native_error);
+        // G2': the worker's plan (also consumes a whole-inspection decision).
+        let g2_plan = self.g2_take(id, g2_scope);
         let (stats, optional, truncated) = match native_stats {
-            NativeStats::Apply(stats) | NativeStats::ApplyPartial(stats, _) => {
+            NativeStats::Apply(stats)
+            | NativeStats::ApplyPartial(stats, _)
+            | NativeStats::ApplyG2(stats, _) => {
                 if let Err(error) = self.optional.add(stats) {
                     self.error.get_or_insert_with(|| error.into());
                 }
@@ -662,12 +756,16 @@ impl<const N: usize> State<N> {
         // admitted, even if a later buffered Finished itself has no error.
         let frontier_count = self.details.len();
         if let Some(ledger) = &mut self.queue.delegation {
-            use super::delegation::NativeOutcome;
             if let Some(scope) = partial_scope {
                 if let Err(error) = ledger.record_initial_overlap(id, scope.anchor_id) {
                     self.error.get_or_insert_with(|| error.to_string());
                 }
             }
+        }
+        // G2' log row (before the publication that consumes its stamp).
+        let g2_logged = self.g2_log(id, g2_plan.as_ref(), partial_scope);
+        if let Some(ledger) = &mut self.queue.delegation {
+            use super::delegation::NativeOutcome;
             let outcome = if self.error.is_none() {
                 NativeOutcome::Completed {
                     unresolved_frontiers: frontier_count,
@@ -690,6 +788,9 @@ impl<const N: usize> State<N> {
             closure.discovered(self.queue.domains.len());
             if let Some(scope) = partial_scope {
                 closure.edge(id, scope.anchor_id);
+            }
+            for anchor in g2_plan.iter().flat_map(|plan| &plan.anchors) {
+                closure.edge(id, anchor.id as usize);
             }
             closure.finish(
                 id,
@@ -719,11 +820,20 @@ impl<const N: usize> State<N> {
                     .get_or_insert_with(|| "record accepted-events counter overflow".into());
             }
         }
+        let abandoned =
+            frontier_count == 1 && self.details[0]["kind"] == inspection::RESCUE_ABANDONED_KIND;
         record["frontiers"] = Value::Array(std::mem::take(&mut self.details));
         if self.queue.delegation.is_some() {
             record["record_kind"] = json!("native_inspection");
             record["local_classification_discharged"] =
                 json!(self.error.is_none() && frontier_count == 0);
+        }
+        if abandoned {
+            // Rescue (`rescue.rs`): published without a native inspection.
+            self.rescue_abandoned += 1;
+            record["rescue_abandoned"] = json!(true);
+            record["local_inspection_finished"] = json!(false);
+            record["native_inspection_scope"] = json!("none_rescue_abandoned_dead_cone");
         }
         if let Some(scope) = partial_scope {
             record["record_kind"] = json!("partial_initial_overlap_inspection");
@@ -738,6 +848,20 @@ impl<const N: usize> State<N> {
                 "residual_power_bounds":power_bounds_json(scope.residual_powers),
                 "coordinates_and_rank_unchanged":true,
                 "authority":"same_snapshot_phase_owner_native_summary"});
+        }
+        if let Some(plan) = &g2_plan {
+            record["record_kind"] = json!("g2_residual_anchor_inspection");
+            record["native_inspection_scope"] = json!(if plan.residual.is_some() {
+                "g2_residual_D_band"
+            } else {
+                "none_covered_by_g2_anchors"
+            });
+            record["local_inspection_finished"] = json!(false);
+            record["residual_inspection_finished"] = json!(self.error.is_none());
+            // Filled from the typed ledger at finalization (anchors resolved).
+            record["local_classification_discharged"] = json!(false);
+            record["g2_residual_anchors"] =
+                Self::g2_record_json(plan, &domain, g2_logged.map(|(stamp, _)| stamp));
         }
         if let (Some(optional), Some(stats)) = (optional, truncated) {
             record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
@@ -784,6 +908,7 @@ impl<const N: usize> State<N> {
         if let Err(error) = self.records.get_mut().push(record) {
             self.error.get_or_insert(error);
         }
+        self.g2_index(id, g2_logged, frontier_count);
         if self.ready() {
             self.streams.initial_published += usize::from(id < self.initial_domain_count);
             self.queue.next = self
@@ -921,7 +1046,9 @@ fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
 }
 pub(super) fn native_stats(stats: NativeStats) -> Value {
     match stats {
-        NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => stats_json(s),
+        NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) | NativeStats::ApplyG2(s, _) => {
+            stats_json(s)
+        }
         NativeStats::Route(s) => route_stats(s),
     }
 }
@@ -977,6 +1104,22 @@ pub(super) fn run_checkpointed<const N: usize>(
     );
 }
 
+/// The worker-side shortcut views of one session (see `run_configured`).
+struct WorkerViews<const N: usize> {
+    views: Vec<Option<(InitialOrthants<N>, InitialOverlapIndex<N>)>>,
+    /// Restored accepted-prefix inspections and the epoch they replay under.
+    holders: std::collections::BTreeMap<usize, usize>,
+    current: usize,
+}
+
+impl<const N: usize> WorkerViews<N> {
+    fn get(&self, id: usize) -> (&InitialOrthants<N>, &InitialOverlapIndex<N>) {
+        let epoch = self.holders.get(&id).copied().unwrap_or(self.current);
+        let (initial, overlap) = self.views[epoch].as_ref().expect("built worker view");
+        (initial, overlap)
+    }
+}
+
 fn run_configured<const N: usize>(
     state: &mut State<N>,
     reducer: &RoutedCandidateReducer<N>,
@@ -1029,15 +1172,25 @@ fn run_configured<const N: usize>(
     }
     // Capture actual initial admissions only. This immutable borrowed snapshot
     // is shared across scoped workers and never observes later queue growth.
-    let initial = if enabled {
-        InitialOrthants::from_initial(
-            &state.queue.expand_prefix(state.initial_domain_count),
-            cancellation,
-        )
+    // Worker-side views (initial orthant shortcuts, initial-overlap anchors).
+    // An unamended walk has one unfiltered view. An amended walk keeps one
+    // view per rescue epoch (`rescue.rs`): a restored inspection holding an
+    // accepted prefix replays under the view it started with (its replay
+    // must see the same native stream); every other job uses the current
+    // view, which excludes the quarantined initial domains.
+    let epochs: Vec<Vec<usize>> = if state.rescue_worker_epochs.is_empty() {
+        vec![Vec::new()]
     } else {
-        InitialOrthants::empty()
+        state.rescue_worker_epochs.clone()
     };
-    let overlap = if request.reuse_initial_d_bands {
+    let current = epochs.len() - 1;
+    let holders: std::collections::BTreeMap<usize, usize> = state
+        .rescue_holder_epochs
+        .iter()
+        .filter(|(_, epoch)| **epoch <= current)
+        .map(|(id, epoch)| (*id, *epoch))
+        .collect();
+    let overlap_prefix = if request.reuse_initial_d_bands {
         let Some(prefix) = state
             .queue
             .delegation
@@ -1047,10 +1200,52 @@ fn run_configured<const N: usize>(
             state.error = Some("initial D-band reuse requires a protected initial prefix".into());
             return;
         };
-        InitialOverlapIndex::from_initial(&state.queue.expand_prefix(prefix), cancellation)
+        Some(state.queue.expand_prefix(prefix))
     } else {
-        InitialOverlapIndex::empty()
+        None
     };
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off
+        && let Err(error) = state.g2_setup()
+    {
+        state.error = Some(error);
+        return;
+    }
+    let initial_prefix = enabled.then(|| state.queue.expand_prefix(state.initial_domain_count));
+    let mut built: Vec<Option<(InitialOrthants<N>, InitialOverlapIndex<N>)>> =
+        (0..=current).map(|_| None).collect();
+    for epoch in holders.values().copied().chain([current]) {
+        if built[epoch].is_some() {
+            continue;
+        }
+        let excluded = &epochs[epoch];
+        let exclude = |id: usize| excluded.binary_search(&id).is_ok();
+        let initial = match &initial_prefix {
+            Some(prefix) if excluded.is_empty() => {
+                InitialOrthants::from_initial(prefix, cancellation)
+            }
+            Some(prefix) => InitialOrthants::from_initial_excluding(prefix, cancellation, &exclude),
+            None => InitialOrthants::empty(),
+        };
+        let overlap = match &overlap_prefix {
+            Some(prefix) => {
+                let index = InitialOverlapIndex::from_initial(prefix, cancellation);
+                if excluded.is_empty() {
+                    index
+                } else {
+                    index.without_anchors(&exclude)
+                }
+            }
+            None => InitialOverlapIndex::empty(),
+        };
+        built[epoch] = Some((initial, overlap));
+    }
+    drop((initial_prefix, overlap_prefix));
+    let views = WorkerViews {
+        views: built,
+        holders,
+        current,
+    };
+    let (_, overlap) = views.get(usize::MAX);
     if request.reuse_initial_d_bands {
         state.initial_overlap_report = Some(overlap.build_report());
         observer(
@@ -1059,6 +1254,14 @@ fn run_configured<const N: usize>(
                 state.initial_overlap_report, super::index_report::Scope::GlobalInitial)}),
         );
     }
+    // Rescue: obligations no live input root reaches are published without
+    // inspection (`rescue.rs`); empty for every unamended walk.
+    let abandoned = state.queue.abandoned_handle();
+    let is_abandoned = |id: usize| {
+        abandoned.as_ref().is_some_and(|set| {
+            super::queue::quarantined_bit(&set.read().unwrap_or_else(|e| e.into_inner()), id)
+        })
+    };
     if request.workers == 1 {
         return serial(
             state,
@@ -1066,13 +1269,15 @@ fn run_configured<const N: usize>(
             request,
             cancellation,
             observer,
-            &initial,
-            &overlap,
+            &views,
+            &is_abandoned,
             checkpointing,
             maybe_save,
         );
     }
     let physical_enabled = state.physical_enabled;
+    let g2 = state.g2.clone();
+    let g2 = g2.as_deref();
     run_pool(
         state,
         request,
@@ -1080,11 +1285,31 @@ fn run_configured<const N: usize>(
         observer,
         checkpointing,
         maybe_save,
-        |raw, domain, stop, emit| match Ticket::decode(raw, physical_enabled).part {
-            Some(part) => {
-                inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
+        |raw, domain, stop, emit| {
+            let ticket = Ticket::decode(raw, physical_enabled);
+            if is_abandoned(ticket.parent) {
+                return inspection::abandoned(domain, emit);
             }
-            None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
+            let (initial, overlap) = views.get(ticket.parent);
+            match (ticket.part, g2) {
+                (Some(part), _) => {
+                    inspection::inspect_part(reducer, domain, request, part, stop, initial, emit)
+                }
+                (None, Some(store)) => inspection::inspect_g2(
+                    reducer,
+                    ticket.parent,
+                    domain,
+                    request,
+                    stop,
+                    initial,
+                    overlap,
+                    store,
+                    emit,
+                ),
+                (None, None) => {
+                    inspection::inspect(reducer, domain, request, stop, initial, overlap, emit)
+                }
+            }
         },
     );
     #[cfg(test)]
@@ -1762,6 +1987,15 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
                     "coordinates_and_rank_unchanged":true,
                     "responsibility_published":false});
             }
+            // Peek, not take: a paused publisher keeps its plan for the save's pins.
+            let taken = state.g2.as_ref().and_then(|store| store.peek(id));
+            if finished.g2_scope().is_some()
+                && let Some(super::g2::Outcome::Planned(plan)) = taken.as_deref()
+            {
+                record["native_inspection_scope"] = json!("g2_residual_D_band_or_none");
+                record["g2_residual_anchors"] = State::<N>::g2_record_json(plan, &domain, None);
+                record["g2_residual_anchors"]["responsibility_published"] = json!(false);
+            }
             state.uncommitted.push(record);
         }
     }
@@ -1856,12 +2090,13 @@ fn serial<const N: usize>(
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
-    initial: &InitialOrthants<N>,
-    overlap: &InitialOverlapIndex<N>,
+    views: &WorkerViews<N>,
+    is_abandoned: &dyn Fn(usize) -> bool,
     checkpointing: bool,
     maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
 ) {
     let previous_parallel = state.parallel.clone();
+    let g2 = state.g2.clone();
     let mut attempted = 0usize;
     let mut native = 0usize;
     let mut returned = 0usize;
@@ -1976,6 +2211,10 @@ fn serial<const N: usize>(
                 }
                 ControlFlow::Continue(())
             };
+            if is_abandoned(ticket.parent) {
+                return inspection::abandoned(&domain, &mut emit);
+            }
+            let (initial, overlap) = views.get(ticket.parent);
             match ticket.part {
                 Some(part) => inspection::inspect_part(
                     reducer,
@@ -1986,15 +2225,28 @@ fn serial<const N: usize>(
                     initial,
                     &mut emit,
                 ),
-                None => inspection::inspect(
-                    reducer,
-                    &domain,
-                    request,
-                    cancellation,
-                    initial,
-                    overlap,
-                    &mut emit,
-                ),
+                None => match g2.as_deref() {
+                    Some(store) => inspection::inspect_g2(
+                        reducer,
+                        id,
+                        &domain,
+                        request,
+                        cancellation,
+                        initial,
+                        overlap,
+                        store,
+                        &mut emit,
+                    ),
+                    None => inspection::inspect(
+                        reducer,
+                        &domain,
+                        request,
+                        cancellation,
+                        initial,
+                        overlap,
+                        &mut emit,
+                    ),
+                },
             }
         }));
         match result {

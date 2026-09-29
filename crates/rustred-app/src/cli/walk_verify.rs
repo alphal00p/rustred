@@ -10,7 +10,7 @@ use super::io::{preflight_output_destination, write_output};
 use crate::{
     OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
     OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
-    owner_domain_walk_verify_closure,
+    OwnerDomainWalkVerifyScope, owner_domain_walk_verify_closure,
 };
 use serde_json::Value;
 use std::ffi::OsString;
@@ -30,7 +30,6 @@ pub(crate) struct WalkVerifyClosureArgs {
     pub require_closure: bool,
     pub reference_levers: OwnerDomainWalkVerifyReferenceLevers,
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
-    pub helper_pattern: String,
     pub max_violations: usize,
     pub union_sample: usize,
     pub union_sample_seed: u64,
@@ -38,6 +37,7 @@ pub(crate) struct WalkVerifyClosureArgs {
     /// None: the command file's sibling result.json when it exists.
     pub result: Option<PathBuf>,
     pub no_result: bool,
+    pub certification_scope: OwnerDomainWalkVerifyScope,
 }
 
 pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -56,13 +56,13 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         require_closure: false,
         reference_levers: defaults.reference_levers,
         mutation: None,
-        helper_pattern: defaults.helper_pattern,
         max_violations: defaults.max_violations,
         union_sample: defaults.union_sample,
         union_sample_seed: defaults.union_sample_seed,
         force: false,
         result: None,
         no_result: false,
+        certification_scope: OwnerDomainWalkVerifyScope::Auto,
     };
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -127,7 +127,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     ArgError::InvalidValue {
                         option: "--mutate",
                         value,
-                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour, self-anchored-partial, partial-as-anchor, partial-anchor-cycle, non-initial-anchor, route-partial, shrunk-residual, dropped-routed-edge, routed-false-hit, miscounted-route-events",
+                        expected: "one of dropped-edge, retargeted-alias, dropped-frontier-record, seal-with-frontier, seal-with-error, injected-false-hit, hidden-frontier, hidden-error, miscounted-events, miscounted-successors, retargeted-anchor, remapped-query, foreign-request, foreign-owners, mismatched-result, alias-chain-detour, self-anchored-partial, partial-as-anchor, partial-anchor-cycle, non-initial-anchor, route-partial, shrunk-residual, dropped-routed-edge, routed-false-hit, miscounted-route-events, g2-shrunk-residual, g2-late-anchor, g2-inadmissible-anchor, g2-dropped-anchor-edge, g2-anchor-cycle",
                     },
                 )?);
             }
@@ -148,9 +148,6 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     }
                 }
             }
-            "--helper-pattern" => {
-                args.helper_pattern = next_utf8_value(&mut arguments, "--helper-pattern")?
-            }
             "--max-violations" => {
                 args.max_violations = parse_positive_integer(
                     "--max-violations",
@@ -162,6 +159,21 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                 args.result = Some(PathBuf::from(next_value(&mut arguments, "--result")?))
             }
             "--no-result" => args.no_result = true,
+            "--certification-scope" => {
+                let value = next_utf8_value(&mut arguments, "--certification-scope")?;
+                args.certification_scope = match value.as_str() {
+                    "auto" => OwnerDomainWalkVerifyScope::Auto,
+                    "all-roots" => OwnerDomainWalkVerifyScope::AllRoots,
+                    "physics-queries" => OwnerDomainWalkVerifyScope::PhysicsQueries,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--certification-scope",
+                            value,
+                            expected: "auto (default), all-roots or physics-queries",
+                        });
+                    }
+                };
+            }
             _ => return Err(ArgError::UnknownOption(option)),
         }
     }
@@ -195,7 +207,7 @@ fn parse_reinspect(value: &str) -> Option<OwnerDomainWalkVerifyReinspect> {
 
 /// The walk argv: a JSON list of strings (`command.json`) or an object with
 /// a `command` list (`request.json`).
-fn walk_argv(path: &PathBuf) -> Result<Vec<OsString>, CliError> {
+pub(super) fn walk_argv(path: &PathBuf) -> Result<Vec<OsString>, CliError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
     let value: Value = serde_json::from_str(&text)
@@ -233,10 +245,10 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
     options.require_closure = args.require_closure;
     options.reference_levers = args.reference_levers;
     options.mutation = args.mutation;
-    options.helper_pattern = args.helper_pattern.clone();
     options.max_violations = args.max_violations;
     options.union_sample = args.union_sample;
     options.union_sample_seed = args.union_sample_seed;
+    options.certification_scope = args.certification_scope;
     options.result = if args.no_result {
         None
     } else {

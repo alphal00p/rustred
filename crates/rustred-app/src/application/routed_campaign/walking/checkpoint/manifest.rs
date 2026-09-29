@@ -23,9 +23,11 @@ pub(in super::super) enum Section {
     Domains,
     Edges,
     Records,
+    /// G2' log (present only for walks with G2' residual anchors).
+    Anchors,
 }
 impl Section {
-    pub const ALL: [Section; 7] = [
+    pub const ALL: [Section; 8] = [
         Section::Meta,
         Section::Nodes,
         Section::Ledger,
@@ -33,6 +35,7 @@ impl Section {
         Section::Domains,
         Section::Edges,
         Section::Records,
+        Section::Anchors,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -43,6 +46,7 @@ impl Section {
             Self::Domains => "domains",
             Self::Edges => "edges",
             Self::Records => "records",
+            Self::Anchors => "anchors",
         }
     }
     pub fn extension(self) -> &'static str {
@@ -53,7 +57,10 @@ impl Section {
         }
     }
     pub fn segmented(self) -> bool {
-        matches!(self, Self::Domains | Self::Edges | Self::Records)
+        matches!(
+            self,
+            Self::Domains | Self::Edges | Self::Records | Self::Anchors
+        )
     }
     pub fn file_name(self, generation: u64) -> String {
         format!("{}-{generation:020}.{}", self.name(), self.extension())
@@ -112,6 +119,9 @@ pub(super) struct Sections {
     pub edges: Option<Segmented>,
     #[serde(default)]
     pub records: Option<Segmented>,
+    /// Absent (not even `null`) without G2': such manifests are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchors: Option<Segmented>,
 }
 impl Sections {
     pub fn plain(&self, section: Section) -> Option<&SectionRef> {
@@ -128,6 +138,7 @@ impl Sections {
             Section::Domains => self.domains.as_ref(),
             Section::Edges => self.edges.as_ref(),
             Section::Records => self.records.as_ref(),
+            Section::Anchors => self.anchors.as_ref(),
             _ => None,
         }
     }
@@ -136,6 +147,7 @@ impl Sections {
             Section::Domains => &mut self.domains,
             Section::Edges => &mut self.edges,
             Section::Records => &mut self.records,
+            Section::Anchors => &mut self.anchors,
             _ => unreachable!("plain section"),
         }
     }
@@ -168,6 +180,12 @@ pub(super) struct Manifest {
     pub executable_first: String,
     pub sections: Sections,
     pub metadata: Value,
+    /// Resume-time rescue amendments applied to this walk, in chain order
+    /// (`rescue.rs`). Never serialized when empty, so the manifest of an
+    /// unamended walk is byte-identical to the historical one; an amended
+    /// manifest is refused by binaries without the rescue (unknown field).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<super::super::rescue::AmendmentRef>,
 }
 /// One referenced file: name, byte length and blake3 hex digest.
 pub(super) struct FileRef<'a> {
@@ -274,7 +292,7 @@ impl Manifest {
                 }
                 if Section::ALL
                     .iter()
-                    .any(|&x| x != Section::Ledger && !present(x))
+                    .any(|&x| !matches!(x, Section::Ledger | Section::Anchors) && !present(x))
                 {
                     return Err("state manifest is missing sections".into());
                 }
@@ -368,8 +386,10 @@ mod tests {
                 }),
                 edges: Some(Segmented::default()),
                 records: Some(Segmented::default()),
+                anchors: None,
             },
             metadata: json!({}),
+            amendments: Vec::new(),
         };
         manifest.validate_structure().unwrap();
         let mut gap = manifest.clone();
