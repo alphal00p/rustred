@@ -136,6 +136,24 @@ class MonitorTests(unittest.TestCase):
         self.assertNotIn("━", closure_line)
         self.assertNotIn("[", next(line for line in text.splitlines() if line.startswith("Initial")))
 
+    def test_epoch_fixed_reservations_do_not_imply_activity_or_preparation_timings(self):
+        for workers, inspectors, helpers, coordinator in ((1, 1, 0, 0), (50, 49, 0, 1), (50, 20, 29, 1)):
+            with self.subTest(workers=workers, inspectors=inspectors):
+                parallel = {"activity_observation": "unavailable", "active_workers": None,
+                            "computing_workers": None, "admission_preparation": {
+                                "inspection_worker_limit": inspectors, "lookup_worker_limit": helpers,
+                                "coordinator_worker_limit": coordinator, "requested_worker_budget": workers,
+                                "scope": "configured compute reservation, not activity or successfully spawned workers"}}
+                progress = MONITOR.progress_summary({"progress": {"event": "epoch_heartbeat",
+                                                    "parallel": parallel}}, 0, 1)
+                self.assertEqual(progress["worker_reservations"], {
+                    "inspectors": inspectors, "admission_helpers": helpers, "coordinator": coordinator})
+                self.assertIsNone(progress["active_native_slots"])
+                text = "\n".join(MONITOR.dashboard({"progress": progress, "workers": workers}))
+                self.assertIn(f"{inspectors} inspect + {helpers} admission + {coordinator} coordinator", text)
+                self.assertNotIn("preparation_wall_seconds", parallel["admission_preparation"])
+                self.assertNotIn("ordered_commit_wall_seconds", parallel["admission_preparation"])
+
     def test_closure_counts_are_independent_of_local_publication_and_queue(self):
         native = {"event": "domain_progress", "snapshot": {
             "descendant_closure": self.closure(), "initial_entry_domains_total": 20,
@@ -447,7 +465,7 @@ class ProductionTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 PRODUCTION.main(["--publication-policy", "ready",
                                  "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "2"])
-            self.assertIn("ready publication cannot be combined", errors.getvalue())
+            self.assertIn("nonordered publication cannot be combined", errors.getvalue())
             verify.assert_not_called()
             freeze.assert_not_called()
 

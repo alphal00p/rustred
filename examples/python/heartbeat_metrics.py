@@ -83,6 +83,9 @@ def sample_from_record(record, fallback_elapsed=None):
         "coordinator_seconds": coordinator,
         "coordinator_duty": duty_numbers or None,
         "computing": number(parallel.get("computing_workers")),
+        # Epoch explicitly distinguishes unobservable activity from a lean
+        # legacy event that simply omits the detailed worker fields.
+        "computing_explicit": isinstance(parallel.get("activity_observation"), str),
         "active": number(parallel.get("active_workers")),
         "max_rank": nonnegative_int(counters.get("max_scheduled_finite_rank")),
         "roots_closed": roots_closed,
@@ -205,8 +208,10 @@ class HeartbeatWindow:
             # set without `computing_workers` or `coordinator_duty`; only the
             # periodic domain_progress events carry them. Use the latest (and
             # for the breakdown also the earliest) sample that has them.
+            # An explicit Epoch observation is authoritative about availability:
+            # stop here even when its current computing count is unknown.
             computing_now = next((sample["computing"] for sample in reversed(selected)
-                                  if sample["computing"] is not None), None)
+                                  if sample["computing"] is not None or sample["computing_explicit"]), None)
             result.update(samples_in_window=len(selected), window_wall_seconds=wall,
                           first_elapsed_seconds=first["elapsed"], last_elapsed_seconds=last["elapsed"],
                           completed_nodes=last["completed"], pending_nodes=last["pending"],

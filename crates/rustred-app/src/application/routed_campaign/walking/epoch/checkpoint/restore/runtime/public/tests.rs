@@ -2,6 +2,30 @@ use super::*;
 use std::time::Duration;
 
 #[test]
+fn epoch_monitor_reservations_follow_execution_budget_without_duty_timings() {
+    use crate::application::routed_campaign::walking::OwnerDomainWalkPublicationPolicy;
+    for (workers, explicit, expected) in [
+        (1, None, (1, 0, 0)),
+        (50, None, (49, 0, 1)),
+        (50, Some(20), (20, 29, 1)),
+    ] {
+        let budget = WorkerBudget::new(
+            workers,
+            explicit,
+            None,
+            OwnerDomainWalkPublicationPolicy::Epoch,
+        );
+        let value = reservation_json(budget);
+        assert_eq!(value["inspection_worker_limit"], expected.0);
+        assert_eq!(value["lookup_worker_limit"], expected.1);
+        assert_eq!(value["coordinator_worker_limit"], expected.2);
+        assert_eq!(value["requested_worker_budget"], workers);
+        assert!(value.get("preparation_wall_seconds").is_none());
+        assert!(value.get("ordered_commit_wall_seconds").is_none());
+    }
+}
+
+#[test]
 fn activity_fields_separate_computing_from_returned_and_unknown_inline() {
     let value = Activity {
         queued: 3,

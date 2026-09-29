@@ -16,6 +16,7 @@ use crate::application::routed_campaign::{
             inspector::{Activity, Context, Status},
             ledger6::Tag,
         },
+        worker_budget::WorkerBudget,
     },
 };
 use rustred::solver::RoutedCandidateReducer;
@@ -223,6 +224,15 @@ fn activity_json(activity: Option<Activity>, phase: &str) -> Value {
     })
 }
 
+/// Existing monitor key shape, but reservation fields only. Epoch has no
+/// equivalent Ready preparation/duty timings to populate here.
+fn reservation_json(budget: WorkerBudget) -> Value {
+    json!({"inspection_worker_limit":budget.inspection,
+        "lookup_worker_limit":budget.helpers,"coordinator_worker_limit":budget.coordinator,
+        "requested_worker_budget":budget.requested,
+        "scope":"configured compute reservation, not activity or successfully spawned workers"})
+}
+
 /// Scalar subset of Tracker::json, with the same monitor-facing meanings but
 /// without its retained-storage census or any closure refresh.
 fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value {
@@ -306,6 +316,7 @@ fn summary<const N: usize>(
     doc.as_object_mut()
         .expect("summary object")
         .extend(progress);
+    doc["parallel"]["admission_preparation"] = reservation_json(WorkerBudget::for_request(request));
     doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
     if let Some(rescue) = &state.rescue {
         doc["amendments"] =
@@ -350,6 +361,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     let roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
     let failed = Cell::new(false);
     let telemetry = RefCell::new(Telemetry::new());
+    let reservations = reservation_json(WorkerBudget::for_request(request));
     if !options.resume {
         telemetry.borrow_mut().change("admission");
     }
@@ -386,6 +398,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             event["phase"] = json!(phase);
             event["telemetry"] = time.json();
             event["parallel"] = activity_json(activity(), phase);
+            event["parallel"]["admission_preparation"] = reservations.clone();
             event["family_closure_claim"] = json!(false);
             emit(observer, cancellation, &failed, event);
         }
@@ -405,6 +418,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         event["parallel"] = json!({"active_workers":null,"workers_joined":false,"observed_cut_started":started_count,
             "observed_cut_returned":returned,"observed_cut_descriptors":status.len(),
             "activity_observation":"saved_cut_observation_not_live","activity_observation_age_seconds":null});
+        event["parallel"]["admission_preparation"] = reservations.clone();
         event["family_closure_claim"] = json!(false);
         emit(observer, cancellation, &failed, event);
     };

@@ -59,6 +59,40 @@ def synthetic_stream():
 
 
 class HeartbeatWindowTests(unittest.TestCase):
+    def test_epoch_unknown_activity_stops_carryover_but_preserves_historical_mean(self):
+        for observation in ("unavailable", "inline_call_not_pollable", "saved_cut_observation_not_live"):
+            with self.subTest(observation=observation):
+                window = METRICS.HeartbeatWindow()
+                for elapsed, computing in ((0, 2), (10, 4)):
+                    window.observe(heartbeat(elapsed, elapsed, 10, 100, 1000, 0, 0, computing=computing))
+                unknown = heartbeat(20, 20, 10, 100, 1000, 0, 0)
+                unknown["progress"]["parallel"] = {
+                    "activity_observation": observation, "computing_workers": None, "active_workers": None,
+                    "admission_preparation": {"inspection_worker_limit": 49, "lookup_worker_limit": 0,
+                                              "coordinator_worker_limit": 1, "requested_worker_budget": 50}}
+                window.observe(unknown)
+                result = window.derived()
+                self.assertIsNone(result["computing_workers"])
+                self.assertIsNone(result["active_workers"])
+                self.assertEqual(result["computing_inspectors_mean_1h"], 3)
+                self.assertIsNone(result["coordinator_duty_1h"])
+                # A later lean event cannot reach back through explicit unknown.
+                window.observe(heartbeat(30, 30, 10, 100, 1000, 0, 0))
+                self.assertIsNone(window.derived()["computing_workers"])
+                self.assertEqual(window.derived()["computing_inspectors_mean_1h"], 3)
+                joined = heartbeat(40, 40, 10, 100, 1000, 0, 0, computing=0)
+                joined["progress"]["parallel"]["activity_observation"] = "joined"
+                window.observe(joined)
+                self.assertEqual(window.derived()["computing_workers"], 0)
+                self.assertEqual(window.derived()["computing_inspectors_mean_1h"], 2)
+
+    def test_legacy_missing_computing_field_keeps_latest_detailed_count(self):
+        window = METRICS.HeartbeatWindow()
+        window.observe(heartbeat(0, 0, 10, 100, 1000, 0, 0, computing=4))
+        window.observe(heartbeat(10, 1, 10, 100, 1000, 0, 0))
+        self.assertEqual(window.derived()["computing_workers"], 4)
+        self.assertEqual(window.derived()["computing_inspectors_mean_1h"], 4)
+
     def test_hand_computed_window_metrics(self):
         window = METRICS.HeartbeatWindow(window_seconds=3600, retained_seconds=7200)
         for record in synthetic_stream():
