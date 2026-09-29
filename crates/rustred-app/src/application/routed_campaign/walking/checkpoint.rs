@@ -485,7 +485,12 @@ impl Store {
         // was, so continuing the walk flips the flag with exactly one write.
         let mut stamp = restored.state.change_stamp();
         stamp.paused = m.metadata["paused"] == true;
-        self.last_stamp = Some(stamp);
+        // Activation changes the request binding, G2 log and pinned decisions
+        // without necessarily publishing any new domain. The first forced
+        // save must durably record that transition even for a drained walk.
+        // A successful save installs its normal stamp; ordinary resumes keep
+        // the historical unchanged-prefix fast path.
+        self.last_stamp = (!self.g2_activating).then_some(stamp);
         let mut report = restored.report.clone();
         report["directory"] = json!(self.options.directory);
         report["generation"] = json!(m.generation);

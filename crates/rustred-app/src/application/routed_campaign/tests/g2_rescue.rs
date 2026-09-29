@@ -85,12 +85,31 @@ fn run_activation_order(g2_first: bool, activate_before_rescue: bool) {
     assert!(initial["frontiers"].as_u64().unwrap() >= 2);
     if activate_before_rescue {
         assert!(!g2_first);
+        let before = manifest(&directory);
         first.checkpoint.as_mut().unwrap().resume = true;
         first.g2_residual_anchors = OwnerDomainWalkG2ResidualAnchors::Union;
         first.g2_activate_on_resume = true;
-        let (_, events) = walk(first.clone());
+        let (activated, events) = walk(first.clone());
         assert!(events.iter().any(|event| event["event"] == "g2_activated"));
+        assert_eq!(activated["committed_domains"], initial["committed_domains"]);
+        let after = manifest(&directory);
+        assert!(after["generation"].as_u64().unwrap() > before["generation"].as_u64().unwrap());
+        assert_ne!(after["request"], before["request"]);
+        assert!(after["sections"]["anchors"].is_object());
+        let activation = &after["metadata"]["g2_activation"];
+        assert_eq!(activation["from"], "off");
+        assert_eq!(activation["to"], "union");
+        assert_eq!(activation["binding_before"], before["request"]);
+        assert_eq!(activation["binding_after"], after["request"]);
+        assert_eq!(activated["checkpoint"]["g2_activation"], *activation);
         first.g2_activate_on_resume = false;
+        // Prove the durable zero-work activation can resume normally before
+        // any amendment (whose own dirty flag would otherwise hide the bug).
+        let (ordinary, events) = walk(first.clone());
+        assert_eq!(ordinary["committed_domains"], initial["committed_domains"]);
+        assert_eq!(ordinary["checkpoint"]["g2_activation"], *activation);
+        assert!(events.iter().all(|event| event["event"] != "g2_activated"));
+        assert_eq!(manifest(&directory)["generation"], after["generation"]);
     }
     let original_binding = manifest(&directory)["request"].as_str().unwrap().to_owned();
     let amendment = amendment(&original_binding);

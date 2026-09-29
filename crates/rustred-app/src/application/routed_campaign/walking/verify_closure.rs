@@ -2251,6 +2251,19 @@ fn verify<const N: usize>(
     for (index, query) in queries.iter().enumerate() {
         let entry = loaded.raw.inputs.get(index);
         let record = entry.and_then(|e| e["domain"].as_u64()).map(|r| r as usize);
+        // Derive phase from the immutable request and independently prepared
+        // owner registry, never from the record being authenticated. Initial
+        // queries and amendments have different missing-owner admission rules.
+        let installed = reducer
+            .programs()
+            .owner_sectors()
+            .any(|owner| owner.as_slice() == query.owner.as_slice());
+        let phase = query_root_phase(
+            installed,
+            request.route_domain_overcover,
+            reducer.domain_routing_requires_source_conditions(),
+            amendment_of[index].is_some(),
+        );
         if entry.and_then(|e| e["id"].as_str()) != Some(query.id.as_str()) {
             violations.add("root_mapping", || {
                 format!("saved input {index} is not query {}", query.id)
@@ -2275,7 +2288,13 @@ fn verify<const N: usize>(
                 continue;
             };
             admitting.entry(record).or_insert(index);
-            if !containment.contains(&ccell(&loaded.domains[record]), &query_cell(query)) {
+            if !query_root_matches(
+                &loaded.domains[record],
+                phase,
+                &query_cell(query),
+                false,
+                &containment,
+            ) {
                 violations.add("root_mapping", || {
                     format!(
                         "amended query {} is not contained in record {record}",
@@ -2294,14 +2313,14 @@ fn verify<const N: usize>(
             continue;
         };
         let query_cell = query_cell(query);
-        let record_cell = ccell(&loaded.domains[record]);
         let first = *admitting.entry(record).or_insert(index) == index;
-        let ok = loaded.domains[record].phase() == Phase::Apply
-            && if first {
-                record_cell == query_cell
-            } else {
-                containment.contains(&record_cell, &query_cell)
-            };
+        let ok = query_root_matches(
+            &loaded.domains[record],
+            phase,
+            &query_cell,
+            first,
+            &containment,
+        );
         if !ok {
             violations.add("root_mapping", || {
                 format!(
@@ -2662,6 +2681,41 @@ fn query_cell(query: &matching::input::Query) -> Cell {
         upper: query.upper.clone(),
         rank: query.rank,
         powers: query.powers,
+    }
+}
+
+/// Independent statement of initial admission and rescue amendment policy.
+/// Missing-owner originals may be inspected as Apply without overcover;
+/// amendments must name an installed owner or an unconditional Route scope.
+fn query_root_phase(
+    installed: bool,
+    overcover: bool,
+    source_conditions: bool,
+    amended: bool,
+) -> Option<Phase> {
+    match (installed, overcover, source_conditions, amended) {
+        (true, _, _, _) => Some(Phase::Apply),
+        (false, true, false, _) => Some(Phase::Route),
+        (false, false, _, false) => Some(Phase::Apply),
+        _ => None,
+    }
+}
+
+fn query_root_matches<const N: usize>(
+    record: &CompactDomain<N>,
+    expected_phase: Option<Phase>,
+    query: &Cell,
+    first_original: bool,
+    containment: &Containment,
+) -> bool {
+    if expected_phase != Some(record.phase()) {
+        return false;
+    }
+    let recorded = ccell(record);
+    if first_original {
+        recorded == *query
+    } else {
+        containment.contains(&recorded, query)
     }
 }
 
@@ -3510,6 +3564,86 @@ mod tests {
             .iter()
             .map(|d| CompactDomain::try_from_domain(d).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn query_root_phase_distinguishes_originals_amendments_and_source_refusals() {
+        for overcover in [false, true] {
+            for source_conditions in [false, true] {
+                for amended in [false, true] {
+                    assert_eq!(
+                        query_root_phase(true, overcover, source_conditions, amended),
+                        Some(Phase::Apply)
+                    );
+                }
+            }
+        }
+        for (overcover, source_conditions, amended, expected) in [
+            (false, false, false, Some(Phase::Apply)),
+            (false, true, false, Some(Phase::Apply)),
+            (true, false, false, Some(Phase::Route)),
+            (true, true, false, None),
+            (false, false, true, None),
+            (false, true, true, None),
+            (true, false, true, Some(Phase::Route)),
+            (true, true, true, None),
+        ] {
+            assert_eq!(
+                query_root_phase(false, overcover, source_conditions, amended),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn query_root_mapping_rejects_wrong_phase_even_with_identical_geometry() {
+        let containment = Containment::new(256, 4096);
+        let apply = domain(0, Some(3));
+        let mut route = apply.clone();
+        route.phase = Phase::Route;
+        let records = compact(&[apply, route]);
+        let query = ccell(&records[0]);
+        for first_original in [false, true] {
+            for (id, phase) in [(0, Phase::Apply), (1, Phase::Route)] {
+                assert!(query_root_matches(
+                    &records[id],
+                    Some(phase),
+                    &query,
+                    first_original,
+                    &containment
+                ));
+                assert!(!query_root_matches(
+                    &records[1 - id],
+                    Some(phase),
+                    &query,
+                    first_original,
+                    &containment
+                ));
+                assert!(!query_root_matches(
+                    &records[id],
+                    None,
+                    &query,
+                    first_original,
+                    &containment
+                ));
+            }
+        }
+        let mut smaller = query.clone();
+        smaller.lower[0] = 1;
+        assert!(!query_root_matches(
+            &records[0],
+            Some(Phase::Apply),
+            &smaller,
+            true,
+            &containment
+        ));
+        assert!(query_root_matches(
+            &records[0],
+            Some(Phase::Apply),
+            &smaller,
+            false,
+            &containment
+        ));
     }
 
     fn row(id: usize, kind: &str, domain: &Domain<2>, extra: Value) -> RecordRow {
