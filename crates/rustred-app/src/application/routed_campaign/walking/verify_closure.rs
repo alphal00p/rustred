@@ -2538,7 +2538,15 @@ fn verify<const N: usize>(
         }
         root_of_query.push(Some(record));
     }
-    if cp6 && (admitting.len() != initial_count || admitting.keys().copied().ne(0..initial_count)) {
+    // Rescue amendments may admit new roots beyond the protected initial
+    // prefix. Keep those mappings for certification below, but require only
+    // the original prefix to have a complete set of admitting queries here.
+    if cp6
+        && admitting
+            .range(..initial_count)
+            .map(|(&id, _)| id)
+            .ne(0..initial_count)
+    {
         violations.add("root_mapping", || {
             "CP6 protected prefix contains an ID without an admitting query".into()
         });
