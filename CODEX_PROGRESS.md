@@ -87,6 +87,32 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 12:46 UTC — user sets 3–4 hour stable-delivery window
+
+- Latest directive recorded verbatim in the plan; target handoff 15:46 UTC,
+  hard cutoff 16:46 UTC. It supersedes waiting for every experimental idea.
+  Prioritize a usable tested legacy G2/rescue + reviewed small-optimization
+  build; retain unfinished Epoch integration separately. Resume is not ruled
+  out for the legacy release, but requires a passing upgrade/replay check;
+  future Epoch deployment needs a fresh campaign. LC2 stays untouched.
+- All three current subagent turns terminated with account-quota errors.
+  Their already frozen reviewed work and receipts are retained. Root can
+  consolidate that work; new independently audited features cannot be
+  promised while this persists. G2-Epoch source worktree remains clean, with
+  its pre-edit implementation contract preserved. No half-enabled feature.
+- [M] The executor loss also removed the original build guard/session while
+  its exact Cargo PG235042 and rustc235283 remained alive (Cargo reparented to
+  PID1). Root verified their fixed source/command and recovered resource/lock
+  monitoring through the existing guard at
+  `TMP/codex-epoch-s3.JjASCU/public-9ecad89f-build-recovered/`, root session89700.
+  Recovery helper `TMP/codex-integration/adopt_235042_build.py` waits for that
+  exact group to drain, forwards stop/headroom signals to it, then reruns the
+  identical Cargo command incrementally for a witnessed exit. The original
+  missing result is **not** a PASS; no build/cache/source or production
+  process is replaced. Compilation remains separate from solver timings.
+- Progress/audit documentation through 12:12 was committed and pushed as
+  `0283fb8d`; unrelated main changes remain preserved.
+
 ### 2026-09-29 12:12 UTC — composition review and comparison-tool source gate
 
 - [M] Root revalidated live native-build PID/PG235042 at 12:10 and 12:12; the exact `9ecad89f` validation worktree remains clean. Compilation continues, not a test/performance PASS. The previous turn made implementation/typecheck progress; this interval supplies verified waiting plus concrete composition findings, not another claimed implementation milestone.

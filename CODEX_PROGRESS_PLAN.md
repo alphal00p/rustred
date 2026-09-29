@@ -148,3 +148,39 @@ configuration and a graceful save/drain with the old campaign retained for
 rollback. Fresh recomputation remains acceptable; no checkpoint-compatibility
 project is required. Correctness, performance and scoped-closure requirements
 elsewhere in this plan remain unchanged.
+
+## September 29 delivery timebox: stable consolidation within 3–4 hours
+
+The user's subsequent directive, verbatim:
+
+> Alright continue with the progress of the plan and goal, but due to quota limitation I would like you to be able to deliver a consolidated version in the next 3 to 4 hours maximum. What do you think you can still afford to implement and complete given that constraint. At the end of that timelapse I would like a cleaned-up stable push from which I can either resume the existing campaign or start a new one (which I think starting a new one will be needed right). Give me your assesment of what you can cover within that timespan (hopefully all, or if not what you think you'll need to leave out).
+
+This overrides waiting for every remaining experimental avenue before a usable
+release. Start the delivery window at 2026-09-29 12:46 UTC: target handoff by
+15:46 UTC and hard cutoff 16:46 UTC. Do not spend the remaining window on new
+speculative features. Freeze the release source early enough to complete the
+optimized build, native/CLI/Python and cold controls, measured comparison,
+documentation and push. Keep LC2 untouched and leave launch/resume to the user.
+
+Prioritize the already validated legacy G2/rescue implementation, then the
+independently reviewed and natively tested geometry-buffer and lean-telemetry
+changes. These form the fallback production release. An optimization not ready
+in time is omitted rather than weakening its tests. Existing component gains
+are not a new consolidated-build measurement.
+
+Preserve current Epoch work on clearly experimental branches with exact test
+status. Finish the running frozen-candidate validation if feasible, but do not
+require completion of Epoch G2/rescue composition, bulk merge, rolling scheduling
+or its 1.5x deployment gate for this timeboxed handoff. These remain backlog,
+not silently completed or default-enabled. No fresh CAS/reconstruction work.
+
+Try the existing cheap, tested legacy resume/upgrade mechanism on a copied
+checkpoint; recommend resume only on a passing compatibility/replay check.
+Otherwise prepare a fresh campaign and rollback instructions. A future Epoch
+deployment needs a fresh campaign; that is not automatically required for the
+legacy fallback. Report the distinction explicitly.
+
+At handoff, deliver a stable pushed revision, frozen executable and exact
+Nix/build/launch instructions, measured versus unmeasured benefits, disposition
+of each remaining avenue, retained old campaign/checkpoint, and concise next
+steps. Do not claim five-loop closure or an ETA from pilot success.

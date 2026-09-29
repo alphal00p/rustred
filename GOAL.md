@@ -1,5 +1,18 @@
 # RustRed project goal
 
+## September 29 latest directive: timeboxed stable delivery
+
+Deliver a consolidated stable push within 3–4 hours of 12:46 UTC (target
+15:46 UTC, hard cutoff 16:46 UTC), following the latest section of
+`CODEX_PROGRESS_PLAN.md`. This supersedes waiting for every remaining
+experimental improvement before release. Prioritize validated G2/rescue plus
+reviewed geometry and coordinator optimizations, actual release/cold/steering
+checks, frozen executable, launch or tested resume instructions and rollback.
+Preserve unfinished Epoch work separately; do not enable it without its gates.
+No new speculative feature work during this window. LC2 remains untouched.
+The broad exact scoped-closure objective below remains active, but this
+handoff is a stable deployment milestone, not a claim of five-loop closure.
+
 ## September 29 latest follow-up: consolidated build before restart
 
 The user permits a future campaign restart but asks to put all improvement
