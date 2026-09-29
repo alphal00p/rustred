@@ -115,6 +115,26 @@ impl<const N: usize> InitialOverlapIndex<N> {
         self.report
     }
 
+    /// Drop the anchors `exclude` names (the rescue quarantine, `rescue.rs`):
+    /// a quarantined initial domain never lends its high-D slice. Membership
+    /// (initial domains are never planned) is unchanged.
+    pub fn without_anchors(mut self, exclude: &dyn Fn(usize) -> bool) -> Self {
+        let mut removed = 0;
+        for anchors in self.anchors.values_mut() {
+            let before = anchors.len();
+            anchors.retain(|anchor| !exclude(anchor.id));
+            removed += before - anchors.len();
+        }
+        self.anchors.retain(|_, anchors| !anchors.is_empty());
+        self.report.usable_anchors -= removed;
+        if self.report.status == InitialOverlapBuildStatus::Active
+            && self.report.usable_anchors == 0
+        {
+            self.report.status = InitialOverlapBuildStatus::NoUsableAnchors;
+        }
+        self
+    }
+
     fn entry_bytes() -> usize {
         // Logical entry payload only, not allocator overhead or RSS. Domain
         // coordinate allocations are shared by Arc, never cloned into the index.

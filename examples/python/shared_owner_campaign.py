@@ -9,6 +9,7 @@ The 15-hour objective is telemetry, NOT a timeout. No license is persisted.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 from collections import deque
 from contextlib import contextmanager
@@ -46,6 +47,10 @@ _HEARTBEAT_SPEC = importlib.util.spec_from_file_location(
     "heartbeat_metrics", Path(__file__).with_name("heartbeat_metrics.py"))
 HEARTBEAT = importlib.util.module_from_spec(_HEARTBEAT_SPEC)
 _HEARTBEAT_SPEC.loader.exec_module(HEARTBEAT)
+_ROLES_SPEC = importlib.util.spec_from_file_location(
+    "owner_query_roles", Path(__file__).with_name("owner_query_roles.py"))
+ROLES = importlib.util.module_from_spec(_ROLES_SPEC)
+_ROLES_SPEC.loader.exec_module(ROLES)
 # Aggregate outer compute workers admitted by the Python drivers; the native
 # CLI has its own cap, and the permitted CPU affinity always bounds this.
 MAX_WORKERS = 256
@@ -100,7 +105,10 @@ def restart_command(args, output: Path, checkpoint: str, cpus: set[int]) -> list
         else:
             for item in value if isinstance(value, list) else [value]:
                 command += [option, str(item.resolve() if isinstance(item, Path) else item)]
-    destination = output.with_name(output.name + ".resume-" + uuid.uuid4().hex[:12])
+    # Flat names: an automatic rescue loop resumes many times, and nested
+    # `.resume-` suffixes would outgrow the file-name limit.
+    base = output.name.split(".resume-", 1)[0]
+    destination = output.with_name(base + ".resume-" + uuid.uuid4().hex[:12])
     command += ["--cpus", ",".join(map(str, sorted(cpus))), "--resume", checkpoint,
                 "--run-directory", str(destination)]
     return command
@@ -505,6 +513,149 @@ class RamGuard:
                 "own_memory_signal": bool(swapping or (share is not None and share >= OWN_MEMORY_SHARE))}
 
 
+# Resume-time frontier rescue (owner requirement 2026-09-28: a frontier with a
+# known rescue never ends the campaign). On a native frontier stop the
+# supervisor runs `rustred walk-rescue-plan`; a known class yields the next
+# digest-chained amendment (or none when no physics query is blocked) and an
+# automatic resume with every amendment; an unknown class, an exhausted rescue
+# or the attempt bound stops and waits for the owner. Receipts: the run
+# directory's rescue.json and the amendments directory's rescues.jsonl.
+FRONTIER_STOP_REASON = "frontier_policy"
+DEFAULT_MAX_RESCUES = 32
+DEFAULT_HELPER_ID_PREFIX = "anchor"
+RESCUE_LOG = "rescues.jsonl"
+RESCUE_RESUME_VERDICTS = ("rescue", "no_amendment_needed")
+
+
+def default_amendments_directory(checkpoint) -> Path:
+    """Amendments live beside the checkpoint (never inside the native's directory)."""
+    checkpoint = Path(checkpoint).resolve()
+    return checkpoint.with_name(checkpoint.name + ".amendments")
+
+
+def rescue_attempts(directory: Path) -> int:
+    """Automatic resumes already taken (rescues.jsonl rows with action resume)."""
+    log = directory / RESCUE_LOG
+    if not log.is_file():
+        return 0
+    count = 0
+    for line in log.read_text().splitlines():
+        try:
+            count += json.loads(line).get("action") == "resume"
+        except (ValueError, AttributeError):
+            continue
+    return count
+
+
+def native_frontier_stop(output: Path, status: int) -> bool:
+    """Whether the native session paused on the A10 frontier stop (exit 4)."""
+    return native_rescue_trigger(output, status) == "frontier_stop"
+
+
+def native_rescue_trigger(output: Path, status: int):
+    """Why a rescue plan is due after this native session, or None.
+
+    "frontier_stop": paused on the A10 frontier stop. "drained_with_frontiers":
+    the worklist drained (exit 4, status incomplete) with frontiers left, so a
+    physics query may still be blocked (e.g. a taint that no later stop saw).
+    """
+    if status != 4:
+        return None
+    try:
+        document = json.loads((output / "result.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if document.get("status") == "paused" and document.get("stop_reason") == FRONTIER_STOP_REASON:
+        return "frontier_stop"
+    if (document.get("status") == "incomplete" and document.get("recursive_worklist_exhausted") is True
+            and (document.get("frontiers") or 0) > 0 and document.get("error") is None):
+        return "drained_with_frontiers"
+    return None
+
+
+def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_id_prefix: str,
+                rescue_helpers, env, max_rescues: int, attempts: int, runner=subprocess.run,
+                trigger: str = "frontier_stop", scope: str = "class") -> dict:
+    """Classify the frontier stop of the run in `output` and prepare the next resume.
+
+    Returns the rescue receipt: action "resume" (with the new amendment path,
+    if any) or "wait_for_owner" with the reason. Never touches the checkpoint.
+    """
+    receipt = {"schema": "rustred.frontier-rescue-receipt.v1", "unix_time": time.time(),
+               "run_directory": str(output), "trigger": trigger, "attempt": attempts + 1, "max_rescues": max_rescues,
+               "helper_id_prefix": helper_id_prefix, "rescue_helpers": None if rescue_helpers is None else str(rescue_helpers),
+               "family_closure_claim": False}
+    if attempts >= max_rescues:
+        receipt.update(action="wait_for_owner", reason=f"automatic rescue attempts exhausted ({attempts} of {max_rescues})")
+        return receipt
+    amendments_directory.mkdir(parents=True, exist_ok=True)
+    pending = amendments_directory / ".pending-amendment.json"
+    pending.unlink(missing_ok=True)
+    plan_path = output / "rescue-plan.json"
+    command = [str(executable), "walk-rescue-plan", "--command", str(output / "request.json"),
+               "--helper-id-prefix", helper_id_prefix, "--output", str(plan_path),
+               "--amendment-output", str(pending), "--rescue-scope", scope]
+    if rescue_helpers is not None:
+        command += ["--rescue-helpers", str(Path(rescue_helpers).resolve())]
+    receipt["planner_command"] = command
+    started = time.monotonic()
+    completed = runner(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    receipt["planner_seconds"] = time.monotonic() - started
+    receipt["planner_exit_status"] = completed.returncode
+    try:
+        plan = json.loads(plan_path.read_text())
+    except (OSError, ValueError) as error:
+        receipt.update(action="wait_for_owner", reason=f"rescue planner produced no plan ({error}); "
+                       f"stderr: {completed.stderr.strip()[-2000:]}")
+        return receipt
+    receipt["plan"] = {key: plan.get(key) for key in (
+        "verdict", "reason", "frontier_nodes", "frontier_records", "classes", "tainted_nodes",
+        "helper_roots_tainted", "physics_queries", "physics_blocked", "unknown_examples", "rescue_level",
+        "rescue_scope", "superseded")}
+    receipt["plan_path"] = str(plan_path)
+    verdict = plan.get("verdict")
+    if trigger == "drained_with_frontiers" and verdict == "no_amendment_needed":
+        # Drained: every physics query has an untainted (hence closed) root.
+        receipt.update(action="complete", reason="drained; every physics query has an untainted containing "
+                       "root; the remaining frontiers lie in quarantined helper cones")
+        return receipt
+    if verdict not in RESCUE_RESUME_VERDICTS:
+        receipt.update(action="wait_for_owner",
+                       reason=f"frontier rescue refused: {verdict}: {plan.get('reason')}")
+        return receipt
+    receipt["action"] = "resume"
+    receipt["amendment"] = None
+    if verdict == "rescue":
+        amendment = plan["amendment"]
+        text = pending.read_bytes()
+        digest = hashlib.blake2b(text, digest_size=16).hexdigest()  # file identity for the receipt only
+        final = amendments_directory / f"amendment-{amendment['sequence']:04d}.json"
+        if final.exists():
+            if final.read_bytes() != text:
+                receipt.update(action="wait_for_owner",
+                               reason=f"{final} already exists with other content; refusing to rewrite an amendment")
+                return receipt
+            pending.unlink()
+        else:
+            os.replace(pending, final)
+            final.chmod(0o444)
+        receipt["amendment"] = {"path": str(final), "sequence": amendment["sequence"],
+                                "digest_blake3": amendment["digest"], "parent": amendment["parent"],
+                                "queries": amendment["queries"], "file_blake2b_128": digest,
+                                "helpers": amendment.get("helpers")}
+    return receipt
+
+
+def record_rescue(amendments_directory: Path, output: Path, receipt: dict) -> None:
+    """Write the run's rescue receipt and append it to the campaign rescue log."""
+    (output / "rescue.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    amendments_directory.mkdir(parents=True, exist_ok=True)
+    with (amendments_directory / RESCUE_LOG).open("a") as log:
+        log.write(json.dumps(receipt, sort_keys=True) + "\n")
+        log.flush()
+        os.fsync(log.fileno())
+
+
 @contextmanager
 def owned_process(command, env, cpus, request_stop, child_address_space=None, stdout=None, stderr=None):
     """Own the child's entire post-spawn lifetime, including receipt failures."""
@@ -618,6 +769,27 @@ def main() -> int:
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--" + DOMAIN.JOINT_SUPPORT_PRUNING, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
                         help="opt into joint source-support mask pruning; requires --queries and route overcover; default off")
+    parser.add_argument("--amend-queries", type=Path, action="append", default=[],
+                        help="resume-time rescue amendment (repeatable, chain order; requires --resume and --queries): "
+                             "append-only, digest-chained protected queries")
+    parser.add_argument("--auto-rescue", action="store_true",
+                        help="on a native frontier stop, classify the frontiers (rustred walk-rescue-plan) and, for a "
+                             "known class, write the next amendment and resume automatically; an unknown class stops "
+                             "and waits for the owner; requires --frontier-policy stop and a checkpoint")
+    parser.add_argument("--rescue-helpers", type=Path,
+                        help="optional query document of preferred rescue helpers (e.g. plan-v3); requires --auto-rescue")
+    parser.add_argument("--helper-id-prefix", default=DEFAULT_HELPER_ID_PREFIX,
+                        help=f"cosmetic prefix for new auxiliary IDs (default: {DEFAULT_HELPER_ID_PREFIX}); "
+                             "scope comes only from the immutable query_roles declaration")
+    parser.add_argument("--rescue-scope", choices=("class", "tainted"), default="class",
+                        help="class (default): a known-class frontier supersedes every open helper root unbounded in "
+                             "that class's dimension and re-covers its physics queries with bounded helpers (no "
+                             "cascade); tainted: re-cover only the physics queries whose roots reach the frontier")
+    parser.add_argument("--max-rescues", type=positive, default=DEFAULT_MAX_RESCUES,
+                        help=f"automatic rescue resumes per campaign (default: {DEFAULT_MAX_RESCUES}); counted in the "
+                             "amendments directory")
+    parser.add_argument("--amendments-directory", type=Path,
+                        help="where rescue amendments and rescues.jsonl live (default: <checkpoint>.amendments)")
     parser.add_argument("--no-progress", action="store_true")
     args = parser.parse_args()
     symbolic = args.queries is not None
@@ -651,6 +823,18 @@ def main() -> int:
                                        args.apply_subdivision_axis is not None)
     DOMAIN.validate_frontier_policy(parser, args.frontier_policy,
                                     args.checkpoint is not None or args.resume is not None)
+    if args.amend_queries and (not symbolic or args.resume is None):
+        parser.error("--amend-queries requires --queries and --resume")
+    if args.auto_rescue and (args.frontier_policy != "stop" or not symbolic
+                             or (args.checkpoint is None and args.resume is None)):
+        parser.error("--auto-rescue requires --queries, --frontier-policy stop and --checkpoint or --resume")
+    if args.rescue_helpers is not None and not args.auto_rescue:
+        parser.error("--rescue-helpers requires --auto-rescue")
+    if not args.helper_id_prefix:
+        parser.error("--helper-id-prefix must be nonempty")
+    for path in [*args.amend_queries, *([args.rescue_helpers] if args.rescue_helpers else [])]:
+        if not path.is_file():
+            parser.error(f"not a file: {path}")
     if not math.isfinite(args.swap_growth_stop_seconds) or args.swap_growth_stop_seconds <= 0:
         parser.error("swap-growth stop window must be positive and finite")
     affinity = os.sched_getaffinity(0)
@@ -711,6 +895,11 @@ def main() -> int:
     for path in inputs:
         if not path.is_file():
             parser.error(f"not a file: {path}")
+    if args.auto_rescue or args.amend_queries:
+        try:
+            ROLES.query_roles(ROLES.loads_document(args.queries.read_text()), require_explicit=True)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(str(error))
     if args.run_directory is not None:
         output = args.run_directory.resolve()
         try:
@@ -744,6 +933,8 @@ def main() -> int:
                             str(value.resolve()) if isinstance(value, Path) else str(value)]
         if args.unbounded_work:
             command.append("--unbounded-work")
+        for amendment in args.amend_queries:
+            command += ["--amend-queries", str(amendment.resolve())]
     else:
         command += ["--targets", str(args.targets.resolve())]
         for option, default in FINITE_ALLOWANCES.items():
@@ -757,6 +948,10 @@ def main() -> int:
     command.append("--no-progress")
     checkpoint_directory = args.checkpoint or args.resume
     checkpoint_directory = str(checkpoint_directory.resolve()) if checkpoint_directory is not None else None
+    amendments_directory = None
+    if args.auto_rescue:
+        amendments_directory = (args.amendments_directory.resolve() if args.amendments_directory is not None
+                                else default_amendments_directory(checkpoint_directory))
     # Never include the process environment or license in provenance.
     (output / "request.json").write_text(json.dumps({
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
@@ -786,6 +981,12 @@ def main() -> int:
         "apply_cell_refinement_max_cardinality": args.apply_cell_refinement_max_cardinality,
         "apply_subdivision": None if args.apply_subdivision_axis is None else {
             "axis": args.apply_subdivision_axis, "cut": args.apply_subdivision_cut},
+        "amend_queries": [str(path.resolve()) for path in args.amend_queries],
+        "auto_rescue": None if not args.auto_rescue else {
+            "helper_id_prefix": args.helper_id_prefix, "max_rescues": args.max_rescues,
+            "rescue_scope": args.rescue_scope,
+            "rescue_helpers": None if args.rescue_helpers is None else str(args.rescue_helpers.resolve()),
+            "amendments_directory": str(amendments_directory) if amendments_directory else None},
         "work_checkpoint": False, "family_closure_claim": False,
     }, indent=2) + "\n")
     env = dict(os.environ)
@@ -1025,6 +1226,36 @@ def main() -> int:
         "ram_guard_margin_percent": args.ram_guard_margin_percent,
         "rust_result_present": (output / "result.json").is_file(),
     }, indent=2) + "\n")
+    # Frontier rescue: a frontier stop with a known rescue is a pause, never
+    # the end of the campaign (owner requirement 2026-09-28).
+    trigger = native_rescue_trigger(output, status) if args.auto_rescue else None
+    if trigger and stop_reason is None and not hard_stopped and checkpoint_directory:
+        receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_id_prefix,
+                              args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory),
+                              trigger=trigger, scope=args.rescue_scope)
+        if receipt["action"] == "complete":
+            record_rescue(amendments_directory, output, receipt)
+            print("Frontier rescue: " + receipt["reason"], flush=True)
+        elif receipt["action"] == "resume":
+            if receipt["amendment"] is not None:
+                args.amend_queries = [*args.amend_queries, Path(receipt["amendment"]["path"])]
+            restart = restart_command(args, output, checkpoint_directory, cpus)
+            receipt["resume_command"] = restart
+            record_rescue(amendments_directory, output, receipt)
+            print(f"Frontier stop rescued automatically (attempt {receipt['attempt']}, "
+                  f"{receipt['plan']['verdict']}): {receipt['plan']['reason']}", flush=True)
+            if receipt["amendment"] is not None:
+                print(f"Amendment {receipt['amendment']['sequence']}: {receipt['amendment']['path']}", flush=True)
+            print("Resuming: " + shlex.join(restart), flush=True)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.execv(restart[0], restart)
+        else:
+            record_rescue(amendments_directory, output, receipt)
+            print("FRONTIER RESCUE: the campaign is paused and WAITS FOR THE OWNER. " + receipt["reason"],
+                  file=sys.stderr, flush=True)
+            print(f"Rescue receipt: {output / 'rescue.json'}; plan: {receipt.get('plan_path')}",
+                  file=sys.stderr, flush=True)
     if resume_command:
         print(f"Durable checkpoint: {checkpoint_directory}", flush=True)
         print("Resume with fresh receipts: " + shlex.join(resume_command), flush=True)

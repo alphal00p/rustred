@@ -48,13 +48,22 @@ import time
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent", "host_memory_reserve_bytes",
                       "swap_growth_stop_bytes_per_second", "swap_growth_stop_seconds")
 OPTIONAL_RAM_POLICY_OPTIONS = RAM_POLICY_OPTIONS[2:]
-STEERING_SCHEMA = "rustred.production-steering.v3"
-STEERING_SCHEMAS = ("rustred.production-steering.v1", "rustred.production-steering.v2", STEERING_SCHEMA)
+# Frontier rescue (schema v5, explicit query roles): new campaigns resume automatically after a
+# frontier stop of a known class (supervisor --auto-rescue); amendments live
+# in <campaign>/amendments and are re-supplied on every --resume. Steering
+# written before v4 keeps its historical argv (no auto-rescue).
+RESCUE_OPTIONS = ("auto_rescue", "helper_id_prefix", "max_rescues")
+DEFAULT_HELPER_ID_PREFIX = "owner-anchor-"
+DEFAULT_MAX_RESCUES = 32
+AMENDMENTS_DIRECTORY = "amendments"
+STEERING_SCHEMA = "rustred.production-steering.v5"
+STEERING_SCHEMAS = ("rustred.production-steering.v1", "rustred.production-steering.v2",
+                    "rustred.production-steering.v3", STEERING_SCHEMA)
 FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_bytes",
                   "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
                   "apply_cell_refinement_max_cardinality", "publication_policy",
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy",
-                  *OPTIONAL_RAM_POLICY_OPTIONS)
+                  *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
 # A10: new campaigns save and stop at the first frontier; steering written
 # before the option existed keeps its historical (record) native argv.
@@ -660,6 +669,7 @@ def verify_query_override(path, masks):
                 raise ValueError(f"query row {index} {name} must be an arity-{arity} list")
         if not isinstance(row["power_bounds"], dict):
             raise ValueError(f"query row {index} power_bounds must be an object")
+    SUPERVISOR.ROLES.query_roles(document)
     return len(document["queries"])
 
 
@@ -729,6 +739,10 @@ def frozen_options(policy):
         if name not in options:
             value = flag_value("--" + name.replace("_", "-"))
             options[name] = None if value is None else (float(value) if name == "swap_growth_stop_seconds" else int(value))
+    # Steering before v4 had no automatic frontier rescue.
+    options.setdefault("auto_rescue", False)
+    options.setdefault("helper_id_prefix", None)
+    options.setdefault("max_rescues", None)
     return options
 
 
@@ -757,6 +771,10 @@ def native_command(options, executable, inputs, count, size):
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if options[name] is not None:
             command += ["--" + name.replace("_", "-"), str(options[name])]
+    if options.get("auto_rescue"):
+        command += ["--auto-rescue", "--helper-id-prefix", options["helper_id_prefix"],
+                    "--max-rescues", str(options["max_rescues"]),
+                    "--amendments-directory", str(inputs.parent / AMENDMENTS_DIRECTORY)]
     return command
 
 
@@ -788,10 +806,14 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "transfer_unreserved_lookahead": 256, "frontier_policy": DEFAULT_FRONTIER_POLICY,
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
                 "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
-                "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS}
+                "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS,
+                "helper_id_prefix": DEFAULT_HELPER_ID_PREFIX, "max_rescues": DEFAULT_MAX_RESCUES}
     for name, default in defaults.items():
         if options[name] is None:
             options[name] = default
+    if options["auto_rescue"] is None:
+        # Rescue resumes after a frontier STOP; a record campaign never stops.
+        options["auto_rescue"] = options["frontier_policy"] == "stop"
     if not 1 <= options["workers"] <= MAX_WORKERS:
         raise ValueError(f"workers must be in 1..{MAX_WORKERS}")
     cpus = (SUPERVISOR.parse_cpu_set(options["cpus"]) if options["cpus"] else
@@ -803,6 +825,12 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         raise ValueError("publication policy must be ordered or ready")
     if options["frontier_policy"] not in ("record", "stop"):
         raise ValueError("frontier policy must be record or stop")
+    if options["auto_rescue"] and options["frontier_policy"] != "stop":
+        raise ValueError("automatic frontier rescue requires --frontier-policy stop (or --no-auto-rescue)")
+    if options["auto_rescue"] and (not options["helper_id_prefix"] or options["max_rescues"] < 1):
+        raise ValueError("automatic frontier rescue needs a nonempty --helper-id-prefix and --max-rescues >= 1")
+    if options["auto_rescue"]:
+        SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
     if options["publication_policy"] != "ordered" and options["apply_subdivision_axis"] is not None:
         raise ValueError("physical subdivision requires --publication-policy ordered")
     inspectors = options["inspection_workers"]
@@ -905,6 +933,18 @@ def main(argv=None):
     parser.add_argument("--frontier-policy", choices=("record", "stop"),
                         help=f"initial default: {DEFAULT_FRONTIER_POLICY} (save+stop at the first frontier, exit 4); "
                              "frozen for resume")
+    rescue = parser.add_mutually_exclusive_group()
+    rescue.add_argument("--auto-rescue", dest="auto_rescue", action="store_const", const=True, default=None,
+                        help="initial default with --frontier-policy stop: after a frontier stop of a known class the "
+                             "supervisor writes the next amendment (campaign/amendments) and resumes automatically; "
+                             "frozen for resume")
+    rescue.add_argument("--no-auto-rescue", dest="auto_rescue", action="store_const", const=False,
+                        help="freeze a campaign without automatic frontier rescue (a frontier stop waits for the owner)")
+    parser.add_argument("--helper-id-prefix",
+                        help=f"cosmetic prefix for appended auxiliary IDs; initial default: {DEFAULT_HELPER_ID_PREFIX}; "
+                             "scope comes only from the bound query_roles declaration")
+    parser.add_argument("--max-rescues", type=int,
+                        help=f"automatic rescue resumes per campaign; initial default: {DEFAULT_MAX_RESCUES}; frozen for resume")
     parser.add_argument("--apply-subdivision-axis", type=int)
     parser.add_argument("--apply-subdivision-cut", type=int)
     parser.add_argument("--apply-cell-refinement-max-cardinality", type=application_cardinality, action="append",
@@ -966,6 +1006,8 @@ def main(argv=None):
         # Read-only on --resume (steering must exist), so every frozen-option
         # refusal happens before an upgrade changes anything.
         policy = frozen_policy(campaign, args, executable, inputs, count, size)
+        if frozen_options(policy).get("auto_rescue"):
+            SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
         if args.upgrade_executable is not None:
             upgrade = plan_executable_upgrade(campaign, checkpoint, args.upgrade_executable,
                                               executable, executable_hash)
@@ -1005,6 +1047,11 @@ def main(argv=None):
     supervisor = Path(__file__).with_name("shared_owner_campaign.py").resolve()
     command = [sys.executable, str(supervisor), *command_arguments,
                "--run-directory", str(run), "--resume" if args.resume else "--checkpoint", str(checkpoint)]
+    # Every rescue amendment of the chain, in order (append-only; the native
+    # checks each digest against the checkpoint and applies unrecorded ones).
+    amendments = sorted((campaign / AMENDMENTS_DIRECTORY).glob("amendment-*.json")) if args.resume else []
+    for amendment in amendments:
+        command += ["--amend-queries", str(amendment)]
     attachments = receipt.get("attachments", [])
     entry_plan = next(({"path": str(inputs / row["path"]), "sha256": row["sha256"], "bytes": row["bytes"]}
                        for row in attachments if row.get("name") == ENTRY_PLAN_RECEIPT_NAME), None)
@@ -1022,6 +1069,8 @@ def main(argv=None):
             "transfer_unreserved_lookahead": options["transfer_unreserved_lookahead"],
             "inspection_workers": options["inspection_workers"],
             "frontier_policy": options["frontier_policy"],
+            "auto_rescue": {name: options[name] for name in RESCUE_OPTIONS},
+            "amendments": [str(path) for path in amendments],
             "requested_hard_memory_bytes": options["max_memory_bytes"],
             "ram_guard_margin_percent": options["ram_guard_margin_percent"],
             "supervisor_ram_policy": {name: options[name] for name in RAM_POLICY_OPTIONS},

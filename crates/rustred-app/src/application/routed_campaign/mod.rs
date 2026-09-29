@@ -23,16 +23,19 @@ pub use matching::{
 };
 pub(crate) use walking::DIAGNOSTIC_PAUSE_VARIABLE;
 pub use walking::{
-    MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT,
-    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
-    OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkApplySubdivision,
+    MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
+    OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
+    OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA,
+    OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkAmendment, OwnerDomainWalkApplySubdivision,
     OwnerDomainWalkCheckpointOptions, OwnerDomainWalkFrontierPolicy,
     OwnerDomainWalkG2ResidualAnchors, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRecords,
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    OwnerDomainWalkRequest, OwnerDomainWalkRescuePlan, OwnerDomainWalkRescuePlanOptions,
+    OwnerDomainWalkRescueScope, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
     OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
     OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
-    WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
-    owner_domain_walk_verify_closure, owner_domain_walk_with_progress,
+    OwnerDomainWalkVerifyScope, WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+    owner_domain_walk_rescue_plan, owner_domain_walk_verify_closure,
+    owner_domain_walk_with_progress,
 };
 #[cfg(test)]
 mod tests;

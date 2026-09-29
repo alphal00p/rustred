@@ -309,8 +309,6 @@ pub struct OwnerDomainWalkVerifyOptions {
     pub brute_force_point_budget: u64,
     pub require_closure: bool,
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
-    /// Query ids containing this substring are reported as helpers.
-    pub helper_pattern: String,
     pub max_violations: usize,
     /// A published result.json to bind to the checkpoint generation.
     pub result: Option<PathBuf>,
@@ -319,6 +317,19 @@ pub struct OwnerDomainWalkVerifyOptions {
     /// validation (`union_sample`; 0 disables), and its seed.
     pub union_sample: usize,
     pub union_sample_seed: u64,
+    /// Which roots a PASS requires (see `OwnerDomainWalkVerifyScope`).
+    pub certification_scope: OwnerDomainWalkVerifyScope,
+}
+
+/// Roots a `--require-closure` PASS certifies. `Auto` is `AllRoots` for an
+/// unamended walk and `PhysicsQueries` for a walk with rescue amendments:
+/// every required query (immutable exact-ID declaration) through its first
+/// closed containing input root; helper roots are reported, not required.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerDomainWalkVerifyScope {
+    Auto,
+    AllRoots,
+    PhysicsQueries,
 }
 impl OwnerDomainWalkVerifyOptions {
     pub fn new(checkpoint: impl Into<PathBuf>) -> Self {
@@ -330,12 +341,12 @@ impl OwnerDomainWalkVerifyOptions {
             brute_force_point_budget: 1 << 32,
             require_closure: false,
             mutation: None,
-            helper_pattern: "anchor".into(),
             max_violations: 200,
             result: None,
             reference_levers: OwnerDomainWalkVerifyReferenceLevers::Off,
             union_sample: 0,
             union_sample_seed: 1,
+            certification_scope: OwnerDomainWalkVerifyScope::Auto,
         }
     }
 }
@@ -402,6 +413,8 @@ struct Node {
     /// Alias representative or partial anchor.
     link: usize,
     cut: i64,
+    /// Rescue-abandoned (published without inspection; never re-inspected).
+    abandoned: bool,
 }
 impl Node {
     const MISSING: Self = Self {
@@ -414,6 +427,7 @@ impl Node {
         accepted: None,
         link: usize::MAX,
         cut: 0,
+        abandoned: false,
     };
     fn native(&self) -> bool {
         matches!(self.kind, Kind::Native | Kind::Partial | Kind::G2)
@@ -470,6 +484,10 @@ struct StatsRow {
 #[derive(Deserialize)]
 struct RecordRow {
     id: usize,
+    /// Absent only on a plain native record of a walk without a delegation
+    /// ledger (`execution.rs` writes it with the ledger; partial and
+    /// subdivided records always carry it).
+    #[serde(default = "native_inspection_kind")]
     record_kind: String,
     phase: String,
     owner: String,
@@ -495,6 +513,13 @@ struct RecordRow {
     initial_overlap: Option<OverlapRow>,
     #[serde(default)]
     g2_residual_anchors: Option<G2RecordRow>,
+    /// Rescue: an obligation published without inspection (`rescue.rs`).
+    #[serde(default)]
+    rescue_abandoned: Option<bool>,
+}
+
+fn native_inspection_kind() -> String {
+    "native_inspection".into()
 }
 
 fn cell<const N: usize>(domain: &Domain<N>) -> Cell {
@@ -851,7 +876,25 @@ fn record_node<const N: usize>(
         accepted: row.accepted_events,
         link: usize::MAX,
         cut: 0,
+        abandoned: row.rescue_abandoned == Some(true),
     };
+    if node.abandoned {
+        // Exactly one bookkeeping frontier, one accepted event, nothing else.
+        let marker = row.frontiers.as_deref().is_some_and(|f| {
+            f.len() == 1 && f[0]["kind"] == super::inspection::RESCUE_ABANDONED_KIND
+        });
+        if row.record_kind != "native_inspection"
+            || !marker
+            || node.error
+            || node.events != Some(1)
+            || node.successors.unwrap_or(0) != 0
+            || node.finished
+        {
+            violations.add("rescue_abandoned", || {
+                format!("record {id} is not a well-formed rescue-abandoned record")
+            });
+        }
+    }
     match row.record_kind.as_str() {
         "native_inspection" => {}
         "partial_initial_overlap_inspection" => {
@@ -1338,6 +1381,70 @@ fn targets_of<const N: usize>(ctx: &Ctx<'_, N>, id: usize) -> Vec<(usize, Phase,
         .collect()
 }
 
+/// Nodes with at least this many recorded targets get a `TargetIndex`.
+const WIDE_NODE_TARGETS: usize = 256;
+
+/// Candidate order for the coverage scan of a wide node (a rescue's dead
+/// prefix holder admits ~1M successors): targets with the admitted image
+/// first, then targets of the same phase and owner. Fingerprint collisions
+/// only reorder candidates; every candidate is still judged by the caller's
+/// exact inclusion, and the caller falls back to the full scan, so the
+/// verdict and the coverage tallies never depend on the index.
+struct TargetIndex {
+    exact: std::collections::HashMap<u64, usize>,
+    owners: std::collections::HashMap<u64, Vec<usize>>,
+}
+
+impl TargetIndex {
+    fn fingerprint(phase: Phase, cell: &Cell, image: bool) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        phase.hash(&mut hasher);
+        cell.owner.hash(&mut hasher);
+        if image {
+            cell.lower.hash(&mut hasher);
+            cell.upper.hash(&mut hasher);
+            cell.rank.hash(&mut hasher);
+            cell.powers.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    fn new(targets: &[(usize, Phase, Cell)]) -> Self {
+        let mut exact = std::collections::HashMap::with_capacity(targets.len());
+        let mut owners = std::collections::HashMap::<u64, Vec<usize>>::new();
+        for (index, (_, phase, cell)) in targets.iter().enumerate() {
+            exact
+                .entry(Self::fingerprint(*phase, cell, true))
+                .or_insert(index);
+            owners
+                .entry(Self::fingerprint(*phase, cell, false))
+                .or_default()
+                .push(index);
+        }
+        Self { exact, owners }
+    }
+
+    fn find(
+        &self,
+        phase: Phase,
+        inner: &Cell,
+        targets: &[(usize, Phase, Cell)],
+        fits: impl Fn(&(usize, Phase, Cell)) -> bool,
+    ) -> Option<usize> {
+        if let Some(&index) = self.exact.get(&Self::fingerprint(phase, inner, true))
+            && fits(&targets[index])
+        {
+            return Some(index);
+        }
+        self.owners
+            .get(&Self::fingerprint(phase, inner, false))?
+            .iter()
+            .copied()
+            .find(|&index| fits(&targets[index]))
+    }
+}
+
 /// Outcome of one reference inspection used to plan mutations: the admitted
 /// domains covered by exactly one recorded target of the parent, directly,
 /// and by no other target's alias chain (that edge is load-bearing).
@@ -1422,6 +1529,7 @@ fn reinspect<const N: usize>(
     }
     let domain = inspected_domain(ctx.loaded, id);
     let targets = targets_of(ctx, id);
+    let index = (targets.len() >= WIDE_NODE_TARGETS).then(|| TargetIndex::new(&targets));
     let mut events = 0u64;
     let mut successors = 0u64;
     let mut frontiers = 0u64;
@@ -1451,9 +1559,23 @@ fn reinspect<const N: usize>(
                 let fits = |(_, phase, outer): &(usize, Phase, Cell)| {
                     *phase == admitted.phase && ctx.containment.contains(outer, &inner)
                 };
-                if recent < targets.len() && fits(&targets[recent]) {
-                    local.covered_direct += 1;
-                } else if let Some(index) = targets.iter().position(fits) {
+                // Any fitting target covers; the candidate order (last match,
+                // the wide-node index, then the full scan resuming after the
+                // last match) only keeps a node with ~1M successors from
+                // going quadratic.
+                let found = if recent < targets.len() && fits(&targets[recent]) {
+                    Some(recent)
+                } else {
+                    index
+                        .as_ref()
+                        .and_then(|index| index.find(admitted.phase, &inner, &targets, &fits))
+                        .or_else(|| {
+                            (recent + 1..targets.len())
+                                .chain(0..recent.min(targets.len()))
+                                .find(|&index| fits(&targets[index]))
+                        })
+                };
+                if let Some(index) = found {
                     recent = index;
                     local.covered_direct += 1;
                 } else if alias_chain_covers(
@@ -1614,7 +1736,11 @@ fn run_reinspection<const N: usize>(
     let started = Instant::now();
     let nodes = &ctx.loaded.nodes;
     let total = nodes.len();
-    let candidates: Vec<usize> = (0..total).filter(|&id| nodes[id].native()).collect();
+    // Rescue-abandoned records were never inspected: nothing to re-derive
+    // (they never seal, so no certified cone contains one).
+    let candidates: Vec<usize> = (0..total)
+        .filter(|&id| nodes[id].native() && !nodes[id].abandoned)
+        .collect();
     let selected: Vec<usize> = match options.reinspect {
         OwnerDomainWalkVerifyReinspect::All => candidates.clone(),
         OwnerDomainWalkVerifyReinspect::None => Vec::new(),
@@ -1924,6 +2050,13 @@ fn verify<const N: usize>(
                 Kind::G2 => "g2_records",
             })
             .or_default() += 1;
+        if node.abandoned && (loaded.raw.amendments.is_empty() || !graph.out(id).is_empty()) {
+            violations.add("rescue_abandoned", || {
+                format!(
+                    "record {id}: rescue-abandoned outside an amended walk or with dependency edges"
+                )
+            });
+        }
         if (flag & FLAG_SEALED != 0) != sealed[id] {
             violations.add("seal_parity", || {
                 format!(
@@ -2049,6 +2182,56 @@ fn verify<const N: usize>(
         engine_open_oracle_closed += u64::from(!flag_closed && closed[id]);
     }
     let cyclic = graph.cyclic();
+    // Rescue amendments (`rescue.rs`): the command must name exactly the
+    // checkpoint's recorded chain, each file bound by its digest and chained
+    // from the request binding. Amended queries follow the original ones.
+    let amended = match request
+        .amendments
+        .iter()
+        .map(|a| super::rescue::parse(a, N))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            violations.add("amendment_chain", || error);
+            Vec::new()
+        }
+    };
+    {
+        if let Err(error) = super::rescue::check_chain(
+            &loaded.raw.amendments,
+            &amended,
+            &loaded.raw.request,
+            &queries,
+        ) {
+            violations.add("amendment_chain", || error);
+        } else if amended.len() != loaded.raw.amendments.len() {
+            violations.add("amendment_chain", || {
+                format!(
+                    "the command supplies {} amendments, the checkpoint records {}",
+                    amended.len(),
+                    loaded.raw.amendments.len()
+                )
+            });
+        }
+    }
+    let amended_start = queries.len();
+    let queries: Vec<&matching::input::Query> = queries
+        .iter()
+        .chain(amended.iter().flat_map(|a| a.queries.iter()))
+        .collect();
+    let amendment_of: Vec<Option<u64>> = (0..queries.len())
+        .map(|index| {
+            let mut offset = amended_start;
+            for amendment in &amended {
+                if index >= offset && index < offset + amendment.queries.len() {
+                    return Some(amendment.sequence);
+                }
+                offset += amendment.queries.len();
+            }
+            None
+        })
+        .collect();
     // Roots: every query's record, authenticated by the request binding.
     let mut root_of_query = Vec::new();
     let mut admitting = BTreeMap::<usize, usize>::new();
@@ -2068,6 +2251,36 @@ fn verify<const N: usize>(
             violations.add("root_mapping", || {
                 format!("saved input {index} is not query {}", query.id)
             });
+        }
+        if let Some(sequence) = amendment_of[index] {
+            // An amended query resolves to any admitted record (a new one, or
+            // an existing record outside the quarantine that contains it).
+            if entry.and_then(|e| e["amendment"].as_u64()) != Some(sequence) {
+                violations.add("root_mapping", || {
+                    format!(
+                        "saved input {index} is not amended query {} of amendment {sequence}",
+                        query.id
+                    )
+                });
+            }
+            let Some(record) = record.filter(|&r| r < total) else {
+                violations.add("root_mapping", || {
+                    format!("amended query {} has no record", query.id)
+                });
+                root_of_query.push(None);
+                continue;
+            };
+            admitting.entry(record).or_insert(index);
+            if !containment.contains(&ccell(&loaded.domains[record]), &query_cell(query)) {
+                violations.add("root_mapping", || {
+                    format!(
+                        "amended query {} is not contained in record {record}",
+                        query.id
+                    )
+                });
+            }
+            root_of_query.push(Some(record));
+            continue;
         }
         let Some(record) = record.filter(|&r| r < initial_count && r < total) else {
             violations.add("root_mapping", || {
@@ -2173,6 +2386,83 @@ fn verify<const N: usize>(
         root_state.insert(root, (closed[root], fully_reinspected));
         root_rows.push(row);
     }
+    // Certification scope. An amended walk (frontier rescue, `rescue.rs`)
+    // certifies PER REQUIRED QUERY (immutable exact-ID declaration): through
+    // the first input root, in input order, that is oracle-closed and
+    // contains the query (same phase as the query's own root; exact lattice
+    // inclusion). Only those certifying roots are required (roots_total);
+    // helper roots are reported separately and may stay open. A physics
+    // query without such a root requires its own root, which then fails.
+    let all_root_state = root_state.clone();
+    let physics_scope = match options.certification_scope {
+        OwnerDomainWalkVerifyScope::AllRoots => false,
+        OwnerDomainWalkVerifyScope::PhysicsQueries => true,
+        OwnerDomainWalkVerifyScope::Auto => !amended.is_empty(),
+    };
+    let mut physics_report = Value::Null;
+    let mut helper_report = Value::Null;
+    let root_state = if physics_scope {
+        let mut required = BTreeMap::new();
+        let (mut total_physics, mut certified) = (0usize, 0usize);
+        let mut uncertified = Vec::new();
+        let mut via_amendment = 0usize;
+        for (index, query) in queries.iter().enumerate() {
+            if query.auxiliary {
+                continue;
+            }
+            total_physics += 1;
+            let cell = query_cell(query);
+            let own = root_of_query[index];
+            let phase = own.map_or(Phase::Apply, |r| loaded.domains[r].phase());
+            let via = root_of_query.iter().enumerate().find_map(|(input, root)| {
+                let root = (*root)?;
+                (closed[root]
+                    && loaded.domains[root].phase() == phase
+                    && containment.contains(&ccell(&loaded.domains[root]), &cell))
+                .then_some((input, root))
+            });
+            match via {
+                Some((input, root)) => {
+                    certified += 1;
+                    via_amendment += usize::from(amendment_of[input].is_some());
+                    required.insert(root, all_root_state[&root]);
+                }
+                None => {
+                    if uncertified.len() < 1_000 {
+                        uncertified.push(query.id.clone());
+                    }
+                    if let Some(root) = own {
+                        required.insert(root, all_root_state[&root]);
+                    }
+                    if options.require_closure {
+                        violations.add("closure_required", || {
+                            format!("physics query {} has no closed containing root", query.id)
+                        });
+                    }
+                }
+            }
+        }
+        let helper_roots: std::collections::BTreeSet<usize> = queries
+            .iter()
+            .zip(&root_of_query)
+            .filter(|(query, _)| query.auxiliary)
+            .filter_map(|(_, root)| *root)
+            .collect();
+        let open: Vec<usize> = helper_roots
+            .iter()
+            .copied()
+            .filter(|&r| !closed[r])
+            .collect();
+        physics_report = json!({"total":total_physics,"certified":certified,
+            "certified_through_amended_roots":via_amendment,"uncertified":uncertified,
+            "certifying_roots":required.len()});
+        helper_report = json!({"total":helper_roots.len(),"closed":helper_roots.len() - open.len(),
+            "not_closed":open.iter().take(1_000).collect::<Vec<_>>(),"required":false,
+            "note":"helper roots are auxiliary; a frontier-bearing helper may stay uncertified once every physics query it held is certified through a closed containing root"});
+        required
+    } else {
+        root_state
+    };
     if options.require_closure {
         for (&root, &(is_closed, _)) in &root_state {
             if !is_closed {
@@ -2225,6 +2515,10 @@ fn verify<const N: usize>(
             root_state.len() - roots_not_independently_verified,
             root_state.len()
         ),
+        _ if options.require_closure && physics_scope => {
+            "no violation; every native re-inspected; every physics query certified through a closed, independently verified containing root (helper roots reported separately)"
+                .to_string()
+        }
         _ if options.require_closure => {
             "no violation; every native re-inspected; every root closed and independently verified"
                 .to_string()
@@ -2233,15 +2527,11 @@ fn verify<const N: usize>(
     };
     let mut classes = BTreeMap::<&str, BTreeMap<&str, u64>>::new();
     for (index, (query, root)) in queries.iter().zip(&root_of_query).enumerate() {
-        let class = if query.id.contains(options.helper_pattern.as_str()) {
-            "helper"
-        } else {
-            "physics"
-        };
+        let class = if query.auxiliary { "helper" } else { "physics" };
         let entry = classes.entry(class).or_default();
         *entry.entry("total").or_default() += 1;
         let state = root
-            .and_then(|r| root_state.get(&r))
+            .and_then(|r| all_root_state.get(&r))
             .copied()
             .unwrap_or((false, false));
         let admitted = root.is_some_and(|r| admitting.get(&r) == Some(&index));
@@ -2268,6 +2558,11 @@ fn verify<const N: usize>(
         "roots_total": root_state.len(),
         "roots_independently_verified": roots_independently_verified,
         "closure_required": options.require_closure,
+        "certification_scope": if physics_scope { "physics_queries_through_closed_containing_roots" } else { "all_roots" },
+        "physics_queries": physics_report,
+        "helper_roots": helper_report,
+        "amendments": {"count": amended.len(), "digests": amended.iter().map(|a| a.digest.as_str()).collect::<Vec<_>>(),
+            "amended_queries": queries.len() - amended_start},
         "family_closure_claim": false,
         "scope": "re-derived dependency closure (coinductive: sealed cycles count as closed) and reference re-inspection coverage of saved natives; not IBP replay, descent or termination",
         "reference": {
@@ -2320,7 +2615,7 @@ fn verify<const N: usize>(
             "roots_independently_verified": roots_independently_verified},
         "roots": root_rows,
         "cones_computed": cone_budget,
-        "certification": {"helper_pattern": options.helper_pattern, "classes": classes,
+        "certification": {"query_roles": "immutable_exact_id_declaration; undeclared_queries_required", "classes": classes,
             "claim_levels": "oracle_closed = re-derived closed from the saved edges and seal rule; consistent_closed = oracle_closed and no violation; independently_verified = consistent_closed and every native in the root's cone re-inspected (only these may be cited as verified)"},
         "reinspection": {"mode": format!("{:?}", options.reinspect),
             "selected": reinspection.selected.len(), "candidates": reinspection.candidates,

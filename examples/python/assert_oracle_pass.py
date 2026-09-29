@@ -18,7 +18,11 @@ A report passes the gate when, and only when:
   caller declares it with `--allow-as-run-reference`.
 
 `roots_total` counts distinct root records (several queries can share one
-root), not queries. Both fields sit at the top level of the report. A report
+root), not queries. For a walk with frontier-rescue amendments the verifier
+certifies per physics query (`certification_scope`
+`physics_queries_through_closed_containing_roots`): `roots_total` then counts
+the certifying roots (the first closed input root containing each physics
+query); helper roots are reported under `helper_roots`, not required. Both fields sit at the top level of the report. A report
 run without `--require-closure` can still pass the gate: the equality above
 already implies that every root is closed.
 
@@ -91,8 +95,9 @@ def main(argv=None):
             status = max(status, 1)
             print(f"GATE-FAIL {path}: " + "; ".join(reasons), file=sys.stderr)
         elif not args.quiet:
+            scope = report.get("certification_scope") or "all_roots"
             print(f"GATE-PASS {path}: {report['roots_independently_verified']}/{report['roots_total']} "
-                  "roots independently verified")
+                  f"roots independently verified (scope {scope})")
     return status
 
 

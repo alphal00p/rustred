@@ -65,6 +65,8 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
     pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
     pub apply_cell_refinement_max_cardinality: Option<NonZeroUsize>,
+    /// Resume-time rescue amendments, in chain order (repeatable option).
+    pub amend_queries: Vec<PathBuf>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -117,6 +119,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         checkpoint: None,
         apply_subdivision: None,
         apply_cell_refinement_max_cardinality: None,
+        amend_queries: Vec::new(),
     };
     let mut checkpoint_path = None;
     let mut resume_path = None;
@@ -127,6 +130,20 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut arguments = arguments.peekable();
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        // The one repeatable option: every rescue amendment of the chain.
+        if option == "--amend-queries" {
+            let value = next_utf8_value(&mut arguments, "--amend-queries")?;
+            if value.is_empty() || value == "-" {
+                return Err(ArgError::InvalidValue {
+                    option: "--amend-queries",
+                    value,
+                    expected: "a filesystem path",
+                });
+            }
+            result.amend_queries.push(PathBuf::from(value));
+            seen.insert("--amend-queries");
+            continue;
+        }
         let name = match option.as_str() {
             "--manifest" => "--manifest",
             "--queries" => "--queries",
@@ -348,6 +365,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--checkpoint and --resume are mutually exclusive",
         ));
     }
+    if !result.amend_queries.is_empty() && resume_path.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--amend-queries requires --resume (a rescue amends a saved walk)",
+        ));
+    }
     let resume = resume_path.is_some();
     result.apply_subdivision = match (subdivision_axis, subdivision_cut) {
         (Some(axis), Some(cut)) => Some(crate::OwnerDomainWalkApplySubdivision { axis, cut }),
@@ -456,6 +478,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--apply-subdivision-axis",
             "--apply-subdivision-cut",
             "--apply-cell-refinement-max-cardinality",
+            "--amend-queries",
             "--inspection-workers",
             "--publication-policy",
             "--max-domains",

@@ -16,6 +16,8 @@ mod publication;
 mod queue;
 #[cfg(all(test, feature = "cli"))]
 mod reinspection;
+mod rescue;
+mod rescue_plan;
 mod reuse;
 mod routing;
 mod verify_closure;
@@ -61,10 +63,18 @@ pub use g2::G2ResidualAnchors as OwnerDomainWalkG2ResidualAnchors;
 pub const WALK_SEMANTICS_VERSION: u32 = 1;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
+pub use rescue::{
+    AMENDMENT_SCHEMA as OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
+    MAX_AMENDMENT_BYTES as OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OwnerDomainWalkAmendment,
+};
+pub use rescue_plan::{
+    OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA, OwnerDomainWalkRescuePlan,
+    OwnerDomainWalkRescuePlanOptions, OwnerDomainWalkRescueScope, owner_domain_walk_rescue_plan,
+};
 pub use verify_closure::{
     OWNER_DOMAIN_WALK_VERIFY_SCHEMA, OwnerDomainWalkVerifyMutation, OwnerDomainWalkVerifyOptions,
     OwnerDomainWalkVerifyReferenceLevers, OwnerDomainWalkVerifyReinspect,
-    owner_domain_walk_verify_closure,
+    OwnerDomainWalkVerifyScope, owner_domain_walk_verify_closure,
 };
 pub use work_policy::FrontierPolicy as OwnerDomainWalkFrontierPolicy;
 
@@ -115,6 +125,10 @@ pub struct OwnerDomainWalkRequest {
     /// Opt-in necessary degree bound over the union of source numerator rows.
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
+    /// Resume-time rescue amendments in chain order (`rescue.rs`); empty for
+    /// every unamended walk. Not part of the request binding: each file is
+    /// bound by its digest chain from that binding instead.
+    pub amendments: Vec<OwnerDomainWalkAmendment>,
 }
 impl OwnerDomainWalkRequest {
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
@@ -138,6 +152,7 @@ impl OwnerDomainWalkRequest {
             route_domain_overcover: false,
             route_joint_source_support_pruning: false,
             max_route_masks: 100_000,
+            amendments: Vec::new(),
         }
     }
 
@@ -431,8 +446,9 @@ fn diagnostic_checkpoint<const N: usize>(
 /// One checkpoint opportunity of an A10 frontier stop. `trigger` holds the
 /// committed frontier count at session start (0 for a fresh walk, so initial
 /// input frontiers fire before any inspection; the restored count on
-/// resume). The first time the walk's count exceeds it, persist exactly that
-/// state (the frontier's record included) labelled with the stop reason,
+/// resume). The first time the walk's count exceeds it and no live inspection
+/// holds accepted but uncommitted frontier details (the frontier-bearing
+/// inspection has committed), persist exactly that state (its record included) labelled with the stop reason,
 /// journal the stop and cancel the way a stop request does; the walk's own
 /// final save after cancellation repeats the label. Taking `trigger` makes it
 /// fire at most once per session. Returns whether it fired.
@@ -445,7 +461,17 @@ fn frontier_stop_checkpoint<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<bool, String> {
-    let Some(baseline) = trigger.take_if(|baseline| state.frontiers > *baseline) else {
+    // Rescue (`rescue.rs`): an abandoned obligation's bookkeeping frontier
+    // and any frontier of a quarantined (non-live) inspection never stop the
+    // walk (0 in an unamended walk).
+    // The stop fires once the new frontier's inspection is committed: no
+    // live inspection may hold accepted but uncommitted frontier details (a
+    // stop inside a chunked stream would leave a half-published inspection
+    // whose resume must replay it).
+    let Some(baseline) = trigger.take_if(|baseline| {
+        state.frontiers.saturating_sub(state.rescue_quiet_frontiers) > *baseline
+            && !state.loud_frontier_prefix()
+    }) else {
         return Ok(false);
     };
     store.mark_stop_reason(work_policy::FRONTIER_STOP_REASON);
@@ -507,6 +533,16 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
     {
         return Err(AppError::input(
             "frontier stop requires a checkpointed Ordered or Ready walk",
+        ));
+    }
+    if !request.amendments.is_empty()
+        && !request
+            .checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.resume)
+    {
+        return Err(AppError::input(
+            "rescue amendments (--amend-queries) require --resume of a checkpointed walk",
         ));
     }
     let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
@@ -714,6 +750,31 @@ fn run<const N: usize>(
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
     let mut checkpoint = checkpoint::Store::open(request).map_err(AppError::input)?;
+    // Rescue amendments: parsed and chain-checked against the manifest before
+    // any restore or owner import (`rescue.rs`).
+    let amendments = request
+        .amendments
+        .iter()
+        .map(|amendment| rescue::parse(amendment, N))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::input)?;
+    let first_new_amendment = match checkpoint.as_ref() {
+        Some(store) if !amendments.is_empty() || !store.amendments().is_empty() => {
+            if !amendments.is_empty() && !store.resumed_state() {
+                return Err(AppError::input(
+                    "rescue amendments require a resumed walk state, not a fresh walk or a bootstrap checkpoint",
+                ));
+            }
+            rescue::check_chain(
+                store.amendments(),
+                &amendments,
+                store.request_digest(),
+                queries,
+            )
+            .map_err(AppError::input)?
+        }
+        _ => 0,
+    };
     let latest_checkpoint =
         std::cell::RefCell::new(checkpoint.as_ref().and_then(|s| s.metadata()).cloned());
     let checkpoint_write = std::cell::RefCell::new(None::<Value>);
@@ -931,6 +992,21 @@ fn run<const N: usize>(
     let mut frontier_stopped = false;
     if let Some(reducer) = &reducer {
         if let Some(store) = checkpoint.as_mut() {
+            // Frontier rescue (`rescue.rs`): quarantine the frontier taint and
+            // admit the new amendments before the forced save persists them.
+            if !amendments.is_empty() && state.error.is_none() {
+                rescue::apply(
+                    &mut state,
+                    &mut inputs,
+                    store,
+                    reducer,
+                    request.route_domain_overcover,
+                    &amendments,
+                    first_new_amendment,
+                    observer,
+                )
+                .map_err(AppError::input)?;
+            }
             // Records are streamed to the sidecar from the first commit on.
             store.attach_records(&state).map_err(AppError::input)?;
             if state.error.is_none() {
@@ -1058,6 +1134,14 @@ fn run<const N: usize>(
         state.add_ready_progress(&mut document);
         state.add_g2_report(&mut document);
         document["descendant_closure"] = state.closure_json();
+        add_rescue_report(
+            &mut document,
+            &state,
+            checkpoint.as_ref(),
+            queries,
+            &amendments,
+            &inputs,
+        );
         drop(state);
         finish_timing(&mut document, started, prepared);
         observer(OwnerDomainWalkResult::completion_progress(&document));
@@ -1097,6 +1181,14 @@ fn run<const N: usize>(
         "frontiers":state.frontiers,"events":state.events,
         "error":state.error,"prepared_seconds":prepared,
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
+    add_rescue_report(
+        &mut document,
+        &state,
+        checkpoint.as_ref(),
+        queries,
+        &amendments,
+        &inputs,
+    );
     // These trees can dominate campaign RAM. Move their allocations directly;
     // json!(mem::take(...)) would still serialize and clone every nested Value.
     document["inputs"] = Value::Array(inputs);
@@ -1225,6 +1317,57 @@ fn run<const N: usize>(
         document,
         records,
     })
+}
+
+/// Rescue blocks of an amended walk's report (`rescue.rs`): the amendment
+/// chain, the quarantine size and the per-query certification through closed
+/// containing input roots. Nothing is added to an unamended walk's report.
+fn add_rescue_report<const N: usize>(
+    document: &mut Value,
+    state: &execution::State<N>,
+    store: Option<&checkpoint::Store>,
+    queries: &[matching::input::Query],
+    amendments: &[rescue::Parsed],
+    inputs: &[Value],
+) {
+    let Some(store) = store.filter(|store| !store.amendments().is_empty()) else {
+        return;
+    };
+    document["amendments"] = rescue::chain_json(store.amendments());
+    document["rescue_abandoned_domains_this_session"] = json!(state.rescue_abandoned);
+    document["rescue_quarantined_domains"] = json!(
+        (0..state.queue.domains.len())
+            .filter(|&id| state.queue.is_quarantined(id))
+            .count()
+    );
+    let mut ids = Vec::new();
+    let mut domains = Vec::new();
+    for query in queries
+        .iter()
+        .chain(amendments.iter().flat_map(|a| a.queries.iter()))
+    {
+        let Ok(owner) = <[bool; N]>::try_from(query.owner.as_slice()) else {
+            return;
+        };
+        ids.push((query.id.as_str(), query.auxiliary));
+        domains.push(Domain {
+            phase: Phase::Apply,
+            owner,
+            lower: query.lower.clone(),
+            upper: query.upper.clone(),
+            rank: query.rank,
+            powers: query.powers,
+        });
+    }
+    let closure = state.closure.borrow();
+    let total = state.queue.domains.len();
+    document["query_certification"] = rescue::query_certification(
+        &ids,
+        &domains,
+        inputs,
+        |id| (id < total).then(|| state.queue.domain(id)),
+        |id| closure.closed(id),
+    );
 }
 
 fn take_report_array(values: &mut Vec<Value>) -> Value {

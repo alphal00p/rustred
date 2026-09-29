@@ -247,8 +247,15 @@ pub(super) fn restore<const N: usize>(
         initial_domain_count,
         initial_entry_domains_inspected,
     ] = meta.counters;
-    let mut queue =
-        Queue::<N>::restore_from_parts(meta.queue, domains, buckets, ledger, &mut phases)?;
+    // Amended walks can contain exact duplicates of quarantined domains.
+    let mut queue = Queue::<N>::restore_from_parts_amended(
+        meta.queue,
+        domains,
+        buckets,
+        ledger,
+        !manifest.amendments.is_empty(),
+        &mut phases,
+    )?;
     if let Some(anchors) = &s.anchors {
         let started = Instant::now();
         let mut log = G2Log::new(meta.counters[10]);

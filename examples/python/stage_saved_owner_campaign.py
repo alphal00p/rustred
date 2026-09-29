@@ -11,10 +11,16 @@ native coverage authority; the owner-anchor- ID prefix is merely a heuristic.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
 import time
+
+_ROLES_SPEC = importlib.util.spec_from_file_location(
+    "owner_query_roles", Path(__file__).with_name("owner_query_roles.py"))
+ROLES = importlib.util.module_from_spec(_ROLES_SPEC)
+_ROLES_SPEC.loader.exec_module(ROLES)
 
 
 def unsigned(value, bits, name):
@@ -70,6 +76,7 @@ def plan_anchor_queries(query_bytes, masks, max_rank, max_positive_power=None,
             or not isinstance(document.get("queries"), list) or not document["queries"]):
         raise ValueError("anchor planning requires a nonempty owner-domain query document")
     originals = document["queries"]
+    roles = ROLES.query_roles(document)
     ids = set()
     for row in originals:
         if not isinstance(row, dict):
@@ -96,6 +103,9 @@ def plan_anchor_queries(query_bytes, masks, max_rank, max_positive_power=None,
                         "power_bounds": {"max_positive_power": power,
                                          "min_power_difference": None, "max_power_difference": None}})
     document["queries"] = originals + anchors
+    document["query_roles"] = {
+        "required": [row["id"] for row in originals if roles[row["id"]] == "required"],
+        "auxiliary": [row["id"] for row in originals if roles[row["id"]] == "auxiliary"] + [row["id"] for row in anchors]}
     plan = {"kind": "owner_orthant_obligations", "max_numerator_rank": max_rank,
             "max_positive_power": max_positive_power, "original_query_count": len(originals),
             "anchor_query_count": len(anchors), "anchor_id_prefix": prefix,
@@ -126,6 +136,7 @@ def plan_query_order(query_bytes, query_order):
             or not isinstance(document.get("queries"), list) or not document["queries"]):
         raise ValueError("query ordering requires a nonempty owner-domain query document")
     rows = document["queries"]
+    ROLES.query_roles(document)
     owner_order, ids = {}, set()
     for row in rows:
         if (not isinstance(row, dict) or not isinstance(row.get("id"), str)

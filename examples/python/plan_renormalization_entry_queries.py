@@ -1104,7 +1104,10 @@ def plan(args, argv, progress=None):
             group["count_source"] = "closed_form_only"
     timing["entry_domain_plan_seconds"] = time.monotonic() - clock
 
-    queries_document = {"schema": QUERY_SCHEMA, "queries": queries}
+    queries_document = {"schema": QUERY_SCHEMA, "queries": queries,
+                        "query_roles": {
+                            "required": [root["id"] for row in receipt_rows for root in row["roots"]],
+                            "auxiliary": [row["helper"]["id"] for row in receipt_rows if row["helper"] is not None]}}
     queries_bytes = dumps(queries_document).encode("utf-8")
     class_counts = {k: sum(1 for r in receipt_rows if r["class"] == k)
                     for k in (CLASS_CONNECTED, CLASS_FACTORIZED, CLASS_NON_ENTRY)}

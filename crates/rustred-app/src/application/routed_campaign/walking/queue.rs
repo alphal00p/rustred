@@ -10,7 +10,7 @@ mod compact;
 pub(super) use compact::CompactDomain;
 #[cfg(test)]
 use compact::{COMPACT_RANGE_ERROR, MAX_COMPACT_COORDINATE};
-use compact::{CompactSummary, Digest, ExactIndex, Query, Stored};
+use compact::{CompactSummary, Digest, ExactIndex, Miss, Query, Stored};
 mod index;
 use index::{AggregateIndex, Coordinates, Entry, Probe, Retire, Signature, Visit};
 mod checkpoint;
@@ -84,6 +84,12 @@ impl<const N: usize> Domain<N> {
     }
 }
 
+/// Membership in a rescue bitset (quarantine or abandoned set); false when
+/// the bitset is empty or shorter than `id`.
+pub(super) fn quarantined_bit(bits: &[u64], id: usize) -> bool {
+    compact::quarantined(bits, id)
+}
+
 fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
     container.is_none_or(|r| candidate.is_some_and(|s| s <= r))
 }
@@ -118,12 +124,14 @@ impl<const N: usize> OwnerBucket<N> {
     fn orthant_hit(
         &self,
         domains: &[CompactDomain<N>],
+        quarantine: &[u64],
         (phase, owner): (u8, u32),
         rank: Option<u32>,
     ) -> Option<usize> {
         let id = self.orthant?;
         let stored = &domains[id];
-        (stored.same_bucket(phase, owner)
+        (!compact::quarantined(quarantine, id)
+            && stored.same_bucket(phase, owner)
             && stored.is_full_orthant()
             && rank_contains(stored.rank(), rank))
         .then_some(id)
@@ -185,6 +193,19 @@ pub(super) struct Queue<const N: usize> {
     max_checks: Option<usize>,
     /// Separates immutable lookup preparations from unrelated queue instances.
     identity: Arc<()>,
+    /// Resume-time rescue quarantine (`rescue.rs`): one bit per admitted ID
+    /// whose cone reaches a frontier. Empty (no allocation, no effect) unless
+    /// the walk carries an input amendment; never persisted (recomputed from
+    /// the dependency monitor at every resume of an amended walk).
+    quarantine: Vec<u64>,
+    /// Rescue: unpublished, non-delegated obligations no live input root
+    /// reaches (their cones cannot certify any query). Published without a
+    /// native inspection as unsealed `rescue_abandoned` records. Empty unless
+    /// amended; never persisted (recomputed at every amended resume). Shared
+    /// with the inspection workers, which read it at every dispatch; the
+    /// coordinator extends it when a dead obligation still being inspected
+    /// (a restored partial prefix) admits a new domain (`mark_dead`).
+    abandoned: Option<Arc<std::sync::RwLock<Vec<u64>>>>,
     /// Test instrumentation preference only, deliberately not persisted.
     #[cfg(test)]
     index_work_counters_enabled: bool,
@@ -260,6 +281,79 @@ impl<const N: usize> Queue<N> {
         Stored {
             domains: &self.domains,
             summaries: &self.summaries,
+            quarantine: &self.quarantine,
+        }
+    }
+
+    /// Install the rescue quarantine (see the field). Lookups (exact index,
+    /// dominant orthant, candidate index, helper preparations) then never
+    /// return a quarantined ID; admission of an exact duplicate of one
+    /// creates a fresh ID. Refuses a bitset of the wrong size. The quarantine
+    /// is not monotone (a dead obligation published cleanly later, e.g. as
+    /// an alias of a live representative, is live again), so an exact-
+    /// duplicate group may hold several live members: every one is a valid
+    /// exact container, and lookups return the oldest live one.
+    pub fn install_quarantine(&mut self, bits: Vec<u64>) -> Result<usize, String> {
+        if bits.len() != self.domains.len().div_ceil(64)
+            || bits.last().is_some_and(|&w| {
+                self.domains.len() % 64 != 0 && w >> (self.domains.len() % 64) != 0
+            })
+        {
+            return Err("rescue quarantine does not match the admitted domains".into());
+        }
+        let count = bits.iter().map(|w| w.count_ones() as usize).sum();
+        self.quarantine = if count == 0 { Vec::new() } else { bits };
+        // A dominant orthant that is quarantined is skipped by `orthant_hit`;
+        // a later live full orthant replaces it (see `admit_with_lookup`).
+        Ok(count)
+    }
+
+    pub fn is_quarantined(&self, id: usize) -> bool {
+        compact::quarantined(&self.quarantine, id)
+    }
+
+    /// IDs admitted after the install are beyond the bitset: never quarantined.
+    pub fn quarantine_active(&self) -> bool {
+        !self.quarantine.is_empty()
+    }
+
+    /// Install the rescue's abandoned set (see the field); every member
+    /// must already be quarantined, so no later lookup resolves into it.
+    pub fn set_abandoned(&mut self, bits: Vec<u64>) -> Result<usize, String> {
+        if bits.len() > self.domains.len().div_ceil(64)
+            || bits
+                .iter()
+                .enumerate()
+                .any(|(word, &b)| b & !self.quarantine.get(word).copied().unwrap_or(0) != 0)
+        {
+            return Err("rescue abandoned set outside the quarantine".into());
+        }
+        let count = bits.iter().map(|w| w.count_ones() as usize).sum();
+        self.abandoned = self
+            .quarantine_active()
+            .then(|| Arc::new(std::sync::RwLock::new(bits)));
+        Ok(count)
+    }
+
+    /// The shared abandoned set (None for every unamended walk).
+    pub fn abandoned_handle(&self) -> Option<Arc<std::sync::RwLock<Vec<u64>>>> {
+        self.abandoned.clone()
+    }
+
+    /// A domain newly admitted by a quarantined (dead) source is itself dead:
+    /// quarantine it and abandon it (published without inspection).
+    pub fn mark_dead(&mut self, id: usize) {
+        let word = id / 64;
+        if self.quarantine.len() <= word {
+            self.quarantine.resize(word + 1, 0);
+        }
+        self.quarantine[word] |= 1 << (id % 64);
+        if let Some(set) = &self.abandoned {
+            let mut bits = set.write().unwrap_or_else(|e| e.into_inner());
+            if bits.len() <= word {
+                bits.resize(word + 1, 0);
+            }
+            bits[word] |= 1 << (id % 64);
         }
     }
 
@@ -314,6 +408,8 @@ impl<const N: usize> Queue<N> {
             max_domains,
             max_checks,
             identity: Arc::new(()),
+            quarantine: Vec::new(),
+            abandoned: None,
             #[cfg(test)]
             index_work_counters_enabled: true,
         }
@@ -428,7 +524,10 @@ impl<const N: usize> Queue<N> {
         debug_assert_eq!(compact.expand(), domain);
         // Digest lookup confirmed on the stored domain: a digest collision can
         // cost a comparison, never a wrong hit. Nothing is allocated here.
-        let exact_miss = match self.exact.get(key, &compact, &self.domains) {
+        let exact_miss = match self
+            .exact
+            .get_live(key, &compact, &self.domains, &self.quarantine)
+        {
             Ok(id) => {
                 self.exact_hits += 1;
                 self.deduplicated += 1;
@@ -471,9 +570,12 @@ impl<const N: usize> Queue<N> {
         if let Some(bucket) = self.by_owner.get(&bucket_key) {
             // A1: the shortcut is a positive only after an explicit check of
             // the stored image's bucket, full orthant and rank.
-            if let Some(id) =
-                bucket.orthant_hit(&self.domains, (phase_code, owner_code), domain.rank)
-            {
+            if let Some(id) = bucket.orthant_hit(
+                &self.domains,
+                &self.quarantine,
+                (phase_code, owner_code),
+                domain.rank,
+            ) {
                 self.orthant_hits += 1;
                 self.deduplicated += 1;
                 return Ok((id, false));
@@ -482,6 +584,7 @@ impl<const N: usize> Queue<N> {
                 let stored = Stored {
                     domains: &self.domains,
                     summaries: &self.summaries,
+                    quarantine: &self.quarantine,
                 };
                 if let Some(revalidated) = prepared.as_mut().and_then(|lookup| {
                     lookup.revalidate(
@@ -534,7 +637,9 @@ impl<const N: usize> Queue<N> {
                         .containment_checks
                         .checked_add(1)
                         .ok_or("domain containment counter overflow")?;
-                    if self.domains[id].contains(&compact) {
+                    if self.domains[id].contains(&compact)
+                        && !compact::quarantined(&self.quarantine, id)
+                    {
                         found = Some(id);
                         break;
                     }
@@ -704,6 +809,7 @@ impl<const N: usize> Queue<N> {
                 stored: Stored {
                     domains,
                     summaries: &self.summaries,
+                    quarantine: &self.quarantine,
                 },
                 query,
             };
@@ -750,9 +856,10 @@ impl<const N: usize> Queue<N> {
             bucket.ids.push(id);
         }
         if full_orthant
-            && bucket
-                .orthant
-                .is_none_or(|old| rank_contains(domain.rank, self.domains[old].rank()))
+            && bucket.orthant.is_none_or(|old| {
+                rank_contains(domain.rank, self.domains[old].rank())
+                    || compact::quarantined(&self.quarantine, old)
+            })
         {
             bucket.orthant = Some(id);
         }

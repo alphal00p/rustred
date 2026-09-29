@@ -461,11 +461,13 @@ class AttachmentAndQueryOverrideTests(unittest.TestCase):
             self.assertTrue((root / "cli" / "receipt.json").is_file())
 
     def override_document(self, rows=None):
-        return {"schema": "rustred.owner-domain-queries.json.v2", "queries": rows or [
+        document = {"schema": "rustred.owner-domain-queries.json.v2", "queries": rows or [
             {"id": "planned-10", "owner": "10", "lower": [0, 0], "upper": [None, None], "max_numerator_rank": 9,
              "power_bounds": {"max_positive_power": 25, "min_power_difference": None, "max_power_difference": None}},
             {"id": "planned-01", "owner": "01", "lower": [0, 0], "upper": [None, 3], "max_numerator_rank": None,
              "power_bounds": {"max_positive_power": None, "min_power_difference": None, "max_power_difference": None}}]}
+        document["query_roles"] = {"required":[row["id"] for row in document["queries"]],"auxiliary":[]}
+        return document
 
     def test_prepare_from_with_query_override_and_attachments_records_receipts(self):
         with tempfile.TemporaryDirectory() as temporary:

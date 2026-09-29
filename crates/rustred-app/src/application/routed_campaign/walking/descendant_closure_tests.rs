@@ -507,3 +507,76 @@ fn final_and_cancelled_saves_persist_the_log_without_folding_it() {
     save(SaveKind::Forced, false);
     assert_eq!(layout(), (45, 0), "a save the walk continues after folds");
 }
+
+/// Rescue (`rescue.rs`): the frontier taint is reverse reachability from
+/// inspected-unsealed nodes (plus extra seeds); liveness is forward
+/// reachability from roots. Checked against a brute-force reference.
+#[test]
+fn rescue_taint_and_liveness_match_reference_reachability() {
+    for seed in 0..60usize {
+        let count = 2 + seed % 17;
+        let mut graph = Tracker::new(1);
+        graph.discovered(count);
+        let mut edges = vec![Vec::new(); count];
+        for source in 0..count {
+            for target in 0..count {
+                if (source * 7 + target * 3 + seed) % 5 == 0 && source != target {
+                    graph.edge(source, target);
+                    edges[source].push(target);
+                }
+            }
+        }
+        // Node kinds: 0 pending, 1 sealed native, 2 frontier-bearing native.
+        let kind = |id: usize| (id * 11 + seed) % 3;
+        for id in 0..count {
+            match kind(id) {
+                1 => graph.finish(id, true, true),
+                2 => graph.finish(id, true, false),
+                _ => {}
+            }
+        }
+        let reaches = |from: usize, target: &dyn Fn(usize) -> bool| {
+            let mut seen = vec![false; count];
+            let mut stack = vec![from];
+            while let Some(id) = stack.pop() {
+                if std::mem::replace(&mut seen[id], true) {
+                    continue;
+                }
+                if target(id) {
+                    return true;
+                }
+                stack.extend(edges[id].iter().copied());
+            }
+            false
+        };
+        let bit = |bits: &[u64], id: usize| bits[id / 64] >> (id % 64) & 1 != 0;
+        let tainted = graph.tainted().unwrap();
+        let extra_seed = seed % count;
+        let mut extra = vec![0u64; count.div_ceil(64)];
+        extra[extra_seed / 64] |= 1 << (extra_seed % 64);
+        let seeded = graph.tainted_with(&extra).unwrap();
+        let roots = [0, count / 2];
+        let live = graph.reachable_from(roots).unwrap();
+        for id in 0..count {
+            assert_eq!(
+                bit(&tainted, id),
+                reaches(id, &|t| kind(t) == 2),
+                "seed {seed} id {id}"
+            );
+            assert_eq!(
+                bit(&seeded, id),
+                reaches(id, &|t| kind(t) == 2 || t == extra_seed),
+                "seed {seed} id {id}"
+            );
+            assert_eq!(
+                bit(&live, id),
+                roots.iter().any(|&r| reaches(r, &|t| t == id)),
+                "seed {seed} id {id}"
+            );
+        }
+    }
+    let mut unavailable = Tracker::new(1);
+    unavailable.disable("test");
+    assert!(unavailable.tainted().is_none());
+    assert!(unavailable.reachable_from([0]).is_none());
+}
