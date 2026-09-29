@@ -263,8 +263,9 @@ its stated criteria met and independent verifier passes on the old baseline.
 The formal fresh L*-only gate and rank/mask escape guard remained open.
 `HANDOFF_FOR_ASTRA.md` and `TMP/progress/orchestrator_decisions.md` explicitly
 defer shipping until in-run rescue exists **and** a probe shows net runtime
-gain. The new rescue integration may eventually satisfy the first condition;
-its native gates are still pending and the second condition is unmeasured.
+gain. The new rescue integration has passed its corrected native regressions;
+representative combined campaign gates remain pending and the second condition
+is unmeasured.
 
 Historical single 54-minute probes are not current deployment evidence:
 `fable51_w0_results_2026-09-27.md` reports noisy wall/native ratios, lower
@@ -280,3 +281,45 @@ pilot ceiling. Measure additional edges, helper/rescue overhead, total work,
 wall and memory. Unknown escapes stop explicitly; never truncate descendants.
 Absent net benefit, or with an unhandled escape/ambiguous rescue, keep I1 off.
 No input variant, guard, pilot or production change is implemented by this note.
+
+## 8. N1: restrict modular witnesses to a useful and sound seam
+
+Independent read-only API/source audit is retained at
+`TMP/codex-integration/n1-modular-witness-feasibility-2026-09-29.md`.
+Pinned Symbolica already supplies finite fields, coefficient conversion and
+`MultivariatePolynomial::evaluate_with_coeff_map`. Existing RustRed modular
+sampling evaluates numerator and denominator separately, refusing bad poles.
+No new finite-field or reconstruction kernel is needed.
+
+The broad RHS shortcut is not presently justified. In the core's
+`owners/domains/applied/engine.rs` the call through `applied/restriction.rs`
+to `algebra/indexed/specialization.rs` performs exact substitution and
+rational normalization before `applied/algebra.rs` classifies the result.
+A witness in that classifier is too late to save this work. Furthermore,
+`Zero::No` authorizes uniform nonzero on the integer domain. A nonzero sample
+of n-3 on a domain containing n=3 cannot authorize that result; downgrading
+all such results to Conditional could instead increase branching. Exact
+coefficient payloads and original pole conditions cannot disappear either.
+
+A narrower candidate exists before predicate specialization in
+`owners/domains/matching/guards.rs`: when **every occurring index variable
+is fixed by the cell**, a nonzero sample proves the restricted polynomial
+nonzero in the formal coefficient field. For example, n*d-n+1 at n=1
+becomes d; a nonzero residue at d=7 proves nonzero in Q(d), not nonzero at
+every numerical dimension. This can preserve the existing Nonzero outcome,
+without inventing Conditional branches. Zero/bad samples still take the exact
+path; all original denominator, input-admission and guard obligations remain.
+
+Before implementation, a post-G2 profile must establish enough expensive
+predicate calls with wholly fixed index support. Charge support scans,
+sampling and fallbacks; preserve error ordering, cancellations, source guards
+and emitted payloads. Small falsifiers include n-3 versus n uniformity,
+fully fixed base-dependent predicates, unlucky primes, sampled zero
+denominators, poles on a zero RHS and original-term cancellation. No speed
+benefit has been measured.
+
+The simpler identically-zero predicate seam in
+`owners/domains/guarded/engine.rs` is **parked for this campaign**: its app
+caller is the separate guarded-domain API, not the ordinary walker, and its
+power-bounded wrapper rejects the campaign's nontrivial A/D bounds. Optimizing
+that path would not demonstrate a benefit for the current five-loop run.

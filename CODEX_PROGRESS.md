@@ -49,14 +49,15 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | standalone gates delivered; corrected combined optimized build active | joint_support_pruning | Run corrected focus/full suite before campaign controls; retain first failed receipts |
-| Rescue and explicit query roles | source delivered; combined native gates pending | joint_support_pruning (integration; original author bounded_helpers_bmw) | Complete exact-role, activation and quarantine execution gates at `d12db6cf` |
-| Independent math/code audit | combined corrective source passed; epoch writer review active | checkpoint_final_audit | Audit bounded writer independently; verify execution receipts before release |
-| Combined G2′ + rescue | corrections source-audited/typechecked; native rerun pending | joint_support_pruning + root + independent auditor | `d12db6cf`; preserve failed first receipts, rerun corrected optimized suite then campaign gates |
+| G2′ integration | corrected focus/full native suites delivered; campaign gates pending | joint_support_pruning | Build frozen matched-profile CLI and run all controls; retain first failed receipts |
+| Rescue and explicit query roles | source and combined native suites delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Campaign/CLI and independent full-reinspection gates remain at `d12db6cf` |
+| Independent math/code audit | combined corrections and private epoch writer/publisher source passed | checkpoint_final_audit | Independently review bounded restore next; verify execution receipts before release |
+| Combined G2′ + rescue | corrected optimized focus/full suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; matched campaign profile, CLI and independent control reinspection next |
+| Python production G2′ steering | active, integration gap found | joint_support_pruning (author), checkpoint_final_audit (independent review) | Fresh-campaign off/union option, frozen forwarding through resume/rescue; preserve exact flag-off argv, no activation migration project |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | internal bounded writer committed/source-audited; publication slice active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen `2cc3710d` awaits consolidated typecheck; atomic publication/restore/stop gates and S4–S6 remain open |
+| Epoch S3–S6 | private writer/publisher source audit and consolidated typecheck passed; bounded restore active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen `6f7eb9fd` native tests still pending; runtime publication/restore/stop gates and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
-| N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
+| N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
@@ -81,6 +82,139 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 03:47 UTC — Python steering gap identified before deployment
+
+- Root source inspection found that G2′ exists in Rust and native CLI but
+  neither `production_saved_owner_campaign.py` nor its shared supervisor
+  accepts/forwards it. Thus a normal Python-steered fresh campaign could not
+  actually select the new optimization. No launch instructions will conceal
+  this gap by hand-editing frozen steering.
+- Delegated a narrow Python-only integration slice to `joint_support_pruning`,
+  separately from the compiling frozen Rust source. Add explicit off/union
+  selection, freeze it, preserve it through normal resume and automatic rescue,
+  validate native prerequisites, and keep default-off argv unchanged. Separate
+  author/auditor tests must cover those paths. Existing native one-shot
+  activation remains advanced functionality; no new compatibility project.
+- [M] Campaign-profile CLI compilation at `d12db6cf` is running under the
+  registered CPU0–15/heavy/build0 guard, with `CARGO_INCREMENTAL=0`. Evidence:
+  `TMP/codex-g2-rescue.tzdFuj/campaign-build/`. Normal Cargo dependency
+  rebuilding is not a solver measurement; no candidate timings are available.
+
+### 2026-09-29 03:45 UTC — epoch check passes; integration receipts audited
+
+- [M] Frozen epoch source `6f7eb9fd` passes `cargo check --release --tests
+  --locked --offline -j8 -p rustred-app`, with its isolated target directory.
+  Guard exit 0/no stop reason, 25.166 s including launcher, Cargo 21.26 s;
+  peak single-child RSS 1,162,360 KiB. Receipt:
+  `TMP/codex-epoch-s3.JjASCU/typecheck-retry/`. This checks the writer,
+  private publisher and regression sources, **not native execution or resume**.
+  Original failed-check evidence is retained; restore remains source WIP.
+- [M] Independent G2′ audit verifies clean `d12db6cf`, matching executable
+  digest, all six corrected failures and new phase/pin/quarantine assertions,
+  normal guard completion and no missing-license skips. The optimized
+  campaign-profile build is next; no candidate campaign timing exists yet.
+- [M] Read-only LC2 snapshot at 03:44:32 UTC: 40,622,489 discovered,
+  14,344,464 native completions, 15,732,569 pending, 6/67 conservative initial
+  obligations closed, roughly 29.45 GB RSS. Its own scheduled generation-3
+  checkpoint is writing; no intervention. These are not 116-query closure
+  counts or an ETA. In its hour-window coordinator accounting, commit is
+  49.38%, preparation 28.86%, and progress JSON 1.66%; this supports prioritizing
+  substantive lookup/merge work over overstating the isolated telemetry change.
+
+### 2026-09-29 03:43 UTC — full corrected G2′/rescue suite passes
+
+- [M] The same optimized executable passed **861 tests, 0 failed, 12
+  ignored**, in 141.13 s. All six earlier failing tests pass, as do the new
+  query-phase regressions. Guard receipt exit 0/no stop reason, 142.197 s;
+  peak single-child RSS 82,992 KiB. Evidence:
+  `TMP/codex-g2-rescue.tzdFuj/native-fixed-full/`.
+- The 16-CPU test allocation also produces 12 explicit W50 capacity-skip
+  diagnostics inside passing test bodies, separate from the 12 ignored tests.
+  Independent source review identifies ten intended omitted W50 subcases;
+  two further notices precede an existing <=6 filter and would not execute
+  W50 anyway. Do not describe this as validation of every worker width.
+  Focused tests have no ignored or license-skip cases.
+- Authorized the frozen epoch `6f7eb9fd` consolidated typecheck next, then
+  the unchanged G2′ source's campaign-profile executable and CLI checks.
+  Incremental compilation is explicitly disabled for that timing binary;
+  fat LTO/one codegen unit match LC2. No production recommendation follows
+  until complete, independently reinspected controls and matched pairs.
+
+### 2026-09-29 03:41 UTC — corrected G2′ focus passes
+
+- [M] `d12db6cf` passed all 20 optimized focused tests, with zero ignored,
+  in 8.30 s. All three previously failing public-pipeline tests now pass;
+  all five applied-G2 mutations are rejected. Activation/amendment examples
+  honestly report zero loans; dedicated loan/dependency seam tests also pass.
+  This is a correctness result, not a measured campaign speedup.
+- Receipt: `TMP/codex-g2-rescue.tzdFuj/native-fixed-focus/`, guard exit 0,
+  no stop reason, 2,942.224 s including compilation (Cargo reported 48m51s).
+  Executable SHA-256:
+  `227d256455028cc84cfa9a530211ec56310df7173e8f3987129de70b77e6a749`.
+- The full app suite is running on that same executable without rebuilding,
+  in `native-fixed-full/`. An independent auditor is checking both receipts
+  and the six earlier failing assertions. After it drains, the frozen epoch
+  writer/publisher gets a consolidated typecheck; matched-profile G2′ CLI
+  compilation and campaign controls follow. LC2 remains read-only.
+
+### 2026-09-29 03:36 UTC — private publisher audited and validation source frozen
+
+- [M] Author committed the private publisher/metadata slice as `2662a846`
+  in `codex/epoch-s3-publish`, after independent source audit. The frozen
+  validation tree now includes it as `6f7eb9fd`, atop writer `2cc3710d`.
+  No running validation was altered; its consolidated typecheck has not
+  started. Exact command/resources/source are recorded in
+  `TMP/codex-epoch-s3.JjASCU/typecheck-retry-plan.json`.
+- The writer streams variable owner inventory separately from bounded scalar
+  metadata; a 20,000-owner regression source exceeds 1 MiB inventory while
+  keeping scalar metadata below 8 KiB. This avoids a hidden owner-count limit
+  discovered only during an emergency save. It reuses the existing record
+  sidecar sealing and atomic-file helper, writing a fixed 15-reference manifest.
+  New tests are source-only, not executed measurements.
+- The auditor corrected publication semantics precisely: an error after
+  rename but before successful directory synchronization is uncertain, not
+  rollback. The store fails closed/sticky; a previous-pointer failure after
+  a durably published latest returns a warning. Internal format remains
+  explicitly non-resumable/unvalidated; no runtime save path is enabled yet.
+- Bounded restore is being implemented only in the source worktree. Next
+  requirements include actual root geometry, record/edge/digest validation,
+  live-index versus historical-orthant reconstruction, exact dispatch and
+  error state, and crash/fallback behavior. Do not mark S3 complete on the
+  strength of the private publisher alone.
+- Read-only build-workflow review suggests a later isolated incremental
+  correctness cache (opt3, explicit CGU16, ordinary-release LTO=false) may
+  reduce repeated edit-to-test latency. Warming cost/savings are unmeasured;
+  current build is unchanged. Campaign timing binaries remain separately
+  built with incremental disabled, fat LTO and CGU1. Exact proposal is in
+  `TMP/codex-g2-rescue.tzdFuj/INTEGRATION.md`; no benchmark claim follows.
+
+### 2026-09-29 03:22 UTC — research narrowed; source-audit milestone pushed
+
+- [M] Main documentation/source-audit milestone `6f7c1db0` is pushed to
+  `origin/fable_5_1`. Independent review corrected the I1/I1b distinction
+  and the historical ratios' traversal-only boundary before publication.
+  Main engine remains unchanged; unrelated user work is preserved.
+- N1 source/API audit is recorded in
+  `TMP/codex-integration/n1-modular-witness-feasibility-2026-09-29.md`.
+  A witness inside the current RHS classifier is too late to avoid exact
+  normalization and cannot authorize uniform nonzero. A narrower guard-only
+  shortcut is potentially sound when all occurring index variables are fixed;
+  formal coefficient-field nonzero does not mean nonzero at every numerical
+  dimension/mass. Preserve every original pole/admission obligation. The
+  cleaner guarded-engine seam is not on the live walker path, so it is parked.
+  No code or speed claim; post-G2 opportunity profiling comes first.
+- Independent licensing audit found no public restricted-thread permit
+  transfer in pinned Symbolica. Preserve existing inline unlicensed W1 behavior;
+  do not bypass licensing or silently oversubscribe its worker budget for a
+  new checkpoint controller. Responsive stop support remains an explicit
+  S3 design/test obligation, not a completed capability.
+- [M] Read-only LC2 heartbeat at 03:16:14 UTC: 38,231,778 discovered,
+  13,366,313 local native completions, 14,883,636 pending; 6/67 conservative
+  initial obligations closed, zero frontiers, about 28.0 GB tree RSS and no
+  stop reason. Those are not 116-query certification counts or a completion
+  estimate. At 03:22:21, corrected G2′ rustc PID 2325595 was still live
+  (1,874 s elapsed, about 48 GiB RSS); this remains the only owned heavy job.
 
 ### 2026-09-29 03:15 UTC — first S3 implementation slice committed locally
 
