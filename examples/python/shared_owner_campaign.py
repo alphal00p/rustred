@@ -60,6 +60,8 @@ SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
 SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
                     DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
                     DOMAIN.FRONTIER_POLICY)
+G2_RESIDUAL_ANCHORS = "g2-residual-anchors"
+G2_RESIDUAL_MODES = ("off", "union")
 # Host-aware RAM guard defaults (see RamGuard). The MemAvailable floor is the
 # host memory reserve: 50 GB unless --host-memory-reserve-bytes says otherwise
 # (owner decision 2026-09-27; formerly min(20 GB, 5% of host/cgroup RAM)).
@@ -119,6 +121,20 @@ def positive(text: str) -> int:
     if value <= 0:
         raise argparse.ArgumentTypeError("must be positive")
     return value
+
+
+def validate_g2_residual_anchors(mode, lookahead, publication, subdivision):
+    """Mirror native G2 admission; checkpoint activation is not this workflow."""
+    if mode in (None, "off"):
+        return
+    if mode != "union":
+        raise ValueError("G2 residual anchors must be off or union")
+    if lookahead is None or lookahead <= 0:
+        raise ValueError("--g2-residual-anchors union requires --transfer-unreserved-lookahead")
+    if publication not in (None, "ordered", "ready"):
+        raise ValueError("--g2-residual-anchors union requires ordered or ready publication")
+    if subdivision:
+        raise ValueError("--g2-residual-anchors union does not support physical Apply subdivision")
 
 
 def parse_cpu_set(text: str) -> set[int]:
@@ -758,6 +774,9 @@ def main() -> int:
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
                         help="symbolic publication policy; requires --queries; ready requires unreserved delegation; nonordered modes may change diagnostic traversal order")
+    parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
+                        help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
+                             "ordered/ready publication and no physical subdivision; resume must retain its original mode")
     parser.add_argument("--" + DOMAIN.INSPECTION_WORKERS, type=DOMAIN.positive, action=DOMAIN.StoreOnce,
                         help="explicit symbolic compute partition: N inspectors, workers-1-N admission helpers and one coordinator; requires --queries")
     parser.add_argument("--" + DOMAIN.FRONTIER_POLICY, choices=DOMAIN.FRONTIER_POLICIES, action=DOMAIN.StoreOnce,
@@ -806,7 +825,8 @@ def main() -> int:
     if symbolic and (args.entry_domains is not None or args.expansion_limits is not None or any(
             getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
         parser.error("concrete-target/expansion allowances require --targets")
-    if not symbolic and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.reuse_initial_d_bands or any(
+    if not symbolic and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.reuse_initial_d_bands
+                        or args.g2_residual_anchors is not None or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES))):
         parser.error("symbolic-domain allowances require --queries")
@@ -818,6 +838,15 @@ def main() -> int:
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
+    try:
+        validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,
+                                     args.publication_policy, args.apply_subdivision_axis is not None)
+    except ValueError as error:
+        parser.error(str(error))
+    # Omit Off from both native argv and generated restart argv, including
+    # when explicitly selected, so historical flag-off invocations stay exact.
+    if args.g2_residual_anchors == "off":
+        args.g2_residual_anchors = None
     DOMAIN.validate_publication_policy(parser, args.publication_policy, args.transfer_unreserved_lookahead,
                                        args.checkpoint is not None or args.resume is not None,
                                        args.apply_subdivision_axis is not None)
@@ -920,6 +949,8 @@ def main() -> int:
         for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES):
             if (value := getattr(args, option.replace("-", "_"))) is not None:
                 command += ["--" + option, str(value)]
+        if args.g2_residual_anchors == "union":
+            command += ["--" + G2_RESIDUAL_ANCHORS, "union"]
         if args.route_domain_overcover:
             command.append("--route-domain-overcover")
         if args.route_joint_source_support_pruning:
@@ -958,6 +989,7 @@ def main() -> int:
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
+        "g2_residual_anchors": (args.g2_residual_anchors or "off") if symbolic else None,
         "requested_inspection_workers": args.inspection_workers,
         "requested_max_queries": args.max_queries,
         "requested_max_query_bytes": args.max_query_bytes,
@@ -1197,6 +1229,7 @@ def main() -> int:
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
+        "g2_residual_anchors": (args.g2_residual_anchors or "off") if symbolic else None,
         "requested_inspection_workers": args.inspection_workers,
         "requested_max_queries": args.max_queries,
         "requested_max_query_bytes": args.max_query_bytes,
