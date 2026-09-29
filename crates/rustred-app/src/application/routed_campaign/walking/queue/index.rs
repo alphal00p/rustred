@@ -640,7 +640,7 @@ impl<const N: usize> AggregateIndex<N> {
 
     // The inlined no-op checkpoint lets tests fault-inject each reservation
     // without changing the production storage policy or allocating huge memory.
-    fn prepare_with(
+    pub(in super::super) fn prepare_with(
         &mut self,
         signature: Signature,
         coordinates: Option<Coordinates<'_>>,
@@ -1052,7 +1052,7 @@ impl<const N: usize> AggregateIndex<N> {
     }
 
     #[cfg(test)]
-    pub(super) fn ids(&self) -> Vec<usize> {
+    pub(in super::super) fn ids(&self) -> Vec<usize> {
         let mut ids = Vec::new();
         self.for_each_id(|id| ids.push(id));
         ids.sort_unstable();

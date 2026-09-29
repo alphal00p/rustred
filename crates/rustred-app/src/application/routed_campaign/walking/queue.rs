@@ -13,7 +13,9 @@ use compact::{COMPACT_RANGE_ERROR, MAX_COMPACT_COORDINATE};
 pub(super) use compact::{CompactSummary, Digest, Query, Stored};
 use compact::{ExactIndex, Miss};
 mod index;
-pub(super) use index::{AggregateIndex, Coordinates, Entry, Probe, Retire, Signature, Visit};
+pub(super) use index::{
+    AggregateIndex, Coordinates, Entry, Insertion, Probe, Retire, Signature, Visit,
+};
 mod checkpoint;
 pub(super) use checkpoint::{Metadata as QueueMetadata, SortedBuckets, StoredBuckets};
 #[cfg(test)]

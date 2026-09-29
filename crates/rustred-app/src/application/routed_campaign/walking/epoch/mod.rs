@@ -213,15 +213,28 @@ fn input_row(query: &matching::input::Query, domain: Option<u32>) -> Value {
 /// a merge-time miss against the store (exact, orthant, minimum live ID) or
 /// becomes a new ID; a new initial ID retires the live IDs it contains from
 /// the lookup index (nothing transfers: every initial ID is protected).
-/// Every retirement holds a `Verified` token (the new ID, `Stored`, contains
-/// the retired image), as P2's reverse sets do, so a retired entry is always
-/// contained in a newer live entry of its bucket (the S1 premise S4's tiers
-/// rely on).
+/// Every retirement holds a `Verified` token (the future ID's `Planned`
+/// image contains the retired image), as P2's reverse sets do, so a retired
+/// entry is always contained in a newer live entry of its bucket (the S1
+/// premise S4's tiers rely on).
 fn admit_initial<const N: usize>(
     state: &mut EpochState<N>,
     domain: &Domain<N>,
 ) -> Result<u32, AdmissionError> {
+    admit_initial_with(state, domain, || Ok(()))
+}
+
+/// The no-op checkpoint is inlined in production; tests can fail the
+/// existing reservation seams without allocating unbounded memory.
+fn admit_initial_with<const N: usize>(
+    state: &mut EpochState<N>,
+    domain: &Domain<N>,
+    mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+) -> Result<u32, AdmissionError> {
     use AdmissionError as E;
+    if state.poisoned {
+        return Err(E::Internal("initial admission: state is poisoned".into()));
+    }
     let image =
         CompactDomain::try_from_domain(domain).map_err(|e| E::Refused(format!("input: {e}")))?;
     let q = QueryImage::new(image).map_err(|e| E::Refused(format!("input: {e}")))?;
@@ -241,49 +254,63 @@ fn admit_initial<const N: usize>(
         .store
         .contained_live(&q, &query, &mut state.lookup)
         .map_err(E::Internal)?;
+    checkpoint().map_err(E::index)?;
     state.reserve_ids(1).map_err(E::index)?;
+    checkpoint().map_err(E::index)?;
     state
         .store
         .exact
         .try_reserve(&[q.digest])
         .map_err(E::index)?;
-    let id = state
+    let prepared = state
         .store
-        .push(image, query.compact, q.digest)
-        .map_err(E::Internal)?;
-    state.admit_id(id);
+        .prepare_initial(&image, &query, &mut checkpoint)
+        .map_err(E::index)?;
     let mut expected = 0;
     for &old in &retire {
         let old_q = QueryImage::new(state.store.domains[old as usize])
             .map_err(|e| E::Internal(format!("retired {old}: {e}")))?;
         verify::verify(
-            verify::Container::Stored {
-                id,
-                domains: &state.store.domains,
-                published_len: id as usize + 1,
+            verify::Container::Planned {
+                pos: 0,
+                survivors: 1,
+                image: &image,
             },
             &old_q,
             &mut state.verify,
         )
         .ok_or_else(|| {
             E::Internal(format!(
-                "initial admission: retired {old} is not contained in {id} (verify)"
+                "initial admission: retired {old} is not contained in planned image (verify)"
             ))
         })?;
         if state.is_live(old) {
             expected += 1;
-            state.set_live(old, false);
         }
+    }
+    checkpoint().map_err(E::index)?;
+
+    // No fallible capacity/geometry preparation remains. Like P3, any
+    // invariant error or panic in this commit window forbids persistence.
+    state.poisoned = true;
+    let id = state
+        .store
+        .push(image, query.compact, q.digest)
+        .map_err(E::Internal)?;
+    state.admit_id(id);
+    for &old in &retire {
+        state.set_live(old, false);
     }
     let removed = state
         .store
-        .index_survivor(id, &query, &retire)
-        .map_err(E::index)?;
+        .index_initial(id, &query, &retire, prepared)
+        .map_err(|e| E::Internal(e.into()))?;
     if removed != expected {
         return Err(E::Internal(
             "initial admission index retirement mismatch".into(),
         ));
     }
+    state.poisoned = false;
     Ok(id)
 }
 

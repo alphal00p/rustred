@@ -11,8 +11,8 @@
 //! Every positive then passes `verify` (the authority); the index predicate
 //! is a prefilter. The result is a deterministic function of the store.
 use super::super::queue::{
-    AggregateIndex, CompactDomain, CompactSummary, Coordinates, Entry, Phase, Probe, Query, Retire,
-    Signature, Stored, Visit, rank_contains,
+    AggregateIndex, CompactDomain, CompactSummary, Coordinates, Entry, Insertion, Phase, Probe,
+    Query, Retire, Signature, Stored, Visit, rank_contains,
 };
 use super::verify::{Container, QueryImage, Verified, VerifyCounters, verify};
 use std::collections::HashMap;
@@ -195,6 +195,18 @@ impl LookupCounters {
         self.reverse_candidates += other.reverse_candidates;
         self.reverse_tests += other.reverse_tests;
     }
+}
+
+/// Initial admission's prepared index mutation. A new bucket must travel
+/// with its token: `prepare` reserves storage on the index as well as in
+/// the owned insertion. Between preparation and consumption, only the
+/// corresponding `push` may mutate this store.
+pub(super) struct InitialInsertion<const N: usize> {
+    id: u32,
+    bucket: u32,
+    key: (u8, u32),
+    new_bucket: Option<Bucket<N>>,
+    insertion: Insertion<N>,
 }
 
 pub(super) struct Store<const N: usize> {
@@ -460,6 +472,76 @@ impl<const N: usize> Store<N> {
         Ok(id)
     }
 
+    /// Reserve the index insertion before initial admission publishes an
+    /// ID or retires live bits. Failures change capacity only. The caller
+    /// has already reserved the store/ledger/exact-index capacities.
+    pub fn prepare_initial(
+        &mut self,
+        image: &CompactDomain<N>,
+        query: &Query<N>,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<InitialInsertion<N>, &'static str> {
+        let key = bucket_key(image);
+        let signature = Signature::of(&query.core);
+        let coordinates = Coordinates::of(&query.core);
+        let (bucket, new_bucket, insertion) = if let Some(&bucket) = self.bucket_of.get(&key) {
+            let insertion = self.buckets[bucket as usize].index.prepare_with(
+                signature,
+                coordinates,
+                checkpoint,
+            )?;
+            (bucket, None, insertion)
+        } else {
+            let mut bucket = Bucket {
+                index: AggregateIndex::default(),
+                orthant: None,
+            };
+            let insertion = bucket
+                .index
+                .prepare_with(signature, coordinates, checkpoint)?;
+            (self.buckets.len() as u32, Some(bucket), insertion)
+        };
+        Ok(InitialInsertion {
+            id: self.domains.len() as u32,
+            bucket,
+            key,
+            new_bucket,
+            insertion,
+        })
+    }
+
+    /// Consume a prepared initial insertion after its corresponding
+    /// `push`. No allocation remains; mismatches are engine failures and
+    /// the caller must keep the state poisoned.
+    pub fn index_initial(
+        &mut self,
+        id: u32,
+        query: &Query<N>,
+        retire: &[u32],
+        prepared: InitialInsertion<N>,
+    ) -> Result<u64, &'static str> {
+        if id != prepared.id
+            || self.domains.len() != id as usize + 1
+            || bucket_key(&self.domains[id as usize]) != prepared.key
+            || self.bucket_of.get(&prepared.key) != Some(&prepared.bucket)
+        {
+            return Err("initial admission prepared index mismatch");
+        }
+        if let Some(bucket) = prepared.new_bucket {
+            if self.buckets.len() != prepared.bucket as usize + 1 {
+                return Err("initial admission prepared bucket order mismatch");
+            }
+            let target = &mut self.buckets[prepared.bucket as usize];
+            if target.orthant.is_some() || target.index.storage().live != 0 {
+                return Err("initial admission prepared bucket is not empty");
+            }
+            // `push` interns the bucket at its first-appearance position;
+            // replace its empty placeholder with the index we reserved.
+            *target = bucket;
+        }
+        Ok(self.index_prepared(id, query, retire, prepared.bucket, prepared.insertion))
+    }
+
     /// Lookup-index maintenance for one new ID (P3): retire every ID of
     /// `retire` (ascending, all live and contained in `id`, decided in P2),
     /// then index `id` and update the dominant orthant. Returns the number
@@ -472,10 +554,25 @@ impl<const N: usize> Store<N> {
     ) -> Result<u64, &'static str> {
         let image = self.domains[id as usize];
         let bucket = self.bucket_of[&bucket_key(&image)];
-        let bucket = &mut self.buckets[bucket as usize];
         let signature = Signature::of(&query.core);
         let coordinates = Coordinates::of(&query.core);
-        let insertion = bucket.index.prepare(signature, coordinates)?;
+        let insertion = self.buckets[bucket as usize]
+            .index
+            .prepare(signature, coordinates)?;
+        Ok(self.index_prepared(id, query, retire, bucket, insertion))
+    }
+
+    fn index_prepared(
+        &mut self,
+        id: u32,
+        query: &Query<N>,
+        retire: &[u32],
+        bucket: u32,
+        insertion: Insertion<N>,
+    ) -> u64 {
+        let image = self.domains[id as usize];
+        let bucket = &mut self.buckets[bucket as usize];
+        let coordinates = Coordinates::of(&query.core);
         let probe = Probe::new(coordinates, query.word, query.lanes, true);
         let mut visitor = PreparedRetire {
             set: retire,
@@ -499,7 +596,7 @@ impl<const N: usize> Store<N> {
         {
             bucket.orthant = Some(id);
         }
-        Ok(removed)
+        removed
     }
 
     pub fn storage_json(&self) -> serde_json::Value {

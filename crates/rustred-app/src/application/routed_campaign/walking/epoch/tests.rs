@@ -24,6 +24,8 @@ use super::{AdmissionError, admit_initial, anchor_self_check, certification, rec
 use rustred::solver::DomainPowerBounds;
 use serde_json::Value;
 
+mod admission;
+
 const APPLY: [bool; 2] = [true, false];
 const OTHER: [bool; 2] = [false, true];
 

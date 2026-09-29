@@ -83,9 +83,9 @@ pub(super) struct EpochState<const N: usize> {
     pub max_domains: usize,
     pub max_events: u64,
     pub max_frontiers: u64,
-    /// Set when P3 starts and cleared when it ends (§6.4): a panic or a C5
-    /// inside P3 leaves it set, and nothing may persist a state holding it
-    /// (the S2 export refuses; S3's save must refuse too).
+    /// Set during P3 or initial admission's authority commit and cleared
+    /// only on success (§6.4): a panic or C5 leaves it set, and nothing may
+    /// persist a state holding it (the S2 export refuses; S3's save must too).
     pub poisoned: bool,
 }
 
