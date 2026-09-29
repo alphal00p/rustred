@@ -323,6 +323,7 @@ pub(super) fn run<const N: usize>(
                     })?;
                     Some(reason)
                 } else {
+                    let observations = observations(identity, &checked);
                     progress(&restored.state, &restored.dispatch, "p2");
                     let plan = merge::p2(&mut restored.state, &checked)?;
                     if snapshots.is_some() {
@@ -420,7 +421,7 @@ pub(super) fn run<const N: usize>(
                             Some(reason)
                         }
                         Ok(()) => {
-                            merge::p3_apply(
+                            let applied = merge::p3_apply(
                                 &mut restored.state,
                                 checked,
                                 plan,
@@ -428,8 +429,13 @@ pub(super) fn run<const N: usize>(
                                 &records::Builder,
                                 &mut Output(&mut restored.records),
                                 &mut |id, attempts| restored.dispatch.requeue(id, attempts),
-                            )?
-                            .stop
+                            )?;
+                            restored.dispatch.observe_completed(
+                                &restored.state,
+                                &observations,
+                                applied.new_ids,
+                            );
+                            applied.stop
                         }
                     }
                 };

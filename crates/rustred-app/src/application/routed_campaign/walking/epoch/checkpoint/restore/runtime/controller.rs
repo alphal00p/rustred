@@ -1,4 +1,4 @@
-//! Private restored-state lockstep controller. Not called by public resume.
+//! Durable public Epoch controller with lockstep and bounded rolling modes.
 //! Owns all merge mutation and saves inside the scoped executor before join.
 use super::super::super::{
     MergeBoundary, invalid,
@@ -106,6 +106,29 @@ impl RecordOut for Output<'_> {
     fn push(&mut self, record: Value) -> Result<(), String> {
         self.0.push(&record)
     }
+}
+
+/// P1 stores parent order for deterministic merge mechanics. Adaptive cost
+/// attribution instead uses logical issuance order, independent of arrival and
+/// of the scheduler's parent choices. Only committed merging results count.
+fn observations<const N: usize>(
+    identity: &Identity<'_>,
+    checked: &merge::Checked<N>,
+) -> Vec<(u32, f64, u64)> {
+    if !identity.adaptive_dispatch() {
+        return Vec::new();
+    }
+    let mut entries: Vec<_> = checked
+        .entries
+        .iter()
+        .filter(|entry| entry.class.merges() && !entry.recurring_panic)
+        .map(|entry| &entry.result)
+        .collect();
+    entries.sort_unstable_by_key(|result| result.seq);
+    entries
+        .into_iter()
+        .map(|result| (result.parent, result.seconds, result.known_reuse))
+        .collect()
 }
 
 pub(super) fn save<const N: usize>(
@@ -562,6 +585,7 @@ pub(super) fn run_observed<const N: usize>(
                     })?;
                     Some(reason)
                 } else {
+                    let observations = observations(identity, &checked);
                     progress(&restored.state, &restored.dispatch, "p2");
                     let plan = merge::p2(&mut restored.state, &checked)?;
                     progress(&restored.state, &restored.dispatch, "p3");
@@ -582,7 +606,7 @@ pub(super) fn run_observed<const N: usize>(
                         })?;
                         Some(reason)
                     } else {
-                        merge::p3_apply(
+                        let applied = merge::p3_apply(
                             &mut restored.state,
                             checked,
                             plan,
@@ -590,8 +614,13 @@ pub(super) fn run_observed<const N: usize>(
                             &records::Builder,
                             &mut Output(&mut restored.records),
                             &mut |id, attempts| restored.dispatch.requeue(id, attempts),
-                        )?
-                        .stop
+                        )?;
+                        restored.dispatch.observe_completed(
+                            &restored.state,
+                            &observations,
+                            applied.new_ids,
+                        );
+                        applied.stop
                     }
                 };
                 if let Some(reason) = reason {

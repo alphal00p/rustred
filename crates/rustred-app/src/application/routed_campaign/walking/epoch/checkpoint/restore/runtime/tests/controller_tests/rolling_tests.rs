@@ -17,8 +17,8 @@ fn rolling_fixture(count: usize) -> Fixture {
             auxiliary: false,
             role_declared: true,
             owner: vec![true],
-            lower: vec![id as i32],
-            upper: vec![Some(id as i32)],
+            lower: vec![id as u64],
+            upper: vec![Some(id as u64)],
             rank: Some(2),
             powers: Default::default(),
         })
@@ -31,7 +31,7 @@ fn rolling_fixture(count: usize) -> Fixture {
             "id":q.id,"owner":"1","lower":q.lower,"upper":q.upper,
             "max_numerator_rank":2
         })).collect::<Vec<_>>(),
-        "query_roles":{"required":fixture.queries.iter().map(|q| &q.id).collect::<Vec<_>>()}
+        "query_roles":{"required":fixture.queries.iter().map(|q| &q.id).collect::<Vec<_>>(), "auxiliary":[]}
     })
     .to_string();
     fixture

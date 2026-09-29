@@ -263,6 +263,7 @@ fn summary<const N: usize>(
             "schedule":{"kind":if request.epoch_rolling {"rolling"} else {"lockstep"},
                 "depth":if request.epoch_rolling { b.div_ceil(cut_size.min(b)) } else {1},
                 "b":b,"window":b,"cut_size":if request.epoch_rolling { cut_size.min(b) } else {b},
+                "dispatch":request.epoch_dispatch.name(),
                 "publication_order":"oldest_sequence_prefix"},"resolution":"canonical_in_merge",
             "records_digest":state.edges.records_digest(),"edge_digest":state.edges.edge_digest(),
             "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}})
