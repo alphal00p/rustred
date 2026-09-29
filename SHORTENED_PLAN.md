@@ -31,6 +31,24 @@ toward this delivery clock; compilation remains excluded from solver timings.
 If a milestone slips, report it immediately and spend the reserve explicitly.
 Do not silently extend the schedule or call an unfinished build ready.
 
+### Latest delivery instruction — 2026-09-29
+
+Continue until the `fable_5_1_parallel` branch is committed/pushed, demonstrated
+stable and at least performing well on the combined four-loop control, with a
+bounded, measured study informing input/family order and algebraic coordinate
+priority. A literature/source review alone is not the requested experiment.
+Use the same compiled backend across input variants; retain negative results
+and distinguish a heuristic recommendation from an optimum.
+
+The user now wants to launch the parallel campaign in **tab `codex_astra` of
+Zellij session `rustred`, alongside LC2**, not replace LC2. This supersedes
+earlier stop-and-switch instructions for final Stage B deployment. Preserve
+LC2's CPUs128–227 and checkpoint. Final launch instructions must assign a
+disjoint CPU set and a RAM budget that allows both campaigns and system
+headroom. Only the user launches production. Finish the stability/performance
+gates even if necessary corrections consume more than the tentative timebox;
+do not end at an unqualified source-only checkpoint.
+
 ## Stage A — compatible stable milestone on `fable_5_1`
 
 ### Scope

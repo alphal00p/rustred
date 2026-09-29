@@ -104,6 +104,36 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 18:22 UTC — one final cold-reader defect; bounded ordering lane
+
+- [M] Corrected app-opt1 build completed in4,565.855s. The full actual suite
+  then ran233.246s:1,116 passed,one failed,12 ignored,zero filtered and no
+  unexpected SKIPPED markers. Existing W50 tests and all earlier corrected
+  paths passed. The remaining failure is the real rescue cold-verification
+  regression, not a build, license or timing issue. Receipts:
+  `TMP/codex-parallel-validation.RPJKV5/native-{build,app}-f3f707af-opt1/`.
+- [M] Diagnosis: the verifier inserts both initial and amended admitting roots
+  into one map, then incorrectly demands that the whole map equal only the
+  original prefix. Root narrowed that one inventory check to IDs below p0;
+  independent `stage_a_release` review passed. Original per-query equality,
+  roles, amendment authentication, containment and missing-prefix rejection
+  remain. Do not remove the positive rescue regression or weaken its assertion.
+- [D] For this narrow reader-only correction, retain the genuine failing native
+  fixture and exercise the final optimized CLI's cold PhysicsQueries PASS,
+  AllRoots non-PASS, unchanged files, resume/digest parity and altered-amendment
+  refusal. This is actual final-code regression evidence plus the1,116 unchanged
+  full-suite passes, not a claim that the final full native suite was rerun.
+  It avoids another monolithic app-test rebuild solely for this predicate.
+- [D] User requests delivery for a new `codex_astra` tab alongside LC2, so
+  final resources must be disjoint rather than reusing LC2 CPUs128–227. Updated
+  the shortened plan. No production operation was performed.
+- [M] New delegated `bounded_ordering_pilots` lane prepares input-driven pilot
+  commands with independent root review; no heavy job is authorized yet.
+  It identified a useful exact-scope four-loop comparison: the58-row control
+  appends16 broad R12 helpers late, whereas the existing helper-first staging
+  can move them before narrower queries without changing any row or role.
+  Single-query finite/hot controls cannot measure query-order effects.
+
 ### 2026-09-29 17:54 UTC — owner has resumed LC2 with Stage A
 
 - [M] Read-only inspection shows run `20260929T165630.299496Z` using the
