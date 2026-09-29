@@ -104,6 +104,29 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 about20:43 UTC — authorized structural-ordering extension
+
+- [D] User grants another4–5hours to obtain a decisive combined-four-loop
+  improvement and a mechanistic ordering study. Updated `SHORTENED_PLAN.md`:
+  target00:43–01:43 UTC September30, retaining honest gates and untouched LC2.
+- [D] New structural lane `parallel_gate_critique`: derive a small portfolio
+  from actual common pinches/subtopologies, owner coverage and rule/guard costs,
+  not arbitrary reversal/permutation. Separate input admission, routing-owner
+  priority, pending dispatch and algebraic pivot choices. Prefer existing
+  runtime controls and preserve every query; temporary rule regeneration is
+  charged explicitly when algebraic priority changes.
+- [D] Independent `stage_a_release` audit investigates the reported historical
+  12/67 versus current6/67 recursively closed roots. First establish matching
+  domains, bounds, owner programs, counters and snapshot freshness. No large
+  production replay or attribution of a regression from counts alone.
+- [M] Existing89d90a3a optimized build continues with Symbolica, Graphica,
+  Numerica and core all reported fresh; application crate recompiles. Candidate
+  order trials remain input-driven on this frozen engine. Source/doc milestones
+  through `ecb973d0` are pushed, but launch remains unqualified.
+- [D] Measure native walking and cold reinspection separately. Even if the
+  verifier improvement wins the combined gate, it is not itself a claim of
+  faster generation or better five-loop scaling. No new unrelated features.
+
 ### 2026-09-29 20:35 UTC — minimal indexed-verifier slice audited and typechecked
 
 - [M] Integrated `89d90a3a` (author commit `6610454a`): the only production

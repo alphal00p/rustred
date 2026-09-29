@@ -49,6 +49,52 @@ headroom. Only the user launches production. Finish the stability/performance
 gates even if necessary corrections consume more than the tentative timebox;
 do not end at an unqualified source-only checkpoint.
 
+### Additional authorized window — 2026-09-29 about20:43 UTC
+
+The user authorizes another **4–5 hours**, targeting a decisive win on the
+four-loop gate and a better-founded ordering choice before the alongside
+five-loop launch. Aim to consolidate by00:43 UTC on September30, with01:43
+as the five-hour planning boundary. Report actual gate results and any slippage;
+do not manufacture a win by narrowing the workload or weakening verification.
+
+The natural/reverse experiment is useful negative evidence, but no longer
+satisfies the requested depth of ordering investigation by itself. Add:
+
+1. **Mechanistic input and pivot ordering.** Use actual pinch relationships,
+   common routed subtopologies, owner equivalences and rule/guard costs to
+   derive a small, justified portfolio. Ask which intermediate results provide
+   useful coverage to several parents, and which broad early domains create
+   excessive descendants. Distinguish query admission order, routing-owner
+   priority, pending-job dispatch and algebraic coordinate priority. Preserve
+   every required query and the mathematical scope. Compare on combined
+   four-loop controls, not just a convenient individual topology.
+2. **Historical12/67 versus6/67 audit.** Find the old evidence and compare
+   actual initial domains, bounds, owner programs, policies and closure-counter
+   definitions. Check for stale conservative snapshots and changes to cycle/
+   dependency bookkeeping. Do not assume either regression or comparability
+   from the displayed count alone. Leave production read-only; avoid a large
+   full-checkpoint replay until a narrow diagnosis makes it necessary.
+3. **Input-driven experiments.** Reuse the same optimized executable for
+   supported steering variations. A changed algebraic order requires temporary
+   regenerated/validated rules, not a Rust rebuild. Add only small generic
+   steering controls if a concrete experiment is otherwise blocked; audit and
+   test them once, rather than recompiling for individual permutations.
+4. **Measured delivery.** Keep native closure-walk and independent cold costs
+   separate: faster verification alone must not be described as faster IBP
+   generation or proof of improved five-loop scaling. Repeat qualifying
+   combined-four-loop comparisons; retain unfavorable and censored results.
+   The1.5x criterion still governs a faster-replacement claim, not the user's
+   explicitly experimental alongside first shot after correctness, four-loop
+   performance and resource gates pass.
+
+Parallel lanes: `bounded_ordering_pilots` owns the existing optimized build and
+matched controls; `parallel_gate_critique` owns structural ordering research/
+input design and independent verifier audit; `stage_a_release` owns the
+historical closure-count audit. Root integrates, coordinates resources and
+keeps `CODEX_PROGRESS.md` current. Reassign implementation and review to
+different agents if a concrete bug or useful steering change is identified.
+No production actions, new master/Vakint work, or open-ended permutation search.
+
 ## Stage A — compatible stable milestone on `fable_5_1`
 
 ### Scope
