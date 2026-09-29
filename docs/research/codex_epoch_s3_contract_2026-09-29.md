@@ -8,8 +8,8 @@ lightweight release typecheck at `33b0c2ab` after a test-only correction. The
 subsequent manifest/scalar-bound assembly passed independent source review and
 the lightweight typecheck at `43253bfe`. Anchor/frontier and saved-dispatch
 decoding passed independent source review and the batched lightweight typecheck
-at `97787259`. Cross-state validation passed independent source review and
-awaits typecheck; all new runtime tests remain unexecuted.
+at `97787259`. Cross-state validation passed independent source review and the
+lightweight typecheck at `613e9c6f`; all new runtime tests remain unexecuted.
 No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
@@ -391,8 +391,28 @@ Stale closed bits remain provisional and do not become certification: owned
 closure reconstruction and its existing full counter/graph validator still
 precede runnable state. Record bodies, roots/roles, whole-query admission and
 durable session/replay still remain required. This cross-state slice passed
-independent source review after the two corrections above; compilation and
-execution remain pending.
+independent source review after the two corrections above and the lightweight
+typecheck at validation `613e9c6f` (source `8cea173a`). Receipt:
+`TMP/codex-epoch-s3.JjASCU/typecheck-cross-state-light`: exit 0, reason null,
+40.165 s guard / 37.54 s Cargo, maximum single-child RSS 1,211,848 KiB,
+minimum available RAM 798,267,813,888 bytes; same CPU16-19/build-1/one-worker
+metadata-only allocation. Execution remains pending.
+
+The next provisional record-segment slice streams the existing serde descriptor
+array into the final Sidecar registry, reserving each slot only after its actual
+descriptor is decoded and its generation/path/count/tiling checked. A 512-byte
+per-descriptor read budget bounds untrusted JSON string scratch; this exceeds
+the largest canonical descriptor (four u64 fields, fixed filename and hex
+digest), rather than imposing a record-body or topology-count limit. Even a
+forged large section count cannot lend its entire byte allowance to one string.
+Every referenced sealed body is authenticated with fixed 32-KiB scratch; orphan
+tails are ignored. This first traversal does not parse or validate record
+semantics, and introduces no new record-line cap. Compact source-field visitors
+must replace the raw traversal before complete state construction. Tests use
+actual Sidecar segments, large bodies, fixed-shape maxima, count/tiling/path and
+body/hash mutations. Independent source review passed, including the pinned
+serde_json reader's one-byte lookahead contract; compilation and execution
+remain pending.
 
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export

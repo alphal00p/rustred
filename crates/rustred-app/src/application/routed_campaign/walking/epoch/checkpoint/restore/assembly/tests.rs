@@ -133,6 +133,7 @@ fn writer_manifest_scalar_owner_and_fixed_arrays_roundtrip_provisionally() {
     assert_eq!(decoded.dispatch.session, 1);
     assert_eq!(decoded.dispatch.counter, 0);
     assert!(decoded.dispatch.in_flight.is_empty());
+    assert!(decoded.record_segments.is_empty());
     assert_eq!(
         decoded
             .store
@@ -250,6 +251,7 @@ fn owner_inventory_and_cross_file_counts_are_not_trusted_from_manifest() {
         "orthants",
         "inputs",
         "input-frontiers",
+        "record-segments",
     ] {
         let fixture = Fixture::new(false);
         fixture.mutate_manifest(|manifest| {

@@ -8,7 +8,7 @@ use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
 use super::{
     CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, cross_state, dispatch_state,
-    lookup,
+    lookup, record_segments,
 };
 use std::io::{self, Read};
 use std::path::Path;
@@ -25,6 +25,8 @@ pub(super) struct Provisional<const N: usize> {
     pub anchors: AnchorMap,
     pub frontier_counts: std::collections::BTreeMap<u32, u32>,
     pub dispatch: dispatch_state::SavedDispatch,
+    pub record_segments:
+        Vec<crate::application::routed_campaign::walking::checkpoint::manifest::Segment>,
 }
 
 fn file<'a>(manifest: &'a Manifest, key: &str) -> io::Result<&'a FileRef> {
@@ -232,6 +234,12 @@ pub(super) fn read<const N: usize>(
         input_frontiers: scalars.input_frontiers,
         records_digest: &scalars.records_digest,
     })?;
+    let record_segments = record_segments::read(
+        directory,
+        file(&manifest, "record-segments")?,
+        manifest.generation,
+        scalars.edge_runs,
+    )?;
     Ok(Provisional {
         manifest,
         scalars,
@@ -244,6 +252,7 @@ pub(super) fn read<const N: usize>(
         anchors,
         frontier_counts,
         dispatch,
+        record_segments,
     })
 }
 

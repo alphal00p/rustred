@@ -20,6 +20,7 @@ mod auxiliary;
 mod cross_state;
 mod dispatch_state;
 mod lookup;
+mod record_segments;
 
 fn open_section<const N: usize>(
     directory: &Path,
