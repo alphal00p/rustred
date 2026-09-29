@@ -202,8 +202,10 @@ fn lookup_mode(request: &OwnerDomainWalkRequest) -> controller::LookupMode {
 /// progress age when repeating this event, so a stalled coordinator does not
 /// turn an old callback count into a live utilization claim.
 fn activity_json(activity: Option<Activity>, phase: &str) -> Value {
-    let inline_unobservable =
-        activity.is_some_and(|value| value.inline && phase == "inspect" && value.queued != 0);
+    // Even a just-sampled idle inline boundary may immediately enter a long
+    // caller-thread CAS before the next five-second emit gate. Never advertise
+    // its latched zero as live computing activity while that call runs.
+    let inline_unobservable = activity.is_some_and(|value| value.inline && phase != "joined");
     let known = activity.filter(|_| !inline_unobservable);
     json!({
         "active_workers":known.map(|value| value.computing),

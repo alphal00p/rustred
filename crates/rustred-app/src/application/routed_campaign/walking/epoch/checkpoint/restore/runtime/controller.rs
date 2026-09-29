@@ -349,7 +349,7 @@ pub(super) fn run_observed<const N: usize>(
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<Outcome, Failure> {
             if let Some(reason) = initial_stop(config, restored.roots.frontiers.len()) {
                 progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                    pool.activity().ok()
+                    pool.activity()
                 });
                 let receipt = save_observed(
                     restored,
@@ -358,7 +358,7 @@ pub(super) fn run_observed<const N: usize>(
                     Some(reason),
                     None,
                     &mut |state, dispatch, phase| {
-                        progress(state, dispatch, phase, &|| pool.activity().ok())
+                        progress(state, dispatch, phase, &|| pool.activity())
                     },
                 )?;
                 on_saved(restored, &receipt, &[]);
@@ -367,13 +367,13 @@ pub(super) fn run_observed<const N: usize>(
             let mut committed_boundary = false;
             loop {
                 progress(&restored.state, &restored.dispatch, "boundary", &|| {
-                    pool.activity().ok()
+                    pool.activity()
                 });
                 if let Some(context) = stop_requested() {
                     pool.cancel().map_err(Failure::Engine)?;
                     let reason = context.kind();
                     progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let receipt = save_observed(
                         restored,
@@ -382,7 +382,7 @@ pub(super) fn run_observed<const N: usize>(
                         Some(reason),
                         Some(context),
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     // Any prior batch has already merged; its old worker
@@ -403,7 +403,7 @@ pub(super) fn run_observed<const N: usize>(
                         pool.cancel().map_err(Failure::Engine)?;
                         let reason = context.kind();
                         progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                            pool.activity().ok()
+                            pool.activity()
                         });
                         let receipt = save_observed(
                             restored,
@@ -412,14 +412,14 @@ pub(super) fn run_observed<const N: usize>(
                             Some(reason),
                             Some(context),
                             &mut |state, dispatch, phase| {
-                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                                progress(state, dispatch, phase, &|| pool.activity())
                             },
                         )?;
                         on_saved(restored, &receipt, &[]);
                         return Ok(Outcome::Stopped(reason));
                     }
                     progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let receipt = save_observed(
                         restored,
@@ -428,7 +428,7 @@ pub(super) fn run_observed<const N: usize>(
                         None,
                         None,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     on_saved(restored, &receipt, &[]);
@@ -450,7 +450,7 @@ pub(super) fn run_observed<const N: usize>(
                                     restored.roots.frontiers.len(),
                                 );
                             progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                                pool.activity().ok()
+                                pool.activity()
                             });
                             let receipt = save_observed(
                                 restored,
@@ -459,7 +459,7 @@ pub(super) fn run_observed<const N: usize>(
                                 (!certified).then_some(StopReason::DrainedUncertified),
                                 None,
                                 &mut |state, dispatch, phase| {
-                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                    progress(state, dispatch, phase, &|| pool.activity())
                                 },
                             )?;
                             on_saved(restored, &receipt, &[]);
@@ -467,7 +467,7 @@ pub(super) fn run_observed<const N: usize>(
                         }
                         Refill::SequenceExhausted => {
                             progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                                pool.activity().ok()
+                                pool.activity()
                             });
                             let receipt = save_observed(
                                 restored,
@@ -476,7 +476,7 @@ pub(super) fn run_observed<const N: usize>(
                                 Some(StopReason::Capacity),
                                 None,
                                 &mut |state, dispatch, phase| {
-                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                    progress(state, dispatch, phase, &|| pool.activity())
                                 },
                             )?;
                             on_saved(restored, &receipt, &[]);
@@ -499,7 +499,7 @@ pub(super) fn run_observed<const N: usize>(
                         restored,
                         &mut stop_requested,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )? {
                         Refresh::Ready(Some(snapshot)) => snapshot,
@@ -518,7 +518,7 @@ pub(super) fn run_observed<const N: usize>(
                                 Some(reason),
                                 Some(context),
                                 &mut |state, dispatch, phase| {
-                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                    progress(state, dispatch, phase, &|| pool.activity())
                                 },
                             )?;
                             on_saved(restored, &receipt, &[]);
@@ -533,7 +533,7 @@ pub(super) fn run_observed<const N: usize>(
                                 Some(StopReason::RamGuard),
                                 None,
                                 &mut |state, dispatch, phase| {
-                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                    progress(state, dispatch, phase, &|| pool.activity())
                                 },
                             )?;
                             on_saved(restored, &receipt, &[]);
@@ -551,7 +551,7 @@ pub(super) fn run_observed<const N: usize>(
                     drop(jobs);
                     pool.cancel().map_err(Failure::Engine)?;
                     progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let receipt = save_observed(
                         restored,
@@ -560,7 +560,7 @@ pub(super) fn run_observed<const N: usize>(
                         Some(StopReason::RamGuard),
                         None,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     on_saved(restored, &receipt, &[]);
@@ -578,7 +578,7 @@ pub(super) fn run_observed<const N: usize>(
                     Err(SubmitError::Allocation(_)) => {
                         pool.cancel().map_err(Failure::Engine)?;
                         progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                            pool.activity().ok()
+                            pool.activity()
                         });
                         let receipt = save_observed(
                             restored,
@@ -587,7 +587,7 @@ pub(super) fn run_observed<const N: usize>(
                             Some(StopReason::RamGuard),
                             None,
                             &mut |state, dispatch, phase| {
-                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                                progress(state, dispatch, phase, &|| pool.activity())
                             },
                         )?;
                         on_saved(restored, &receipt, &[]);
@@ -596,7 +596,7 @@ pub(super) fn run_observed<const N: usize>(
                 }
                 loop {
                     progress(&restored.state, &restored.dispatch, "inspect", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     if let Some(context) = stop_requested() {
                         // No partial cut reaches P1. Release both already-polled
@@ -606,7 +606,7 @@ pub(super) fn run_observed<const N: usize>(
                         let status = pool.take_cancelled_status().map_err(Failure::Engine)?;
                         let reason = context.kind();
                         progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                            pool.activity().ok()
+                            pool.activity()
                         });
                         let receipt = save_observed(
                             restored,
@@ -615,7 +615,7 @@ pub(super) fn run_observed<const N: usize>(
                             Some(reason),
                             Some(context),
                             &mut |state, dispatch, phase| {
-                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                                progress(state, dispatch, phase, &|| pool.activity())
                             },
                         )?;
                         on_saved(restored, &receipt, &status);
@@ -641,7 +641,7 @@ pub(super) fn run_observed<const N: usize>(
                 // P1 sorts the complete cut; first-error handling is independent
                 // of worker completion order. Existing P1-P3 semantics unchanged.
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
-                    pool.activity().ok()
+                    pool.activity()
                 });
                 let checked = merge::p1_check(&mut restored.state, results, config)?;
                 let reason = if let Some(reason) = checked.stop {
@@ -652,11 +652,11 @@ pub(super) fn run_observed<const N: usize>(
                 } else {
                     let observations = observations(identity, &checked);
                     progress(&restored.state, &restored.dispatch, "p2", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let plan = merge::p2(&mut restored.state, &checked)?;
                     progress(&restored.state, &restored.dispatch, "p3", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     if let Err(reason) = merge::p3_preflight(
                         &mut restored.state,
@@ -697,7 +697,7 @@ pub(super) fn run_observed<const N: usize>(
                 pool.retire_all_returned().map_err(Failure::Engine)?;
                 if let Some(reason) = reason {
                     progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let receipt = save_observed(
                         restored,
@@ -706,7 +706,7 @@ pub(super) fn run_observed<const N: usize>(
                         Some(reason),
                         None,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     on_saved(restored, &receipt, &[]);
@@ -729,7 +729,7 @@ pub(super) fn run_observed<const N: usize>(
             }
         }
         progress(&restored.state, &restored.dispatch, "drain_wait", &|| {
-            pool.activity().ok()
+            pool.activity()
         });
         result
     });

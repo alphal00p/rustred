@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub(super) trait Execution {
-    fn activity(&self) -> Result<Activity, String>;
+    fn activity(&self) -> Option<Activity>;
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn retire(&mut self, keys: &[u64]) -> Result<(), String>;
@@ -20,7 +20,7 @@ pub(super) trait Execution {
 }
 
 impl Execution for Pool<'_> {
-    fn activity(&self) -> Result<Activity, String> {
+    fn activity(&self) -> Option<Activity> {
         Pool::activity(self)
     }
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
@@ -55,11 +55,11 @@ struct Inline<'a> {
 }
 
 impl Execution for Inline<'_> {
-    fn activity(&self) -> Result<Activity, String> {
+    fn activity(&self) -> Option<Activity> {
         if self.stop.load(Ordering::Acquire) && self.status.is_empty() {
-            return Err("inline activity inventory moved before join".into());
+            return None;
         }
-        Ok(Activity::from_status(
+        Some(Activity::from_status(
             self.status.iter(),
             self.stop.load(Ordering::Acquire),
             true,

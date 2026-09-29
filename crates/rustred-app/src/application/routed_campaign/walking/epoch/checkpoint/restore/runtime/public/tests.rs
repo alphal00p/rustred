@@ -30,6 +30,15 @@ fn activity_fields_separate_computing_from_returned_and_unknown_inline() {
     assert_eq!(inline["active_workers"], Value::Null);
     assert_eq!(inline["queued_inspections"], Value::Null);
     assert_eq!(inline["activity_observation"], "inline_call_not_pollable");
+    let inline_boundary = activity_json(
+        Some(Activity {
+            inline: true,
+            ..Activity::default()
+        }),
+        "boundary",
+    );
+    assert_eq!(inline_boundary["active_workers"], Value::Null);
+    assert_eq!(inline_boundary["computing_workers"], Value::Null);
     let unknown = activity_json(None, "drain_wait");
     assert_eq!(unknown["computing_workers"], Value::Null);
     assert_eq!(unknown["finished_uncommitted_domains"], Value::Null);

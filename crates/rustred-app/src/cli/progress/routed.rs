@@ -386,6 +386,26 @@ fn admission_worker_limits(parallel: &Value) -> Option<(u64, u64, u64, u64)> {
 }
 
 fn walk_worker_summary(parallel: &Value) -> String {
+    if let Some(observation) = parallel["activity_observation"].as_str() {
+        let count = |key| {
+            parallel[key]
+                .as_u64()
+                .map_or_else(|| "?".to_owned(), |value| value.to_string())
+        };
+        let state = match observation {
+            "coordinator_sample" => "sampled",
+            "inline_call_not_pollable" => "inline call not pollable",
+            "joined" => "workers joined",
+            "saved_cut_observation_not_live" => "saved cut, not live activity",
+            _ => "activity unavailable",
+        };
+        return format!(
+            "Epoch callbacks: {} computing / {} queued / {} returned awaiting publication ({state}; heartbeat age applies, not CPU utilization)",
+            count("computing_workers"),
+            count("queued_inspections"),
+            count("finished_uncommitted_domains")
+        );
+    }
     let n = |key| parallel[key].as_u64().unwrap_or(0);
     if let Some((native, lookup, coordinator, budget)) = admission_worker_limits(parallel) {
         format!(
@@ -781,6 +801,37 @@ mod tests {
         let before = other.clone();
         add_worker_summary(&mut other);
         assert_eq!(other, before);
+    }
+    #[test]
+    fn epoch_worker_summary_preserves_unknown_and_sampled_callback_semantics() {
+        let mut record = json!({"progress":{"operation":"owner_domain_walk",
+            "parallel":{"activity_observation":"inline_call_not_pollable",
+                "active_workers":null,"computing_workers":null,
+                "queued_inspections":null,"finished_uncommitted_domains":0}}});
+        add_worker_summary(&mut record);
+        let summary = record["worker_summary"].as_str().unwrap();
+        assert!(summary.contains("? computing / ? queued / 0 returned"));
+        assert!(summary.contains("inline call not pollable"));
+        assert!(summary.contains("heartbeat age applies, not CPU utilization"));
+        assert_eq!(dashboard(&record)[4], summary);
+        record["progress"]["parallel"] = json!({"activity_observation":"coordinator_sample",
+            "active_workers":2,"computing_workers":2,"queued_inspections":3,
+            "finished_uncommitted_domains":4});
+        add_worker_summary(&mut record);
+        assert!(
+            record["worker_summary"]
+                .as_str()
+                .unwrap()
+                .contains("2 computing / 3 queued / 4 returned awaiting publication (sampled")
+        );
+        record["progress"]["parallel"] = json!({"activity_observation":"unavailable"});
+        add_worker_summary(&mut record);
+        assert!(
+            record["worker_summary"]
+                .as_str()
+                .unwrap()
+                .contains("? computing / ? queued / ? returned")
+        );
     }
     #[test]
     fn guarded_dashboard_is_conditional_bounded_and_not_a_campaign_fraction() {

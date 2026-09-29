@@ -109,7 +109,7 @@ pub(super) fn run<const N: usize>(
             let mut committed = false;
             loop {
                 progress(&restored.state, &restored.dispatch, "boundary", &|| {
-                    pool.activity().ok()
+                    pool.activity()
                 });
                 if let Some(context) = stop_requested() {
                     return stopped(
@@ -138,7 +138,7 @@ pub(super) fn run<const N: usize>(
                         None,
                         None,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     on_saved(restored, &receipt, &[]);
@@ -154,7 +154,7 @@ pub(super) fn run<const N: usize>(
                             restored,
                             &mut stop_requested,
                             &mut |state, dispatch, phase| {
-                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                                progress(state, dispatch, phase, &|| pool.activity())
                             },
                         )? {
                             Refresh::Ready(snapshot) => snapshot,
@@ -301,7 +301,7 @@ pub(super) fn run<const N: usize>(
                         (!certified).then_some(StopReason::DrainedUncertified),
                         None,
                         &mut |state, dispatch, phase| {
-                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                            progress(state, dispatch, phase, &|| pool.activity())
                         },
                     )?;
                     on_saved(restored, &receipt, &[]);
@@ -322,7 +322,7 @@ pub(super) fn run<const N: usize>(
                         .all(|key| results.contains_key(key));
                 if !ready {
                     progress(&restored.state, &restored.dispatch, "inspect", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let drained = collect(
                         pool.poll(Duration::from_millis(50))
@@ -344,7 +344,7 @@ pub(super) fn run<const N: usize>(
                     .map(|key| results.remove(key).expect("checked ready prefix"))
                     .collect();
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
-                    pool.activity().ok()
+                    pool.activity()
                 });
                 let checked = merge::p1_check(&mut restored.state, bytes, config)?;
                 let reason = if let Some(reason) = checked.stop {
@@ -355,7 +355,7 @@ pub(super) fn run<const N: usize>(
                 } else {
                     let observations = observations(identity, &checked);
                     progress(&restored.state, &restored.dispatch, "p2", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     let plan = merge::p2(&mut restored.state, &checked)?;
                     if snapshots.is_some() {
@@ -367,7 +367,7 @@ pub(super) fn run<const N: usize>(
                                 restored,
                                 &mut stop_requested,
                                 &mut |state, dispatch, phase| {
-                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                    progress(state, dispatch, phase, &|| pool.activity())
                                 },
                             )? {
                                 Refresh::Ready(view) => drop(view),
@@ -430,7 +430,7 @@ pub(super) fn run<const N: usize>(
                                 );
                             }
                             progress(&restored.state, &restored.dispatch, "inspect", &|| {
-                                pool.activity().ok()
+                                pool.activity()
                             });
                             // A drained pool releases the final readers; retry
                             // refresh before deciding whether publication fits.
@@ -443,7 +443,7 @@ pub(super) fn run<const N: usize>(
                         }
                     }
                     progress(&restored.state, &restored.dispatch, "p3", &|| {
-                        pool.activity().ok()
+                        pool.activity()
                     });
                     match merge::p3_preflight(
                         &mut restored.state,
@@ -518,7 +518,7 @@ pub(super) fn run<const N: usize>(
             }
         }
         progress(&restored.state, &restored.dispatch, "drain_wait", &|| {
-            pool.activity().ok()
+            pool.activity()
         });
         result
     });

@@ -148,17 +148,14 @@ fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<
 impl Pool<'_> {
     /// No allocation and at most the fixed 4096 descriptor bound. Called lazily
     /// only when a rate-limited heartbeat is actually emitted.
-    pub fn activity(&self) -> Result<Activity, String> {
-        let guard = self
-            .queue
-            .lock()
-            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+    pub fn activity(&self) -> Option<Activity> {
+        let guard = self.queue.lock().ok()?;
         if self.cancelled && guard.status.is_empty() {
             // The stop inventory has moved to the save path; late workers no
             // longer update it. Do not manufacture zero activity before join.
-            return Err("epoch activity inventory moved before worker join".into());
+            return None;
         }
-        Ok(Activity::from_status(
+        Some(Activity::from_status(
             guard
                 .status
                 .iter()

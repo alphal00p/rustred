@@ -95,7 +95,7 @@ fn cancel_stops_queued_work_and_body_finishes_before_held_worker_join() {
             );
             assert_eq!(pool.take_cancelled_status().unwrap(), status);
             assert!(
-                pool.activity().is_err(),
+                pool.activity().is_none(),
                 "moved stop inventory is not a live zero"
             );
             assert!(pool.submit(vec![work(44)]).is_err());
