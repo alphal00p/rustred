@@ -4,7 +4,7 @@ use super::*;
 fn quarantine_exact_groups_continue_to_oldest_admissible_equal_image() {
     let source = boxed([1, 1], [2, 2]);
     let mut state = state_with(&[source.clone()]);
-    state.store.rescue_duplicates = true;
+    state.store.enable_rescue_duplicates().unwrap();
     state.store.install_quarantine(vec![1]).unwrap();
     let new = admit_initial(&mut state, &source).unwrap();
     assert_eq!(new, 1);
@@ -25,7 +25,7 @@ fn abandoned_result_is_explicit_uninspected_unsealed_and_does_not_frontier_stop(
         amendments: Vec::new(),
         abandoned: vec![1],
     });
-    state.store.rescue_duplicates = true;
+    state.store.enable_rescue_duplicates().unwrap();
     state.store.install_quarantine(vec![1]).unwrap();
     let mut dispatch = Dispatch::new();
     let Refill::Jobs(jobs) = dispatch.refill(&mut state, 1) else {
@@ -105,7 +105,7 @@ fn rescue_rebuild_excludes_quarantined_g2_but_keeps_historic_dependency_and_new_
         super::super::rescue::contains(&quarantine, 3),
         "old borrower remains dependent on superseded lender"
     );
-    state.store.rescue_duplicates = true;
+    state.store.enable_rescue_duplicates().unwrap();
     state.store.install_quarantine(quarantine).unwrap();
     super::super::g2::enable(&mut state);
     assert!(!state.merged_view.contains(0, state.k));

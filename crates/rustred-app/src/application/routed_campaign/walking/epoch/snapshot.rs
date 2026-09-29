@@ -206,6 +206,42 @@ impl<const N: usize> StoreOwner<N> {
         Ok(&mut self.store)
     }
 
+    /// Rescue changes lookup admissibility only at an invocation boundary.
+    /// No outstanding worker or registry lease can cross that boundary.
+    pub fn enable_rescue_duplicates(&mut self) -> Result<(), &'static str> {
+        let views = self
+            .views
+            .get_mut()
+            .map_err(|_| "lookup views lock poisoned")?;
+        if views
+            .replicas
+            .iter()
+            .any(|r| Arc::strong_count(&r.store) != 1)
+        {
+            return Err("rescue lookup change while readers are active");
+        }
+        *views = Views::new();
+        self.store.rescue_duplicates = true;
+        Ok(())
+    }
+
+    pub fn install_quarantine(&mut self, bits: Vec<u64>) -> Result<(), &'static str> {
+        let views = self
+            .views
+            .get_mut()
+            .map_err(|_| "lookup views lock poisoned")?;
+        if views
+            .replicas
+            .iter()
+            .any(|r| Arc::strong_count(&r.store) != 1)
+        {
+            return Err("rescue lookup change while readers are active");
+        }
+        self.store.install_quarantine(bits)?;
+        *views = Views::new();
+        Ok(())
+    }
+
     pub fn snapshot(&self, version: u64) -> Result<Snapshot<N>, &'static str> {
         self.try_snapshot(version)?
             .ok_or("all lookup buffers still leased")

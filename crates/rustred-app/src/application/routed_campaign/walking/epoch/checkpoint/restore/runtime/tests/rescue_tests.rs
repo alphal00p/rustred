@@ -1,6 +1,91 @@
 use super::*;
 
 #[test]
+fn rescue_appends_before_rebuilding_replay_lookup_watermarks() {
+    let mut fixture = Fixture::new();
+    fixture.request.epoch_rolling = true;
+    fixture.save(3, 2);
+    let parent = crate::application::routed_campaign::walking::checkpoint::epoch_request_binding(
+        &fixture.request,
+    );
+    fixture
+        .request
+        .amendments
+        .push(crate::OwnerDomainWalkAmendment {
+        path: fixture.directory.0.join("amendment.json"),
+        text:
+            json!({"schema":crate::application::routed_campaign::walking::rescue::AMENDMENT_SCHEMA,
+            "sequence":1,"parent":parent,"supersede":["q-1"],"queries":[
+                {"id":"replacement","owner":"1","lower":[1],"upper":[1],"max_numerator_rank":2}
+            ]})
+            .to_string(),
+    });
+    let identity = fixture.identity();
+    let mut restored = fixture.open().unwrap();
+    assert_eq!(restored.replay.len(), 2);
+    assert!(
+        restored
+            .state
+            .in_flight
+            .values()
+            .all(|meta| meta.published_len == 3)
+    );
+    let sequences: Vec<_> = restored
+        .replay
+        .iter()
+        .map(|job| (job.seq, job.v0))
+        .collect();
+    let mut saves = 0;
+    super::super::rescue::apply(
+        &mut restored,
+        &identity,
+        &fixture.reducer,
+        16,
+        || false,
+        &mut |state, _| {
+            saves += 1;
+            assert_eq!(state.state.watermark(), 4);
+            assert!(
+                state
+                    .state
+                    .in_flight
+                    .values()
+                    .all(|meta| meta.published_len == 4)
+            );
+        },
+    )
+    .unwrap();
+    assert_eq!(saves, 1);
+    assert_eq!(
+        restored
+            .replay
+            .iter()
+            .map(|job| (job.seq, job.v0))
+            .collect::<Vec<_>>(),
+        sequences
+    );
+    let view = restored.state.store.snapshot(restored.state.k).unwrap();
+    assert_eq!(view.published_len, 4);
+    for job in &restored.replay {
+        assert_eq!(
+            restored.state.in_flight[&job.parent].published_len as usize,
+            view.published_len
+        );
+    }
+    drop(view);
+    drop(restored);
+    let reopened = fixture.open().unwrap();
+    assert_eq!(reopened.replay.len(), 2);
+    assert!(
+        reopened
+            .state
+            .in_flight
+            .values()
+            .all(|meta| meta.published_len == 4)
+    );
+}
+
+#[test]
 fn rejected_rescue_batch_keeps_previous_generation_authoritative() {
     let mut fixture = Fixture::new();
     fixture.save(3, 0);

@@ -359,6 +359,14 @@ impl<const N: usize> Store<N> {
         copy.bucket_of
             .try_reserve(self.bucket_of.len())
             .map_err(|_| "lookup replica buckets allocation")?;
+        copy.quarantine
+            .try_reserve_exact(self.quarantine.len())
+            .map_err(|_| "lookup replica quarantine allocation")?;
+        for chunk in self.quarantine.chunks(32 * 1024) {
+            checkpoint()?;
+            copy.quarantine.extend_from_slice(chunk);
+        }
+        copy.rescue_duplicates = self.rescue_duplicates;
         for chunk in self.domains.chunks(32 * 1024) {
             checkpoint()?;
             copy.domains.extend_from_slice(chunk);

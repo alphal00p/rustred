@@ -93,7 +93,11 @@ pub(super) fn apply<const N: usize>(
         .tracker
         .tainted_with_cancellable(&seeds, &mut stop)
         .ok_or_else(&scan_failed)?;
-    restored.state.store.rescue_duplicates = true;
+    restored
+        .state
+        .store
+        .enable_rescue_duplicates()
+        .map_err(refused)?;
     restored
         .state
         .store
@@ -246,8 +250,15 @@ pub(super) fn apply<const N: usize>(
         .store
         .install_quarantine(quarantine)
         .map_err(refused)?;
+    let published_len = restored.state.watermark();
     for job in &mut restored.replay {
         job.flags = epoch::rescue::job_flags(&restored.state, job.parent);
+        restored
+            .state
+            .in_flight
+            .get_mut(&job.parent)
+            .ok_or_else(|| refused("rescue replay reservation absent"))?
+            .published_len = published_len;
     }
     if restored.state.g2_store.is_some() {
         check_stop(&mut stop)?;

@@ -192,7 +192,7 @@ fn a_historical_snapshot_positive_cannot_reauthorize_a_quarantined_target() {
     let result = resolved(&job, &[boxed([2, 0], [3, 0])], Some(&view));
     assert_eq!(result.misses[0].target, Some(0));
     drop(view); // Real rescue runs before new views and discards old worker bytes.
-    state.store.rescue_duplicates = true;
+    state.store.enable_rescue_duplicates().unwrap();
     state.store.install_quarantine(vec![1]).unwrap();
     let checked = merge::p1_check(&mut state, vec![result.encode()], CONFIG).unwrap();
     assert!(
@@ -685,4 +685,62 @@ fn quiescent_oversized_cut_directly_mirrors_both_views_without_a_delta_copy() {
             1
         );
     }
+}
+
+#[test]
+fn rescue_lookup_views_mirror_exclusions_and_legitimate_equal_replacements() {
+    let domain = boxed([1, 1], [2, 2]);
+    let mut state = state_with(&[domain.clone()]);
+    state.store.enable_rescue_duplicates().unwrap();
+    state.store.install_quarantine(vec![1]).unwrap();
+    let q = QueryImage::new(state.store.domains[0]).unwrap();
+    let query = Query::new(q.core.clone(), q.image.phase());
+    let lookup = |view: &Snapshot<2>| {
+        view.lookup(
+            &q,
+            &query,
+            view.len(),
+            &mut Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap()
+        .map(|hit| hit.0)
+    };
+    let old = state.store.snapshot(0).unwrap();
+    assert!(old.rescue_duplicates);
+    assert_eq!(old.quarantine, [1]);
+    assert_eq!(lookup(&old), None);
+    assert_eq!(admit_initial(&mut state, &domain).unwrap(), 1);
+    let new = state.store.snapshot(1).unwrap();
+    assert_eq!(new.domains[0], new.domains[1]);
+    assert_eq!(
+        lookup(&new),
+        Some(1),
+        "delta replay admits the new equal representative"
+    );
+    assert_eq!(
+        lookup(&old),
+        None,
+        "old immutable cut keeps its original exclusions"
+    );
+    assert!(
+        state.store.install_quarantine(vec![0]).is_err(),
+        "amendment authority cannot change across an active worker lease"
+    );
+    assert_eq!(state.store.quarantine, [1]);
+    drop(old);
+    drop(new);
+    state.store.install_quarantine(vec![0]).unwrap();
+    assert_eq!(
+        state.store.retained().0,
+        0,
+        "boundary changes invalidate idle projections"
+    );
+    let restored = state.store.snapshot(2).unwrap();
+    assert_eq!(restored.domains, state.store.domains);
+    assert_eq!(
+        lookup(&restored),
+        Some(0),
+        "bootstrap preserves historical equal groups and oldest admissible lookup"
+    );
 }
