@@ -4,6 +4,55 @@ Date: 2026-09-29. These are proposals, not measured speedups or deployment
 recommendations. G2′/rescue integration and its correctness gates take priority.
 The governing scope and operational limits are in `CODEX_PROGRESS_PLAN.md`.
 
+## Current priority after the G2 correctness controls
+
+Read-only bounded extraction from the completed Ordered finite-five-loop
+control changes the next profiling question, not any implementation decision.
+Evidence: `TMP/codex-integration/post_g2_profile_priority_2026-09-29.md` and
+`TMP/codex-g2-pilot-prep.n7Kd5q/ordered-controls/{off,union}/five-finite/`.
+These are not the repeated Ready comparisons or the full production scope.
+
+| Aggregate | Off | Union |
+|---|---:|---:|
+| Traversal seconds |211.6332|128.7751|
+| Apply term/boundary visits |47,998,700|24,504,843|
+| Apply selected pieces |1,723,391|892,630|
+| Route coordinate cells |99,878,880|83,172,840|
+
+First profile the coordinator/helper critical path on the Ready controls.
+Union's coordinator interval128.2664s includes wait36.4869s, commit26.9659s,
+progress/observer24.3080s, preparation12.4801s and publication10.5703s. These
+listed buckets are not exhaustive. `execution.rs::observe` charges the
+observer callback, including possible serialization/I/O, to
+`progress_json_seconds`; its roughly19% share is **not** removable lean-JSON
+allocation cost. Per-commit lean construction is charged elsewhere. Likewise,
+helper summed worker time is not coordinator wall time. Do not infer speedup
+from these bucket fractions alone.
+
+N4 remains the leading algebraic *profiling question* only if exact
+restriction/GCD on eligible already-covered singleton targets costs enough
+after G2. N2 allocation and N1 fully fixed predicates retain their evidence
+gates below. G2 already removes about half of Apply visits in this control;
+the Route path does not automatically benefit from an Apply-only optimization.
+No existing negative experiment is reopened by these aggregate counts.
+
+### Narrower dependencies from borrowed transcripts: deferred
+
+An exact inspection of a broad anchor might ideally let a narrower borrower
+depend only on the relevant successor slices. Current successful records do
+not retain enough information for that operation: the applied visitor has
+source bounds and shifts, but `walking/inspection.rs` drops them from successful
+successor events and reduces selected-cell events to counts. The persisted
+event/edge stream retains target domains, not a complete source-partition/term
+map. Frontier-only provenance is insufficient.
+
+Therefore do not delete broad-anchor dependencies or infer useful narrowing
+from current receipts. Reopen only with a positive representative case and
+available exact source-to-target evidence (or a small explicitly measured
+reinspection), preserving guards, poles and every reachable obligation. A
+general authenticated trace/preimage framework is not authorized by this
+observation, and it does not reopen the prior negative closed-witness census.
+
 ## 1. Lean telemetry: next narrow coordinator slice
 
 Owner: `checkpoint_final_audit` (isolated implementation); independent source
