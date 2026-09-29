@@ -90,7 +90,7 @@ pub(super) fn resumed_overlap<const N: usize>(
     b: usize,
 ) -> io::Result<InitialOverlapIndex<N>> {
     if !matches!(restored.admission, Admission::Complete)
-        || !restored.dispatch.admission_ready()
+        || !restored.dispatch.admission_complete()
         || restored.admission_failure.is_some()
     {
         return Err(invalid("epoch resume overlap requires completed admission"));

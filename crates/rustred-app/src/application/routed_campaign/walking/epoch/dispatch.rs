@@ -45,6 +45,12 @@ pub(super) enum Refill<const N: usize> {
 }
 
 impl Dispatch {
+    /// Admission and replay readiness are distinct: restoring an unfinished
+    /// cut must rebuild its immutable input overlap before replay can run.
+    pub fn admission_complete(&self) -> bool {
+        self.admission_ready
+    }
+
     pub fn admission_ready(&self) -> bool {
         self.admission_ready && !self.replay_pending
     }

@@ -87,6 +87,44 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 13:38 UTC — Stage A compiling; real Epoch tests expose integration fixes
+
+- [M] Root branch is now `fable_5_1_parallel`, pushed at `295187a4` after
+  integrating the reviewed private Epoch/tooling lineage. Stable documentation
+  approval is `e56b8cdb` on `fable_5_1`. Unrelated work remains untouched.
+- [M] `stage_a_release` owns the independent clone
+  `TMP/codex-stage-a.2RU3AX/repo`, source `986d046e`, adding only the reviewed
+  geometry-buffer and lean-telemetry slices. Its optimized campaign build
+  acquired the heavy/build-0 locks at13:32UTC on CPUs0–15. Root independently
+  reviewed the nine-file source delta and representative FG248 upgrade harness.
+  Thirteen existing Python upgrade/rollback checks passed; actual native
+  pause/upgrade/resume and cold verification await the build. No live LC2 writes.
+- [M] Root ran the actual9ec native walking focus, not a metadata-only check:
+  `TMP/codex-epoch-s3.JjASCU/public-9ecad89f-app-focus/{request,result}.json`,
+  648 passed,4 failed,12 ignored,145.83s test time. W50 capacity omissions are
+  not claimed covered. Failures expose one real public-resume readiness bug,
+  its two lookup-mode tests, a stale resume-refusal assertion, and a fixture
+  whose whole-ray input cannot produce the asserted snapshot miss. Narrow
+  fixes are implemented at root and awaiting independent review/re-execution;
+  do not count them as passing yet.
+- [M] `epoch_g2_rescue_impl` is implementing the existing exact G2 planner's
+  CP6 adapter and persistence, then quarantine/rescue composition. The public
+  guard stays closed until all authority paths are connected.
+- [E] `epoch_rolling_impl` selected bounded rotation of two globally shared
+  lookup-only replicas alongside the mutable canonical store. This reuses
+  existing exact/SoA index semantics without cloning the whole store per job
+  or publication. It excludes CAS payloads, edges, tracker, records and ledger.
+  Source-size estimate at96M domains: about47GB nominal additional lookup
+  storage, potentially60–80GB with capacity slack; not a measured RSS result.
+  Bounded delta backlog/backpressure and true publication/inspection overlap
+  require tests. This first implementation deliberately trades bounded extra
+  memory for a smaller, auditable change; persistent shared pages are deferred.
+- Next: finish/retest narrow public lifecycle fixes, integrate G2/rescue and
+  rolling source, then freeze the consolidated build. Stage A does not block
+  Stage B implementation. No speed or five-loop completion claim follows from
+  the architecture choice. Algebraic-pivot review is queued for the next free
+  agent slot; adaptive dispatch remains a separate deliverable.
+
 ### 2026-09-29 13:25 UTC — approval; concurrent Stage A build and Stage B implementation
 
 - User approved `SHORTENED_PLAN.md` and started the clock: T0=13:25UTC,
