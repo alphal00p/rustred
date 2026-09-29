@@ -65,7 +65,15 @@ fn actual_writer_preserves_order_attempts_and_unfinished_batch_descriptors() {
     assert_eq!((saved.session, saved.counter, saved.cursor), (1, 4, 4));
     assert_eq!(saved.requeue.iter().copied().collect::<Vec<_>>(), [1]);
     assert_eq!(saved.deferred.iter().copied().collect::<Vec<_>>(), [0]);
-    assert_eq!(saved.in_flight, state.in_flight);
+    assert_eq!(saved.in_flight.len(), state.in_flight.len());
+    for (&id, meta) in &saved.in_flight {
+        let issued = state.in_flight[&id];
+        assert_eq!((meta.seq, meta.v0), (issued.seq, issued.v0));
+        // Lookup views are runtime-only: decoding keeps a sentinel until
+        // fresh-session replay reconstructs the current publication watermark.
+        assert_eq!(meta.published_len, 0);
+        assert_eq!(issued.published_len, 4);
+    }
     assert_eq!(
         state.ledger.words(),
         ledger_before,
@@ -126,7 +134,6 @@ fn dispatch_counts_sequence_versions_classes_and_membership_mutations_fail() {
         (108, 3u32.to_le_bytes().to_vec()),    // duplicate in-flight ID
         (112, ((2u64 << 40) | 3).to_le_bytes().to_vec()), // wrong session
         (112, (1u64 << 40).to_le_bytes().to_vec()), // zero sequence counter
-        (120, 0u64.to_le_bytes().to_vec()),    // old version
         (120, 2u64.to_le_bytes().to_vec()),    // future version
         (132, ((1u64 << 40) | 3).to_le_bytes().to_vec()), // duplicate sequence
     ] {
@@ -145,6 +152,54 @@ fn dispatch_counts_sequence_versions_classes_and_membership_mutations_fail() {
     let mut file = receipt(&directory.0, &original);
     file.digest.blake3[0] ^= 1;
     assert!(read::<2>(&directory.0, &file, 4, binding(&state)).is_err());
+}
+
+#[test]
+fn old_dispatch_version_is_preserved_then_refreshed_for_fresh_session_replay() {
+    let directory = Directory::new();
+    let (mut state, dispatch) = fixture();
+    let boundary = MergeBoundary::borrow(&state, &dispatch, 16).unwrap();
+    let (mut bytes, _) = boundary
+        .write_section(Vec::new(), Section::Dispatch)
+        .unwrap();
+    bytes[120..128].copy_from_slice(&0u64.to_le_bytes());
+    let file = receipt(&directory.0, &bytes);
+    let saved = read::<2>(&directory.0, &file, 4, binding(&state)).unwrap();
+    assert_eq!(saved.in_flight[&2].v0, 0);
+    assert_eq!(saved.in_flight[&3].v0, 1);
+    assert!(saved.in_flight.values().all(|meta| meta.published_len == 0));
+    let original_order: Vec<_> = saved
+        .in_flight
+        .iter()
+        .map(|(&id, meta)| (meta.seq, id))
+        .collect();
+    state.in_flight = saved.in_flight;
+    super::super::super::session::initial(&directory.0).unwrap();
+    let session = super::super::super::session::reserve(&directory.0, saved.session).unwrap();
+    let (_, jobs) = Dispatch::restored(
+        session,
+        saved.cursor,
+        saved.requeue,
+        saved.deferred,
+        saved.adaptive,
+        true,
+        &mut state,
+    )
+    .unwrap();
+    assert_eq!(
+        jobs.iter().map(|job| job.parent).collect::<Vec<_>>(),
+        original_order.iter().map(|&(_, id)| id).collect::<Vec<_>>()
+    );
+    for (index, job) in jobs.iter().enumerate() {
+        assert_eq!(job.seq, (2u64 << 40) | (index as u64 + 1));
+        assert_eq!(job.v0, state.k);
+        assert_eq!(state.in_flight[&job.parent].seq, job.seq);
+        assert_eq!(state.in_flight[&job.parent].v0, state.k);
+        assert_eq!(
+            state.in_flight[&job.parent].published_len,
+            state.watermark()
+        );
+    }
 }
 
 #[test]

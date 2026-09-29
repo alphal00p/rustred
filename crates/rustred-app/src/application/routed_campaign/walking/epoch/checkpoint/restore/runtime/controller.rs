@@ -335,12 +335,11 @@ pub(super) fn run_observed<const N: usize>(
     if budget == 0
         || !(1..=4096).contains(&b)
         || !config.lockstep
-        || config.g2
         || !matches!(restored.admission, Admission::Complete)
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private responsive epoch controller needs complete admission, lockstep, no G2 and budget >= 1",
+            "epoch controller needs complete admission, lockstep and budget >= 1",
         ));
     }
     // Shape validation occurs before workers exist or any replay payload moves.

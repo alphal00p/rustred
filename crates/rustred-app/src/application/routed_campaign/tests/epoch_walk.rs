@@ -135,21 +135,33 @@ fn epoch_cp6_raw_is_cold_certified_and_public_w1_resume_is_supported() {
         crate::owner_domain_walk_verify_closure(&request, &paired, &AtomicBool::new(false), |_| {})
             .unwrap();
     assert_eq!(incomplete["verdict"], "INCOMPLETE", "{incomplete}");
-    // Offline verification shares the unsupported-extension refusal with
-    // execution, even though it does not run full execution admission.
+    // Fresh Union is supported, but it cannot reinterpret an Off checkpoint.
+    // Offline verification must report the request-binding mismatch as FAIL.
     let mut unsupported = request.clone();
     unsupported.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Union;
+    let mismatched = crate::owner_domain_walk_verify_closure(
+        &unsupported,
+        &options,
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(mismatched["verdict"], "FAIL", "{mismatched}");
+    assert_eq!(mismatched["checkpoint"]["request_binding_matches"], false);
+    assert_eq!(mismatched["violations_by_class"]["binding"], 1);
     assert!(
-        crate::owner_domain_walk_verify_closure(
-            &unsupported,
-            &options,
-            &AtomicBool::new(false),
-            |_| {},
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("G2'")
+        mismatched["violations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|text| text.contains("binding: checkpoint request digest differs"))
+            }),
+        "{mismatched}"
     );
+    // Activation on resume is still unsupported by execution and cold read.
     unsupported.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Off;
     unsupported.g2_activate_on_resume = true;
     assert!(

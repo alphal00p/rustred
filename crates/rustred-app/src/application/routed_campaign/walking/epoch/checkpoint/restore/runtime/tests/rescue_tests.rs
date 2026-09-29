@@ -4,7 +4,11 @@ use super::*;
 fn rescue_appends_before_rebuilding_replay_lookup_watermarks() {
     let mut fixture = Fixture::new();
     fixture.request.epoch_rolling = true;
+    fixture.request.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
+        fixture.directory.0.clone(),
+    ));
     fixture.save(3, 2);
+    fixture.request.checkpoint.as_mut().unwrap().resume = true;
     let parent = crate::application::routed_campaign::walking::checkpoint::epoch_request_binding(
         &fixture.request,
     );

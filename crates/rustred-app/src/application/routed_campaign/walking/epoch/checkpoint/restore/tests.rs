@@ -216,7 +216,7 @@ fn geometry_flags_live_and_edge_run_mutations_fail_closed() {
     let directory = Directory::new();
     for (section, closure, value) in [
         (Section::Nodes, false, 4),
-        (Section::Nodes, false, 16),
+        (Section::Nodes, false, 32),
         (Section::ClosureFlags, true, 8),
     ] {
         let receipt = raw(&directory.0, section, 1, &[value]);
@@ -227,6 +227,15 @@ fn geometry_flags_live_and_edge_run_mutations_fail_closed() {
                 .is_err()
         );
     }
+    // Bit 16 now marks a G2 residual; unrelated high bits remain rejected.
+    let receipt = raw(&directory.0, Section::Nodes, 1, &[16]);
+    assert_eq!(
+        FixedSection::<2>::open(&directory.0, &receipt, 1)
+            .unwrap()
+            .flags(false)
+            .unwrap(),
+        [16]
+    );
     let receipt = raw(&directory.0, Section::Live, 1, &8u64.to_le_bytes());
     assert!(
         FixedSection::<2>::open(&directory.0, &receipt, 1)

@@ -155,7 +155,7 @@ impl Fixture {
             .unwrap(),
         );
         let mut scalar = self.scalar();
-        scalar["ledger_counts"] = json!([0, 0, 1, 0, 0, 0, 0]);
+        scalar["ledger_counts"] = json!([0, 0, 1, 0, 0, 0, 0, 0]);
         scalar["initial_admission"] = json!("complete");
         scalar["total_queries"] = json!(1);
         self.replace("meta", 1, serde_json::to_vec(&scalar).unwrap());

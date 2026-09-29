@@ -11,6 +11,9 @@ fn rolling_config() -> MergeConfig {
 fn rolling_fixture(count: usize) -> Fixture {
     let mut fixture = Fixture::new();
     fixture.request.epoch_rolling = true;
+    fixture.request.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
+        fixture.directory.0.clone(),
+    ));
     fixture.queries = (0..count)
         .map(|id| Query {
             id: format!("q-{id}"),

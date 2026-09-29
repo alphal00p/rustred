@@ -77,7 +77,13 @@ fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
         .unwrap();
     argv[at + 1] = "epoch".into();
     let mut request = crate::cli::walk_request_from_argv(argv).unwrap();
+    assert_eq!(request.workers, 1);
+    assert!(
+        !request.epoch_rolling,
+        "exercise the public lockstep Union path"
+    );
     let result = walk(&dir.0, &request);
+    assert_eq!(result["epoch"]["schedule"]["kind"], "lockstep");
     assert_eq!(result["recursive_worklist_exhausted"], true, "{result}");
     assert!(
         result["g2_residual_anchors"]["logged_g2_records"]
@@ -139,9 +145,12 @@ fn epoch_union_rescue_abandons_auxiliaries_and_cold_certifies_unchanged_required
         .unwrap();
     argv[at + 1] = "epoch".into();
     let mut request = crate::cli::walk_request_from_argv(argv).unwrap();
-    request.max_events = 0;
+    // Public allowances must be positive. One event still stops the complete
+    // five-root cut before publication, leaving real obligations to abandon.
+    request.max_events = 1;
     let stopped = walk(&dir.0, &request);
     assert_eq!(stopped["stop_reason"], "event_allowance", "{stopped}");
+    assert_eq!(stopped["epoch"]["k"], 0);
     let p0 = stopped["epoch"]["p0"].as_u64().unwrap();
     request.max_events = 1_000_000;
     request.checkpoint.as_mut().unwrap().resume = true;
