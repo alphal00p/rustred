@@ -104,6 +104,36 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 14:25 UTC — integrated metadata checks and live bottleneck snapshot
+
+- [M] Integrated rolling/adaptive source at `ed5d8000` passes actual
+  `cargo check --release --tests --locked --offline` for core and app. The first
+  check at `23161406` found two missing test imports, fixed at `1504f519`; the
+  retry passes. Evidence: `TMP/codex-parallel-validation.RPJKV5/`, separate clean
+  worktree and normally copied cache, CPU16–19/build-1, one Cargo job. These are
+  compiler/type checks, not executed tests or performance results.
+- [M] Rolling implementation is integrated via `e65ea9fb`, `503d1b62` and
+  `23161406`; `ed5d8000` adds native interruption/replay tests for both width
+  directions, lookup modes and adaptive observations. Rescue integration is
+  still pending and must precede the consolidated native execution gate.
+- [M] Python rescue-bridge checks pass39 in4.215s
+  (`TMP/codex-epoch-rescue-steering-1421/`). Independent review by
+  `epoch_rolling_impl` caught an event/result handoff gap: automatic CP6 rescue
+  must require the final reconciled checkpoint, not merely a saved receipt in
+  result.json. Root fixed it and added missing/mismatched terminal regressions;
+  follow-up source review passes. The native rescue bridge is not yet delivered.
+- [M] Read-only LC2 heartbeat at14:18:56UTC:105,297,082 discovered domains,
+  41,789,491 local completions,36,520,988 pending,0 active inspectors and201
+  awaiting publication at that instant. Its preceding-hour inspector mean is
+  2.20; ordered-commit duty51.0%, preparation37.3%; reported process RSS50.8GB.
+  Six of67 initial obligations are conservatively closed; zero frontiers is
+  not a completion forecast. These observations support the publication/lookup
+  focus but do not measure the new engine. No campaign state was modified.
+- Native code generation will be consolidated after the imminent rescue slice,
+  rather than repeatedly rebuilding the app for each addition. Stage A final
+  link continues independently; its compatibility smoke retains heavy-lock
+  priority. Source freeze target remains15:55–16:25UTC.
+
 ### 2026-09-29 14:15 UTC — adaptive review and integration
 
 - [M] Root independently reviewed the complete bounded adaptive implementation,
