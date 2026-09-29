@@ -26,6 +26,7 @@ pub(super) struct Identity<'a> {
     frontier_limit: usize,
     route_domain_overcover: bool,
     g2: &'static str,
+    adaptive: bool,
 }
 
 impl<'a> Identity<'a> {
@@ -62,6 +63,7 @@ impl<'a> Identity<'a> {
             frontier_limit: request.max_frontiers,
             route_domain_overcover: request.route_domain_overcover,
             g2: request.g2_residual_anchors.name(),
+            adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
         })
     }
 
@@ -86,6 +88,7 @@ impl<'a> Identity<'a> {
             || saved.lockstep_b != lockstep_b
             || saved.watermark as usize > self.domain_limit
             || saved.g2 != self.g2
+            || saved.adaptive_dispatch.is_some() != self.adaptive
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -195,6 +198,10 @@ impl<'a> Identity<'a> {
 
     pub(super) fn limits(&self) -> (usize, usize, usize) {
         (self.domain_limit, self.event_limit, self.frontier_limit)
+    }
+
+    pub(super) fn adaptive_dispatch(&self) -> bool {
+        self.adaptive
     }
 }
 
@@ -350,6 +357,8 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub g2: S,
     pub imported_prefix: u64,
     pub engine_certification_void: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive_dispatch: Option<super::super::dispatch::adaptive::Saved>,
 }
 
 pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCounters, String>;
@@ -357,6 +366,9 @@ pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCount
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
         let state = boundary.state;
+        if boundary.dispatch.adaptive.is_some() != self.identity.adaptive {
+            return Err(invalid("epoch adaptive dispatch policy/state differs"));
+        }
         if self.identity.g2 == "off" && (state.counters.g2_records != 0 || state.g2_store.is_some())
         {
             return Err(invalid("epoch G2 state is not bound to Union"));
@@ -499,6 +511,7 @@ impl Inputs<'_> {
             g2: self.identity.g2,
             imported_prefix: 0,
             engine_certification_void: false,
+            adaptive_dispatch: boundary.dispatch.adaptive.cloned(),
         };
         let mut stream = Stream::new(output);
         serde_json::to_writer(&mut stream, &scalars).map_err(io::Error::other)?;
