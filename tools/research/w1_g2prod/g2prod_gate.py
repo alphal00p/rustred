@@ -93,6 +93,8 @@ def ok(r):
     # reinspection is not closure evidence; bool is not an integer count.
     return (m.get("exit_code") == 0 and str(m.get("frontiers")) == "0" and r["audit"].get("audit") == "PASS"
             and m.get("stopped_by_time_limit_at") is None and not m.get("killed_after_grace", False)
+            and m.get("stop_reason") is None and not m.get("censored", False)
+            and m.get("runner_error") is None
             and v.get("verdict") == "PASS"
             and type(verified) is int and type(total) is int
             and total > 0 and verified == total)

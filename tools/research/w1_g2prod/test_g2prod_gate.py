@@ -40,7 +40,10 @@ class GateTests(unittest.TestCase):
     def test_exit_frontier_and_audit_gates_still_apply(self):
         valid = {"verdict": "PASS", "roots_independently_verified": 1, "roots_total": 1}
         for field, value in (("exit_code", 4), ("frontiers", 1),
-                             ("stopped_by_time_limit_at", 1200), ("killed_after_grace", True)):
+                             ("stopped_by_time_limit_at", 1200), ("killed_after_grace", True),
+                             ("stop_reason", "operator_signal_15"),
+                             ("stop_reason", "host_headroom_below_minimum"),
+                             ("censored", True), ("runner_error", "failed")):
             record = self.record(valid)
             record["metrics"][field] = value
             self.assertFalse(gate.ok(record))

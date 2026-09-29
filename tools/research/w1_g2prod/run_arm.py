@@ -17,9 +17,14 @@ Usage:
              --cpus 264-287 [--workers N] [--policy ordered|ready]
              [--queries FILE (hot only)] [--env KEY=VALUE ...]
              [--time-limit SECONDS] [--grace SECONDS] [--out-root DIR]
+             [--heavy-lock PATH] [--lock PATH ...]
+             [--minimum-start-headroom-gib 250 --minimum-headroom-gib 150]
 Writes <out-root>/<label>/<family>/{command.json,result.json,events.jsonl,
 stderr,stdout,metrics.json}. A time limit writes the stop file (cooperative
-pause) and kills the process tree after the grace period.
+pause) and kills the owned new-session process group after the grace period.
+Guarded LC2 pilots must pass the shared heavy lock and both headroom options;
+locks remain held until the complete group drains, even if its launcher exits.
+Any operator/resource/time stop is censored, including a cooperative exit 0.
 Recorder (plan section 7 / audit directive 0.1.7): every 10 s the busy time of
 the run CPUs (/proc/stat) minus the run's own process-tree CPU time gives the
 foreign busy CPUs; per-thread schedstat run delay of the walk process is
@@ -29,9 +34,12 @@ the whole process, every thread; perf_event_paranoid 2 allows :u events), and
 metrics.json gets a "perf" block (instructions per native: see gate.py).
 """
 import argparse
+import fcntl
 import json
+import math
 import os
 import re
+import resource
 import signal
 import subprocess
 import sys
@@ -45,6 +53,201 @@ import run_control  # noqa: E402  (historical command lines and rewrite())
 
 PERF = "/nix/store/7ccpnz8xkn5qsyw8nkz998vjmb6jpl49-perf-linux-6.19.6/bin/perf"
 HOT_COMMAND = ROOT / "TMP/qcd-feynman-d9d10-pilot-hot-owner/matrix-32fdec/hot-owner-physics-ordered/run/request.json"
+GIB = 1024 ** 3
+
+
+def mem_available():
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) * 1024
+    raise RuntimeError("MemAvailable unavailable")
+
+
+def group_exists(group):
+    try:
+        os.killpg(group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def group_running(group):
+    """The owned new-session group, including children of an exited launcher.
+
+    Native/Nix children inherit this PG. Zombies cannot work; no unrelated
+    PID, ancestry guess, or production process is signalled.
+    """
+    try:
+        paths = list(Path("/proc").iterdir())
+    except OSError:
+        # Without the zombie-aware view, do not pretend a still-existing
+        # group has drained. ESRCH remains sufficient evidence of absence.
+        return group_exists(group)
+    uncertain = False
+    for path in paths:
+        if not path.name.isdigit():
+            continue
+        try:
+            fields = (path / "stat").read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == group and int(fields[3]) == group and fields[0] != "Z":
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            pass  # A process that disappeared during the scan cannot work.
+        except (OSError, ValueError, IndexError):
+            uncertain = True
+    return group_exists(group) if uncertain else False
+
+
+class ArmGuard:
+    """Own the solver session and its resource locks, not an outer wrapper.
+
+    Every stop first writes the native cooperative stop file. Grace expires
+    into SIGKILL of this new-session PG only. Locks outlive the launcher if
+    any of its non-zombie group members remain.
+    """
+    def __init__(self, stop_file, locks=(), minimum_start=None, minimum_run=None,
+                 time_limit=None, grace=300.0):
+        self.stop_file, self.paths = Path(stop_file), list(dict.fromkeys(map(Path, locks)))
+        self.minimum_start, self.minimum_run = minimum_start, minimum_run
+        self.time_limit, self.grace = time_limit, grace
+        self.locks, self.handlers = [], {}
+        self.proc = self.start = self.launcher_exit = self.drained = None
+        self.reason = self.stopped = self.lowest = self.initial_memory = None
+        self.killed = False
+        self.lock_wait_seconds = 0.0
+
+    def __enter__(self):
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            self.handlers[sig] = signal.signal(sig, lambda signum, frame: self.stop(f"operator_signal_{signum}"))
+        return self
+
+    def stop(self, reason):
+        if self.reason is None:
+            self.reason, self.stopped = reason, time.monotonic()
+            try:
+                with self.stop_file.open("x") as output:
+                    json.dump({"reason": reason, "requested_unix": time.time()}, output)
+            except FileExistsError:
+                pass
+            except OSError:
+                # Cooperative publication failed: do not wait the normal
+                # grace with a solver that cannot observe its stop request.
+                self.reason += ":stop_file_unavailable"
+                self.stopped -= self.grace
+
+    def memory_ok(self, starting=False):
+        threshold = self.minimum_start if starting else self.minimum_run
+        if threshold is None:
+            return True
+        try:
+            current = mem_available()
+            self.lowest = current if self.lowest is None else min(self.lowest, current)
+            if starting:
+                self.initial_memory = current
+        except (OSError, RuntimeError, ValueError, IndexError):
+            self.stop("memory_monitor_unavailable")
+            return False
+        if current < threshold:
+            self.stop("insufficient_start_headroom" if starting else "host_headroom_below_minimum")
+            return False
+        return True
+
+    def acquire(self):
+        waiting = time.monotonic()
+        for path in self.paths:
+            lock = path.open("a")
+            self.locks.append(lock)
+            while self.reason is None:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(0.1)
+            if self.reason is not None:
+                break
+        self.lock_wait_seconds = time.monotonic() - waiting
+        return self.reason is None and self.memory_ok(starting=True)
+
+    def launch(self, command, **kwargs):
+        if self.reason is not None:
+            return None
+        self.start = time.monotonic()
+        self.proc = subprocess.Popen(command, start_new_session=True, **kwargs)
+        return self.proc
+
+    def wait(self):
+        if self.proc is None:
+            return 125
+        while True:
+            code = self.proc.poll()
+            now = time.monotonic()
+            if code is not None and self.launcher_exit is None:
+                self.launcher_exit = now
+            # Do not let an exited launcher release the locks around its
+            # still-running native children (including during kill grace).
+            if code is not None and not group_running(self.proc.pid):
+                self.drained = time.monotonic()
+                return code
+            self.memory_ok()
+            if self.time_limit is not None and now - self.start >= self.time_limit:
+                self.stop("time_limit")
+            if self.stopped is not None and now - self.stopped >= self.grace:
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.killed = True
+            time.sleep(0.2)
+
+    def receipt(self):
+        return {"locks": [str(path) for path in self.paths],
+                "lock_wait_seconds": self.lock_wait_seconds,
+                "minimum_start_headroom_bytes": self.minimum_start,
+                "minimum_headroom_bytes": self.minimum_run,
+                "start_mem_available_bytes": self.initial_memory,
+                "minimum_mem_available_bytes": self.lowest,
+                "stop_reason": self.reason, "child_started": self.proc is not None,
+                "process_group": self.proc.pid if self.proc else None,
+                "launcher_wait_seconds": self.launcher_exit - self.start if self.launcher_exit else None,
+                "owned_group_drain_seconds": self.drained - self.launcher_exit if self.drained else None}
+
+    def __exit__(self, kind, error, traceback):
+        try:
+            if self.proc is not None and (self.proc.poll() is None or group_running(self.proc.pid)):
+                self.stop("runner_error" if kind else "runner_early_exit")
+                self.wait()
+        finally:
+            for lock in reversed(self.locks):
+                lock.close()
+            for sig, handler in self.handlers.items():
+                signal.signal(sig, handler)
+
+
+def wait_with_recorders(guard, stop, threads):
+    """Join every successfully started sampler even if a later start fails."""
+    started = []
+    try:
+        for thread in threads:
+            thread.start()
+            started.append(thread)
+        return_code = guard.wait()
+    finally:
+        exited = time.monotonic()
+        stop.set()
+        for thread in started:
+            thread.join()
+        shutdown = time.monotonic() - exited
+    return return_code, shutdown
+
+
+def waited_child_usage(before, after):
+    return {"child_user_seconds": after.ru_utime - before.ru_utime,
+            "child_system_seconds": after.ru_stime - before.ru_stime,
+            "maximum_single_waited_child_rss_bytes": after.ru_maxrss * 1024,
+            "child_cpu_scope": "RUSAGE_CHILDREN delta around launch through owned-group drain; waited launcher/native/Nix descendants",
+            "single_child_rss_scope": "RUSAGE_CHILDREN cumulative maximum since runner startup; not concurrent aggregate RSS"}
 
 
 def hot_argv(queries):
@@ -77,12 +280,18 @@ def configured_workers(argv):
 
 def descendants(pid):
     kids = {}
+    owned_group = set()
     for d in os.listdir("/proc"):
         if not d.isdigit():
             continue
         try:
             with open(f"/proc/{d}/stat") as f:
-                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+                fields = f.read().rsplit(")", 1)[1].split()
+                ppid = int(fields[1])
+            # A launcher can exit before its children, which are then
+            # reparented but still belong to our owned session/group.
+            if int(fields[2]) == pid and int(fields[3]) == pid and fields[0] != "Z":
+                owned_group.add(int(d))
             kids.setdefault(ppid, []).append(int(d))
         except (OSError, ValueError, IndexError):
             pass
@@ -91,7 +300,7 @@ def descendants(pid):
         p = stack.pop()
         out.append(p)
         stack.extend(kids.get(p, []))
-    return out
+    return sorted(set(out) | owned_group)
 
 
 def rss_of(pids):
@@ -274,12 +483,30 @@ def main():
     p.add_argument("--env", nargs="*", default=[])
     p.add_argument("--time-limit", type=float)
     p.add_argument("--grace", type=float, default=300.0)
+    p.add_argument("--heavy-lock", type=Path, help="shared resource lock held until the owned solver group drains")
+    p.add_argument("--lock", type=Path, action="append", default=[], help="additional resource lock, after heavy-lock")
+    p.add_argument("--minimum-start-headroom-gib", type=float)
+    p.add_argument("--minimum-headroom-gib", type=float)
     p.add_argument("--nice", type=int, default=5)
     p.add_argument("--perf", action="store_true")
     p.add_argument("--g2", choices=("off", "union"), default="off")
     p.add_argument("--extra", nargs="*", default=[])
     p.add_argument("--out-root", default=str(ROOT / "TMP/w1/g2prod/runs"))
     args = p.parse_args()
+    for name in ("time_limit", "grace", "minimum_start_headroom_gib", "minimum_headroom_gib"):
+        value = getattr(args, name)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            p.error(f"--{name.replace('_', '-')} must be finite and positive")
+    if (args.minimum_start_headroom_gib is None) != (args.minimum_headroom_gib is None):
+        p.error("supply both start and runtime headroom thresholds")
+    if args.minimum_start_headroom_gib is not None and args.minimum_start_headroom_gib < args.minimum_headroom_gib:
+        p.error("start headroom must be at least runtime headroom")
+    cpus = run_control.cpu_list(args.cpus)
+    if not cpus or not set(cpus) <= os.sched_getaffinity(0):
+        p.error("CPU affinity must be nonempty and available to this runner")
+    guarded = args.heavy_lock or args.lock or args.minimum_start_headroom_gib is not None
+    if guarded and set(cpus) & set(range(128, 228)):
+        p.error("guarded pilot affinity overlaps protected production CPUs 128–227")
     if args.command and args.queries:
         p.error("--command and --queries are mutually exclusive; bind queries in the command template")
     if args.command:
@@ -290,6 +517,12 @@ def main():
         if args.family not in run_control.COMMANDS:
             p.error(f"{args.family} requires an explicit --command template")
         argv = command_template(run_control.COMMANDS[args.family])
+    if "--g2-residual-anchors" in argv:
+        p.error("command templates must omit --g2-residual-anchors; choose the arm with --g2")
+    if guarded:
+        # Keep the runner/samplers, not only the native child, off protected
+        # production CPUs. The per-child affinity remains explicit below.
+        os.sched_setaffinity(0, cpus)
     out = Path(args.out_root) / args.label / args.family
     if out.exists():
         sys.exit(f"refusing to overwrite {out}")
@@ -300,7 +533,8 @@ def main():
     argv = run_control.rewrite(argv, args.binary, out, args.policy, args.workers, None, extra,
                                args.family == "five-finite" and args.command is None)
     workers = configured_workers(argv)
-    json.dump(argv, open(out / "command.json", "w"), indent=1)
+    with (out / "command.json").open("w") as output:
+        json.dump(argv, output, indent=1)
     if args.perf:
         argv = [PERF, "stat", "-x", ",", "-o", str(out / "perf-stat.csv"),
                 "-e", "instructions:u,cycles:u,task-clock", "--"] + argv
@@ -309,62 +543,61 @@ def main():
     env["TMPDIR"] = str(ROOT / "TMP")
     extra_env = dict(kv.split("=", 1) for kv in args.env)
     env.update(extra_env)
-    cpus = run_control.cpu_list(args.cpus)
-    stderr = open(out / "stderr", "w")
-    stdout = open(out / "stdout", "w")
-    start = time.time()
-    proc = subprocess.Popen(
-        ["nice", "-n", str(args.nice), "nix", "develop", str(ROOT), "--command"] + argv,
-        cwd=ROOT, env=env, stdout=stdout, stderr=stderr, start_new_session=True,
-        preexec_fn=lambda: os.sched_setaffinity(0, cpus))
-    stop = threading.Event()
-    holder = {"start": start}
-    watcher = threading.Thread(target=watch, args=(proc.pid, stop, holder))
-    watcher.start()
-    rec = threading.Thread(target=recorder, args=(proc.pid, cpus, stop, holder))
-    rec.start()
-    stopped_by_limit = None
-    killed = False
-    stop_file = out / "stop-request.json"
-    while True:
-        try:
-            code = proc.wait(timeout=2.0)
-            break
-        except subprocess.TimeoutExpired:
-            pass
-        elapsed = time.time() - start
-        if args.time_limit and elapsed > args.time_limit and stopped_by_limit is None:
-            stop_file.write_text(json.dumps({"reason": "w0 falsify time limit", "elapsed": elapsed}))
-            stopped_by_limit = elapsed
-        if stopped_by_limit is not None and elapsed > stopped_by_limit + args.grace and not killed:
-            os.killpg(proc.pid, signal.SIGKILL)
-            killed = True
-    exited = time.time()
-    stop.set()
-    watcher.join()
-    rec.join()
-    holder.pop("start", None)
-    wall = exited - start
-    recorder_shutdown = time.time() - exited
-    stderr.close()
-    stdout.close()
+    locks = ([args.heavy_lock] if args.heavy_lock else []) + args.lock
+    guard = ArmGuard(out / "stop-request.json", locks,
+                     args.minimum_start_headroom_gib * GIB if args.minimum_start_headroom_gib else None,
+                     args.minimum_headroom_gib * GIB if args.minimum_headroom_gib else None,
+                     args.time_limit, args.grace)
+    start, wall, recorder_shutdown, code = None, None, 0.0, 125
+    holder, failure, usage = {}, None, {}
+    try:
+        with guard, (out / "stderr").open("w") as stderr, (out / "stdout").open("w") as stdout:
+            if guard.acquire():
+                start = time.time()
+                usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
+                proc = guard.launch(
+                    ["nice", "-n", str(args.nice), "nix", "develop", str(ROOT), "--command"] + argv,
+                    cwd=ROOT, env=env, stdout=stdout, stderr=stderr,
+                    preexec_fn=lambda: os.sched_setaffinity(0, cpus))
+                if proc is not None:
+                    stop = threading.Event()
+                    holder["start"] = start
+                    threads = [threading.Thread(target=watch, args=(proc.pid, stop, holder)),
+                               threading.Thread(target=recorder, args=(proc.pid, cpus, stop, holder))]
+                    try:
+                        code, recorder_shutdown = wait_with_recorders(guard, stop, threads)
+                    finally:
+                        holder.pop("start", None)
+                    wall = guard.drained - guard.start
+                    usage = waited_child_usage(usage_before, resource.getrusage(resource.RUSAGE_CHILDREN))
+    except Exception as error:
+        guard.stop("runner_error")
+        failure = f"{type(error).__name__}: {error}"
+    stopped_by_limit = (guard.stopped - guard.start
+                        if guard.reason == "time_limit" and guard.start is not None else None)
     metrics = {"family": args.family, "label": args.label, "binary": args.binary,
-               "exit_code": code, "whole_command_seconds": round(wall, 3), "cpus": args.cpus,
-               "whole_command_timing_scope": "launcher-inclusive nice+nix+native launch through wait; recorder shutdown excluded",
+               "exit_code": code, "whole_command_seconds": round(wall, 3) if wall is not None else None, "cpus": args.cpus,
+               "whole_command_timing_scope": "launcher-inclusive nice+nix+native launch through owned process-group drain; lock admission and recorder shutdown excluded",
                "recorder_shutdown_seconds": round(recorder_shutdown, 6),
                "policy": args.policy, "workers": workers, "requested_workers": args.workers,
-               "env": extra_env, "g2": args.g2,
+               "env": {key: "<redacted>" if any(word in key.upper() for word in ("LICENSE", "TOKEN", "SECRET", "PASSWORD", "KEY")) else value
+                       for key, value in extra_env.items()}, "g2": args.g2,
                "extra": args.extra,
                "queries": args.queries, "command_template": args.command, "time_limit": args.time_limit,
-               "stopped_by_time_limit_at": stopped_by_limit, "killed_after_grace": killed,
-               "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))}
+               "stopped_by_time_limit_at": stopped_by_limit, "killed_after_grace": guard.killed,
+               "stop_reason": guard.reason, "censored": guard.reason is not None,
+               "resource_guard": guard.receipt(), "runner_error": failure,
+               "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start)) if start is not None else None}
     metrics.update(holder)
+    metrics.update(usage)
     if args.perf:
         metrics["perf"] = perf_block(out / "perf-stat.csv")
     metrics.update(extract(out / "result.json"))
-    json.dump(metrics, open(out / "metrics.json", "w"), indent=1)
+    with (out / "metrics.json").open("w") as output:
+        json.dump(metrics, output, indent=1)
     print(json.dumps(metrics, indent=1))
+    return 0 if code == 0 and guard.reason is None and failure is None else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
