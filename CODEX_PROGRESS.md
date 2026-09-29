@@ -104,6 +104,32 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 15:34 UTC — full Python regression and native validation scope
+
+- [M] Full example/Python discovery passes 311 tests in 24.487 s with one
+  documented slow skeleton-enumeration skip (310 executed passes), guarded
+  command 25.171 s: `TMP/codex-epoch-final-python-1538/`.
+  The preceding run found one stale policy-loop setup that supplied the required
+  transfer lookahead only for Ready, not newly included Epoch. Test-only
+  `ec1dfd28` supplies it for both and adds Epoch refusal cases without weakening
+  any assertion. Independent source review by `stage_a_release` passes.
+  Failed receipt `TMP/codex-epoch-final-python-1533/` is retained.
+- [D] Avoid a second monolithic native test compilation solely for the final
+  telemetry changes **only if** final optimized-CLI gates cover those changes.
+  The source auditor identified the exact conditions: actual W1 unknown state,
+  threaded live heartbeats, saved/cancelled unknown and joined-zero states,
+  configured reservation counts including an explicit inspector override,
+  unknown display semantics, stop/resume/cold parity, and a lockstep run with
+  more than one cut for the added returned-receipt retirement path.
+  Final-source test assertions remain compiler-checked, not claimed executed;
+  full native suite evidence remains attributed to `f083f254`. Existing exact
+  pool harness, Python checks and source audit supplement but do not replace
+  those final executable gates. If a required path is not exercised, report
+  the gap and run its missing check rather than declaring final-source success.
+- Next: finish current native build/tests, freeze and build the optimized final
+  candidate, then execute the final-runtime gates and matched controls. No new
+  architecture or optimization work added.
+
 ### 2026-09-29 15:31 UTC — final monitoring integration audited
 
 - [M] Final adapter integration `e8ba4cc6` retains actual configured worker
