@@ -2,9 +2,11 @@
 
 Status: preparatory integration, corrective source, internal writer and private
 publisher passed independent source review and consolidated release typecheck
-at `6f7eb9fd`. The first typecheck failure is retained below. Follow-on bounded
-restore primitives passed independent source review; their typecheck and execution
-remain pending.
+at `6f7eb9fd`. The first typecheck failure is retained below. Bounded section
+decoding and lookup reconstruction passed independent source review and the
+lightweight release typecheck at `33b0c2ab` after a test-only correction. The
+subsequent manifest/scalar-bound assembly passed independent source review;
+its typecheck and execution are pending.
 No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
@@ -228,6 +230,38 @@ that must both remain live, wrong rank/ID/shape slots, live padding, bad digest 
 actual domain/live/orthant writer output. Full state assembly and all remaining
 validators listed above still gate any usable EpochState; no performance speedup
 or public restart is claimed.
+
+The first lightweight check of decoder/lookup source `dc046711` failed after
+37.172 s with a test-only E0277: the new owned-closure assertion compared runtime
+`(usize,usize)` endpoints with persisted `(u32,u32)` endpoints. An independently
+reviewed explicit widening preserves exact pair order/equality. Source `770ff058`,
+cherry-picked as `33b0c2ab`, passed the one-worker release metadata-only retry in
+38.168 s, exit 0, reason null, CPUs 16-19/build1, peak single-child RSS 1,171,996 KiB.
+Both receipts remain unchanged at `TMP/codex-epoch-s3.JjASCU/typecheck-restore-light`
+and `typecheck-restore-light-retry`. No tests executed; the later assembly source
+is not covered by that PASS.
+
+### Manifest/scalar-bound provisional assembly (source-only)
+
+The next private assembler uses the existing bounded manifest reader, a single
+borrowed/owned generic scalar schema (same writer JSON), and authenticated owner
+streaming with 67 bytes of per-owner scratch. It checks request identity, canonical
+owner inventory, semantics 3 and the actual diagnostic B, initial-prefix status,
+ledger/run inventory, basic closure-counter ranges and checked cross-file counts
+before domain-sized allocation. The arena must fit both saved and current requested
+domain limits; raising aggregate allowances or changing worker width does not
+change the semantic binding. Six section decoders feed the provisional arrays and
+lookup reconstruction. Header counts are not universally word counts: edges retain
+the corrected run-count/body-word distinction.
+
+This returns only `Provisional` parts, not EpochState, Dispatch, a resumed record
+sidecar or an accepted CP6 checkpoint. Input/root rows, frontier/anchor/dispatch
+sections, record bodies and complete cross-section mathematical validation remain
+pending even though their manifest inventory exists. No worker or public resume
+path calls this assembler. Source tests exercise actual private publication through
+provisional assembly, incomplete admission, identity/B/limit mismatches, overflowed
+counts and unsupported provenance, changed owner content with rehashed files, and
+forged cross-section counts. Compilation and execution of this slice are pending.
 
 ## Proposed S3 state and writer contract
 

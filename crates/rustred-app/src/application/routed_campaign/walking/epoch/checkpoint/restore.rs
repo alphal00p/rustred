@@ -15,6 +15,7 @@ use super::{Section, SectionReceipt, invalid};
 use std::io::{self, Read};
 use std::path::Path;
 
+mod assembly;
 mod lookup;
 
 pub(super) struct FixedSection<const N: usize> {

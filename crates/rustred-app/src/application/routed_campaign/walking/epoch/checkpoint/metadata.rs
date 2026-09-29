@@ -21,6 +21,7 @@ pub(super) struct Identity<'a> {
     owners: &'a [String],
     owners_digest: [u8; 32],
     queries: &'a [Query],
+    domain_limit: usize,
 }
 
 impl<'a> Identity<'a> {
@@ -52,11 +53,105 @@ impl<'a> Identity<'a> {
             owners,
             owners_digest: owners_digest.blake3,
             queries,
+            domain_limit: request.max_domains,
         })
+    }
+
+    /// Bind small authenticated scalar metadata before allocating restored
+    /// arrays. Aggregate allowances may change between sessions, but the
+    /// saved arena must fit both its saved and the requested domain limits.
+    pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
+        let watermark = u64::from(saved.watermark);
+        if saved.schema != 1
+            || saved.request != self.request
+            || saved.owner_count != self.owners.len()
+            || saved.owners_digest != self.owners_digest
+            || saved.walk_semantics_version != super::super::EPOCH_WALK_SEMANTICS_VERSION
+            || !(1..=4096).contains(&lockstep_b)
+            || saved.lockstep_b != lockstep_b
+            || saved.k >= super::super::ledger6::EPOCH_LIMIT
+            || saved.watermark == u32::MAX
+            || saved.p0 > saved.watermark
+            || saved.watermark as usize > saved.max_domains
+            || saved.watermark as usize > self.domain_limit
+            || saved
+                .ledger_counts
+                .iter()
+                .try_fold(0u64, |sum, value| sum.checked_add(*value))
+                != Some(watermark)
+            || saved.total_queries != self.queries.len()
+            || saved.processed_queries > saved.total_queries
+            || saved.input_frontiers > saved.processed_queries
+            || matches!(saved.initial_admission, Admission::Complete)
+                && saved.processed_queries != saved.total_queries
+            || matches!(saved.initial_admission, Admission::InProgress)
+                && (saved.k != 0
+                    || saved.p0 != saved.watermark
+                    || saved.ledger_counts[Tag::Pending as usize] != watermark)
+            || saved.g2 != "off"
+            || saved.walk.g2_records != 0
+            || saved.imported_prefix != 0
+            || saved.engine_certification_void
+            || saved.self_edges > saved.edges
+            || saved.closure.initial != saved.p0 as usize
+            || saved.closure.initial_closed > saved.p0 as usize
+            || saved.closure.total_closed > saved.watermark as usize
+            || saved.closure.inspected > saved.watermark as usize
+            || saved.closure.snapshot_revision > saved.closure.revision
+            || !saved.closure.refresh_seconds.is_finite()
+            || saved.closure.refresh_seconds < 0.0
+            || [&saved.records_digest, &saved.edge_digest]
+                .iter()
+                .any(|digest| {
+                    digest.len() != 64
+                        || !digest
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                })
+        {
+            return Err(invalid(
+                "epoch scalar identity, admission or inventory differs",
+            ));
+        }
+        let runs = [
+            Tag::Native,
+            Tag::NativeFrontier,
+            Tag::NativeError,
+            Tag::Alias,
+        ]
+        .into_iter()
+        .try_fold(0u64, |sum, tag| {
+            sum.checked_add(saved.ledger_counts[tag as usize])
+        });
+        if runs != Some(saved.edge_runs) {
+            return Err(invalid("epoch scalar ledger/run count differs"));
+        }
+        if saved.stop_reason.as_deref().is_some_and(|reason| {
+            !matches!(
+                reason,
+                "frontier_stop"
+                    | "error_stop"
+                    | "exhausted_stop"
+                    | "domain_allowance"
+                    | "event_allowance"
+                    | "frontier_allowance"
+                    | "capacity"
+                    | "ram_guard"
+                    | "paused"
+                    | "drained_uncertified"
+            )
+        }) {
+            return Err(invalid("epoch scalar stop reason"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn owners(&self) -> &[String] {
+        self.owners
     }
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Admission {
     /// Preparation is complete, but some input queries are not yet admitted.
@@ -73,43 +168,46 @@ pub(super) struct Inputs<'a> {
     pub stop: Option<StopReason>,
 }
 
-#[derive(Serialize)]
-struct Scalars<'a> {
-    schema: u32,
-    request: &'a str,
-    owner_count: usize,
-    owners_digest: [u8; 32],
-    walk_semantics_version: u32,
-    lockstep_b: usize,
-    k: u64,
-    watermark: u32,
-    p0: u32,
-    max_domains: usize,
-    max_events: u64,
-    max_frontiers: u64,
-    ledger_counts: [u64; 7],
-    walk: &'a WalkCounters,
-    lookup: &'a LookupCounters,
-    verify: &'a VerifyCounters,
-    closure: super::super::super::descendant_closure::Counters,
-    edge_runs: u64,
-    edges: u64,
-    self_edges: u64,
-    records_digest: String,
-    edge_digest: String,
-    initial_admission: Admission,
-    total_queries: usize,
-    processed_queries: usize,
-    input_frontiers: usize,
-    stop_reason: Option<&'static str>,
+#[derive(Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Scalars<W, L, V, S> {
+    pub schema: u32,
+    pub request: S,
+    pub owner_count: usize,
+    pub owners_digest: [u8; 32],
+    pub walk_semantics_version: u32,
+    pub lockstep_b: usize,
+    pub k: u64,
+    pub watermark: u32,
+    pub p0: u32,
+    pub max_domains: usize,
+    pub max_events: u64,
+    pub max_frontiers: u64,
+    pub ledger_counts: [u64; 7],
+    pub walk: W,
+    pub lookup: L,
+    pub verify: V,
+    pub closure: super::super::super::descendant_closure::Counters,
+    pub edge_runs: u64,
+    pub edges: u64,
+    pub self_edges: u64,
+    pub records_digest: String,
+    pub edge_digest: String,
+    pub initial_admission: Admission,
+    pub total_queries: usize,
+    pub processed_queries: usize,
+    pub input_frontiers: usize,
+    pub stop_reason: Option<S>,
     // Reserved provenance fields: this implementation admits none of these.
-    amendments: [(); 0],
-    quarantined: [(); 0],
-    abandoned_obligations: [(); 0],
-    g2: &'static str,
-    imported_prefix: u64,
-    engine_certification_void: bool,
+    pub amendments: [(); 0],
+    pub quarantined: [(); 0],
+    pub abandoned_obligations: [(); 0],
+    pub g2: S,
+    pub imported_prefix: u64,
+    pub engine_certification_void: bool,
 }
+
+pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCounters, String>;
 
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
@@ -198,7 +296,7 @@ impl Inputs<'_> {
         let state = boundary.state;
         let scalars = Scalars {
             schema: 1,
-            request: &self.identity.request,
+            request: self.identity.request.as_str(),
             owner_count: self.identity.owners.len(),
             owners_digest: self.identity.owners_digest,
             walk_semantics_version: super::super::EPOCH_WALK_SEMANTICS_VERSION,

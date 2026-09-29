@@ -15,32 +15,32 @@ use std::path::{Path, PathBuf};
 mod tests;
 
 const FORMAT: &str = "RUSTRED-EPOCH-INTERNAL-WRITER";
-const LATEST: &str = "epoch-internal-latest.json";
+pub(super) const LATEST: &str = "epoch-internal-latest.json";
 const PREVIOUS: &str = "epoch-internal-previous.json";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
-const MAX_META_BYTES: u64 = 1024 * 1024;
+pub(super) const MAX_META_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileRef {
-    key: String,
-    file: String,
-    count: u64,
-    bytes: u64,
-    blake3: [u8; 32],
+pub(super) struct FileRef {
+    pub key: String,
+    pub file: String,
+    pub count: u64,
+    pub bytes: u64,
+    pub blake3: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Manifest {
+pub(super) struct Manifest {
     format: String,
     schema: u32,
-    generation: u64,
-    arity: usize,
+    pub generation: u64,
+    pub arity: usize,
     walk_semantics_version: u32,
     resumable: bool,
     restore_validated: bool,
-    files: Vec<FileRef>,
+    pub files: Vec<FileRef>,
 }
 
 #[derive(Serialize)]
@@ -362,7 +362,7 @@ fn write_manifest(path: &Path, manifest: &Manifest) -> io::Result<()> {
 
 /// Bounded private-manifest reader for corruption/failure tests and later
 /// restore plumbing. It verifies the envelope, NOT the referenced state.
-fn read_manifest(path: &Path) -> io::Result<Manifest> {
+pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(MAX_MANIFEST_BYTES + 1)
