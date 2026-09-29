@@ -79,6 +79,27 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 00:36 UTC — first milestone pushed; pilot protocol registered
+
+- [M] Documentation bootstrap committed/pushed as `6dea3737` on
+  `fable_5_1`; root goal remains active.
+- Registered matched baseline, input/timing boundaries, two-pair decision
+  rule and owned-process pilot ceiling in
+  `docs/research/codex_lc2_integration_protocol_2026-09-29.md` before new runs.
+- Source audit found a measurement-gate defect in the unmerged G2′ tooling:
+  missing verifier reports and missing counts could pass `g2prod_gate.ok`.
+  Independent auditor confirmed it; implementation lane is correcting it
+  with regression tests. This is not evidence that historical results with
+  complete verifier receipts were wrong.
+- Root confirmed the next coordinator opportunity in current source:
+  `set_parallel_lean(pool.snapshot_lean(), ...)` still builds JSON per commit.
+  Existing runC profiles attribute 2.5–5% of coordinator samples to it;
+  no new optimization or speed claim made. Prioritize G2′/rescue first.
+- Independent protocol audit passed with two clarifications adopted before
+  measurements: cold verification also has a separate 30-minute ceiling;
+  for the alternate work/memory switch gate, >10% worse matched end-to-end
+  wall time is material regression, with noisy comparisons inconclusive.
+
 ### 2026-09-29 00:30 UTC — execution bootstrap
 
 - User approved the complete plan. Recorded it verbatim and added the
