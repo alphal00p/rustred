@@ -884,8 +884,6 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
             options["epoch_rolling"] = False
         if options["epoch_dispatch"] is None:
             options["epoch_dispatch"] = "fifo"
-        if options["auto_rescue"]:
-            raise ValueError("epoch CP6 does not support automatic rescue")
         if options["transfer_unreserved_lookahead"] is None:
             raise ValueError("epoch requires --transfer-unreserved-lookahead")
     SUPERVISOR.DOMAIN.validate_epoch_inspector_lookup(
@@ -1203,7 +1201,7 @@ def main(argv=None):
             "inspector_lookup_mode": options.get("epoch_inspector_lookup", "all-miss"),
             "rolling": options.get("epoch_rolling", False),
             "dispatch": options.get("epoch_dispatch", "fifo"),
-            "format": "RUSTRED-WALK-CP6", "schema": 1, "walk_semantics_version": 3,
+            "format": "RUSTRED-WALK-CP6", "schema": 2, "walk_semantics_version": 3,
             "resumable": True, "terminal_output": "checkpoint_only",
             "completion_report": "not_evaluated; raw cold reinspection required",
             "executable_policy": "launcher_frozen_binary; native_metadata_does_not_hash_executable",

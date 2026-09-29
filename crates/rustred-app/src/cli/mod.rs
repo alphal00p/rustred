@@ -341,7 +341,7 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> 
 /// describe the separate CP6 epoch lane. The old S2 export is not resumable.
 fn walk_semantics_probe() -> String {
     format!(
-        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":\"RUSTRED-WALK-CP6\"}},\"epoch_checkpoint\":{{\"format\":\"RUSTRED-WALK-CP6\",\"schema\":1,\"walk_semantics_version\":3,\"resumable\":true}}}}\n",
+        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":\"RUSTRED-WALK-CP6\"}},\"epoch_checkpoint\":{{\"format\":\"RUSTRED-WALK-CP6\",\"schema\":2,\"walk_semantics_version\":3,\"resumable\":true}}}}\n",
         crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
         serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
         crate::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(
             probe["epoch_checkpoint"],
             serde_json::json!({
-                "format": "RUSTRED-WALK-CP6", "schema": 1,
+                "format": "RUSTRED-WALK-CP6", "schema": 2,
                 "walk_semantics_version": 3, "resumable": true
             })
         );

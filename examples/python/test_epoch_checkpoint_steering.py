@@ -70,7 +70,7 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
             args.auto_rescue = True
             refused = root / "refused"
             (refused / "bin").mkdir(parents=True)
-            with self.assertRaisesRegex(ValueError, "does not support automatic rescue"):
+            with self.assertRaisesRegex(ValueError, "explicit complete query_roles"):
                 PRODUCTION.frozen_policy(refused, args, Path("/frozen/native"), inputs, 0, 0)
             self.assertFalse((refused / "bin" / "steering.json").exists())
             args.auto_rescue = False
@@ -78,6 +78,36 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
             union = PRODUCTION.frozen_policy(refused, args, Path("/frozen/native"), inputs, 0, 0)
             self.assertEqual(union["options"]["g2_residual_anchors"], "union")
             self.assertEqual(union["options"]["publication_policy"], "epoch")
+
+    def test_explicit_epoch_rescue_preserves_role_scope_and_frozen_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = root / "inputs"
+            inputs.mkdir()
+            (root / "bin").mkdir()
+            document = {"queries": [{"id": "physical"}, {"id": "helper"}],
+                        "query_roles": {"required": ["physical"], "auxiliary": ["helper"]}}
+            text = json.dumps(document)
+            (inputs / "queries.json").write_text(text)
+            args = argparse.Namespace(**{key: None for key in PRODUCTION.FROZEN_OPTIONS})
+            args.publication_policy = "epoch"
+            args.workers = 1
+            args.resume = False
+            args.auto_rescue = True
+            args.g2_residual_anchors = "union"
+            args.epoch_rolling = True
+            policy = PRODUCTION.frozen_policy(root, args, Path("/frozen/native"), inputs, 2, len(text))
+            self.assertTrue(policy["options"]["auto_rescue"])
+            self.assertEqual(policy["command_arguments"].count("--auto-rescue"), 1)
+            before = (root / "bin" / "steering.json").read_bytes()
+            args.resume = True
+            self.assertEqual(PRODUCTION.frozen_policy(root, args, Path("/frozen/native"),
+                                                     inputs, 2, len(text)), policy)
+            self.assertEqual((root / "bin" / "steering.json").read_bytes(), before)
+            self.assertEqual((inputs / "queries.json").read_text(), text)
+            args.auto_rescue = False
+            with self.assertRaisesRegex(ValueError, "differs from frozen"):
+                PRODUCTION.frozen_policy(root, args, Path("/frozen/native"), inputs, 2, len(text))
 
     def test_cp6_cannot_enter_executable_upgrade_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:

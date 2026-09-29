@@ -99,6 +99,49 @@ def calls(directory):
 
 
 class SupervisorRescueTests(unittest.TestCase):
+    def test_cp6_rescue_trigger_requires_durable_complete_state_handoff(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = {"format": "RUSTRED-WALK-CP6", "state": "saved", "resumable": True}
+            base = {"status": "stopped", "stop_reason": "frontier_stop", "checkpoint": checkpoint,
+                    "full_state_in_checkpoint": True, "full_result_in_output_document": False}
+
+            def trigger(document, code=4):
+                (output / "result.json").write_text(json.dumps(document))
+                return CAMPAIGN.native_rescue_trigger(output, code)
+
+            self.assertEqual(trigger(base), "frontier_stop")
+            self.assertIsNone(trigger(base, 70))
+            for state in ("poisoned", "unconfirmed_after_process_exit"):
+                self.assertIsNone(trigger(dict(base, checkpoint=dict(checkpoint, state=state))))
+            for changed in ({"full_state_in_checkpoint": False}, {"full_result_in_output_document": True},
+                            {"stop_reason": "ram_guard"}, {"stop_reason": "paused"},
+                            {"checkpoint": dict(checkpoint, resumable=False)}):
+                with self.subTest(changed=changed):
+                    self.assertIsNone(trigger(dict(base, **changed)))
+            drained = dict(base, status="incomplete", recursive_worklist_exhausted=True,
+                           frontiers=0, input_frontiers_count=1, stop_reason=None)
+            self.assertEqual(trigger(drained), "drained_with_frontiers")
+            self.assertIsNone(trigger(dict(drained, input_frontiers_count=0)))
+
+    def test_cp6_failed_terminal_reconciliation_cannot_auto_rescue(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = {"format": "RUSTRED-WALK-CP6", "state": "saved",
+                          "resumable": True, "generation": 3}
+            document = {"status": "stopped", "stop_reason": "frontier_stop", "checkpoint": checkpoint,
+                        "full_state_in_checkpoint": True, "full_result_in_output_document": False}
+            (output / "result.json").write_text(json.dumps(document))
+            finished = dict(document, event="finished")
+            for event in ({}, dict(finished, checkpoint=dict(checkpoint, generation=2)),
+                          dict(finished, full_state_in_checkpoint=False)):
+                final = CAMPAIGN.terminal_checkpoint("epoch", 4, event, checkpoint)
+                self.assertEqual(final["state"], "unconfirmed_after_process_exit")
+                self.assertIsNone(CAMPAIGN.reconciled_rescue_trigger(output, 4, "epoch", final))
+            final = CAMPAIGN.terminal_checkpoint("epoch", 4, finished, checkpoint)
+            self.assertEqual(CAMPAIGN.reconciled_rescue_trigger(output, 4, "epoch", final), "frontier_stop")
+            self.assertIsNone(CAMPAIGN.reconciled_rescue_trigger(output, 4, "epoch", None))
+
     def test_known_class_writes_the_amendment_and_resumes_to_completion(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

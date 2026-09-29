@@ -647,12 +647,33 @@ def native_rescue_trigger(output: Path, status: int):
         document = json.loads((output / "result.json").read_text())
     except (OSError, ValueError):
         return None
+    cp6 = document.get("checkpoint", {})
+    cp6 = isinstance(cp6, dict) and cp6.get("format") == "RUSTRED-WALK-CP6"
+    if cp6:
+        # CP6 keeps the complete state in its checkpoint, not this summary.
+        # An unconfirmed/poisoned save must never trigger automatic amendment.
+        if (not resumable_checkpoint(document["checkpoint"])
+                or document.get("full_state_in_checkpoint") is not True
+                or document.get("full_result_in_output_document") is not False):
+            return None
+        if document.get("status") == "stopped" and document.get("stop_reason") == "frontier_stop":
+            return "frontier_stop"
     if document.get("status") == "paused" and document.get("stop_reason") == FRONTIER_STOP_REASON:
         return "frontier_stop"
     if (document.get("status") == "incomplete" and document.get("recursive_worklist_exhausted") is True
-            and (document.get("frontiers") or 0) > 0 and document.get("error") is None):
+            and ((document.get("frontiers") or 0) > 0
+                 or (cp6 and (document.get("input_frontiers_count") or 0) > 0))
+            and document.get("error") is None):
         return "drained_with_frontiers"
     return None
+
+
+def reconciled_rescue_trigger(output, status, policy, checkpoint):
+    """Automatic CP6 resume also requires the final event/result reconciliation."""
+    if policy == "epoch" and (not resumable_checkpoint(checkpoint)
+                              or checkpoint.get("format") != "RUSTRED-WALK-CP6"):
+        return None
+    return native_rescue_trigger(output, status)
 
 
 def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_id_prefix: str,
@@ -931,8 +952,6 @@ def main() -> int:
                                        args.apply_subdivision_axis is not None)
     DOMAIN.validate_frontier_policy(parser, args.frontier_policy,
                                     args.checkpoint is not None or args.resume is not None)
-    if args.publication_policy == "epoch" and (args.auto_rescue or args.amend_queries):
-        parser.error("epoch CP6 does not support rescue or query amendments")
     if args.amend_queries and (not symbolic or args.resume is None):
         parser.error("--amend-queries requires --queries and --resume")
     if args.auto_rescue and (args.frontier_policy != "stop" or not symbolic
@@ -1346,7 +1365,8 @@ def main() -> int:
     }, indent=2) + "\n")
     # Frontier rescue: a frontier stop with a known rescue is a pause, never
     # the end of the campaign (owner requirement 2026-09-28).
-    trigger = native_rescue_trigger(output, status) if args.auto_rescue else None
+    trigger = (reconciled_rescue_trigger(output, status, args.publication_policy, last_checkpoint)
+               if args.auto_rescue else None)
     if trigger and stop_reason is None and not hard_stopped and checkpoint_directory:
         receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_id_prefix,
                               args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory),
