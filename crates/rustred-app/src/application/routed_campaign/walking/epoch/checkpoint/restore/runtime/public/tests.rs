@@ -114,6 +114,9 @@ fn scalar_closure_matches_monitor_fields_without_refreshing() {
             "graph_revision",
             "snapshot_revision",
             "snapshot_stale",
+            "refresh_count",
+            "refresh_seconds",
+            "last_refresh_seconds",
             "reason",
         ] {
             assert_eq!(actual[field], expected[field], "{field}");
@@ -125,6 +128,20 @@ fn scalar_closure_matches_monitor_fields_without_refreshing() {
     assert_eq!(compare(&state)["snapshot_stale"], true);
     state.tracker.refresh(&AtomicBool::new(false), true);
     assert_eq!(compare(&state)["initial_closed"], 1);
+    let dispatch = epoch::dispatch::Dispatch::new();
+    let live = scalar_progress(&state, &dispatch);
+    assert_eq!(live["descendant_closure"]["initial_closed"], 1);
+    assert_eq!(live["descendant_closure"]["refresh_count"], 1);
+    assert!(live["descendant_closure"]["snapshot_age_seconds"].is_number());
+    assert_eq!(
+        live["descendant_closure"]["refresh_policy"]["duty_bound"],
+        0.01
+    );
+    assert_eq!(
+        state.tracker.counters().refresh_count,
+        1,
+        "heartbeat performs no scan"
+    );
     state.tracker.disable("test unavailable");
     assert_eq!(compare(&state)["unresolved_domains"], Value::Null);
     state.tracker = Tracker::new(0);

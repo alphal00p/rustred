@@ -298,6 +298,7 @@ pub(super) fn run_authorized_lookup_periodic<const N: usize>(
         |_, receipt, status| on_saved(receipt, status),
         snapshots,
         |_, _, _, _| {},
+        |_| {},
     )
 }
 
@@ -315,6 +316,7 @@ pub(super) fn run_observed<const N: usize>(
     mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
     snapshots: Option<&Publication<N>>,
     mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
+    mut maintenance: impl FnMut(&mut EpochState<N>),
 ) -> io::Result<Outcome> {
     if !config.lockstep {
         return rolling::run(
@@ -330,6 +332,7 @@ pub(super) fn run_observed<const N: usize>(
             on_saved,
             snapshots,
             progress,
+            maintenance,
         );
     }
     if budget == 0
@@ -388,6 +391,11 @@ pub(super) fn run_observed<const N: usize>(
                     // observations must not masquerade as current in-flight.
                     on_saved(restored, &receipt, &[]);
                     return Ok(Outcome::Stopped(reason));
+                }
+                if committed_boundary {
+                    // Only complete, non-stopped merge boundaries may run
+                    // optional monitoring; a checkpoint itself never asks.
+                    maintenance(&mut restored.state);
                 }
                 if std::mem::take(&mut committed_boundary)
                     && restored.state.pending_or_reserved() != 0
@@ -900,5 +908,6 @@ pub(super) fn run_native_observed<const N: usize>(
         },
         (mode == LookupMode::Snapshot).then_some(&snapshots),
         progress,
+        |state| state.tracker.refresh_periodic_monitor(context.cancellation),
     )
 }

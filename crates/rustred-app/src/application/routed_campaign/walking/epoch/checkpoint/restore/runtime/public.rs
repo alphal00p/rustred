@@ -189,7 +189,8 @@ fn scalar_progress<const N: usize>(
         "processed_nodes":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),"native_processed_nodes":native,
         "abandoned_obligations":counts.get(Tag::Abandoned),
         "frontiers":state.counters.frontiers,"ledger6":state.ledger.counts().json(),
-        "requeue_waiting":dispatch.queued().0,"deferred_waiting":dispatch.queued().1})
+        "requeue_waiting":dispatch.queued().0,"deferred_waiting":dispatch.queued().1,
+        "descendant_closure":scalar_closure(state)})
 }
 
 fn lookup_mode(request: &OwnerDomainWalkRequest) -> controller::LookupMode {
@@ -249,6 +250,10 @@ fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value 
         "dependency_edges":available.then_some(state.tracker.edge_count()),
         "graph_revision":closure.revision,"snapshot_revision":closure.snapshot_revision,
         "snapshot_stale":closure.revision!=closure.snapshot_revision,
+        "snapshot_age_seconds":state.tracker.snapshot_age_seconds(),
+        "last_refresh_seconds":state.tracker.last_refresh_seconds(),
+        "refresh_count":closure.refresh_count,"refresh_seconds":closure.refresh_seconds,
+        "refresh_policy":state.tracker.refresh_policy_json(),
         "reason":if available {None} else {Some(closure.unavailable.as_deref().unwrap_or("dependency domain inventory mismatch"))},
         "closed_counts_are_conservative_lower_bounds":true,"refreshed_for_result":false,
         "retained_storage_estimate_bytes":null,"family_closure_claim":false})

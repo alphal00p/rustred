@@ -478,7 +478,8 @@ fn interrupted_public_mode(
                         saved.store(true, Ordering::Release);
                     },
                     (mode == OwnerDomainWalkEpochInspectorLookup::Snapshot).then_some(&snapshots),
-                    |_, _, _, _| {}
+                    |_, _, _, _| {},
+                    |_| panic!("cancelled unpublished cut must not run monitor maintenance")
                 )
                 .unwrap(),
                 controller::Outcome::Stopped(StopReason::Paused)

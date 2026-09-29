@@ -105,6 +105,26 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 21:34 UTC — native closure telemetry source reviewed
+
+- [M] `stage_a_release` added committed-boundary monitoring maintenance to
+  both rolling and lockstep Epoch controllers. `parallel_gate_critique` and
+  root independently reviewed the change: it reuses the existing exact,
+  cancellable dependency scan and its five-second / approximately 1% duty
+  throttle. Checkpoint saving does not force a scan, and workers/resolvers
+  do not consume the observational closed flags for rule decisions.
+- [M] Live scalar progress now carries closure counters, scan age and scan
+  cost without traversing graph storage in the heartbeat. Restored age is
+  unknown until a new scan. Scratch-allocation failure disables this optional
+  tracker conservatively; it cannot manufacture closure authority.
+- [M] Added source tests for throttling, cancellation, no maintenance before
+  an unpublished stop, unchanged decisions/edges with monitoring enabled,
+  and persisted flags/counts on cold checkpoint restore. These new native
+  tests are not yet compiled or executed; metadata validation and a separate
+  optimized binary follow the already-running `89d90a3a` pilot prefix.
+- [D] No topology/order or production setting changed. The build tree being
+  compiled remains frozen; unrelated FeynKit and untracked work is excluded.
+
 ### 2026-09-29 21:25 UTC — requested rolling-hour metric implemented
 
 - [M] `parallel_gate_critique` implemented the display/heartbeat slice; root

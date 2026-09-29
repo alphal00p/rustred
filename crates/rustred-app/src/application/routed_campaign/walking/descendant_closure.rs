@@ -209,6 +209,28 @@ impl Tracker {
         }
     }
 
+    /// Explicit coordinator monitoring maintenance, never a save/finalizer.
+    /// Reuse the periodic scan's dirty/duty gates and real run cancellation;
+    /// cached CLOSED bits remain conservative when a scan is skipped/cut.
+    pub(super) fn refresh_periodic_monitor(&mut self, cancellation: &AtomicBool) {
+        if cancellation.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.scan(cancellation, false).is_err() {
+            self.disable("dependency refresh allocation unavailable");
+        }
+    }
+
+    /// O(1) invocation-local freshness; restored snapshots have unknown age.
+    /// Unlike `json`, this never walks retained open-target storage.
+    pub(super) fn snapshot_age_seconds(&self) -> Option<f64> {
+        self.last_refresh.map(|time| time.elapsed().as_secs_f64())
+    }
+
+    pub(super) fn last_refresh_seconds(&self) -> f64 {
+        self.last_refresh_seconds
+    }
+
     /// The forced scan before a checkpoint save. As in 102adcc3, the run's
     /// cancellation never cuts it: the CLOSED bits and closure counters a
     /// generation persists (the paused one a stop request leaves included)
@@ -777,6 +799,43 @@ mod edges_benchmark;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn periodic_monitor_is_throttled_cancelled_and_not_a_forced_finalizer() {
+        let mut graph = Tracker::new(2);
+        graph.finish(0, true, true);
+        assert!(graph.snapshot_age_seconds().is_none());
+        // The CP6 guard still forbids refresh/json finalizers, but explicitly
+        // scheduled monitoring is allowed to use the periodic scan.
+        super::super::epoch::FORBID_LARGE_FINALIZATION.with(|flag| flag.set(true));
+        graph.refresh_periodic_monitor(&AtomicBool::new(false));
+        super::super::epoch::FORBID_LARGE_FINALIZATION.with(|flag| flag.set(false));
+        assert_eq!((graph.refresh_count, graph.total_closed), (1, 1));
+        assert!(graph.snapshot_age_seconds().unwrap() >= 0.0);
+        graph.finish(1, true, true);
+        let before = parts(&graph);
+        graph.refresh_periodic_monitor(&AtomicBool::new(false));
+        assert_eq!(graph.refresh_count, 1, "second dirty cut is throttled");
+        graph.last_refresh = Some(Instant::now() - graph.refresh_interval());
+        graph.refresh_periodic_monitor(&AtomicBool::new(true));
+        assert_eq!(
+            parts(&graph),
+            before,
+            "cancelled scan preserves saved flags/edges"
+        );
+        assert_eq!(graph.refresh_count, 1);
+        graph.refresh_periodic_monitor(&AtomicBool::new(false));
+        assert_eq!((graph.refresh_count, graph.total_closed), (2, 2));
+        assert_eq!(
+            parts(&graph).1,
+            before.1,
+            "monitor never changes dependencies"
+        );
+        let (flags, edges) = parts(&graph);
+        let restored = Tracker::from_parts(graph.counters(), &flags, &edges).unwrap();
+        assert!(restored.snapshot_age_seconds().is_none());
+        assert_eq!(restored.refresh_count, 2);
+    }
+
     fn scan(graph: &mut Tracker) {
         graph.refresh(&AtomicBool::new(false), true);
     }

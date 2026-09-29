@@ -139,7 +139,8 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
                     if phase == "joined" {
                         assert_eq!(activity().unwrap().occupied, 0);
                     }
-                }
+                },
+                |_| {}
             )
             .unwrap(),
             Outcome::Stopped(merge::StopReason::Paused)
@@ -187,7 +188,8 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
                 |_| false,
                 |_, _, _| {},
                 None,
-                |_, _, _, _| {}
+                |_, _, _, _| {},
+                |_| {}
             )
             .unwrap(),
             Outcome::Drained
@@ -221,11 +223,87 @@ fn rolling_partial_replay_retires_before_new_pending_dispatch() {
             |_| false,
             |_, _, _| {},
             None,
-            |_, _, _, _| {}
+            |_, _, _, _| {},
+            |_| {}
         )
         .unwrap(),
         Outcome::Drained
     );
     assert_eq!(*seen.lock().unwrap(), [(0, 0), (1, 0), (2, 1)]);
     assert_eq!(restored.state.k, 2);
+}
+
+#[test]
+fn monitoring_runs_once_per_committed_boundary_not_per_save_and_preserves_decisions() {
+    for rolling in [false, true] {
+        let mut expected = None;
+        for monitor in [false, true] {
+            let mut fixture = rolling_fixture(20);
+            fixture.request.epoch_rolling = rolling;
+            let window = if rolling { 32 } else { 16 };
+            fixture.save_window(20, 0, false, window);
+            let mut restored = fixture.open().unwrap();
+            let mut boundaries = Vec::new();
+            let mut saved_counts = Vec::new();
+            assert_eq!(
+                controller::run_observed(
+                    &mut restored,
+                    &fixture.identity(),
+                    window,
+                    1,
+                    MergeConfig {
+                        lockstep: !rolling,
+                        ..config()
+                    },
+                    &|| Ok(()),
+                    &|bytes, _| result(&Job::<1>::decode(bytes).unwrap(), false),
+                    || None,
+                    |k| k == 1,
+                    |state, _, _| saved_counts.push(state.state.tracker.counters().refresh_count),
+                    None,
+                    |_, _, _, _| {},
+                    |state| {
+                        boundaries.push(state.k);
+                        if monitor {
+                            state
+                                .tracker
+                                .refresh_periodic_monitor(&AtomicBool::new(false));
+                        }
+                    },
+                )
+                .unwrap(),
+                Outcome::Drained
+            );
+            assert_eq!(
+                boundaries,
+                [1, 2],
+                "never during initial/repeated/saved boundary"
+            );
+            assert_eq!(saved_counts, if monitor { vec![1, 1] } else { vec![0, 0] });
+            assert_eq!(
+                restored.state.tracker.counters().total_closed,
+                if monitor { 16 } else { 0 }
+            );
+            let decisions = json!({"domains":restored.state.watermark(),
+                "nodes":restored.state.nodes,"ledger":restored.state.ledger.counts().json(),
+                "walk":restored.state.counters,"edges":restored.state.edges.edge_digest(),
+                "records":restored.state.edges.records_digest(),"roots":restored.roots.rows});
+            if let Some(expected) = &expected {
+                assert_eq!(&decisions, expected);
+            } else {
+                expected = Some(decisions);
+            }
+            drop(restored);
+            let restored = fixture.open().unwrap();
+            assert_eq!(
+                restored.state.tracker.counters().total_closed,
+                if monitor { 16 } else { 0 }
+            );
+            assert_eq!(
+                restored.state.tracker.counters().refresh_count,
+                u64::from(monitor)
+            );
+            assert!(restored.state.tracker.snapshot_age_seconds().is_none());
+        }
+    }
 }

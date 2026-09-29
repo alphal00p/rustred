@@ -72,6 +72,7 @@ pub(super) fn run<const N: usize>(
     mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
     snapshots: Option<&Publication<N>>,
     mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
+    mut maintenance: impl FnMut(&mut EpochState<N>),
 ) -> io::Result<Outcome> {
     if budget == 0
         || !(1..=4096).contains(&b)
@@ -124,6 +125,11 @@ pub(super) fn run<const N: usize>(
                         &mut progress,
                         &mut on_saved,
                     );
+                }
+                if committed {
+                    // P3 is complete; workers hold immutable lookup leases,
+                    // not the observational dependency tracker.
+                    maintenance(&mut restored.state);
                 }
                 if std::mem::take(&mut committed)
                     && restored.state.pending_or_reserved() != 0
