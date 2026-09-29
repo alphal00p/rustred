@@ -285,15 +285,34 @@ fn public_cp6_real_native_w1_and_w2_preserve_full_snapshot_without_finalization(
 
 #[test]
 fn real_inline_and_pool_interruption_resume_in_both_width_directions() {
-    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::AllMiss);
+    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::AllMiss, false, false);
 }
 
 #[test]
 fn snapshot_inline_and_pool_interruption_resume_in_both_width_directions() {
-    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::Snapshot);
+    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::Snapshot, false, false);
 }
 
-fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
+#[test]
+fn rolling_real_native_interruption_resumes_saved_window_in_both_width_directions() {
+    for mode in [
+        OwnerDomainWalkEpochInspectorLookup::AllMiss,
+        OwnerDomainWalkEpochInspectorLookup::Snapshot,
+    ] {
+        interrupted_public_mode(mode, true, false);
+    }
+}
+
+#[test]
+fn rolling_adaptive_real_native_interruption_preserves_observations_on_resume() {
+    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::Snapshot, true, true);
+}
+
+fn interrupted_public_mode(
+    mode: OwnerDomainWalkEpochInspectorLookup,
+    rolling: bool,
+    adaptive: bool,
+) {
     let test = match mode {
         OwnerDomainWalkEpochInspectorLookup::AllMiss => {
             "public CP6 AllMiss W1/W2 interrupted native cut"
@@ -311,15 +330,24 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
     }
     let mut fixture = closed_fixture();
     fixture.request.epoch_inspector_lookup = mode;
-    options(&mut fixture, false, 1);
-    assert_summary(
-        &run_public(&fixture, &AtomicBool::new(false), &|_| {}),
-        true,
-    );
-    let expected = completed_snapshot(&mut fixture.open().unwrap());
+    fixture.request.epoch_rolling = rolling;
+    if adaptive {
+        fixture.request.epoch_dispatch = crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive;
+    }
     for (first, next) in [(1, 2), (2, 1)] {
+        // Compare against the same frozen logical window. W1 starts at one;
+        // widening the physical pool on resume must not silently change cuts.
         fixture.directory = Directory::new();
         options(&mut fixture, false, first);
+        assert_summary(
+            &run_public(&fixture, &AtomicBool::new(false), &|_| {}),
+            true,
+        );
+        let expected = completed_snapshot(&mut fixture.open().unwrap());
+        fixture.directory = Directory::new();
+        options(&mut fixture, false, first);
+        let window = fixture.request.epoch_window(16);
+        let reserved = window.min(3);
         let mut restored =
             admission::fresh(fixture.directory.0.clone(), &fixture.identity()).unwrap();
         assert_eq!(
@@ -327,7 +355,7 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
                 &mut restored,
                 &fixture.identity(),
                 &fixture.reducer,
-                16,
+                window,
                 || None,
                 |_| panic!("no stop during admission")
             )
@@ -389,7 +417,13 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
                 let result = match mode {
                     OwnerDomainWalkEpochInspectorLookup::AllMiss => inspect_job(&context, bytes),
                     OwnerDomainWalkEpochInspectorLookup::Snapshot => {
-                        inspect_job_with_snapshot(&context, bytes, snapshots.acquire().unwrap())
+                        let snapshot = if rolling {
+                            let job = epoch::job::Job::<1>::decode(bytes).unwrap();
+                            snapshots.acquire_job(job.seq).unwrap()
+                        } else {
+                            snapshots.acquire().unwrap()
+                        };
+                        inspect_job_with_snapshot(&context, bytes, snapshot)
                     }
                 };
                 if call == 0 {
@@ -417,11 +451,11 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
                 controller::run_observed(
                     &mut restored,
                     &fixture.identity(),
-                    16,
+                    window,
                     first,
                     MergeConfig {
                         frontier_stop: false,
-                        lockstep: true,
+                        lockstep: !rolling,
                         g2: false
                     },
                     &authorize,
@@ -431,10 +465,10 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
                     |state, _, status| {
                         assert_eq!(state.state.k, 0);
                         assert_eq!(state.records.total(), 0);
-                        assert_eq!(state.state.in_flight.len(), 3);
-                        assert_eq!(status.len(), 3);
+                        assert_eq!(state.state.in_flight.len(), reserved);
+                        assert_eq!(status.len(), reserved);
                         assert_eq!(status.iter().filter(|s| s.started).count(), 1);
-                        assert_eq!(status.iter().filter(|s| !s.started).count(), 2);
+                        assert_eq!(status.iter().filter(|s| !s.started).count(), reserved - 1);
                         if first == 1 {
                             assert_eq!(status.iter().filter(|s| s.returned).count(), 1);
                         }
@@ -454,11 +488,37 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
         assert_eq!(restored.state.k, 0);
         drop(restored);
         options(&mut fixture, true, next);
-        assert_summary(
-            &run_public(&fixture, &AtomicBool::new(false), &|_| {}),
-            true,
+        let result = run_public(&fixture, &AtomicBool::new(false), &|_| {});
+        assert_summary(&result, true);
+        assert_eq!(result.document["epoch"]["schedule"]["window"], window);
+        assert_eq!(
+            result.document["epoch"]["schedule"]["kind"],
+            if rolling { "rolling" } else { "lockstep" }
         );
-        assert_eq!(completed_snapshot(&mut fixture.open().unwrap()), expected);
+        assert_eq!(
+            result.document["epoch"]["schedule"]["dispatch"],
+            fixture.request.epoch_dispatch.name()
+        );
+        let mut restored = fixture.open().unwrap();
+        if adaptive {
+            let saved = restored.dispatch.checkpoint_snapshot();
+            let policy = saved
+                .adaptive
+                .expect("bound adaptive state survives save/open");
+            let policy = serde_json::to_value(policy).unwrap();
+            let samples: u64 = policy["buckets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|bucket| bucket["samples"].as_u64().unwrap())
+                .sum();
+            assert_eq!(
+                samples, restored.state.counters.natives,
+                "exactly successfully published native entries observed"
+            );
+            assert!(samples > 0);
+        }
+        assert_eq!(completed_snapshot(&mut restored), expected);
     }
 }
 
