@@ -6,7 +6,8 @@ The governing scope and operational limits are in `CODEX_PROGRESS_PLAN.md`.
 
 ## 1. Lean telemetry: next narrow coordinator slice
 
-Owner: `bounded_helpers_bmw`; independent critique pending implementation.
+Owner: `checkpoint_final_audit` (isolated implementation); independent source
+review by `joint_support_pruning` passed, native execution still pending.
 
 Mechanism: capture typed scalar pool statistics under the mutex, serialize
 after releasing it, and update/reuse the lean JSON objects rather than
@@ -161,3 +162,61 @@ registration alone.
 
 None of these candidates proves termination from bounded input rank, zero
 frontiers, a smaller queue, or higher CPU utilization.
+
+## 6. Read-only study: closed-descendant witnesses for required queries
+
+Owner: `checkpoint_final_audit`; independent critique by
+`joint_support_pruning`. **Parked after negative opportunity census**; no
+engine implementation.
+
+Mechanism: record an already recursively closed node as the witness for a
+required query when that node has the exact same owner/phase and its domain
+contains the entire query, including coordinate and correlated A/R/D bounds.
+This uses existing exact containment and closure authority, not a new rule,
+graph rewrite, union search or inverse-routing service. No locally inspected
+but recursively open G2 anchor qualifies. Preserve every required query.
+
+Expected benefit, if the opportunity exists: some narrower physical queries
+could be discharged before their broad helper root closes, or without an
+unnecessary rescue amendment. Existing root-only query reporting cannot use
+those witnesses. Reporting alone does not save traversal: scoped termination
+would need its own explicit status and independent verifier support. It must
+never report all scheduled domains resolved when unrelated helpers remain
+open. Initial orthant reuse often redirects descendants back to the helper,
+which may eliminate most opportunity; rescue quarantine may change this.
+
+Smallest test: reconstruct recursive closure at publication prefixes of a
+small immutable completed four-loop control, comparing the first input-root
+and first any-closed-node containment witnesses for identical physical
+queries. Match result/checkpoint generations; do not scan production's live
+checkpoint or infer node-level opportunities from aggregate counters.
+
+Falsifiers: no earlier witness; any owner/phase/A/R/D containment mismatch;
+using only local sealing; or scan cost outweighing avoided work. A future
+implementation must avoid rescanning every domain for each of 116 queries
+on every heartbeat—use owner-key filtering or newly closed nodes and retain
+only a small witness set. This registration does not reopen parked general
+union admission or backward affine-cover services.
+
+### Census result (2026-09-29)
+
+The immutable historical H repair control contains 9,033 nodes and 32,875
+edges. Among all 628 original queries and separately the 314 finite full-jet
+queries, there were **zero earlier non-input witnesses**. The final required
+publication remained 9,033 for root-only and any-closed-node policies. Runtime
+was 0.372 s, peak RSS 62,968 KiB. Independent rerun (0.384 s) reproduced every
+non-timing/RSS field and input hash. Evidence:
+`TMP/codex-closed-witness-census.5P0Cyu/{result-r2.json,census.py}`.
+
+The matching generation-3 CP3 checkpoint had a stale conservative closure
+cache (165 nodes versus the final 9,033). The first analysis failed closed;
+the corrected analysis recomputed closure from all seals and edges, checked
+graph/result consistency and cross-checked eight prefixes and cycle/late-leaf
+fixtures. Eligibility begins at complete local record publication. Closure
+time is the latest publication reachable through final outgoing edges. Source
+audit established that this historical tracker refuses post-seal outgoing
+edges, making the prefix calculation exact for this no-rescue Ordered trace.
+
+This is not post-G2/rescue evidence or a universal negative theorem. Reopen
+only if such a later immutable control shows useful earlier witnesses. No
+additional scanner or scoped early-stop mechanism is justified by this test.

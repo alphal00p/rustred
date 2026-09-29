@@ -53,14 +53,15 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
 | Independent math/code audit | combined source passed; measurement audit active | checkpoint_final_audit | Check native receipts and pilot equivalence before release |
 | Combined G2′ + rescue | source frozen; native execution active | joint_support_pruning + root + independent auditor | `7546c44c`; full suite, named controls, paired pilot and restart decision |
-| Coordinator latency / telemetry | isolated implementation active; no performance result | checkpoint_final_audit (author), joint_support_pruning (independent review) | Typed snapshot/reused lean maps; preserve counters before checkpoint callbacks |
-| Epoch S3–S6 | pending; preparatory review delivered | epoch_next_slice_review | Fresh-only CP6 first; account for rescue-authorized duplicate images before schema freeze |
+| Coordinator latency / telemetry | isolated source audit passed; execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | Five regressions prepared; no native test or performance result yet |
+| Epoch S3–S6 | S3 scoped implementation planning active; S4–S6 pending | epoch_s3_delivery, prior epoch_next_slice_review | Fresh-only CP6 first; audit proposed merge and interruption boundaries before edits |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
 | New algorithms / literature | census delivered; narrow coalescing parked | work_reduction_research + checkpoint_final_audit | Reopen only with post-G2 miss-cohort evidence; backward covers deferred |
+| Closed-descendant query witnesses | parked after negative census; independently reproduced | checkpoint_final_audit; independent critique by joint_support_pruning | Reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
 | Earlier rejected levers | deferred | root | New evidence required; retain prior negative results |
 
 ## Decisions in force
@@ -78,6 +79,68 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 02:28 UTC — skeleton validation passed; speculative shortcut parked
+
+- [M] Exact optional full five-loop skeleton enumeration passed: one test,
+  84.763 s (85.184 s guarded command), exit zero/no stop reason, about 21 MiB
+  maximum single-child RSS. Receipt:
+  `TMP/codex-g2-rescue.tzdFuj/skeleton-enumeration/{request,result}.json`.
+  This removes the prior full-Python-suite skip. It is an input-generation
+  consistency check, not a native closure run or speed comparison.
+- [M] Closed-descendant query-witness census found no earlier witness among
+  628 queries (including 314 finite full-jet queries) on the immutable H
+  control: 9,033 nodes, 32,875 edges, final required publication 9,033 under
+  either policy. Independent rerun reproduced every non-timing/RSS field and
+  source hash. Analysis 0.372 s, repeat 0.384 s, about 61 MiB peak RSS. Evidence:
+  `TMP/codex-closed-witness-census.5P0Cyu/result-r2.json` and `census.py`.
+- The first census correctly refused a stale CP3 cached closure snapshot;
+  one source-backed correction independently derived closure from seals and
+  edges instead. The historical tracker rejects post-seal outgoing edges,
+  so the publication-prefix calculation is exact for this no-rescue Ordered
+  trace. This does not establish absence of opportunities after G2/rescue or
+  on other workloads. Park the candidate; do not implement another traversal
+  or new early-stop status without new evidence.
+- Epoch S3 is split into source reconciliation, an internal streaming writer
+  prerequisite, then restore/stop-path completion. Writer-only support will
+  not be exposed as resumability. Independent review is assigned before
+  building; no additional heavy/native job has started.
+
+### 2026-09-29 02:22 UTC — measurement table audited; follow-on lanes bounded
+
+- [M] Main documentation tip `c19716b8` is pushed. Integration tooling commit
+  `56996edf` now reports whole-command wall time, waited-child user+system CPU,
+  sampled aggregate tree RSS and the separately labelled single-child RSS
+  maximum. Summed inspection time and sampled thread time remain diagnostics,
+  not substitutes. Missing historical measurements remain unknown. Root's
+  19 focused Python tests passed in 3.688 s; independent rerun passed in
+  3.736 s. Receipt: `TMP/codex-g2-rescue.tzdFuj/reporting-table-audit.json`.
+  Existing pending-growth calculation and rendering were not changed.
+- [M] Independent source review passed the isolated lean-telemetry change,
+  contingent on execution. Five regressions cover scalar equivalence, reused
+  map storage, stale-field removal, resume counters and failure-ID
+  decoding. No native execution or speedup claim; keep it out of the first
+  combined G2′/rescue candidate. Its vendor is clean pinned `ef0db494`.
+- [M] Combined optimized native compilation remains live without reported
+  errors at approximately 34 minutes. This is compilation, not a solver
+  pilot. It is the only owned heavy job; no candidate campaign-profile binary
+  or new campaign performance measurement exists yet.
+- [M] Read-only LC2 snapshot at 02:19:54 UTC: 29,429,189 discovered,
+  9,615,916 native completions, 12,175,307 pending, conservative 6/67 initial
+  obligations closed, zero frontiers, about 23.6 GB tree RSS. The last-hour
+  coordinator shares were 53.2% commit and 27.0% preparation. These are not
+  counts of closed required queries, nor an ETA. No production action.
+- Registered a narrow read-only opportunity study: a recursively closed
+  descendant might exactly contain a required query while its wider helper
+  stays open. Existing input-root-only summary/verifier/audit would not use
+  that witness. This is not yet observed opportunity and reporting alone
+  would not shorten traversal; any future scoped stop requires separate
+  authority/status, never a false all-domains-resolved claim. Candidate
+  details and falsifiers are in the follow-on candidate note.
+- Assigned `epoch_s3_delivery` to reconcile the existing epoch implementation
+  and propose a small fresh-only checkpoint/stop slice before editing. Work
+  remains isolated; no extra native builds or pilots are authorized while
+  the first integration gates run. No epoch speed/deployment claim.
 
 ### 2026-09-29 02:07 UTC — pilot guard frozen; next narrow slice isolated
 
