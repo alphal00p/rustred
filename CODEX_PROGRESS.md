@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 20:24 UTC
+## Current shortened-delivery ownership — 2026-09-29 21:06 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,13 +52,14 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Frozen optimized `e1bdb9e7`; diagnose extra Route work before launch qualification |
+| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` application rebuild in progress; repeat the combined gate, separating native and cold costs |
 | Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final lifecycle and Python checks pass | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Python310 PASS/one optional slow skip; M1–M4 actual CLI checks pass |
-| Algebraic input/pivot ordering review and experiments | delivered | `bounded_ordering_pilots`, root; prior review `stage_a_release` | Natural/reverse both certify and cold-load; natural faster on tested sub-root. Helper-first combined experiment censored unfavorable; retain production inputs |
-| Matched performance and deployment | active; combined four-loop parity fails | root, `bounded_ordering_pilots`, independent `stage_a_release` | Cut1 runtime falsifier next; inspection-width tuning rejected. No production launch or claimed speedup |
+| Mechanistic input/pivot ordering | active; structural inputs prepared | `parallel_gate_critique`; independent `stage_a_release` and root | Shared-interface-first and dependency-ready-cost preserve all 58 rows/roles; bounded BMW pivot candidates next. No new timing yet |
+| Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
+| Matched performance and deployment | active; combined four-loop parity fails | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | New binary, combined two pairs, mutation controls, then remaining family and ordering controls. No production launch or claimed speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -103,6 +104,67 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 21:06 UTC — bounded historical and structural audits delivered
+
+- [M] Historical audit is written to
+  `docs/research/closure_count_history_2026-09-29.md`. Root independently
+  reproduced the unchanged LC1-to-LC2 walking-source diff and archived cone
+  counts: root 14 has 8,383 nodes / 196,438 edges; root 15 has 15,036 /
+  215,390. Roots 23 and 24 are shared dependencies. The new four-row diagnostic
+  explicitly declares all four Required; every original row is unchanged.
+- [M] A bounded LC2 prefix read shows an actual dependency chain
+  `14 -> 168168 -> 1391654`; the last saved node is sealed but not closed.
+  This is not a complete path to a pending leaf and does not prove a tracker
+  bug. The archived fresh eight-versus-six difference predates Stage A's
+  compatible binary upgrade.
+- [M] Structural report is written to
+  `docs/research/mechanistic_ordering_2026-09-29.md`. BMW is reached by three
+  prism one-pinches and all nine K3,3 one-pinches. The two query-only variants
+  retain the actual control's explicit 58-Required/0-Auxiliary declaration,
+  exact query objects, within-owner order and broad-anchor suffix.
+- [D] Test the nontrivial shared BMW interface for algebraic priority, rather
+  than the degenerate four-line owner with maximum fan-in. Prepare two
+  pinch-class-derived coordinate priorities and the same-source natural
+  baseline. Changed payloads require exact validation and terminal-policy
+  comparisons; saved-payload pivots cannot be changed by a walker flag.
+- [M] Optimized application rebuild continues without diagnostics. The
+  current native engine and matrix remain frozen. Heavy work sequence is
+  combined four-loop repeats, two independent negative cold controls, then
+  resource-serialized remaining controls and mechanistic experiments. No
+  experiment below is represented as executed before its receipt exists.
+
+### 2026-09-29 20:49 UTC — ordering mechanisms and historical narrowing
+
+- [M] `stage_a_release` located the original12/67 receipt in
+  `campaigns/five-loop-qcd-feynman-d9d10/runs/20260926T122852.894005Z/status.json`.
+  That campaign differs from LC2 in47 helper A bounds (60 unbounded helpers
+  became13). All116 physical rows and owner/row order agree. Do not call12→6
+  a same-scope regression.
+- [M] A stronger comparison exists: v2/LC1/LC2 have byte-identical queries
+  and the same3,704-byte initial-domain segment. Old closed roots were
+  `[0,2,12,14,15,23,24,26]`; LC2 generation8 has `[0,2,12,23,24,26]`.
+  Its closure snapshot revision is current for that saved generation. Roots14
+  (`111100000011100`) and15 (`111010100100101`) are the focused candidates.
+- [M] The initial inspection records for14,15,23,24 match after excluding
+  timing. LC1→LC2 walking/tracker/alias/CSR source is unchanged; all67 owner
+  payloads correspond through the archived format conversion, without algebra
+  regeneration. This favors scheduling/representative history as an explanation,
+  but is not yet a demonstrated cause or a proof that no bug exists.
+- [D] Prepare a small four-anchor diagnostic retaining their exact rows and
+  all67 owner programs; no full production checkpoint replay. Compare exact
+  cold closure and dependency behavior before attributing regression.
+- [M] Structural lane verified that public `--permutation` changes only final
+  denominator/numerator ties, not the earlier sector lexicography. Therefore
+  putting shared-pinch edges first is not automatically a sector-priority
+  experiment. A true sector-order probe can instead reindex denominator input
+  rows and masks, regenerate the affected family, and use the inverse tie
+  permutation to isolate the earlier sector order. That is input computation,
+  not a Rust rebuild, and must not mix different family fingerprints.
+- [D] First structural candidate will move selected shared-subtopology owner
+  blocks, preserving every query and leaving the16 broad rank12 obligations
+  in their original suffix. Do not repeat the rejected all-helpers-first H1.
+  All heavy pilots remain queued behind the current build and combined gate.
 
 ### 2026-09-29 about20:43 UTC — authorized structural-ordering extension
 
