@@ -87,6 +87,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 11:18 UTC — independent outer review catches composed-path defects
+
+- [M] Validated-native progress checkpoint `df381aec` is pushed. Main retains only the user's unrelated work; later public engine slices are still isolated and unvalidated.
+- The outer draft was source-frozen at receipt `TMP/codex-public-epoch-outer-source-2026-09-29.md` (initial SHA256 `b81b794ae59e83ea2327ee309ec515520163da83ca218c9e7a60de55247b3aed`). Its seven fake-only Python tests passed in 0.014 s / 1.1805 s guarded wall, exit 0/no stop, under `TMP/codex-cp6-outer-python.4eLfMZ/focused/`. This is not native/public-campaign coverage.
+- Independent auditor `epoch_native_validation` then found two composed-path blockers that those tests did not cover. First, final status publication could replay a cached saved event and overwrite the CP6 checkpoint's deliberately unconfirmed state after a missing terminal handoff. Second, the cold reader authenticated record files and then passed paths to a second, unauthenticated open used for parsing. Root inspected the actual caller paths and confirmed both findings. These are defects in the unmerged draft, not observations about LC2.
+- Outer author `joint_support_pruning` is correcting only those seams and adding corresponding regressions. Preserve terminal invalidation through final status publication; authenticate the bytes actually parsed once, without copying whole record payloads or adding a new persistence framework. Preserve CP5 behavior. Initial seven-test PASS remains a baseline, not evidence for the corrections. Re-freeze and independently re-review before consolidated native typechecking.
+
 ### 2026-09-29 11:12 UTC — focused and full-core execution; public integration review
 
 - [M] Frozen `29e30a79` app walking focus completed: **597 passed, zero failures, 12 ignored**, 135.68 s harness / 136.204129 s guard wall, exit 0/no stop and drained PG3538466. Across the core and app focuses, root independently checked all 13 named new tests: one endpoint-buffer reuse test, five admission-atomicity tests, one native interrupted-cut test, one native periodic-save test and five telemetry tests. Two W50 subcases explicitly omitted for the 16-CPU allocation are **not** covered. Exact identities, ignored reasons and omissions are in `TMP/codex-epoch-s3.JjASCU/consolidated-29e30a79-app-focus/verified-result.json` and the corresponding core-focus receipt.
