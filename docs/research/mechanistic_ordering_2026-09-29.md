@@ -6,7 +6,7 @@ prepared inputs are in `TMP/codex-mechanistic-ordering.5NFxVw/`; their exact
 permutations and preservation checks are in `input-mapping.json`.
 The query source is the actual matched matrix input
 `TMP/codex-rolling-measurements.eBFGjR/queries/four-all.json`, including its
-explicit top-level `query_roles`. All three variants preserve that complete
+explicit top-level `query_roles`. Every variant preserves that complete
 role declaration and stable query IDs; no role is inferred from an ID string.
 
 ## What is shared
@@ -78,15 +78,16 @@ the complete four-loop census and five-loop intersection/pinch summaries.
 The original class and matrix authority remains the existing RustRed/Symbolica
 routing census and native route verification.
 
-## Three concrete candidates
+## Concrete input candidates
 
 | Candidate | Mechanism | Changed input | Regeneration |
 | --- | --- | --- | --- |
 | Shared interface first | Seed the common parent interface selectively | Move the original BMW query block 33..35 before rows 0..32 | None |
 | Dependency-ready cost | Offer strict descendants before parents; favor cheap shared ready owners | Permute complete owner blocks in rows 0..41 | None |
+| Critical interface first | Start the measured dominant native work earlier | Move only banana's original block 6..8 to the start; keep all other blocks stable | None |
 | Pinch-interface sector order | Rank BMW-equivalent prism pinch slots and the other parent's unique slot early in physical sector comparison | Reindex all family coordinates and inverse-map final coordinate ties | All 16 selected payloads in the reindexed four-loop family |
 
-Both query-only candidates retain all 58 original query objects without any
+All three query-only candidates retain all 58 original query objects without any
 field change, preserve each owner's relative row order, and leave the 16 broad
 R12 anchor rows 42..57 in their exact original suffix. This avoids repeating
 the previous helpers-first intervention, which moved those broad anchors
@@ -189,6 +190,87 @@ An independent `sector_permutation` engine option would require consistent
 changes to solver comparison, persisted `OrderingPolicy`/stable encoding,
 exact descent/certification, bundle/checkpoint binding, and CLI/Rust/Python
 interfaces. Do not make that broad change merely to run this bounded study.
+
+## Measured-cost qualification and bounded BMW pivot preparation
+
+The actual saved native records of the original matched four-loop controls
+give the following cost census. This includes Ready G2 anchor inspections and
+Epoch G2 residual inspections, whose record-kind strings differ.
+
+| Original input | Native inspections | Summed native-record seconds | Banana Apply inspections / seconds | Banana fraction |
+| --- | ---: | ---: | ---: | ---: |
+| Ready r2 | 22,601 | 15.4236 | 20 / 10.2529 | 66.48% |
+| Epoch rolling FIFO r2 (P2) | 31,846 | 16.4605 | 24 / 9.5576 | 58.06% |
+
+These overlapping per-inspection wall seconds are neither process CPU seconds
+nor cold reinspection timings. Route contributes 1.3756 seconds over 22,332
+Ready inspections and 2.3822 seconds over 31,558 Epoch inspections. The banana
+owner `0111100001` remains the dominant native cost despite its tiny record
+count. Exact file hashes and per-owner totals are in `owner-costs.json`, read
+from the saved `cold-control-{ready,rolling-fifo}-r2/four-all/checkpoint`
+record files under `TMP/codex-rolling-measurements.eBFGjR/runs/`.
+
+The bytes-based dependency order moves banana from block 4 to block 9,
+original rows 6..8 to new rows 18..20, while keeping its R12 anchor at row 45.
+The shared-BMW seed moves it only to block 5, rows 9..11. Neither is an early
+banana test. The added `critical-interface-first` candidate moves precisely
+rows 6..8 to the start; its SHA-256 is
+`5efe336b141d921c903ce4316c88c705023c87e032084027fcb6043bfec4b7af`.
+Its mechanism is to overlap dominant native work sooner. The opposing effect
+is an oldest-prefix publication stall; unchanged or worse native+cold time
+despite earlier overlap falsifies the proposed benefit. No further permutation
+portfolio is implied by this measured-cost correction.
+
+For a cheaper pivot diagnostic, root selected the nontrivial shared BMW
+interface, not the degenerate four-line maximum-fan-in owner. Preparation files
+`bmw-pivot-commands.json` and `bmw-pivot-pipeline.sh` define a same-source natural
+baseline and exactly two pinch-class tie priorities:
+
+| Arm | `--permutation` | Mechanistic contrast |
+| --- | --- | --- |
+| Natural baseline | `0,1,2,3,4,5,6,7,8,9` | Same-root, same-binary regenerated control |
+| Cheap pinch class first | `1,2,7,8,3,4,5,6,0,9` | First active tie group pinches to `0111111100` |
+| Costly pinch class first | `3,4,5,6,1,2,7,8,0,9` | First active tie group pinches to `0111111001` |
+
+The two groups are directly derived from BMW's existing routed single-pinches;
+natural order is retained within each group and inactive coordinates remain
+`[0,9]`. The target-class saved byte counts are 104,601 and 1,226,920. Their
+actual Epoch Apply costs also differ, 0.0831 versus 0.2074 seconds over two
+records each (Ready 0.0733 versus 0.2091). This supports a cost contrast but
+does not assert tie priority controls the first actual pinch, or predict a
+speedup; pivots can instead change rational coefficient size and exceptional
+guards. BMW itself accounts for only two Apply inspections and 0.1105 native
+seconds in P2, so direct BMW evaluator savings alone cannot close the total
+performance gap. Any useful gain must affect downstream geometry or sharing.
+
+All three commands use the unchanged original family, `--nonpositive-indices
+0,9`, sparse backend, depth 2, finite-case search, explicit identical finite
+and case budgets, no rank restriction, and W16. The public CLI generates the
+BMW root **downset**, not only one literal sector. Only its BMW single-sector
+checkpoint shard may replace the selected BMW payload afterward; the other
+15 selected payloads, all 508 routes, all 58 query rows/roles and their order
+stay fixed. Locate that shard by exact mask in the generated manifest, not the
+old ordinal 326. A same-source natural baseline is essential because the old
+BMW shard came from the larger K3,3 generation and is not that control.
+
+The command arrays retain a clearly invalid binary placeholder until the
+final freeze is supplied. They use both existing locks, CPUs 32..47, a
+1,740-second whole-arm soft deadline including admission (at most 1,800 with
+the kill grace), a 1,500-second guarded pipeline
+deadline, and stage limits of 600 seconds generation, 600 certification, and
+120 cold artifact inspection. Timeout is a censored result, not permission
+to increase a budget. No commands have run. The existing guard requires at
+least 250 GiB available at start and stops below 150 GiB host headroom.
+
+Before any stitched performance test, require source certification and cold
+artifact load to succeed. Compare the `campaign inspect` master-key sets in
+the same physical coordinates, both the whole BMW-downset set and the subset
+whose positive support is exactly BMW. Keep terminal policy and finite-search
+budgets unchanged. Report added/removed terminal keys and counts explicitly;
+a faster variant with an enlarged or otherwise changed admitted terminal set
+is not an equivalent-task speedup without a separate equivalence argument.
+After stitching, native route verification and full all-source/all-root cold
+closure remain mandatory. No old owner/checkpoint is overwritten.
 
 ## Fair smallest gate
 

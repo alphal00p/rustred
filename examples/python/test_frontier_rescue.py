@@ -10,10 +10,13 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 SOURCE = Path(__file__).with_name("shared_owner_campaign.py")
 SPEC = importlib.util.spec_from_file_location("campaign_rescue", SOURCE)
@@ -99,6 +102,149 @@ def calls(directory):
 
 
 class SupervisorRescueTests(unittest.TestCase):
+    def test_failed_or_cancelled_planner_cannot_publish_a_valid_amendment(self):
+        for exit_status, stop_at in ((2, None), (-signal.SIGTERM, None), (0, 2), (0, 3)):
+            with self.subTest(exit_status=exit_status, stop_at=stop_at), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                output = directory / "run"; output.mkdir()
+                amendments = directory / "amendments"; amendments.mkdir()
+                existing = amendments / "amendment-0001.json"
+                existing.write_text("previous immutable amendment")
+                checks = 0
+
+                def stopped():
+                    nonlocal checks
+                    checks += 1
+                    return "operator_signal_15" if stop_at is not None and checks >= stop_at else None
+
+                def runner(command, **_):
+                    # Even a valid, completely written plan is not authority
+                    # after failed exit or cancellation at either handoff.
+                    Path(command[command.index("--amendment-output")+1]).write_text("new amendment")
+                    Path(command[command.index("--output")+1]).write_text(json.dumps({
+                        "verdict": "rescue", "amendment": {"sequence": 2, "digest": "d", "parent": "p", "queries": 1}}))
+                    return subprocess.CompletedProcess(command, exit_status, "", "failed planner")
+
+                receipt = CAMPAIGN.plan_rescue(Path("rustred"), output, amendments, "anchor", None, {}, 4, 0,
+                                               runner=runner, stop_requested=stopped)
+                self.assertEqual(receipt["action"], "wait_for_owner")
+                self.assertEqual(existing.read_text(), "previous immutable amendment")
+                self.assertFalse((amendments / "amendment-0002.json").exists())
+                self.assertTrue((amendments / ".pending-amendment.json").exists())
+
+    def test_guarded_planner_files_affinity_and_resource_cancellation(self):
+        cpus = {min(os.sched_getaffinity(0))}
+        for mode in ("success", "admission_failure", "host_floor", "hard_rss", "monitor_failure", "operator", "operator_ignores_term"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                args = SimpleNamespace(max_memory_bytes=1 << 30, soft_memory_bytes=None,
+                    host_memory_reserve_bytes=100_000_000, ram_guard_margin_percent=5,
+                    swap_growth_stop_bytes_per_second=0, swap_growth_stop_seconds=120, sample_seconds=0.1)
+                if mode == "hard_rss":
+                    args.max_memory_bytes = 1 << 20
+                collector = CAMPAIGN.ProcessTreeCollector()
+                collector.register(os.getpid())
+                stop = None
+                samples = 0
+
+                def request_stop(reason):
+                    nonlocal stop
+                    stop = stop or reason
+
+                def stopped():
+                    if mode.startswith("operator") and (output / "ready").exists():
+                        request_stop("operator_signal_15")
+                    return stop
+
+                def memory():
+                    nonlocal samples
+                    samples += 1
+                    if mode == "monitor_failure" and samples > 1:
+                        raise OSError("unreadable memory counters")
+                    available = 50_000_000 if mode == "admission_failure" or (mode == "host_floor" and samples > 1) else 4 << 30
+                    return {"available_bytes": available, "host_available_bytes": available}
+
+                code = ("import json,os,signal,sys,time; from pathlib import Path; "
+                        + ("signal.signal(signal.SIGTERM,signal.SIG_IGN); " if mode == "operator_ignores_term" else "")
+                        +
+                        f"Path({str(output / 'observed.json')!r}).write_text(json.dumps([sorted(os.sched_getaffinity(0)),os.environ['RAYON_NUM_THREADS']])); "
+                        f"Path({str(output / 'ready')!r}).touch(); "
+                        "print('x'*100000); print('e'*100000,file=sys.stderr); "
+                        + ("pass" if mode == "success" else "time.sleep(60)"))
+                env = dict(os.environ, **{name: "1" for name in CAMPAIGN.INNER_POOLS})
+                observed = []
+                with patch.object(CAMPAIGN, "host_memory", side_effect=memory):
+                    result = CAMPAIGN.guarded_rescue_planner([sys.executable, "-c", code], env=env,
+                        output=output, args=args, cpus=cpus, collector=collector,
+                        request_stop=request_stop, stop_requested=stopped, sample_observer=observed.append)
+                if mode == "success":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIsNone(stop)
+                    self.assertEqual(json.loads((output / "observed.json").read_text()), [sorted(cpus), "1"])
+                    self.assertGreater((output / "planner.stdout").stat().st_size, 65536)
+                    self.assertLessEqual(len(result.stderr), 2000)
+                else:
+                    self.assertIsNotNone(stop)
+                    self.assertEqual(result.planner_guard["stop_reason"], stop)
+                    if mode == "admission_failure":
+                        self.assertNotIn("pid", result.planner_guard)
+                        self.assertFalse(observed)
+                        continue
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(result.planner_guard["pid"], 0)
+                    if mode == "operator_ignores_term":
+                        self.assertEqual(result.returncode, -signal.SIGKILL)
+                self.assertTrue((output / "planner-resources.jsonl").is_file())
+                self.assertTrue(observed)
+                self.assertTrue(all(sample["phase"] == "rescue_planning" for sample in observed))
+                self.assertEqual(result.planner_guard["policy"]["cooperative"], "sigterm_owned_read_only_planner")
+
+    def test_stop_after_resume_receipt_prevents_exec(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            executable = fake_native(directory)
+            manifest = directory / "selection.json"; manifest.write_text("{}")
+            queries = directory / "queries.json"
+            queries.write_text(json.dumps({"queries": [{"id": "p"}],
+                "query_roles": {"required": ["p"], "auxiliary": []}}))
+            output = directory / "run"
+            affinity = os.sched_getaffinity(0)
+            handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+            command = [str(SOURCE), "--executable", str(executable), "--manifest", str(manifest),
+                "--queries", str(queries), "--workers", "1", "--cpus", str(min(affinity)),
+                "--sample-seconds", "0.1", "--run-directory", str(output), "--no-progress",
+                "--checkpoint", str(directory / "checkpoint"), "--frontier-policy", "stop", "--auto-rescue"]
+            record = CAMPAIGN.record_rescue
+            atomic_json = CAMPAIGN.MONITOR.atomic_json
+            states = []
+
+            def capture_status(path, document):
+                if path.name == "status.json":
+                    states.append(document["state"])
+                atomic_json(path, document)
+
+            def interrupt_handoff(amendments, run, receipt):
+                record(amendments, run, receipt)
+                if receipt["action"] == "resume":
+                    (run / "stop-request.json").write_text("{}")
+
+            try:
+                with patch.object(sys, "argv", command), patch.object(CAMPAIGN, "record_rescue", side_effect=interrupt_handoff), \
+                        patch.object(CAMPAIGN.MONITOR, "atomic_json", side_effect=capture_status), \
+                        patch.object(CAMPAIGN.os, "execv") as execute, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(CAMPAIGN.main(), 4)
+                    execute.assert_not_called()
+                self.assertEqual(json.loads((output / "rescue.json").read_text())["action"], "wait_for_owner")
+                self.assertIn("rescue_planning", states)
+                self.assertEqual(states[-1], "stopped")
+                self.assertEqual(json.loads((output / "status.json").read_text())["stop_reason"], "existing_operator_stop_file")
+                self.assertEqual(len([c for c in calls(directory) if c[0] == "owner-domain-match"]), 1)
+                self.assertTrue((directory / "checkpoint").is_dir())
+            finally:
+                os.sched_setaffinity(0, affinity)
+                for sig, handler in handlers.items():
+                    signal.signal(sig, handler)
+
     def test_cp6_rescue_trigger_requires_durable_complete_state_handoff(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)

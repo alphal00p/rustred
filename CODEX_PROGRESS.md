@@ -105,6 +105,58 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 21:21 UTC — guarded rescue planner independently checked
+
+- [M] `stage_a_release` completed the Python-only planner guard. Root reviewed
+  ownership, admission, resource-stop and late-resume paths and independently
+  reran `test_frontier_rescue.py`: 14 tests passed in 8.483 seconds, under
+  `python-0.lock`, CPUs 16–19, workspace `TMPDIR`. The author's full suite
+  passed 313 tests with one existing optional skip (314 run, 31.1605 seconds).
+  Receipt: `TMP/codex-stage-a.2RU3AX/planner-guard-full-v2`.
+- [M] The first full run's one new test failure is retained in the v1 receipt:
+  a minimal fake native result did not have a paused-state event. The final
+  implementation recomputes the terminal state with a planner-time stop reason,
+  rather than showing the pre-planner state. Assertions now check that actual
+  handoff behavior, no second native launch, and no `execv` after the stop.
+- [M] Successful planners, large stdout/stderr, affinity/thread caps, insufficient
+  admission, low host memory, hard RSS, monitoring failure, operator cancellation,
+  SIGTERM-resistant child cleanup and late stop/failed-plan refusal are covered.
+  Resource protection applies during graph restoration, not only the solver.
+  The planner never writes the native checkpoint. An interrupted post-receipt
+  handoff conservatively consumes one recorded rescue attempt.
+- [M] Further Epoch monitoring audit found both omissions: live scalar progress
+  lacks the recursive-closure object, and runtime cuts do not periodically
+  refresh the cached tracker. A formatting-only rate would be unavailable on
+  live Epoch. A narrow telemetry/throttled-refresh correction is being designed;
+  the current `89d90a3a` build remains unchanged and keeps its own identity.
+
+### 2026-09-29 21:13 UTC — launch safety and requested gap-rate display
+
+- [D] User requests a separate trailing-hour discovered-minus-recursively-
+  closed domain rate. `parallel_gate_critique` owns the existing heartbeat /
+  display modules and their tests; the pending-growth metric remains untouched.
+  Report the observed conservative-gap trend with actual sample span and
+  closure-snapshot freshness; negative is not a completion certificate.
+- [M] `stage_a_release` found that automatic frontier planning runs after the
+  native RAM-monitoring loop. It restores graph sections and reverse edges,
+  so it is not a negligible metadata-only operation. Its process inherited
+  CPU limits but lacked active RSS/host-floor/swap protection.
+- [D] Approved a narrow Python-only fix reusing `owned_process`, `RamGuard`
+  and the existing injectable planner runner. Planner stop/failure must leave
+  the already durable native checkpoint untouched, refuse amendment publication
+  and prevent automatic resume. No default address-space cap or new supervisor
+  framework. Root reviews independently; no new Rust rebuild.
+- [M] The new mechanistic cost census finds the banana owner takes 58.06% of
+  Epoch and 66.48% of Ready native-record inspection seconds. A third exact-
+  row permutation moves just that original three-query block first, testing
+  critical-path overlap against possible ordered-publication head-of-line
+  blocking. All 58 rows/roles and the broad-anchor suffix remain unchanged.
+- [M] `certify-candidates` requires unrestricted saved-downset closure as well
+  as replay. That is not the scoped campaign task. Sparse candidate generation
+  constructs exact Symbolica row combinations, but its report explicitly does
+  not claim independent source replay. Do not mislabel either ordinary candidate
+  generation or cold graph reinspection as unrestricted algebra certification.
+
 ### 2026-09-29 21:06 UTC — bounded historical and structural audits delivered
 
 - [M] Historical audit is written to

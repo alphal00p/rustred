@@ -95,6 +95,17 @@ keeps `CODEX_PROGRESS.md` current. Reassign implementation and review to
 different agents if a concrete bug or useful steering change is identified.
 No production actions, new master/Vakint work, or open-ended permutation search.
 
+### Additional monitoring request — 2026-09-29
+
+Add a separate trailing-hour metric for the observed rate of domains discovered
+minus the observed rate recursively closed. Leave the existing pending-growth
+per-completion calculation and text unchanged. Show signed units, the actual
+sample span during warm-up, and closure-snapshot freshness: closure counts are
+updated in batches, so a negative observed gap trend is encouraging but not a
+proof of convergence or an ETA. Handle missing telemetry, counter resets and
+resumes without manufacturing a rate. Reuse existing monitoring and telemetry;
+this presentation change must not require a solver rebuild or modify LC2.
+
 ## Stage A — compatible stable milestone on `fable_5_1`
 
 ### Scope

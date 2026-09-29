@@ -678,7 +678,7 @@ def reconciled_rescue_trigger(output, status, policy, checkpoint):
 
 def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_id_prefix: str,
                 rescue_helpers, env, max_rescues: int, attempts: int, runner=subprocess.run,
-                trigger: str = "frontier_stop", scope: str = "class") -> dict:
+                trigger: str = "frontier_stop", scope: str = "class", stop_requested=lambda: None) -> dict:
     """Classify the frontier stop of the run in `output` and prepare the next resume.
 
     Returns the rescue receipt: action "resume" (with the new amendment path,
@@ -690,6 +690,8 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
                "family_closure_claim": False}
     if attempts >= max_rescues:
         receipt.update(action="wait_for_owner", reason=f"automatic rescue attempts exhausted ({attempts} of {max_rescues})")
+        return receipt
+    if rescue_cancelled(receipt, stop_requested):
         return receipt
     amendments_directory.mkdir(parents=True, exist_ok=True)
     pending = amendments_directory / ".pending-amendment.json"
@@ -705,6 +707,10 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
     completed = runner(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     receipt["planner_seconds"] = time.monotonic() - started
     receipt["planner_exit_status"] = completed.returncode
+    if hasattr(completed, "planner_guard"):
+        receipt["planner_guard"] = completed.planner_guard
+    if rescue_cancelled(receipt, stop_requested):
+        return receipt
     try:
         plan = json.loads(plan_path.read_text())
     except (OSError, ValueError) as error:
@@ -717,6 +723,12 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
         "rescue_scope", "superseded")}
     receipt["plan_path"] = str(plan_path)
     verdict = plan.get("verdict")
+    # The CLI returns zero for all successful planning verdicts. A stale or
+    # partially written plan must never authorize an unsuccessful child.
+    if completed.returncode != 0:
+        receipt.update(action="wait_for_owner", reason=f"rescue planner failed (exit {completed.returncode}, "
+                       f"verdict {verdict}); stderr: {completed.stderr.strip()[-2000:]}")
+        return receipt
     if trigger == "drained_with_frontiers" and verdict == "no_amendment_needed":
         # Drained: every physics query has an untainted (hence closed) root.
         receipt.update(action="complete", reason="drained; every physics query has an untainted containing "
@@ -733,6 +745,8 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
         text = pending.read_bytes()
         digest = hashlib.blake2b(text, digest_size=16).hexdigest()  # file identity for the receipt only
         final = amendments_directory / f"amendment-{amendment['sequence']:04d}.json"
+        if rescue_cancelled(receipt, stop_requested):
+            return receipt
         if final.exists():
             if final.read_bytes() != text:
                 receipt.update(action="wait_for_owner",
@@ -747,6 +761,103 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
                                 "queries": amendment["queries"], "file_blake2b_128": digest,
                                 "helpers": amendment.get("helpers")}
     return receipt
+
+
+def rescue_cancelled(receipt, stop_requested):
+    """Recheck cancellation at the planner/publication/resume handoffs."""
+    reason = stop_requested()
+    if reason is not None:
+        receipt.update(action="wait_for_owner", reason=f"rescue planning stopped: {reason}")
+        return True
+    return False
+
+
+def guarded_rescue_planner(command, *, env, output, args, cpus, collector,
+                           request_stop, stop_requested, child_address_space=None,
+                           sample_observer=lambda sample: None, **_):
+    """Reuse the native ownership/RAM guards for the read-only planner.
+
+    Unlike the walk, the planner has no cooperative checkpoint interface:
+    terminate its owned group on any stop, then allow at most five seconds
+    before killing it. The already durable native checkpoint is untouched.
+    File-backed output avoids both pipe deadlock and unbounded capture RAM.
+    """
+    completed = subprocess.CompletedProcess(command, 1, "", "")
+    details = completed.planner_guard = {"stop_reason": None, "peak_observed_aggregate_rss_bytes": 0}
+    started = time.monotonic()
+    stderr_path = output / "planner.stderr"
+    try:
+        if stop_requested() is not None:
+            return completed
+        initial_host = host_memory()
+        hard, soft, floor = memory_admission(args.max_memory_bytes, args.soft_memory_bytes,
+            initial_host, args.host_memory_reserve_bytes, args.ram_guard_margin_percent)
+        guard = RamGuard(hard, soft, floor, args.swap_growth_stop_bytes_per_second,
+                         args.swap_growth_stop_seconds)
+        details["memory_admission"] = memory_admission_record(args.max_memory_bytes, initial_host, floor, hard, soft)
+        details["policy"] = dict(guard.policy(), cooperative="sigterm_owned_read_only_planner",
+                                 hard="sigkill_owned_read_only_planner")
+        with (output / "planner.stdout").open("x") as stdout, stderr_path.open("x") as stderr, \
+                (output / "planner-resources.jsonl").open("x") as resources, owned_process(
+                    command, env, cpus, request_stop, child_address_space, stdout, stderr) as child:
+            details["pid"] = child.pid
+            try:
+                collector.register(child.pid)
+            except (OSError, ValueError, IndexError, StopIteration):
+                if child.poll() is None:
+                    raise
+            details["start_ticks"] = collector.identities.get(child.pid)
+            while True:
+                reason = stop_requested()
+                tree, collection = collector.sample()
+                rss = sum(row["rss_bytes"] for row in tree.values())
+                now = time.monotonic()
+                try:
+                    host = host_memory()
+                except (OSError, ValueError):
+                    host = {"available_bytes": None}
+                    reason = reason or "host_memory_monitor_unavailable"
+                decision = guard.observe(now, rss, host["available_bytes"], tree_swap_bytes(tree), read_swap_in_pages())
+                reason = reason or decision["cooperative"] or decision["hard"]
+                details["peak_observed_aggregate_rss_bytes"] = max(details["peak_observed_aggregate_rss_bytes"], rss)
+                sample = {"phase": "rescue_planning", "elapsed_seconds": now-started, "aggregate_rss_bytes": rss,
+                    "peak_observed_rss_bytes": details["peak_observed_aggregate_rss_bytes"],
+                    "available_bytes": host["available_bytes"], "decision": decision, "collection": collection,
+                    "planner_pid": child.pid, "planner_guard_policy": details["policy"], "cancel_reason": reason}
+                append_record(resources, sample)
+                sample_observer(sample)
+                if reason is not None:
+                    request_stop(reason)
+                    details["stop_reason"] = stop_requested() or reason
+                    if child.poll() is None:
+                        try:
+                            os.killpg(child.pid, signal.SIGKILL if decision["hard"] else signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            child.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(child.pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            child.wait()
+                    break
+                if child.poll() is not None:
+                    break
+                time.sleep(args.sample_seconds)
+            completed.returncode = child.wait()
+    except (OSError, ValueError) as error:
+        completed.stderr = str(error)
+        request_stop("rescue_planner_supervision_failure")
+        details["stop_reason"] = stop_requested()
+    finally:
+        details["elapsed_seconds"] = time.monotonic()-started
+        if stderr_path.is_file():
+            with stderr_path.open("rb") as stderr:
+                stderr.seek(max(0, stderr_path.stat().st_size-2000))
+                completed.stderr += stderr.read().decode("utf-8", errors="replace")
+    return completed
 
 
 def record_rescue(amendments_directory: Path, output: Path, receipt: dict) -> None:
@@ -1368,9 +1479,34 @@ def main() -> int:
     trigger = (reconciled_rescue_trigger(output, status, args.publication_policy, last_checkpoint)
                if args.auto_rescue else None)
     if trigger and stop_reason is None and not hard_stopped and checkpoint_directory:
+        planner_resources = {"phase": "rescue_planning"}
+
+        def planner_status(sample):
+            nonlocal planner_resources
+            planner_resources = sample
+            # The resource heartbeat is live; native progress remains the
+            # correctly aged, already drained walk snapshot.
+            publish_status(sample, "rescue_planning")
+
+        def rescue_stop_requested():
+            if stop_file.exists() and stop_reason is None:
+                request_stop("existing_operator_stop_file")
+            return stop_reason
+
+        def run_planner(command, **kwargs):
+            return guarded_rescue_planner(command, **kwargs, output=output, args=args, cpus=cpus,
+                collector=collector, request_stop=request_stop, stop_requested=rescue_stop_requested,
+                child_address_space=child_as, sample_observer=planner_status)
+
+        print("Frontier rescue: planning from the durable checkpoint under CPU/RAM guards.", flush=True)
+        planner_status(planner_resources)
         receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_id_prefix,
                               args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory),
-                              trigger=trigger, scope=args.rescue_scope)
+                              runner=run_planner, trigger=trigger, scope=args.rescue_scope,
+                              stop_requested=rescue_stop_requested)
+        rescue_cancelled(receipt, rescue_stop_requested)
+        publish_status(planner_resources, terminal_state(status, args.publication_policy, tail.latest,
+                       terminal_progress, last_checkpoint, stop_reason), status)
         if receipt["action"] == "complete":
             record_rescue(amendments_directory, output, receipt)
             print("Frontier rescue: " + receipt["reason"], flush=True)
@@ -1387,7 +1523,15 @@ def main() -> int:
             print("Resuming: " + shlex.join(restart), flush=True)
             sys.stdout.flush()
             sys.stderr.flush()
-            os.execv(restart[0], restart)
+            if rescue_cancelled(receipt, rescue_stop_requested):
+                # Preserve the earlier resume intent and the subsequent abort;
+                # an interrupted handoff conservatively consumes one attempt.
+                record_rescue(amendments_directory, output, receipt)
+                publish_status(planner_resources, terminal_state(status, args.publication_policy, tail.latest,
+                               terminal_progress, last_checkpoint, stop_reason), status)
+                print("FRONTIER RESCUE: automatic resume cancelled; WAITS FOR THE OWNER.", file=sys.stderr, flush=True)
+            else:
+                os.execv(restart[0], restart)
         else:
             record_rescue(amendments_directory, output, receipt)
             print("FRONTIER RESCUE: the campaign is paused and WAITS FOR THE OWNER. " + receipt["reason"],
