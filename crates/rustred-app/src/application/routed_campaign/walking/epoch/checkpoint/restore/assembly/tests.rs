@@ -128,6 +128,8 @@ fn writer_manifest_scalar_owner_and_fixed_arrays_roundtrip_provisionally() {
     assert_eq!(decoded.live, [3]);
     assert_eq!(decoded.closure_flags, [0, 0]);
     assert_eq!(decoded.edges.runs(), 0);
+    assert_eq!(decoded.anchors.len(), 0);
+    assert!(decoded.frontier_counts.is_empty());
     assert_eq!(
         decoded
             .store

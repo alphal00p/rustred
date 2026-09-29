@@ -2,10 +2,11 @@
 //! provisional runtime arrays. This is intentionally NOT a resume entry:
 //! variable sections, records/roots and complete cross-state checks still
 //! precede any construction of EpochState or dispatch/session reservation.
+use super::super::super::anchors::AnchorMap;
 use super::super::metadata::{Identity, OwnedScalars};
 use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
-use super::{CheckedRead, EdgeStore, FixedSection, Ledger6, Store, lookup};
+use super::{CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, lookup};
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -18,6 +19,8 @@ pub(super) struct Provisional<const N: usize> {
     pub live: Vec<u64>,
     pub edges: EdgeStore,
     pub closure_flags: Vec<u8>,
+    pub anchors: AnchorMap,
+    pub frontier_counts: std::collections::BTreeMap<u32, u32>,
 }
 
 fn file<'a>(manifest: &'a Manifest, key: &str) -> io::Result<&'a FileRef> {
@@ -156,6 +159,24 @@ pub(super) fn read<const N: usize>(
         return Err(invalid("epoch scalar edge inventory/digest differs"));
     }
     let closure_flags = fixed::<N>(directory, &manifest, Section::ClosureFlags)?.flags(true)?;
+    let anchor_file = file(&manifest, "state-6")?;
+    let anchors = auxiliary::anchors::<N>(
+        directory,
+        &SectionReceipt {
+            generation: manifest.generation,
+            section: Section::Anchors,
+            digest: Digest {
+                bytes: anchor_file.bytes,
+                blake3: anchor_file.blake3,
+            },
+        },
+        anchor_file.count,
+        scalars.watermark,
+        scalars.p0,
+        scalars.k,
+    )?;
+    let frontier_counts =
+        fixed::<N>(directory, &manifest, Section::Frontiers)?.frontiers(scalars.watermark)?;
     let orthants = file(&manifest, "orthants")?;
     let store = lookup::rebuild(
         directory,
@@ -177,6 +198,8 @@ pub(super) fn read<const N: usize>(
         live,
         edges,
         closure_flags,
+        anchors,
+        frontier_counts,
     })
 }
 

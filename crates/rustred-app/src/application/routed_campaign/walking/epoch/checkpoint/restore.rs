@@ -16,7 +16,35 @@ use std::io::{self, Read};
 use std::path::Path;
 
 mod assembly;
+mod auxiliary;
 mod lookup;
+
+fn open_section<const N: usize>(
+    directory: &Path,
+    receipt: &SectionReceipt,
+    count: u64,
+) -> io::Result<CheckedRead> {
+    if N > 32 || receipt.generation == 0 {
+        return Err(invalid("invalid epoch section arity or generation"));
+    }
+    let mut reader = CheckedRead::open(
+        directory,
+        &receipt.section.filename(receipt.generation),
+        receipt.digest.bytes,
+        receipt.digest.blake3,
+    )?;
+    let mut magic = [0; 8];
+    reader.read_exact(&mut magic)?;
+    if &magic != b"EPC6PART"
+        || reader.u32()? != 1
+        || reader.u32()? != N as u32
+        || reader.u32()? != receipt.section as u32
+        || reader.u64()? != count
+    {
+        return Err(invalid("epoch section header differs"));
+    }
+    Ok(reader)
+}
 
 pub(super) struct FixedSection<const N: usize> {
     reader: CheckedRead,
@@ -26,25 +54,7 @@ pub(super) struct FixedSection<const N: usize> {
 
 impl<const N: usize> FixedSection<N> {
     pub fn open(directory: &Path, receipt: &SectionReceipt, count: u64) -> io::Result<Self> {
-        if N > 32 || receipt.generation == 0 {
-            return Err(invalid("invalid epoch section arity or generation"));
-        }
-        let mut reader = CheckedRead::open(
-            directory,
-            &receipt.section.filename(receipt.generation),
-            receipt.digest.bytes,
-            receipt.digest.blake3,
-        )?;
-        let mut magic = [0; 8];
-        reader.read_exact(&mut magic)?;
-        if &magic != b"EPC6PART"
-            || reader.u32()? != 1
-            || reader.u32()? != N as u32
-            || reader.u32()? != receipt.section as u32
-            || reader.u64()? != count
-        {
-            return Err(invalid("epoch section header differs"));
-        }
+        let reader = open_section::<N>(directory, receipt, count)?;
         let width = match receipt.section {
             Section::Domains => 37 + 4 * N as u64,
             Section::Nodes | Section::ClosureFlags => 1,
@@ -211,6 +221,26 @@ impl<const N: usize> FixedSection<N> {
             return Err(invalid("epoch decoded edge run count differs"));
         }
         Ok(edges)
+    }
+
+    pub fn frontiers(mut self, watermark: u32) -> io::Result<std::collections::BTreeMap<u32, u32>> {
+        self.expect(Section::Frontiers)?;
+        if watermark == u32::MAX || self.count > watermark as usize {
+            return Err(invalid("epoch frontier inventory range"));
+        }
+        let mut counts = std::collections::BTreeMap::new();
+        let mut previous = None;
+        for _ in 0..self.count {
+            let id = self.reader.u32()?;
+            let count = self.reader.u32()?;
+            if id >= watermark || previous.is_some_and(|previous| previous >= id) || count == 0 {
+                return Err(invalid("epoch frontier order, ID or count"));
+            }
+            previous = Some(id);
+            counts.insert(id, count);
+        }
+        self.reader.finish()?;
+        Ok(counts)
     }
 }
 

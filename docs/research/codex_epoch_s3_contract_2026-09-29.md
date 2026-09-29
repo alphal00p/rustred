@@ -5,8 +5,9 @@ publisher passed independent source review and consolidated release typecheck
 at `6f7eb9fd`. The first typecheck failure is retained below. Bounded section
 decoding and lookup reconstruction passed independent source review and the
 lightweight release typecheck at `33b0c2ab` after a test-only correction. The
-subsequent manifest/scalar-bound assembly passed independent source review;
-its typecheck and execution are pending.
+subsequent manifest/scalar-bound assembly passed independent source review and
+the lightweight typecheck at `43253bfe`. All new runtime tests remain unexecuted;
+later anchor/frontier decoding passed source review, pending typecheck/execution.
 No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
@@ -127,8 +128,9 @@ validators and asynchronous stop integration are the next reviewed slices.
 
 ### Follow-on private metadata/publication source
 
-The follow-on worktree `codex-epoch-s3-publish` starts from the frozen writer
-commit `2cc3710d`; it does not change that tree's pending validation target.
+The follow-on worktree `codex-epoch-s3-publish` started from the frozen writer
+commit `2cc3710d`; only audited committed slices subsequently advance the separate
+validation worktree, never source edits during a running check.
 The next source slice passed independent source audit and the consolidated
 typecheck; execution remains pending. It streams
 scalar counters, root rows, input frontiers, owner fingerprints, sealed record
@@ -175,7 +177,7 @@ unlicensed W1 remains inline with its responsiveness limit. A licensed async
 worker must validate authorization on the worker itself and account explicitly
 for control execution; W1 capability is still open, not silently promised.
 
-### Bounded provisional decode slice (source-only)
+### Bounded provisional decode slice (private; no runtime validation)
 
 The follow-on publisher worktree adds a fixed 32-KiB authenticated reader and
 fixed-width section decoders. They verify local filenames, regular-file lengths,
@@ -218,8 +220,8 @@ neither source audit nor an unrun test constitutes execution evidence. A narrow
 follow-up corrects the count/length contract and adds explicit empty-run, variable
 target-count and mismatched-inventory mutations before any runtime exposure.
 
-The independently source-audited lookup reconstruction (typecheck/execution
-pending) consumes that provisional arena and
+The independently source-audited and typechecked lookup reconstruction (runtime
+execution pending) consumes that provisional arena and
 persisted live words. It inserts exactly the live IDs in original ID order using
 the existing index path with no retire set; it does not recompute an antichain.
 It independently replays the full-orthant slot rule over every canonical historical
@@ -241,7 +243,7 @@ Both receipts remain unchanged at `TMP/codex-epoch-s3.JjASCU/typecheck-restore-l
 and `typecheck-restore-light-retry`. No tests executed; the later assembly source
 is not covered by that PASS.
 
-### Manifest/scalar-bound provisional assembly (source-only)
+### Manifest/scalar-bound provisional assembly (private; no runtime validation)
 
 The next private assembler uses the existing bounded manifest reader, a single
 borrowed/owned generic scalar schema (same writer JSON), and authenticated owner
@@ -261,7 +263,35 @@ pending even though their manifest inventory exists. No worker or public resume
 path calls this assembler. Source tests exercise actual private publication through
 provisional assembly, incomplete admission, identity/B/limit mismatches, overflowed
 counts and unsupported provenance, changed owner content with rehashed files, and
-forged cross-section counts. Compilation and execution of this slice are pending.
+forged cross-section counts. Runtime execution of this slice remains pending.
+
+That assembly (`03bd236d` source, `43253bfe` validation) subsequently passed the
+same one-worker metadata-only check in 39.162 s, exit 0, reason null, peak child
+RSS 1,184,068 KiB; receipt `TMP/codex-epoch-s3.JjASCU/typecheck-assembly-light`.
+It is not runtime execution and does not validate subsequent source changes.
+
+### Initial anchors and sparse frontiers (source-only)
+
+The next assembler additions reuse the canonical outer section header and the
+existing anchor codec with 58-byte scratch (10-byte codec header plus one 48-byte
+InitialDBand record). The full section count/length and each record's kind,
+single-anchor count and 8-byte scope are checked before the generic codec; G2
+records remain refused. Global order, range, dispatch-version bound and initial
+anchor provenance are checked without materializing a complete encoded section.
+Sparse frontier rows retain sorted IDs and nonzero counts in the existing runtime
+map. Actual writer→reader tests and rehashed count/layout/provenance mutations
+cover these codecs; complete anchor cover/ledger/edge mathematics remains a
+separate required validator, not established by these isolated codec fixtures.
+Independent source review caught that the reused `AnchorMap::decode` was still
+test-only. Its `cfg(test)` gate was removed without changing codec behavior or
+visibility, before any build of this slice; no second decoder was introduced.
+
+One retained semantic obligation: `frontier_counts` contains C4 records only,
+whereas `walk.frontiers` accumulates retained frontier rows from every merged
+result. A C2/error prefix can therefore contribute to the aggregate without a
+sparse-map entry. The complete-state regression matrix must include that case;
+restore must validate the map against C4/NativeFrontier records and aggregate
+totals against all records, not force their sums equal or rewrite current rules.
 
 ## Proposed S3 state and writer contract
 

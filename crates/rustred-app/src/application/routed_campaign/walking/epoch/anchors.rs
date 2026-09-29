@@ -514,7 +514,6 @@ impl AnchorMap {
     /// Decode layout v2 (restore side of S3; round-trip tested). Refuses
     /// unknown kinds and lent codes, non-zero reserved bytes, unsorted
     /// nodes, non-canonical scope bytes and trailing bytes.
-    #[cfg(test)]
     pub fn decode(bytes: &[u8], arity: usize) -> Result<Vec<AnchorRecord>, String> {
         let mut r = super::job::Reader::new(bytes);
         let e = |m: &'static str| m.to_string();
