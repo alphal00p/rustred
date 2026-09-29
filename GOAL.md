@@ -13,7 +13,10 @@ Use implementation and one-time independent audit agents; omit new research and
 nonessential tuning. This supersedes the older hard deadlines and paused-work
 assumptions below. The broad scoped-closure objective remains unchanged.
 
-## September 29 latest directive: first useful Epoch build in 6–8 hours
+## Superseded September 29 directive: first useful Epoch build in 6–8 hours
+
+Historical directive retained for context; the approved shortened plan above
+replaces its deadlines and capacity snapshot.
 
 The latest section of `CODEX_PROGRESS_PLAN.md` supersedes the earlier legacy-first
 timebox. Target a compiled, reasonably tested fresh-start Epoch candidate with
@@ -26,7 +29,10 @@ LC2 stays untouched and the user launches production. Quota/capacity currently
 prevents agent continuation; report lost execution time rather than claiming
 background progress. See the plan for planned lanes, freeze and acceptance.
 
-## September 29 latest directive: timeboxed stable delivery
+## Superseded September 29 directive: timeboxed stable delivery
+
+Historical directive retained for context; the approved shortened plan above
+replaces its deadlines and sequencing.
 
 Deliver a consolidated stable push within 3–4 hours of 12:46 UTC (target
 15:46 UTC, hard cutoff 16:46 UTC), following the latest section of

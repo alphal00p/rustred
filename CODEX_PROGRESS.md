@@ -104,6 +104,24 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:36 UTC — measurement budget review and production observation
+
+- [M] Independent measurement-plan review (`stage_a_release`) found the initial
+  per-child limits did not leave enough room for both cold checks within one
+  30-minute pilot. The TMP-only matrix and binder now derive native900s/grace300s
+  and each verification150s/kill60s from the registered inputs. Two verification
+  stages plus180s preparation/admission/reporting reserve total1800s. Root checked
+  all26 arms and the binder; cumulative elapsed-time enforcement remains required
+  at execution. No benchmark has run, and no timer change is a success result.
+- [M] Cold timing uses the existing guard's `elapsed_seconds`, not a nonexistent
+  `wall_seconds`. CPU work and wall speedup are separate; differently scoped RSS
+  peaks are not added. CPUs32–47 are physical cores on socket0/NUMA1, despite the
+  historical `socket1.lock` filename. Production128–227 remains protected.
+- [M] Read-only LC2 observation around16:30: heartbeat elapsed60430.895s,
+  114,740,628 scheduled domains,45,452,322 native/completed,40,291,709 queued,
+  zero frontiers. This does not imply a completion ETA or establish closure.
+  No production inputs, process, checkpoint or steering were changed.
+
 ### 2026-09-29 16:30 UTC — native failures corrected; full rerun authorized
 
 - [M] Integrated `c25bcf82` as `f3f707af`: the obsolete lockstep `config.g2`
