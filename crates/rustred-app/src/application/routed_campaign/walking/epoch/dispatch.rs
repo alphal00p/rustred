@@ -22,6 +22,7 @@ pub(super) struct Dispatch {
 /// Borrowed execution order, not reconstructed from the ledger. The S2
 /// engine is fresh-only: SESSION is serialized explicitly; restore must
 /// replace that prerequisite before it can issue another job sequence.
+#[derive(Clone, Copy)]
 pub(super) struct DispatchSnapshot<'a> {
     pub session: u64,
     pub counter: u64,
@@ -95,6 +96,7 @@ impl Dispatch {
     /// Pending IDs exist, the age bound), at least one deferred ID per refill
     /// while any is waiting, then the lowest Pending IDs by the cursor.
     pub fn refill<const N: usize>(&mut self, state: &mut EpochState<N>, want: usize) -> Refill<N> {
+        assert!(want > 0, "epoch refill requires a positive dispatch budget");
         let mut jobs = Vec::with_capacity(want);
         if let Some(id) = self.deferred.pop_front() {
             jobs.push(self.job(state, id));
@@ -141,5 +143,25 @@ impl Dispatch {
         } else {
             Refill::Stalled
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_budget_refill_rejects_before_consuming_deferred_work() {
+        let mut state = EpochState::<2>::new(10, 10, 10);
+        let mut dispatch = Dispatch::new();
+        dispatch.requeue(7, 2);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dispatch.refill(&mut state, 0)
+        }));
+        assert!(result.is_err());
+        assert_eq!(dispatch.deferred.iter().copied().collect::<Vec<_>>(), [7]);
+        assert_eq!(dispatch.counter, 0);
+        assert!(state.in_flight.is_empty());
+        assert!(state.ledger.words().is_empty());
     }
 }

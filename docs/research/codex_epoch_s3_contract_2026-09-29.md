@@ -343,6 +343,20 @@ validate current eligibility. It must not silently drop a quarantined copy.
 
 ## Stop and restore contract
 
+The provisional dispatch decoder shares the writer's borrowed reservation
+validator. Actual section bytes bound queue allocations and in-flight B before
+storage grows; it preserves queue order, retry counters and every saved sequence
+and lockstep version. The exact Reserved inventory is complete and disjoint,
+including pending-cursor and attempts-class checks, without a domain-sized clone.
+It returns saved data only, never a runnable `Dispatch`. Tests use actual writer
+bytes and mutate counts, sequence/session ranges, queue membership, versions and
+digests. The refill interface now rejects a zero budget before consuming any
+deferred work. This slice passed independent source review; typecheck and
+execution remain pending.
+Before mutable session issuance lands, counter exhaustion must be checked before
+increment/bit composition and session exhaustion before durable reservation;
+neither may wrap, and a crash before the next checkpoint must not reuse a session.
+
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export
 does not fix cancellation latency. The next source slice needs separate

@@ -96,106 +96,16 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
             dispatch,
             lockstep_b,
         };
-        boundary.validate_reservations()?;
+        Reservations {
+            ledger: &state.ledger,
+            nodes: &state.nodes,
+            k: state.k,
+            in_flight: &state.in_flight,
+            dispatch: boundary.dispatch,
+            lockstep_b,
+        }
+        .validate()?;
         Ok(boundary)
-    }
-
-    fn queued(&self) -> impl Iterator<Item = u32> + '_ {
-        self.dispatch
-            .requeue
-            .iter()
-            .chain(self.dispatch.deferred)
-            .copied()
-    }
-
-    fn reserved_ids(&self) -> impl Iterator<Item = u32> + '_ {
-        self.queued().chain(self.state.in_flight.keys().copied())
-    }
-
-    fn validate_reservations(&self) -> io::Result<()> {
-        let state = self.state;
-        let mut reserved = 0u64;
-        for (id, _) in state.ledger.words().iter().enumerate() {
-            let entry = state
-                .ledger
-                .get(id as u32)
-                .map_err(|_| invalid("epoch ledger word"))?;
-            if matches!(entry, Entry6::Native { residual: true, .. })
-                || state.nodes[id] & NODE_RESIDUAL != 0
-            {
-                return Err(invalid(
-                    "epoch checkpoint does not support residual G2 state",
-                ));
-            }
-            if matches!(entry, Entry6::Reserved(_)) {
-                reserved += 1;
-            }
-            if matches!(entry, Entry6::Pending(_)) && id < self.dispatch.cursor as usize {
-                return Err(invalid("epoch pending ID behind dispatch cursor"));
-            }
-        }
-        if reserved != state.ledger.counts().get(Tag::Reserved)
-            || reserved != self.reserved_ids().count() as u64
-        {
-            return Err(invalid("epoch reserved/dispatch cardinality differs"));
-        }
-        for (id, deferred) in self
-            .dispatch
-            .requeue
-            .iter()
-            .map(|id| (*id, false))
-            .chain(self.dispatch.deferred.iter().map(|id| (*id, true)))
-        {
-            let Ok(Entry6::Reserved(counters)) = state.ledger.get(id) else {
-                return Err(invalid("epoch queued ID is not Reserved"));
-            };
-            if (counters.attempts >= 2) != deferred {
-                return Err(invalid("epoch queued ID in wrong attempts class"));
-            }
-        }
-        for (&id, meta) in &state.in_flight {
-            if !matches!(state.ledger.get(id), Ok(Entry6::Reserved(_)))
-                // This writer is lockstep-only: every unfinished member
-                // must replay against this exact saved merge version.
-                || meta.v0 != state.k
-                || meta.seq >> 40 != self.dispatch.session
-                || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) == 0
-                || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) > self.dispatch.counter
-                || state
-                    .in_flight
-                    .range(..id)
-                    .any(|(_, earlier)| earlier.seq == meta.seq)
-            {
-                return Err(invalid("epoch in-flight descriptor or sequence"));
-            }
-        }
-        // Exact disjointness without a domain-sized allocation. Each 64-Ki
-        // ID window uses the same 8-KiB bitset; all descriptors were already
-        // range/tag checked above. Cardinality then proves completeness.
-        let width = (MEMBERSHIP_WORDS * 64) as u64;
-        if let (Some(min), Some(max)) = (self.reserved_ids().min(), self.reserved_ids().max()) {
-            let mut start = u64::from(min) / width * width;
-            while start <= u64::from(max) {
-                let mut seen = [0u64; MEMBERSHIP_WORDS];
-                let mut next = None::<u64>;
-                for id in self.reserved_ids().map(u64::from) {
-                    if id >= start && id < start + width {
-                        let local = (id - start) as usize;
-                        let bit = 1u64 << (local % 64);
-                        let word = &mut seen[local / 64];
-                        if *word & bit != 0 {
-                            return Err(invalid("epoch duplicate queued/in-flight ID"));
-                        }
-                        *word |= bit;
-                    } else if id >= start + width {
-                        next = Some(next.map_or(id, |value| value.min(id)));
-                    }
-                }
-                let Some(next) = next else { break };
-                start = next / width * width;
-            }
-        }
-        Ok(())
     }
 
     /// Write one immutable *unpublished* section; an I/O failure leaves an
@@ -308,7 +218,10 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
             Section::Live => state.live.len() as u64,
             Section::Edges => state.edges.runs(),
             Section::Anchors => state.anchors.len() as u64,
-            Section::Dispatch => self.reserved_ids().count() as u64,
+            Section::Dispatch => {
+                (self.dispatch.requeue.len() + self.dispatch.deferred.len() + state.in_flight.len())
+                    as u64
+            }
             Section::ClosureFlags => state.tracker.node_flags().count() as u64,
             Section::Frontiers => state.frontier_counts.len() as u64,
         }
@@ -346,6 +259,129 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
         }
         if written != self.state.anchors.len() {
             return Err(invalid("epoch anchor outside domain watermark"));
+        }
+        Ok(())
+    }
+}
+
+/// Borrowed reservation protocol shared by the writer and provisional restore.
+/// It neither owns nor clones domain-sized state and cannot issue job sequences.
+pub(super) struct Reservations<'a> {
+    pub ledger: &'a super::ledger6::Ledger6,
+    pub nodes: &'a [u8],
+    pub k: u64,
+    pub in_flight: &'a std::collections::BTreeMap<u32, super::state::JobMeta>,
+    pub dispatch: DispatchSnapshot<'a>,
+    pub lockstep_b: usize,
+}
+
+impl Reservations<'_> {
+    fn queued(&self) -> impl Iterator<Item = u32> + '_ {
+        self.dispatch
+            .requeue
+            .iter()
+            .chain(self.dispatch.deferred)
+            .copied()
+    }
+
+    fn reserved_ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.queued().chain(self.in_flight.keys().copied())
+    }
+
+    pub fn validate(&self) -> io::Result<()> {
+        let state = self;
+        if self.nodes.len() != self.ledger.words().len()
+            || self.nodes.len() >= u32::MAX as usize
+            || self.k >= EPOCH_LIMIT
+            || self.dispatch.cursor as usize > self.nodes.len()
+            || self.dispatch.session == 0
+            || self.dispatch.session >= SESSION_LIMIT
+            || self.dispatch.counter >= SEQUENCE_COUNTER_LIMIT
+            || !(1..=4096).contains(&self.lockstep_b)
+            || self.in_flight.len() > self.lockstep_b
+        {
+            return Err(invalid("epoch reservation view shape or range"));
+        }
+        let mut reserved = 0u64;
+        for (id, _) in state.ledger.words().iter().enumerate() {
+            let entry = state
+                .ledger
+                .get(id as u32)
+                .map_err(|_| invalid("epoch ledger word"))?;
+            if matches!(entry, Entry6::Native { residual: true, .. })
+                || state.nodes[id] & NODE_RESIDUAL != 0
+            {
+                return Err(invalid(
+                    "epoch checkpoint does not support residual G2 state",
+                ));
+            }
+            if matches!(entry, Entry6::Reserved(_)) {
+                reserved += 1;
+            }
+            if matches!(entry, Entry6::Pending(_)) && id < self.dispatch.cursor as usize {
+                return Err(invalid("epoch pending ID behind dispatch cursor"));
+            }
+        }
+        if reserved != state.ledger.counts().get(Tag::Reserved)
+            || reserved != self.reserved_ids().count() as u64
+        {
+            return Err(invalid("epoch reserved/dispatch cardinality differs"));
+        }
+        for (id, deferred) in self
+            .dispatch
+            .requeue
+            .iter()
+            .map(|id| (*id, false))
+            .chain(self.dispatch.deferred.iter().map(|id| (*id, true)))
+        {
+            let Ok(Entry6::Reserved(counters)) = state.ledger.get(id) else {
+                return Err(invalid("epoch queued ID is not Reserved"));
+            };
+            if (counters.attempts >= 2) != deferred {
+                return Err(invalid("epoch queued ID in wrong attempts class"));
+            }
+        }
+        for (&id, meta) in state.in_flight {
+            if !matches!(state.ledger.get(id), Ok(Entry6::Reserved(_)))
+                // This writer is lockstep-only: every unfinished member
+                // must replay against this exact saved merge version.
+                || meta.v0 != state.k
+                || meta.seq >> 40 != self.dispatch.session
+                || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) == 0
+                || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) > self.dispatch.counter
+                || state
+                    .in_flight
+                    .range(..id)
+                    .any(|(_, earlier)| earlier.seq == meta.seq)
+            {
+                return Err(invalid("epoch in-flight descriptor or sequence"));
+            }
+        }
+        // Exact disjointness without a domain-sized allocation. Each 64-Ki
+        // ID window uses the same 8-KiB bitset; all descriptors were already
+        // range/tag checked above. Cardinality then proves completeness.
+        let width = (MEMBERSHIP_WORDS * 64) as u64;
+        if let (Some(min), Some(max)) = (self.reserved_ids().min(), self.reserved_ids().max()) {
+            let mut start = u64::from(min) / width * width;
+            while start <= u64::from(max) {
+                let mut seen = [0u64; MEMBERSHIP_WORDS];
+                let mut next = None::<u64>;
+                for id in self.reserved_ids().map(u64::from) {
+                    if id >= start && id < start + width {
+                        let local = (id - start) as usize;
+                        let bit = 1u64 << (local % 64);
+                        let word = &mut seen[local / 64];
+                        if *word & bit != 0 {
+                            return Err(invalid("epoch duplicate queued/in-flight ID"));
+                        }
+                        *word |= bit;
+                    } else if id >= start + width {
+                        next = Some(next.map_or(id, |value| value.min(id)));
+                    }
+                }
+                let Some(next) = next else { break };
+                start = next / width * width;
+            }
         }
         Ok(())
     }

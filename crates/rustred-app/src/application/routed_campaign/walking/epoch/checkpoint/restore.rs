@@ -17,6 +17,7 @@ use std::path::Path;
 
 mod assembly;
 mod auxiliary;
+mod dispatch_state;
 mod lookup;
 
 fn open_section<const N: usize>(

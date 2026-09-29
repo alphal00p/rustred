@@ -6,7 +6,9 @@ use super::super::super::anchors::AnchorMap;
 use super::super::metadata::{Identity, OwnedScalars};
 use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
-use super::{CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, lookup};
+use super::{
+    CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, dispatch_state, lookup,
+};
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -21,6 +23,7 @@ pub(super) struct Provisional<const N: usize> {
     pub closure_flags: Vec<u8>,
     pub anchors: AnchorMap,
     pub frontier_counts: std::collections::BTreeMap<u32, u32>,
+    pub dispatch: dispatch_state::SavedDispatch,
 }
 
 fn file<'a>(manifest: &'a Manifest, key: &str) -> io::Result<&'a FileRef> {
@@ -177,6 +180,26 @@ pub(super) fn read<const N: usize>(
     )?;
     let frontier_counts =
         fixed::<N>(directory, &manifest, Section::Frontiers)?.frontiers(scalars.watermark)?;
+    let dispatch_file = file(&manifest, "state-7")?;
+    let dispatch = dispatch_state::read::<N>(
+        directory,
+        &SectionReceipt {
+            generation: manifest.generation,
+            section: Section::Dispatch,
+            digest: Digest {
+                bytes: dispatch_file.bytes,
+                blake3: dispatch_file.blake3,
+            },
+        },
+        dispatch_file.count,
+        dispatch_state::Binding {
+            ledger: &ledger,
+            nodes: &nodes,
+            k: scalars.k,
+            p0: scalars.p0,
+            lockstep_b: scalars.lockstep_b,
+        },
+    )?;
     let orthants = file(&manifest, "orthants")?;
     let store = lookup::rebuild(
         directory,
@@ -200,6 +223,7 @@ pub(super) fn read<const N: usize>(
         closure_flags,
         anchors,
         frontier_counts,
+        dispatch,
     })
 }
 
