@@ -81,5 +81,71 @@ class CommandTemplateTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
 
 
+class BoundedRootMetricTests(unittest.TestCase):
+    def extract(self, text, head=None, tail=None):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "result.json"
+            path.write_text(text)
+            with patch.object(run_arm, "EXTRACT_HEAD_BYTES", head or run_arm.EXTRACT_HEAD_BYTES), \
+                    patch.object(run_arm, "EXTRACT_TAIL_BYTES", tail or run_arm.EXTRACT_TAIL_BYTES):
+                return run_arm.extract(path)
+
+    def test_all_root_metrics_ignore_nested_same_name_fields(self):
+        values = {key: index + 10 for index, key in enumerate(run_arm.ROOT_METRICS)}
+        values.update(status="locally_resolved", events=500, successors=400,
+                      g2_residual_anchors={"mode": "union"}, g2_index_telemetry={"entry_visits": 20},
+                      delegation={"native_discharged": 12, "delegated_publications": 3, "transferred_obligations": 3})
+        doc = {"domains": [{"stats": {key: "wrong nested value" for key in values}}], **values,
+               "descendant_closure": {"available": True, "initial_closed": 2, "initial_total": 2,
+                                      "total_closed": 15, "total_domains": 15, "unresolved_domains": 0, "dependency_edges": 20},
+               "parallel": {"slot_busy_seconds": [1.25, 2.5], "slot_backpressure_seconds": [0, 0]}}
+        found = self.extract(json.dumps(doc, indent=2))
+        for key, value in values.items():
+            self.assertEqual(found[key], value)
+        self.assertEqual(found["initial_closed"], 2)
+        self.assertEqual(found["native_discharged"], 12)
+        self.assertEqual(found["slot_busy_seconds_sum"], 3.75)
+        self.assertEqual(found["inspection_slots"], 2)
+        self.assertEqual(self.extract(json.dumps({"domains": [{"stats": values}]}, indent=2)), {})
+
+    def test_head_tail_windows_and_all_reads_are_bounded(self):
+        text = json.dumps({"events": 50, "padding": "x" * 4096, "status": "locally_resolved"}, indent=2)
+        calls = []
+        class Reads(io.BytesIO):
+            def read(self, size=-1):
+                calls.append(size)
+                return super().read(size)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "result.json"
+            path.write_text(text)
+            with patch.object(Path, "open", return_value=Reads(text.encode())), \
+                    patch.object(run_arm, "EXTRACT_HEAD_BYTES", 128), \
+                    patch.object(run_arm, "EXTRACT_TAIL_BYTES", 128):
+                self.assertEqual(run_arm.extract(path), {"events": 50, "status": "locally_resolved"})
+        self.assertEqual(calls, [128, 128])
+
+    def test_clipped_scalar_and_partial_objects_remain_unknown(self):
+        text = json.dumps({"events": 1234567890, "padding": "x" * 4096, "status": "locally_resolved"}, indent=2)
+        found = self.extract(text, head=text.index("1234567890") + 4, tail=80)
+        self.assertNotIn("events", found)
+        self.assertEqual(found["status"], "locally_resolved")
+        partial = json.dumps({"parallel": {"slot_busy_seconds": [999], "padding": "x" * 4096},
+                              "status": "locally_resolved"}, indent=2)
+        found = self.extract(partial, head=128, tail=80)
+        self.assertNotIn("slot_busy_seconds_sum", found)
+        self.assertEqual(found["status"], "locally_resolved")
+
+    def test_tail_clipped_indentation_never_promotes_nested_field(self):
+        text = json.dumps({"padding": "x" * 1024, "domains": [{"events": 999}],
+                           "status": "locally_resolved"}, indent=2)
+        offset = text.index('"events"') - 2
+        found = self.extract(text, head=64, tail=len(text.encode()) - offset)
+        self.assertNotIn("events", found)
+        self.assertEqual(found["status"], "locally_resolved")
+
+    def test_malformed_or_conflicting_root_fields_are_unknown(self):
+        self.assertEqual(self.extract('{\n  "events": 1,\n  "events": 2,\n  "status": "broken'), {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -325,49 +325,88 @@ def watch(pid, stop, holder):
     holder["peak_tree_rss_bytes"] = peak
 
 
-def extract(path):
-    m = run_control.extract(path)
+EXTRACT_HEAD_BYTES = 4_000_000
+EXTRACT_TAIL_BYTES = 400_000
+ROOT_METRICS = (
+    "traversal_seconds", "prepared_seconds", "elapsed_seconds", "completed_nodes",
+    "scheduled_nodes", "queued_nodes", "containment_checks", "containment_maintenance_checks",
+    "containment_retired_candidates", "containment_semantic_hits", "containment_semantic_retirements",
+    "successors", "events", "deduplication_hits", "route_masks", "routed_domains",
+    "max_scheduled_finite_rank", "native_processed_nodes", "frontiers", "status",
+    "all_scheduled_domains_resolved", "pending_descendant_domains", "job_local_reuse_hits",
+    "pre_admitted_orthant_hits", "exact_domain_hits", "g2_residual_anchors", "g2_index_telemetry", "delegation",
+)
+
+
+def bounded_root_values(path, wanted):
+    """Known native pretty-JSON root fields only, with bounded teardown I/O.
+
+    Native reports indent root members by exactly two spaces. Never accept a
+    nested same-name field or an incomplete token/object at a buffer edge.
+    Missing, differently formatted or truncated fields remain unknown. This
+    is telemetry, not a JSON validity or closure oracle; full audits are separate.
+    """
     if not path.exists():
-        return m
+        return {}
     size = path.stat().st_size
-    with open(path, "rb") as f:
-        head = f.read(min(size, 400_000)).decode("utf-8", "replace")
-        f.seek(max(0, size - 400_000))
-        tail = f.read().decode("utf-8", "replace")
-    for key in ("initial_closed", "initial_total", "total_closed", "total_domains", "unresolved_domains",
-                "dependency_edges", "status", "all_scheduled_domains_resolved", "pending_descendant_domains",
-                "transferred_obligations", "native_discharged", "delegated_publications", "job_local_reuse_hits",
-                "pre_admitted_orthant_hits", "exact_domain_hits"):
-        for blob in ((tail, head) if key == "status" else (head, tail)):
-            mm = re.search((r'\n  "%s": ' if key == "status" else r'"%s": ') % key + r'("[^"]*"|[0-9.]+|null|true|false)', blob)
-            if mm:
-                m[key] = json.loads(mm.group(1))
-                break
-    mm = re.search(r'"slot_busy_seconds": \[([^\]]*)\]', tail)
-    if mm:
-        vals = [float(x) for x in mm.group(1).split(",") if x.strip()]
-        m["slot_busy_seconds_sum"] = sum(vals)
-        m["inspection_slots"] = len(vals)
-    mm = re.search(r'"slot_backpressure_seconds": \[([^\]]*)\]', tail)
-    if mm:
-        m["slot_backpressure_seconds_sum"] = sum(float(x) for x in mm.group(1).split(",") if x.strip())
-    for key in ("g2_residual_anchors", "g2_index_telemetry", "delegation"):
-        mm = (re.search(r'\n  "%s": (\{.*?\n  \})' % key, tail, re.S)
-              or re.search(r'\n  "%s": (\{.*?\n  \})' % key, head, re.S))
-        if mm:
+    with path.open("rb") as source:
+        blobs = [source.read(min(size, EXTRACT_HEAD_BYTES)).decode("utf-8", "replace")]
+        if size > EXTRACT_HEAD_BYTES:
+            offset = max(0, size - EXTRACT_TAIL_BYTES)
+            source.seek(offset)
+            tail = source.read(EXTRACT_TAIL_BYTES).decode("utf-8", "replace")
+            # Clipped indentation cannot make a nested key look like a root.
+            blobs.append((tail.split("\n", 1)[1] if "\n" in tail else "") if offset else tail)
+    values, ambiguous, decoder = {}, set(), json.JSONDecoder()
+    member_end = re.compile(r",?\r?\n")
+    for blob in blobs:
+        for match in re.finditer(r'^  "([^"\n]+)": ', blob, re.M):
+            key = match.group(1)
+            if key not in wanted or key in ambiguous:
+                continue
             try:
-                m[key] = json.loads(mm.group(1))
-            except json.JSONDecodeError:
-                m[key] = mm.group(1)
-    mm = re.search(r'\n  "descendant_closure": (\{.*?\n  \})', head, re.S)
-    if mm:
-        try:
-            dc = json.loads(mm.group(1))
-            m["closure"] = {k: dc.get(k) for k in ("available", "initial_total", "initial_closed",
-                                                   "total_domains", "total_closed", "unresolved_domains")}
-        except json.JSONDecodeError:
-            pass
-    return m
+                value, end = decoder.raw_decode(blob, match.end())
+            except (ValueError, RecursionError):
+                continue
+            # raw_decode accepts truncated numeric prefixes: require the full
+            # pretty-JSON member delimiter and newline inside this buffer.
+            if not member_end.match(blob, end):
+                continue
+            if key in values and values[key] != value:
+                values.pop(key)
+                ambiguous.add(key)
+            else:
+                values[key] = value
+    return values
+
+
+def extract(path):
+    top = bounded_root_values(path, {*ROOT_METRICS, "descendant_closure", "parallel"})
+    metrics = {key: top[key] for key in ROOT_METRICS if key in top}
+    closure = top.get("descendant_closure")
+    if isinstance(closure, dict):
+        for key in ("initial_closed", "initial_total", "total_closed", "total_domains",
+                    "unresolved_domains", "dependency_edges"):
+            if key in closure:
+                metrics[key] = closure[key]
+        metrics["closure"] = {key: closure[key] for key in
+                              ("available", "initial_total", "initial_closed", "total_domains",
+                               "total_closed", "unresolved_domains") if key in closure}
+    ledger = top.get("delegation")
+    if isinstance(ledger, dict):
+        for key in ("transferred_obligations", "native_discharged", "delegated_publications"):
+            if key in ledger:
+                metrics[key] = ledger[key]
+    parallel = top.get("parallel")
+    if isinstance(parallel, dict):
+        for key, target in (("slot_busy_seconds", "slot_busy_seconds_sum"),
+                            ("slot_backpressure_seconds", "slot_backpressure_seconds_sum")):
+            values = parallel.get(key)
+            if isinstance(values, list) and all(type(value) in (int, float) and math.isfinite(value) for value in values):
+                metrics[target] = sum(values)
+                if key == "slot_busy_seconds":
+                    metrics["inspection_slots"] = len(values)
+    return metrics
 
 
 def cpu_times(cpus):
