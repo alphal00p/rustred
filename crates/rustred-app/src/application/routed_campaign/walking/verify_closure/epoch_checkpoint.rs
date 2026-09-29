@@ -174,22 +174,22 @@ impl Input {
             hash: blake3::Hasher::new(),
         })
     }
-    fn bytes<const M: usize>(&mut self) -> io::Result<[u8; M]> {
+    fn read_array<const M: usize>(&mut self) -> io::Result<[u8; M]> {
         let mut bytes = [0; M];
         self.read_exact(&mut bytes)?;
         Ok(bytes)
     }
     fn u8(&mut self) -> io::Result<u8> {
-        Ok(self.bytes::<1>()?[0])
+        Ok(self.read_array::<1>()?[0])
     }
     fn u16(&mut self) -> io::Result<u16> {
-        Ok(u16::from_le_bytes(self.bytes()?))
+        Ok(u16::from_le_bytes(self.read_array()?))
     }
     fn u32(&mut self) -> io::Result<u32> {
-        Ok(u32::from_le_bytes(self.bytes()?))
+        Ok(u32::from_le_bytes(self.read_array()?))
     }
     fn u64(&mut self) -> io::Result<u64> {
-        Ok(u64::from_le_bytes(self.bytes()?))
+        Ok(u64::from_le_bytes(self.read_array()?))
     }
     fn finish(mut self) -> io::Result<()> {
         if self.read(&mut [0])? != 0 {
@@ -212,7 +212,7 @@ impl Input {
         self.finish()
     }
     fn header(&mut self, arity: usize, section: u32) -> io::Result<usize> {
-        if &self.bytes::<8>()? != b"EPC6PART"
+        if &self.read_array::<8>()? != b"EPC6PART"
             || self.u32()? != 1
             || self.u32()? as usize != arity
             || self.u32()? != section
@@ -547,7 +547,7 @@ fn read_inner<const N: usize>(
     for _ in 0..n {
         let node = anchor_input.u32().map_err(io)?;
         let kind = anchor_input.u8().map_err(io)?;
-        if anchor_input.bytes::<3>().map_err(io)? != [0; 3]
+        if anchor_input.read_array::<3>().map_err(io)? != [0; 3]
             || anchor_input.u32().map_err(io)? != 1
             || anchor_input.u32().map_err(io)? != 8
         {
@@ -556,11 +556,11 @@ fn read_inner<const N: usize>(
         let dispatch = anchor_input.u64().map_err(io)?;
         let target = anchor_input.u32().map_err(io)?;
         let lent = anchor_input.u8().map_err(io)?;
-        if anchor_input.bytes::<3>().map_err(io)? != [0; 3] {
+        if anchor_input.read_array::<3>().map_err(io)? != [0; 3] {
             return Err("anchor padding".into());
         }
         let stamp = anchor_input.u64().map_err(io)?;
-        let scope = anchor_input.bytes::<8>().map_err(io)?.to_vec();
+        let scope = anchor_input.read_array::<8>().map_err(io)?.to_vec();
         anchors.push((node, kind, dispatch, vec![(target, lent, stamp)], scope));
     }
     anchor_input.finish().map_err(io)?;
@@ -578,7 +578,7 @@ fn read_inner<const N: usize>(
     }
     let reference = file("orthants")?;
     let mut orthants = Input::open(directory, reference).map_err(io)?;
-    if &orthants.bytes::<8>().map_err(io)? != b"EPORTH01"
+    if &orthants.read_array::<8>().map_err(io)? != b"EPORTH01"
         || orthants.u64().map_err(io)? != reference.count
         || reference.count > total as u64
         || reference
