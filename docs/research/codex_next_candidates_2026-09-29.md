@@ -4,9 +4,59 @@ Date: 2026-09-29. These are proposals, not measured speedups or deployment
 recommendations. G2′/rescue integration and its correctness gates take priority.
 The governing scope and operational limits are in `CODEX_PROGRESS_PLAN.md`.
 
+## Current priority after the G2 correctness controls
+
+Read-only bounded extraction from the completed Ordered finite-five-loop
+control changes the next profiling question, not any implementation decision.
+Evidence: `TMP/codex-integration/post_g2_profile_priority_2026-09-29.md` and
+`TMP/codex-g2-pilot-prep.n7Kd5q/ordered-controls/{off,union}/five-finite/`.
+These are not the repeated Ready comparisons or the full production scope.
+
+| Aggregate | Off | Union |
+|---|---:|---:|
+| Traversal seconds |211.6332|128.7751|
+| Apply term/boundary visits |47,998,700|24,504,843|
+| Apply selected pieces |1,723,391|892,630|
+| Route coordinate cells |99,878,880|83,172,840|
+
+First profile the coordinator/helper critical path on the Ready controls.
+Union's coordinator interval128.2664s includes wait36.4869s, commit26.9659s,
+progress/observer24.3080s, preparation12.4801s and publication10.5703s. These
+listed buckets are not exhaustive. `execution.rs::observe` charges the
+observer callback, including possible serialization/I/O, to
+`progress_json_seconds`; its roughly19% share is **not** removable lean-JSON
+allocation cost. Per-commit lean construction is charged elsewhere. Likewise,
+helper summed worker time is not coordinator wall time. Do not infer speedup
+from these bucket fractions alone.
+
+N4 remains the leading algebraic *profiling question* only if exact
+restriction/GCD on eligible already-covered singleton targets costs enough
+after G2. N2 allocation and N1 fully fixed predicates retain their evidence
+gates below. G2 already removes about half of Apply visits in this control;
+the Route path does not automatically benefit from an Apply-only optimization.
+No existing negative experiment is reopened by these aggregate counts.
+
+### Narrower dependencies from borrowed transcripts: deferred
+
+An exact inspection of a broad anchor might ideally let a narrower borrower
+depend only on the relevant successor slices. Current successful records do
+not retain enough information for that operation: the applied visitor has
+source bounds and shifts, but `walking/inspection.rs` drops them from successful
+successor events and reduces selected-cell events to counts. The persisted
+event/edge stream retains target domains, not a complete source-partition/term
+map. Frontier-only provenance is insufficient.
+
+Therefore do not delete broad-anchor dependencies or infer useful narrowing
+from current receipts. Reopen only with a positive representative case and
+available exact source-to-target evidence (or a small explicitly measured
+reinspection), preserving guards, poles and every reachable obligation. A
+general authenticated trace/preimage framework is not authorized by this
+observation, and it does not reopen the prior negative closed-witness census.
+
 ## 1. Lean telemetry: next narrow coordinator slice
 
-Owner: `bounded_helpers_bmw`; independent critique pending implementation.
+Owner: `checkpoint_final_audit` (isolated implementation); independent source
+review by `joint_support_pruning` passed, native execution still pending.
 
 Mechanism: capture typed scalar pool statistics under the mutex, serialize
 after releasing it, and update/reuse the lean JSON objects rather than
@@ -161,3 +211,199 @@ registration alone.
 
 None of these candidates proves termination from bounded input rank, zero
 frontiers, a smaller queue, or higher CPU utilization.
+
+## 6. Read-only study: closed-descendant witnesses for required queries
+
+Owner: `checkpoint_final_audit`; independent critique by
+`joint_support_pruning`. **Parked after negative opportunity census**; no
+engine implementation.
+
+Mechanism: record an already recursively closed node as the witness for a
+required query when that node has the exact same owner/phase and its domain
+contains the entire query, including coordinate and correlated A/R/D bounds.
+This uses existing exact containment and closure authority, not a new rule,
+graph rewrite, union search or inverse-routing service. No locally inspected
+but recursively open G2 anchor qualifies. Preserve every required query.
+
+Expected benefit, if the opportunity exists: some narrower physical queries
+could be discharged before their broad helper root closes, or without an
+unnecessary rescue amendment. Existing root-only query reporting cannot use
+those witnesses. Reporting alone does not save traversal: scoped termination
+would need its own explicit status and independent verifier support. It must
+never report all scheduled domains resolved when unrelated helpers remain
+open. Initial orthant reuse often redirects descendants back to the helper,
+which may eliminate most opportunity; rescue quarantine may change this.
+
+Smallest test: reconstruct recursive closure at publication prefixes of a
+small immutable completed four-loop control, comparing the first input-root
+and first any-closed-node containment witnesses for identical physical
+queries. Match result/checkpoint generations; do not scan production's live
+checkpoint or infer node-level opportunities from aggregate counters.
+
+Falsifiers: no earlier witness; any owner/phase/A/R/D containment mismatch;
+using only local sealing; or scan cost outweighing avoided work. A future
+implementation must avoid rescanning every domain for each of 116 queries
+on every heartbeat—use owner-key filtering or newly closed nodes and retain
+only a small witness set. This registration does not reopen parked general
+union admission or backward affine-cover services.
+
+### Census result (2026-09-29)
+
+The immutable historical H repair control contains 9,033 nodes and 32,875
+edges. Among all 628 original queries and separately the 314 finite full-jet
+queries, there were **zero earlier non-input witnesses**. The final required
+publication remained 9,033 for root-only and any-closed-node policies. Runtime
+was 0.372 s, peak RSS 62,968 KiB. Independent rerun (0.384 s) reproduced every
+non-timing/RSS field and input hash. Evidence:
+`TMP/codex-closed-witness-census.5P0Cyu/{result-r2.json,census.py}`.
+
+The matching generation-3 CP3 checkpoint had a stale conservative closure
+cache (165 nodes versus the final 9,033). The first analysis failed closed;
+the corrected analysis recomputed closure from all seals and edges, checked
+graph/result consistency and cross-checked eight prefixes and cycle/late-leaf
+fixtures. Eligibility begins at complete local record publication. Closure
+time is the latest publication reachable through final outgoing edges. Source
+audit established that this historical tracker refuses post-seal outgoing
+edges, making the prefix calculation exact for this no-rescue Ordered trace.
+
+This is not post-G2/rescue evidence or a universal negative theorem. Reopen
+only if such a later immutable control shows useful earlier witnesses. No
+additional scanner or scoped early-stop mechanism is justified by this test.
+
+### Scope-alignment source audit
+
+Independent audit at combined integration commit `d12db6cf` confirms a
+conservative granularity mismatch: initial containment may represent finite
+query Q by broader helper H's ID, and the closure graph then requires all of
+H's outgoing obligations. Exact G2 lending restricts local inspection, but
+its dependency edge still names the whole anchor. Declaring the 116/67 role
+partition does not by itself create a separate demand-restricted Q node.
+This delays some possible scoped proofs; it does not authorize false closure.
+
+The current first-owner example pairs rank-only
+`owner-anchor-r6-anone-000011001001011` with required
+`conv-d10-a16-r6-000011001001011` (A<=16, R<=6, D=10).
+Source: `walking/{queue,descendant_closure,execution,rescue,verify_closure}.rs`
+under `crates/rustred-app/src/application/routed_campaign/`. The full audit
+and precise line references are retained in
+`TMP/codex-integration/scope-alignment-audit-2026-09-29.md`.
+
+This finding does **not** reopen the earlier failed helper/piece changes:
+all-A-bounded helpers took 3.93–15.73x the traversal time on four-loop controls
+(`four_loop_helper_bounds_2026-09-25.md`), I1b increased matched five-loop
+pending work by 1.40–1.44x in censored runs
+(`fable51_w0_inputs_2026-09-27.md`), and finer piece certification cost
+1.57x the native seconds while missing two roots
+(`fable51_w0_wv_2026-09-27.md`). Nor does it overturn the negative H census.
+
+Reopening requires a representative unchanged finite Q to close independently
+of its still-open H, retaining all generated obligations and exact replay.
+Charge that additional solve and bookkeeping. A Q-only run that merely maps
+back to H or explores the same open cone fails the falsifier. No such new
+experiment has been run; no production input or campaign should be changed
+on the strength of this source observation alone.
+
+## 7. Conditional reopening: I1, distinct from rejected I1b
+
+I1's historical status is **provisional, not rejected**. It makes the selected
+L* helper owners A-unbounded, to improve absorption; it is not the failed I1b
+larger-finite-A experiment. `fable51_w0_inputs_2026-09-27.md` section 7 records
+its stated criteria met and independent verifier passes on the old baseline.
+The formal fresh L*-only gate and rank/mask escape guard remained open.
+`HANDOFF_FOR_ASTRA.md` and `TMP/progress/orchestrator_decisions.md` explicitly
+defer shipping until in-run rescue exists **and** a probe shows net runtime
+gain. The new rescue integration has passed its corrected native regressions;
+representative combined campaign gates remain pending and the second condition
+is unmeasured.
+
+Historical single 54-minute probes are not current deployment evidence:
+`fable51_w0_results_2026-09-27.md` reports noisy wall/native ratios, lower
+pending pressure, and higher edge counts. Do not multiply their effects by
+G2's gains or equate matched-native snapshots with whole-campaign improvement.
+
+Smallest follow-on after combined rescue validation: a fresh temporary input
+variant retaining all 116 required geometries exactly, explicitly declaring
+helper changes, with the necessary rank/mask escape guard and a tested bounded
+rescue. Start with BMW/four-loop controls and an appropriate finite five-loop
+case; assess the G2-enabled combination separately under the same <=30-minute
+pilot ceiling. Measure additional edges, helper/rescue overhead, total work,
+wall and memory. Unknown escapes stop explicitly; never truncate descendants.
+Absent net benefit, or with an unhandled escape/ambiguous rescue, keep I1 off.
+No input variant, guard, pilot or production change is implemented by this note.
+
+## 8. N1: restrict modular witnesses to a useful and sound seam
+
+Independent read-only API/source audit is retained at
+`TMP/codex-integration/n1-modular-witness-feasibility-2026-09-29.md`.
+Pinned Symbolica already supplies finite fields, coefficient conversion and
+`MultivariatePolynomial::evaluate_with_coeff_map`. Existing RustRed modular
+sampling evaluates numerator and denominator separately, refusing bad poles.
+No new finite-field or reconstruction kernel is needed.
+
+The broad RHS shortcut is not presently justified. In the core's
+`owners/domains/applied/engine.rs` the call through `applied/restriction.rs`
+to `algebra/indexed/specialization.rs` performs exact substitution and
+rational normalization before `applied/algebra.rs` classifies the result.
+A witness in that classifier is too late to save this work. Furthermore,
+`Zero::No` authorizes uniform nonzero on the integer domain. A nonzero sample
+of n-3 on a domain containing n=3 cannot authorize that result; downgrading
+all such results to Conditional could instead increase branching. Exact
+coefficient payloads and original pole conditions cannot disappear either.
+
+A narrower candidate exists before predicate specialization in
+`owners/domains/matching/guards.rs`: when **every occurring index variable
+is fixed by the cell**, a nonzero sample proves the restricted polynomial
+nonzero in the formal coefficient field. For example, n*d-n+1 at n=1
+becomes d; a nonzero residue at d=7 proves nonzero in Q(d), not nonzero at
+every numerical dimension. This can preserve the existing Nonzero outcome,
+without inventing Conditional branches. Zero/bad samples still take the exact
+path; all original denominator, input-admission and guard obligations remain.
+
+Before implementation, a post-G2 profile must establish enough expensive
+predicate calls with wholly fixed index support. Charge support scans,
+sampling and fallbacks; preserve error ordering, cancellations, source guards
+and emitted payloads. Small falsifiers include n-3 versus n uniformity,
+fully fixed base-dependent predicates, unlucky primes, sampled zero
+denominators, poles on a zero RHS and original-term cancellation. No speed
+benefit has been measured.
+
+The simpler identically-zero predicate seam in
+`owners/domains/guarded/engine.rs` is **parked for this campaign**: its app
+caller is the separate guarded-domain API, not the ordinary walker, and its
+power-bounded wrapper rejects the campaign's nontrivial A/D bounds. Optimizing
+that path would not demonstrate a benefit for the current five-loop run.
+
+## 9. N4: an opt-in coverage-only visitor, if profiles justify it
+
+Read-only source evidence at combined `d12db6cf` is in
+`TMP/codex-integration/n4-coverage-first-feasibility-2026-09-29.md`.
+The live Apply path materializes, normalizes and classifies RHS coefficients
+before the app tests target reuse, although the walker does not retain the
+exact coefficients. G2 already avoids whole inspections, and empty source
+geometry already avoids this coefficient work; measure what remains after G2.
+Route uses a different geometry visitor, so N4 cannot automatically address
+a Route-heavy workload.
+
+A separate internal coverage-only visitor could ask exact target containment
+earlier and avoid materializing unneeded payloads. Existing Symbolica polynomial
+substitution/GCD/addition suffice. Do not weaken the public visitor's exact
+coefficient contract. For the opt-in visitor, a resource failure caused only
+by an operation that is safely avoided need not be reproduced, nor must old
+operation counts match. Its new cost/event contract must be explicit; flag-off
+identity remains required.
+
+Mathematical obligations are different: original poles, source/child validity,
+descent, genuine frontiers and Uniform/Conditional support cannot disappear.
+Individually zero terms and a cancelling pair of nonzero terms have different
+existing source-validity obligations. A naive return-on-covered-target skips
+these checks and is not justified. Start with a non-affine singleton case and
+exact fallback, only if a post-G2 profile finds substantial eligible cost.
+
+The smallest falsifier uses an admitted target and nonconstant coefficient
+under fixed indices, followed by uncovered-target, pole, zero-term,
+cancelling-pair, child-condition, guard-zero and optional-refusal variants.
+Compare exact images, A/R/D constraints, obligations and replay—not just queue
+size. Count covered singleton groups and all fallback/lookup costs. This is
+a feasible architectural direction, **not an implemented or measured gain**;
+it does not reopen deferred backward covers or previously rejected helper-bound
+variants.

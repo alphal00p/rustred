@@ -1,27 +1,44 @@
 # RustRed project goal
 
+## September 29 latest follow-up: consolidated build before restart
+
+The user permits a future campaign restart but asks to put all improvement
+ideas into the build first. Evaluate the planned avenues, integrate the
+beneficial validated changes into one consolidated build, and retain explicit
+rejected/deferred dispositions for experiments that do not earn inclusion.
+Do not enable unproven or harmful ideas merely to include everything.
+
+Keep LC2 untouched during this work; do not switch for G2′ alone. Finish its
+current comparison as the baseline, then complete the epoch and remaining
+profiling-led integration/validation. A later restart must be graceful,
+preserve the old campaign for rollback, and use the tested consolidated
+executable. See the verbatim follow-up and its deployment amendment in
+[CODEX_PROGRESS_PLAN.md](CODEX_PROGRESS_PLAN.md). The 116-query scope and all
+mathematical/performance gates remain unchanged.
+
 ## September 29 authoritative directive: Codex optimization and controlled deployment
 
 The approved execution plan is [CODEX_PROGRESS_PLAN.md](CODEX_PROGRESS_PLAN.md),
 reproduced verbatim from the user's instruction. The continuously maintained
 handoff is [CODEX_PROGRESS.md](CODEX_PROGRESS.md). This directive supersedes
 conflicting historical pause/stop instructions and stale launch instructions
-below and in earlier handoffs; it does not authorize control of production.
+below and in earlier handoffs. Deployment now follows the consolidated-build
+amendment above; no production action is due while consolidation is incomplete.
 
 Advance scoped five-loop symbolic closure through G2′ residual reuse, safe
 frontier rescue with explicit required/auxiliary query roles, then measured
 coordinator/epoch improvements and the remaining profiling-led optimization
 and research avenues. Preserve all 116 frozen required starting queries and
-67 auxiliary helpers, retain descendants, and keep generic algorithms. Only
-the user may stop, start, or resume the live LC2 campaign. Keep pending-growth
+67 auxiliary helpers, retain descendants, and keep generic algorithms. Leave
+the live LC2 campaign untouched during consolidation. Keep pending-growth
 calculation, naming, and rendering unchanged. Checkpoint preservation must not
 constrain worthwhile optimization; a fresh campaign is an acceptable fallback.
 
 Delegate implementation and independent audits, record measured evidence and
 decisions continuously, limit pilots to 30 minutes including restore/save,
 protect the running campaign's resources, and commit/push green milestones.
-Recommend a production switch only after the plan's correctness/performance
-gates. Completion means all required queries have their reachable obligations
+Recommend a production switch only after consolidation and the plan's
+correctness/performance gates. Completion means all required queries have their reachable obligations
 discharged with cold-loadable reusable output; it is not unrestricted family
 closure. Terminal minimization, numerical masters, and Vakint work follow later.
 

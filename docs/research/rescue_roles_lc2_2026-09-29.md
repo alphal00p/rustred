@@ -59,10 +59,10 @@ history. The previously local Symbolica heap-power patch was preserved in the
 worktree submodule stash; the submodule now uses plain pinned LC2 upstream.
 No computer algebra primitive was introduced or changed.
 
-G2 integration must filter fresh lending through the existing quarantine and
-worker-view epoch hooks while preserving already accepted pin replay. The
-combined G2/rescue activation-order gates remain an integrator responsibility;
-this scope patch alone is not evidence those gates passed.
+Combined G2 integration filters fresh lending through quarantine while
+preserving accepted pins and their dependency edges. Durable zero-callback
+pin edges are installed before rescue taint is computed, so a later blocked
+anchor cannot leak through a replayed borrower into fresh lending.
 
 Focused tests cover malformed declarations, misleading names, absent scope,
 required-query supersede refusal, request-scope tampering, shared-root partial
@@ -70,9 +70,24 @@ replacement, actual amended checkpoint resumes, Python supervision/auditing,
 staging and planner/checker consistency. The separate native release test was
 cancelled while still waiting for the shared build-memory lock, before any
 compiler/test child existed (`TMP/codex-integration/rescue-roles-release-1`).
-Native execution is **pending** the integrator's combined G2/rescue release
-build, to avoid a duplicate expensive compilation. No production
-campaign was started, stopped, resumed or edited during this integration.
+The later combined release regression gate at `d12db6cf` passed: G2 focus
+20/20 (all five applied mutations rejected), full app 861 passed, zero
+failed, 12 ignored diagnostics. Evidence is
+`TMP/codex-g2-rescue.tzdFuj/native-fixed-{focus,full}/`; both guards exited0
+with no stop reason. All six failures from the first combined attempt are
+preserved in the earlier receipts and passed after source-backed fixes.
+The original16-CPU allocation omitted10 genuine W50 subcases; two additional
+capacity notices came from tests already limited to<=6. A subsequent independent
+50-physical-core run passed13 tests, including all10 omitted subcases, with no
+capacity skips. These tests overlap the full suite and are not extra unique
+test counts; the12 ignored diagnostics remain ignored. The public pipeline
+tests exercise amendment/activation ordering; separate state/checkpoint tests
+exercise actual G2 loans and late taint. Representative workload/oracle and
+performance gates remain separate. All14 representative Off/Union controls
+subsequently passed, including strict Off identity and full native reinspection;
+see `codex_g2_rescue_lc2_results_2026-09-29.md`. Repeated Ready performance gates
+are still pending. No production campaign was started,
+stopped, resumed or edited during this integration.
 
 The focused frontend matrix ran 161 tests: 160 passed, one optional full
 skeleton-enumeration test gated by `RUSTRED_SLOW_TESTS=1` was skipped; that
@@ -84,3 +99,20 @@ It includes `test_owner_query_roles`, `test_frontier_rescue`,
 entry checker passed 7,424 membership probes with zero disagreements and
 verified the same 271,990,954,170 requested lattice points. These are input
 and frontend checks, not evidence of five-loop closure.
+
+## Python opt-in for a fresh campaign
+
+Both `production_saved_owner_campaign.py` and `shared_owner_campaign.py`
+accept `--g2-residual-anchors off|union`. Off is the default and emits no new
+native flag. Union requires unreserved delegation, Ordered or Ready
+publication, and no physical Apply subdivision. The production launcher
+already supplies a positive transfer lookahead and unlimited containment
+checks; the shared supervisor checks these requirements explicitly.
+
+Select Union when preparing a new campaign. The production launcher freezes
+it into both policy and supervisor argv; ordinary resumes and automatic
+rescue restarts retain it. An existing Off campaign cannot be switched by
+supplying Union at resume. The native CLI's advanced one-shot activation
+mechanism is not exposed by this Python workflow. Preparation remains a dry
+run unless the user explicitly supplies `--start`; no campaign was prepared
+or launched by this implementation task.

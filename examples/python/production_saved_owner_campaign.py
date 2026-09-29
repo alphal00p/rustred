@@ -9,7 +9,7 @@ With --queries it stages a verified replacement query document instead, and
 --attach copies planner receipts read-only beside the inputs. The frozen
 steering (schema v3) fixes workers, CPUs, checkpoint interval, RAM policy
 (hard cap, margin, host MemAvailable floor, own swap-growth guard), publication
-policy, transfer lookahead, inspection workers and the frontier policy (new
+policy, transfer lookahead, inspection workers, G2 residual anchors and the frontier policy (new
 campaigns default to stop: save and stop at the first frontier, exit 4);
 only the RAM options may be overridden per resume.
 --resume --upgrade-executable NEW moves a paused campaign onto a
@@ -62,7 +62,7 @@ STEERING_SCHEMAS = ("rustred.production-steering.v1", "rustred.production-steeri
 FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_bytes",
                   "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
                   "apply_cell_refinement_max_cardinality", "publication_policy",
-                  "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy",
+                  "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
                   *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
 # A10: new campaigns save and stop at the first frontier; steering written
@@ -719,6 +719,16 @@ def frozen_options(policy):
     """Frozen options with v1 defaults for options a v1 steering file never recorded."""
     options = dict(policy["options"])
     command = policy.get("command_arguments", [])
+    # Existing steering without this field remains implicitly Off, with its
+    # original options/argv untouched. New opt-in steering binds both copies.
+    g2_mode = options.get("g2_residual_anchors", "off")
+    g2_flag = "--" + SUPERVISOR.G2_RESIDUAL_ANCHORS
+    g2_values = [command[index + 1] if index + 1 < len(command) else None
+                 for index, flag in enumerate(command) if flag == g2_flag]
+    alternate_spelling = any(isinstance(flag, str) and flag.startswith(g2_flag + "=") for flag in command)
+    if (g2_mode not in SUPERVISOR.G2_RESIDUAL_MODES or alternate_spelling
+            or g2_values != (["union"] if g2_mode == "union" else [])):
+        raise ValueError("frozen G2 residual-anchor mode and command disagree; use a new campaign directory")
 
     def flag_value(flag):
         return command[command.index(flag) + 1] if command.count(flag) == 1 else None
@@ -767,6 +777,8 @@ def native_command(options, executable, inputs, count, size):
                     str(options["apply_cell_refinement_max_cardinality"])]
     if options["inspection_workers"] is not None:
         command += ["--inspection-workers", str(options["inspection_workers"])]
+    if options.get("g2_residual_anchors", "off") == "union":
+        command += ["--g2-residual-anchors", "union"]
     command += ["--frontier-policy", options["frontier_policy"]]
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if options[name] is not None:
@@ -791,7 +803,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
             if name == "cpus" and supplied is not None:
                 # Ranges and lists naming the same CPUs are the same frozen set.
                 supplied = SUPERVISOR.format_cpu_set(SUPERVISOR.parse_cpu_set(supplied))
-            if supplied is not None and supplied != frozen.get(name):
+            expected = frozen.get(name, "off" if name == "g2_residual_anchors" else None)
+            if supplied is not None and supplied != expected:
                 if getattr(args, "resume", False) and name in RAM_POLICY_OPTIONS:
                     continue
                 raise ValueError(f"--{name.replace('_', '-')} differs from frozen policy; use a new campaign directory")
@@ -804,6 +817,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "checkpoint_interval_seconds": 3600, "max_memory_bytes": 500_000_000_000,
                 "ram_guard_margin_percent": 5.0, "publication_policy": DEFAULT_PUBLICATION_POLICY,
                 "transfer_unreserved_lookahead": 256, "frontier_policy": DEFAULT_FRONTIER_POLICY,
+                "g2_residual_anchors": "off",
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
                 "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
                 "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS,
@@ -833,6 +847,9 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
     if options["publication_policy"] != "ordered" and options["apply_subdivision_axis"] is not None:
         raise ValueError("physical subdivision requires --publication-policy ordered")
+    SUPERVISOR.validate_g2_residual_anchors(
+        options["g2_residual_anchors"], options["transfer_unreserved_lookahead"],
+        options["publication_policy"], options["apply_subdivision_axis"] is not None)
     inspectors = options["inspection_workers"]
     if inspectors is not None:
         available = 1 if options["workers"] == 1 else options["workers"] - 1
@@ -907,6 +924,10 @@ def main(argv=None):
                         help=f"initial default: {DEFAULT_PUBLICATION_POLICY}; ordered remains selectable; frozen for resume")
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
+    parser.add_argument("--g2-residual-anchors", choices=SUPERVISOR.G2_RESIDUAL_MODES,
+                        action=SUPERVISOR.DOMAIN.StoreOnce,
+                        help="fresh-campaign opt-in, initial default off; union requires no physical subdivision; "
+                             "frozen for resume (no off-to-union activation here)")
     parser.add_argument("--inspection-workers", type=int,
                         help="explicit native inspectors (default: native split); frozen for resume")
     parser.add_argument("--checkpoint-interval-seconds", type=int, help="initial default: 3600")
@@ -990,6 +1011,12 @@ def main(argv=None):
         parser.error("ready publication cannot be combined with physical subdivision")
     if any(value is not None and value < 0 for value in (args.apply_subdivision_axis, args.apply_subdivision_cut)):
         parser.error("subdivision axis and cut must be nonnegative")
+    try:
+        SUPERVISOR.validate_g2_residual_anchors(
+            args.g2_residual_anchors, args.transfer_unreserved_lookahead or 256,
+            args.publication_policy or DEFAULT_PUBLICATION_POLICY, args.apply_subdivision_axis is not None)
+    except ValueError as error:
+        parser.error(str(error))
     campaign = args.campaign_directory.resolve()
     inputs = campaign / "inputs"
     checkpoint = campaign / "checkpoints" / "main"
@@ -1066,6 +1093,7 @@ def main(argv=None):
             "entry_plan_receipt": entry_plan,
             "requested_workers": options["workers"], "cpus": options["cpus"], "hard_timeout_seconds": None,
             "publication_policy": options["publication_policy"],
+            "g2_residual_anchors": options.get("g2_residual_anchors", "off"),
             "transfer_unreserved_lookahead": options["transfer_unreserved_lookahead"],
             "inspection_workers": options["inspection_workers"],
             "frontier_policy": options["frontier_policy"],
