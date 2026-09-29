@@ -1476,8 +1476,10 @@ fn targets_of<const N: usize>(ctx: &Ctx<'_, N>, id: usize) -> Vec<(usize, Phase,
         .collect()
 }
 
-/// Nodes with at least this many recorded targets get a `TargetIndex`.
-const WIDE_NODE_TARGETS: usize = 256;
+/// Include medium Route fanouts: repeated full scans of 16–255 recorded
+/// targets can dominate cold reinspection. This only orders candidates;
+/// exact inclusion, brute cross-checks and the full-scan fallback stay intact.
+const WIDE_NODE_TARGETS: usize = 16;
 
 /// Candidate order for the coverage scan of a wide node (a rescue's dead
 /// prefix holder admits ~1M successors): targets with the admitted image
@@ -3792,6 +3794,9 @@ fn apply_mutation<const N: usize>(
     report["applied"] = json!(true);
     (report, failing)
 }
+
+#[cfg(test)]
+mod target_index_tests;
 
 #[cfg(test)]
 mod tests {
