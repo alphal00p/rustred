@@ -272,15 +272,18 @@ fn queries(rows: Vec<Value>) -> Value {
 }
 
 fn drained() -> Run {
+    let mut input = queries(vec![
+        query("anchor011", "011", [0, 5, 0], 0, 7, 5),
+        query("anchor110", "110", [5, 0, 0], 0, 7, 5),
+        query("anchor", "111", [3, 3, 3], 2, 5, 2),
+        query("big", "111", [5, 5, 5], 2, 8, 0),
+        query("big-inner", "111", [4, 4, 4], 2, 6, 1),
+    ]);
+    input["query_roles"] = json!({"required":["big","big-inner"],
+        "auxiliary":["anchor011","anchor110","anchor"]});
     let fixture = Fixture {
         rank: 2,
-        queries: queries(vec![
-            query("anchor011", "011", [0, 5, 0], 0, 7, 5),
-            query("anchor110", "110", [5, 0, 0], 0, 7, 5),
-            query("anchor", "111", [3, 3, 3], 2, 5, 2),
-            query("big", "111", [5, 5, 5], 2, 8, 0),
-            query("big-inner", "111", [4, 4, 4], 2, 6, 1),
-        ]),
+        queries: input,
         lookahead: 1,
         omit: &[],
         routes: json!([]),
