@@ -20,7 +20,7 @@ pub(crate) struct WalkRescuePlanArgs {
     pub checkpoint: Option<PathBuf>,
     pub output: StreamPath,
     pub amendment_output: Option<PathBuf>,
-    pub helper_pattern: String,
+    pub helper_id_prefix: String,
     pub rescue_helpers: Option<PathBuf>,
     pub max_repeats: usize,
     pub scope: OwnerDomainWalkRescueScope,
@@ -35,7 +35,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         checkpoint: None,
         output: StreamPath::Stdio,
         amendment_output: None,
-        helper_pattern: defaults.helper_pattern,
+        helper_id_prefix: defaults.helper_id_prefix,
         rescue_helpers: None,
         max_repeats: defaults.max_repeats,
         scope: defaults.scope,
@@ -58,8 +58,8 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     "--amendment-output",
                 )?))
             }
-            "--helper-pattern" => {
-                args.helper_pattern = next_utf8_value(&mut arguments, "--helper-pattern")?
+            "--helper-id-prefix" => {
+                args.helper_id_prefix = next_utf8_value(&mut arguments, "--helper-id-prefix")?
             }
             "--rescue-helpers" => {
                 args.rescue_helpers = Some(PathBuf::from(next_value(
@@ -92,11 +92,11 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         }
     }
     args.command = command.ok_or(ArgError::MissingRequiredOption("--command"))?;
-    if args.helper_pattern.is_empty() {
+    if args.helper_id_prefix.is_empty() {
         return Err(ArgError::InvalidValue {
-            option: "--helper-pattern",
+            option: "--helper-id-prefix",
             value: String::new(),
-            expected: "a nonempty substring of every helper query id",
+            expected: "a nonempty cosmetic prefix for newly appended auxiliary query IDs",
         });
     }
     Ok(Command::WalkRescuePlan(args))
@@ -119,7 +119,7 @@ pub(super) fn run(args: WalkRescuePlanArgs) -> Result<(), CliError> {
             )
         })?;
     let mut options = OwnerDomainWalkRescuePlanOptions::new(checkpoint);
-    options.helper_pattern = args.helper_pattern.clone();
+    options.helper_id_prefix = args.helper_id_prefix.clone();
     options.max_repeats = args.max_repeats;
     options.scope = args.scope;
     if let Some(path) = &args.rescue_helpers {
@@ -177,13 +177,13 @@ mod tests {
             Err(ArgError::MissingRequiredOption("--command"))
         ));
         let Command::WalkRescuePlan(args) = parse(
-            words("--command c.json --helper-pattern owner-anchor- --max-repeats 2 --amendment-output a.json")
+            words("--command c.json --helper-id-prefix owner-anchor- --max-repeats 2 --amendment-output a.json")
                 .into_iter(),
         )
         .unwrap() else {
             panic!("rescue plan command")
         };
-        assert_eq!(args.helper_pattern, "owner-anchor-");
+        assert_eq!(args.helper_id_prefix, "owner-anchor-");
         assert_eq!(args.max_repeats, 2);
         assert_eq!(args.amendment_output, Some(PathBuf::from("a.json")));
         assert!(parse(words("--command c.json --max-repeats 0").into_iter()).is_err());

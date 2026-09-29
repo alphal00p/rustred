@@ -1,6 +1,7 @@
-//! Resume-time frontier rescue on the legacy engine (owner requirement of
-//! 2026-09-28: a frontier for which a known rescue exists must never end the
-//! campaign; a stop is a pause and the rescue keeps every certified node).
+//! Resume-time frontier rescue on the saved-owner engine. Recognized guard
+//! obstructions may trigger bounded append-only rescue attempts after a
+//! checkpoint pause. Unknown failures and exhausted attempts stop explicitly;
+//! no rescue outcome discards an already certified node or weakens scope.
 //!
 //! # Amendments
 //!
@@ -32,8 +33,10 @@
 //!
 //! A query is certified iff some input root (of an original or an amended
 //! query) whose domain contains the query's domain is descendant-closed.
-//! Helper roots and physics queries are classified by id pattern in the
-//! audit and in `walk-verify-closure`, which re-derive this independently.
+//! Required and auxiliary roles are an immutable exact-ID partition in the
+//! original request. New amendment queries are auxiliary; required queries
+//! cannot be superseded. The audit and `walk-verify-closure` independently
+//! re-derive per-query containment and closure, never classifying by name.
 //! `family_closure_claim` stays false.
 use super::matching::input::{self as query_input, power_bounds_json};
 use super::queue::{Domain, Phase};
@@ -155,8 +158,16 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
     } else {
         let text =
             json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows}).to_string();
-        query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
-            .map_err(|e| format!("amendment {name}: {e}"))?
+        let mut queries =
+            query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
+                .map_err(|e| format!("amendment {name}: {e}"))?;
+        // Amendments only add auxiliary coverage. The original required set
+        // remains request-bound and cannot be enlarged, removed or relabelled.
+        for query in &mut queries {
+            query.auxiliary = true;
+            query.role_declared = true;
+        }
+        queries
     };
     Ok(Parsed {
         sequence,
@@ -176,8 +187,11 @@ pub(super) fn check_chain(
     recorded: &[AmendmentRef],
     supplied: &[Parsed],
     request_digest: &str,
-    original_ids: &[&str],
+    originals: &[query_input::Query],
 ) -> Result<usize, String> {
+    if !recorded.is_empty() || !supplied.is_empty() {
+        query_input::require_explicit_roles(originals)?;
+    }
     if supplied.len() > MAX_AMENDMENTS {
         return Err(format!("at most {MAX_AMENDMENTS} rescue amendments"));
     }
@@ -188,7 +202,13 @@ pub(super) fn check_chain(
             supplied.len()
         ));
     }
-    let mut ids: std::collections::BTreeSet<&str> = original_ids.iter().copied().collect();
+    let mut ids: std::collections::BTreeSet<&str> =
+        originals.iter().map(|q| q.id.as_str()).collect();
+    let required: std::collections::BTreeSet<&str> = originals
+        .iter()
+        .filter(|q| !q.auxiliary)
+        .map(|q| q.id.as_str())
+        .collect();
     for (index, amendment) in supplied.iter().enumerate() {
         let expected_parent = if index == 0 {
             request_digest
@@ -230,6 +250,9 @@ pub(super) fn check_chain(
             ));
         }
         for id in &amendment.supersede {
+            if required.contains(id.as_str()) {
+                return Err(format!("amendment cannot supersede required query {id:?}"));
+            }
             if !ids.contains(id.as_str()) {
                 return Err(format!(
                     "amendment {} supersedes {id:?}, which is not an earlier query",
@@ -304,7 +327,7 @@ pub(super) fn contains<const N: usize>(outer: &Domain<N>, inner: &Domain<N>) -> 
 /// input order) that contains the query and is closed. `closed` is the
 /// dependency monitor's view (None: unavailable, then nothing certifies).
 pub(super) fn query_certification<const N: usize>(
-    ids: &[&str],
+    ids: &[(&str, bool)],
     query_domains: &[Domain<N>],
     inputs: &[Value],
     domain_of: impl Fn(usize) -> Option<Domain<N>>,
@@ -323,7 +346,9 @@ pub(super) fn query_certification<const N: usize>(
     let mut rows = Vec::new();
     let mut certified = 0usize;
     let mut uncertified = Vec::new();
-    for (index, (id, query)) in ids.iter().zip(query_domains).enumerate() {
+    let (mut required_total, mut required_certified) = (0usize, 0usize);
+    let mut required_uncovered = Vec::new();
+    for (index, ((id, auxiliary), query)) in ids.iter().zip(query_domains).enumerate() {
         let root = roots.get(index).copied().flatten();
         let root_closed = root.and_then(&closed);
         let mut via = None;
@@ -345,13 +370,23 @@ pub(super) fn query_certification<const N: usize>(
         } else if uncertified.len() < 1_000 {
             uncertified.push(json!(id));
         }
+        if !auxiliary {
+            required_total += 1;
+            required_certified += usize::from(via.is_some());
+            if via.is_none() && required_uncovered.len() < 1_000 {
+                required_uncovered.push(*id);
+            }
+        }
         rows.push(json!({"id":id,"root":root,"root_closed":root_closed,
+            "role":if *auxiliary {"auxiliary"} else {"required"},
             "certified_via_root":via.map(|v| v.1),"certified_via_input":via.map(|v| v.0),
             "amended":inputs.get(index).is_some_and(|input| input.get("amendment").is_some())}));
     }
     json!({"method":"closed_containing_input_root",
-        "scope":"a query is certified iff some input root (original or amended) whose domain contains it is descendant-closed; helper roots and physics queries are classified by id pattern in the audit and in walk-verify-closure",
+        "scope":"a query is certified iff some input root (original or amended) whose domain contains it is descendant-closed; required and auxiliary roles come from the immutable exact-ID declaration, never the query name",
         "queries_total":ids.len(),"queries_certified":certified,
+        "required_queries_total":required_total,"required_queries_certified":required_certified,
+        "required_queries_uncovered":required_uncovered,
         "uncertified_queries":uncertified,"rows":rows,"family_closure_claim":false})
 }
 
@@ -647,6 +682,14 @@ mod tests {
     use super::*;
     use rustred::solver::DomainPowerBounds;
 
+    fn originals(auxiliary: bool) -> Vec<query_input::Query> {
+        let mut rows = parse(&amendment(1, &"a".repeat(64), &["q"]), 2)
+            .unwrap()
+            .queries;
+        rows[0].auxiliary = auxiliary;
+        rows
+    }
+
     fn amendment(sequence: u64, parent: &str, ids: &[&str]) -> OwnerDomainWalkAmendment {
         let queries: Vec<Value> = ids
             .iter()
@@ -683,26 +726,29 @@ mod tests {
         let first = parse(&amendment(1, &request, &["h1"]), 2).unwrap();
         let second = parse(&amendment(2, &first.digest, &["h2"]), 2).unwrap();
         let chain = [first, second];
-        assert_eq!(check_chain(&[], &chain, &request, &["q"]), Ok(0));
+        assert_eq!(check_chain(&[], &chain, &request, &originals(false)), Ok(0));
         let recorded = [reference(&chain[0], 1)];
-        assert_eq!(check_chain(&recorded, &chain, &request, &["q"]), Ok(1));
+        assert_eq!(
+            check_chain(&recorded, &chain, &request, &originals(false)),
+            Ok(1)
+        );
         // A foreign request, a broken link and a skipped sequence are refused.
         let other = "b".repeat(64);
         assert!(
-            check_chain(&[], &chain, &other, &["q"])
+            check_chain(&[], &chain, &other, &originals(false))
                 .unwrap_err()
                 .contains("request binding")
         );
         let loose = parse(&amendment(2, &request, &["h2"]), 2).unwrap();
         let broken = [parse(&amendment(1, &request, &["h1"]), 2).unwrap(), loose];
         assert!(
-            check_chain(&[], &broken, &request, &["q"])
+            check_chain(&[], &broken, &request, &originals(false))
                 .unwrap_err()
                 .contains("previous amendment")
         );
         let skipped = [parse(&amendment(2, &request, &["h1"]), 2).unwrap()];
         assert!(
-            check_chain(&[], &skipped, &request, &["q"])
+            check_chain(&[], &skipped, &request, &originals(false))
                 .unwrap_err()
                 .contains("sequence")
         );
@@ -715,23 +761,36 @@ mod tests {
         let recorded = [reference(&first, 1)];
         // Omitting a recorded amendment is refused.
         assert!(
-            check_chain(&recorded, &[], &request, &["q"])
+            check_chain(&recorded, &[], &request, &originals(false))
                 .unwrap_err()
                 .contains("must be supplied again")
         );
         // A rewritten first amendment (same header, other queries) is refused.
         let rewritten = parse(&amendment(1, &request, &["h9"]), 2).unwrap();
         assert!(
-            check_chain(&recorded, &[rewritten], &request, &["q"])
+            check_chain(&recorded, &[rewritten], &request, &originals(false))
                 .unwrap_err()
                 .contains("append-only")
         );
         // Repeated query ids are refused (against the originals too).
         let repeat = parse(&amendment(1, &request, &["q"]), 2).unwrap();
         assert!(
-            check_chain(&[], &[repeat], &request, &["q"])
+            check_chain(&[], &[repeat], &request, &originals(false))
                 .unwrap_err()
                 .contains("repeats")
+        );
+    }
+
+    #[test]
+    fn rescue_rejects_undeclared_original_scope() {
+        let request = "a".repeat(64);
+        let mut original = originals(false);
+        original[0].role_declared = false;
+        let amendment = parse(&amendment(1, &request, &["new-helper"]), 2).unwrap();
+        assert!(
+            check_chain(&[], &[amendment], &request, &original)
+                .unwrap_err()
+                .contains("explicit complete query_roles")
         );
     }
 
@@ -770,10 +829,19 @@ mod tests {
         let alone = parse(&text(json!(["q"]), json!([])), 2).unwrap();
         assert!(alone.queries.is_empty());
         assert_eq!(alone.supersede, vec!["q".to_owned()]);
-        assert_eq!(check_chain(&[], &[alone], &request, &["q"]), Ok(0));
+        assert!(
+            check_chain(&[], &[alone], &request, &originals(false))
+                .unwrap_err()
+                .contains("required query")
+        );
+        let alone = parse(&text(json!(["q"]), json!([])), 2).unwrap();
+        assert_eq!(
+            check_chain(&[], &[alone], &request, &originals(true)),
+            Ok(0)
+        );
         let unknown = parse(&text(json!(["nope"]), json!([])), 2).unwrap();
         assert!(
-            check_chain(&[], &[unknown], &request, &["q"])
+            check_chain(&[], &[unknown], &request, &originals(false))
                 .unwrap_err()
                 .contains("not an earlier query")
         );
@@ -805,7 +873,7 @@ mod tests {
         ];
         let domains = [d(None), d(Some(4))];
         let report = query_certification(
-            &["h", "p", "r"],
+            &[("h", true), ("p", false), ("r", true)],
             &queries,
             &inputs,
             |id| domains.get(id).cloned(),
@@ -818,12 +886,53 @@ mod tests {
         assert_eq!(report["rows"][2]["amended"], true);
         // Unavailable closure: nothing certifies.
         let none = query_certification(
-            &["p"],
+            &[("p", false)],
             &queries[1..2],
             &inputs[1..2],
             |id| domains.get(id).cloned(),
             |_| None,
         );
         assert_eq!(none["queries_certified"], 0);
+    }
+
+    #[test]
+    fn partial_replacement_cannot_drop_a_required_query_absorbed_by_the_same_root() {
+        let d = |rank| Domain::<2> {
+            phase: Phase::Apply,
+            owner: [true, false],
+            lower: vec![0, 0],
+            upper: vec![None, None],
+            rank,
+            powers: DomainPowerBounds::default(),
+        };
+        // Both required queries were absorbed into auxiliary root 0. It was
+        // quarantined/superseded; replacement root 1 covers only the first.
+        let queries = [d(None), d(Some(2)), d(Some(5)), d(Some(4))];
+        let inputs = [
+            json!({"domain":0}),
+            json!({"domain":0}),
+            json!({"domain":0}),
+            json!({"domain":1,"amendment":1}),
+        ];
+        let domains = [d(None), d(Some(4))];
+        let report = query_certification(
+            &[
+                ("ordinary-auxiliary", true),
+                ("required-anchor-a", false),
+                ("required-anchor-b", false),
+                ("replacement", true),
+            ],
+            &queries,
+            &inputs,
+            |id| domains.get(id).cloned(),
+            |id| Some(id == 1),
+        );
+        assert_eq!(report["required_queries_total"], 2);
+        assert_eq!(report["required_queries_certified"], 1);
+        assert_eq!(
+            report["required_queries_uncovered"],
+            json!(["required-anchor-b"])
+        );
+        assert_eq!(report["rows"][2]["certified_via_root"], Value::Null);
     }
 }

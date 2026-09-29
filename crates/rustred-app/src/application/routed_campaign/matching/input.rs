@@ -10,6 +10,9 @@ mod admission_tests;
 #[derive(Debug)]
 pub(in crate::application::routed_campaign) struct Query {
     pub id: String,
+    /// Scope is an exact-ID declaration, never inferred from the display name.
+    pub auxiliary: bool,
+    pub role_declared: bool,
     pub owner: Vec<bool>,
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
@@ -98,7 +101,11 @@ pub(in crate::application::routed_campaign) fn parse(
     if document["schema"] != "rustred.owner-domain-queries.json.v2" {
         return Err(AppError::input("unsupported owner-domain query schema"));
     }
-    only_fields(&document, &["schema", "queries"], "query document")?;
+    only_fields(
+        &document,
+        &["schema", "queries", "query_roles"],
+        "query document",
+    )?;
     let rows = document["queries"]
         .as_array()
         .ok_or_else(|| AppError::input("queries must be an array"))?;
@@ -187,6 +194,8 @@ pub(in crate::application::routed_campaign) fn parse(
         };
         queries.push(Query {
             id: id.into(),
+            auxiliary: false,
+            role_declared: false,
             owner: owner.bytes().map(|b| b == b'1').collect(),
             lower,
             upper,
@@ -195,7 +204,65 @@ pub(in crate::application::routed_campaign) fn parse(
         });
         Ok::<(), AppError>(())
     })?;
+    // The optional declaration is a complete, disjoint partition. Omitting
+    // the declaration keeps every query required, including names that happen
+    // to contain "helper" or "anchor". The original JSON (and hence this
+    // partition) is already part of the immutable checkpoint request binding.
+    if let Some(roles) = document.get("query_roles") {
+        only_fields(roles, &["required", "auxiliary"], "query_roles")?;
+        // Typed decoding rejects duplicate JSON keys as well as duplicate
+        // IDs below; Value alone would silently keep the last declaration.
+        #[derive(serde::Deserialize)]
+        struct Roles {
+            required: Vec<String>,
+            auxiliary: Vec<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Envelope {
+            query_roles: Roles,
+        }
+        let envelope: Envelope = serde_json::from_str(text)
+            .map_err(|error| AppError::input(format!("query_roles: {error}")))?;
+        let mut declared = std::collections::BTreeMap::new();
+        for (rows, auxiliary) in [
+            (&envelope.query_roles.required, false),
+            (&envelope.query_roles.auxiliary, true),
+        ] {
+            for row in rows {
+                let id = row.as_str();
+                if !ids.contains(id) {
+                    return Err(AppError::input(format!(
+                        "query_roles names unknown query {id}"
+                    )));
+                }
+                if declared.insert(id, auxiliary).is_some() {
+                    return Err(AppError::input(format!("query_roles repeats query {id}")));
+                }
+            }
+        }
+        if declared.len() != queries.len() {
+            return Err(AppError::input(
+                "query_roles must declare every query exactly once",
+            ));
+        }
+        for query in &mut queries {
+            query.auxiliary = declared[query.id.as_str()];
+            query.role_declared = true;
+        }
+    }
     Ok(queries)
+}
+
+/// Rescue may retire auxiliary work only after the initial scope has been
+/// declared explicitly and bound. No naming convention can grant that right.
+pub(in crate::application::routed_campaign) fn require_explicit_roles(
+    queries: &[Query],
+) -> Result<(), String> {
+    if queries.iter().any(|query| !query.role_declared) {
+        Err("rescue requires an explicit complete query_roles declaration in the original query document".into())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -205,6 +272,42 @@ mod tests {
 
     fn parse(text: &str, arity: usize, limit: usize) -> Result<Vec<Query>, AppError> {
         super::parse(text, arity, limit, 1024 * 1024)
+    }
+
+    #[test]
+    fn exact_query_roles_are_complete_immutable_scope_not_name_patterns() {
+        let mut document = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[
+            {"id":"required-anchor", "owner":"1", "lower":[0], "upper":[null], "max_numerator_rank":0},
+            {"id":"ordinary-looking", "owner":"1", "lower":[0], "upper":[null], "max_numerator_rank":0}]});
+        let plain = parse(&document.to_string(), 1, 2).unwrap();
+        assert!(plain.iter().all(|q| !q.auxiliary && !q.role_declared));
+        assert!(require_explicit_roles(&plain).is_err());
+        document["query_roles"] =
+            json!({"required":["required-anchor"],"auxiliary":["ordinary-looking"]});
+        let declared = parse(&document.to_string(), 1, 2).unwrap();
+        assert!(!declared[0].auxiliary);
+        assert!(declared[1].auxiliary);
+        assert!(require_explicit_roles(&declared).is_ok());
+        for invalid in [
+            json!({"required":[],"auxiliary":["ordinary-looking"]}),
+            json!({"required":["required-anchor","required-anchor"],"auxiliary":["ordinary-looking"]}),
+            json!({"required":["required-anchor"],"auxiliary":["ordinary-looking","required-anchor"]}),
+            json!({"required":["required-anchor"],"auxiliary":["unknown"]}),
+            json!({"required":["required-anchor"]}),
+        ] {
+            document["query_roles"] = invalid;
+            assert!(parse(&document.to_string(), 1, 2).is_err());
+        }
+        document["query_roles"] =
+            json!({"required":["required-anchor"],"auxiliary":["ordinary-looking"]});
+        let text = document
+            .to_string()
+            .replace("\"query_roles\":", "\"query_roles\":{},\"query_roles\":");
+        assert!(parse(&text, 1, 2).is_err());
+        let text = document
+            .to_string()
+            .replace("\"required\":", "\"required\":[],\"required\":");
+        assert!(parse(&text, 1, 2).is_err());
     }
 
     #[test]

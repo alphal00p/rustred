@@ -373,7 +373,8 @@ def production_fixture(directory):
     inputs = directory / "inputs"; inputs.mkdir()
     (inputs / "selection.json").write_text("{}")
     (inputs / "queries.json").write_text(json.dumps({
-        "schema": "rustred.owner-domain-queries.json.v2", "queries": [{}]}))
+        "schema": "rustred.owner-domain-queries.json.v2", "queries": [{"id":"p"}],
+        "query_roles":{"required":["p"],"auxiliary":[]}}))
     (inputs / "input-receipt.json").write_text(json.dumps({
         "selection_sha256": PRODUCTION.digest(inputs / "selection.json"),
         "queries_sha256": PRODUCTION.digest(inputs / "queries.json"), "owners": []}))
@@ -397,7 +398,7 @@ class ProductionPolicyTests(unittest.TestCase):
             directory = Path(temporary); executable = production_fixture(directory)
             plan = production_plan(directory, "--executable", str(executable), "--workers", "1")
             policy = plan["steering_policy"]
-            self.assertEqual(policy["schema"], "rustred.production-steering.v4")
+            self.assertEqual(policy["schema"], "rustred.production-steering.v5")
             options = policy["options"]
             self.assertEqual(options["frontier_policy"], "stop")
             self.assertEqual(plan["frontier_policy"], "stop")
@@ -464,7 +465,7 @@ class ProductionPolicyTests(unittest.TestCase):
             legacy["schema"] = "rustred.production-steering.v2"
             command = legacy["command_arguments"]
             for flag in ("--frontier-policy", "--host-memory-reserve-bytes", "--swap-growth-stop-bytes-per-second",
-                         "--swap-growth-stop-seconds", "--helper-pattern", "--max-rescues", "--amendments-directory"):
+                         "--swap-growth-stop-seconds", "--helper-id-prefix", "--max-rescues", "--amendments-directory"):
                 index = command.index(flag)
                 del command[index:index + 2]
             command.remove("--auto-rescue")

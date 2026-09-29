@@ -28,7 +28,8 @@ def production_fixture(directory):
     inputs=directory/"inputs"; inputs.mkdir()
     (inputs/"selection.json").write_text("{}")
     (inputs/"queries.json").write_text(json.dumps({
-        "schema":"rustred.owner-domain-queries.json.v2","queries":[{}]}))
+        "schema":"rustred.owner-domain-queries.json.v2","queries":[{"id":"p"}],
+        "query_roles":{"required":["p"],"auxiliary":[]}}))
     (inputs/"input-receipt.json").write_text(json.dumps({
         "selection_sha256":PRODUCTION.digest(inputs/"selection.json"),
         "queries_sha256":PRODUCTION.digest(inputs/"queries.json"),"owners":[]}))
@@ -720,7 +721,7 @@ class SteeringV2Tests(unittest.TestCase):
             plan=production_plan(directory,"--executable",str(executable),"--workers","4","--cpus",spec,
                                  "--inspection-workers","2","--transfer-unreserved-lookahead","128")
             policy=plan["steering_policy"]
-            self.assertEqual(policy["schema"],"rustred.production-steering.v4")
+            self.assertEqual(policy["schema"],"rustred.production-steering.v5")
             options=policy["options"]
             self.assertEqual(options["cpus"],",".join(map(str,cpus)))
             self.assertEqual(options["publication_policy"],"ready")

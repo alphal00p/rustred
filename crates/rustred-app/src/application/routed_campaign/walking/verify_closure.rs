@@ -272,8 +272,6 @@ pub struct OwnerDomainWalkVerifyOptions {
     pub brute_force_point_budget: u64,
     pub require_closure: bool,
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
-    /// Query ids containing this substring are reported as helpers.
-    pub helper_pattern: String,
     pub max_violations: usize,
     /// A published result.json to bind to the checkpoint generation.
     pub result: Option<PathBuf>,
@@ -288,7 +286,7 @@ pub struct OwnerDomainWalkVerifyOptions {
 
 /// Roots a `--require-closure` PASS certifies. `Auto` is `AllRoots` for an
 /// unamended walk and `PhysicsQueries` for a walk with rescue amendments:
-/// every physics query (id without the helper pattern) through its first
+/// every required query (immutable exact-ID declaration) through its first
 /// closed containing input root; helper roots are reported, not required.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnerDomainWalkVerifyScope {
@@ -306,7 +304,6 @@ impl OwnerDomainWalkVerifyOptions {
             brute_force_point_budget: 1 << 32,
             require_closure: false,
             mutation: None,
-            helper_pattern: "anchor".into(),
             max_violations: 200,
             result: None,
             reference_levers: OwnerDomainWalkVerifyReferenceLevers::Off,
@@ -1848,12 +1845,11 @@ fn verify<const N: usize>(
         }
     };
     {
-        let original: Vec<&str> = queries.iter().map(|q| q.id.as_str()).collect();
         if let Err(error) = super::rescue::check_chain(
             &loaded.raw.amendments,
             &amended,
             &loaded.raw.request,
-            &original,
+            &queries,
         ) {
             violations.add("amendment_chain", || error);
         } else if amended.len() != loaded.raw.amendments.len() {
@@ -2038,7 +2034,7 @@ fn verify<const N: usize>(
         root_rows.push(row);
     }
     // Certification scope. An amended walk (frontier rescue, `rescue.rs`)
-    // certifies PER PHYSICS QUERY (ids without the helper pattern): through
+    // certifies PER REQUIRED QUERY (immutable exact-ID declaration): through
     // the first input root, in input order, that is oracle-closed and
     // contains the query (same phase as the query's own root; exact lattice
     // inclusion). Only those certifying roots are required (roots_total);
@@ -2058,7 +2054,7 @@ fn verify<const N: usize>(
         let mut uncertified = Vec::new();
         let mut via_amendment = 0usize;
         for (index, query) in queries.iter().enumerate() {
-            if query.id.contains(options.helper_pattern.as_str()) {
+            if query.auxiliary {
                 continue;
             }
             total_physics += 1;
@@ -2096,7 +2092,7 @@ fn verify<const N: usize>(
         let helper_roots: std::collections::BTreeSet<usize> = queries
             .iter()
             .zip(&root_of_query)
-            .filter(|(query, _)| query.id.contains(options.helper_pattern.as_str()))
+            .filter(|(query, _)| query.auxiliary)
             .filter_map(|(_, root)| *root)
             .collect();
         let open: Vec<usize> = helper_roots
@@ -2178,11 +2174,7 @@ fn verify<const N: usize>(
     };
     let mut classes = BTreeMap::<&str, BTreeMap<&str, u64>>::new();
     for (index, (query, root)) in queries.iter().zip(&root_of_query).enumerate() {
-        let class = if query.id.contains(options.helper_pattern.as_str()) {
-            "helper"
-        } else {
-            "physics"
-        };
+        let class = if query.auxiliary { "helper" } else { "physics" };
         let entry = classes.entry(class).or_default();
         *entry.entry("total").or_default() += 1;
         let state = root
@@ -2269,7 +2261,7 @@ fn verify<const N: usize>(
             "roots_independently_verified": roots_independently_verified},
         "roots": root_rows,
         "cones_computed": cone_budget,
-        "certification": {"helper_pattern": options.helper_pattern, "classes": classes,
+        "certification": {"query_roles": "immutable_exact_id_declaration; undeclared_queries_required", "classes": classes,
             "claim_levels": "oracle_closed = re-derived closed from the saved edges and seal rule; consistent_closed = oracle_closed and no violation; independently_verified = consistent_closed and every native in the root's cone re-inspected (only these may be cited as verified)"},
         "reinspection": {"mode": format!("{:?}", options.reinspect),
             "selected": reinspection.selected.len(), "candidates": reinspection.candidates,

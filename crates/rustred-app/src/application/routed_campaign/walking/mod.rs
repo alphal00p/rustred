@@ -725,12 +725,11 @@ fn run<const N: usize>(
                     "rescue amendments require a resumed walk state, not a fresh walk or a bootstrap checkpoint",
                 ));
             }
-            let original: Vec<&str> = queries.iter().map(|q| q.id.as_str()).collect();
             rescue::check_chain(
                 store.amendments(),
                 &amendments,
                 store.request_digest(),
-                &original,
+                queries,
             )
             .map_err(AppError::input)?
         }
@@ -1284,7 +1283,7 @@ fn add_rescue_report<const N: usize>(
         let Ok(owner) = <[bool; N]>::try_from(query.owner.as_slice()) else {
             return;
         };
-        ids.push(query.id.as_str());
+        ids.push((query.id.as_str(), query.auxiliary));
         domains.push(Domain {
             phase: Phase::Apply,
             owner,

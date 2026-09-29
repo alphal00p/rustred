@@ -31,11 +31,17 @@ from array import array
 import codecs
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
 import sys
 import time
+
+_ROLES_SPEC = importlib.util.spec_from_file_location(
+    "owner_query_roles", Path(__file__).with_name("owner_query_roles.py"))
+ROLES = importlib.util.module_from_spec(_ROLES_SPEC)
+_ROLES_SPEC.loader.exec_module(ROLES)
 
 MAX_VALUE_BYTES = 64 * 1024 * 1024
 SENTINEL = 2 ** 64 - 1
@@ -159,7 +165,7 @@ def _stream_walk(stream):
 
 
 def read_json(path):
-    return json.loads(Path(path).read_text())
+    return ROLES.loads_document(Path(path).read_text())
 
 
 def digest(path):
@@ -592,7 +598,7 @@ def pair_verifier(audit, result_path, report, verify_report, require_closure):
 
 
 def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None, require_closure=False,
-               containment=None, helper_pattern="anchor", verify_report=None):
+               containment=None, verify_report=None):
     run = Path(run)
     audit = Audit()
     report = {"audit": "FAIL", "run_directory": str(run), "family_closure_claim": False,
@@ -605,7 +611,7 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
         report.update(native_command=located["command"], queries_path=str(located["queries"]),
                       publication_policy=located["policy"], resumed=located["resumed"],
                       receipt_path=None if located["receipt"] is None else str(located["receipt"]))
-        report.update(_audit(run, located, audit, expect_schema, require_closure, containment, helper_pattern))
+        report.update(_audit(run, located, audit, expect_schema, require_closure, containment))
         if verify_report is not None:
             report["verifier_pairing"] = pair_verifier(audit, run / "result.json", report, verify_report,
                                                        require_closure)
@@ -630,14 +636,14 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
 
 
 def rescue_certification(run, top, queries, amended, documents, raw_inputs, query_count, inputs, amended_inputs,
-                         total, containment, helper_pattern, require_closure, check, request_digest=None):
+                         total, containment, query_roles, require_closure, check, request_digest=None):
     """Rescued walk: amendment chain structure, amended inputs, per-physics-query certification.
 
     A query is certified iff some input record (of an original or an amended
     query, in input order) is descendant-closed, has the phase of the query's
     own record and contains the query (the audit's own lattice predicate).
-    With closure required, every physics query (id not matching the helper
-    pattern) must be certified; helper records may stay open (a frontier-
+    With closure required, every explicitly required query must be
+    certified; auxiliary records may stay open (a frontier-
     bearing helper is quarantined, never required).
     """
     chain = top.get("amendments")
@@ -677,7 +683,7 @@ def rescue_certification(run, top, queries, amended, documents, raw_inputs, quer
     helper_records = set()
     for position, (query, record) in enumerate(everything):
         own = rows.get(record)
-        if re.search(helper_pattern, str(query.get("id"))):
+        if query_roles[query["id"]] == "auxiliary":
             if type(record) is int:
                 helper_records.add(record)
             continue
@@ -710,14 +716,14 @@ def rescue_certification(run, top, queries, amended, documents, raw_inputs, quer
             "engine_queries_certified": engine.get("queries_certified")}
 
 
-def _audit(run, located, audit, expect_schema, require_closure=False, containment=None,
-           helper_pattern="anchor"):
+def _audit(run, located, audit, expect_schema, require_closure=False, containment=None):
     check = audit.check
     containment = containment if containment is not None else Containment()
     policy = located["policy"]
     check(policy in ("ordered", "ready"), f"unsupported publication policy {policy!r}")
     queries_document = read_json(located["queries"])
     queries = queries_document["queries"]
+    query_roles = ROLES.query_roles(queries_document, require_explicit=bool(located.get("amendments")))
     check(bool(queries) and len({query["id"] for query in queries}) == len(queries),
           "queries must be nonempty with unique ids")
     arity = len(queries[0]["owner"])
@@ -736,7 +742,13 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
         amendment_documents.append(document)
         rows = document.get("queries")
         check(isinstance(rows, list), f"amendment {path}: queries must be a list")
+        for identity in document.get("supersede", []):
+            check(query_roles.get(identity) == "auxiliary",
+                  f"amendment {path}: supersede may name only an earlier auxiliary query: {identity!r}")
         for row in rows if isinstance(rows, list) else []:
+            check(row.get("id") not in query_roles, f"amendment {path}: query ID already declared")
+            # Required IDs cannot be relabelled even in malformed evidence.
+            query_roles.setdefault(row.get("id"), "auxiliary")
             amended.append((document.get("sequence"), row))
     rescue = bool(amendment_documents)
     check(len({query["id"] for query in queries} | {row.get("id") for _, row in amended})
@@ -1068,7 +1080,7 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     for query in queries:
         record = mapping.get(query["id"])
         row = initial.get(record) if type(record) is int else None
-        label = "helper" if re.search(helper_pattern, str(query["id"])) else "physics"
+        label = "helper" if query_roles[query["id"]] == "auxiliary" else "physics"
         role = "admitting" if type(record) is int and admitting.get(record) == query["id"] else "absorbed"
         closed = row is not None and row.get("descendant_closed") is True
         entry = roles.setdefault(label, Counter())
@@ -1078,8 +1090,8 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     roots = [row for index, row in initial.items() if index < initial_count]
     certification = {
         "scope": "engine descendant_closed annotations re-checked for consistency; roots are the distinct "
-                 "initial records, queries are classified by an id pattern",
-        "helper_pattern": helper_pattern, "closure_available": available,
+                 "initial records; query roles are the immutable exact-ID declaration",
+        "query_roles": "immutable_exact_id_declaration; undeclared_queries_required", "closure_available": available,
         "roots": {"total": initial_count, "closed": sum(row.get("descendant_closed") is True for row in roots)},
         "queries": {label: dict(counts) for label, counts in sorted(roles.items())},
         "record_closed_claims": dict(closed_claims),
@@ -1087,7 +1099,7 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     if rescue:
         certification["rescue"] = rescue_certification(
             run, top, queries, amended, amendment_documents, raw_inputs, query_count, inputs, amended_inputs,
-            total, containment, helper_pattern, require_closure, check)
+            total, containment, query_roles, require_closure, check)
     ledger = top.get("delegation")
     ledger = ledger if isinstance(ledger, dict) else {}
     blocked = {field: ledger.get(field) for field in RESCUE_BLOCKED} if rescue else {}
@@ -1221,7 +1233,6 @@ def main(argv=None) -> int:
                         help="enumerate containment checks whose inner set has at most this many lattice points (0: off)")
     parser.add_argument("--brute-force-point-budget", type=int, default=2_000_000,
                         help="total lattice points the brute-force cross-check may enumerate")
-    parser.add_argument("--helper-pattern", default="anchor", help="regex; matching query ids are reported as helpers")
     parser.add_argument("--verify-report", type=Path,
                         help="a `rustred walk-verify-closure` report that must be bound to this very result.json")
     parser.add_argument("--output", type=Path, help="audit report path; default RUN/audit.json")
@@ -1230,7 +1241,7 @@ def main(argv=None) -> int:
     started = time.monotonic()
     report = audit_walk(args.run, args.queries, args.command, args.supervisor_receipt, args.expect_schema,
                         args.require_closure, Containment(args.brute_force_max_points, args.brute_force_point_budget),
-                        args.helper_pattern, args.verify_report)
+                        args.verify_report)
     report["audit_seconds"] = time.monotonic() - started
     text = json.dumps(report, indent=2, sort_keys=True, allow_nan=False)
     if not args.no_output:

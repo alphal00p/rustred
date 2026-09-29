@@ -301,7 +301,7 @@ class DocumentTests(unittest.TestCase):
             code, text = run_planner(files, root / "out", "--helper-positive-power-owners", "111")
             self.assertEqual(code, 0, text)
             document = load(root / "out" / "queries.json")
-            self.assertEqual(set(document), {"schema", "queries"})
+            self.assertEqual(set(document), {"schema", "queries", "query_roles"})
             self.assertEqual(document["schema"], "rustred.owner-domain-queries.json.v2")
             helper = None
             seen_owner_blocks = []

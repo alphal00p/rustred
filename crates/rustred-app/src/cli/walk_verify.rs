@@ -30,7 +30,6 @@ pub(crate) struct WalkVerifyClosureArgs {
     pub require_closure: bool,
     pub reference_levers: OwnerDomainWalkVerifyReferenceLevers,
     pub mutation: Option<OwnerDomainWalkVerifyMutation>,
-    pub helper_pattern: String,
     pub max_violations: usize,
     pub union_sample: usize,
     pub union_sample_seed: u64,
@@ -57,7 +56,6 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         require_closure: false,
         reference_levers: defaults.reference_levers,
         mutation: None,
-        helper_pattern: defaults.helper_pattern,
         max_violations: defaults.max_violations,
         union_sample: defaults.union_sample,
         union_sample_seed: defaults.union_sample_seed,
@@ -149,9 +147,6 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                         });
                     }
                 }
-            }
-            "--helper-pattern" => {
-                args.helper_pattern = next_utf8_value(&mut arguments, "--helper-pattern")?
             }
             "--max-violations" => {
                 args.max_violations = parse_positive_integer(
@@ -250,7 +245,6 @@ pub(super) fn run(args: WalkVerifyClosureArgs) -> Result<(), CliError> {
     options.require_closure = args.require_closure;
     options.reference_levers = args.reference_levers;
     options.mutation = args.mutation;
-    options.helper_pattern = args.helper_pattern.clone();
     options.max_violations = args.max_violations;
     options.union_sample = args.union_sample;
     options.union_sample_seed = args.union_sample_seed;

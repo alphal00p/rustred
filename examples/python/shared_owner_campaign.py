@@ -47,6 +47,10 @@ _HEARTBEAT_SPEC = importlib.util.spec_from_file_location(
     "heartbeat_metrics", Path(__file__).with_name("heartbeat_metrics.py"))
 HEARTBEAT = importlib.util.module_from_spec(_HEARTBEAT_SPEC)
 _HEARTBEAT_SPEC.loader.exec_module(HEARTBEAT)
+_ROLES_SPEC = importlib.util.spec_from_file_location(
+    "owner_query_roles", Path(__file__).with_name("owner_query_roles.py"))
+ROLES = importlib.util.module_from_spec(_ROLES_SPEC)
+_ROLES_SPEC.loader.exec_module(ROLES)
 # Aggregate outer compute workers admitted by the Python drivers; the native
 # CLI has its own cap, and the permitted CPU affinity always bounds this.
 MAX_WORKERS = 256
@@ -518,7 +522,7 @@ class RamGuard:
 # directory's rescue.json and the amendments directory's rescues.jsonl.
 FRONTIER_STOP_REASON = "frontier_policy"
 DEFAULT_MAX_RESCUES = 32
-DEFAULT_HELPER_PATTERN = "anchor"
+DEFAULT_HELPER_ID_PREFIX = "anchor"
 RESCUE_LOG = "rescues.jsonl"
 RESCUE_RESUME_VERDICTS = ("rescue", "no_amendment_needed")
 
@@ -569,7 +573,7 @@ def native_rescue_trigger(output: Path, status: int):
     return None
 
 
-def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_pattern: str,
+def plan_rescue(executable: Path, output: Path, amendments_directory: Path, helper_id_prefix: str,
                 rescue_helpers, env, max_rescues: int, attempts: int, runner=subprocess.run,
                 trigger: str = "frontier_stop", scope: str = "class") -> dict:
     """Classify the frontier stop of the run in `output` and prepare the next resume.
@@ -579,7 +583,7 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
     """
     receipt = {"schema": "rustred.frontier-rescue-receipt.v1", "unix_time": time.time(),
                "run_directory": str(output), "trigger": trigger, "attempt": attempts + 1, "max_rescues": max_rescues,
-               "helper_pattern": helper_pattern, "rescue_helpers": None if rescue_helpers is None else str(rescue_helpers),
+               "helper_id_prefix": helper_id_prefix, "rescue_helpers": None if rescue_helpers is None else str(rescue_helpers),
                "family_closure_claim": False}
     if attempts >= max_rescues:
         receipt.update(action="wait_for_owner", reason=f"automatic rescue attempts exhausted ({attempts} of {max_rescues})")
@@ -589,7 +593,7 @@ def plan_rescue(executable: Path, output: Path, amendments_directory: Path, help
     pending.unlink(missing_ok=True)
     plan_path = output / "rescue-plan.json"
     command = [str(executable), "walk-rescue-plan", "--command", str(output / "request.json"),
-               "--helper-pattern", helper_pattern, "--output", str(plan_path),
+               "--helper-id-prefix", helper_id_prefix, "--output", str(plan_path),
                "--amendment-output", str(pending), "--rescue-scope", scope]
     if rescue_helpers is not None:
         command += ["--rescue-helpers", str(Path(rescue_helpers).resolve())]
@@ -774,9 +778,9 @@ def main() -> int:
                              "and waits for the owner; requires --frontier-policy stop and a checkpoint")
     parser.add_argument("--rescue-helpers", type=Path,
                         help="optional query document of preferred rescue helpers (e.g. plan-v3); requires --auto-rescue")
-    parser.add_argument("--helper-pattern", default=DEFAULT_HELPER_PATTERN,
-                        help=f"substring of every helper query id (default: {DEFAULT_HELPER_PATTERN}); other queries are "
-                             "physics queries whose certification the rescue preserves")
+    parser.add_argument("--helper-id-prefix", default=DEFAULT_HELPER_ID_PREFIX,
+                        help=f"cosmetic prefix for new auxiliary IDs (default: {DEFAULT_HELPER_ID_PREFIX}); "
+                             "scope comes only from the immutable query_roles declaration")
     parser.add_argument("--rescue-scope", choices=("class", "tainted"), default="class",
                         help="class (default): a known-class frontier supersedes every open helper root unbounded in "
                              "that class's dimension and re-covers its physics queries with bounded helpers (no "
@@ -826,8 +830,8 @@ def main() -> int:
         parser.error("--auto-rescue requires --queries, --frontier-policy stop and --checkpoint or --resume")
     if args.rescue_helpers is not None and not args.auto_rescue:
         parser.error("--rescue-helpers requires --auto-rescue")
-    if not args.helper_pattern:
-        parser.error("--helper-pattern must be nonempty")
+    if not args.helper_id_prefix:
+        parser.error("--helper-id-prefix must be nonempty")
     for path in [*args.amend_queries, *([args.rescue_helpers] if args.rescue_helpers else [])]:
         if not path.is_file():
             parser.error(f"not a file: {path}")
@@ -891,6 +895,11 @@ def main() -> int:
     for path in inputs:
         if not path.is_file():
             parser.error(f"not a file: {path}")
+    if args.auto_rescue or args.amend_queries:
+        try:
+            ROLES.query_roles(ROLES.loads_document(args.queries.read_text()), require_explicit=True)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(str(error))
     if args.run_directory is not None:
         output = args.run_directory.resolve()
         try:
@@ -974,7 +983,7 @@ def main() -> int:
             "axis": args.apply_subdivision_axis, "cut": args.apply_subdivision_cut},
         "amend_queries": [str(path.resolve()) for path in args.amend_queries],
         "auto_rescue": None if not args.auto_rescue else {
-            "helper_pattern": args.helper_pattern, "max_rescues": args.max_rescues,
+            "helper_id_prefix": args.helper_id_prefix, "max_rescues": args.max_rescues,
             "rescue_scope": args.rescue_scope,
             "rescue_helpers": None if args.rescue_helpers is None else str(args.rescue_helpers.resolve()),
             "amendments_directory": str(amendments_directory) if amendments_directory else None},
@@ -1221,7 +1230,7 @@ def main() -> int:
     # the end of the campaign (owner requirement 2026-09-28).
     trigger = native_rescue_trigger(output, status) if args.auto_rescue else None
     if trigger and stop_reason is None and not hard_stopped and checkpoint_directory:
-        receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_pattern,
+        receipt = plan_rescue(args.executable.resolve(), output, amendments_directory, args.helper_id_prefix,
                               args.rescue_helpers, env, args.max_rescues, rescue_attempts(amendments_directory),
                               trigger=trigger, scope=args.rescue_scope)
         if receipt["action"] == "complete":

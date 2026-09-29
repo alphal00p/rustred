@@ -373,8 +373,8 @@ USAGE:
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
     rustred walk-semantics-version
-    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--helper-pattern TEXT] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
-    rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-pattern TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
+    rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
+    rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-id-prefix TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -715,7 +715,7 @@ certification through any closed containing input root.
 walk-verify-closure by its argv, with every recorded --amend-queries),
 classifies its frontiers (known rescues: guard obstructions on rank- or
 positive-power-unbounded nodes) and writes the next amendment for the physics
-queries (ids without --helper-pattern) that the frontier taint blocks. Exit 0
+queries (explicit immutable query_roles declaration) that the frontier taint blocks. Exit 0
 for verdicts rescue, no_amendment_needed and no_frontier; exit 1 when the
 owner must decide (unknown_frontier_class, rescue_exhausted).
 

@@ -4,7 +4,7 @@
 //! Reads one CP5 generation raw (no owner import, no restore validators),
 //! classifies every frontier-bearing native, computes the frontier taint
 //! (reverse reachability over recorded edges) and decides, per physics query
-//! (a query id NOT containing the helper pattern), whether some input root
+//! (an exact ID declared required in the bound query document), whether some input root
 //! outside the taint still contains it. For every blocked physics query of a
 //! KNOWN frontier class it proposes a bounded helper for the query's owner
 //! and writes the next digest-chained amendment (`rescue.rs`).
@@ -51,9 +51,8 @@ const MAX_EXAMPLES: usize = 20;
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRescuePlanOptions {
     pub checkpoint: PathBuf,
-    /// Query ids containing this substring are helpers; every other query is
-    /// a physics query whose certification the rescue must preserve.
-    pub helper_pattern: String,
+    /// Cosmetic prefix for newly appended auxiliary IDs, never scope authority.
+    pub helper_id_prefix: String,
     /// Optional query document of preferred rescue helpers (e.g. plan-v3).
     pub rescue_helpers_json: Option<String>,
     /// A helper domain may be added by at most this many amendments.
@@ -78,7 +77,7 @@ impl OwnerDomainWalkRescuePlanOptions {
     pub fn new(checkpoint: impl Into<PathBuf>) -> Self {
         Self {
             checkpoint: checkpoint.into(),
-            helper_pattern: "anchor".into(),
+            helper_id_prefix: "anchor".into(),
             rescue_helpers_json: None,
             max_repeats: 3,
             scope: OwnerDomainWalkRescueScope::Class,
@@ -169,6 +168,7 @@ fn plan<const N: usize>(
         request.matching.max_queries,
         request.matching.max_query_bytes,
     )?;
+    matching::input::require_explicit_roles(&queries).map_err(AppError::input)?;
     let amendments = request
         .amendments
         .iter()
@@ -181,8 +181,7 @@ fn plan<const N: usize>(
             "checkpoint request digest differs from the command's request/queries binding",
         ));
     }
-    let original: Vec<&str> = queries.iter().map(|q| q.id.as_str()).collect();
-    rescue::check_chain(&raw.amendments, &amendments, &raw.request, &original)
+    rescue::check_chain(&raw.amendments, &amendments, &raw.request, &queries)
         .map_err(input_error)?;
     if amendments.len() != raw.amendments.len() {
         return Err(AppError::input(
@@ -357,7 +356,6 @@ fn plan<const N: usize>(
                 .filter(|&id| id < total)
         })
         .collect();
-    let is_helper = |id: &str| id.contains(options.helper_pattern.as_str());
     let root_domains: Vec<Option<Domain<N>>> = roots.iter().map(|root| root.map(&domain)).collect();
     let closed = |id: usize| raw.flags.get(id).is_some_and(|f| f & FLAG_CLOSED != 0);
     let class_rank = node_classes
@@ -392,7 +390,7 @@ fn plan<const N: usize>(
             };
             let unbounded = (class_rank && root_domain.rank.is_none())
                 || (class_power && root_domain.powers.max_positive_power.is_none());
-            if is_helper(&query.id)
+            if query.auxiliary
                 && unbounded
                 && !closed(*root)
                 && !before.contains(root)
@@ -408,7 +406,7 @@ fn plan<const N: usize>(
     let mut blocked = Vec::new();
     let mut physics_total = 0usize;
     for (index, query) in all.iter().enumerate() {
-        if is_helper(&query.id) {
+        if query.auxiliary {
             continue;
         }
         physics_total += 1;
@@ -433,7 +431,7 @@ fn plan<const N: usize>(
     let helper_roots: BTreeSet<usize> = all
         .iter()
         .zip(&roots)
-        .filter(|(q, _)| is_helper(&q.id))
+        .filter(|(q, _)| q.auxiliary)
         .filter_map(|(_, root)| *root)
         .collect();
     let helper_roots_tainted: Vec<usize> = helper_roots
@@ -454,7 +452,7 @@ fn plan<const N: usize>(
         "checkpoint":{"directory":options.checkpoint,"generation":raw.generation,
             "request_digest":raw.request,"amendments":raw.amendments.len(),
             "walk_semantics_version":raw.walk_semantics_version},
-        "helper_pattern":options.helper_pattern,
+        "helper_id_prefix":options.helper_id_prefix,
         "frontier_nodes":frontier_nodes.len(),"frontier_records":frontier_records,
         "input_frontiers":raw.input_frontiers.len(),
         "classes":classes,"unknown_examples":examples,
@@ -524,7 +522,7 @@ fn plan<const N: usize>(
         let hull = || {
             let physics: Vec<Domain<N>> = all
                 .iter()
-                .filter(|q| !is_helper(&q.id))
+                .filter(|q| !q.auxiliary)
                 .filter_map(|q| query_domain::<N>(q))
                 .filter(|d| d.owner == target.owner)
                 .collect();
@@ -595,7 +593,7 @@ fn plan<const N: usize>(
                 mask(&helper.owner)
             ),
         };
-        let id = helper_id(&options.helper_pattern, sequence, &body, &mut taken);
+        let id = helper_id(&options.helper_id_prefix, sequence, &body, &mut taken);
         chosen.push((helper, source, id, vec![query.id.clone()]));
     }
     let rows: Vec<Value> = chosen
@@ -614,7 +612,7 @@ fn plan<const N: usize>(
         "queries":rows,"supersede":supersede.iter().collect::<Vec<_>>(),
         "provenance":{"generator":"rustred walk-rescue-plan","plan_schema":OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA,
             "checkpoint_generation":raw.generation,"classes":plan["classes"].clone(),
-            "frontier_nodes":frontier_nodes.len(),"helper_pattern":options.helper_pattern,
+            "frontier_nodes":frontier_nodes.len(),"helper_id_prefix":options.helper_id_prefix,
             "finite_positive_power":need_power,"covers":covers,"helper_sources":sources,
             "family_closure_claim":false}});
     let mut text =

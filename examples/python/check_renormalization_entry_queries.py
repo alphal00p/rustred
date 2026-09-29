@@ -229,7 +229,7 @@ def check(queries_path, receipt_path, entry_plans, probes, seed, allow_closed_fo
     expect(hashlib.sha256(queries_bytes).hexdigest() == summary.get("queries_sha256"), "queries sha256 differs from the receipt")
     expect(len(queries_bytes) == summary.get("queries_bytes"), "queries byte size differs from the receipt")
     document = json.loads(queries_bytes, object_pairs_hook=unique_object)
-    expect(isinstance(document, dict) and set(document) == {"schema", "queries"}, "query document keys")
+    expect(isinstance(document, dict) and set(document) in ({"schema", "queries"}, {"schema", "queries", "query_roles"}), "query document keys")
     expect(document.get("schema") == QUERY_SCHEMA, "query schema")
     rows = document.get("queries") if isinstance(document, dict) else None
     if not isinstance(rows, list) or not rows:
@@ -267,6 +267,14 @@ def check(queries_path, receipt_path, entry_plans, probes, seed, allow_closed_fo
     owners = receipt.get("owners")
     if not isinstance(owners, list) or not owners:
         raise Failure("receipt must list owners")
+    # The role partition is derived independently from the receipt's actual
+    # roots/helper objects, never from substrings in query IDs. Historical
+    # undeclared receipts remain checks of geometry only, not rescue scope.
+    if "query_roles" in document:
+        expected_roles = {
+            "required": [root["id"] for row in owners for root in row["roots"]],
+            "auxiliary": [row["helper"]["id"] for row in owners if row.get("helper") is not None]}
+        expect(document["query_roles"] == expected_roles, "query_roles differs from immutable receipt roots/helpers")
     order = {row["owner"]: index for index, row in enumerate(owners)}
     expect(len(order) == len(owners), "receipt owners must be unique")
     expect(positive_power_owners <= set(order), "helper positive-power owners must be receipt owners")

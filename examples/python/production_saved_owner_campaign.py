@@ -48,15 +48,15 @@ import time
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent", "host_memory_reserve_bytes",
                       "swap_growth_stop_bytes_per_second", "swap_growth_stop_seconds")
 OPTIONAL_RAM_POLICY_OPTIONS = RAM_POLICY_OPTIONS[2:]
-# Frontier rescue (schema v4): new campaigns resume automatically after a
+# Frontier rescue (schema v5, explicit query roles): new campaigns resume automatically after a
 # frontier stop of a known class (supervisor --auto-rescue); amendments live
 # in <campaign>/amendments and are re-supplied on every --resume. Steering
 # written before v4 keeps its historical argv (no auto-rescue).
-RESCUE_OPTIONS = ("auto_rescue", "helper_pattern", "max_rescues")
-DEFAULT_HELPER_PATTERN = "owner-anchor-"
+RESCUE_OPTIONS = ("auto_rescue", "helper_id_prefix", "max_rescues")
+DEFAULT_HELPER_ID_PREFIX = "owner-anchor-"
 DEFAULT_MAX_RESCUES = 32
 AMENDMENTS_DIRECTORY = "amendments"
-STEERING_SCHEMA = "rustred.production-steering.v4"
+STEERING_SCHEMA = "rustred.production-steering.v5"
 STEERING_SCHEMAS = ("rustred.production-steering.v1", "rustred.production-steering.v2",
                     "rustred.production-steering.v3", STEERING_SCHEMA)
 FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_bytes",
@@ -669,6 +669,7 @@ def verify_query_override(path, masks):
                 raise ValueError(f"query row {index} {name} must be an arity-{arity} list")
         if not isinstance(row["power_bounds"], dict):
             raise ValueError(f"query row {index} power_bounds must be an object")
+    SUPERVISOR.ROLES.query_roles(document)
     return len(document["queries"])
 
 
@@ -740,7 +741,7 @@ def frozen_options(policy):
             options[name] = None if value is None else (float(value) if name == "swap_growth_stop_seconds" else int(value))
     # Steering before v4 had no automatic frontier rescue.
     options.setdefault("auto_rescue", False)
-    options.setdefault("helper_pattern", None)
+    options.setdefault("helper_id_prefix", None)
     options.setdefault("max_rescues", None)
     return options
 
@@ -771,7 +772,7 @@ def native_command(options, executable, inputs, count, size):
         if options[name] is not None:
             command += ["--" + name.replace("_", "-"), str(options[name])]
     if options.get("auto_rescue"):
-        command += ["--auto-rescue", "--helper-pattern", options["helper_pattern"],
+        command += ["--auto-rescue", "--helper-id-prefix", options["helper_id_prefix"],
                     "--max-rescues", str(options["max_rescues"]),
                     "--amendments-directory", str(inputs.parent / AMENDMENTS_DIRECTORY)]
     return command
@@ -806,7 +807,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
                 "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
                 "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS,
-                "helper_pattern": DEFAULT_HELPER_PATTERN, "max_rescues": DEFAULT_MAX_RESCUES}
+                "helper_id_prefix": DEFAULT_HELPER_ID_PREFIX, "max_rescues": DEFAULT_MAX_RESCUES}
     for name, default in defaults.items():
         if options[name] is None:
             options[name] = default
@@ -826,8 +827,10 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         raise ValueError("frontier policy must be record or stop")
     if options["auto_rescue"] and options["frontier_policy"] != "stop":
         raise ValueError("automatic frontier rescue requires --frontier-policy stop (or --no-auto-rescue)")
-    if options["auto_rescue"] and (not options["helper_pattern"] or options["max_rescues"] < 1):
-        raise ValueError("automatic frontier rescue needs a nonempty --helper-pattern and --max-rescues >= 1")
+    if options["auto_rescue"] and (not options["helper_id_prefix"] or options["max_rescues"] < 1):
+        raise ValueError("automatic frontier rescue needs a nonempty --helper-id-prefix and --max-rescues >= 1")
+    if options["auto_rescue"]:
+        SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
     if options["publication_policy"] != "ordered" and options["apply_subdivision_axis"] is not None:
         raise ValueError("physical subdivision requires --publication-policy ordered")
     inspectors = options["inspection_workers"]
@@ -937,8 +940,9 @@ def main(argv=None):
                              "frozen for resume")
     rescue.add_argument("--no-auto-rescue", dest="auto_rescue", action="store_const", const=False,
                         help="freeze a campaign without automatic frontier rescue (a frontier stop waits for the owner)")
-    parser.add_argument("--helper-pattern",
-                        help=f"substring of every helper query id; initial default: {DEFAULT_HELPER_PATTERN}; frozen for resume")
+    parser.add_argument("--helper-id-prefix",
+                        help=f"cosmetic prefix for appended auxiliary IDs; initial default: {DEFAULT_HELPER_ID_PREFIX}; "
+                             "scope comes only from the bound query_roles declaration")
     parser.add_argument("--max-rescues", type=int,
                         help=f"automatic rescue resumes per campaign; initial default: {DEFAULT_MAX_RESCUES}; frozen for resume")
     parser.add_argument("--apply-subdivision-axis", type=int)
@@ -1002,6 +1006,8 @@ def main(argv=None):
         # Read-only on --resume (steering must exist), so every frozen-option
         # refusal happens before an upgrade changes anything.
         policy = frozen_policy(campaign, args, executable, inputs, count, size)
+        if frozen_options(policy).get("auto_rescue"):
+            SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
         if args.upgrade_executable is not None:
             upgrade = plan_executable_upgrade(campaign, checkpoint, args.upgrade_executable,
                                               executable, executable_hash)

@@ -83,7 +83,8 @@ def fake_native(directory):
 def supervise(directory, *extra, env=None):
     child = fake_native(directory)
     manifest = directory / "selection.json"; manifest.write_text("{}")
-    queries = directory / "queries.json"; queries.write_text("{}")
+    queries = directory / "queries.json"
+    queries.write_text(json.dumps({"queries":[{"id":"p"}],"query_roles":{"required":["p"],"auxiliary":[]}}))
     cpu = min(os.sched_getaffinity(0))
     command = [sys.executable, str(SOURCE), "--executable", str(child), "--manifest", str(manifest),
                "--queries", str(queries), "--workers", "1", "--cpus", str(cpu), "--sample-seconds", "0.1",
@@ -103,7 +104,7 @@ class SupervisorRescueTests(unittest.TestCase):
             directory = Path(temporary)
             checkpoint = directory / "checkpoint"
             result = supervise(directory, "--checkpoint", str(checkpoint), "--frontier-policy", "stop",
-                               "--auto-rescue", "--helper-pattern", "owner-anchor-",
+                               "--auto-rescue", "--helper-id-prefix", "owner-anchor-",
                                env={"FAKE_STOPS": "2"})
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("Frontier stop rescued automatically", result.stdout)
@@ -131,8 +132,8 @@ class SupervisorRescueTests(unittest.TestCase):
             self.assertEqual([native[2][i + 1] for i, a in enumerate(native[2]) if a == "--amend-queries"],
                              [str(p) for p in files])
             self.assertEqual(native[1].count("--amend-queries"), 1)
-            self.assertIn("--helper-pattern", plans[0])
-            self.assertEqual(plans[0][plans[0].index("--helper-pattern") + 1], "owner-anchor-")
+            self.assertIn("--helper-id-prefix", plans[0])
+            self.assertEqual(plans[0][plans[0].index("--helper-id-prefix") + 1], "owner-anchor-")
             # Flat resume names (the chain would otherwise outgrow NAME_MAX).
             resumed = sorted(directory.glob("run.resume-*"), key=lambda p: (p / "request.json").stat().st_mtime_ns)
             self.assertEqual(len(resumed), 2)
@@ -140,7 +141,7 @@ class SupervisorRescueTests(unittest.TestCase):
             final = resumed[1:]
             request = json.loads((final[0] / "request.json").read_text())
             self.assertEqual(len(request["amend_queries"]), 2)
-            self.assertEqual(request["auto_rescue"]["helper_pattern"], "owner-anchor-")
+            self.assertEqual(request["auto_rescue"]["helper_id_prefix"], "owner-anchor-")
             self.assertEqual(json.loads((final[0] / "result.json").read_text())["amendments"], 2)
 
     def test_unknown_class_waits_for_the_owner(self):
@@ -274,7 +275,8 @@ def production_fixture(directory):
     inputs = directory / "inputs"; inputs.mkdir()
     (inputs / "selection.json").write_text("{}")
     (inputs / "queries.json").write_text(json.dumps({
-        "schema": "rustred.owner-domain-queries.json.v2", "queries": [{}]}))
+        "schema": "rustred.owner-domain-queries.json.v2", "queries": [{"id":"p"}],
+        "query_roles":{"required":["p"],"auxiliary":[]}}))
     (inputs / "input-receipt.json").write_text(json.dumps({
         "selection_sha256": PRODUCTION.digest(inputs / "selection.json"),
         "queries_sha256": PRODUCTION.digest(inputs / "queries.json"), "owners": []}))
@@ -298,9 +300,9 @@ class LauncherRescueTests(unittest.TestCase):
             directory = Path(temporary)
             plan = production_plan(directory, "--executable", str(production_fixture(directory)), "--workers", "1")
             policy = plan["steering_policy"]
-            self.assertEqual(policy["schema"], "rustred.production-steering.v4")
+            self.assertEqual(policy["schema"], "rustred.production-steering.v5")
             self.assertEqual(policy["options"]["auto_rescue"], True)
-            self.assertEqual(policy["options"]["helper_pattern"], "owner-anchor-")
+            self.assertEqual(policy["options"]["helper_id_prefix"], "owner-anchor-")
             command = policy["command_arguments"]
             self.assertIn("--auto-rescue", command)
             self.assertEqual(command[command.index("--amendments-directory") + 1], str(directory / "amendments"))

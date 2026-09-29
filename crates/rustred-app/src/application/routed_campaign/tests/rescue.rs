@@ -24,6 +24,12 @@ fn request(fixture: &Fixture) -> OwnerDomainWalkRequest {
         json!({"id":"second-missing-route", "owner":"101", "lower":[0,0,0],
         "upper":[null,null,null], "max_numerator_rank":0}),
     );
+    let auxiliary: Vec<_> = rows
+        .iter()
+        .filter(|row| row["id"] != "literal-apply")
+        .map(|row| row["id"].clone())
+        .collect();
+    queries["query_roles"] = json!({"required":["literal-apply"],"auxiliary":auxiliary});
     request.matching.queries_json = queries.to_string();
     request
 }
@@ -187,12 +193,10 @@ fn amended_resume_quarantines_the_frontier_taint_and_certifies_per_query() {
     assert_eq!(twice["amendments"].as_array().unwrap().len(), 2);
     assert_eq!(twice["amendments"][1]["parent"], first_amendment.digest());
 
-    // The offline verifier: physics queries (ids without "route") certify
-    // through closed containing roots; with "rescue" as the helper pattern
-    // the tainted route rays count as physics and cannot certify.
+    // Only the immutable required query must certify. Names cannot change
+    // this scope; modifying the declaration breaks the request binding.
     let mut verify = OwnerDomainWalkVerifyOptions::new(&directory);
     verify.require_closure = true;
-    verify.helper_pattern = "route".into();
     let report =
         owner_domain_walk_verify_closure(&chained, &verify, &AtomicBool::new(false), |_| {})
             .unwrap();
@@ -207,13 +211,19 @@ fn amended_resume_quarantines_the_frontier_taint_and_certifies_per_query() {
     );
     assert_eq!(report["physics_queries"]["certified"], 1);
     assert!(report["helper_roots"]["total"].as_u64().unwrap() >= 3);
-    verify.helper_pattern = "rescue".into();
+    let mut relabelled = chained.clone();
+    let mut changed: Value = serde_json::from_str(&relabelled.matching.queries_json).unwrap();
+    changed["query_roles"]["auxiliary"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("literal-apply"));
+    changed["query_roles"]["required"] = json!([]);
+    relabelled.matching.queries_json = changed.to_string();
     let report =
-        owner_domain_walk_verify_closure(&chained, &verify, &AtomicBool::new(false), |_| {})
+        owner_domain_walk_verify_closure(&relabelled, &verify, &AtomicBool::new(false), |_| {})
             .unwrap();
     assert_eq!(report["verdict"], "FAIL", "{report}");
     // The verifier refuses a command whose chain differs from the checkpoint.
-    verify.helper_pattern = "route".into();
     let report =
         owner_domain_walk_verify_closure(&resume, &verify, &AtomicBool::new(false), |_| {})
             .unwrap();
@@ -233,7 +243,7 @@ fn amended_resume_quarantines_the_frontier_taint_and_certifies_per_query() {
 
     // The planner: missing-route frontiers have no known rescue.
     let mut options = OwnerDomainWalkRescuePlanOptions::new(&directory);
-    options.helper_pattern = "route".into();
+    options.helper_id_prefix = "route".into();
     let plan = owner_domain_walk_rescue_plan(&chained, &options).unwrap();
     assert_eq!(
         plan.plan["verdict"], "unknown_frontier_class",
@@ -321,7 +331,6 @@ fn stop_policy_rescue(fixture: &Fixture, workers: usize, ready: bool) {
     }
     let mut verify = OwnerDomainWalkVerifyOptions::new(&directory);
     verify.require_closure = true;
-    verify.helper_pattern = "route".into();
     let report =
         owner_domain_walk_verify_closure(&resume, &verify, &AtomicBool::new(false), |_| {})
             .unwrap();

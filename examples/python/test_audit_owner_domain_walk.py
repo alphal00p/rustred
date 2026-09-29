@@ -28,7 +28,7 @@ AUTHORITY = "same_snapshot_phase_owner_native_summary"
 
 
 def queries_document():
-    return {"schema": "rustred.owner-domain-queries.json.v2", "queries": [
+    return {"schema": "rustred.owner-domain-queries.json.v2", "query_roles": {"required":["root-a"],"auxiliary":["helper-b"]}, "queries": [
         {"id": "root-a", "owner": "10", "lower": [1, 0], "upper": [3, 0], "max_numerator_rank": 2, "power_bounds": POWER},
         {"id": "helper-b", "owner": "01", "lower": [0, 1], "upper": [0, None], "max_numerator_rank": 1, "power_bounds": POWER}]}
 
@@ -205,6 +205,7 @@ def build_aliased_run(directory, aliases, inputs=None, mutate=None):
     run = build_run(directory, mutate=extend)
     queries = queries_document()
     queries["queries"] += [query for query, _ in aliases]
+    queries["query_roles"]["required"] += [query["id"] for query, _ in aliases]
     (Path(directory) / "queries.json").write_text(json.dumps(queries, indent=1) + "\n")
     return run
 
@@ -358,7 +359,7 @@ class SyntheticWalkAuditTests(unittest.TestCase):
         aliases = [(alias_query("phys-c"), 0), (alias_query("phys-d", "01", (0, 4), (0, 9), 0, dict(POWER)), 1)]
         with tempfile.TemporaryDirectory() as temporary:
             run = build_aliased_run(Path(temporary), aliases)
-            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            report = AUDIT.audit_walk(run, require_closure=True)
             self.assertEqual(report["audit"], "PASS", report["violations"])
             certification = report["certification"]
             self.assertTrue(certification["engine_closure_consistent"])
@@ -732,6 +733,7 @@ def build_rescued_run(directory, mutate=None, amend=True):
     queries = json.loads(queries_path.read_text())
     queries["queries"].append({"id": "phys-b", "owner": "01", "lower": [0, 1], "upper": [0, 3],
                                "max_numerator_rank": 1, "power_bounds": dict(POWER)})
+    queries["query_roles"]["required"].append("phys-b")
     queries_path.write_text(json.dumps(queries, indent=1) + "\n")
     records = top["domains"]
     records[1].update(frontiers=[{"kind": "local_dispatch_frontier", "disposition": "Unresolved { x }"}],
@@ -778,7 +780,7 @@ class RescuedWalkAuditTests(unittest.TestCase):
     def test_rescued_walk_certifies_physics_queries_through_amended_records(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = build_rescued_run(Path(temporary))
-            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            report = AUDIT.audit_walk(run, require_closure=True)
             self.assertEqual(report["audit"], "PASS", report["violations"])
             rescue = report["certification"]["rescue"]
             self.assertEqual(rescue["physics_queries"], {"total": 2, "certified": 2,
@@ -796,12 +798,12 @@ class RescuedWalkAuditTests(unittest.TestCase):
         for name, mutate in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 run = build_rescued_run(Path(temporary), mutate)
-                report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+                report = AUDIT.audit_walk(run, require_closure=True)
                 self.assertEqual(report["audit"], "FAIL", name)
         with tempfile.TemporaryDirectory() as temporary:
             # The same result without the amendment in the command: frontiers are a violation.
             run = build_rescued_run(Path(temporary), amend=False)
-            report = AUDIT.audit_walk(run, require_closure=True, helper_pattern="helper")
+            report = AUDIT.audit_walk(run, require_closure=True)
             self.assertEqual(report["audit"], "FAIL")
             self.assertTrue(any("nonzero frontiers" in v for v in report["violations"]), report["violations"])
 

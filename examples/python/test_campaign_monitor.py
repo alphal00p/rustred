@@ -350,7 +350,7 @@ class ProductionTests(unittest.TestCase):
             manifest = root / "manifest.json"
             manifest.write_text(json.dumps(selection))
             queries = root / "queries.json"
-            queries.write_text('{"schema":"rustred.owner-domain-queries.json.v2", "queries":[{"id":"unchanged"}]}\n')
+            queries.write_text('{"schema":"rustred.owner-domain-queries.json.v2", "queries":[{"id":"unchanged"}], "query_roles":{"required":["unchanged"],"auxiliary":[]}}\n')
             campaign = root / "campaign"
             staged = campaign / "inputs"
             receipt = STAGE.stage(manifest, queries, staged, root)
@@ -393,7 +393,7 @@ class ProductionTests(unittest.TestCase):
             args = Namespace(workers=1, cpus=str(cpu), checkpoint_interval_seconds=1234,
                              max_memory_bytes=10_000_000_000, ram_guard_margin_percent=7,
                              apply_subdivision_axis=2, apply_subdivision_cut=3, resume=False,
-                             publication_policy="ordered")
+                             publication_policy="ordered", auto_rescue=False)
             policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                campaign / "inputs", 67, 123456)
             args = Namespace(**{name: None for name in policy["options"]}, resume=True)
@@ -418,12 +418,12 @@ class ProductionTests(unittest.TestCase):
                                  checkpoint_interval_seconds=None, max_memory_bytes=None,
                                  ram_guard_margin_percent=None, apply_subdivision_axis=None,
                                  apply_subdivision_cut=None, resume=False,
-                                 publication_policy=requested)
+                                 publication_policy=requested, auto_rescue=False)
                 policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                    campaign / "inputs", 67, 123456)
                 command = policy["command_arguments"]
                 expected = requested or "ready"
-                self.assertEqual(policy["schema"], "rustred.production-steering.v4")
+                self.assertEqual(policy["schema"], "rustred.production-steering.v5")
                 self.assertEqual(policy["options"]["publication_policy"], expected)
                 self.assertEqual(command[command.index("--publication-policy") + 1], expected)
                 self.assertEqual(command[command.index("--transfer-unreserved-lookahead") + 1], "256")
@@ -461,7 +461,7 @@ class ProductionTests(unittest.TestCase):
                                  checkpoint_interval_seconds=None, max_memory_bytes=None,
                                  ram_guard_margin_percent=None, apply_subdivision_axis=None,
                                  apply_subdivision_cut=None, resume=False, publication_policy=None,
-                                 apply_cell_refinement_max_cardinality=cardinality)
+                                 apply_cell_refinement_max_cardinality=cardinality, auto_rescue=False)
                 policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                    campaign / "inputs", 2, 1024)
                 flag = "--apply-cell-refinement-max-cardinality"
