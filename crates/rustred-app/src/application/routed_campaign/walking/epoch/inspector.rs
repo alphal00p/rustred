@@ -8,8 +8,9 @@
 //! loop catches anything left (an empty result, refused by P1 as C5), so a
 //! job always yields exactly one result and the coordinator never waits for
 //! a result that cannot come. A poisoned queue lock or a disconnected
-//! channel is C5 on the coordinator. Per-CCX replicas, pinning, the group
-//! queues and a submit/poll result channel for rolling cuts are S4.
+//! channel is C5 on the coordinator. LC2 shares immutable prepared programs
+//! with thread-owned Symbolica contexts; no per-CCX replica system is added.
+//! The scoped executor exposes polling/cancellation so S3 can save before join.
 use super::super::OwnerDomainWalkRequest;
 use super::super::initial_orthants::InitialOrthants;
 use super::super::initial_overlap::InitialOverlapIndex;
@@ -17,11 +18,12 @@ use super::super::inspection;
 use super::job::{Job, JobResult};
 use super::resolve::Resolver;
 use rustred::solver::RoutedCandidateReducer;
-use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Condvar, Mutex, mpsc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+mod pool;
+pub(super) use pool::{Poll, Status, Work, with_polling_pool};
 
 pub(super) struct Context<'a, const N: usize> {
     pub reducer: &'a RoutedCandidateReducer<N>,
@@ -79,11 +81,6 @@ pub(super) fn inspect_job<const N: usize>(context: &Context<'_, N>, bytes: &[u8]
     encoded.unwrap_or_else(|_| assembly_panic(&job, seconds(), prefix))
 }
 
-struct Queue {
-    jobs: VecDeque<Vec<u8>>,
-    shutdown: bool,
-}
-
 /// The batch executor handed to the merge loop: one result per job, in
 /// completion order (the merge sorts its cut). Err is engine-fatal (C5).
 pub(super) type RunBatch<'a> = dyn FnMut(Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, String> + 'a;
@@ -108,85 +105,31 @@ pub(super) fn with_pool<R>(
         };
         return Ok(body(&mut run));
     }
-    let queue = Mutex::new(Queue {
-        jobs: VecDeque::new(),
-        shutdown: false,
-    });
-    let ready = Condvar::new();
-    let (sender, receiver) = mpsc::channel::<Vec<u8>>();
-    std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(threads);
-        for slot in 0..threads {
-            let queue = &queue;
-            let ready = &ready;
-            let sender = sender.clone();
-            let spawned = std::thread::Builder::new()
-                .name(format!("epoch-inspector-{slot}"))
-                .spawn_scoped(scope, move || {
-                    loop {
-                        let next = {
-                            // A poisoned lock ends the worker: its sender
-                            // drops, and the coordinator sees C5.
-                            let Ok(mut guard) = queue.lock() else { return };
-                            loop {
-                                if let Some(bytes) = guard.jobs.pop_front() {
-                                    break Some(bytes);
-                                }
-                                if guard.shutdown {
-                                    break None;
-                                }
-                                guard = match ready.wait(guard) {
-                                    Ok(guard) => guard,
-                                    Err(_) => return,
-                                };
-                            }
-                        };
-                        let Some(bytes) = next else { return };
-                        if sender.send(run_job(job, &bytes)).is_err() {
-                            return;
-                        }
-                    }
-                });
-            match spawned {
-                Ok(handle) => handles.push(handle),
-                Err(error) => {
-                    if let Ok(mut guard) = queue.lock() {
-                        guard.shutdown = true;
-                    }
-                    ready.notify_all();
-                    return Err(format!("epoch inspector spawn: {error}"));
-                }
-            }
-        }
-        drop(sender);
+    let inspect = |bytes: &[u8], _: &AtomicBool| run_job(job, bytes);
+    with_polling_pool(threads, &inspect, |pool| {
         let mut run = |jobs: Vec<Vec<u8>>| -> Result<Vec<Vec<u8>>, String> {
             let count = jobs.len();
-            queue
-                .lock()
-                .map_err(|_| "epoch inspector queue lock poisoned (C5)".to_string())?
-                .jobs
-                .extend(jobs);
-            ready.notify_all();
-            (0..count)
-                .map(|_| {
-                    receiver.recv().map_err(|_| {
-                        "epoch inspector result channel disconnected with results outstanding (C5)"
-                            .to_string()
+            pool.submit(
+                jobs.into_iter()
+                    .enumerate()
+                    .map(|(key, bytes)| Work {
+                        key: key as u64,
+                        bytes,
                     })
-                })
-                .collect()
+                    .collect(),
+            )?;
+            let mut results = Vec::new();
+            results
+                .try_reserve_exact(count)
+                .map_err(|_| "epoch result batch allocation")?;
+            loop {
+                match pool.poll(Duration::from_millis(50))? {
+                    Poll::Result { bytes, .. } => results.push(bytes),
+                    Poll::Started(_) | Poll::Waiting => {}
+                    Poll::Drained => return Ok(results),
+                }
+            }
         };
-        let result = catch_unwind(AssertUnwindSafe(|| body(&mut run)));
-        if let Ok(mut guard) = queue.lock() {
-            guard.shutdown = true;
-        }
-        ready.notify_all();
-        for handle in handles {
-            let _ = handle.join();
-        }
-        match result {
-            Ok(result) => Ok(result),
-            Err(panic) => std::panic::resume_unwind(panic),
-        }
+        body(&mut run)
     })
 }

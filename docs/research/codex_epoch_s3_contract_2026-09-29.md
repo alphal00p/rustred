@@ -9,7 +9,11 @@ subsequent manifest/scalar-bound assembly passed independent source review and
 the lightweight typecheck at `43253bfe`. Anchor/frontier and saved-dispatch
 decoding passed independent source review and the batched lightweight typecheck
 at `97787259`. Cross-state validation passed independent source review and the
-lightweight typecheck at `613e9c6f`; all new runtime tests remain unexecuted.
+lightweight typecheck at `613e9c6f`. The registry/roots/counter slice passed at
+`c51839c1`; authenticated record bodies and private restore/session lifecycle
+passed at `52d7f57f` (41.178s guard, 37.33s Cargo, 1,226,180KiB peak RSS).
+The polling executor has independent source review only; its compilation and
+all new runtime tests remain unexecuted.
 No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
@@ -512,9 +516,9 @@ cover crash-before-save session monotonicity, replay order, unchanged attempts,
 partial-admission refusal, unavailable monitoring with retained mathematical
 edges, orphan generation skipping, explicit previous fallback, exclusive lock,
 poison, changed-limit non-fallback and closure-counter corruption before session
-reservation. This private slice passed independent source review; compilation
-and all test execution remain pending.
-Fresh entry integration, stop/memory polling, durable save before worker join,
+reservation. This private slice passed independent source review and the
+lightweight metadata-only typecheck at `52d7f57f`; all test execution is pending.
+Fresh entry integration, runtime stop/memory polling, durable save before worker join,
 session crash-attribution policy and public resume remain unimplemented gates.
 
 For any eventual performance/deployment comparison, the contemporaneous legacy
@@ -524,14 +528,26 @@ is not production equivalence. Complete-workload throughput and native-calls/s
 are distinct measurements; neither the private lifecycle nor source checks claim
 the required >=1.5x matched throughput gate.
 
-The current `RunBatch` performs an unconditional `recv` for every result;
-`with_pool` joins before the caller can save. Replacing only the final export
-does not fix cancellation latency. The next source slice needs separate
-submit/poll/cancel operations and a checkpoint callback inside the scoped
-pool's body, before thread joins. A bounded polling interval observes an
-external stop while a native is still running. The worker queue stops
-starting new jobs once cancelled. Returned-but-unmerged results are either
-accepted as a complete coherent cut or dropped; no cancelled prefix seals.
+The shared scoped executor now provides bounded submit/poll/cancel operations;
+the existing S2 `RunBatch` is an adapter over that same pool, with inline W1
+unchanged. Its still-blocking adapter does not itself enable S3 runtime saves.
+Cancellation closes the queued-work path before pop, drops queued payloads and
+the result receiver, and leaves the caller inside the scope to save before
+joining. Status distinguishes worker-accepted/returned from merely Reserved;
+it is not memory attribution. Every job has exactly one ordered start/result
+receipt. Independent source review found a liveness gap when queue poison left
+idle sibling senders alive; poll now checks poison before waiting and after a
+timeout, with a synthetic outstanding-work/live-sender regression.
+
+The new source test holds one worker behind a latch, durably publishes a real
+private checkpoint, independently reads its authenticated manifest while the
+worker has not returned, and only then releases it. Its late invalid 1MiB result
+is discarded; full restore replays all three unchanged Reserved entries with a
+fresh session. No forced closure refresh occurs in this RamGuard test. Other
+source tests cover queued jobs never starting, repeated batches, panic receipts
+and cancellation races. These tests are unexecuted. No responsive native license
+path or runtime controller is claimed yet; extra start/status traffic in the S2
+adapter has unmeasured overhead. Public resume remains refused.
 
 For lockstep cancellation, persist the exact unfinished batch and dispatch
 state so restore reruns the same reserved work against the saved merge

@@ -233,6 +233,113 @@ fn prepared_roots_restore_replay_resave_and_crash_session_roundtrip() {
 }
 
 #[test]
+fn durable_stop_save_precedes_held_worker_join_and_preserves_reserved_replay() {
+    use crate::application::routed_campaign::walking::epoch::inspector::{
+        Poll, Work, with_polling_pool,
+    };
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex, mpsc};
+    use std::time::Duration;
+
+    let fixture = Fixture::new();
+    fixture.save(3, 3);
+    let mut restored = fixture.open().unwrap();
+    let identity = fixture.identity();
+    let gate = (Mutex::new(false), Condvar::new());
+    let returned = AtomicBool::new(false);
+    let entered = AtomicUsize::new(0);
+    let (started, receiving_start) = mpsc::channel();
+    let (saved, receiving_save) = mpsc::channel();
+    let latest_path = fixture.directory.0.join(publication::LATEST);
+    std::thread::scope(|scope| {
+        let observer_gate = &gate;
+        let observed_returned = &returned;
+        let observer = scope.spawn(move || {
+            let generation = receiving_save
+                .recv_timeout(Duration::from_secs(10))
+                .expect("durable publisher receipt before held native returns");
+            assert!(!observed_returned.load(Ordering::Acquire));
+            assert_eq!(
+                publication::read_manifest(&latest_path).unwrap().generation,
+                generation
+            );
+            *observer_gate.0.lock().unwrap() = true;
+            observer_gate.1.notify_all();
+        });
+        let inspect = |_: &[u8], stop: &AtomicBool| {
+            entered.fetch_add(1, Ordering::Relaxed);
+            started.send(()).unwrap();
+            let (guard, timeout) = gate
+                .1
+                .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |open| {
+                    !*open
+                })
+                .unwrap();
+            assert!(!timeout.timed_out() && *guard);
+            assert!(stop.load(Ordering::Acquire));
+            returned.store(true, Ordering::Release);
+            // Deliberately invalid late bytes must never reach P1 or sidecar.
+            vec![0xff; 1024 * 1024]
+        };
+        with_polling_pool(1, &inspect, |pool| {
+            let work = std::mem::take(&mut restored.replay)
+                .into_iter()
+                .map(|job| Work {
+                    key: job.seq,
+                    bytes: job.encode(),
+                })
+                .collect();
+            pool.submit(work).unwrap();
+            assert!(matches!(
+                pool.poll(Duration::from_secs(5)).unwrap(),
+                Poll::Started(_)
+            ));
+            receiving_start
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            pool.cancel().unwrap();
+            let status = pool.snapshot().unwrap();
+            assert_eq!(status.iter().filter(|job| job.started).count(), 1);
+            assert!(status.iter().all(|job| !job.returned));
+            let boundary = MergeBoundary::borrow(&restored.state, &restored.dispatch, 16).unwrap();
+            let inputs = Inputs {
+                identity: &identity,
+                admission: restored.admission,
+                rows: &restored.roots.rows,
+                frontiers: &restored.roots.frontiers,
+                stop: Some(merge::StopReason::RamGuard),
+            };
+            // No closure refresh or CAS call is part of the memory stop save.
+            let receipt = restored
+                .publisher
+                .save(&boundary, &inputs, &mut restored.records)
+                .unwrap();
+            assert!(!returned.load(Ordering::Acquire));
+            saved.send(receipt.generation).unwrap();
+        })
+        .unwrap();
+        observer.join().unwrap();
+    });
+    assert_eq!(entered.load(Ordering::Relaxed), 1);
+    assert_eq!(restored.state.k, 0);
+    assert_eq!(restored.records.total(), 0);
+    assert_eq!(restored.state.in_flight.len(), 3);
+    drop(restored);
+    let restored = fixture.open().unwrap();
+    assert_eq!(restored.stop_reason.as_deref(), Some("ram_guard"));
+    assert_eq!(restored.replay.len(), 3);
+    assert_eq!(restored.state.k, 0);
+    assert_eq!(restored.records.total(), 0);
+    assert_eq!(restored.dispatch.checkpoint_snapshot().session, 3);
+    for id in 0..3 {
+        assert_eq!(
+            restored.state.ledger.get(id).unwrap(),
+            Entry6::Reserved(Default::default())
+        );
+    }
+}
+
+#[test]
 fn interrupted_input_admission_stays_a_prefix() {
     let fixture = Fixture::new();
     fixture.save(1, 0);
