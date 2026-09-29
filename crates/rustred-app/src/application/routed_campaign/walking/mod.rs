@@ -768,7 +768,13 @@ fn run<const N: usize>(
             rescue::check_chain(
                 store.amendments(),
                 &amendments,
-                store.request_digest(),
+                &checkpoint::rescue_chain_base(
+                    request,
+                    store.request_digest(),
+                    store.g2_activation(),
+                    store.amendments(),
+                )
+                .map_err(AppError::input)?,
                 queries,
             )
             .map_err(AppError::input)?

@@ -407,6 +407,9 @@ pub(super) fn apply<const N: usize>(
     first_new: usize,
     observer: &impl Fn(Value),
 ) -> Result<(), String> {
+    // Durable G2' loans already fix the producer's replay, even at zero
+    // callbacks. Include their edges before computing the dead frontier cone.
+    state.g2_restore_pin_dependencies()?;
     // Frontier seeds: finished natives that kept frontiers (the tracker's
     // inspected-unsealed nodes) and inspections whose accepted, uncommitted
     // prefix already holds frontiers (an A10 stop inside a chunked stream).

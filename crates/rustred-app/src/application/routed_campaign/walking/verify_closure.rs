@@ -2198,12 +2198,16 @@ fn verify<const N: usize>(
         }
     };
     {
-        if let Err(error) = super::rescue::check_chain(
-            &loaded.raw.amendments,
-            &amended,
+        let chain_check = checkpoint::rescue_chain_base(
+            request,
             &loaded.raw.request,
-            &queries,
-        ) {
+            loaded.raw.g2_activation.as_ref(),
+            &loaded.raw.amendments,
+        )
+        .and_then(|base| {
+            super::rescue::check_chain(&loaded.raw.amendments, &amended, &base, &queries)
+        });
+        if let Err(error) = chain_check {
             violations.add("amendment_chain", || error);
         } else if amended.len() != loaded.raw.amendments.len() {
             violations.add("amendment_chain", || {

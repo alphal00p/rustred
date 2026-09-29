@@ -86,6 +86,9 @@ impl<const N: usize> State<N> {
                 .filter(|(_, c)| c.replay.as_ref().is_some_and(|r| r.accepted_events() > 0))
                 .map(|(ticket, _)| ticket.parent),
         );
+        ids.extend(self.g2_pinned_holders());
+        ids.sort_unstable();
+        ids.dedup();
         ids
     }
     /// IDs whose accepted but uncommitted prefix already holds frontier

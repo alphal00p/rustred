@@ -51,7 +51,7 @@ OPTIONAL_RAM_POLICY_OPTIONS = RAM_POLICY_OPTIONS[2:]
 # Frontier rescue (schema v5, explicit query roles): new campaigns resume automatically after a
 # frontier stop of a known class (supervisor --auto-rescue); amendments live
 # in <campaign>/amendments and are re-supplied on every --resume. Steering
-# written before v4 keeps its historical argv (no auto-rescue).
+# v5 requires explicit immutable query roles; untyped older steering is rejected.
 RESCUE_OPTIONS = ("auto_rescue", "helper_id_prefix", "max_rescues")
 DEFAULT_HELPER_ID_PREFIX = "owner-anchor-"
 DEFAULT_MAX_RESCUES = 32

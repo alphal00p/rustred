@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 mod admission;
 mod delegation;
 pub(super) mod g2;
+#[cfg(test)]
+mod g2_rescue_tests;
 pub(super) mod owner_batches;
 mod publication;
 pub(super) mod records;

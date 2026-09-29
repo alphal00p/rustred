@@ -181,7 +181,14 @@ fn plan<const N: usize>(
             "checkpoint request digest differs from the command's request/queries binding",
         ));
     }
-    rescue::check_chain(&raw.amendments, &amendments, &raw.request, &queries)
+    let chain_base = checkpoint::rescue_chain_base(
+        request,
+        &raw.request,
+        raw.g2_activation.as_ref(),
+        &raw.amendments,
+    )
+    .map_err(input_error)?;
+    rescue::check_chain(&raw.amendments, &amendments, &chain_base, &queries)
         .map_err(input_error)?;
     if amendments.len() != raw.amendments.len() {
         return Err(AppError::input(
@@ -443,7 +450,7 @@ fn plan<const N: usize>(
     let parent = raw
         .amendments
         .last()
-        .map_or(raw.request.clone(), |a| a.digest.clone());
+        .map_or(chain_base, |a| a.digest.clone());
     let unknown = classes.get("unknown").copied().unwrap_or(0) + raw.input_frontiers.len();
     let need_power = node_classes
         .values()

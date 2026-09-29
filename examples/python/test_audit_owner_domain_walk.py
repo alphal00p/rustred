@@ -726,6 +726,54 @@ class SyntheticWalkAuditTests(unittest.TestCase):
 class G2UnionCoverTest(unittest.TestCase):
     """The audit's own G2' cover predicate against lattice-point enumeration."""
 
+    def test_anchor_local_eligibility_is_not_transitive_closure(self):
+        row = {"record_kind": "native_inspection", "local_inspection_finished": True,
+               "frontiers": [], "error": None, "descendant_closed": False,
+               "local_classification_discharged": False}
+        self.assertTrue(AUDIT.g2_anchor_locally_eligible(row))
+        for changed in ({"frontiers": [{"kind": "guard"}]}, {"error": "failure"},
+                        {"rescue_abandoned": True}, {"local_inspection_finished": False}):
+            self.assertFalse(AUDIT.g2_anchor_locally_eligible(dict(row, **changed)))
+        row.update(record_kind="partial_initial_overlap_inspection", local_inspection_finished=False,
+                   residual_inspection_finished=True)
+        self.assertTrue(AUDIT.g2_anchor_locally_eligible(row))
+        row.update(record_kind="g2_residual_anchor_inspection",
+                   g2_residual_anchors={"residual_power_bounds": {"max_power_difference": 3}})
+        self.assertTrue(AUDIT.g2_anchor_locally_eligible(row))
+        row["g2_residual_anchors"]["residual_power_bounds"] = None
+        self.assertFalse(AUDIT.g2_anchor_locally_eligible(row))
+
+    def test_rescued_g2_keeps_late_taint_but_rejects_own_frontier_anchor(self):
+        def mutate(top):
+            anchor, loan = top["domains"][3], top["domains"][5]
+            anchor.update(descendant_closed=False)
+            loan.pop("initial_overlap")
+            loan.update(record_kind="g2_residual_anchor_inspection", lower=[2, 0], upper=[2, 0],
+                        descendant_closed=False, local_classification_discharged=False,
+                        responsibility_status="discharged_by_residual_and_g2_anchors",
+                        g2_residual_anchors={"mode": "union", "merge_stamp": 5, "snapshot_stamp": 5,
+                            "coordinates_and_rank_unchanged": True, "residual_power_bounds": None,
+                            "residual_pieces": 0, "anchors": [{"id": 3, "stamp": 3, "kind": "native"}]})
+            top["partial_initial_inspections"] = 0
+            top["delegation"].update(partial_initial_inspections=0, g2_records=1, g2_blocked=0)
+            top["descendant_closure"].update(total_closed=4, unresolved_domains=3)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            run = build_rescued_run(Path(temporary), mutate)
+            request = json.loads((run / "request.json").read_text())
+            request["command"] += ["--g2-residual-anchors", "union"]
+            (run / "request.json").write_text(json.dumps(request))
+            report = AUDIT.audit_walk(run)
+            self.assertEqual(report["audit"], "PASS", report["violations"])
+            self.assertEqual(report["g2_residual_anchor_checks"]["blocked_responsibility_records"], 0)
+            top = json.loads((run / "result.json").read_text())
+            top["domains"][3]["frontiers"] = [{"kind": "local_guard"}]
+            (run / "result.json").write_text(json.dumps(top))
+            report = AUDIT.audit_walk(run)
+            self.assertEqual(report["audit"], "FAIL")
+            self.assertTrue(any("G2' anchor 3 has no completed frontier-free" in failure
+                                for failure in report["violations"]), report["violations"])
+
     def test_union_cover_matches_enumeration_on_random_boxes(self):
         import random
         rng = random.Random(5)

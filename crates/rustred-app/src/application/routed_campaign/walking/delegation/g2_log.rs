@@ -226,9 +226,9 @@ impl<K: Copy + Eq> Ledger<K> {
     }
 
     /// An admissible anchor of `id`: its logged row.
-    fn valid_anchor(&self, id: usize, anchor: u32) -> Result<Row, Error> {
+    pub(in super::super) fn valid_anchor(&self, id: usize, anchor: u32) -> Result<Row, Error> {
         let anchor = anchor as usize;
-        if anchor == id || anchor >= self.entries.len() {
+        if id >= self.entries.len() || anchor == id || anchor >= self.entries.len() {
             return Err(Error::InvalidG2Anchor);
         }
         let source = &self.entries[anchor];

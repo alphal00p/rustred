@@ -48,7 +48,10 @@ impl<const N: usize> State<N> {
         let mut entries = Vec::new();
         for row in &log.rows {
             let id = row.id as usize;
-            if row.kind == kind::G2_FULL_COVER || !ledger.discharged_locally(id) {
+            if row.kind == kind::G2_FULL_COVER
+                || !ledger.discharged_locally(id)
+                || self.queue.is_quarantined(id)
+            {
                 continue;
             }
             let domain = self.queue.domain(id);
@@ -124,7 +127,11 @@ impl<const N: usize> State<N> {
         let (Some(store), Some((stamp, record_kind))) = (&self.g2, logged) else {
             return;
         };
-        if self.error.is_none() && frontiers == 0 && record_kind != kind::G2_FULL_COVER {
+        if self.error.is_none()
+            && frontiers == 0
+            && record_kind != kind::G2_FULL_COVER
+            && !self.queue.is_quarantined(id)
+        {
             let domain = self.queue.domain(id);
             let row = G2Row {
                 id: id as u32,
@@ -221,6 +228,108 @@ impl<const N: usize> State<N> {
         }
         self.g2_pins = pins;
         Ok(())
+    }
+
+    /// Before rescue's reverse-taint pass, publish the dependencies of durable
+    /// accepted decisions, even when their streams accepted zero callbacks.
+    /// This changes neither the pinned plan nor its replay cursor. Ordinary
+    /// G2-only resume keeps its historical path; rescue calls this before any
+    /// amendment admission/save. Validate the entire set before adding edges.
+    pub(in super::super) fn g2_restore_pin_dependencies(&mut self) -> Result<(), String> {
+        let mut ids = BTreeSet::new();
+        for (id, _) in &self.g2_pins {
+            if *id >= self.queue.domains.len() || !ids.insert(*id) {
+                return Err("rescue: invalid or duplicate G2' pin source".into());
+            }
+        }
+        let planned = self
+            .g2_pins
+            .iter()
+            .any(|(_, outcome)| matches!(outcome, Outcome::Planned(_)));
+        if !planned {
+            // Old activation checkpoints may retain inert Whole pins for
+            // Route or already-published jobs. They lend no dependency.
+            return Ok(());
+        }
+        let ledger = self
+            .queue
+            .delegation
+            .as_ref()
+            .ok_or("rescue: G2' pins need the ledger")?;
+        let closure = self.closure.borrow();
+        for (id, outcome) in &self.g2_pins {
+            let Outcome::Planned(plan) = outcome else {
+                continue;
+            };
+            if *id < self.initial_domain_count
+                || self.queue.domains[*id].phase() != Phase::Apply
+                || ledger.is_published(*id)
+                || !matches!(closure.local_status(*id), Some((_, false)))
+                || plan.anchors.is_empty()
+                || plan.snapshot > ledger.published_count() as u64
+                || plan.residual.is_some_and(|(lo, hi)| lo > hi)
+            {
+                return Err(
+                    "rescue: G2' planned pin is not an unfinished unsealed Apply inspection".into(),
+                );
+            }
+            let mut previous = None;
+            for anchor in &plan.anchors {
+                let row = ledger
+                    .valid_anchor(*id, anchor.id)
+                    .map_err(|e| format!("rescue: invalid G2' pinned anchor: {e}"))?;
+                if row.kind != anchor.kind
+                    || row.stamp != anchor.stamp
+                    || row.stamp >= plan.snapshot
+                    || previous.is_some_and(|stamp| stamp >= row.stamp)
+                    || closure.local_status(anchor.id as usize).is_none()
+                {
+                    return Err(
+                        "rescue: G2' pinned anchor kind, stamp or dependency endpoint mismatch"
+                            .into(),
+                    );
+                }
+                previous = Some(row.stamp);
+            }
+        }
+        drop(closure);
+        let mut closure = self.closure.borrow_mut();
+        for (id, outcome) in &self.g2_pins {
+            if let Outcome::Planned(plan) = outcome {
+                for anchor in &plan.anchors {
+                    closure.edge(*id, anchor.id as usize);
+                    if closure.local_status(*id).is_none() {
+                        return Err("rescue: could not retain G2' pinned dependency edges".into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Durable pins count as accepted decisions for rescue's worker-view
+    /// epochs/dead-cone preservation, including a zero-callback pin. At save,
+    /// currently active decisions become durable together with their epoch.
+    pub(super) fn g2_pinned_holders(&self) -> Vec<usize> {
+        let mut ids: Vec<_> = self.g2_pins.iter().map(|(id, _)| *id).collect();
+        if let Some(store) = &self.g2 {
+            ids.extend(store.pending_pins().into_iter().map(|(id, _)| id));
+            ids.extend(
+                std::iter::once(self.queue.next)
+                    .chain(self.streams.active.map(|t| t.parent))
+                    .chain(self.streams.parked.iter().map(|(t, _)| t.parent))
+                    .filter(|&id| store.peek(id).is_some()),
+            );
+        }
+        ids.retain(|&id| {
+            id < self.queue.domains.len()
+                && self
+                    .queue
+                    .delegation
+                    .as_ref()
+                    .is_some_and(|ledger| !ledger.is_published(id))
+        });
+        ids
     }
 
     /// G2' activation on a resumed checkpoint written without G2': back-fill

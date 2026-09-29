@@ -124,6 +124,48 @@ fn binding(request: &OwnerDomainWalkRequest) -> String {
         .to_hex()
         .to_string()
 }
+
+/// Authenticate the one supported request transition using the actual bound
+/// request, not a digest asserted by saved metadata. No other request fields
+/// (including query roles and bounds) may change at G2' activation.
+fn g2_activation_before(
+    request: &OwnerDomainWalkRequest,
+    current: &str,
+    activation: Option<&Value>,
+) -> Result<Option<String>, String> {
+    let Some(activation) = activation.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let mut off = request.clone();
+    off.g2_residual_anchors = super::OwnerDomainWalkG2ResidualAnchors::Off;
+    let before = binding(&off);
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Union
+        || current != binding(request)
+        || activation["from"] != "off"
+        || activation["to"] != "union"
+        || activation["binding_before"].as_str() != Some(before.as_str())
+        || activation["binding_after"].as_str() != Some(current)
+    {
+        return Err("invalid G2' activation request binding receipt".into());
+    }
+    Ok(Some(before))
+}
+
+/// One immutable rescue chain base, shared by walker, verifier and planner.
+/// Only an already-recorded chain may retain the authenticated pre-activation
+/// binding. A first amendment created after activation binds the current one.
+pub(super) fn rescue_chain_base(
+    request: &OwnerDomainWalkRequest,
+    current: &str,
+    activation: Option<&Value>,
+    recorded: &[super::rescue::AmendmentRef],
+) -> Result<String, String> {
+    let before = g2_activation_before(request, current, activation)?;
+    Ok(match before {
+        Some(before) if recorded.first().is_some_and(|first| first.parent == before) => before,
+        _ => current.to_owned(),
+    })
+}
 /// The bound request value (see `binding`).
 fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
     // Checkpoint location, interval and resume mode are transport, not policy.
@@ -343,6 +385,7 @@ impl Store {
                     request_binding = m.request.clone();
                 }
             }
+            g2_activation_before(request, &binding(request), g2_activation.as_ref())?;
             // The ledger section is optional in the manifest, so its presence
             // is bound to the request here; a manifest without it must not
             // resume a transfer campaign as InspectAll.
@@ -482,8 +525,8 @@ impl Store {
     pub(super) fn amendments(&self) -> &[super::rescue::AmendmentRef] {
         &self.amendments
     }
-    /// The request digest every checkpoint of this walk is bound to: the
-    /// parent of the first rescue amendment.
+    /// Current request digest; a pre-activation rescue chain can retain its
+    /// separately authenticated original base (`rescue_chain_base`).
     pub(super) fn request_digest(&self) -> &str {
         &self.request
     }
@@ -1083,6 +1126,7 @@ pub(super) struct RawCheckpoint<const N: usize> {
     /// Frontier details accepted in an uncommitted prefix, by inspection ID
     /// (an A10 stop can fire inside a chunked publication).
     pub pending_frontiers: Vec<(usize, Vec<Value>)>,
+    pub g2_activation: Option<Value>,
 }
 
 pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint<N>, String> {
@@ -1156,6 +1200,11 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
         }
     }
     Ok(RawCheckpoint {
+        g2_activation: manifest
+            .metadata
+            .get("g2_activation")
+            .filter(|v| !v.is_null())
+            .cloned(),
         generation: manifest.generation,
         request: manifest.request.clone(),
         publication_policy: manifest.publication_policy.clone(),
@@ -1217,6 +1266,58 @@ mod tests {
             rank: None,
             powers: Default::default(),
         }
+    }
+
+    #[test]
+    fn g2_rescue_chain_base_authenticates_actual_before_after_and_preserves_only_recorded_base() {
+        let mut on = request(Path::new("unused-checkpoint"));
+        let before = binding(&on);
+        on.g2_residual_anchors = super::super::OwnerDomainWalkG2ResidualAnchors::Union;
+        let after = binding(&on);
+        let receipt = json!({"from":"off", "to":"union",
+            "binding_before":before, "binding_after":after});
+        let mut recorded = vec![super::super::rescue::AmendmentRef {
+            sequence: 1,
+            digest: "d".repeat(64),
+            parent: before.clone(),
+            queries: 1,
+            first_input: 1,
+            first_domain: 1,
+            quarantined: 1,
+            resumed_generation: 1,
+        }];
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &recorded).unwrap(),
+            before
+        );
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &[]).unwrap(),
+            after
+        );
+        recorded[0].parent = after.clone();
+        assert_eq!(
+            rescue_chain_base(&on, &after, Some(&receipt), &recorded).unwrap(),
+            after
+        );
+        for key in ["binding_before", "binding_after", "from", "to"] {
+            let mut corrupt = receipt.clone();
+            corrupt[key] = json!("changed");
+            assert!(
+                rescue_chain_base(&on, &after, Some(&corrupt), &recorded).is_err(),
+                "{key}"
+            );
+        }
+        for key in ["binding_before", "binding_after"] {
+            let mut corrupt = receipt.clone();
+            corrupt.as_object_mut().unwrap().remove(key);
+            assert!(rescue_chain_base(&on, &after, Some(&corrupt), &[]).is_err());
+        }
+        let mut changed = on.clone();
+        changed.matching.queries_json = "different exact query roles or bounds".into();
+        assert!(
+            rescue_chain_base(&changed, &binding(&changed), Some(&receipt), &recorded).is_err()
+        );
+        assert!(rescue_chain_base(&on, &after, Some(&json!(false)), &recorded).is_err());
     }
     /// Ledger, retirement alias, dependency edges and records: every section
     /// non-empty and mutually consistent, so it resumes.

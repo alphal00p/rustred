@@ -334,6 +334,27 @@ def alias_contains(record, query):
 # cross-check of both.
 
 
+def g2_anchor_locally_eligible(row):
+    """Own native/residual success, not transitive closure or responsibility.
+
+    A historical anchor may later reach a blocked descendant. Its exact loan
+    remains valid only with that dependency retained; its own frontier or an
+    abandoned inspection never lends a native scope.
+    """
+    if row.get("error") is not None or row.get("frontiers") != [] or row.get("rescue_abandoned") is True:
+        return False
+    kind = row.get("record_kind")
+    if kind == "native_inspection":
+        return row.get("local_inspection_finished") is True
+    if kind == "partial_initial_overlap_inspection":
+        return row.get("residual_inspection_finished") is True
+    if kind == "g2_residual_anchor_inspection":
+        block = row.get("g2_residual_anchors")
+        return (row.get("residual_inspection_finished") is True and isinstance(block, dict)
+                and block.get("residual_power_bounds") is not None)
+    return False
+
+
 def box_of(domain, rank_field="rank", phase=None):
     """(owner, phase, lower, upper, rank, A, D_min, D_max) of a walker record or query, or None."""
     owner = domain.get("owner") if isinstance(domain, dict) else None
@@ -998,8 +1019,14 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             check(phase == "Apply", f"record {identity}: G2' inspection outside Apply")
             check(row.get("local_inspection_finished") is False, f"record {identity}: G2' record claims full inspection")
             check(row.get("residual_inspection_finished") is True, f"record {identity}: G2' residual unfinished")
-            check(row.get("responsibility_status") == "discharged_by_residual_and_g2_anchors",
+            status = row.get("responsibility_status")
+            blocked_key = "blocked_by_residual_or_g2_anchor_frontiers"
+            blocked = (rescue and isinstance(status, dict) and set(status) == {blocked_key}
+                       and type(status[blocked_key]) is int and status[blocked_key] > 0)
+            check(status == "discharged_by_residual_and_g2_anchors" or blocked,
                   f"record {identity}: G2' responsibility_status")
+            check(not (blocked and claim is True), f"record {identity}: frontier-blocked G2' record reported closed")
+            g2_counts["blocked_responsibility_records"] += int(blocked)
             block = row.get("g2_residual_anchors")
             if check(isinstance(block, dict) and block.get("mode") == "union"
                      and block.get("coordinates_and_rank_unchanged") is True
@@ -1123,10 +1150,11 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             for anchor in block["anchors"]:
                 if isinstance(anchor, dict) and type(anchor.get("id")) is int:
                     needed.add(anchor["id"])
-        boxes = {}
+        boxes, local_eligibility = {}, {}
         for item in stream_walk(run / "result.json"):
             if item[0] == "domain" and item[1].get("id") in needed:
                 boxes[item[1]["id"]] = box_of(item[1])
+                local_eligibility[item[1]["id"]] = g2_anchor_locally_eligible(item[1])
         for identity, box, block in g2_records:
             g2_counts["records"] += 1
             own = position[identity]
@@ -1174,6 +1202,10 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
                     admissible = False
                     continue
                 anchor_box = boxes.get(a)
+                if not check(local_eligibility.get(a) is True,
+                             f"record {identity}: G2' anchor {a} has no completed frontier-free local inspection"):
+                    admissible = False
+                    continue
                 if not check(anchor_box is not None, f"record {identity}: G2' anchor {a} has no domain"):
                     admissible = False
                     continue
@@ -1333,7 +1365,8 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
           "ledger partial_initial_inspections != partial records")
     if g2_records or "g2_records" in ledger:
         check(ledger.get("g2_records") == len(g2_records), "ledger g2_records != G2' records")
-        check(ledger.get("g2_blocked") == 0, "ledger g2_blocked must be 0")
+        check(ledger.get("g2_blocked") == g2_counts["blocked_responsibility_records"],
+              "ledger g2_blocked != responsibility-blocked G2' records")
     for field in LEDGER_ZERO:
         if not (rescue and field in RESCUE_BLOCKED):
             check(ledger.get(field) == 0, f"ledger {field} must be 0")
