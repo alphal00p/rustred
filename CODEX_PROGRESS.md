@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 15:31 UTC
+## Current shortened-delivery ownership — 2026-09-29 17:05 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,13 +52,13 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | source frozen; native validation pending | `epoch_rolling_impl`, root review | Composition complete; finish consolidated native build and execute tests |
-| Fresh CP6 G2 Union | delivered source; validation active | `epoch_g2_rescue_impl`, root review | Integrated `714970bc`; execute real save/restore/cold tests |
-| CP6 rescue and required scope | integrated; native validation pending | `epoch_g2_rescue_impl`, root/rolling critique | `1bacf9d9`: explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; compile/run combined tests |
-| Adaptive dispatch | integrated; native validation pending | `stage_a_release`, root independent review | Successful-publication observations wired; execute native/pilot tests |
-| CLI/Python policy surfaces and monitoring | source frozen; native validation pending | root/`epoch_rolling_impl`, independent `stage_a_release` audit | 103 lifecycle and 37 final monitor/metrics Python checks PASS; native compilation and end-to-end checks remain |
+| Rolling Epoch controller and lookup replicas | source frozen; final native rerun active | original `epoch_rolling_impl`; validation `stage_a_release`, root | Full core PASS; app ten-failure correction independently audited; final app-opt1 build runs after opt0 link-size failure |
+| Fresh CP6 G2 Union | integrated and audited; final execution pending | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | `f3f707af` corrects obsolete lockstep guard and preserves real W1 cold/resume coverage |
+| CP6 rescue and required scope | integrated and audited; final execution pending | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | Explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; complete corrected suite and CLI gates remain |
+| Adaptive dispatch | integrated and reviewed; pilot pending | author `stage_a_release`, root independent review | Successful-publication observations wired; final native and matched adaptive pilots remain |
+| CLI/Python policy surfaces and monitoring | Python PASS; final native validation pending | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Full Python310 PASS/one optional slow skip; final CLI lifecycle checks await optimized binary |
 | Algebraic input/pivot ordering review | delivered | `stage_a_release`, root | Retain natural saved programs; no qualified replacement. Reopen only with the documented small prescreen |
-| Matched performance and deployment | pending | root, independent interpretation audit | Freeze integrated source; matched current-G2 legacy comparisons and cold controls; no speedup claim yet |
+| Matched performance and deployment | prepared, not executed | root, independent `stage_a_release` interpretation audit | 28 planned arms (including repeats/adaptive/optional W50); explicit combined4L parity and five-loop1.5x gates; no speedup claim |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
