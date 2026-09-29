@@ -216,6 +216,19 @@ neither source audit nor an unrun test constitutes execution evidence. A narrow
 follow-up corrects the count/length contract and adds explicit empty-run, variable
 target-count and mismatched-inventory mutations before any runtime exposure.
 
+The independently source-audited lookup reconstruction (typecheck/execution
+pending) consumes that provisional arena and
+persisted live words. It inserts exactly the live IDs in original ID order using
+the existing index path with no retire set; it does not recompute an antichain.
+It independently replays the full-orthant slot rule over every canonical historical
+ID, including retired IDs, and compares every streamed slot with that history.
+The orthant header/count/actual byte length is checked before index allocation.
+Tests include a retired dominant orthant, sparse absent slots, two contained IDs
+that must both remain live, wrong rank/ID/shape slots, live padding, bad digest and
+actual domain/live/orthant writer output. Full state assembly and all remaining
+validators listed above still gate any usable EpochState; no performance speedup
+or public restart is claimed.
+
 ## Proposed S3 state and writer contract
 
 Implementation is confined to epoch modules and the narrow request/CLI stop

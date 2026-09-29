@@ -303,7 +303,7 @@ fn json_stream<W: Write, T: Serialize + ?Sized>(output: W, value: &T) -> io::Res
 /// Historical dominant orthants may be retired from the live lookup set.
 /// Store bucket ordinals are rebuilt from all images in insertion order;
 /// record the actual slot independently of live bits for restore validation.
-fn write_orthants<const N: usize, W: Write>(
+pub(super) fn write_orthants<const N: usize, W: Write>(
     boundary: &MergeBoundary<'_, N>,
     output: W,
 ) -> io::Result<(W, Digest)> {
