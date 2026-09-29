@@ -6,6 +6,55 @@ The governing scope and operational limits are in `CODEX_PROGRESS_PLAN.md`.
 
 ## Current priority after the G2 correctness controls
 
+### Same-view epoch misses: narrow follow-up registered
+
+The first private S4 implementation moves published-store lookup to inspectors,
+but still repeats the full search in P2 for every reported miss. Root and the
+independent reviewer accepted investigating a narrowly guarded bypass:
+
+- Require the same immutable lockstep store version and watermark. No stale
+  snapshot or rolling-scheduler inference is permitted.
+- Reconstruct the canonical query and native summary independently. Retain
+  collision-confirmed exact-image lookup and exact positive verification;
+  skip only the already-completed published-store forward search.
+- Preserve cut-local duplicate resolution, antichains, reverse retirements,
+  Planned tokens and all P3 obligations. A negative result is **not coverage**:
+  it enters ordinary admission and cannot discharge a dependency.
+
+Normal deterministic equality depends on the worker actually searching that
+same store. A corrupted false negative can create redundant work or change
+capacity outcomes; mathematical soundness alone is not record equality. Tests
+must include retired exact aliases, contradictory misses, covered-subset false
+negatives, missing/stale reports, mixed-hit/miss full-record and graph equality,
+and interrupted replay. Charge worker searches, remaining exact checks and
+payload handling separately. The expected saving is one coordinator forward
+search per true miss, not the whole admission cost. No reduced forward work or
+no repeatable net campaign improvement falsifies the performance case.
+
+This is a source-design decision only, after the independently reviewed S4
+freeze; no bypass has been implemented or measured yet. Its source integration
+must not silently change the frozen build currently executing validation.
+
+### Process-local NUMA: no gross cross-socket-placement opportunity observed
+
+A one-shot read-only check at 10:18–10:20 UTC found LC2's allowed CPUs128–227
+on socket1/nodes4–7. Of 42,508,392 KiB resident in the observed NUMA mappings,
+only 1,408 KiB was on socket0. Approximately 95.68% was on nodes4 and6. All463
+mappings used default policy. The separate status/map reads are not an atomic
+RSS measurement. Source: `TMP/codex-s4-source.yAIv3U/NUMA.md`.
+
+Root independently checked CPU/memory masks and repeated the small mapping
+aggregation: 42,643,572 KiB total, again 1,408 KiB across sockets. These reads
+did not attach a profiler, scan campaign data or change any process settings.
+The comparison allocation64–79 lies on one node on socket0 and has SMT siblings;
+it cannot directly predict100-worker, multi-node production behavior.
+
+This does not establish memory-access locality, bandwidth or latency costs.
+Do not add memory binding merely from the residency picture. Reopen a placement
+experiment only with evidence of costly remote accesses and a matched,
+process-local test; memory layout and checkpoint costs remain separate open
+questions. No speedup or production configuration change follows here.
+
 ### Post-G2 disposition of algebraic shortcuts (09:10 UTC)
 
 The later qualified profile is recorded in

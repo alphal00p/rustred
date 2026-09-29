@@ -61,7 +61,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | N1 modular witnesses | deferred | active_goal_delivery_audit (research), root/joint_support_pruning (independent critique) | Sound native seam confirmed; reopen only for capped, exact-path-preserving census of expensive predicates with fully fixed occurring index support, charging support/evaluation/fallback costs |
 | N4 coverage-first work | deferred | active_goal_delivery_audit (research), root/joint_support_pruning (independent critique) | Zero initial-orthant hits in finite profile; mixed job-local hits lack Apply/singleton cost attribution. Require a bounded positive opportunity census before changing coefficient work |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
-| Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
+| Memory / checkpoint / NUMA | active | joint_support_pruning (read-only census), root (independent check) | NUMA snapshot shows negligible cross-socket residency; placement experiment deferred until remote-access evidence. Memory-layout and checkpoint-cost measurement remain pending |
 | New algorithms / literature | delivered | closure_acceleration_research; independent critique active_goal_delivery_audit | `docs/research/codex_exact_closure_acceleration_2026-09-29.md`; one-piece coordinate/A/R/D shadow test pending opportunity; no engine implementation recommended |
 | Post-G2 critical-path sampling | delivered | joint_support_pruning (analysis), root/active_goal_delivery_audit (independent critique) | Bounded phase-interior analysis completed; throttling prevents unbiased-coverage or precise-benefit claims; one narrow N2 hypothesis registered, no production attachment |
 | One-piece residual opportunity probe | active | closure_acceleration_research (source author), active_goal_delivery_audit (independent review) | Isolated `codex/g2-onepiece-shadow` observer only; no planner/coverage changes; uncompiled/unexecuted, actual-snapshot sample required before any pruning implementation |
@@ -86,6 +86,19 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 10:26 UTC — prefix and S4 combined; narrow miss follow-up assigned
+
+- [M] S4 was privately committed as `0c2c97de1a0aabd9cec05d2e262127463b5e4f7a`, then normally cherry-picked onto prefix `bce2e56e` in the new `codex/s3-s4-combined` worktree. Combined tip `e964581974221732e1708d076c463a180f234aa1`, tree `2174b880c8e407a63ae7c6a806a7512f03051b28`, is clean. No conflicts or manual integration edits. Receipt: `TMP/codex-s4-source.yAIv3U/COMBINED.md`. Root and the independent reviewer checked the seven overlapping files against both parents; all readiness, diagnostics, ownership and test changes remain. **No combined typecheck or runtime test has executed.**
+- Assigned `joint_support_pruning` the registered negative-miss follow-up on a separate branch from that frozen combined tip. Keep the AllMiss control/default, exact-image uniqueness, positive verification, cut-local resolution and dependency graph unchanged. The separate reviewer accepted the design; implementation and measurement are pending. No new public API, stale-snapshot shortcut or rolling-mode claim.
+- The current validation build remains the original `29e30a79` job, not the new combined source. Its source/cache are unchanged while isolated follow-up work proceeds. Main and production do not inherit private-source execution claims.
+
+### 2026-09-29 10:23 UTC — S4 source audit accepted; miss and NUMA dispositions
+
+- [M] Independent S4 review found and corrected one additional test fixture that mutated through the new read-only store wrapper. Assertions are unchanged. Final 24-file receipt: `TMP/codex-s4-source.yAIv3U/SOURCE-final.md`, SHA256 `0533bf26855861c71a23c94a153ca7abbd7dc6b8a4c186ea5c9d65d082515caf`; all hashes independently matched. Source review passes, but all eight new and two expanded tests remain uncompiled/unexecuted. Author is authorized to privately commit and integrate with prefix `bce2e56e` in a new isolated branch, not main or the active validation checkout.
+- The author, root and separate reviewer agree on the narrow lockstep negative-miss proposal, preserving exact uniqueness and every positive/antichain/dependency check. It is registered with explicit falsifiers in `docs/research/codex_next_candidates_2026-09-29.md`; no bypass implementation or timing claim yet. The reviewer is now preparing the smallest S5 typed-record/bulk-edge proposal, not implementing another framework.
+- [M] A one-shot NUMA census and root's independent small repeat find only 1,408 KiB resident across the socket boundary from LC2's allowed CPUs. This does not measure remote accesses or prove intra-socket locality. No placement change or benchmark is authorized from that observation; detailed limits and remaining memory/checkpoint questions are preserved in the candidate document. Production is untouched.
+- [M] Progress documentation milestone `f76c31b7` is pushed on `fable_5_1`. The main FeynKit file still has its original user-owned SHA256 `33819cb3e5053a59f3587741e29b297a3a5b53bfa35dabcbe2e8fe95fe700332`; unrelated untracked work remains untouched.
 
 ### 2026-09-29 10:16 UTC — S4 frozen for independent review
 
