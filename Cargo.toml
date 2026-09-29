@@ -20,13 +20,13 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 authors = [
-    "Valentin Hirschi <valentin.hirschi@gmail.com>",
     "Gregor Kälin",
+    "Valentin Hirschi <valentin.hirschi@gmail.com>",
 ]
 
 [workspace.dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }
-symbolica = { version = "=3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info", "bincode"] }
+symbolica = { version = "~3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info", "bincode"] }
 
 [patch.crates-io]
 symbolica = { path = "vendor/symbolica" }

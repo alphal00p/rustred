@@ -137,6 +137,7 @@ impl PyIbpFamily {
     #[new]
     #[pyo3(signature = (family, *, name="F"))]
     fn new(family: &Bound<'_, PyAny>, name: &str) -> PyResult<Self> {
+        record_usage();
         let converted = FamilyConversion::from_feynkit(family, name)?;
         // A physical parameter may itself be called n1. Give indices a private
         // per-family scope and check even deliberately pre-created collisions.
@@ -582,4 +583,19 @@ pub fn register_hep_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyIbpRule>()?;
     module.add_class::<PyIbpSolution>()?;
     Ok(())
+}
+
+static CITATIONS_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[inline]
+pub(crate) fn record_usage() {
+    use std::sync::atomic::Ordering;
+    if !CITATIONS_USED.load(Ordering::Relaxed) {
+        CITATIONS_USED.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Whether this package has performed an operation in this process.
+pub fn was_used() -> bool {
+    CITATIONS_USED.load(std::sync::atomic::Ordering::Relaxed)
 }

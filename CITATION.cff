@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use RustRed, please cite this software."
+type: software
+title: RustRed
+authors:
+  - family-names: Kälin
+    given-names: Gregor
+  - family-names: Hirschi
+    given-names: Valentin
+repository-code: "https://github.com/alphal00p/rustred"
