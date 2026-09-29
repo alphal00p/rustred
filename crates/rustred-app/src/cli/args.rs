@@ -724,6 +724,9 @@ control (default all-miss). It requires --follow-successors, --publication-polic
 epoch and --checkpoint or --resume. Snapshot performs inspector-side lookup
 against the same immutable lockstep view; it does not grant closure authority.
 The mode is bound to the checkpoint request and cannot change on resume.
+--epoch-rolling opts into bounded rolling publication/inspection overlap for a
+checkpoint-enabled Epoch walk. The choice is frozen on resume; omitted retains
+the lockstep control. It changes scheduling, not the required mathematical scope.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.

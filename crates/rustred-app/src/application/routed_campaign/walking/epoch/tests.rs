@@ -823,7 +823,10 @@ fn f20_refused_lanes() {
         resume: true,
         ..crate::OwnerDomainWalkCheckpointOptions::new("unused")
     });
-    assert!(super::admit(&resume).is_ok(), "same-engine CP6 resume is supported");
+    assert!(
+        super::admit(&resume).is_ok(),
+        "same-engine CP6 resume is supported"
+    );
     let mut g2 = base();
     g2.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Union;
     assert!(super::admit(&g2).unwrap_err().to_string().contains("G2'"));

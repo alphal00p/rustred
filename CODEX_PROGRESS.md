@@ -87,6 +87,32 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 13:50 UTC — rolling interface and bounded ordering review
+
+- Root delivered opt-in `epoch_rolling` request/CLI/Python wiring and frozen
+  CP6 binding; false keeps historical argv/digest behavior. Independent source
+  review by `stage_a_release` found no blocker. Eighteen focused Python
+  steering tests passed (`TMP/codex-epoch-rolling-steering-tests-1344/`);
+  native integration/window/runtime tests remain pending. The four earlier
+  native lifecycle fixes are committed at `6228d34d`, independently reviewed,
+  not yet re-executed in the new binary.
+- A broader frontend run passed77, failed1 and skipped2. The failure is a test
+  asking for six workers under a two-CPU test affinity, so it receives the
+  resource-admission error before the expected containment diagnostic. Retain
+  the failed receipt (`TMP/codex-epoch-rolling-frontend-regressions-1347/`);
+  rerun with sufficient allocated test affinity, without weakening assertions.
+- `epoch_g2_rescue_impl` delivered source `77e8ae72`: fresh Union planner,
+  residual publication, variable CP6 anchors, restore and independent cold
+  reader. Root review/integration is next; no native PASS yet. Rescue and
+  activation guards remain in force until the next slice is complete.
+- The delegated algebraic-order review recommends retaining saved natural
+  programs and existing helper-first input order. Past source-row permutations
+  changed RHS size but did not remove the exceptional obstruction. No valid
+  alternative owner library is ready. Findings, negative evidence and the
+  narrowly justified later prescreen are preserved in
+  `docs/research/parallel_delivery_ordering_review_2026-09-29.md`. This is not
+  evidence of an optimal ordering or a new performance result.
+
 ### 2026-09-29 13:38 UTC — Stage A compiling; real Epoch tests expose integration fixes
 
 - [M] Root branch is now `fable_5_1_parallel`, pushed at `295187a4` after

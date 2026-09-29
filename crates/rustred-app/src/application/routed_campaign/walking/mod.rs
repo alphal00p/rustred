@@ -114,6 +114,9 @@ pub struct OwnerDomainWalkRequest {
     /// Experimental lockstep inspector lookup; Snapshot requires explicit CP6.
     /// Bound for same-mode resume; no default change or persisted snapshot view.
     pub epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup,
+    /// Opt-in bounded rolling CP6 execution. False retains lockstep as a
+    /// differential control; the choice is frozen across checkpoint resume.
+    pub epoch_rolling: bool,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -158,6 +161,7 @@ impl OwnerDomainWalkRequest {
             inspection_workers: None,
             publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
             epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup::AllMiss,
+            epoch_rolling: false,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
@@ -175,6 +179,12 @@ impl OwnerDomainWalkRequest {
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        if self.epoch_rolling
+            && (self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
+                || self.checkpoint.is_none())
+        {
+            return Err("Rolling execution requires checkpoint-enabled epoch publication");
+        }
         if self.epoch_inspector_lookup != OwnerDomainWalkEpochInspectorLookup::AllMiss
             && (self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
                 || self.checkpoint.is_none())
@@ -182,6 +192,22 @@ impl OwnerDomainWalkRequest {
             return Err("Snapshot inspector lookup requires checkpoint-enabled epoch publication");
         }
         Ok(())
+    }
+
+    /// Initial logical in-flight bound, not an extra compute pool. A restored
+    /// campaign retains its persisted bound even if the worker width changes.
+    pub(crate) fn epoch_window(&self, cut_size: usize) -> usize {
+        if !self.epoch_rolling {
+            cut_size
+        } else if self.workers == 1 {
+            1
+        } else {
+            worker_budget::WorkerBudget::for_request(self)
+                .inspection
+                .saturating_add(cut_size)
+                .max(cut_size)
+                .min(4096)
+        }
     }
 
     pub(crate) fn validate_inspection_workers(
@@ -724,6 +750,7 @@ pub fn owner_domain_walk_with_progress(
         admitted["walk_semantics_version"] = json!(EPOCH_WALK_SEMANTICS_VERSION);
         if request.checkpoint.is_some() {
             admitted["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
+            admitted["epoch_rolling"] = json!(request.epoch_rolling);
         }
     }
     if let Some(pause) = diagnostic_pause {

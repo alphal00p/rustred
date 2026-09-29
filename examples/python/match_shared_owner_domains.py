@@ -32,6 +32,7 @@ PUBLICATION_POLICY = "publication-policy"
 PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready", "epoch")
 EPOCH_INSPECTOR_LOOKUP = "epoch-inspector-lookup"
 EPOCH_INSPECTOR_LOOKUP_MODES = ("all-miss", "snapshot")
+EPOCH_ROLLING = "epoch-rolling"
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -127,6 +128,12 @@ def validate_epoch_inspector_lookup(mode, symbolic, publication, checkpoint):
                          "--publication-policy epoch and --checkpoint or --resume")
 
 
+def validate_epoch_rolling(enabled, symbolic, publication, checkpoint):
+    if enabled and (not symbolic or publication != "epoch" or not checkpoint):
+        raise ValueError("--epoch-rolling requires a symbolic successor walk, "
+                         "--publication-policy epoch and --checkpoint or --resume")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -168,6 +175,8 @@ def main() -> None:
                         help="successor publication: ordered (default), owner-batched, ready or epoch; ready/epoch require unreserved delegation; epoch checkpoints use CP6")
     parser.add_argument("--" + EPOCH_INSPECTOR_LOOKUP, choices=EPOCH_INSPECTOR_LOOKUP_MODES,
                         action=StoreOnce, help="CP6 Epoch comparison control; default all-miss; frozen on resume")
+    parser.add_argument("--" + EPOCH_ROLLING, action=StoreTrueOnce, nargs=0, default=False,
+                        help="opt into bounded rolling CP6 execution; frozen on resume")
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,
@@ -208,6 +217,8 @@ def main() -> None:
     try:
         validate_epoch_inspector_lookup(args.epoch_inspector_lookup, args.follow_successors,
                                         args.publication_policy, args.checkpoint is not None or args.resume is not None)
+        validate_epoch_rolling(args.epoch_rolling, args.follow_successors,
+                               args.publication_policy, args.checkpoint is not None or args.resume is not None)
     except ValueError as error:
         parser.error(str(error))
     validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
@@ -228,6 +239,8 @@ def main() -> None:
         command.append("--no-progress")
     if args.follow_successors:
         command.append("--follow-successors")
+    if args.epoch_rolling:
+        command.append("--" + EPOCH_ROLLING)
     if args.route_domain_overcover:
         command.append("--route-domain-overcover")
     if args.route_joint_source_support_pruning:

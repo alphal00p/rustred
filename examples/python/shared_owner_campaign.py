@@ -843,6 +843,8 @@ def main() -> int:
     parser.add_argument("--" + DOMAIN.EPOCH_INSPECTOR_LOOKUP, choices=DOMAIN.EPOCH_INSPECTOR_LOOKUP_MODES,
                         action=DOMAIN.StoreOnce,
                         help="CP6 Epoch comparison control; default all-miss; resume must retain its mode")
+    parser.add_argument("--" + DOMAIN.EPOCH_ROLLING, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
+                        help="opt into bounded rolling CP6 execution; frozen on resume")
     parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
                         help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
                              "ordered/ready publication and no physical subdivision; resume must retain its original mode")
@@ -910,6 +912,8 @@ def main() -> int:
     try:
         DOMAIN.validate_epoch_inspector_lookup(args.epoch_inspector_lookup, symbolic,
                                                args.publication_policy, args.checkpoint is not None or args.resume is not None)
+        DOMAIN.validate_epoch_rolling(args.epoch_rolling, symbolic,
+                                      args.publication_policy, args.checkpoint is not None or args.resume is not None)
         validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,
                                      args.publication_policy, args.apply_subdivision_axis is not None)
     except ValueError as error:
@@ -1024,6 +1028,8 @@ def main() -> int:
                 command += ["--" + option, str(value)]
         if args.g2_residual_anchors == "union":
             command += ["--" + G2_RESIDUAL_ANCHORS, "union"]
+        if args.epoch_rolling:
+            command.append("--" + DOMAIN.EPOCH_ROLLING)
         if args.route_domain_overcover:
             command.append("--route-domain-overcover")
         if args.route_joint_source_support_pruning:
@@ -1051,7 +1057,8 @@ def main() -> int:
     # One supervisor display owns the terminal; native JSONL heartbeats continue.
     command.append("--no-progress")
     checkpoint_directory = args.checkpoint or args.resume
-    epoch_policy = ({"epoch_inspector_lookup": args.epoch_inspector_lookup or "all-miss"}
+    epoch_policy = ({"epoch_inspector_lookup": args.epoch_inspector_lookup or "all-miss",
+                     "epoch_rolling": args.epoch_rolling}
                     if symbolic and args.publication_policy == "epoch" else {})
     checkpoint_directory = str(checkpoint_directory.resolve()) if checkpoint_directory is not None else None
     amendments_directory = None

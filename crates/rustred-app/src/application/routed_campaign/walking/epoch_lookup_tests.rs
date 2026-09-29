@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn rolling_execution_is_opt_in_checkpoint_bound_and_has_bounded_window() {
+    let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+        "selection".into(),
+        "queries".into(),
+    ));
+    let historical = checkpoint::epoch_request_binding(&request);
+    assert!(!request.epoch_rolling);
+    assert_eq!(request.epoch_window(16), 16);
+    request.epoch_rolling = true;
+    assert_ne!(checkpoint::epoch_request_binding(&request), historical);
+    for policy in [
+        OwnerDomainWalkPublicationPolicy::Ordered,
+        OwnerDomainWalkPublicationPolicy::Ready,
+        OwnerDomainWalkPublicationPolicy::Epoch,
+    ] {
+        request.publication_policy = policy;
+        for checkpointed in [false, true] {
+            request.checkpoint =
+                checkpointed.then(|| OwnerDomainWalkCheckpointOptions::new("unused"));
+            assert_eq!(
+                request.validate_epoch_inspector_lookup().is_ok(),
+                checkpointed && policy == OwnerDomainWalkPublicationPolicy::Epoch
+            );
+        }
+    }
+    assert_eq!(request.epoch_window(16), 1);
+    request.workers = 50;
+    assert_eq!(request.epoch_window(16), 65);
+    assert_eq!(request.epoch_window(4096), 4096);
+    request.epoch_rolling = false;
+    assert_eq!(checkpoint::epoch_request_binding(&request), historical);
+}
+
+#[test]
 fn epoch_lookup_policy_defaults_parses_and_refuses_unsupported_native_paths() {
     use OwnerDomainWalkEpochInspectorLookup::{AllMiss, Snapshot};
     let mut request =

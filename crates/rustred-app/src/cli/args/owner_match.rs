@@ -44,6 +44,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
     pub epoch_inspector_lookup: Option<crate::OwnerDomainWalkEpochInspectorLookup>,
+    pub epoch_rolling: bool,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
@@ -99,6 +100,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
         epoch_inspector_lookup: None,
+        epoch_rolling: false,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
@@ -173,6 +175,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--workers" => "--workers",
             "--publication-policy" => "--publication-policy",
             "--epoch-inspector-lookup" => "--epoch-inspector-lookup",
+            "--epoch-rolling" => "--epoch-rolling",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
@@ -211,6 +214,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--follow-successors" {
             result.follow_successors = true;
+            continue;
+        }
+        if name == "--epoch-rolling" {
+            result.epoch_rolling = true;
             continue;
         }
         if name == "--route-domain-overcover" {
@@ -438,6 +445,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    if result.epoch_rolling && (!result.follow_successors || !epoch || result.checkpoint.is_none())
+    {
+        return Err(ArgError::InvalidCombination(
+            "--epoch-rolling requires --follow-successors, --publication-policy epoch and --checkpoint or --resume",
+        ));
+    }
     // Epoch (walk semantics 3): frontier stop is the default (A10) and needs
     // no checkpoint; explicit checkpoint/resume uses CP6.
     if result.epoch_inspector_lookup.is_some()
@@ -516,6 +529,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--inspection-workers",
             "--publication-policy",
             "--epoch-inspector-lookup",
+            "--epoch-rolling",
             "--max-domains",
             "--max-frontiers",
             "--frontier-policy",
@@ -605,6 +619,32 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn epoch_rolling_is_explicit_checkpoint_only_and_rejects_duplicates() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let epoch = format!("{base} --publication-policy epoch --transfer-unreserved-lookahead 16");
+        let Command::OwnerDomainMatch(default) = parse(base).unwrap() else {
+            panic!("match")
+        };
+        assert!(!default.epoch_rolling);
+        for checkpoint in ["--checkpoint", "--resume"] {
+            let Command::OwnerDomainMatch(args) =
+                parse(&format!("{epoch} {checkpoint} cp --epoch-rolling")).unwrap()
+            else {
+                panic!("match")
+            };
+            assert!(args.epoch_rolling);
+        }
+        for bad in [
+            format!("{base} --epoch-rolling"),
+            format!("{base} --checkpoint cp --epoch-rolling"),
+            format!("{epoch} --epoch-rolling"),
+            format!("{epoch} --checkpoint cp --epoch-rolling --epoch-rolling"),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

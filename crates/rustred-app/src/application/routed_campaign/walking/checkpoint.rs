@@ -1108,7 +1108,7 @@ pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
 /// The request digest of an `epoch` walk (walk semantics 3, W2.0 protocol
 /// §11.5, A7). Bound: owner selection, queries, limits, publication and
 /// semantics, the D-band, Route and query allowances, the frontier policy,
-/// and a nondefault Epoch inspector-lookup comparison mode.
+/// and nondefault Epoch inspector-lookup and rolling execution modes.
 /// Not bound: workers, inspection workers, the schedule and its lookahead,
 /// and the aggregate `max_domains` / `max_events` / `max_frontiers`
 /// allowances. Shared by the epoch export and the closure verifier; the
@@ -1129,6 +1129,9 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
     // experimental mode is frozen across resume without a new scalar schema.
     if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {
         value["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
+    }
+    if request.epoch_rolling {
+        value["epoch_rolling"] = json!(true);
     }
     blake3::hash(value.to_string().as_bytes())
         .to_hex()
