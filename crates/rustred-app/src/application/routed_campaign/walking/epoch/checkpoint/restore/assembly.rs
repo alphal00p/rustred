@@ -8,7 +8,7 @@ use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
 use super::{
     CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, cross_state, dispatch_state,
-    lookup, record_segments, roots,
+    lookup, record_body, roots,
 };
 use std::io::{self, Read};
 use std::path::Path;
@@ -31,7 +31,7 @@ pub(super) struct Provisional<const N: usize> {
 
 impl<const N: usize> Provisional<N> {
     /// Owner preparation must have authenticated the same identity first.
-    /// This is still not runnable state: record bodies and final closure,
+    /// This is still not runnable state: final closure,
     /// session reservation and unfinished-batch replay remain separate gates.
     pub fn read_roots(
         &self,
@@ -257,11 +257,20 @@ pub(super) fn read<const N: usize>(
         input_frontiers: scalars.input_frontiers,
         records_digest: &scalars.records_digest,
     })?;
-    let record_segments = record_segments::read(
+    let record_segments = record_body::read(
         directory,
         file(&manifest, "record-segments")?,
         manifest.generation,
-        scalars.edge_runs,
+        record_body::View {
+            store: &store,
+            ledger: &ledger,
+            edges: &edges,
+            anchors: &anchors,
+            frontier_counts: &frontier_counts,
+            counters: &scalars.walk,
+            k: scalars.k,
+            input_frontiers: scalars.input_frontiers,
+        },
     )?;
     Ok(Provisional {
         manifest,

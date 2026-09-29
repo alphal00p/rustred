@@ -20,6 +20,7 @@ mod auxiliary;
 mod cross_state;
 mod dispatch_state;
 mod lookup;
+mod record_body;
 mod record_segments;
 mod roots;
 

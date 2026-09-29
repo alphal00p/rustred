@@ -448,6 +448,35 @@ The semantic body visitor must invoke checked add/equality (serde alone admits
 an unsupported version), and validate the phase-specific zero fields. It will
 require this fresh-only field rather than import old S2 records.
 
+The follow-on body visitor now replaces that byte-only segment traversal in
+provisional assembly. It parses restore-authoritative geometry, class/scope,
+run inventory, parity and exact resolver counters through the same authenticated
+reader, followed by complete-consumption and digest checks. Selected fixed
+fields are individually bounded (8 KiB; canonical geometry has at most 32 axes,
+stats and epoch objects are fixed scalar schemas); diagnostic/error/refusal
+payloads are skipped with serde IgnoredAny and frontier entries counted, with no
+whole-record JSON allocation or new record-line cap. Native kinds enforce their
+zero-counter fields and version; C2 prefix frontiers contribute alongside C4
+and initial-input obligations. The existing P1 classifier and error-class map
+are reused rather than restated. Alias records contribute no native totals.
+
+Added source tests drive actual P1/P2/P3 and Sidecar output for C0/C4/C2,
+charged-native versus accepted-resolver counters, recurring panic and Route;
+review added actual two-merge InitialDBand C0/C2 residual roundtrips and bound
+each anchor's dispatch version to its native body's v0 (not merely < merge k).
+Tests also cover aliases, rehashed authority mutations, aggregate overflow, record
+order/inventory, large skipped diagnostics and a semantically identical body
+with the wrong digest. These tests are not executed yet. This remains private
+provisional assembly: prepared-root integration, final Tracker reconstruction,
+durable session allocation/replay and save-before-join are still required for a
+runnable restored state. The last passing metadata check is validation commit
+c51839c1 (source through c772f9c6), not this body-visitor work. Its receipt is
+`TMP/codex-epoch-s3.JjASCU/typecheck-roots-records-light`: exit0/reason null,
+39.177s guard / 35.77s Cargo, maximum single-child RSS1,209,024KiB, minimum
+available RAM784,696,246,272B, CPU16–19/build1/one metadata worker. The body
+visitor passed independent source review after the partial-version correction;
+its compilation and all test execution remain pending.
+
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export
 does not fix cancellation latency. The next source slice needs separate

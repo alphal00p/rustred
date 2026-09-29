@@ -1,6 +1,6 @@
 //! Stream the fixed-shape segment registry into its final Sidecar inventory.
-//! This authenticates sealed bytes, not record semantics; a later compact
-//! record visitor must validate bodies before a runnable state is possible.
+//! The semantic visitor consumes the same reader which authenticates every
+//! sealed body; there is no unchecked reopen or second full-body traversal.
 use super::super::invalid;
 use super::super::publication::FileRef;
 use super::super::read::Budget;
@@ -9,7 +9,7 @@ use crate::application::routed_campaign::walking::checkpoint::manifest::{Section
 use serde::de::{self, DeserializeSeed, Deserializer, SeqAccess, Visitor};
 use std::cell::Cell;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::path::Path;
 
 // A descriptor has four u64 fields, one fixed records-<20 digits>.jsonl
@@ -96,11 +96,12 @@ fn digest(value: &str) -> io::Result<[u8; 32]> {
     Ok(decoded)
 }
 
-pub(super) fn read(
+pub(super) fn read_with(
     directory: &Path,
     file: &FileRef,
     generation: u64,
     records: u64,
+    mut body: impl FnMut(&Segment, &mut CheckedRead) -> io::Result<()>,
 ) -> io::Result<Vec<Segment>> {
     if generation == 0
         || file.count > records
@@ -136,8 +137,6 @@ pub(super) fn read(
     decoder.end().map_err(io::Error::other)?;
     drop(decoder);
     reader.finish()?;
-    // Constant scratch, irrespective of a segment or record line's length.
-    // Semantic body parsing replaces this traversal in the next slice.
     for segment in &segments {
         let mut reader = CheckedRead::open(
             directory,
@@ -145,11 +144,25 @@ pub(super) fn read(
             segment.bytes,
             digest(&segment.blake3)?,
         )?;
-        let mut scratch = [0; 32 * 1024];
-        while reader.read(&mut scratch)? != 0 {}
+        body(segment, &mut reader)?;
         reader.finish()?;
     }
     Ok(segments)
+}
+
+#[cfg(test)]
+fn read(
+    directory: &Path,
+    file: &FileRef,
+    generation: u64,
+    records: u64,
+) -> io::Result<Vec<Segment>> {
+    use std::io::Read;
+    read_with(directory, file, generation, records, |_, reader| {
+        let mut scratch = [0; 32 * 1024];
+        while reader.read(&mut scratch)? != 0 {}
+        Ok(())
+    })
 }
 
 #[cfg(test)]
