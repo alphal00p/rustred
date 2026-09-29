@@ -107,3 +107,29 @@ per second is not a comparable progress measure when G2′ changes the work mix.
 Host noise comparable to the effect makes the decision inconclusive.
 A small-control success does not establish
 the same gain on the mature hot-owner mix. Only the user switches production.
+
+## Pair attribution before the Ready comparisons
+
+The primary decision metric is whole launcher-to-owned-group-drain wall time.
+The alternative work/resource gate uses scheduled domains or sampled aggregate
+RSS, subject to the <=10% wall-time regression limit above. Heartbeat maxima
+are only lower bounds on peak pending, not an authoritative exact peak, and
+cannot qualify this comparison through the pending-pressure alternative.
+Report each of the two paired candidate/reference ratios, not only a pooled
+mean or the best arm. The qualifying threshold must reproduce in both pairs;
+otherwise report the result as inconclusive, retaining every outcome.
+
+Run LC2-Off / candidate-Union, then candidate-Union / LC2-Off on identical
+roleless inputs for each Ready control. Candidate-Off / candidate-Union
+mechanism isolation is separate and uses fresh arms; one Union run cannot be
+counted as two independent repetitions. Freeze the same tested runner revision
+and hash for both executables, including the corrected bounded metric reader.
+Cold reinspection and Python audits remain separately guarded and excluded
+from solver timing. Record selected-core and SMT-sibling contention per pair.
+
+The historical `g2prod_gate.py` command assumes same-binary, three-repeat,
+historical labels. Do not silently use those assumptions for this two-repeat
+cross-binary deployment comparison. Build the table from explicit receipt
+paths and actual executable identities/worker widths, checking every
+completion and verification gate. Missing or corrected historical counters
+must remain explicitly attributed to their source or corrected sidecar.

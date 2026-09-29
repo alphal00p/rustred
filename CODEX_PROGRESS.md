@@ -49,23 +49,23 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | focus/full/W50 native suites, CLI and real pause/resume/cold checks delivered | joint_support_pruning | Seven Ordered identity and independent full-reinspection controls now authorized |
-| Rescue and explicit query roles | source and combined native suites delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Campaign/CLI and independent full-reinspection gates remain at `d12db6cf` |
-| Independent math/code audit | combined corrections and private epoch writer/publisher source passed | checkpoint_final_audit | Independently review bounded restore next; verify execution receipts before release |
-| Combined G2′ + rescue | optimized native/CLI suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; frozen campaign binary available; representative controls/reinspection next |
-| Python production G2′ steering | committed locally; real pause/resume, native cold verification and Python audit passed | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; representative controls, then integrate |
-| Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | provisional sections, cross-state, root/record metadata and resolver counters source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `c51839c1`; body semantics, native execution, full assembly/session/stop and S4–S6 remain open |
-| N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
-| N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
-| N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
+| G2′ integration | active | joint_support_pruning | Native/full/W50/CLI and real pause-resume checks pass; final finite-Union control remains |
+| Rescue and explicit query roles | active | joint_support_pruning (integration; original author bounded_helpers_bmw) | Combined native gates pass at `d12db6cf`; finish representative controls, then merge |
+| Independent math/code audit | active | checkpoint_final_audit | Review runtime restore/stop slices and independently verify remaining control/measurement receipts |
+| Combined G2′ + rescue | active | joint_support_pruning + root + independent auditor | 13/14 representative mode/control combinations pass; merge after final cold/audit gate, then Ready comparisons |
+| Python production G2′ steering | active | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real pause/resume/cold checks pass, integrate with representative-gated native source |
+| Coordinator latency / telemetry | deferred | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4` source audit/typecheck pass; reopen native execution after G2 measurements, five regressions still unexecuted |
+| Epoch S3–S6 | active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing metadata validation `c51839c1`; audited body `0762955c` and private restore/session lifecycle `7005de75` queued for metadata check; native execution, async save-before-join and S4–S6 remain open |
+| N2 allocation-free geometry | pending | checkpoint_final_audit | Registered redundant-copy mechanism; profile after G2 before implementation decision |
+| N1 modular witnesses | pending | checkpoint_final_audit | API feasibility delivered; generic RHS witness is too late/insufficient; measure fully fixed predicate opportunity after G2 |
+| N4 coverage-first work | pending | checkpoint_final_audit + root | Feasibility delivered; count post-G2 eligible exact-payload cost before implementation, preserving mathematical obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
-| New algorithms / literature | census delivered; narrow coalescing parked | work_reduction_research + checkpoint_final_audit | Reopen only with post-G2 miss-cohort evidence; backward covers deferred |
-| Closed-descendant query witnesses | parked after negative census; independently reproduced | checkpoint_final_audit; independent critique by joint_support_pruning | Reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
-| Required-scope versus broad-helper dependencies | source audit delivered; no optimization activated | checkpoint_final_audit + root | Whole-helper dependency granularity confirmed; net work benefit unmeasured; independent finite-query closure needed before reopening earlier negative approaches |
-| I1 L*-helper input variant | deferred, not rejected | root + independent research/measurement lane | Revisit only after in-run rescue passes combined gates and a fresh matched probe shows net runtime benefit; preserve all 116 required queries |
-| Earlier rejected levers | deferred | root | New evidence required; retain prior negative results |
+| New algorithms / literature | pending | research lane, rotated after current integration | Initial census delivered; narrow coalescing deferred until positive post-G2 miss-cohort evidence; backward covers deferred |
+| Closed-descendant query witnesses | deferred | checkpoint_final_audit; independent critique by joint_support_pruning | Negative census independently reproduced; reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
+| Required-scope versus broad-helper dependencies | pending | checkpoint_final_audit + root | Source audit delivered, whole-helper dependency granularity confirmed; measure useful finite-query opportunity before reopening earlier negative approaches |
+| I1 L*-helper input variant | deferred | root + independent research/measurement lane | Not rejected; revisit after combined rescue gates and fresh matched net runtime benefit, preserving all 116 required queries |
+| Earlier rejected levers | rejected | root | Retain negatives; reopen only with new evidence and a registered falsifier/test |
 
 ## Decisions in force
 
@@ -82,6 +82,27 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 05:58 UTC — final control verifying; production remains read-only
+
+- [M] The finite-five-loop Union native run completed without censoring:969,467 scheduled domains and752,033 native inspections, versus1,273,376/967,621 for Off. Whole-command times226.745/310.284s are one Ordered correctness pair, **not** the matched Ready deployment gate. Full cold reinspection passed; final Python audit and corrected counter sidecar are still running, so the aggregate remains13/14 accepted.
+- [M] LC2 read-only observation near05:58:58,038,854 discovered,22,178,208 pending,21,190,197 local completions, zero frontiers and6/67 conservative initial roots closed (snapshot455.9s old, not116 required-query closure). RSS approximately32.6GB; checkpoint generation3 unchanged. One-hour coordinator time is45.55% commit and34.61% preparation versus1.49% progress JSON, with2.99 mean computing inspectors. No completion ETA follows from these observations; production was not altered.
+- Epoch private body validation and runtime restore/session reservation/replay are source-audited at `0762955c`/`7005de75`. Their clean validation projection is `52d7f57f`; a warm metadata-only check is queued after the final control's verification processes drain and before Ready timings. The asynchronous save-before-join slice remains separate unfinished work. Neither source review nor type checking establishes usable public checkpoint resume.
+- The initial Ready comparison is limited to eight deployment arms (finite and hot controls, LC2-Off/Union then Union/LC2-Off). Candidate-Off mechanism comparisons are separate, not automatically launched. Identical bounded metric-reader revision3832 is frozen for both arms. Sampled heartbeat maxima cannot qualify as exact peak-pending savings; use whole time, scheduled work or sampled aggregate RSS with the preregistered regression/noise conditions.
+
+### 2026-09-29 05:39 UTC — all four-loop control gates pass; finite five-loop next
+
+- [M] All12 Off/Union four-loop combinations pass: FG, BMW, H, X, combined four-loop, and its partial-initial variant. Each Off has exact historical LC2 identity; every native record is cold-reinspected, and paired Python audits pass with no uncovered obligations/frontiers. The finite-five-loop pair is the only remaining representative correctness gate.
+- Preserve the negative work results: combined Off/Union scheduled domains65,444/68,184 and native inspections30,159/32,085; partial-initial variant68,483/71,284 domains and31,717/33,663 natives. Valid G2 reuse can increase work elsewhere; it is not a universal improvement and remains opt-in. These are single Ordered controls, not deployment timing evidence.
+- The combined controls have58 required input queries mapped to32 distinct initial roots; all58 queries close. The table/index must distinguish queries from roots. The finite control has one input region containing1,324 initial integer tuples, not1,324 independent query rows, and is not the full116-query production scope.
+- Tracked bounded-extractor correction is committed locally as `3832bf58` (two tooling files), with24 focused tests independently repeated successfully. The running controls still use the frozen original runner and corrected sidecars. Use the fixed runner identically in both future Ready arms; no Rust rebuild is needed for this tooling-only change.
+
+### 2026-09-29 05:32 UTC — BMW pair passes; remaining controls run sequentially
+
+- [M] BMW Off/Union both pass full native cold verification and paired Python audit for268/268 required queries. Off exactly matches the historical LC2 records/counters:158,951 scheduled domains/147,233 native inspections. Union schedules129,616 domains/119,727 natives. This is one Ordered correctness pair, not the repeated Ready performance gate. Four of14 mode/control combinations now pass in `TMP/codex-g2-pilot-prep.n7Kd5q/CONTROL_RESULTS.json`.
+- A small local continuation loop now executes the already-validated commands sequentially, stops on failure and preserves individual native/cold/audit receipts. It does not introduce another production scheduler or change the frozen runner; each job retains its own resource/time guard. A separate tooling branch corrects the bounded benchmark extractor; native binaries and the executing runner remain frozen.
+- Epoch body-reader integration `0762955c` is independently source-audited and locally committed, not yet compiled/executed. It streams selected record fields and validates the same bytes through digest completion. Review added actual initial-D-band C0/C2 roundtrips and an anchor/record dispatch-version equality check. Next is runnable owned-state construction, durable session reservation, saved-job replay and interruption-before-join tests.
+- Eventual epoch deployment must compare against the best contemporaneous validated legacy setup, including G2 if it qualifies, not only a stale flag-off baseline. Increased native calls/second alone cannot substitute for completing the same requested work faster. Private epoch still refuses G2/rescue combinations; that missing capability is explicit.
 
 ### 2026-09-29 05:25 UTC — read-only LC2 check; coordinator work still dominates
 

@@ -88,10 +88,25 @@ combined four-loop partial-initial control, and finite five-loop. Each Off
 result must match the valid LC2 record/counter reference exactly. Both modes
 also require full cold reinspection and a paired Python audit.
 
-At the first completed pair, FG passes all these gates: Off98,909 domains,
-Union98,867; both248/248 roots closed. Remaining controls are pending here;
-consult the progress log for later receipts. These Ordered correctness runs
-are not substitutes for the Ready deployment pairs.
+All six four-loop controls now pass both modes with full reinspection.
+Counts below are Off / Union; all listed input queries close. The finite
+five-loop pair remains pending. These single Ordered correctness runs are
+not substitutes for the Ready deployment pairs.
+
+| Control | Required input queries | Distinct roots | Scheduled domains: Off / Union | Native inspections: Off / Union |
+|---|---:|---:|---:|---:|
+| FG | 248 | 248 | 98,909 / 98,867 | 98,869 / 98,843 |
+| BMW | 268 | 268 | 158,951 / 129,616 | 147,233 / 119,727 |
+| H | 628 | 628 | 24,929 / 24,769 | 24,680 / 24,513 |
+| X | 656 | 656 | 47,193 / 46,060 | 46,826 / 46,017 |
+| Combined four-loop | 58 | 32 | 65,444 / 68,184 | 30,159 / 32,085 |
+| Combined, partial-initial variant | 58 | 32 | 68,483 / 71,284 | 31,717 / 33,663 |
+
+In particular, G2 increases domain/native work on the combined controls.
+This negative result is retained: exact reuse is not universally cheaper,
+and opting into it needs workload-specific evidence. The finite-five-loop
+control has one initial region containing1,324 integer tuples; it does not
+represent completion of the full frozen production request.
 
 An independent review found that the historical benchmark extractor could
 read nested `successors`/`events` rather than root totals. The original FG Off
@@ -99,7 +114,11 @@ receipt therefore contains1,242/1,498 instead of2,182,549/2,488,138. The native
 result, identity comparison, cold verification and wall timing are unaffected.
 Preserved original receipts are supplemented with root-aware
 `corrected-metrics.json` sidecars; incorrect fields must not enter comparisons.
-The tracked bounded extractor must be corrected and tested before release.
+The tracked bounded extractor is corrected in `3832bf58`, independently
+reviewed and covered by24 focused tests. It uses complete root/path-qualified
+fields from bounded buffers, leaving unavailable fields unknown. This
+tooling-only fix is not yet merged here; the original running control tool
+and its receipts remain unchanged.
 
 No new speedup is claimed yet. The decision requires two interleaved matched
 Ready pairs with identical inputs, CPU placement and worker budgets, recorded
