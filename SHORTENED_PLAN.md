@@ -136,6 +136,57 @@ of an unrestricted programmable sector/monomial ordering API: earlier sector
 and degree comparisons remain fixed. Input reindexing is a separate broader
 experiment requiring consistent family/routing remapping, not just a flag.
 
+### Rank-deepening pilot request — 2026-09-29 about22:58 UTC
+
+Prepare a small, input-only five-loop pilot sensitive to all67 starting owner
+classes, aiming for a complete run in3–4 minutes. Reuse the same optimized
+engine and saved programs. Reduced starting rank is explicitly a diagnostic
+scope, never a replacement for the frozen116 required production queries;
+all resulting descendants must still be discharged without clipping.
+
+Check nonemptiness per owner before claiming topology-wide coverage. In the
+stored power coordinates, `A=sum positive powers`, `R=sum negative-power
+magnitudes`, and `D=A-R`; a12-line unit-power corner withD=10 requiresR>=2.
+A blanketR=0 or1 physical cut can silently omit high-line starting sectors.
+Choose nested nonempty slices using the existing A/R/D bounds, or clearly
+label an alternate near-corner probe. Keep positive-power starting bounds
+finite for the small probes. First prepare/audit the inputs, then execute a
+small registered same-binary comparison after resource handoff. Stop/save
+early enough to include preparation, orderly drain and verification within
+the240-second pilot budget; unfinished is censored, not closed.
+
+Iterative rank deepening is promising as an experimental curriculum, not yet
+an implemented cross-scope continuation facility. Existing saved algebraic
+rules can be reused, but checkpoints bind the requested scope. Do not mutate
+that binding, assume lower-rank closure implies higher-rank closure, or add a
+new checkpoint-migration project within this delivery.
+
+Latest clarification: test the speculative deepening idea on four loops first.
+The prepared67-owner five-loop probe is deferred until that smaller experiment
+is informative. A narrow finite-helper prefix to the unchanged58-query control
+is only a cheap scheduling proxy, not a claim of strict layer-by-layer solving
+or cross-scope checkpoint reuse. Keep that distinction explicit in results.
+
+### Richer strategy abstraction — 2026-09-29 about23:04 UTC
+
+Delegate a separate ordering-API lane while the primary agent continues the
+parallel build and gates. Develop a minimal versioned runtime discovery recipe
+(generic source-row/sector scheduling choices, plus a Rust callback convenience
+that materializes a validated finite plan), and a separate concrete design for
+richer persistent integral ordering. Python should select named/parameterized
+Rust strategies through data; adding or tuning such a strategy must not require
+rebuilding the engine once the interpreter/seam exists.
+
+Do not conflate source-row scheduling with control of earlier sector/degree
+priorities. Arbitrary callbacks may guide discovery, but artifacts must persist
+enough exact ordering semantics to reproduce comparisons and prove strict
+descent. Investigate a finite validated declarative order program for the
+broader control, including the corresponding concrete, shifted, replay and
+codec interfaces. One-time framework compilation is distinct from per-strategy
+experimentation. No new CAS or plugin/compiler framework; keep the currently
+frozen3428 build and its campaign validation independent. Review the proposal
+before native edits, and keep unvalidated framework work out of a stable launch.
+
 ## Stage A — compatible stable milestone on `fable_5_1`
 
 ### Scope

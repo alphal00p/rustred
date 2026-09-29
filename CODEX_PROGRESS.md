@@ -106,6 +106,92 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 23:18 UTC — dashboard delivered; runtime strategy design reviewed
+
+- [M] `dashboard_stream` delivered a presentation-independent bounded JSON
+  producer, separate aligned coloured terminal consumer, persistent
+  `telemetry.jsonl`, and bounded-memory standard-library SVG plotter. Final
+  full Python suite:340 run,339 passed,one existing optional skip in30.514s.
+  Root independently reran the16 dashboard tests successfully. Evidence:
+  `TMP/codex-dashboard-preview.kLzfrO/receipt-post-review.json` and
+  `full-python-tests-post-review-v2.log`; previews there are explicitly
+  synthetic, not production observations. Independent critique is active;
+  conservative unresolved-count presentation is being checked before commit.
+- [D] Final delivery must freeze the new Python modules alongside the monitor.
+  Native3428 remains unchanged and its optimized build is still linking.
+  The existing LC2 process receives no writes, signals or source replacement.
+- [M] `stage_a_release` delivered and root reviewed
+  `docs/research/runtime_pivot_strategy_design_2026-09-29.md`: finite materialized
+  discovery policies/callbacks (A) are distinct from a persisted weighted
+  integral-order program with concrete/shifted descent semantics (B). This is
+  a design, not implemented broader pivot control. Lifecycle gates remain
+  first; an isolated A implementation plan is requested afterwards. No native
+  source change or extra engine build is authorized merely for each policy.
+- [D] Authorized one input-only4L finite-helper-prefix pilot after the required
+  final baseline/AllMiss controls, within240s including cold verification and
+  shutdown. Its16 added auxiliary cells contain97 initial integer points and
+  are independently enumerated subsets of original required rows. All58
+  original required objects/order and16 owner programs remain unchanged.
+  This is an early-narrow-work proxy, not scope-changing checkpoint resume or
+  true iterative deepening. Five-loop reduced-scope execution remains deferred.
+
+### 2026-09-29 23:10 UTC — richer strategy lane; four-loop-first deepening
+
+- [D] User asks for greater/full pivot expressivity via a Rust/Python strategy
+  abstraction, delegated independently, and clarifies that rank deepening is
+  speculative and should be tried at4L first. Assigned`stage_a_release` the
+  strategy proposal, retaining immediate final M2/M4 priority. Native3428
+  source remains frozen; no ordering-framework edit or rebuild is authorized
+  before proposal review. Preserve cheap per-input future experiments rather
+  than compile a full engine for every strategy.
+- [M] Initial source finding: an isolated-case source-row ordering hook already
+  exists, but ordinary sector and shared numerical-tail solving do not yet
+  expose/use a uniform runtime recipe. A minimal discovery descriptor can reuse
+  that seam without changing the mathematical order. A broader persisted order
+  program needs coherent concrete/shifted comparisons, exact lifting and
+  codec/replay semantics; a comparator callback alone is not safe authority.
+  A/B design document requested, with a possible materialized callback plan.
+- [D] Five-loop probe execution deferred. Preparation found67 nonempty finite
+  subsets of original required rows,704 initial integer points:56 owners atR0,
+  seven atR1, four atR2. This is topology-wide diagnostic coverage only. The4L
+  candidate instead has16 finite helpers/97 initial points, prepended to the
+  unchanged58 required rows; no broad R12 prefix. It is only an input-order
+  proxy, since all initial admission precedes traversal. Preparation/review
+  continues; no native pilot execution or benefit claimed.
+- [M] Dashboard pre-review full suite:338 run,337 passed/one existing optional
+  skip. Root requested two narrow corrections before final acceptance: warm-up
+  must account for delayed first completion sample; the normal consumer path
+  should consume a frame alone rather than raw supervisor status for checkpoint
+  messages. Independent review and corrected tests remain pending.
+
+### 2026-09-29 23:01 UTC — exact pivot controls and all-owner low-rank pilot
+
+- [M] Answered the user's expanded ordering question: runtime coordinate ties,
+  query order and FIFO/adaptive dispatch are exposed; arbitrary earlier
+  sector/cut/degree or source-row pivot policies are not a public general API.
+  The natural/reverse certified four-loop subroot comparison favors natural
+  (core1.610/4.580s, candidate1.82/7.37MB, equal19 terminals). Later mechanistic
+  query permutations give no decisive win; banana-generation comparison remains
+  incomplete at the terminal-key/full-walk gate.
+- [M] Existing single-owner five-loop controls are useful but not all-owner
+  coverage: earlier Ready+Union finite whole-command180.010/180.746s, hot
+  197.730/201.743s, followed by separate independent verification. Sources:
+  this log's06:53–08:19 entries and accepted receipts under
+  `TMP/codex-g2-pilot-prep.n7Kd5q/deployment-continuation/`. These are not fresh
+  final-Epoch timings. Current fixed matrix retains both controls.
+- [D] Delegated light all67-owner rank-pilot preparation to
+  `bounded_ordering_pilots`, without altering the fixed22-arm matrix or starting
+  another job. Explicitly check A/R/D nonemptiness: low globalR can remove
+  high-line physical sectors. Keep probes finite at entry, descendants
+  unclipped, and production unchanged. A3–4minute fully verified target is
+  exploratory, not a guaranteed runtime. No cross-scope checkpoint reuse claim.
+- [M] Dashboard producer/consumer first slice passes existing31 monitor tests;
+  implementation and independent review continue. Review caught a plot bucket
+  memory issue; author replaced growing buckets with bounded extrema state.
+  Normal graph-dirty closure snapshots remain visible as conservative observed
+  history; actual missing/reset/stale-heartbeat observations create gaps.
+  Complete dashboard tests and frozen-source delivery remain pending.
+
 ### 2026-09-29 22:51 UTC — orthogonal dashboard and timeseries directive
 
 - [D] User requests a substantial coloured/aligned terminal dashboard, a clean
