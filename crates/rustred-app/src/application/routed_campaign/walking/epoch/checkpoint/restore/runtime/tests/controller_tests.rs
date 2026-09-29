@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, mpsc};
 use std::time::Duration;
 
+mod native_equivalence;
+
 fn config() -> MergeConfig {
     MergeConfig {
         frontier_stop: true,
