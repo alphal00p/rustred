@@ -75,6 +75,29 @@ fn verify<const N: usize>(bytes: &[u8], catalog: &[u8]) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn terminals<const N: usize>(bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+    let (family, reducer) =
+        load_generated_candidate_bundle::<N>(bytes, limits(), ReductionLimits::default())?;
+    let mut keys: Vec<Vec<i64>> = reducer
+        .terminals()
+        .iter()
+        .map(|key| key.powers().to_vec())
+        .collect();
+    keys.sort_unstable();
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "schema": "rustred.example-candidate-raw-terminals.v1",
+            "status": "uncertified-candidates",
+            "arity": N, "family_fingerprint": family.fingerprint(),
+            "ordering": reducer.ordering().stable_id().to_string(),
+            "raw_terminal_count": keys.len(), "raw_terminal_keys": keys,
+            "scope": "exact loaded raw inventory; no terminal normalization, original-source replay or closure certification"
+        }))?
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -123,7 +146,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         }
-        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|sparse-factorized|sparse-target-factorized|semi-numerical] | inspect BUNDLE | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
+        Some("terminals") if args.len() == 4 => {
+            let mut bytes = Vec::new();
+            fs::File::open(&args[3])?.take(MAX_CANDIDATE_BUNDLE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+            if bytes.len() > MAX_CANDIDATE_BUNDLE_BYTES { return Err("bundle exceeds byte cap".into()); }
+            macro_rules! dispatch {
+                ($($n:literal),+) => { match args[2].parse::<usize>()? {
+                    $($n => terminals::<$n>(&bytes)?,)+
+                    _ => return Err("arity must be 1 through 16".into()),
+                } };
+            }
+            dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+        }
+        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|sparse-factorized|sparse-target-factorized|semi-numerical] | inspect BUNDLE | verify ARITY BUNDLE TERMINAL_CATALOG | terminals ARITY BUNDLE".into()),
     }
     Ok(())
 }

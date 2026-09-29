@@ -105,7 +105,18 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
-### 2026-09-29 21:37 UTC — integrated Python regression pass
+### 2026-09-29 21:35 UTC — exact terminal inventory adapter prepared
+
+- [M] `parallel_gate_critique` added only `candidate_bundle terminals ARITY
+  BUNDLE` to the existing Rust example. Root independently reviewed the
+  bounded read and existing native loader call; it outputs sorted raw keys
+  and explicitly makes no source-replay, normalization or closure claim.
+  This is needed to detect changed terminal inventories in pivot comparisons;
+  counts alone are insufficient. No CAS or binary decoder was implemented.
+- [M] Formatting/source checks pass; its separate diagnostic build and native
+  validation remain pending. It does not change the timed CLI engine.
+
+### 2026-09-29 21:34 UTC — integrated Python regression pass
 
 - [M] Root ran all example steering/monitor tests on the current branch:
   324 run, **323 passed / one existing optional skip**, 30.417 seconds.

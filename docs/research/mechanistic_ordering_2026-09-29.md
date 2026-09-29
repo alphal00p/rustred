@@ -323,8 +323,12 @@ native/cold gate. The sparse candidates have baseline-equivalent generation
 authority, not independent original-source replay. Unrestricted
 `certify-candidates` is not a mandatory step. Public `candidate_bundle inspect`
 is an existing example adapter for counts, not terminal-key enumeration; exact
-keys are available from the existing public loaded reducer API, and an
-appropriate native adapter must be identified before asserting set equality.
+keys are available from the existing public loaded reducer API. The separately
+reviewed minimal `candidate_bundle terminals ARITY BUNDLE` example extension
+uses that loader and emits sorted raw keys, count, family and ordering; it is
+not a new decoder, source verifier or normalizer. Its diagnostic build is
+separate from the frozen timed generation/walk binary. Build/native validation
+and exact set comparison must finish before asserting terminal-set equality.
 
 CLI integration audit corrected both preparation scripts: explicit
 `--finite-max-visited-points` / `--finite-max-retained-terminals` options are
