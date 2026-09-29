@@ -35,8 +35,8 @@ erasing historical records or edges. A geometrically equal new representative
 may be admitted after quarantine; original required queries cannot be relabelled
 or removed by an amendment.
 
-The frozen production scope remains116 required physical/convenience queries
-and67 auxiliary helpers. Query-role declarations are explicit and immutable.
+The frozen production scope remains 116 required physical/convenience queries
+and 67 auxiliary helpers. Query-role declarations are explicit and immutable.
 Undeclared queries remain required. A closed amended required scope is not the
 same claim as every historical auxiliary domain being closed.
 
@@ -65,8 +65,8 @@ The Rust request, CLI and Python steering expose the same choices:
 - `--epoch-dispatch fifo|adaptive`, with adaptive opt-in;
 - explicit automatic rescue only with a complete query-role declaration.
 
-New Epoch checkpoints use `RUSTRED-WALK-CP6`, manifest schema2, scalar schema3,
-walk semantics3. CP5 remains unchanged. There is no CP5-to-CP6 migration project;
+New Epoch checkpoints use `RUSTRED-WALK-CP6`, manifest schema 2, scalar schema 3,
+walk semantics 3. CP5 remains unchanged. There is no CP5-to-CP6 migration project;
 Stage B production is a fresh campaign, and LC2 is retained independently.
 
 Checkpoint-only summaries deliberately do not claim full closure when the queue
@@ -79,8 +79,8 @@ Python can automatically resume with a rescue amendment.
 ## Validation and measurement status
 
 - Source: combined rolling/rescue integration `f083f254` passes release compiler
-  and test-type checks in46.183s. This is not executed native-test evidence.
-- Python:103 lifecycle tests pass;12 CP6 measurement-contract tests pass.
+  and test-type checks in 46.183 s. This is not executed native-test evidence.
+- Python: 103 lifecycle tests pass; 12 CP6 measurement-contract tests pass.
 - Source audits: rolling/snapshot and rescue boundary/cancellation were reviewed
   independently; root separately reviewed adaptive dispatch and interface changes.
 - Native tests: compilation active; no combined execution result yet.
@@ -93,7 +93,7 @@ Python can automatically resume with a rescue amendment.
 - W50: planned separately from mechanical thread/lifecycle tests, conditional
   on successful lower-width native and cold controls.
 
-Each pilot includes preparation and orderly shutdown within30 minutes. Native
+Each pilot includes preparation and orderly shutdown within 30 minutes. Native
 whole-command time, independent cold time, CPU time, memory and domain work are
 reported separately. The comparison also charges common cold-All verification
 to both variants. Ready's full result and Epoch's checkpoint-only summary are
