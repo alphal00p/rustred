@@ -7,8 +7,8 @@ crates/ tree the build started from and whether crates/, Cargo.toml and
 Cargo.lock still equal that rev in the working tree; the Cargo.toml and
 Cargo.lock blob ids; the sha256 of the [profile.campaign] section of that
 rev's Cargo.toml; the cargo profile and features; the vendor/symbolica
-commit, the sha256 of its working-tree diff and whether that diff is exactly
-the committed heap-pow patch; rustc/cargo versions; `nm -D` malloc/free.
+commit, the sha256 of its working-tree diff and whether the checkout is clean
+(no local Symbolica patch); rustc/cargo versions; `nm -D` malloc/free.
 
 usage: provenance.py --binary SRC --arm ARM --profile release|campaign
                      [--features F] --rev REV [--started UTC] [--finished UTC]
@@ -23,8 +23,6 @@ import subprocess
 from pathlib import Path
 
 WT = Path(__file__).resolve().parents[3]
-PATCH = "patches/symbolica/heap-pow-wide-radix.patch"
-
 
 def git(*args, cwd=WT, check=True):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
@@ -81,8 +79,6 @@ def main():
     clean = git("diff", "--quiet", rev, "--", "crates", "Cargo.toml", "Cargo.lock", check=False).returncode == 0
     vendor = WT / "vendor/symbolica"
     vendor_diff = subprocess.run(["git", "diff"], cwd=vendor, capture_output=True, check=True).stdout
-    patch_exact = subprocess.run(["git", "apply", "--reverse", "--check", str(WT / PATCH)], cwd=vendor,
-                                 capture_output=True).returncode == 0
     features = [f for f in args.features.split(",") if f]
     command = (f"cargo build --profile {args.profile} --locked --offline -p rustred-app --bin rustred"
                + (f" --features {','.join(features)}" if features else ""))
@@ -100,8 +96,7 @@ def main():
         "working_tree_crates_cargo_equal_rev_at_sidecar_time": clean,
         "vendor_symbolica_commit": git("rev-parse", "HEAD", cwd=vendor).stdout.strip(),
         "vendor_symbolica_diff_sha256": sha256(data=vendor_diff),
-        "heap_pow_patch": PATCH, "heap_pow_patch_sha256": sha256(WT / PATCH),
-        "heap_pow_patch_exactly_applied": patch_exact,
+        "vendor_symbolica_clean": not vendor_diff,
         "rustc": tool("rustc", "-vV").replace("\n", "; "), "cargo": tool("cargo", "-V"),
         "nm_malloc_free": nm, "build_started_utc": args.started, "build_finished_utc": args.finished,
         "note": args.note, "family_closure_claim": False,
@@ -109,7 +104,7 @@ def main():
     Path(str(target) + ".provenance.json").write_text(json.dumps(sidecar, indent=1) + "\n")
     print(json.dumps({k: sidecar[k] for k in ("binary", "sha256", "git_rev", "crates_tree",
                                               "working_tree_crates_cargo_equal_rev_at_sidecar_time",
-                                              "heap_pow_patch_exactly_applied")}))
+                                              "vendor_symbolica_clean")}))
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ impl IndexedCoefficientContext {
         self.validate_index_arity(shift)?;
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -123,7 +123,7 @@ impl IndexedCoefficientContext {
         self.validate_index_arity(shift)?;
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
-            context: self.fingerprint.clone(),
+            context: self.seal(),
         })
     }
 
@@ -262,7 +262,8 @@ impl IndexedCoefficientContext {
         limits: IndexedAlgebraLimits,
         preflight: TranslationPreflight,
     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
-        let mut result = source.clone();
+        // Equal value on a thread-owned context (`algebra::thread_owned`).
+        let mut result = crate::algebra::thread_owned::clone_thread_owned(source);
         let base_count = self.base.variables().len();
         for (position, offset) in shift.iter().enumerate() {
             if *offset == 0 {

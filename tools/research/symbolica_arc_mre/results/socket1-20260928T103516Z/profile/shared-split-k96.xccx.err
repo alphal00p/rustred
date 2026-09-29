@@ -1,2 +1,0 @@
-# symbolica-v3.0.0-24-g953e26e2 | variant=Shared work=Split threads=96 ops/thread=15000 warmup=1500 | set: 4096 polys, 16 vars (4 base + 12 index), 148523 terms total, 1 context(s), 1 variable map(s), built in 0.023 s
-# thread 0 set: 1 context(s), 1 variable map(s); setup 0.003 s wall, RSS after setup 19 MiB

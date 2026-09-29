@@ -1,4 +1,0 @@
-   Compiling symbolica-arc-mre v0.1.0 (/common/dev/rustred/tools/research/symbolica_arc_mre)
-    Finished `release` profile [optimized + debuginfo] target(s) in 5.63s
-rustc 1.97.1 (8bab26f4f 2026-07-14) (built from a source tarball)
-cargo 1.97.0 (c980f4866 2026-06-30)
