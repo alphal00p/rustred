@@ -105,6 +105,44 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 21:48 UTC — first new paired control remains negative
+
+- [M] Optimized `89d90a3a` frozen binary SHA256 is
+  `581dc252aaeffd647032a37c944df673aaa3c8e91120394d08ce0eb67679ae5c`;
+  root and independent critic reproduced it. First combined-four-loop pair:
+  Ready native9.496s + cold12.160875s = **21.656875s**;
+  rolling FIFO native11.183s + cold16.157556s = **27.340556s**.
+  Both pass full cold-All verification of all32 initial roots /58 queries;
+  FIFO is 26.24% slower at this boundary. Secondary audits are separately
+  charged (6.1633s Ready,1.1503s FIFO), not hidden solver improvements.
+- [M] New native monitoring source `a35bfed8` passes release test metadata
+  in44.168s. The standalone Tracker harness has not executed: its first
+  compile omitted the existing Blake3 dependency; the corrected link then
+  found campaign rlibs contain LLVM-only objects requiring LTO. Both failed
+  receipts are retained. This is harness linkage, not an engine/test failure;
+  a coherent existing non-LTO dependency set is prepared for a later slot.
+- [D] Keep the original negative-control and query-order sequence. Do not
+  label verification lookup savings as native solver speedup. Investigate a
+  narrowly targeted broad-anchor-first variant for the dominant owner only,
+  rather than reopening the already negative all-helpers-first experiment.
+
+### 2026-09-29 21:42 UTC — optimized verifier build completed
+
+- [M] `bounded_ordering_pilots` completed the clean `89d90a3a` campaign build:
+  exit zero, no guard stop, 3,910.600 seconds compilation (not solver time),
+  17,327,744 KiB maximum single-child RSS; minimum available host memory
+  703.746 GB. Root independently checked the receipt, clean worktree and exact
+  source revision. Evidence:
+  `TMP/codex-parallel-campaign.oiPK29/campaign-build-89d90a3a/result.json`.
+- [D] After freezing that binary, run the two counterbalanced combined-four-
+  loop pairs, indexed negative controls, and three mechanistic query-order
+  pairs. These still precede any launch recommendation. The new native closure
+  telemetry patch is deliberately absent from this immutable comparison;
+  its separately identified build and final controls remain necessary.
+- [M] The build process group drained. A short serialized validation slot on
+  CPUs16–19 now checks exact `a35bfed8` metadata and the independently audited
+  Tracker/example diagnostics; production and its CPU allocation are untouched.
+
 ### 2026-09-29 21:35 UTC — exact terminal inventory adapter prepared
 
 - [M] `parallel_gate_critique` added only `candidate_bundle terminals ARITY

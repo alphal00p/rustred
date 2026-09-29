@@ -7,6 +7,15 @@ progress. This is not a production-launch recommendation. Follow
 The latest requested launch is alongside LC2 in session `rustred`, tab
 `codex_astra`, using disjoint resources, not a replacement of the current run.
 
+September29 follow-up: the separately frozen `89d90a3a` verifier-lookup build
+has completed, but its first matched combined pair is still negative:
+Ready9.496s native +12.160875s cold versus Epoch11.183s +16.157556s cold.
+Both pass full cold reinspection; 21.657s versus27.341s is **not** a deployment
+win. Repeats and mechanistic input/pivot variants are in progress. Source
+changes adding the requested hourly discovery-minus-closure monitor have passed
+Python regression tests and native type checks, but require a subsequent
+optimized build and live checks; they are not present in that89 binary.
+
 ## Delivered separately: compatible Stage A
 
 The stable `fable_5_1` milestone is `931d006c`, built from native source
