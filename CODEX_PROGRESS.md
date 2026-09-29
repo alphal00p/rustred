@@ -53,14 +53,14 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
 | Independent math/code audit | active | checkpoint_final_audit | Review both lanes and combined quarantine/replay invariants |
 | Combined G2′ + rescue | pending | root + independent auditor | Integrate after separate slices; paired pilot and restart decision |
-| Coordinator latency / telemetry | pending | profiling lane | Select narrow measured bottleneck after first integration |
+| Coordinator latency / telemetry | registered; pending implementation | bounded_helpers_bmw | Typed snapshot/reused lean maps; preserve counters before checkpoint callbacks |
 | Epoch S3–S6 | pending; preparatory review delivered | epoch_next_slice_review | Fresh-only CP6 first; account for rescue-authorized duplicate images before schema freeze |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
-| New algorithms / literature | pending | rotating research lane | Falsifiable hypothesis based on observed bottleneck |
+| New algorithms / literature | census delivered; narrow coalescing parked | work_reduction_research + checkpoint_final_audit | Reopen only with post-G2 miss-cohort evidence; backward covers deferred |
 | Earlier rejected levers | deferred | root | New evidence required; retain prior negative results |
 
 ## Decisions in force
@@ -78,6 +78,66 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 — pinned-dependency interaction found; census negative
+
+- Combined-test implementer found a durable zero-callback pin Q→A can exist
+  before the graph edge Q→A is published. If a later frontier taints A, rescue
+  must also quarantine Q and its already recorded ancestors before replay.
+  Filtering the G2 index alone would miss those dependencies. Integrator
+  proposes installing the durable pin edges before the existing rescue taint
+  pass; per-open-source edge deduplication prevents double accounting at
+  eventual publication. Independent critique and post-amend/pre-replay
+  checkpoint tests are required before accepting this fix.
+- Python audit also needs explicit local eligibility for each listed G2
+  anchor now that rescued outputs may retain failed helper records. A valid
+  historical anchor with a failed descendant is different from an anchor
+  whose own inspection had a frontier/error or was abandoned; the latter
+  must never authorize a loan. Geometry/stamps/edges remain mandatory.
+- [M] Offline D-band census completed in 26.304 s, peak RSS 201.4 MB.
+  It validated 1,215,537 records/domains, 12,314,557 edges and 48,412 birth
+  merges. Within cohort windows 16/64/256 there were zero matching base
+  signature pairs among 1,215,536 noninitial survivors and zero coalescences.
+  Evidence: `TMP/codex-integration/coalescing-census.Gs3IcM/result-r2.json`.
+  Historical G2-off survivor geometry only, not a post-G2 gain or benchmark.
+- Preserve the initial failed-closed census receipt (`result.json`): one
+  source-backed correction added the existing partial-initial-inspection
+  record kind. The retry retained all birth/edge invariants. Park this narrow
+  proposal; reopen only on actual post-G2 miss-cohort opportunity evidence.
+
+### 2026-09-29 01:14 UTC — follow-on registration and combined test preparation
+
+- [M] Audited log/protocol update committed and pushed as `a2bced18`.
+- Registered follow-on mechanisms, falsifiers and negative evidence in
+  `docs/research/codex_next_candidates_2026-09-29.md`; independent document
+  audit passed. No proposed optimization has been presented as a speedup.
+- Coordinator review rejected naive telemetry throttling: checkpoint
+  callbacks require current counters. Proposed typed scalar capture and
+  reused lean maps must preserve that contract. Retained the prior failed
+  minimum-eight helper-grain experiment (median ratio 0.99885; preparation
+  15.48% slower); no second pool/pipeline rewrite is authorized by that result.
+- Research proposed exact coalescing of adjacent pending D intervals with
+  every other predicate identical. Separate mathematical/code critique
+  requires immutable admitted IDs, new union identity, ordinary exact aliases,
+  exclusion of reserved/dead work and retained dependencies. This is not hull
+  widening and does not itself establish useful opportunity.
+- Legacy G2 publication receipts do not retain true miss batches. Do not
+  manufacture an opportunity bound from their arbitrary record windows.
+  An independently reviewed alternative reconstructs historical epoch C-5F
+  **G2-off post-antichain survivor cohorts** from paired records/edge runs.
+  Root authorized only this read-only census, <=540 s work / <=600 s overall,
+  <2 GiB, CPUs 32–39, fresh local evidence. All birth/record/edge invariants
+  must pass; otherwise the result is inconclusive. It is not post-G2 evidence
+  or a solver timing comparison.
+- Combined G2′/rescue dry merge found nine text conflicts; the integrator
+  is resolving their design before modifying the actively compiling tree.
+  Rescue implementer is preparing a separate combined-regression module.
+  Startup activation and helper-rescue audit semantics need review even in
+  files with clean textual merges.
+- A private non-hardlinked campaign-profile cache seed was copied from the
+  idle LC2 worktree to the G2′ worktree. Its copied executable remains the
+  **old LC2 binary**, not a candidate; normal Cargo validation/rebuild is
+  mandatory. No fingerprint overrides or compiler-profile changes.
 
 ### 2026-09-29 01:03 UTC — rescue committed; next opportunities registered
 
