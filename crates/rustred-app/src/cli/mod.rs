@@ -338,11 +338,10 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> 
 /// performance-only executable; it opens no file and runs no algebra.
 /// Backward compatible: the three legacy keys stay first and unchanged (they
 /// describe the CP5 lanes); `per_policy` and `checkpoint_formats {cp5, cp6}`
-/// are added for walk semantics 3 (W2.0 protocol §11.5, IMP-15). `cp6` is
-/// null until stage S3 lands CP6 (the S2 epoch export is not resumable).
+/// describe the separate CP6 epoch lane. The old S2 export is not resumable.
 fn walk_semantics_probe() -> String {
     format!(
-        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":null}}}}\n",
+        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":\"RUSTRED-WALK-CP6\"}},\"epoch_checkpoint\":{{\"format\":\"RUSTRED-WALK-CP6\",\"schema\":1,\"walk_semantics_version\":3,\"resumable\":true}}}}\n",
         crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
         serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
         crate::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
@@ -402,9 +401,16 @@ mod tests {
         );
         assert_eq!(
             probe["checkpoint_formats"],
-            serde_json::json!({"cp5": "RUSTRED-WALK-CP5", "cp6": null})
+            serde_json::json!({"cp5": "RUSTRED-WALK-CP5", "cp6": "RUSTRED-WALK-CP6"})
         );
-        assert_eq!(probe.as_object().unwrap().len(), 5);
+        assert_eq!(
+            probe["epoch_checkpoint"],
+            serde_json::json!({
+                "format": "RUSTRED-WALK-CP6", "schema": 1,
+                "walk_semantics_version": 3, "resumable": true
+            })
+        );
+        assert_eq!(probe.as_object().unwrap().len(), 6);
         assert!(line.starts_with("{\"walk_semantics_version\":"));
     }
 }

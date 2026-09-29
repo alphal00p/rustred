@@ -827,7 +827,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
             options[name] = default
     if options["auto_rescue"] is None:
         # Rescue resumes after a frontier STOP; a record campaign never stops.
-        options["auto_rescue"] = options["frontier_policy"] == "stop"
+        options["auto_rescue"] = (options["frontier_policy"] == "stop"
+                                  and options["publication_policy"] != "epoch")
     if not 1 <= options["workers"] <= MAX_WORKERS:
         raise ValueError(f"workers must be in 1..{MAX_WORKERS}")
     cpus = (SUPERVISOR.parse_cpu_set(options["cpus"]) if options["cpus"] else
@@ -835,8 +836,13 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     if len(cpus) != options["workers"] or not cpus <= affinity:
         raise ValueError("CPU affinity must contain exactly the requested number of permitted CPUs")
     options["cpus"] = SUPERVISOR.format_cpu_set(cpus)
-    if options["publication_policy"] not in ("ordered", "ready"):
-        raise ValueError("publication policy must be ordered or ready")
+    if options["publication_policy"] not in ("ordered", "ready", "epoch"):
+        raise ValueError("publication policy must be ordered, ready or epoch")
+    if options["publication_policy"] == "epoch":
+        if options["auto_rescue"]:
+            raise ValueError("epoch CP6 does not support automatic rescue")
+        if options["transfer_unreserved_lookahead"] is None:
+            raise ValueError("epoch requires --transfer-unreserved-lookahead")
     if options["frontier_policy"] not in ("record", "stop"):
         raise ValueError("frontier policy must be record or stop")
     if options["auto_rescue"] and options["frontier_policy"] != "stop":
@@ -920,7 +926,7 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, help=f"initial default: at most 50 permitted CPUs (cap {MAX_WORKERS}); frozen for resume")
     parser.add_argument("--cpus", help="optional explicit affinity: comma list or ranges (128-177, 0-3,8); exactly --workers IDs")
     parser.add_argument("--run-directory", type=Path)
-    parser.add_argument("--publication-policy", choices=("ordered", "ready"),
+    parser.add_argument("--publication-policy", choices=("ordered", "ready", "epoch"),
                         help=f"initial default: {DEFAULT_PUBLICATION_POLICY}; ordered remains selectable; frozen for resume")
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
@@ -1007,8 +1013,8 @@ def main(argv=None):
                      "positive and finite")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
-    if args.publication_policy == "ready" and args.apply_subdivision_axis is not None:
-        parser.error("ready publication cannot be combined with physical subdivision")
+    if args.publication_policy in ("ready", "epoch") and args.apply_subdivision_axis is not None:
+        parser.error("nonordered publication cannot be combined with physical subdivision")
     if any(value is not None and value < 0 for value in (args.apply_subdivision_axis, args.apply_subdivision_cut)):
         parser.error("subdivision axis and cut must be nonnegative")
     try:
@@ -1110,6 +1116,13 @@ def main(argv=None):
             "family_closure_claim": False, "launch_requested": args.start}
     if upgrade is not None:
         plan["executable_upgrade"] = dict(upgrade, applied=args.start)
+    if options["publication_policy"] == "epoch":
+        plan["epoch_checkpoint"] = {
+            "format": "RUSTRED-WALK-CP6", "schema": 1, "walk_semantics_version": 3,
+            "resumable": True, "terminal_output": "checkpoint_only",
+            "completion_report": "not_evaluated; raw cold reinspection required",
+            "executable_policy": "launcher_frozen_binary; native_metadata_does_not_hash_executable",
+            "executable_upgrade_supported": False}
     if liveness is not None:
         plan["ram_guard_liveness"] = dict(liveness, limit=args.max_zero_progress_ram_stops)
     plan["memory_admission_preview"] = memory_admission_preview(options)

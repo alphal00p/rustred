@@ -731,6 +731,10 @@ def pair_verifier(audit, result_path, report, verify_report, require_closure):
     return pairing
 
 
+class CheckpointOnlySummary(Exception):
+    """A summary is not a failed checkpoint, and is never a full-result proof."""
+
+
 def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None, require_closure=False,
                containment=None, verify_report=None):
     run = Path(run)
@@ -749,12 +753,15 @@ def audit_walk(run, queries=None, command=None, receipt=None, expect_schema=None
         if verify_report is not None:
             report["verifier_pairing"] = pair_verifier(audit, run / "result.json", report, verify_report,
                                                        require_closure)
+    except CheckpointOnlySummary as error:
+        report["incomplete_reason"] = str(error)
     except (OSError, ValueError, KeyError, TypeError, IndexError, OverflowError) as error:
         audit.check(False, f"structural: {type(error).__name__}: {error}")
     report["containment_oracle"] = containment.json()
     report["violations"] = audit.violations
     report["violations_suppressed"] = audit.suppressed
-    report["audit"] = "PASS" if not audit.violations else "FAIL"
+    report["audit"] = ("FAIL" if audit.violations else
+                       "INCOMPLETE" if "incomplete_reason" in report else "PASS")
     report["all_local_obligations_discharged"] = report["audit"] == "PASS"
     certification = report.get("certification")
     if isinstance(certification, dict):
@@ -857,8 +864,9 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     check(policy in ("ordered", "ready", "epoch"), f"unsupported publication policy {policy!r}")
     # Walk semantics 3 (epoch, W2 stage S2): records in merge order, every
     # native record carries accepted_events, the pool reports merged and
-    # discarded inspections, and --checkpoint names a final export
-    # (epoch-export.json), not a CP5 generation.
+    # discarded inspections. Legacy epoch-export.json has full result records;
+    # resumable CP6 summaries are explicitly INCOMPLETE below, never CP5 or
+    # empty full-record proofs.
     streamed_order = policy in ("ready", "epoch")
     queries_document = read_json(located["queries"])
     queries = queries_document["queries"]
@@ -933,6 +941,10 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             continue
         if item[0] == "top":
             top[item[1]] = item[2]
+            if item[1] == "full_result_in_output_document" and item[2] is False:
+                raise CheckpointOnlySummary(
+                    "checkpoint-only output has no full record proof; run native walk-verify-closure "
+                    "on the checkpoint without --result; this audit has not validated the checkpoint")
             continue
         row = item[1]
         identity = row.get("id")

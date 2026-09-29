@@ -29,7 +29,7 @@ TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
 JOINT_SUPPORT_PRUNING = "route-joint-source-support-pruning"
 PUBLICATION_POLICY = "publication-policy"
-PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready")
+PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready", "epoch")
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -101,10 +101,10 @@ def validate_inspection_workers(parser, workers, inspectors, containment_cap):
 
 
 def validate_publication_policy(parser, policy, transfer_lookahead, checkpoint, subdivision):
-    if policy == "ready" and transfer_lookahead is None:
-        parser.error("ready publication requires --transfer-unreserved-lookahead")
+    if policy in ("ready", "epoch") and transfer_lookahead is None:
+        parser.error(f"{policy} publication requires --transfer-unreserved-lookahead")
     if checkpoint and policy == "owner-batched":
-        parser.error("checkpoint/resume requires ordered or ready publication")
+        parser.error("checkpoint/resume requires ordered, ready or epoch publication")
     if subdivision and policy not in (None, "ordered"):
         parser.error("physical subdivision requires ordered publication")
 
@@ -153,7 +153,7 @@ def main() -> None:
     parser.add_argument("--" + INITIAL_D_REUSE, action=StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
     parser.add_argument("--" + PUBLICATION_POLICY, choices=PUBLICATION_POLICIES,
-                        help="successor publication: ordered (default), owner-batched, or ready; ready requires unreserved delegation; saved rules are unchanged")
+                        help="successor publication: ordered (default), owner-batched, ready or epoch; ready/epoch require unreserved delegation; epoch checkpoints use CP6")
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,

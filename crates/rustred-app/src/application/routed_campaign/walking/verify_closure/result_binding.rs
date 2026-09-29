@@ -51,6 +51,7 @@ pub(super) struct Top {
     pub failed_nodes: Value,
     pub rows: u64,
     pub has_domains: bool,
+    pub full_result: Option<bool>,
     /// Every byte of the file as read (the parse consumes it to EOF).
     pub bytes: u64,
     pub blake3: String,
@@ -118,6 +119,7 @@ impl<'de, F: FnMut(Row)> Visitor<'de> for TopVisitor<'_, F> {
                     })?;
                 }
                 "checkpoint" => top.checkpoint = map.next_value()?,
+                "full_result_in_output_document" => top.full_result = map.next_value()?,
                 "frontiers" => top.frontiers = map.next_value()?,
                 "failed_nodes" => top.failed_nodes = map.next_value()?,
                 _ => {

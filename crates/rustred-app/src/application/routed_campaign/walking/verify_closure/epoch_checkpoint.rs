@@ -1,0 +1,732 @@
+//! Read-only CP6 adapter for the independent closure oracle.
+//!
+//! Select latest exactly once, authenticate every referenced immutable file
+//! (record payloads during their subsequent oracle consumption),
+//! and decode raw images/ledger/edges rather than calling runtime::open (which
+//! adopts a new session). No locks, writes, previous-generation fallback,
+//! reconstructed lookup index or engine closure calculation are used here.
+use super::super::checkpoint::RawCheckpoint;
+use super::super::queue::{CompactDomain, Domain, Phase};
+use super::epoch_export::{AnchorRow, EpochSections};
+use rustred::solver::DomainPowerBounds;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::BTreeSet;
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, Read};
+use std::path::{Component, Path};
+
+#[cfg(test)]
+mod tests;
+
+const FORMAT: &str = "RUSTRED-WALK-CP6";
+const MANIFEST_LIMIT: u64 = 64 << 10;
+
+// Field order is the public canonical manifest digest encoding.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Manifest {
+    format: String,
+    schema: u32,
+    generation: u64,
+    arity: usize,
+    walk_semantics_version: u32,
+    resumable: bool,
+    files: Vec<FileRef>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileRef {
+    key: String,
+    file: String,
+    count: u64,
+    bytes: u64,
+    blake3: [u8; 32],
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Envelope {
+    manifest: Manifest,
+    blake3: [u8; 32],
+}
+
+/// Detection only; the actual reader repeats all identity/digest checks.
+/// The canonical envelope puts format first, within this bounded prefix.
+pub(super) fn present(directory: &Path) -> bool {
+    let mut prefix = [0u8; 256];
+    File::open(directory.join("latest.json"))
+        .and_then(|mut file| file.read(&mut prefix))
+        .is_ok_and(|n| String::from_utf8_lossy(&prefix[..n]).contains(FORMAT))
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+fn number(value: &Value, key: &str) -> Result<u64, String> {
+    value[key]
+        .as_u64()
+        .ok_or_else(|| format!("CP6 missing integer {key}"))
+}
+fn count(value: &Value, key: &str) -> Result<usize, String> {
+    usize::try_from(number(value, key)?).map_err(|_| format!("CP6 {key} exceeds usize"))
+}
+
+/// Exact public row shape and ordered one-to-one source-frontier mapping.
+/// Query geometry/roles and whether a frontier is actually required are then
+/// checked independently against the request/prepared registry by the oracle.
+fn input_inventory(inputs: &[Value], frontiers: &[Value]) -> Result<(), String> {
+    let mut next_frontier = 0;
+    for row in inputs {
+        let object = row.as_object().ok_or("CP6 input row object")?;
+        if !row["id"].is_string()
+            || !matches!(row["role"].as_str(), Some("required" | "auxiliary"))
+            || !row["role_declared"].is_boolean()
+        {
+            return Err("CP6 input row identity/role shape".into());
+        }
+        match object.get("domain") {
+            Some(Value::Number(id)) if id.as_u64().is_some_and(|n| n < u32::MAX as u64) => {
+                if object.len() != 4 || object.contains_key("source_validity_unresolved") {
+                    return Err("CP6 mapped input has unresolved or unknown fields".into());
+                }
+            }
+            Some(Value::Null) if object.len() == 5 && row["source_validity_unresolved"] == true => {
+                if frontiers
+                    .get(next_frontier)
+                    .is_none_or(|f| f["id"] != row["id"])
+                {
+                    return Err("CP6 unresolved input/frontier correspondence differs".into());
+                }
+                next_frontier += 1;
+            }
+            _ => return Err("CP6 input domain/source obligation shape".into()),
+        }
+    }
+    if next_frontier != frontiers.len() {
+        return Err("CP6 input frontier has no unresolved row".into());
+    }
+    Ok(())
+}
+
+pub(super) fn source_frontier_matches<const N: usize>(
+    query: &crate::application::routed_campaign::matching::input::Query,
+    frontier: &Value,
+) -> bool {
+    let Ok(owner) = <&[bool; N]>::try_from(query.owner.as_slice()) else {
+        return false;
+    };
+    frontier
+        == &json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
+        "owner":super::super::mask::<N>(owner),"lower":query.lower,"upper":query.upper,
+        "rank":query.rank,"power_bounds":super::super::power_bounds_json(query.powers),
+        "reached_missing_rule_claim":false})
+}
+fn regular(path: &Path) -> io::Result<File> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(invalid("CP6 input is not a regular non-symlink file"));
+    }
+    File::open(path)
+}
+
+/// Constant-buffer authenticated reader. Length/digest are checked on the
+/// same open file consumed by the decoder, including skipped sections.
+pub(super) struct Input {
+    reader: BufReader<File>,
+    reference: FileRef,
+    read: u64,
+    hash: blake3::Hasher,
+}
+impl Read for Input {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let n = self.reader.read(output)?;
+        self.read = self
+            .read
+            .checked_add(n as u64)
+            .ok_or_else(|| invalid("CP6 length overflow"))?;
+        if self.read > self.reference.bytes {
+            return Err(invalid("CP6 file exceeds authenticated length"));
+        }
+        self.hash.update(&output[..n]);
+        // Record consumers finish through BufRead::lines rather than finish().
+        // Authenticate the very bytes parsed, including an empty sidecar. A
+        // zero-length destination is not evidence of EOF.
+        if n == 0 && !output.is_empty() {
+            self.check_digest()?;
+        }
+        Ok(n)
+    }
+}
+impl Input {
+    fn open(directory: &Path, reference: &FileRef) -> io::Result<Self> {
+        let mut components = Path::new(&reference.file).components();
+        if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+            return Err(invalid("CP6 section path is not one filename"));
+        }
+        let file = regular(&directory.join(&reference.file))?;
+        if file.metadata()?.len() != reference.bytes {
+            return Err(invalid("CP6 section length differs"));
+        }
+        Ok(Self {
+            reader: BufReader::with_capacity(32 << 10, file),
+            reference: reference.clone(),
+            read: 0,
+            hash: blake3::Hasher::new(),
+        })
+    }
+    fn bytes<const M: usize>(&mut self) -> io::Result<[u8; M]> {
+        let mut bytes = [0; M];
+        self.read_exact(&mut bytes)?;
+        Ok(bytes)
+    }
+    fn u8(&mut self) -> io::Result<u8> {
+        Ok(self.bytes::<1>()?[0])
+    }
+    fn u16(&mut self) -> io::Result<u16> {
+        Ok(u16::from_le_bytes(self.bytes()?))
+    }
+    fn u32(&mut self) -> io::Result<u32> {
+        Ok(u32::from_le_bytes(self.bytes()?))
+    }
+    fn u64(&mut self) -> io::Result<u64> {
+        Ok(u64::from_le_bytes(self.bytes()?))
+    }
+    fn finish(mut self) -> io::Result<()> {
+        if self.read(&mut [0])? != 0 {
+            return Err(invalid(
+                "CP6 section trailing bytes, length or digest differs",
+            ));
+        }
+        self.check_digest()
+    }
+    fn check_digest(&self) -> io::Result<()> {
+        if self.read != self.reference.bytes
+            || self.hash.finalize().as_bytes() != &self.reference.blake3
+        {
+            return Err(invalid("CP6 section length or digest differs"));
+        }
+        Ok(())
+    }
+    fn drain(mut self) -> io::Result<()> {
+        io::copy(&mut self, &mut io::sink())?;
+        self.finish()
+    }
+    fn header(&mut self, arity: usize, section: u32) -> io::Result<usize> {
+        if &self.bytes::<8>()? != b"EPC6PART"
+            || self.u32()? != 1
+            || self.u32()? as usize != arity
+            || self.u32()? != section
+        {
+            return Err(invalid("CP6 section framing differs"));
+        }
+        let count = self.u64()?;
+        if count != self.reference.count {
+            return Err(invalid("CP6 section count differs"));
+        }
+        usize::try_from(count).map_err(|_| invalid("CP6 section count exceeds usize"))
+    }
+    fn fixed(&self, count: usize, width: usize) -> io::Result<()> {
+        if (count as u64)
+            .checked_mul(width as u64)
+            .and_then(|n| n.checked_add(28))
+            != Some(self.reference.bytes)
+        {
+            return Err(invalid("CP6 fixed section width differs"));
+        }
+        Ok(())
+    }
+}
+
+/// Captured from the authenticated selected generation, never from a later
+/// latest.json. Open one sidecar at a time; load must consume it through EOF.
+pub(super) struct RecordRef(FileRef);
+impl RecordRef {
+    pub(super) fn open(&self, path: &Path, count: usize) -> io::Result<Input> {
+        if path.file_name().and_then(|s| s.to_str()) != Some(self.0.file.as_str())
+            || count as u64 != self.0.count
+        {
+            return Err(invalid("CP6 captured record reference differs"));
+        }
+        Input::open(
+            path.parent().ok_or_else(|| invalid("CP6 record path"))?,
+            &self.0,
+        )
+    }
+}
+fn reserve<T>(count: usize) -> io::Result<Vec<T>> {
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(count)
+        .map_err(|_| invalid("CP6 reader allocation"))?;
+    Ok(result)
+}
+fn json_file(directory: &Path, reference: &FileRef, limit: Option<u64>) -> io::Result<Value> {
+    if limit.is_some_and(|limit| reference.bytes > limit) {
+        return Err(invalid("CP6 bounded metadata exceeds limit"));
+    }
+    let mut input = Input::open(directory, reference)?;
+    let value = serde_json::from_reader(&mut input).map_err(io::Error::other)?;
+    input.finish()?;
+    Ok(value)
+}
+fn rows<T: serde::de::DeserializeOwned>(
+    directory: &Path,
+    reference: &FileRef,
+) -> io::Result<Vec<T>> {
+    let input = Input::open(directory, reference)?;
+    let mut buffered = BufReader::with_capacity(32 << 10, input);
+    let mut result = Vec::new();
+    let mut line = String::new();
+    while buffered.read_line(&mut line)? != 0 {
+        if result.len() as u64 >= reference.count || line.trim().is_empty() {
+            return Err(invalid("CP6 row count differs"));
+        }
+        result
+            .try_reserve(1)
+            .map_err(|_| invalid("CP6 row allocation"))?;
+        result.push(serde_json::from_str(&line).map_err(io::Error::other)?);
+        line.clear();
+    }
+    if result.len() as u64 != reference.count {
+        return Err(invalid("CP6 row count differs"));
+    }
+    buffered.into_inner().finish()?;
+    Ok(result)
+}
+fn image<const N: usize>(input: &mut Input) -> io::Result<CompactDomain<N>> {
+    let phase = match input.u8()? {
+        0 => Phase::Apply,
+        1 => Phase::Route,
+        _ => return Err(invalid("CP6 domain phase")),
+    };
+    let mask = input.u32()?;
+    if N < 32 && mask >> N != 0 {
+        return Err(invalid("CP6 owner high bits"));
+    }
+    let rank_flag = input.u8()?;
+    let rank_word = input.u32()?;
+    if rank_flag > 1 || rank_flag == 0 && rank_word != 0 {
+        return Err(invalid("CP6 rank option encoding"));
+    }
+    let mut lower = reserve(N)?;
+    let mut upper = reserve(N)?;
+    for _ in 0..N {
+        lower.push(u64::from(input.u16()?));
+    }
+    for _ in 0..N {
+        let word = input.u16()?;
+        upper.push((word != u16::MAX).then_some(u64::from(word)));
+    }
+    let mut option = || -> io::Result<Option<u64>> {
+        let flag = input.u8()?;
+        let word = input.u64()?;
+        if flag > 1 || flag == 0 && word != 0 {
+            return Err(invalid("CP6 power option encoding"));
+        }
+        Ok((flag == 1).then_some(word))
+    };
+    let powers = DomainPowerBounds {
+        max_positive_power: option()?,
+        min_power_difference: option()?.map(|v| v as i64),
+        max_power_difference: option()?.map(|v| v as i64),
+    };
+    CompactDomain::restore(&Domain {
+        phase,
+        owner: std::array::from_fn(|i| mask >> i & 1 != 0),
+        lower,
+        upper,
+        rank: (rank_flag == 1).then_some(rank_word),
+        powers,
+    })
+    .map_err(io::Error::other)
+}
+
+pub(super) fn read_raw<const N: usize>(
+    directory: &Path,
+) -> Result<(RawCheckpoint<N>, EpochSections, Vec<RecordRef>), String> {
+    read_inner::<N>(directory).map_err(|error| format!("CP6 raw checkpoint: {error}"))
+}
+fn read_inner<const N: usize>(
+    directory: &Path,
+) -> Result<(RawCheckpoint<N>, EpochSections), String> {
+    let start = std::time::Instant::now();
+    let io = |error: io::Error| error.to_string();
+    let meta = fs::symlink_metadata(directory).map_err(io)?;
+    if !meta.is_dir()
+        || meta.file_type().is_symlink()
+        || directory.join("epoch-poison").exists()
+        || directory.join("epoch-export.json").exists()
+        || directory.join("epoch-internal-latest.json").exists()
+    {
+        return Err("invalid, poisoned or ambiguous CP6 directory".into());
+    }
+    let mut bytes = Vec::new();
+    regular(&directory.join("latest.json"))
+        .map_err(io)?
+        .take(MANIFEST_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if bytes.len() as u64 > MANIFEST_LIMIT {
+        return Err("manifest too large".into());
+    }
+    let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let manifest = envelope.manifest;
+    if manifest.format != FORMAT
+        || manifest.schema != 1
+        || manifest.generation == 0
+        || manifest.arity != N
+        || manifest.walk_semantics_version != 3
+        || !manifest.resumable
+        || manifest.files.len() != 15
+        || *blake3::hash(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?).as_bytes()
+            != envelope.blake3
+    {
+        return Err("manifest identity or digest differs".into());
+    }
+    let names: Vec<String> = (1..=9)
+        .map(|n| format!("state-{n}"))
+        .chain(
+            [
+                "meta",
+                "owners",
+                "inputs",
+                "input-frontiers",
+                "record-segments",
+                "orthants",
+            ]
+            .map(str::to_owned),
+        )
+        .collect();
+    let file = |key: &str| -> Result<&FileRef, String> {
+        manifest
+            .files
+            .iter()
+            .find(|f| f.key == key)
+            .ok_or_else(|| format!("missing {key}"))
+    };
+    for key in &names {
+        let entry = file(key)?;
+        let suffix = key.strip_prefix("state-").unwrap_or(key);
+        if entry.file != format!("epoch-{:020}-{suffix}.part", manifest.generation) {
+            return Err(format!("noncanonical section path {key}"));
+        }
+    }
+    let scalar = json_file(directory, file("meta")?, Some(1 << 20)).map_err(io)?;
+    let total = count(&scalar, "watermark")?;
+    let p0 = count(&scalar, "p0")?;
+    let processed = count(&scalar, "processed_queries")?;
+    let query_total = count(&scalar, "total_queries")?;
+    let admission = scalar["initial_admission"]
+        .as_str()
+        .ok_or("missing admission state")?;
+    if scalar["schema"] != 2
+        || scalar["walk_semantics_version"] != 3
+        || p0 > total
+        || total >= u32::MAX as usize
+        || processed > query_total
+        || total > count(&scalar, "max_domains")?
+        || !(1..=4096).contains(&count(&scalar, "lockstep_b")?)
+        || number(&scalar, "k")? >= 1u64 << 48
+        || !matches!(admission, "complete" | "in_progress")
+        || admission == "complete" && processed != query_total
+        || scalar["g2"] != "off"
+        || scalar["imported_prefix"] != 0
+        || scalar["engine_certification_void"] != false
+        || ["amendments", "quarantined", "abandoned_obligations"]
+            .iter()
+            .any(|k| scalar[*k].as_array().is_none_or(|a| !a.is_empty()))
+    {
+        return Err("scalar identity or supported scope differs".into());
+    }
+    let owners: Vec<String> = rows(directory, file("owners")?).map_err(io)?;
+    if owners.len() != count(&scalar, "owner_count")?
+        || serde_json::to_value(
+            blake3::hash(&serde_json::to_vec(&owners).map_err(|e| e.to_string())?).as_bytes(),
+        )
+        .map_err(|e| e.to_string())?
+            != scalar["owners_digest"]
+    {
+        return Err("owner inventory digest differs".into());
+    }
+    let inputs: Vec<Value> = rows(directory, file("inputs")?).map_err(io)?;
+    let input_frontiers: Vec<Value> = rows(directory, file("input-frontiers")?).map_err(io)?;
+    if inputs.len() != processed || input_frontiers.len() != count(&scalar, "input_frontiers")? {
+        return Err("input prefix inventory differs".into());
+    }
+    input_inventory(&inputs, &input_frontiers)?;
+    let section = |n: u32| -> Result<(Input, usize), String> {
+        let mut input = Input::open(directory, file(&format!("state-{n}"))?).map_err(io)?;
+        let count = input.header(N, n).map_err(io)?;
+        Ok((input, count))
+    };
+    let (mut domains_input, n) = section(1)?;
+    domains_input.fixed(n, 37 + 4 * N).map_err(io)?;
+    if n != total {
+        return Err("domain watermark differs".into());
+    }
+    let mut domains = reserve(n).map_err(io)?;
+    for _ in 0..n {
+        domains.push(image(&mut domains_input).map_err(io)?);
+    }
+    domains_input.finish().map_err(io)?;
+    let (mut nodes_input, n) = section(2)?;
+    nodes_input.fixed(n, 1).map_err(io)?;
+    if n != total {
+        return Err("node count differs".into());
+    }
+    let mut flags = reserve(n).map_err(io)?;
+    for _ in 0..n {
+        flags.push(nodes_input.u8().map_err(io)?);
+    }
+    nodes_input.finish().map_err(io)?;
+    if flags.iter().any(|flag| flag & !11 != 0) {
+        return Err("unsupported CP6 node flag".into());
+    }
+    let (mut closure_input, n) = section(8)?;
+    closure_input.fixed(n, 1).map_err(io)?;
+    if n != total && !(n == 0 && scalar["closure"]["unavailable"].is_string()) {
+        return Err("closure flag count differs".into());
+    }
+    for flag in flags.iter_mut().take(n) {
+        let closure = closure_input.u8().map_err(io)?;
+        if closure & !7 != 0 || *flag & 3 != closure & 3 {
+            return Err("closure/node flags differ".into());
+        }
+        *flag |= closure & 4;
+    }
+    closure_input.finish().map_err(io)?;
+    let (mut ledger_input, n) = section(4)?;
+    ledger_input.fixed(n, 8).map_err(io)?;
+    if n != total {
+        return Err("ledger count differs".into());
+    }
+    let mut ledger = reserve(n).map_err(io)?;
+    for _ in 0..n {
+        ledger.push(ledger_input.u64().map_err(io)?);
+    }
+    ledger_input.finish().map_err(io)?;
+    let (mut edge_input, n) = section(5)?;
+    if n != count(&scalar, "edge_runs")?
+        || n as u64 > edge_input.reference.bytes.saturating_sub(28) / 8
+    {
+        return Err("edge run inventory differs".into());
+    }
+    let mut runs = reserve(n).map_err(io)?;
+    let mut edges = Vec::new();
+    for _ in 0..n {
+        let source = edge_input.u32().map_err(io)?;
+        let length = edge_input.u32().map_err(io)? as usize;
+        if length > total
+            || length as u64 > edge_input.reference.bytes.saturating_sub(edge_input.read) / 4
+        {
+            return Err("edge target count exceeds section bounds".into());
+        }
+        let mut targets = reserve(length).map_err(io)?;
+        edges
+            .try_reserve(length)
+            .map_err(|_| "edge pair allocation")?;
+        for _ in 0..length {
+            let target = edge_input.u32().map_err(io)?;
+            targets.push(target);
+            edges.push((source, target));
+        }
+        runs.push((source, targets));
+    }
+    edge_input.finish().map_err(io)?;
+    if edges.len() != count(&scalar, "edges")? {
+        return Err("edge count differs".into());
+    }
+    let (mut anchor_input, n) = section(6)?;
+    if anchor_input.u16().map_err(io)? != 2
+        || anchor_input.u64().map_err(io)? != n as u64
+        || n > total
+    {
+        return Err("anchor inventory differs".into());
+    }
+    let mut anchors: Vec<AnchorRow> = reserve(n).map_err(io)?;
+    for _ in 0..n {
+        let node = anchor_input.u32().map_err(io)?;
+        let kind = anchor_input.u8().map_err(io)?;
+        if anchor_input.bytes::<3>().map_err(io)? != [0; 3]
+            || anchor_input.u32().map_err(io)? != 1
+            || anchor_input.u32().map_err(io)? != 8
+        {
+            return Err("unsupported anchor shape".into());
+        }
+        let dispatch = anchor_input.u64().map_err(io)?;
+        let target = anchor_input.u32().map_err(io)?;
+        let lent = anchor_input.u8().map_err(io)?;
+        if anchor_input.bytes::<3>().map_err(io)? != [0; 3] {
+            return Err("anchor padding".into());
+        }
+        let stamp = anchor_input.u64().map_err(io)?;
+        let scope = anchor_input.bytes::<8>().map_err(io)?.to_vec();
+        anchors.push((node, kind, dispatch, vec![(target, lent, stamp)], scope));
+    }
+    anchor_input.finish().map_err(io)?;
+    // Resume-only auxiliary state is authenticated and framing checked, but is
+    // not used as authority for graph coverage or independent native inspection.
+    for (number, width) in [(3, Some(8)), (7, None), (9, Some(8))] {
+        let (input, n) = section(number)?;
+        if let Some(width) = width {
+            input.fixed(n, width).map_err(io)?;
+        }
+        if number == 3 && n != total.div_ceil(64) || number == 9 && n > total {
+            return Err("resume auxiliary section inventory differs".into());
+        }
+        input.drain().map_err(io)?;
+    }
+    let reference = file("orthants")?;
+    let mut orthants = Input::open(directory, reference).map_err(io)?;
+    if &orthants.bytes::<8>().map_err(io)? != b"EPORTH01"
+        || orthants.u64().map_err(io)? != reference.count
+        || reference.count > total as u64
+        || reference
+            .count
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(16))
+            != Some(reference.bytes)
+    {
+        return Err("orthant section framing or count differs".into());
+    }
+    for _ in 0..reference.count {
+        let id = orthants.u32().map_err(io)?;
+        if id != u32::MAX && id as usize >= total {
+            return Err("orthant ID beyond watermark".into());
+        }
+    }
+    orthants.finish().map_err(io)?;
+    let segments = json_file(directory, file("record-segments")?, None).map_err(io)?;
+    let segments = segments.as_array().ok_or("record segment list")?;
+    if segments.len() as u64 != file("record-segments")?.count {
+        return Err("record segment count".into());
+    }
+    let mut records = Vec::new();
+    let mut record_refs = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut first = 0u64;
+    for segment in segments {
+        let name = segment["file"].as_str().ok_or("record segment file")?;
+        let generation = name
+            .strip_prefix("records-")
+            .and_then(|s| s.strip_suffix(".jsonl"))
+            .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|s| s.parse::<u64>().ok())
+            .ok_or("noncanonical record segment name")?;
+        if generation == 0
+            || generation > manifest.generation
+            || number(segment, "generation")? != generation
+            || number(segment, "first")? != first
+            || !seen.insert(generation)
+        {
+            return Err("record segment generation differs".into());
+        }
+        let digest = segment["blake3"].as_str().ok_or("record segment digest")?;
+        let digest = blake3::Hash::from_hex(digest).map_err(|e| e.to_string())?;
+        let reference = FileRef {
+            key: "records".into(),
+            file: name.into(),
+            bytes: number(segment, "bytes")?,
+            count: number(segment, "count")?,
+            blake3: *digest.as_bytes(),
+        };
+        first = first
+            .checked_add(reference.count)
+            .ok_or("record count overflow")?;
+        records.push((directory.join(name), count(segment, "count")?));
+        record_refs.push(RecordRef(reference));
+    }
+    let counts = scalar["ledger_counts"]
+        .as_array()
+        .filter(|a| a.len() == 7)
+        .ok_or("ledger counts")?;
+    let mut normalized = json!({"format":FORMAT,"schema":1,"generation":manifest.generation,
+        "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
+        "k":scalar["k"],"p0":p0,"edge_digest":scalar["edge_digest"],"records_digest":scalar["records_digest"],
+        "ledger6_counts":{}});
+    for (name, value) in [
+        "pending",
+        "reserved",
+        "native",
+        "native_frontier",
+        "native_error",
+        "alias",
+        "exhausted",
+    ]
+    .iter()
+    .zip(counts)
+    {
+        if !value.is_u64() {
+            return Err("ledger count type".into());
+        }
+        normalized["ledger6_counts"][*name] = value.clone();
+    }
+    let merged = counts[2..=5]
+        .iter()
+        .try_fold(0u64, |sum, v| sum.checked_add(v.as_u64()?));
+    if merged != Some(first) {
+        return Err("record/ledger inventory differs".into());
+    }
+    if admission == "in_progress"
+        && (scalar["k"] != 0
+            || p0 != total
+            || counts[0].as_u64() != Some(total as u64)
+            || !records.is_empty()
+            || !edges.is_empty()
+            || scalar["walk"]["dispatched"] != 0)
+    {
+        return Err("incomplete admission has issued work".into());
+    }
+    let walk = &scalar["walk"];
+    let raw = RawCheckpoint {
+        generation: manifest.generation,
+        request: scalar["request"]
+            .as_str()
+            .ok_or("request digest")?
+            .to_owned(),
+        publication_policy: "epoch".into(),
+        walk_semantics_version: 3,
+        // CP6 binds request/owner identities, not executable bytes. Launchers pin
+        // the executable independently; do not invent a native binary binding.
+        executable: String::new(),
+        owners,
+        counters: [
+            count(walk, "events")?,
+            count(walk, "successors")?,
+            count(walk, "conditional")?,
+            count(walk, "known_reuse")?
+                .checked_add(count(walk, "job_duplicates")?)
+                .ok_or("reuse counter overflow")?,
+            0,
+            count(walk, "frontiers")?,
+            count(walk, "completed")?,
+            count(walk, "natives")?,
+            count(walk, "routed")?,
+            count(walk, "route_masks")?,
+            p0,
+            count(walk, "initial_inspected")?,
+        ],
+        closure: scalar["closure"].clone(),
+        inputs,
+        input_frontiers,
+        uncommitted: Vec::new(),
+        flags,
+        edges,
+        domains,
+        records,
+        verify_seconds: start.elapsed().as_secs_f64(),
+        amendments: Vec::new(),
+        pending_frontiers: Vec::new(),
+        g2_activation: None,
+    };
+    Ok((
+        raw,
+        EpochSections {
+            ledger,
+            runs,
+            anchors,
+            manifest: normalized,
+        },
+        record_refs,
+    ))
+}
