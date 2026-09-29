@@ -143,7 +143,31 @@ fn internal_publication_is_bound_and_latest_precedes_previous() {
     assert_eq!(first.generation, 1);
     assert!(first.warnings.is_empty());
     let manifest = read_manifest(&first.manifest).unwrap();
-    assert!(!manifest.resumable && !manifest.restore_validated);
+    assert!(manifest.resumable);
+    assert_eq!(manifest.format, FORMAT);
+    assert_eq!(manifest.schema, 1);
+    assert_eq!(first.manifest_blake3, manifest_digest(&manifest).unwrap());
+    assert!(
+        serde_json::to_value(&manifest)
+            .unwrap()
+            .get("restore_validated")
+            .is_none()
+    );
+    // Observing streamed writes cannot alter even one section/manifest byte.
+    let observed_directory = Directory::new();
+    let mut observed_store = Store::fresh(observed_directory.0.clone()).unwrap();
+    let mut observed_records = Sidecar::new(observed_directory.0.clone(), 1);
+    let mut notifications = 0;
+    let observed = observed_store
+        .save_observed(&boundary, &inputs, &mut observed_records, &mut || {
+            notifications += 1
+        })
+        .unwrap();
+    assert!(notifications > 0);
+    assert_eq!(
+        fs::read(&observed.manifest).unwrap(),
+        fs::read(&first.manifest).unwrap()
+    );
     for reference in &manifest.files {
         let bytes = fs::read(directory.0.join(&reference.file)).unwrap();
         assert_eq!(bytes.len() as u64, reference.bytes);
@@ -168,7 +192,7 @@ fn internal_publication_is_bound_and_latest_precedes_previous() {
             .generation,
         2
     );
-    assert!(!directory.0.join("latest.json").exists());
+    assert!(!directory.0.join("epoch-internal-latest.json").exists());
     let path = directory.0.join(LATEST);
     let mut changed: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     changed["manifest"]["generation"] = 4.into();
@@ -177,6 +201,48 @@ fn internal_publication_is_bound_and_latest_precedes_previous() {
         read_manifest(&path).is_err(),
         "changed authority is not self-authenticated"
     );
+}
+
+#[test]
+fn public_store_refuses_old_private_names_and_foreign_identity() {
+    let directory = Directory::new();
+    fs::write(directory.0.join("epoch-internal-latest.json"), b"{}").unwrap();
+    assert_eq!(
+        Store::open(directory.0.clone()).err().unwrap().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert!(!directory.0.join("checkpoint.lock").exists());
+    let other = Directory::new();
+    let path = other.0.join(LATEST);
+    for format in [
+        "RUSTRED-EPOCH-INTERNAL-WRITER",
+        "RUSTRED-WALK-CP5",
+        "RUSTRED-EPOCH-EXPORT",
+    ] {
+        let manifest = Manifest {
+            format: format.into(),
+            schema: 1,
+            generation: 1,
+            arity: 1,
+            walk_semantics_version: 3,
+            resumable: true,
+            files: Vec::new(),
+        };
+        write_manifest(&path, &manifest).unwrap();
+        assert_eq!(
+            read_manifest(&path).err().unwrap().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn public_manifest_pointer_refuses_symlinks() {
+    let directory = Directory::new();
+    fs::write(directory.0.join("target.json"), b"{}").unwrap();
+    std::os::unix::fs::symlink("target.json", directory.0.join(LATEST)).unwrap();
+    assert!(read_manifest(&directory.0.join(LATEST)).is_err());
 }
 
 #[test]

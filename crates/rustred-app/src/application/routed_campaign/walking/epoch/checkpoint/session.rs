@@ -7,7 +7,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::Path;
 
-const FILE: &str = "epoch-internal-session.bin";
+const FILE: &str = "epoch-session.bin";
 const MAGIC: &[u8; 8] = b"EPCS0001";
 
 /// Constructor is private: only a successful durable reservation produces it.

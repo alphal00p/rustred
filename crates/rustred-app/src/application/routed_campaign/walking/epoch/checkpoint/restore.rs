@@ -24,6 +24,7 @@ mod record_body;
 mod record_segments;
 mod roots;
 mod runtime;
+pub(in crate::application::routed_campaign::walking::epoch) use runtime::run;
 
 fn open_section<const N: usize>(
     directory: &Path,

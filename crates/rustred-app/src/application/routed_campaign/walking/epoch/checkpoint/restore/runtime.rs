@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 mod admission;
 mod controller;
+mod public;
+pub(in crate::application::routed_campaign::walking::epoch) use public::run;
 
 pub(super) struct Restored<const N: usize> {
     pub state: EpochState<N>,

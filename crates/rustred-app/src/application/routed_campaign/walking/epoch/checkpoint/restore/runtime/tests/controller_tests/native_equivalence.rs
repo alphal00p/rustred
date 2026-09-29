@@ -38,7 +38,7 @@ pub(super) fn finish_native_mode(
 /// Compare actual sidecar bodies, not just records_digest (id/tag/outdegree).
 /// Only the native record's top-level elapsed `seconds` is nondeterministic;
 /// merge epochs, v0, resolver counters, errors, geometry and scope remain exact.
-pub(super) fn completed_snapshot(restored: &mut Restored<1>) -> Value {
+pub(in super::super) fn completed_snapshot(restored: &mut Restored<1>) -> Value {
     assert!(restored.warnings.is_empty());
     assert!(restored.replay.is_empty());
     assert!(restored.state.in_flight.is_empty());
@@ -105,7 +105,7 @@ pub(super) fn completed_snapshot(restored: &mut Restored<1>) -> Value {
     })
 }
 
-pub(super) fn closed_fixture() -> Fixture {
+pub(in super::super) fn closed_fixture() -> Fixture {
     let mut fixture = Fixture::new();
     // Reuse the closed one-axis S2 fixture's narrow/narrow/whole-ray queries,
     // retaining this fixture's explicit required/auxiliary roles and three IDs.
@@ -284,7 +284,7 @@ fn interrupted_native_mode(mode: controller::LookupMode) {
         serde_json::to_value(interrupted.state.counters).unwrap(),
         original_counters
     );
-    assert!(!fixture.directory.0.join("epoch-internal-poison").exists());
+    assert!(!fixture.directory.0.join("epoch-poison").exists());
     drop(interrupted);
 
     // Width is operational, not part of epoch_request_binding. The saved cut

@@ -91,16 +91,24 @@ fn epoch_walk_drains_resolved_and_is_identical_across_widths() {
 }
 
 #[test]
-fn epoch_export_is_certified_by_the_closure_verifier_and_resume_is_refused() {
+fn epoch_cp6_raw_is_cold_certified_and_public_w1_resume_is_supported() {
     let fixture = Fixture::new();
-    let directory = fixture.directory.join("epoch-export");
+    let directory = fixture.directory.join("epoch-cp6");
     let mut request = epoch_request(&fixture, 1);
     request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
     let result =
         owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
-    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
-    assert!(result.records.is_streamed());
-    assert!(directory.join("epoch-export.json").is_file());
+    assert!(
+        !result.all_scheduled_domains_resolved,
+        "{}",
+        result.document
+    );
+    assert!(!result.records.is_streamed());
+    assert_eq!(result.document["recursive_worklist_exhausted"], true);
+    assert_eq!(result.document["full_result_in_output_document"], false);
+    assert_eq!(result.document["finalization"], "not_evaluated");
+    assert!(directory.join("latest.json").is_file());
+    assert!(!directory.join("epoch-export.json").exists());
     let mut options = OwnerDomainWalkVerifyOptions::new(&directory);
     options.require_closure = true;
     let report = crate::owner_domain_walk_verify_closure(
@@ -117,6 +125,16 @@ fn epoch_export_is_certified_by_the_closure_verifier_and_resume_is_refused() {
     );
     assert_eq!(report["checkpoint"]["publication_policy"], "epoch");
     assert_eq!(report["checkpoint"]["request_binding_matches"], true);
+    // Cold raw remains authoritative; a checkpoint-only document is NOT a
+    // complete record inventory for --result equality. Outer adapter required.
+    let summary_file = fixture.directory.join("epoch-summary.json");
+    std::fs::write(&summary_file, serde_json::to_vec(&result.document).unwrap()).unwrap();
+    let mut paired = options.clone();
+    paired.result = Some(summary_file);
+    let incomplete =
+        crate::owner_domain_walk_verify_closure(&request, &paired, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(incomplete["verdict"], "INCOMPLETE", "{incomplete}");
     // Offline verification shares the unsupported-extension refusal with
     // execution, even though it does not run full execution admission.
     let mut unsupported = request.clone();
@@ -145,13 +163,33 @@ fn epoch_export_is_certified_by_the_closure_verifier_and_resume_is_refused() {
         .to_string()
         .contains("G2'")
     );
-    // A second run into the same directory and a resume are refused.
+    // Fresh still refuses a nonempty destination. Explicit same-request W1
+    // resume reopens validated state and writes a new durable generation.
     assert!(
         owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).is_err()
     );
     let mut resume = request;
     resume.checkpoint.as_mut().unwrap().resume = true;
-    assert!(owner_domain_walk_with_progress(resume, &AtomicBool::new(false), |_| {}).is_err());
+    let resumed =
+        owner_domain_walk_with_progress(resume.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(resumed.document["recursive_worklist_exhausted"], true);
+    assert_eq!(resumed.document["full_result_in_output_document"], false);
+    assert!(
+        resumed.document["checkpoint"]["generation"]
+            .as_u64()
+            .unwrap()
+            > result.document["checkpoint"]["generation"]
+                .as_u64()
+                .unwrap()
+    );
+    let reopened =
+        crate::owner_domain_walk_verify_closure(&resume, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(reopened["verdict"], "PASS", "{reopened}");
+    assert_eq!(
+        reopened["roots_independently_verified"],
+        report["roots_independently_verified"]
+    );
 }
 
 /// The frontier fixture of `frontier_policy.rs`: the owner-110 route ray and
@@ -276,15 +314,36 @@ fn a9_roots_reported_separately() {
     request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
     let result =
         owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
-    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
+    assert!(
+        !result.all_scheduled_domains_resolved,
+        "{}",
+        result.document
+    );
+    assert_eq!(result.document["query_admission"]["required"], 1);
+    assert_eq!(result.document["query_admission"]["auxiliary"], 1);
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(directory.join("latest.json")).unwrap()).unwrap();
+    let input_file = manifest["manifest"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["key"] == "inputs")
+        .unwrap()["file"]
+        .as_str()
+        .unwrap();
+    let input_bytes = std::fs::read(directory.join(input_file)).unwrap();
+    let inputs = serde_json::Deserializer::from_slice(&input_bytes)
+        .into_iter::<Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     assert_eq!(
-        result.document["inputs"][1]["domain"], result.document["inputs"][0]["domain"],
+        inputs[1]["domain"], inputs[0]["domain"],
         "the physics query is admitted as a hit on the helper"
     );
-    assert_eq!(result.document["inputs"][0]["role"], "auxiliary");
-    assert_eq!(result.document["inputs"][1]["role"], "required");
-    assert_eq!(result.document["inputs"][0]["role_declared"], true);
-    assert_eq!(result.document["inputs"][1]["role_declared"], true);
+    assert_eq!(inputs[0]["role"], "auxiliary");
+    assert_eq!(inputs[1]["role"], "required");
+    assert_eq!(inputs[0]["role_declared"], true);
+    assert_eq!(inputs[1]["role_declared"], true);
     let mut options = OwnerDomainWalkVerifyOptions::new(&directory);
     options.require_closure = true;
     let report = crate::owner_domain_walk_verify_closure(

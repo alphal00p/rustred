@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 mod admission_tests;
 mod controller_tests;
+mod public_tests;
 
 struct Fixture {
     directory: Directory,
@@ -410,7 +411,7 @@ fn orphan_generations_are_skipped_and_corruption_falls_back_explicitly() {
         fixture
             .directory
             .0
-            .join("epoch-internal-00000000000000000002-1.part"),
+            .join("epoch-00000000000000000002-1.part"),
         b"broken",
     )
     .unwrap();
@@ -424,10 +425,76 @@ fn orphan_generations_are_skipped_and_corruption_falls_back_explicitly() {
 }
 
 #[test]
+fn foreign_manifest_shapes_refuse_previous_without_reserving_session() {
+    let fixture = Fixture::new();
+    fixture.save(3, 0);
+    let mut restored = fixture.open().unwrap();
+    resave(&fixture, &mut restored); // Actual valid CP6 latest2 and previous1.
+    drop(restored);
+    let latest = fixture.directory.0.join(publication::LATEST);
+    let previous = fixture.directory.0.join(publication::PREVIOUS);
+    let session = fixture.directory.0.join("epoch-session.bin");
+    let previous_bytes = fs::read(&previous).unwrap();
+    let session_bytes = fs::read(&session).unwrap();
+    let good: Value = serde_json::from_slice(&fs::read(&latest).unwrap()).unwrap();
+
+    // The actual removed private field must be present: merely relabeling a
+    // CP6-shaped object would not exercise strict-deserialization refusal.
+    let mut private = good.clone();
+    private["manifest"]["format"] = json!("RUSTRED-EPOCH-INTERNAL-WRITER");
+    private["manifest"]["resumable"] = json!(false);
+    private["manifest"]["restore_validated"] = json!(false);
+    // CP5/S2 use flat manifests, not the CP6 authenticated envelope. Their
+    // referenced payloads are intentionally unused: identity alone refuses.
+    let cp5 = json!({"format":"RUSTRED-WALK-CP5","schema":5,"kind":"state",
+        "generation":2,"walk_semantics_version":1,"arity":1,"publication_policy":"ready",
+        "request":"unused","owners":[],"executable":"unused","executable_first":"unused",
+        "sections":{},"metadata":{}});
+    let s2 = json!({"format":"RUSTRED-EPOCH-EXPORT","schema":1,"stage":"S2",
+        "kind":"final_state_export","resumable":false,"generation":1,
+        "publication_policy":"epoch","walk_semantics_version":3,"arity":1,
+        "request":"unused","owners":[],"executable":null,"files":{},"records":[],
+        "metadata":{},"counters":{},"inputs":[],"input_frontiers":[],"closure":{},
+        "k":0,"watermark":0,"p0":0,"ledger6_counts":{},"records_digest":[],
+        "edge_digest":[],"edge_runs":0,"edges":0,"self_edges":0,"extra":{},
+        "family_closure_claim":false});
+    let mut future_schema = good.clone();
+    future_schema["manifest"]["schema"] = json!(2);
+    future_schema["manifest"]["future_field"] = json!(true);
+    let mut future_semantics = good.clone();
+    future_semantics["manifest"]["walk_semantics_version"] = json!(4);
+    future_semantics["manifest"]["future_field"] = json!(true);
+    for (name, foreign) in [
+        ("old private envelope", private),
+        ("flat CP5", cp5),
+        ("flat S2", s2),
+        ("future CP6 schema", future_schema),
+        ("future CP6 semantics", future_semantics),
+    ] {
+        let bytes = serde_json::to_vec(&foreign).unwrap();
+        fs::write(&latest, &bytes).unwrap();
+        let error = fixture.open().err().expect(name);
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{name}: {error}");
+        assert_eq!(fs::read(&latest).unwrap(), bytes, "{name}");
+        assert_eq!(fs::read(&previous).unwrap(), previous_bytes, "{name}");
+        assert_eq!(fs::read(&session).unwrap(), session_bytes, "{name}");
+    }
+    // Same-format corruption still permits the existing explicit validated
+    // previous fallback; it is not an unsupported identity or version.
+    let mut corrupted = good;
+    corrupted["blake3"][0] = json!(corrupted["blake3"][0].as_u64().unwrap() ^ 1);
+    fs::write(&latest, serde_json::to_vec(&corrupted).unwrap()).unwrap();
+    let restored = fixture.open().unwrap();
+    assert_eq!(restored.publisher.current_generation(), Some(1));
+    assert_eq!(restored.warnings.len(), 1);
+    assert_ne!(fs::read(&session).unwrap(), session_bytes);
+}
+
+#[test]
 fn sticky_poison_refuses_even_valid_previous() {
     let fixture = Fixture::new();
     fixture.save(3, 0);
-    fs::write(fixture.directory.0.join("epoch-internal-poison"), b"fatal").unwrap();
+    fs::write(fixture.directory.0.join("epoch-poison"), b"fatal").unwrap();
     assert!(fixture.open().is_err());
 }
 

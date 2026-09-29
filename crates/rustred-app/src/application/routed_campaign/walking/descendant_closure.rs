@@ -202,6 +202,8 @@ impl Tracker {
     /// after a costly scan. Dirty older counts remain a monotone conservative
     /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         if self.scan(cancellation, force).is_err() {
             self.disable("dependency refresh allocation unavailable");
         }
@@ -215,6 +217,8 @@ impl Tracker {
     /// closed), which restore accepts, so the save never gives up the monitor
     /// it is about to persist (102adcc3 disabled it there).
     pub fn refresh_before_save(&mut self) {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         let _ = self.scan(&AtomicBool::new(false), true);
     }
 
@@ -298,6 +302,8 @@ impl Tracker {
     }
 
     pub fn json(&self, total: usize, initial: usize) -> Value {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         let available =
             self.unavailable.is_none() && self.flags.len() == total && self.initial == initial;
         json!({"available":available,"initial_total":initial,

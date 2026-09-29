@@ -10,6 +10,6 @@ pub enum OwnerDomainWalkPublicationPolicy {
     OwnerBatched,
     /// Walk semantics 3 (W2 epoch engine): whole-inspection commit, bulk
     /// merges by one coordinator, IDs assigned at merge. Stage S2: Lockstep
-    /// depth 1 with canonical in-merge resolution; no resumable checkpoint.
+    /// depth1 with canonical in-merge resolution; explicit checkpoints use CP6.
     Epoch,
 }

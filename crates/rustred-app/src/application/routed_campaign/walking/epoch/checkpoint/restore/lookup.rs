@@ -34,7 +34,7 @@ pub(super) fn rebuild<const N: usize>(
     }
     let mut reader = CheckedRead::open(
         directory,
-        &format!("epoch-internal-{generation:020}-orthants.part"),
+        &format!("epoch-{generation:020}-orthants.part"),
         digest.bytes,
         digest.blake3,
     )?;
@@ -135,7 +135,7 @@ mod tests {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
         fs::write(
-            directory.join("epoch-internal-00000000000000000001-orthants.part"),
+            directory.join("epoch-00000000000000000001-orthants.part"),
             &bytes,
         )
         .unwrap();
@@ -193,9 +193,7 @@ mod tests {
         let (bytes, digest) =
             super::super::super::publication::write_orthants(&boundary, Vec::new()).unwrap();
         fs::write(
-            directory
-                .0
-                .join("epoch-internal-00000000000000000001-orthants.part"),
+            directory.0.join("epoch-00000000000000000001-orthants.part"),
             bytes,
         )
         .unwrap();

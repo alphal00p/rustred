@@ -625,6 +625,8 @@ impl<const N: usize> Store<N> {
     }
 
     pub fn storage_json(&self) -> serde_json::Value {
+        #[cfg(test)]
+        super::assert_large_finalization_allowed();
         let index = self
             .buckets
             .iter()

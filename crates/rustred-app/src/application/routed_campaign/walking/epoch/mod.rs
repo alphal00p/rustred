@@ -9,8 +9,9 @@
 //! the merge through the
 //! kernel lane's ID-ordered index (canonical min-ID semantics), serial P1-P3,
 //! closure through the legacy Tracker with forced refreshes only, typed
-//! records in their JSON view. The public entry remains S2; private S3
-//! checkpoint/controller and opt-in lockstep S4 lookup paths are separate.
+//! records in their JSON view. Checkpointed public runs use the S3 durable
+//! lifecycle; checkpoint-free Memory runs retain the S2 full-result path.
+//! Snapshot lookup remains an explicit private comparison mode pending gates.
 //! Soundness rests on the invariants S1-S7 of the protocol:
 //! every edge target and every transfer holds a `Verified` token (`verify`),
 //! ledger6 refuses every transition outside its table, a source seals only
@@ -73,6 +74,15 @@ pub const EPOCH_WALK_SEMANTICS_VERSION: u32 = 3;
 pub(super) const LOCKSTEP_B: usize = 16;
 /// Heartbeat spacing (observer events only; never a resolver input).
 const HEARTBEAT_SECONDS: f64 = 5.0;
+#[cfg(test)]
+thread_local! {
+    pub(super) static FORBID_LARGE_FINALIZATION: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};
+}
+#[cfg(test)]
+pub(super) fn assert_large_finalization_allowed() {
+    FORBID_LARGE_FINALIZATION
+        .with(|flag| assert!(!flag.get(), "CP6 entered a whole-state finalizer/census"));
+}
 /// Diagnostic seam, not a campaign knob: overrides the lockstep epoch size
 /// B (1..=4096). It changes the walk (see `LOCKSTEP_B`); the value is
 /// recorded (`epoch.schedule.b`, `b_override`), the identity tools compare
@@ -144,10 +154,12 @@ pub(super) fn admit(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
             "epoch publication requires TransferUnreserved scheduling (transfers are part of semantics 3; the lookahead is unused)",
         ));
     }
-    if request.checkpoint.as_ref().is_some_and(|c| c.resume) {
-        return Err(AppError::input(
-            "epoch publication has no resumable checkpoint yet (CP6 is stage S3); --resume is refused",
-        ));
+    if request
+        .checkpoint
+        .as_ref()
+        .is_some_and(|c| c.interval_seconds == 0)
+    {
+        return Err(AppError::input("checkpoint interval must be positive"));
     }
     Ok(())
 }
@@ -331,8 +343,12 @@ fn certification<const N: usize>(
     admission_error: bool,
     input_frontiers: usize,
 ) -> (bool, bool) {
-    let closure = state.tracker.json(state.store.len(), state.p0 as usize);
-    let monitor_available = closure["available"] == true;
+    // Availability is scalar. In particular the CP6 drain controller must not
+    // enter Tracker::json's open-target storage census just to name its stop.
+    let closure = state.tracker.counters();
+    let monitor_available = closure.unavailable.is_none()
+        && state.tracker.node_count() == state.store.len()
+        && closure.initial == state.p0 as usize;
     let counts = state.ledger.counts();
     let certified = drained
         && !admission_error
@@ -349,6 +365,8 @@ fn certification<const N: usize>(
 /// record passes R1-R3, the lent-scope rule, the exact cover and the
 /// anchor-edge-present rule against the edge run log.
 fn anchor_self_check<const N: usize>(state: &EpochState<N>) -> Result<(), String> {
+    #[cfg(test)]
+    assert_large_finalization_allowed();
     use anchors::{AnchorRecord, AnchorView, union_cover};
     if state.anchors.len() == 0 {
         return Ok(());
@@ -425,10 +443,9 @@ pub(super) fn run<const N: usize>(
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
     let lockstep = lockstep_b().map_err(AppError::input)?;
-    let export_dir = request.checkpoint.as_ref().map(|c| c.directory.clone());
-    if let Some(directory) = &export_dir {
-        export::prepare_directory(directory).map_err(AppError::input)?;
-    }
+    // Durable CP6 and memory-only execution are explicit entry boundaries.
+    // No hidden temporary checkpoint backs a memory-only request.
+    let export_dir: Option<std::path::PathBuf> = None;
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
@@ -452,6 +469,7 @@ pub(super) fn run<const N: usize>(
     let Some(reducer) = reducer else {
         let mut document = json!({"schema":"rustred.owner-domain-walk.json.v6","status":"stopped",
             "stop_reason":"paused","preparation_interrupted":true,
+            "full_result_in_output_document":false,"full_state_in_checkpoint":false,
             "all_scheduled_domains_resolved":false,"recursive_worklist_exhausted":false,
             "family_closure_claim":false,"publication_policy":"epoch_merge_stream",
             "walk_semantics_version":EPOCH_WALK_SEMANTICS_VERSION,"workers":request.workers});
@@ -463,6 +481,19 @@ pub(super) fn run<const N: usize>(
             records: OwnerDomainWalkRecords::default(),
         });
     };
+    if request.checkpoint.is_some() {
+        return checkpoint::run(
+            request,
+            &reducer,
+            &owners,
+            queries,
+            lockstep,
+            started,
+            prepared,
+            cancellation,
+            observer,
+        );
+    }
     let mut state = EpochState::<N>::new(
         request.max_domains,
         request.max_events,

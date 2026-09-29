@@ -78,6 +78,32 @@ pub(super) fn initial_overlap<const N: usize>(
     }
     Dispatch::validate_admission(&restored.state, restored.dispatch.checkpoint_snapshot())
         .map_err(io::Error::other)?;
+    protected_overlap(restored, request, cancellation)
+}
+
+/// Restore has already validated the complete protected inventory, including
+/// aliases and anchors. Never rerun initial admission or include descendants.
+pub(super) fn resumed_overlap<const N: usize>(
+    restored: &Restored<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    b: usize,
+) -> io::Result<InitialOverlapIndex<N>> {
+    if !matches!(restored.admission, Admission::Complete)
+        || !restored.dispatch.admission_ready()
+        || restored.admission_failure.is_some()
+    {
+        return Err(invalid("epoch resume overlap requires completed admission"));
+    }
+    MergeBoundary::borrow(&restored.state, &restored.dispatch, b)?;
+    protected_overlap(restored, request, cancellation)
+}
+
+fn protected_overlap<const N: usize>(
+    restored: &Restored<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+) -> io::Result<InitialOverlapIndex<N>> {
     if !request.reuse_initial_d_bands {
         return Ok(InitialOverlapIndex::empty());
     }
@@ -144,12 +170,20 @@ fn save<const N: usize>(
     b: usize,
     reason: StopReason,
     context: Option<stop::Stop>,
-    on_saved: &mut impl FnMut(&publication::Receipt),
+    on_saved: &mut impl FnMut(&Restored<N>, &publication::Receipt),
+    progress: &mut impl FnMut(&EpochState<N>, &Dispatch),
 ) -> io::Result<Outcome> {
     boundary(restored)?;
-    match controller::save(restored, identity, b, Some(reason), context) {
+    match controller::save_observed(
+        restored,
+        identity,
+        b,
+        Some(reason),
+        context,
+        &mut |state, dispatch, _| progress(state, dispatch),
+    ) {
         Ok(receipt) => {
-            on_saved(&receipt);
+            on_saved(restored, &receipt);
             Ok(Outcome::Stopped(reason))
         }
         Err(controller::Failure::Save(error)) => Err(error),
@@ -194,6 +228,35 @@ pub(super) fn continue_with<const N: usize>(
         &mut Vec<Value>,
     ) -> Result<(), AdmissionError>,
 ) -> io::Result<Outcome> {
+    continue_observed(
+        restored,
+        identity,
+        reducer,
+        b,
+        &mut stop_requested,
+        |_, receipt| on_saved(receipt),
+        &mut one,
+        |_, _| {},
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn continue_observed<const N: usize>(
+    restored: &mut Restored<N>,
+    identity: &Identity<'_>,
+    reducer: &RoutedCandidateReducer<N>,
+    b: usize,
+    mut stop_requested: impl FnMut() -> Option<stop::Stop>,
+    mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt),
+    mut one: impl FnMut(
+        &mut EpochState<N>,
+        &Query,
+        Option<Phase>,
+        &mut Vec<Value>,
+        &mut Vec<Value>,
+    ) -> Result<(), AdmissionError>,
+    mut progress: impl FnMut(&EpochState<N>, &Dispatch),
+) -> io::Result<Outcome> {
     if !matches!(restored.admission, Admission::InProgress)
         || !restored.replay.is_empty()
         || restored.records.total() != 0
@@ -229,6 +292,7 @@ pub(super) fn continue_with<const N: usize>(
     )?;
     let result = catch_unwind(AssertUnwindSafe(|| -> io::Result<Outcome> {
         loop {
+            progress(&restored.state, &restored.dispatch);
             if let Some(context) = stop_requested() {
                 return save(
                     restored,
@@ -237,6 +301,7 @@ pub(super) fn continue_with<const N: usize>(
                     context.kind(),
                     Some(context),
                     &mut on_saved,
+                    &mut progress,
                 );
             }
             if restored
@@ -251,6 +316,7 @@ pub(super) fn continue_with<const N: usize>(
                     StopReason::ErrorStop,
                     None,
                     &mut on_saved,
+                    &mut progress,
                 );
             }
             let index = restored.roots.rows.len();
@@ -299,6 +365,7 @@ pub(super) fn continue_with<const N: usize>(
                         context.kind(),
                         Some(context),
                         &mut on_saved,
+                        &mut progress,
                     );
                 }
                 return Ok(Outcome::Ready);
@@ -321,7 +388,15 @@ pub(super) fn continue_with<const N: usize>(
                     };
                     let reason = failure.reason();
                     restored.admission_failure = Some(failure);
-                    return save(restored, identity, b, reason, None, &mut on_saved);
+                    return save(
+                        restored,
+                        identity,
+                        b,
+                        reason,
+                        None,
+                        &mut on_saved,
+                        &mut progress,
+                    );
                 }
             }
         }

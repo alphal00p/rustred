@@ -1,8 +1,8 @@
 //! The S2 final export: a non-resumable, digest-bound image of the final
 //! epoch state for the offline oracles (walk-verify-closure's epoch reader
-//! and the audit). CP6 (resumable generations, stop paths) is stage S3; this
-//! directory is written once, at the end of a run, into the walk's
-//! `--checkpoint` directory, and `--resume` of an epoch walk is refused.
+//! and the audit). This historical directory was written once at finalization.
+//! Historical S2 directories remain an offline format, never imported by CP6.
+//! New checkpoint-enabled public runs use the S3 publisher and validated resume.
 //!
 //! Files (little-endian; each binary file starts with an 8-byte magic, a
 //! u32 version, a u32 arity and a u64 count):

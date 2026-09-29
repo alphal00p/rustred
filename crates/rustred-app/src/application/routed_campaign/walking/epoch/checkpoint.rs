@@ -1,8 +1,7 @@
-//! Private S3 checkpoint implementation; NOT a public resumable format yet.
+//! CP6 S3 checkpoint implementation for the public durable lockstep lifecycle.
 //!
-//! Private publication and full restore assembly have source implementations;
-//! no public probe accepts this format. Runtime stop/save-before-join wiring
-//! and consolidated execution gates still precede public durable restart.
+//! Full restore validation precedes session reservation and dispatch. Native
+//! and outer-adapter execution gates still precede any deployment claim.
 //! The writer borrows one state for its entire lifetime, preserves live bits
 //! and exact dispatch order, and uses fixed scratch independent of domains.
 #![allow(dead_code)] // Private lifecycle lands before its runtime integration.
@@ -20,6 +19,7 @@ mod metadata;
 mod publication;
 mod read;
 mod restore;
+pub(super) use restore::run;
 mod session;
 mod stop;
 pub(super) use session::Session;
@@ -28,6 +28,25 @@ mod tests;
 
 const BUFFER_BYTES: usize = 32 * 1024;
 const MEMBERSHIP_WORDS: usize = 1024;
+
+/// No auxiliary thread or arena scan: notify after actual streamed writes.
+/// The caller rate-limits observer transport independently of write frequency.
+pub(super) struct Observed<'a, W> {
+    pub output: W,
+    pub progress: &'a mut dyn FnMut(),
+}
+impl<W: Write> Write for Observed<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let written = self.output.write(bytes)?;
+        (self.progress)();
+        Ok(written)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.output.flush()?;
+        (self.progress)();
+        Ok(())
+    }
+}
 pub(super) const SEQUENCE_COUNTER_LIMIT: u64 = 1 << 40;
 pub(super) const SESSION_LIMIT: u64 = 1 << 24;
 
@@ -120,6 +139,16 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
         generation: u64,
         section: Section,
     ) -> io::Result<SectionReceipt> {
+        self.write_new_section_observed(directory, generation, section, &mut || {})
+    }
+
+    pub(super) fn write_new_section_observed(
+        &self,
+        directory: &Path,
+        generation: u64,
+        section: Section,
+        progress: &mut dyn FnMut(),
+    ) -> io::Result<SectionReceipt> {
         if generation == 0 {
             return Err(invalid("epoch generation zero"));
         }
@@ -127,8 +156,14 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
             .write(true)
             .create_new(true)
             .open(directory.join(section.filename(generation)))?;
-        let (file, digest) = self.write_section(file, section)?;
-        file.sync_all()?;
+        let (file, digest) = self.write_section(
+            Observed {
+                output: file,
+                progress,
+            },
+            section,
+        )?;
+        file.output.sync_all()?;
         Ok(SectionReceipt {
             generation,
             section,
@@ -416,7 +451,7 @@ impl Section {
         Self::Frontiers,
     ];
     pub fn filename(self, generation: u64) -> String {
-        format!("epoch-internal-{generation:020}-{}.part", self as u32)
+        format!("epoch-{generation:020}-{}.part", self as u32)
     }
 }
 

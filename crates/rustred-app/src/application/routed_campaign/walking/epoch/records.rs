@@ -235,6 +235,8 @@ impl<const N: usize> RecordBuilder<N> for Builder {
 /// Final per-ID resolutions (the legacy `Ledger::resolve` rules on ledger6)
 /// and the delegation summary the audit reads.
 pub(super) fn resolve<const N: usize>(state: &EpochState<N>) -> (Vec<Resolution>, Value) {
+    #[cfg(test)]
+    super::assert_large_finalization_allowed();
     let total = state.store.len();
     let mut by_id = vec![
         Resolution {

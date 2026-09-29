@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 mod pool;
 pub(super) use pool::{
-    Poll, RunError, Status, SubmitError, Work, with_authorized_pool, with_polling_pool,
+    Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool, with_polling_pool,
 };
 
 pub(super) struct Context<'a, const N: usize> {

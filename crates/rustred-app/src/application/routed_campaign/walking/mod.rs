@@ -245,6 +245,13 @@ impl OwnerDomainWalkResult {
             out["full_result_in_output_document"] = json!(false);
             out["full_state_in_checkpoint"] = json!(true);
         }
+        // CP6 resource-stop and staged drain summaries are not full record
+        // inventories, even though their status is not the CP5 `paused` value.
+        for key in ["full_result_in_output_document", "full_state_in_checkpoint"] {
+            if document[key].is_boolean() {
+                out[key] = document[key].clone();
+            }
+        }
         for key in [
             "status",
             "workers",
@@ -325,6 +332,10 @@ impl OwnerDomainWalkResult {
             "descendant_closure",
             "frontier_policy",
             "stop_reason",
+            "finalization",
+            "query_admission",
+            "admission_complete",
+            "observer_failed",
         ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
@@ -531,8 +542,8 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
         ));
     }
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
-        // Semantics 3 has its own lanes: `--checkpoint` names the S2 final
-        // export, frontier stop needs no checkpoint, no diagnostic pause.
+        // Semantics3 uses CP6 when checkpointed; memory-only remains explicit.
+        // Frontier stop needs no checkpoint; no diagnostic pause is admitted.
         epoch::admit(request)?;
         if DiagnosticPause::from_environment()
             .map_err(AppError::input)?

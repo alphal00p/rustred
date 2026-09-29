@@ -428,6 +428,8 @@ impl Annotations {
         resolutions: Option<Vec<Resolution>>,
         closure: &super::super::descendant_closure::Tracker,
     ) -> Self {
+        #[cfg(test)]
+        super::super::epoch::assert_large_finalization_allowed();
         Self {
             resolutions,
             closed: (0..closure.node_count())

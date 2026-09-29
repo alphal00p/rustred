@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, mpsc};
 use std::time::Duration;
 
-mod native_equivalence;
+pub(super) mod native_equivalence;
 mod native_periodic;
 mod native_prefix;
 mod periodic_tests;
@@ -241,7 +241,7 @@ fn controller_c5_poison_prevents_old_generation_fallback_and_w1_is_refused() {
             .generation,
         1
     );
-    assert!(fixture.directory.0.join("epoch-internal-poison").is_file());
+    assert!(fixture.directory.0.join("epoch-poison").is_file());
     drop(restored);
     assert!(fixture.open().is_err());
 }
@@ -311,7 +311,7 @@ fn private_native_controller_checks_actual_worker_license_and_saves_valid_state(
     } else {
         assert!(result.is_err(), "unlicensed worker must not enter CAS");
         assert_eq!(saves, 0);
-        assert!(!fixture.directory.0.join("epoch-internal-poison").exists());
+        assert!(!fixture.directory.0.join("epoch-poison").exists());
         assert_eq!(restored.replay.len(), 2);
         drop(restored);
         assert!(
@@ -354,7 +354,7 @@ fn worker_capability_refusal_precedes_dispatch_and_allows_changed_capability_res
     assert_eq!(entered_cas.load(Ordering::Relaxed), 0);
     assert_eq!(restored.replay.len(), 2);
     assert_eq!(restored.state.k, 0);
-    assert!(!fixture.directory.0.join("epoch-internal-poison").exists());
+    assert!(!fixture.directory.0.join("epoch-poison").exists());
     assert_eq!(
         publication::read_manifest(&fixture.directory.0.join(publication::LATEST))
             .unwrap()
@@ -410,7 +410,7 @@ fn pre_dispatch_handle_and_thread_resource_refusals_do_not_poison() {
         assert!(error.to_string().contains(reason));
         assert_eq!(restored.replay.len(), 2);
         assert_eq!(restored.state.k, 0);
-        assert!(!fixture.directory.0.join("epoch-internal-poison").exists());
+        assert!(!fixture.directory.0.join("epoch-poison").exists());
         assert_eq!(
             publication::read_manifest(&fixture.directory.0.join(publication::LATEST))
                 .unwrap()

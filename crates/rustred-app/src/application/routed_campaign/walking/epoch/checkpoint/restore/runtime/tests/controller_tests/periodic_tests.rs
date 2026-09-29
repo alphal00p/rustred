@@ -173,7 +173,7 @@ fn periodic_publisher_failure_keeps_prior_authority_and_warning_keeps_latest() {
                 saves += 1;
             },
         );
-        assert!(!fixture.directory.0.join("epoch-internal-poison").exists());
+        assert!(!fixture.directory.0.join("epoch-poison").exists());
         if point == publication::FailPoint::BeforeLatest {
             assert!(outcome.is_err());
             assert_eq!(saves, 0);

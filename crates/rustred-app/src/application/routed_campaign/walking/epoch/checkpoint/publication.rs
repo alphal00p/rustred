@@ -1,10 +1,9 @@
-//! Atomic publication of the private writer snapshot. Its distinct format
-//! and filenames are deliberately NOT accepted by any CP6/resume probe.
-//! A future complete restore gate, not this module, enables durable restart.
+//! Atomic CP6 publication. Resumable denotes the supported validated restore
+//! format, never independent cold verification of this freshly saved state.
 use super::super::super::execution::records::Sidecar;
 use super::super::ledger6::Tag;
 use super::metadata::Inputs;
-use super::{Digest, MergeBoundary, Section, Stream, invalid};
+use super::{Digest, MergeBoundary, Observed, Section, Stream, invalid};
 use crate::application::atomic_file::write_file_atomically_with;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
@@ -14,9 +13,10 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
-const FORMAT: &str = "RUSTRED-EPOCH-INTERNAL-WRITER";
-pub(super) const LATEST: &str = "epoch-internal-latest.json";
-pub(super) const PREVIOUS: &str = "epoch-internal-previous.json";
+pub(super) const FORMAT: &str = "RUSTRED-WALK-CP6";
+pub(super) const SCHEMA: u32 = 1;
+pub(super) const LATEST: &str = "latest.json";
+pub(super) const PREVIOUS: &str = "previous.json";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 pub(super) const MAX_META_BYTES: u64 = 1024 * 1024;
 
@@ -39,7 +39,6 @@ pub(super) struct Manifest {
     pub arity: usize,
     walk_semantics_version: u32,
     resumable: bool,
-    restore_validated: bool,
     pub files: Vec<FileRef>,
 }
 
@@ -59,6 +58,8 @@ struct ReadEnvelope {
 pub(super) struct Receipt {
     pub generation: u64,
     pub manifest: PathBuf,
+    /// Digest of the authenticated manifest object, not the envelope file.
+    pub manifest_blake3: [u8; 32],
     /// Warnings after latest is already durable cannot turn success into
     /// failure. No cleanup is attempted by this first private publisher.
     pub warnings: Vec<String>,
@@ -93,18 +94,14 @@ impl Store {
     /// generation after this call; a failed fsync does not claim durability.
     pub(super) fn poison(&mut self, merge: u64, reason: &str) -> io::Result<()> {
         self.failed = true;
-        write_file_atomically_with(
-            &self.directory.join("epoch-internal-poison"),
-            true,
-            |output| {
-                writeln!(output, "epoch engine-fatal at merge {merge}")
-                    .map_err(|error| error.to_string())?;
-                let bytes = reason.as_bytes();
-                output
-                    .write_all(&bytes[..bytes.len().min(4096)])
-                    .map_err(|error| error.to_string())
-            },
-        )
+        write_file_atomically_with(&self.directory.join("epoch-poison"), true, |output| {
+            writeln!(output, "epoch engine-fatal at merge {merge}")
+                .map_err(|error| error.to_string())?;
+            let bytes = reason.as_bytes();
+            output
+                .write_all(&bytes[..bytes.len().min(4096)])
+                .map_err(|error| error.to_string())
+        })
         .map_err(io::Error::other)
     }
 
@@ -135,7 +132,7 @@ impl Store {
             .read(true)
             .write(true)
             .create_new(true)
-            .open(directory.join("epoch-internal.lock"))?;
+            .open(directory.join("checkpoint.lock"))?;
         lock.try_lock()
             .map_err(|error| io::Error::other(error.to_string()))?;
         let session = super::session::initial(&directory)?.number();
@@ -160,7 +157,15 @@ impl Store {
                 "epoch checkpoint directory is not a real directory",
             ));
         }
-        let lock_path = directory.join("epoch-internal.lock");
+        if directory.join("epoch-internal-latest.json").exists()
+            || directory.join("epoch-internal.lock").exists()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "old private epoch snapshots are not public CP6; fresh state required",
+            ));
+        }
+        let lock_path = directory.join("checkpoint.lock");
         let metadata = fs::symlink_metadata(&lock_path)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Err(invalid("epoch checkpoint lock is not a regular file"));
@@ -176,11 +181,11 @@ impl Store {
             let entry = entry?;
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if name.starts_with("poison-") || name == "epoch-internal-poison" {
+            if name.starts_with("poison-") || name == "epoch-poison" {
                 return Err(invalid("epoch checkpoint is permanently poisoned"));
             }
             let digits = name
-                .strip_prefix("epoch-internal-")
+                .strip_prefix("epoch-")
                 .filter(|rest| rest.as_bytes().get(20) == Some(&b'-'))
                 .or_else(|| {
                     name.strip_prefix("records-")
@@ -214,6 +219,9 @@ impl Store {
     }
     pub(super) fn next_generation(&self) -> u64 {
         self.next
+    }
+    pub(super) fn current_generation(&self) -> Option<u64> {
+        self.latest.as_ref().map(|manifest| manifest.generation)
     }
 
     /// Called only after full state/root validation. A successful reservation
@@ -251,6 +259,16 @@ impl Store {
         inputs: &Inputs<'_>,
         records: &mut Sidecar,
     ) -> io::Result<Receipt> {
+        self.save_observed(boundary, inputs, records, &mut || {})
+    }
+
+    pub(super) fn save_observed<const N: usize>(
+        &mut self,
+        boundary: &MergeBoundary<'_, N>,
+        inputs: &Inputs<'_>,
+        records: &mut Sidecar,
+        progress: &mut dyn FnMut(),
+    ) -> io::Result<Receipt> {
         if self.failed {
             return Err(io::Error::other("epoch internal store already failed"));
         }
@@ -271,7 +289,7 @@ impl Store {
         if record_count != records.total() as u64 {
             return Err(invalid("epoch record/ledger inventory differs"));
         }
-        let result = self.save_inner(boundary, inputs, records);
+        let result = self.save_inner(boundary, inputs, records, progress);
         if result.is_err() {
             self.failed = true;
         }
@@ -283,6 +301,7 @@ impl Store {
         boundary: &MergeBoundary<'_, N>,
         inputs: &Inputs<'_>,
         records: &mut Sidecar,
+        progress: &mut dyn FnMut(),
     ) -> io::Result<Receipt> {
         let generation = self.next;
         self.next = self
@@ -294,12 +313,18 @@ impl Store {
         records
             .seal(generation, self.next)
             .map_err(io::Error::other)?;
+        progress();
         let mut files = Vec::new();
         files
             .try_reserve_exact(15)
             .map_err(|_| io::Error::other("epoch manifest allocation"))?;
         for section in Section::ALL {
-            let receipt = boundary.write_new_section(&self.directory, generation, section)?;
+            let receipt = boundary.write_new_section_observed(
+                &self.directory,
+                generation,
+                section,
+                progress,
+            )?;
             files.push(FileRef {
                 key: format!("state-{}", section as u32),
                 file: section.filename(generation),
@@ -308,37 +333,44 @@ impl Store {
                 blake3: receipt.digest.blake3,
             });
         }
-        files.push(self.aux(generation, "meta", 1, |file| {
+        files.push(self.aux(generation, "meta", 1, progress, |file| {
             let limited = Limit::new(file, MAX_META_BYTES);
             let (limited, digest) = inputs.write_scalars(boundary, limited)?;
             Ok((limited.output, digest))
         })?);
-        files.push(
-            self.aux(generation, "owners", inputs.owner_count() as u64, |file| {
-                inputs.write_owners(file)
-            })?,
-        );
-        files.push(
-            self.aux(generation, "inputs", inputs.rows.len() as u64, |file| {
-                inputs.write_rows(file, false)
-            })?,
-        );
+        files.push(self.aux(
+            generation,
+            "owners",
+            inputs.owner_count() as u64,
+            progress,
+            |file| inputs.write_owners(file),
+        )?);
+        files.push(self.aux(
+            generation,
+            "inputs",
+            inputs.rows.len() as u64,
+            progress,
+            |file| inputs.write_rows(file, false),
+        )?);
         files.push(self.aux(
             generation,
             "input-frontiers",
             inputs.frontiers.len() as u64,
+            progress,
             |file| inputs.write_rows(file, true),
         )?);
         files.push(self.aux(
             generation,
             "record-segments",
             records.closed().len() as u64,
+            progress,
             |file| json_stream(file, records.closed()),
         )?);
         files.push(self.aux(
             generation,
             "orthants",
             boundary.state.store.buckets.len() as u64,
+            progress,
             |file| write_orthants(boundary, file),
         )?);
         #[cfg(test)]
@@ -346,16 +378,16 @@ impl Store {
         File::open(&self.directory)?.sync_all()?;
         let manifest = Manifest {
             format: FORMAT.into(),
-            schema: 1,
+            schema: SCHEMA,
             generation,
             arity: N,
             walk_semantics_version: super::super::EPOCH_WALK_SEMANTICS_VERSION,
-            resumable: false,
-            restore_validated: false,
+            resumable: true,
             files,
         };
         #[cfg(test)]
         self.at(FailPoint::BeforeLatest)?;
+        let manifest_blake3 = manifest_digest(&manifest)?;
         write_manifest(&self.directory.join(LATEST), &manifest)?;
         // From this point latest is durable. Never return Err because the
         // previous pointer or best-effort housekeeping cannot be advanced.
@@ -376,24 +408,29 @@ impl Store {
         Ok(Receipt {
             generation,
             manifest: self.directory.join(LATEST),
+            manifest_blake3,
             warnings,
         })
     }
 
-    fn aux(
+    fn aux<'a>(
         &self,
         generation: u64,
         key: &str,
         count: u64,
-        write: impl FnOnce(File) -> io::Result<(File, Digest)>,
+        progress: &'a mut dyn FnMut(),
+        write: impl FnOnce(Observed<'a, File>) -> io::Result<(Observed<'a, File>, Digest)>,
     ) -> io::Result<FileRef> {
-        let name = format!("epoch-internal-{generation:020}-{key}.part");
+        let name = format!("epoch-{generation:020}-{key}.part");
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(self.directory.join(&name))?;
-        let (file, digest) = write(file)?;
-        file.sync_all()?;
+        let (file, digest) = write(Observed {
+            output: file,
+            progress,
+        })?;
+        file.output.sync_all()?;
         Ok(FileRef {
             key: key.into(),
             file: name,
@@ -482,6 +519,10 @@ fn write_manifest(path: &Path, manifest: &Manifest) -> io::Result<()> {
 /// Bounded private-manifest reader for corruption/failure tests and later
 /// restore plumbing. It verifies the envelope, NOT the referenced state.
 pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(invalid("epoch manifest is not a regular file"));
+    }
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(MAX_MANIFEST_BYTES + 1)
@@ -492,18 +533,46 @@ pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
     if bytes.len() > MAX_MANIFEST_BYTES {
         return Err(invalid("epoch manifest byte limit"));
     }
+    // Discriminate an explicitly foreign identity before strict CP6 decoding.
+    // Older private envelopes contain removed fields; CP5/S2 are flat objects.
+    // Their shape errors must not become corruption errors that permit runtime
+    // fallback to an unrelated valid previous CP6 generation. This bounded
+    // probe grants no authority: strict shape, digest and inventory checks follow.
+    let shape: serde_json::Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+    let identity = shape.get("manifest").unwrap_or(&shape);
+    if identity
+        .get("format")
+        .is_some_and(|value| value.as_str() != Some(FORMAT))
+        || identity
+            .get("schema")
+            .is_some_and(|value| value.as_u64() != Some(u64::from(SCHEMA)))
+        || identity.get("walk_semantics_version").is_some_and(|value| {
+            value.as_u64() != Some(u64::from(super::super::EPOCH_WALK_SEMANTICS_VERSION))
+        })
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsupported public CP6 identity; no private/CP5/S2 import",
+        ));
+    }
+    drop(shape);
     let envelope: ReadEnvelope = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     let manifest = envelope.manifest;
     if manifest.format != FORMAT
-        || manifest.schema != 1
-        || manifest.generation == 0
+        || manifest.schema != SCHEMA
         || manifest.walk_semantics_version != super::super::EPOCH_WALK_SEMANTICS_VERSION
-        || manifest.resumable
-        || manifest.restore_validated
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsupported public CP6 identity; no private/CP5/S2 import",
+        ));
+    }
+    if manifest.generation == 0
+        || !manifest.resumable
         || manifest.files.len() != 15
         || manifest_digest(&manifest)? != envelope.blake3
     {
-        return Err(invalid("epoch private manifest identity or digest"));
+        return Err(invalid("epoch CP6 manifest identity or digest"));
     }
     // Exact fixed inventory also rejects duplicates and path traversal;
     // section content/shape verification remains the restore layer's job.
@@ -525,7 +594,7 @@ pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
         "record-segments",
         "orthants",
     ] {
-        let name = format!("epoch-internal-{:020}-{key}.part", manifest.generation);
+        let name = format!("epoch-{:020}-{key}.part", manifest.generation);
         if !manifest
             .files
             .iter()
