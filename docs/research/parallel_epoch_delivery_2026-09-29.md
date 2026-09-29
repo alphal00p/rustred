@@ -80,12 +80,20 @@ Python can automatically resume with a rescue amendment.
 
 - Source: combined rolling/rescue integration `f083f254` passes release compiler
   and test-type checks in 46.183 s. This is not executed native-test evidence.
-- Python: 103 lifecycle tests pass; 12 CP6 measurement-contract tests pass.
+- Python: full discovery passes 310 tests with one optional slow skeleton test
+  skipped. This includes 103 lifecycle, 12 CP6 measurement-contract and 37 final
+  monitoring/metrics checks. The first full run exposed a stale Epoch lookahead
+  fixture; the corrected complete run passed.
 - Source audits: rolling/snapshot and rescue boundary/cancellation were reviewed
   independently; root separately reviewed adaptive dispatch and interface changes.
-- Native tests: compilation active; no combined execution result yet.
+- Native tests on `f083f254`: core 2,845 passed/zero failed/32 ignored;
+  app 1,103 passed/10 failed/12 ignored. Both actual W50 mechanics tests passed.
+  One app failure exposed an obsolete public lockstep-G2 rejection; nine were
+  stale checkpoint/test fixtures. Audited corrections are integrated at
+  `f3f707af`; the complete corrected application suite is being rebuilt and
+  rerun. The failed receipt is retained, not counted as a green milestone.
 - Optimized Stage B binary: not yet frozen. Never use the app-opt1 correctness
-  executable for performance comparisons.
+  or app-opt0 correctness executable for performance comparisons.
 - Matched controls: prepared, independently checked, not executed. Required
   scopes are FG, BMW, H, X, combined four-loop, finite five-loop and hot-sector.
   Both sides use the same future optimized binary and the same query bytes.

@@ -104,6 +104,25 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:30 UTC — native failures corrected; full rerun authorized
+
+- [M] Integrated `c25bcf82` as `f3f707af`: the obsolete lockstep `config.g2`
+  refusal is removed without changing the G2 planner, exact merge gates or
+  publication semantics. Both root and `stage_a_release` independently reviewed
+  the public lockstep path. The real W1 Union end-to-end test explicitly checks
+  lockstep scheduling, actual G2 records, cold verification and resume parity.
+- [M] Nine fixture corrections retain their negative guarantees: mismatched
+  checkpoint binding fails, future versions and reserved bits fail, runtime-only
+  watermarks are rebuilt for fresh replay, rolling fixtures enable checkpoints,
+  and rescue stops before publication with a legal positive event allowance.
+  A new test covers old-version replay with refreshed sequence and watermark.
+- [D] `epoch_g2_rescue_impl` owns the full final application-suite build and run
+  on the clean validation tree at `f3f707af`. App opt-level0 is a correctness-only
+  build override; core and Symbolica remain optimized. Build CPUs16–31, tests
+  CPUs64–127, heavy/build1 locks, strict license, one test thread. No optimized
+  candidate build or benchmark is running concurrently. All ten earlier failures
+  remain recorded until the complete corrected suite actually passes.
+
 ### 2026-09-29 16:20 UTC — native suite results and focused corrections
 
 - [M] Full core suite on `f083f254`: 2,845 passed, zero failed,32 ignored,
