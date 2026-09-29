@@ -63,6 +63,7 @@ FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_
                   "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
                   "apply_cell_refinement_max_cardinality", "publication_policy",
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
+                  "epoch_inspector_lookup",
                   *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
 # A10: new campaigns save and stop at the first frontier; steering written
@@ -735,6 +736,18 @@ def frozen_options(policy):
 
     if "publication_policy" not in options:
         options["publication_policy"] = flag_value("--publication-policy") or "ordered"
+    lookup_flag = "--" + SUPERVISOR.DOMAIN.EPOCH_INSPECTOR_LOOKUP
+    lookup_mode = options.get("epoch_inspector_lookup", "all-miss")
+    lookup_values = [command[index + 1] if index + 1 < len(command) else None
+                     for index, flag in enumerate(command) if flag == lookup_flag]
+    alternate = any(isinstance(flag, str) and flag.startswith(lookup_flag + "=") for flag in command)
+    if (lookup_mode not in SUPERVISOR.DOMAIN.EPOCH_INSPECTOR_LOOKUP_MODES or alternate
+            or lookup_values != (["snapshot"] if lookup_mode == "snapshot" else [])
+            or (options["publication_policy"] != "epoch"
+                and ("epoch_inspector_lookup" in options or lookup_values))):
+        raise ValueError("frozen Epoch inspector lookup mode and command disagree; use a new campaign directory")
+    if options["publication_policy"] == "epoch":
+        options.setdefault("epoch_inspector_lookup", "all-miss")
     if "transfer_unreserved_lookahead" not in options:
         lookahead = flag_value("--transfer-unreserved-lookahead")
         options["transfer_unreserved_lookahead"] = 256 if lookahead is None else int(lookahead)
@@ -779,6 +792,8 @@ def native_command(options, executable, inputs, count, size):
         command += ["--inspection-workers", str(options["inspection_workers"])]
     if options.get("g2_residual_anchors", "off") == "union":
         command += ["--g2-residual-anchors", "union"]
+    if options.get("epoch_inspector_lookup") == "snapshot":
+        command += ["--epoch-inspector-lookup", "snapshot"]
     command += ["--frontier-policy", options["frontier_policy"]]
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if options[name] is not None:
@@ -839,10 +854,16 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     if options["publication_policy"] not in ("ordered", "ready", "epoch"):
         raise ValueError("publication policy must be ordered, ready or epoch")
     if options["publication_policy"] == "epoch":
+        if options["epoch_inspector_lookup"] is None:
+            options["epoch_inspector_lookup"] = "all-miss"
         if options["auto_rescue"]:
             raise ValueError("epoch CP6 does not support automatic rescue")
         if options["transfer_unreserved_lookahead"] is None:
             raise ValueError("epoch requires --transfer-unreserved-lookahead")
+    SUPERVISOR.DOMAIN.validate_epoch_inspector_lookup(
+        options["epoch_inspector_lookup"], True, options["publication_policy"], True)
+    if options["publication_policy"] != "epoch":
+        del options["epoch_inspector_lookup"]  # Historical CP5 options/argv remain absent.
     if options["frontier_policy"] not in ("record", "stop"):
         raise ValueError("frontier policy must be record or stop")
     if options["auto_rescue"] and options["frontier_policy"] != "stop":
@@ -928,6 +949,9 @@ def main(argv=None):
     parser.add_argument("--run-directory", type=Path)
     parser.add_argument("--publication-policy", choices=("ordered", "ready", "epoch"),
                         help=f"initial default: {DEFAULT_PUBLICATION_POLICY}; ordered remains selectable; frozen for resume")
+    parser.add_argument("--epoch-inspector-lookup", choices=SUPERVISOR.DOMAIN.EPOCH_INSPECTOR_LOOKUP_MODES,
+                        action=SUPERVISOR.DOMAIN.StoreOnce,
+                        help="explicit CP6 Epoch comparison control; initial default all-miss; frozen on resume")
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
     parser.add_argument("--g2-residual-anchors", choices=SUPERVISOR.G2_RESIDUAL_MODES,
@@ -1024,6 +1048,18 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
     campaign = args.campaign_directory.resolve()
+    if args.epoch_inspector_lookup is not None:
+        # An existing policy supplies publication on an ordinary resume/plan.
+        # Fresh explicit misuse is rejected before staging/freezing any input.
+        selected_policy = args.publication_policy
+        if selected_policy is None and not (campaign / "bin" / "steering.json").is_file():
+            selected_policy = DEFAULT_PUBLICATION_POLICY
+        if selected_policy is not None:
+            try:
+                SUPERVISOR.DOMAIN.validate_epoch_inspector_lookup(
+                    args.epoch_inspector_lookup, True, selected_policy, True)
+            except ValueError as error:
+                parser.error(str(error))
     inputs = campaign / "inputs"
     checkpoint = campaign / "checkpoints" / "main"
     upgrade = None
@@ -1117,7 +1153,9 @@ def main(argv=None):
     if upgrade is not None:
         plan["executable_upgrade"] = dict(upgrade, applied=args.start)
     if options["publication_policy"] == "epoch":
+        plan["epoch_inspector_lookup"] = options.get("epoch_inspector_lookup", "all-miss")
         plan["epoch_checkpoint"] = {
+            "inspector_lookup_mode": options.get("epoch_inspector_lookup", "all-miss"),
             "format": "RUSTRED-WALK-CP6", "schema": 1, "walk_semantics_version": 3,
             "resumable": True, "terminal_output": "checkpoint_only",
             "completion_report": "not_evaluated; raw cold reinspection required",

@@ -719,6 +719,11 @@ reinspection; omitting --result alone still auto-selects a nearby result.json.
 G2 anchors, rescue amendments and executable upgrades are not
 supported by this staged CP6 workflow. Without a checkpoint the legacy
 memory-only epoch path still emits a full, non-resumable result.
+--epoch-inspector-lookup all-miss|snapshot is an explicit CP6 Epoch comparison
+control (default all-miss). It requires --follow-successors, --publication-policy
+epoch and --checkpoint or --resume. Snapshot performs inspector-side lookup
+against the same immutable lockstep view; it does not grant closure authority.
+The mode is bound to the checkpoint request and cannot change on resume.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.

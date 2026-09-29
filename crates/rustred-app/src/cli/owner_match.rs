@@ -196,6 +196,9 @@ fn walk_request(
     walk.workers = args.workers;
     walk.inspection_workers = args.inspection_workers;
     walk.publication_policy = args.publication_policy;
+    walk.epoch_inspector_lookup = args
+        .epoch_inspector_lookup
+        .unwrap_or(crate::OwnerDomainWalkEpochInspectorLookup::AllMiss);
     walk.max_domains = args.max_domains;
     walk.max_frontiers = args.max_frontiers;
     walk.frontier_policy = args.frontier_policy;
@@ -319,6 +322,47 @@ fn annotate_walk_policy(
 #[cfg(test)]
 mod publication_receipt_tests {
     use super::*;
+
+    #[test]
+    fn epoch_lookup_argv_reconstruction_retains_checkpoint_binding_control() {
+        let base = [
+            "--manifest",
+            "m",
+            "--queries",
+            "q",
+            "--output",
+            "o",
+            "--follow-successors",
+            "--publication-policy",
+            "epoch",
+            "--transfer-unreserved-lookahead",
+            "16",
+            "--checkpoint",
+            "cp",
+        ];
+        for mode in [None, Some("all-miss"), Some("snapshot")] {
+            let mut words: Vec<_> = base.iter().map(|s| std::ffi::OsString::from(*s)).collect();
+            if let Some(mode) = mode {
+                words.extend(["--epoch-inspector-lookup".into(), mode.into()]);
+            }
+            let super::super::args::Command::OwnerDomainMatch(args) =
+                super::super::args::parse_args(
+                    ["rustred".into(), "owner-domain-match".into()]
+                        .into_iter()
+                        .chain(words),
+                )
+                .unwrap()
+            else {
+                panic!("owner domain match")
+            };
+            let matching = OwnerDomainMatchRequest::new("{}".into(), "{}".into());
+            let request = walk_request(matching, &args);
+            assert_eq!(
+                request.epoch_inspector_lookup.name(),
+                mode.unwrap_or("all-miss")
+            );
+        }
+    }
 
     #[test]
     fn ready_preserves_actual_final_paused_and_preparation_schemas() {

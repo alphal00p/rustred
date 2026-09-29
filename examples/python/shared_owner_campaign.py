@@ -59,7 +59,8 @@ SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
 SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
-                    DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
+                    DOMAIN.PUBLICATION_POLICY, DOMAIN.EPOCH_INSPECTOR_LOOKUP,
+                    DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
                     DOMAIN.FRONTIER_POLICY)
 G2_RESIDUAL_ANCHORS = "g2-residual-anchors"
 G2_RESIDUAL_MODES = ("off", "union")
@@ -839,6 +840,9 @@ def main() -> int:
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
                         help="symbolic publication policy; requires --queries; ready requires unreserved delegation; nonordered modes may change diagnostic traversal order")
+    parser.add_argument("--" + DOMAIN.EPOCH_INSPECTOR_LOOKUP, choices=DOMAIN.EPOCH_INSPECTOR_LOOKUP_MODES,
+                        action=DOMAIN.StoreOnce,
+                        help="CP6 Epoch comparison control; default all-miss; resume must retain its mode")
     parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
                         help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
                              "ordered/ready publication and no physical subdivision; resume must retain its original mode")
@@ -904,6 +908,8 @@ def main() -> int:
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     try:
+        DOMAIN.validate_epoch_inspector_lookup(args.epoch_inspector_lookup, symbolic,
+                                               args.publication_policy, args.checkpoint is not None or args.resume is not None)
         validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,
                                      args.publication_policy, args.apply_subdivision_axis is not None)
     except ValueError as error:
@@ -1045,6 +1051,8 @@ def main() -> int:
     # One supervisor display owns the terminal; native JSONL heartbeats continue.
     command.append("--no-progress")
     checkpoint_directory = args.checkpoint or args.resume
+    epoch_policy = ({"epoch_inspector_lookup": args.epoch_inspector_lookup or "all-miss"}
+                    if symbolic and args.publication_policy == "epoch" else {})
     checkpoint_directory = str(checkpoint_directory.resolve()) if checkpoint_directory is not None else None
     amendments_directory = None
     if args.auto_rescue:
@@ -1052,6 +1060,7 @@ def main() -> int:
                                 else default_amendments_directory(checkpoint_directory))
     # Never include the process environment or license in provenance.
     (output / "request.json").write_text(json.dumps({
+        **epoch_policy,
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
@@ -1150,6 +1159,7 @@ def main() -> int:
         if exit_status is not None:
             writing = None
         status = {"schema": "rustred.campaign-status.v1", "heartbeat_unix_time": time.time(),
+                  **epoch_policy,
                   "heartbeat_age_seconds": 0.0, "heartbeat_stale": False,
                   "state": state, "elapsed_seconds": now-started, "sample_seconds": args.sample_seconds,
                   "run_directory": str(output), "process_identity": identities,
@@ -1287,6 +1297,7 @@ def main() -> int:
     publish_status(last_resources, state, status)
     (output / "run.status").write_text(str(status) + "\n")
     (output / "supervisor-result.json").write_text(json.dumps({
+        **epoch_policy,
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
