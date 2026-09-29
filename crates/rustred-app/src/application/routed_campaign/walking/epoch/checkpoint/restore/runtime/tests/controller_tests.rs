@@ -8,6 +8,7 @@ use std::time::Duration;
 
 mod native_equivalence;
 mod native_periodic;
+mod native_prefix;
 mod periodic_tests;
 
 fn config() -> MergeConfig {

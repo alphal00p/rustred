@@ -1,5 +1,8 @@
 //! Query-root validation uses the prepared reducer/request, never the saved
 //! record phase. Decode one request-sized row at a time into final input rows.
+#[cfg(test)]
+use super::super::super::admission::phase;
+use super::super::super::admission::{query_phase, source_frontier};
 use super::super::super::verify::{Container, QueryImage, VerifyCounters, verify};
 use super::super::invalid;
 use super::super::metadata::Identity;
@@ -8,10 +11,13 @@ use super::super::read::Budget;
 use super::{CheckedRead, Store};
 use crate::application::routed_campaign::matching::input::Query;
 use crate::application::routed_campaign::walking::queue::{CompactDomain, Domain, Phase};
+#[cfg(test)]
 use crate::application::routed_campaign::walking::{mask, power_bounds_json};
 use rustred::solver::RoutedCandidateReducer;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use std::cell::Cell;
 use std::io;
 use std::path::Path;
@@ -60,16 +66,6 @@ pub(super) struct Roots {
     pub frontiers: Vec<Value>,
 }
 
-fn phase(installed: bool, overcover: bool, source_conditions: bool) -> Option<Phase> {
-    if installed || !overcover {
-        Some(Phase::Apply)
-    } else if !source_conditions {
-        Some(Phase::Route)
-    } else {
-        None
-    }
-}
-
 pub(super) fn read<const N: usize>(
     directory: &Path,
     inputs: &FileRef,
@@ -86,17 +82,7 @@ pub(super) fn read<const N: usize>(
         identity.queries(),
         store,
         p0,
-        |query| {
-            let installed = reducer
-                .programs()
-                .owner_sectors()
-                .any(|owner| owner.as_slice() == query.owner.as_slice());
-            phase(
-                installed,
-                identity.route_domain_overcover(),
-                reducer.domain_routing_requires_source_conditions(),
-            )
-        },
+        |query| query_phase(reducer, identity.route_domain_overcover(), query),
     )
 }
 
@@ -158,51 +144,8 @@ fn read_with_phase<const N: usize>(
             .ok_or_else(|| invalid("epoch query row bound overflow"))?;
         input_budget.set(row_bound);
         let row = Row::deserialize(&mut input_decoder).map_err(io::Error::other)?;
-        if row.id != query.id
-            || matches!(row.role, Role::Auxiliary) != query.auxiliary
-            || row.role_declared != query.role_declared
-        {
-            return Err(invalid("epoch root order or exact query role differs"));
-        }
-        match (
-            phase_of(query),
-            row.domain.0,
-            row.source_validity_unresolved,
-        ) {
-            (Some(phase), Some(id), None) if id < p0 && id <= admitted => {
-                let domain = Domain {
-                    phase,
-                    owner: query.owner.as_slice().try_into().expect("arity checked"),
-                    lower: query.lower.clone(),
-                    upper: query.upper.clone(),
-                    rank: query.rank,
-                    powers: query.powers,
-                };
-                let image = CompactDomain::try_from_domain(&domain).map_err(io::Error::other)?;
-                if id == admitted {
-                    if store.domains[id as usize] != image {
-                        return Err(invalid(
-                            "epoch first admitting query does not equal its root",
-                        ));
-                    }
-                    admitted += 1;
-                } else {
-                    let query_image = QueryImage::new(image).map_err(io::Error::other)?;
-                    if verify(
-                        Container::Stored {
-                            id,
-                            domains: &store.domains,
-                            published_len: admitted as usize,
-                        },
-                        &query_image,
-                        &mut counters,
-                    )
-                    .is_none()
-                    {
-                        return Err(invalid("epoch reused root does not contain its query"));
-                    }
-                }
-            }
+        let phase = phase_of(query);
+        let frontier = match (phase, row.domain.0, row.source_validity_unresolved) {
             (None, None, Some(true)) if (result.frontiers.len() as u64) < frontiers.count => {
                 frontier_budget.set(
                     row_bound
@@ -210,25 +153,26 @@ fn read_with_phase<const N: usize>(
                         .ok_or_else(|| invalid("epoch input frontier bound overflow"))?,
                 );
                 let actual = Value::deserialize(&mut frontier_decoder).map_err(io::Error::other)?;
-                let expected = json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
-                    "owner":mask::<N>(query.owner.as_slice().try_into().expect("arity checked")),"lower":query.lower,"upper":query.upper,"rank":query.rank,
-                    "power_bounds":power_bounds_json(query.powers),"reached_missing_rule_claim":false});
-                if actual != expected {
-                    return Err(invalid(
-                        "epoch initial source obligation differs from query",
-                    ));
-                }
-                result
-                    .frontiers
-                    .try_reserve(1)
-                    .map_err(|_| io::Error::other("epoch input frontier allocation"))?;
-                result.frontiers.push(actual);
+                Some(actual)
             }
-            _ => {
-                return Err(invalid(
-                    "epoch query root phase, prefix or source obligation differs",
-                ));
-            }
+            _ => None,
+        };
+        check_row(
+            query,
+            &row,
+            phase,
+            frontier.as_ref(),
+            store,
+            p0,
+            &mut admitted,
+            &mut counters,
+        )?;
+        if let Some(actual) = frontier {
+            result
+                .frontiers
+                .try_reserve(1)
+                .map_err(|_| io::Error::other("epoch input frontier allocation"))?;
+            result.frontiers.push(actual);
         }
         let mut value = super::super::super::input_row(query, row.domain.0);
         if row.source_validity_unresolved == Some(true) {
@@ -254,6 +198,124 @@ fn read_with_phase<const N: usize>(
     input_reader.finish()?;
     frontier_reader.finish()?;
     Ok(result)
+}
+
+// Same strict rule for decoded disk rows and completion-time in-memory rows.
+#[allow(clippy::too_many_arguments)]
+fn check_row<const N: usize>(
+    query: &Query,
+    row: &Row,
+    phase: Option<Phase>,
+    frontier: Option<&Value>,
+    store: &Store<N>,
+    p0: u32,
+    admitted: &mut u32,
+    counters: &mut VerifyCounters,
+) -> io::Result<()> {
+    if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
+        return Err(invalid("epoch root query arity"));
+    }
+    if row.id != query.id
+        || matches!(row.role, Role::Auxiliary) != query.auxiliary
+        || row.role_declared != query.role_declared
+    {
+        return Err(invalid("epoch root order or exact query role differs"));
+    }
+    match (phase, row.domain.0, row.source_validity_unresolved) {
+        (Some(phase), Some(id), None) if id < p0 && id <= *admitted => {
+            let domain = Domain {
+                phase,
+                owner: query.owner.as_slice().try_into().expect("arity checked"),
+                lower: query.lower.clone(),
+                upper: query.upper.clone(),
+                rank: query.rank,
+                powers: query.powers,
+            };
+            let image = CompactDomain::try_from_domain(&domain).map_err(io::Error::other)?;
+            if id == *admitted {
+                if store.domains.get(id as usize) != Some(&image) {
+                    return Err(invalid(
+                        "epoch first admitting query does not equal its root",
+                    ));
+                }
+                *admitted += 1;
+            } else {
+                let query_image = QueryImage::new(image).map_err(io::Error::other)?;
+                if verify(
+                    Container::Stored {
+                        id,
+                        domains: &store.domains,
+                        published_len: *admitted as usize,
+                    },
+                    &query_image,
+                    counters,
+                )
+                .is_none()
+                {
+                    return Err(invalid("epoch reused root does not contain its query"));
+                }
+            }
+        }
+        (None, None, Some(true)) if frontier == Some(&source_frontier::<N>(query)) => {}
+        _ => {
+            return Err(invalid(
+                "epoch query root phase, prefix or source obligation differs",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate<const N: usize>(
+    roots: &Roots,
+    identity: &Identity<'_>,
+    reducer: &RoutedCandidateReducer<N>,
+    store: &Store<N>,
+    p0: u32,
+) -> io::Result<()> {
+    validate_with_phase(roots, identity.queries(), store, p0, |query| {
+        query_phase(reducer, identity.route_domain_overcover(), query)
+    })
+}
+
+fn validate_with_phase<const N: usize>(
+    roots: &Roots,
+    queries: &[Query],
+    store: &Store<N>,
+    p0: u32,
+    phase_of: impl Fn(&Query) -> Option<Phase>,
+) -> io::Result<()> {
+    if roots.rows.len() > queries.len() || p0 as usize > store.len() {
+        return Err(invalid("epoch query-root inventory shape"));
+    }
+    let (mut admitted, mut next_frontier) = (0, 0);
+    let mut counters = VerifyCounters::default();
+    for (value, query) in roots.rows.iter().zip(queries) {
+        let row = Row::deserialize(value).map_err(io::Error::other)?;
+        let frontier = row
+            .domain
+            .0
+            .is_none()
+            .then(|| roots.frontiers.get(next_frontier))
+            .flatten();
+        check_row(
+            query,
+            &row,
+            phase_of(query),
+            frontier,
+            store,
+            p0,
+            &mut admitted,
+            &mut counters,
+        )?;
+        next_frontier += usize::from(row.domain.0.is_none());
+    }
+    if admitted != p0 || next_frontier != roots.frontiers.len() {
+        return Err(invalid(
+            "epoch root map does not introduce exactly the protected prefix",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

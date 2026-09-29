@@ -4,7 +4,7 @@
 use super::super::super::{anchors::MergedView, dispatch::Dispatch, job::Job, state::EpochState};
 use super::super::{
     MergeBoundary, invalid,
-    metadata::{Admission, Identity},
+    metadata::{Admission, AdmissionFailure, Identity},
     publication,
 };
 use super::{assembly, dispatch_state::SavedDispatch, roots::Roots};
@@ -15,6 +15,7 @@ use rustred::solver::RoutedCandidateReducer;
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod admission;
 mod controller;
 
 pub(super) struct Restored<const N: usize> {
@@ -27,6 +28,7 @@ pub(super) struct Restored<const N: usize> {
     pub admission: Admission,
     pub stop_reason: Option<String>,
     pub operational_stop: Option<super::super::stop::Stop>,
+    pub admission_failure: Option<AdmissionFailure>,
     pub publisher: publication::Store,
     pub records: Sidecar,
     pub warnings: Vec<String>,
@@ -113,7 +115,7 @@ pub(super) fn open<const N: usize>(
     } = decoded;
     let SavedDispatch {
         session,
-        counter: _,
+        counter,
         cursor,
         requeue,
         deferred,
@@ -141,6 +143,22 @@ pub(super) fn open<const N: usize>(
         max_frontiers: max_frontiers as u64,
         poisoned: false,
     };
+    if matches!(scalars.initial_admission, Admission::InProgress) {
+        Dispatch::validate_admission(
+            &state,
+            super::super::super::dispatch::DispatchSnapshot {
+                session,
+                counter,
+                cursor,
+                requeue: &requeue,
+                deferred: &deferred,
+            },
+        )
+        .map_err(io::Error::other)?;
+        if !record_segments.is_empty() {
+            return Err(invalid("epoch incomplete admission has record segments"));
+        }
+    }
     // Last fallible authority operation before making a Dispatch. Session
     // exhaustion/failure issues no jobs; a later assembly error burns it safely.
     let session = publisher.adopt(manifest, session)?;
@@ -177,6 +195,7 @@ pub(super) fn open<const N: usize>(
         admission: scalars.initial_admission,
         stop_reason: scalars.stop_reason,
         operational_stop: scalars.operational_stop,
+        admission_failure: scalars.admission_failure,
         publisher,
         records,
         warnings,

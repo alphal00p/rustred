@@ -16,6 +16,7 @@
 //! after its complete sorted edge run.
 #![forbid(unsafe_code)]
 
+mod admission;
 mod anchors;
 mod checkpoint;
 mod dispatch;
@@ -36,16 +37,15 @@ mod verify;
 use super::super::{RoutedCampaignRequest, input, matching, prepare};
 use super::execution::records::{Annotations, RecordSink, Sidecar, Streamed};
 use super::initial_overlap::InitialOverlapIndex;
-use super::queue::{CompactDomain, Domain, Phase, Query};
+use super::queue::{CompactDomain, Domain, Query};
 use super::worker_budget::WorkerBudget;
 use super::{
     OwnerDomainWalkFrontierPolicy, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, index_report, limits_json, mask,
+    OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy, index_report, limits_json,
 };
 use crate::AppError;
 use dispatch::{Dispatch, Refill};
 use ledger6::Tag;
-use matching::input::power_bounds_json;
 use merge::{Fatal, MergeConfig, RecordOut, StopReason};
 use serde_json::{Value, json};
 use state::EpochState;
@@ -155,6 +155,7 @@ pub(super) fn admit(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
 enum AdmissionError {
     /// The scheduled-domain cap (F9): `domain_allowance`.
     DomainCap,
+    FrontierCap,
     /// An input whose canonical image or native summary is refused (a
     /// deterministic input error): `error_stop`.
     Refused(String),
@@ -178,6 +179,10 @@ impl AdmissionError {
             AdmissionError::DomainCap => (
                 "scheduled domain allowance".into(),
                 Ok(StopReason::DomainAllowance),
+            ),
+            AdmissionError::FrontierCap => (
+                "retained frontier allowance".into(),
+                Ok(StopReason::FrontierAllowance),
             ),
             AdmissionError::Refused(m) => (m, Ok(StopReason::ErrorStop)),
             AdmissionError::Alloc(m) => (m, Ok(StopReason::RamGuard)),
@@ -468,44 +473,9 @@ pub(super) fn run<const N: usize>(
     // The stop an admission failure maps to (Err: engine-fatal).
     let mut admission_stop: Option<Result<StopReason, String>> = None;
     for query in queries {
-        let domain = Domain {
-            phase: Phase::Apply,
-            owner: query.owner.as_slice().try_into().expect("validated arity"),
-            lower: query.lower.clone(),
-            upper: query.upper.clone(),
-            rank: query.rank,
-            powers: query.powers,
-        };
-        let domain = if request.route_domain_overcover
-            && !reducer
-                .programs()
-                .owner_sectors()
-                .any(|o| o == &domain.owner)
-        {
-            if reducer.domain_routing_requires_source_conditions() {
-                if input_frontiers.len() == request.max_frontiers {
-                    error = Some("retained frontier allowance".into());
-                    admission_stop = Some(Ok(StopReason::FrontierAllowance));
-                    break;
-                }
-                input_frontiers.push(json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
-                    "owner":mask(&domain.owner),"lower":domain.lower,"upper":domain.upper,"rank":domain.rank,
-                    "power_bounds":power_bounds_json(domain.powers),
-                    "reached_missing_rule_claim":false}));
-                let mut row = input_row(query, None);
-                row["source_validity_unresolved"] = json!(true);
-                inputs.push(row);
-                continue;
-            }
-            Domain {
-                phase: Phase::Route,
-                ..domain
-            }
-        } else {
-            domain
-        };
-        match admit_initial(&mut state, &domain) {
-            Ok(id) => inputs.push(input_row(query, Some(id))),
+        let phase = admission::query_phase(&reducer, request.route_domain_overcover, query);
+        match admission::one(&mut state, query, phase, &mut inputs, &mut input_frontiers) {
+            Ok(()) => {}
             Err(e) => {
                 let (message, stop) = e.stop();
                 error = Some(message);

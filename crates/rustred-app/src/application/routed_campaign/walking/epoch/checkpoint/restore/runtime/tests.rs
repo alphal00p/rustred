@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use std::fs;
 use std::sync::Arc;
 
+mod admission_tests;
 mod controller_tests;
 
 struct Fixture {
@@ -34,6 +35,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_source_condition(false)
+    }
+    fn with_source_condition(source_condition: bool) -> Self {
         let source = r#"
 schema="rustred.project.toml.v1"
 [family]
@@ -47,6 +51,11 @@ expression="q^2-1"
 [target]
 powers=[1]
 "#;
+        let source = if source_condition {
+            source.replace("q^2-1", "d*q^2-1")
+        } else {
+            source.to_owned()
+        };
         let mut request = FamilyCandidatesRequest::new(source);
         request.numerical_depth = 0;
         request.max_numerator_rank = Some(2);
@@ -146,6 +155,7 @@ powers=[1]
             frontiers: &[],
             stop: None,
             operational_stop: None,
+            admission_failure: None,
         };
         let mut publisher = publication::Store::fresh(self.directory.0.clone()).unwrap();
         let mut sidecar = Sidecar::new(self.directory.0.clone(), 1);
@@ -176,6 +186,7 @@ fn resave(fixture: &Fixture, restored: &mut Restored<1>) {
         frontiers: &restored.roots.frontiers,
         stop: (restored.state.counters.native_errors != 0).then_some(merge::StopReason::ErrorStop),
         operational_stop: None,
+        admission_failure: restored.admission_failure.as_ref(),
     };
     restored
         .publisher
@@ -313,6 +324,7 @@ fn durable_stop_save_precedes_held_worker_join_and_preserves_reserved_replay() {
                 frontiers: &restored.roots.frontiers,
                 stop: Some(merge::StopReason::RamGuard),
                 operational_stop: None,
+                admission_failure: restored.admission_failure.as_ref(),
             };
             // No closure refresh or CAS call is part of the memory stop save.
             let receipt = restored

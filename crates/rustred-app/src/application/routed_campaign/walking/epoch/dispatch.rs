@@ -45,6 +45,64 @@ pub(super) enum Refill<const N: usize> {
 }
 
 impl Dispatch {
+    pub fn admission_ready(&self) -> bool {
+        self.admission_ready && !self.replay_pending
+    }
+
+    /// Fresh publisher session 1 exists before this private constructor runs.
+    pub fn for_admission() -> Self {
+        Self {
+            admission_ready: false,
+            ..Self::new()
+        }
+    }
+
+    pub fn validate_admission<const N: usize>(
+        state: &EpochState<N>,
+        saved: DispatchSnapshot<'_>,
+    ) -> Result<(), String> {
+        let mut expected = super::state::WalkCounters::default();
+        expected.frontiers = state.counters.frontiers;
+        if state.poisoned
+            || state.k != 0
+            || state.p0 != state.watermark()
+            || saved.cursor != 0
+            || saved.counter != 0
+            || !saved.requeue.is_empty()
+            || !saved.deferred.is_empty()
+            || !state.in_flight.is_empty()
+            || state.edges.runs() != 0
+            || !state.edges.log().is_empty()
+            || state.anchors.len() != 0
+            || state.merged_view.len() != 0
+            || !state.frontier_counts.is_empty()
+            || state.counters != expected
+            || state.nodes.iter().any(|&flags| flags != 0)
+            || (0..state.watermark())
+                .any(|id| state.ledger.get(id) != Ok(Entry6::Pending(Default::default())))
+        {
+            return Err("epoch incomplete admission has issued or noninitial state".into());
+        }
+        Ok(())
+    }
+
+    pub fn check_admission<const N: usize>(&self, state: &EpochState<N>) -> Result<(), String> {
+        if self.admission_ready || self.replay_pending {
+            return Err("epoch admission readiness transition is not fresh".into());
+        }
+        Self::validate_admission(state, self.checkpoint_snapshot())?;
+        Ok(())
+    }
+
+    pub fn complete_admission<const N: usize>(
+        &mut self,
+        state: &EpochState<N>,
+    ) -> Result<(), String> {
+        self.check_admission(state)?;
+        self.admission_ready = true;
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Self {
             cursor: 0,

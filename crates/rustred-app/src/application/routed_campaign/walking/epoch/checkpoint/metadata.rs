@@ -67,6 +67,12 @@ impl<'a> Identity<'a> {
     /// arrays. Aggregate allowances may change between sessions, but the
     /// saved arena must fit both its saved and the requested domain limits.
     pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
+        if saved.schema != 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported private epoch scalar version; fresh state required",
+            ));
+        }
         let watermark = u64::from(saved.watermark);
         // Request/capability refusals must not silently select an older, smaller
         // generation. Other decode/validation/I/O failures may use a fully
@@ -83,8 +89,7 @@ impl<'a> Identity<'a> {
                 "epoch checkpoint/request binding or requested domain limit differs",
             ));
         }
-        if saved.schema != 1
-            || saved.walk_semantics_version != super::super::EPOCH_WALK_SEMANTICS_VERSION
+        if saved.walk_semantics_version != super::super::EPOCH_WALK_SEMANTICS_VERSION
             || !(1..=4096).contains(&lockstep_b)
             || saved.k >= super::super::ledger6::EPOCH_LIMIT
             || saved.watermark == u32::MAX
@@ -163,6 +168,14 @@ impl<'a> Identity<'a> {
         }) {
             return Err(invalid("epoch operational stop context differs"));
         }
+        validate_failure(
+            saved.admission_failure.as_ref(),
+            saved.initial_admission,
+            saved.processed_queries,
+            saved.total_queries,
+            saved.stop_reason.as_deref(),
+            saved.operational_stop.is_some(),
+        )?;
         Ok(())
     }
 
@@ -191,6 +204,100 @@ pub(super) enum Admission {
     Complete,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum AdmissionFailureKind {
+    DomainAllowance,
+    FrontierAllowance,
+    Allocation,
+    Refused,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AdmissionFailure {
+    pub query_index: usize,
+    pub kind: AdmissionFailureKind,
+    pub message: String,
+}
+
+impl AdmissionFailure {
+    fn valid_message(&self) -> bool {
+        !self.message.is_empty()
+            && self.message.len() <= 4096
+            && match self.kind {
+                AdmissionFailureKind::DomainAllowance => {
+                    self.message == "scheduled domain allowance"
+                }
+                AdmissionFailureKind::FrontierAllowance => {
+                    self.message == "retained frontier allowance"
+                }
+                AdmissionFailureKind::Allocation => self.message.contains("allocation"),
+                AdmissionFailureKind::Refused => self.message.starts_with("input: "),
+            }
+    }
+    pub fn reason(&self) -> StopReason {
+        match self.kind {
+            AdmissionFailureKind::DomainAllowance => StopReason::DomainAllowance,
+            AdmissionFailureKind::FrontierAllowance => StopReason::FrontierAllowance,
+            AdmissionFailureKind::Allocation => StopReason::RamGuard,
+            AdmissionFailureKind::Refused => StopReason::ErrorStop,
+        }
+    }
+    pub fn from_error(index: usize, error: super::super::AdmissionError) -> io::Result<Self> {
+        use super::super::AdmissionError as E;
+        let kind = match &error {
+            E::DomainCap => AdmissionFailureKind::DomainAllowance,
+            E::FrontierCap => AdmissionFailureKind::FrontierAllowance,
+            E::Alloc(_) => AdmissionFailureKind::Allocation,
+            E::Refused(_) => AdmissionFailureKind::Refused,
+            E::Internal(message) => return Err(io::Error::other(message.clone())),
+        };
+        let (message, _) = error.stop();
+        let failure = Self {
+            query_index: index,
+            kind,
+            message,
+        };
+        if !failure.valid_message() {
+            return Err(invalid(
+                "epoch admission diagnostic exceeds bounded metadata",
+            ));
+        }
+        Ok(failure)
+    }
+}
+
+pub(super) fn validate_failure(
+    failure: Option<&AdmissionFailure>,
+    admission: Admission,
+    processed: usize,
+    total: usize,
+    stop: Option<&str>,
+    operational: bool,
+) -> io::Result<()> {
+    if let Some(failure) = failure {
+        if !matches!(admission, Admission::InProgress)
+            || failure.query_index != processed
+            || processed >= total
+            || !failure.valid_message()
+            || (!operational && stop != Some(failure.reason().name()))
+        {
+            return Err(invalid("epoch admission failure binding differs"));
+        }
+    } else if matches!(admission, Admission::InProgress)
+        && (matches!(
+            stop,
+            Some("error_stop" | "domain_allowance" | "frontier_allowance")
+        ) || stop == Some("ram_guard") && !operational)
+    {
+        return Err(invalid(
+            "epoch admission error stop is missing its diagnostic",
+        ));
+    }
+    Ok(())
+}
+
 /// Every reference is held for the same save; no root/frontier array clone.
 pub(super) struct Inputs<'a> {
     pub identity: &'a Identity<'a>,
@@ -199,6 +306,7 @@ pub(super) struct Inputs<'a> {
     pub frontiers: &'a [Value],
     pub stop: Option<StopReason>,
     pub operational_stop: Option<&'a super::stop::Stop>,
+    pub admission_failure: Option<&'a AdmissionFailure>,
 }
 
 #[derive(Serialize, serde::Deserialize)]
@@ -232,6 +340,7 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub input_frontiers: usize,
     pub stop_reason: Option<S>,
     pub operational_stop: Option<C>,
+    pub admission_failure: Option<AdmissionFailure>,
     // Reserved provenance fields: this implementation admits none of these.
     pub amendments: [(); 0],
     pub quarantined: [(); 0],
@@ -246,12 +355,26 @@ pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCount
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
         let state = boundary.state;
+        if matches!(self.admission, Admission::InProgress) {
+            super::super::dispatch::Dispatch::validate_admission(state, boundary.dispatch)
+                .map_err(|_| {
+                    invalid("epoch incomplete admission has issued or noninitial state")
+                })?;
+        }
         if self
             .operational_stop
             .is_some_and(|context| !context.valid() || self.stop != Some(context.kind()))
         {
             return Err(invalid("epoch save operational stop context differs"));
         }
+        validate_failure(
+            self.admission_failure,
+            self.admission,
+            self.rows.len(),
+            self.identity.queries.len(),
+            self.stop.map(StopReason::name),
+            self.operational_stop.is_some(),
+        )?;
         if self.rows.len() > self.identity.queries.len()
             || matches!(self.admission, Admission::Complete)
                 && self.rows.len() != self.identity.queries.len()
@@ -335,7 +458,7 @@ impl Inputs<'_> {
         self.validate(boundary)?;
         let state = boundary.state;
         let scalars = Scalars {
-            schema: 1,
+            schema: 2,
             request: self.identity.request.as_str(),
             owner_count: self.identity.owners.len(),
             owners_digest: self.identity.owners_digest,
@@ -363,6 +486,7 @@ impl Inputs<'_> {
             input_frontiers: self.frontiers.len(),
             stop_reason: self.stop.map(StopReason::name),
             operational_stop: self.operational_stop,
+            admission_failure: self.admission_failure.cloned(),
             amendments: [],
             quarantined: [],
             abandoned_obligations: [],

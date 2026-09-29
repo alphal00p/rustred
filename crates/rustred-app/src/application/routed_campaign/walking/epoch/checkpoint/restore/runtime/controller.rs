@@ -29,7 +29,7 @@ pub(super) enum Outcome {
     Stopped(StopReason),
 }
 
-enum Failure {
+pub(super) enum Failure {
     Engine(String),
     Save(io::Error),
 }
@@ -69,7 +69,7 @@ impl RecordOut for Output<'_> {
     }
 }
 
-fn save<const N: usize>(
+pub(super) fn save<const N: usize>(
     restored: &mut Restored<N>,
     identity: &Identity<'_>,
     b: usize,
@@ -86,6 +86,7 @@ fn save<const N: usize>(
         frontiers: &restored.roots.frontiers,
         stop: reason,
         operational_stop: context.as_ref(),
+        admission_failure: restored.admission_failure.as_ref(),
     };
     let receipt = restored
         .publisher

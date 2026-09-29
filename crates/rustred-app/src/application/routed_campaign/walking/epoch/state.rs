@@ -27,7 +27,7 @@ pub(super) struct JobMeta {
 }
 
 /// Aggregate walk counters (semantics 3 meanings; see the result report).
-#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct WalkCounters {
     pub events: u64,
