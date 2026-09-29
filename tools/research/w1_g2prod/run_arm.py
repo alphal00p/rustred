@@ -9,6 +9,8 @@ Reuses the historical control command lines of TMP/fable51-controls/run_control.
 five-loop 1,324-tuple finite control) plus the hot-owner family (C-HOT inputs
 with a replaceable queries file for C-HOT-sub). Only the executable, output
 paths, policy, workers, CPU set and environment are substituted.
+For LC2, pass --command /common/dev/rustred/TMP/lc2/commands/FAMILY.json
+to use the converted format-6 input paths rather than the historical inputs.
 
 Usage:
   run_arm.py --binary BIN --family fg|bmw|h|x|five-finite|hot --label NAME
@@ -53,6 +55,24 @@ def hot_argv(queries):
     argv[argv.index("--max-queries") + 1] = str(len(q["queries"]))
     argv[argv.index("--max-query-bytes") + 1] = str(size)
     return argv
+
+
+def command_template(path):
+    """Read an explicit immutable argv template (e.g. the LC2 v6 controls)."""
+    with open(path) as source:
+        argv = json.load(source)
+    if not isinstance(argv, list) or not argv or any(not isinstance(arg, str) for arg in argv):
+        raise ValueError("command template must be a nonempty JSON array of strings")
+    return argv
+
+
+def configured_workers(argv):
+    """Actual explicit budget after overrides, not the optional runner argument."""
+    try:
+        workers = int(argv[argv.index("--workers") + 1])
+    except (ValueError, IndexError):
+        return None
+    return workers if workers > 0 else None
 
 
 def descendants(pid):
@@ -244,12 +264,13 @@ def perf_block(path):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--binary", required=True)
-    p.add_argument("--family", required=True, choices=sorted(run_control.COMMANDS) + ["hot"])
+    p.add_argument("--family", required=True, choices=sorted(set(run_control.COMMANDS) | {"hot", "four-all-p5"}))
     p.add_argument("--label", required=True)
     p.add_argument("--cpus", default="264-287")
     p.add_argument("--policy")
     p.add_argument("--workers", type=int)
     p.add_argument("--queries")
+    p.add_argument("--command", help="explicit command JSON array; use LC2 templates for format-6 inputs")
     p.add_argument("--env", nargs="*", default=[])
     p.add_argument("--time-limit", type=float)
     p.add_argument("--grace", type=float, default=300.0)
@@ -259,19 +280,26 @@ def main():
     p.add_argument("--extra", nargs="*", default=[])
     p.add_argument("--out-root", default=str(ROOT / "TMP/w1/g2prod/runs"))
     args = p.parse_args()
+    if args.command and args.queries:
+        p.error("--command and --queries are mutually exclusive; bind queries in the command template")
+    if args.command:
+        argv = command_template(args.command)
+    elif args.family == "hot":
+        argv = hot_argv(args.queries or str(ROOT / "TMP/qcd-feynman-d9d10-pilot-hot-owner/queries.json"))
+    else:
+        if args.family not in run_control.COMMANDS:
+            p.error(f"{args.family} requires an explicit --command template")
+        argv = command_template(run_control.COMMANDS[args.family])
     out = Path(args.out_root) / args.label / args.family
     if out.exists():
         sys.exit(f"refusing to overwrite {out}")
     out.mkdir(parents=True)
-    if args.family == "hot":
-        argv = hot_argv(args.queries or str(ROOT / "TMP/qcd-feynman-d9d10-pilot-hot-owner/queries.json"))
-    else:
-        argv = json.load(open(run_control.COMMANDS[args.family]))
     extra = list(args.extra)
     if args.g2 != "off":
         extra += ["--g2-residual-anchors", args.g2]
     argv = run_control.rewrite(argv, args.binary, out, args.policy, args.workers, None, extra,
-                               args.family == "five-finite")
+                               args.family == "five-finite" and args.command is None)
+    workers = configured_workers(argv)
     json.dump(argv, open(out / "command.json", "w"), indent=1)
     if args.perf:
         argv = [PERF, "stat", "-x", ",", "-o", str(out / "perf-stat.csv"),
@@ -311,16 +339,23 @@ def main():
         if stopped_by_limit is not None and elapsed > stopped_by_limit + args.grace and not killed:
             os.killpg(proc.pid, signal.SIGKILL)
             killed = True
+    exited = time.time()
     stop.set()
     watcher.join()
     rec.join()
     holder.pop("start", None)
-    wall = time.time() - start
+    wall = exited - start
+    recorder_shutdown = time.time() - exited
+    stderr.close()
+    stdout.close()
     metrics = {"family": args.family, "label": args.label, "binary": args.binary,
                "exit_code": code, "whole_command_seconds": round(wall, 3), "cpus": args.cpus,
-               "policy": args.policy, "workers": args.workers, "env": extra_env, "g2": args.g2,
+               "whole_command_timing_scope": "launcher-inclusive nice+nix+native launch through wait; recorder shutdown excluded",
+               "recorder_shutdown_seconds": round(recorder_shutdown, 6),
+               "policy": args.policy, "workers": workers, "requested_workers": args.workers,
+               "env": extra_env, "g2": args.g2,
                "extra": args.extra,
-               "queries": args.queries, "time_limit": args.time_limit,
+               "queries": args.queries, "command_template": args.command, "time_limit": args.time_limit,
                "stopped_by_time_limit_at": stopped_by_limit, "killed_after_grace": killed,
                "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))}
     metrics.update(holder)

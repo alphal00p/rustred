@@ -24,17 +24,9 @@ import math
 import sys
 from pathlib import Path
 
-ARGS = sys.argv[1:]
-JSON_OUT = None
-if "--json" in ARGS:
-    i = ARGS.index("--json")
-    JSON_OUT = ARGS[i + 1]
-    del ARGS[i:i + 2]
-SHA = ARGS[0]
-RUNS = Path(ARGS[1]) if len(ARGS) > 1 else Path("/common/dev/rustred/TMP/w1/g2prod/runs")
-CONTROLS = [("C-5F Ordered W24", "five-finite", "c5f-ord-{arm}-{r}-" + SHA),
-            ("C-5F Ready W24", "five-finite", "c5f-rdy-{arm}-{r}-" + SHA),
-            ("C-HOT-sub r1a12 Ready W12", "hot", "hotsub-{arm}-{r}-" + SHA)]
+CONTROLS = [("C-5F Ordered", "five-finite", "c5f-ord-{arm}-{r}-{sha}"),
+            ("C-5F Ready", "five-finite", "c5f-rdy-{arm}-{r}-{sha}"),
+            ("C-HOT-sub r1a12 Ready", "hot", "hotsub-{arm}-{r}-{sha}")]
 REPS = ("r1", "r2", "r3")
 KEYS = ("record_s", "run_s", "uw", "instr", "instr_per_native", "apply_calls", "route_natives", "natives",
         "scheduled", "peak_pending", "growth", "disc_per_native")
@@ -45,8 +37,10 @@ def load(d):
     for name in ("metrics", "g2stats", "pending", "audit", "verify"):
         p = d / f"{name}.json"
         try:
-            out[name] = json.load(open(p)) if p.exists() and p.stat().st_size else {}
-        except json.JSONDecodeError:
+            with p.open() as source:
+                value = json.load(source)
+            out[name] = value if isinstance(value, dict) else {}
+        except (OSError, json.JSONDecodeError):
             out[name] = {}
     return out if out["metrics"] and out["g2stats"] else None
 
@@ -92,9 +86,16 @@ def useful(b, owner_cost, route_cost):
 
 def ok(r):
     m, v = r["metrics"], r.get("verify") or {}
+    if not isinstance(v, dict):
+        return False
+    verified, total = v.get("roots_independently_verified"), v.get("roots_total")
+    # These controls have nonempty scopes. Missing, malformed or partial
+    # reinspection is not closure evidence; bool is not an integer count.
     return (m.get("exit_code") == 0 and str(m.get("frontiers")) == "0" and r["audit"].get("audit") == "PASS"
-            and (not v or (v.get("verdict") == "PASS"
-                           and v.get("roots_independently_verified") == v.get("roots_total"))))
+            and m.get("stopped_by_time_limit_at") is None and not m.get("killed_after_grace", False)
+            and v.get("verdict") == "PASS"
+            and type(verified) is int and type(total) is int
+            and total > 0 and verified == total)
 
 
 def stats(xs):
@@ -102,6 +103,14 @@ def stats(xs):
     mean = sum(xs) / n
     sd = math.sqrt(sum((x - mean) ** 2 for x in xs) / (n - 1)) if n > 1 else 0.0
     return mean, sd, n
+
+
+def matched_workers(records):
+    """Do not label reduced-width measurements with a historical W24 label."""
+    widths = [record["metrics"].get("workers") for record in records]
+    if not widths or any(type(width) is not int or width <= 0 for width in widths):
+        return None
+    return widths[0] if len(set(widths)) == 1 else None
 
 
 def ratio(a, b):
@@ -114,21 +123,31 @@ def ratio(a, b):
     return r, f"{r:.3f} ({min(cross):.3f}-{max(cross):.3f}; se {se:.3f})"
 
 
-def main():
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    json_out = None
+    if "--json" in args:
+        i = args.index("--json")
+        json_out = args[i + 1]
+        del args[i:i + 2]
+    sha = args[0]
+    runs = Path(args[1]) if len(args) > 1 else Path("/common/dev/rustred/TMP/w1/g2prod/runs")
     dump = []
     print("| Control | n union/off | all drained, 0 frontiers, audit+oracle PASS | " + " | ".join(KEYS) + " |")
     print("|---|---|---|" + "---:|" * len(KEYS))
     context = []
     for name, fam, tmpl in CONTROLS:
-        off = [x for x in (load(RUNS / tmpl.format(arm="off", r=r) / fam) for r in REPS) if x]
-        on = [x for x in (load(RUNS / tmpl.format(arm="union", r=r) / fam) for r in REPS) if x]
+        off = [x for x in (load(runs / tmpl.format(arm="off", r=r, sha=sha) / fam) for r in REPS) if x]
+        on = [x for x in (load(runs / tmpl.format(arm="union", r=r, sha=sha) / fam) for r in REPS) if x]
         if not off or not on:
             continue
+        workers = matched_workers(off + on)
+        name = f"{name} W{workers}" if workers is not None else f"{name} W[unmatched/unknown]"
         offb, onb = [base(x) for x in off], [base(x) for x in on]
         oc, rc = costs(offb)
         for b in offb + onb:
             b["uw"] = useful(b, oc, rc)
-        good = all(ok(x) for x in off + on)
+        good = all(ok(x) for x in off + on) and workers is not None
         cells, ratios = [], {}
         for k in KEYS:
             ratios[k], cell = ratio([b[k] for b in offb], [b[k] for b in onb])
@@ -149,8 +168,9 @@ def main():
     print("|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|")
     for line in context:
         print(line)
-    if JSON_OUT:
-        json.dump(dump, open(JSON_OUT, "w"), indent=1)
+    if json_out:
+        with open(json_out, "w") as output:
+            json.dump(dump, output, indent=1)
 
 
 if __name__ == "__main__":
