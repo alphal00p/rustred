@@ -27,6 +27,13 @@ Use the documented **r1a12** hot-sub control, not the different s2/r2a12 box.
 Freeze source, binary, input hashes, argv, environment and timed boundaries
 in each receipt. Never overwrite earlier measurements.
 
+The historical baseline rejects the new optional `query_roles` field. For
+matched old/new performance controls use the **same original roleless query
+bytes**, with every query required and no rescue amendment in either arm.
+Test explicit roles and rescue separately. Do not silently strip roles in
+one timed arm, or compare rescued required-query success to the baseline's
+all-root success as if they were the same workload.
+
 ## Resource and timing boundary
 
 - Root allocates one timing lane on CPUs 64–79, W16 for C-5F, and W12 within
@@ -38,10 +45,14 @@ in each receipt. Never overwrite earlier measurements.
   pair and used identically by both arms.
 - Each pilot has a 1,800-second total ceiling. Request cooperative stop no
   later than 1,200 seconds and reserve the remaining time for durable save,
-  output and shutdown. Use an existing owned-process harness; never signal
+  output and shutdown. Set the runner grace to at most 540 seconds, leaving
+  60 seconds for polling/recorder overhead before the overall ceiling.
+  Use an existing owned-process harness; never signal
   production or unrelated processes. Killed/incomplete runs are censored.
-- Time from native process launch through its exit, including input load,
-  preparation and final output; separately record traversal/inspection time.
+- Time the matched whole command from launcher spawn through child exit,
+  explicitly including `nice`/Nix setup, input load, preparation and final
+  output. Exclude sampler-thread shutdown from that boundary and report it
+  separately; separately record native traversal/inspection time.
   Compilation is excluded and recorded independently. Cold verification is
   separately timed, never represented as generation/traversal performance.
   Each cold-verifier job also has its own <=1,800-second ceiling and the same

@@ -4,7 +4,7 @@ Authoritative plan: [CODEX_PROGRESS_PLAN.md](CODEX_PROGRESS_PLAN.md).
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current state — 2026-09-29 00:30 UTC
+## Audited starting state — 2026-09-29 00:30 UTC
 
 - [M] Main checkout: `fable_5_1`, starting tip `2255bc06`, synchronized with
   `origin/fable_5_1` at the preceding audit. Symbolica gitlink `ef0db494`,
@@ -49,13 +49,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | active | joint_support_pruning | Bring existing branch onto LC2; reconcile final-tip gates |
-| Rescue and explicit query roles | active | bounded_helpers_bmw | Preserve 116 required queries; remove substring authority |
+| G2′ integration | active | joint_support_pruning | Source on LC2; optimized native test build pending |
+| Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
 | Independent math/code audit | active | checkpoint_final_audit | Review both lanes and combined quarantine/replay invariants |
 | Combined G2′ + rescue | pending | root + independent auditor | Integrate after separate slices; paired pilot and restart decision |
 | Coordinator latency / telemetry | pending | profiling lane | Select narrow measured bottleneck after first integration |
-| Epoch S3–S6 | pending | implementation + independent audit | Durable checkpoints, inspector lookup, merge, rolling replay |
-| N2 allocation-free geometry | pending | profiling/implementation | Register opportunity and falsifier |
+| Epoch S3–S6 | pending; preparatory review delivered | epoch_next_slice_review | Fresh-only CP6 first; account for rescue-authorized duplicate images before schema freeze |
+| N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
@@ -78,6 +78,131 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 01:03 UTC — rescue committed; next opportunities registered
+
+- [M] Rescue branch source committed as `3dac8aef450a379be4d7c6fda8428886f451d536`
+  on `codex/rescue-lc2-integration`; native tests explicitly pending.
+  Frontend receipt: `TMP/codex-integration/rescue-roles-frontend.json`.
+  Integration note: `docs/research/rescue_roles_lc2_2026-09-29.md` on that branch.
+  Root assigned G2′ implementer the combined merge in its existing worktree
+  after the native app suite, retaining prior branch tips and build cache.
+- [M] Read-only LC2 observation at 01:02:22 UTC: 17,311,629 discovered,
+  5,334,966 native completions, 6,934,121 pending, 6/67 initial obligations
+  recursively closed, zero frontiers, approximately 17.1 GB tree RSS.
+  Hour-window coordinator commit share 51.9%, preparation 26.0%; recent
+  observed CPU about 16 cores. Snapshot closure count is conservatively
+  stale. These are observations, not a termination estimate or a switch gate.
+- N2 candidate registration (independent read-only audit): remove redundant
+  owned-vector copying in `applied/geometry.rs` using the existing checked
+  `LatticeBox::try_from_preallocated` ownership path, then consider local
+  scratch. Expected benefit is lower allocation cost, magnitude unknown.
+  Do not rewrite `power_domain::project`: it already uses fixed arrays.
+  Smallest falsifier: applied-geometry differential tests for correlated
+  A/R/D, crossings, unbounded bounds, overflow/cancellation/resource prefixes;
+  then exact event/counter identity and whole-command controls with G2 on
+  in both arms. Park if allocations fall without useful campaign speedup.
+- Negative evidence retained: previous duplicate-projection removal changed
+  median traversal by only -1.46% and -0.059%, with overlapping ranges;
+  historical 10.39% projection CPU is not an allocation-saving estimate.
+  Source: `docs/research/finite_closure_native_profile_2026-09-23.md`.
+  G2 can reduce the work N2 targets, so coordinator relief remains the next
+  priority. Rescue implementer is preparing that slice read-only.
+- [M] Independent build-lock cancellation regression also passed (0.141 s).
+
+### 2026-09-29 01:00 UTC — rescue source audit passed
+
+- [M] Independent audit passed the explicit-role source slice, conditional
+  on native execution and the later combined G2′/rescue gates. It verified
+  all 183 original row objects and their order are unchanged: 116 required
+  (including 16 convenience queries), 67 auxiliary. Only role metadata was
+  added. Duplicate-key ambiguity in Python JSON readers was found and fixed.
+- [M] Rescue frontend matrix: 161 tests, 160 passed and one optional native
+  checker test skipped. Independent reruns: 26 role/audit tests passed;
+  earlier staging/planning/audit run: 80 passed and one expected skip.
+  The offline checker independently found zero disagreements over 7,424
+  membership probes. These are not native checkpoint or closure receipts.
+- The rescue build was still waiting for the heavy-job lock. Root requested
+  cancellation of that owned queued job and source packaging, so the merged
+  engine can receive one consolidated native build. The ongoing G2′ native
+  test build continues. Neither campaign execution nor rule generation has
+  been started by these integration jobs.
+- Next gate: both activation orders, a previously inspected anchor later
+  blocked through a descendant, and pinned accepted-prefix replay. The
+  auditor is checking the actual quarantine update boundary before we choose
+  an implementation; avoid adding unnecessary live concurrency machinery.
+- No campaign switch is recommended yet. New role metadata changes the
+  immutable request binding; a fresh campaign is an acceptable deployment
+  path if existing validated activation cannot preserve it cheaply.
+- [M] Combined audit found existing-anchor quarantine changes only at
+  amended resume, before workers; in-session dead marking applies to new
+  IDs, not existing eligible anchors. Implement a full-ID eligibility view
+  at setup/publication, retaining historical accepted pins and their edges;
+  do not introduce an unnecessary live invalidation subsystem.
+- Matched old/new timing controls will use identical historical roleless
+  input bytes (all queries required in both arms). Role-aware rescue tests
+  remain separate; the old binary does not understand the new role field.
+- [M] Root corrected cancellation while waiting for local build locks:
+  nonblocking lock polling exits without spawning a child. Owned regression
+  passed in 0.138 s; independent helper audit requested. Rescue's queued
+  build was cancelled without touching G2′ or production processes.
+
+### 2026-09-29 — source slices ready; native checks pending
+
+- G2′ source/tooling tip `755e6157` is committed on its isolated branch.
+  Python examples: 261 passed, one skipped (18.502 s); seven tooling tests
+  passed independently. Native release compilation is still running under
+  the protected resource allocation. No final CLI/campaign build is started
+  yet: consolidate the combined source first to avoid duplicate long builds.
+- Exact native invocation in the G2′ worktree (guarded CPUs 0–15, heavy and
+  build-0 locks): `nice -n 5 nix develop --command cargo test --release
+  --locked --offline -j8 -p rustred-app --lib g2 -- --test-threads=1 --nocapture`.
+  Full launch/environment boundaries and build output are recorded in
+  `TMP/codex-g2-lc2.mi0ekz/focused-release/`; compilation is not solver timing.
+- Rescue role changes now cover native parser/planner/verifier, Python
+  staging/supervision/audit, the offline planner/checker, and the tracked
+  183-query fixture. Independent role-code audit is active. Original query
+  geometries are unchanged; no production input was edited. The offline
+  checker reports 7,424 membership probes with zero disagreements.
+- Temporary read-only epoch review delivered a concrete S3/S4 sequence:
+  fresh-only merge-boundary CP6, then asynchronous submit/poll/cancel for
+  durable stop handling, then immutable inspector-side lookup. No general
+  CP5 importer is needed. Preserve B16 while isolating those mechanisms.
+- Important future integration constraint: epoch currently rejects all
+  duplicate domain images, while rescue legitimately creates a new eligible
+  ID for an image whose old ID is quarantined. CP6 must retain amendment/
+  quarantine provenance and validate eligible representatives, not blindly
+  enforce global image uniqueness. Carry query roles and rescue-abandonment
+  semantics before freezing that format. No epoch implementation started.
+
+### 2026-09-29 — integration and measurement audit follow-up
+
+- [M] Pilot protocol committed/pushed as `2ca6c2db`. No new solver pilot run.
+- G2′ source merge onto LC2 is clean at `a15562e5` on
+  `codex/g2-lc2-integration`. Its old worktree-only Symbolica patch was retained
+  in submodule stash `ce9d8ac8d1bc38f9555f48d088003bed5e8f96b6`; current vendor
+  is clean `ef0db494`. Main vendor and unrelated work were not changed.
+- Rescue is implementing a complete exact-ID query-role partition in the
+  query document, included in the existing request binding. The absence of
+  roles means all queries required; rescue requires an explicit partition.
+- Independent measurement audit caught two further tooling pitfalls before
+  runs: hard-coded worker labels and launcher/sampler time being described as
+  native-only time. The G2′ lane is correcting both. Protocol now explicitly
+  uses matched launcher-inclusive wall time, excluding sampler shutdown.
+- Auditor confirmed all CAS primitives needed by the prospective N1 witness
+  exist in Symbolica and are already used by RustRed. Crucial semantic rule:
+  a nonzero sample cannot authorize `Zero::No` (uniform nonzero); only a
+  conservative conditional result is possible. Profile opportunity remains
+  pending; no witness optimization has been implemented or claimed faster.
+- [M] G2′ benchmark-tool corrections passed seven focused Python tests, also
+  run independently by the auditor. Explicit v6 templates no longer invoke
+  the legacy input override; missing verification and censored runs fail the
+  completed-comparison gate. Native engine release compilation is ongoing.
+- [M] A local shared build guard now preserves locks/monitoring until owned
+  descendants drain, even if their launcher exits first. Independent source
+  audit and an owned mock-process test passed (11.442 s). Evidence:
+  `TMP/codex-integration/{guard_build.py,test_guard_build.py}`. Accept build
+  receipts only with exit code zero and no stop reason.
 
 ### 2026-09-29 00:36 UTC — first milestone pushed; pilot protocol registered
 
