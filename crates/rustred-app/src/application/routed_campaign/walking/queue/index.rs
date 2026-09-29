@@ -546,10 +546,22 @@ impl<const N: usize> AggregateIndex<N> {
                 continue;
             }
             // IDs increase across blocks: the blocks wholly below `first_id`
-            // form a prefix (an empty block is never counted in it).
-            let skip = group
+            // form a prefix (an empty block is never counted in it). The
+            // bounds are checked first: an unbounded scan skips nothing, and a
+            // revalidation usually finds every block below its watermark.
+            let skip = if first_id == 0 {
+                0
+            } else if group
                 .meta
-                .partition_point(|meta| (meta.last as usize) < first_id);
+                .last()
+                .is_some_and(|meta| (meta.last as usize) < first_id)
+            {
+                group.meta.len()
+            } else {
+                group
+                    .meta
+                    .partition_point(|meta| (meta.last as usize) < first_id)
+            };
             for (meta, block) in group.meta[skip..].iter().zip(&group.blocks[skip..]) {
                 checkpoint()?;
                 if meta.len == 0 || (meta.last as usize) < first_id {
@@ -799,7 +811,13 @@ impl<const N: usize> AggregateIndex<N> {
         }
         impl<V: Retire, F: FnMut(usize)> Retire for Split<'_, V, F> {
             fn rejected(&mut self, run: &[u32], word: u32) {
-                let old = run.partition_point(|&id| (id as usize) < self.first_new);
+                // A run is ascending; runs wholly below the watermark (the
+                // usual case) need no search.
+                let old = if run.last().is_none_or(|&id| (id as usize) < self.first_new) {
+                    run.len()
+                } else {
+                    run.partition_point(|&id| (id as usize) < self.first_new)
+                };
                 if old > 0 {
                     self.visit_new.decided(old);
                 }
@@ -851,7 +869,11 @@ impl<const N: usize> AggregateIndex<N> {
             self.record_group(eligible);
             let group = &mut self.groups[position];
             if eligible {
-                for (meta, block) in group.meta.iter_mut().zip(&mut group.blocks) {
+                // The first empty row after the scan: rows before it are all
+                // kept in place, so compaction starts there (usually nowhere).
+                let mut first_empty = None;
+                for (row, (meta, block)) in group.meta.iter_mut().zip(&mut group.blocks).enumerate()
+                {
                     let eligible = meta.may_be_contained(probe);
                     #[cfg(test)]
                     if self.work.enabled {
@@ -860,38 +882,48 @@ impl<const N: usize> AggregateIndex<N> {
                             .blocks_rejected
                             .fetch_add(usize::from(!eligible), Ordering::Relaxed);
                     }
-                    if !eligible || meta.len == 0 {
-                        continue;
+                    if eligible && meta.len != 0 {
+                        let block = &mut block[0];
+                        let len = meta.len as usize;
+                        let (words, pass) = block.reverse(probe, len);
+                        let Ok((_, hits)) = visit_slots(
+                            &block.ids,
+                            words,
+                            pass,
+                            0,
+                            len,
+                            false,
+                            &mut Infallible(visit),
+                        );
+                        if hits != 0 {
+                            let lossy = block.lossy(len).count_ones();
+                            let gone = meta.retain(block, !hits);
+                            self.totals.lossy -=
+                                (lossy - block.lossy(meta.len as usize).count_ones()) as usize;
+                            removed += gone;
+                            group.live -= gone;
+                        }
                     }
-                    let block = &mut block[0];
-                    let len = meta.len as usize;
-                    let (words, pass) = block.reverse(probe, len);
-                    let Ok((_, hits)) = visit_slots(
-                        &block.ids,
-                        words,
-                        pass,
-                        0,
-                        len,
-                        false,
-                        &mut Infallible(visit),
-                    );
-                    if hits != 0 {
-                        let lossy = block.lossy(len).count_ones();
-                        let gone = meta.retain(block, !hits);
-                        self.totals.lossy -=
-                            (lossy - block.lossy(meta.len as usize).count_ones()) as usize;
-                        removed += gone;
-                        group.live -= gone;
+                    if meta.len == 0 && first_empty.is_none() {
+                        first_empty = Some(row);
                     }
                 }
                 let pin_tail =
                     group.signature == insertion.signature && insertion.new_block.is_none();
                 let old_len = group.meta.len();
-                let mut kept = 0;
-                for read in 0..old_len {
+                // Stable compaction of the non-empty rows (and a pinned tail).
+                // Rows below `first_empty` never move, and a row moves only
+                // when an earlier one is dropped: a retirement that empties no
+                // block copies nothing (runB: the unconditional 144-B row swap
+                // took ~30% of coordinator samples). Same layout as swapping
+                // every kept row into place.
+                let mut kept = first_empty.unwrap_or(old_len);
+                for read in kept..old_len {
                     if group.meta[read].len != 0 || (pin_tail && read + 1 == old_len) {
-                        group.meta.swap(kept, read);
-                        group.blocks.swap(kept, read);
+                        if kept != read {
+                            group.meta.swap(kept, read);
+                            group.blocks.swap(kept, read);
+                        }
                         kept += 1;
                     }
                 }

@@ -216,7 +216,7 @@ per-track gate builds (listed in the research notes).
 | `fable_5_1-coord-{1ab,hit,json}` | (reused worktrees) | WIP of the stopped result-identical coordinator tracks | superseded by the epoch design; WIP commits unreviewed |
 | `fable_5_1-c2-sidecar`, `-c2-compact`, `-c2-csr`, `-b2`, `-wave2`, `-scale-restore`, `-py` | — | wave-2 tracks | merged into fable_5_1 |
 
-Every worktree has `vendor/symbolica` initialized at 953e26e2 with the heap-pow patch applied (same as the main tree).
+Every worktree has `vendor/symbolica` initialized at 953e26e2 with the heap-pow patch applied (same as the main tree). (Superseded by LC2, merge f36ba878: `vendor/symbolica` is now clean upstream dev `ef0db494` and `patches/symbolica/` is removed; do not re-apply the heap-pow patch.)
 
 ### 3.4 Shared infrastructure created this session
 - `TMP/fable51-controls/run_control.py`: control runner (families `fg`, `bmw`, `h`, `x`, `five-finite`); writes
