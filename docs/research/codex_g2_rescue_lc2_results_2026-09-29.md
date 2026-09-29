@@ -135,29 +135,33 @@ tooling-only fix is now merged as `77059cdf`; the original control tool and
 its receipts remain unchanged. The Ready arms use the same frozen corrected
 runner on both sides.
 
-The first Ready finite-five-loop pair has completed all acceptance gates:
+Both Ready finite-five-loop pairs have completed all acceptance gates:
 
-| Metric | LC2 Off | G2 Union |
-|---|---:|---:|
-| Whole command wall time | 249.626 s | 180.746 s |
-| Scheduled domains | 1,275,122 | 964,909 |
-| Native inspections | 979,714 | 758,183 |
-| Waited CPU time | 1,082.484 s | 564.716 s |
-| Sampled peak aggregate RSS | 6.361 GB | 6.239 GB |
+| Metric | Pair 1: LC2 Off | Pair 1: G2 Union | Pair 2: LC2 Off | Pair 2: G2 Union |
+|---|---:|---:|---:|---:|
+| Whole command wall time | 249.626 s | 180.746 s | 252.306 s | 180.010 s |
+| Scheduled domains | 1,275,122 | 964,909 | 1,276,229 | 963,440 |
+| Native inspections | 979,714 | 758,183 | 981,826 | 758,280 |
+| Waited CPU time | 1,082.484 s | 564.716 s | 1,093.842 s | 558.191 s |
+| Sampled peak aggregate RSS | 6.361 GB | 6.239 GB | 6.382 GB | 6.236 GB |
 
-That is27.6% less wall time and24.3% less scheduled work for this control.
-Both required-query counts are1/1, with every native record reinspected and
+That is27.6%/28.7% less observed wall time and24.3%/24.5% less scheduled
+work for this control. The second pair ran in reverse order. All four
+required-query counts are1/1, with every native record reinspected and
 every scheduled record paired by the Python audit. Candidate cold verification
 and Python pairing are separate from the solver timing; its Python check alone
-took494.608s. Evidence: `deployment-continuation/accepted-2.json` under the
+took494.608s in repetition1 and487.373s in repetition2. Evidence:
+`deployment-continuation/accepted-4.json` under the
 pilot directory. These are **not** timings for full production closure.
 
-Selected-core foreign load averaged1.146/1.076 cores, while SMT-sibling load
-averaged3.317/1.283 cores over the arms. This imbalance favored the candidate,
-so the first wall-time ratio is not an uncontaminated causal speedup estimate.
-The reverse candidate solve took180.010s and passed cold verification and
-Python pairing by06:55 UTC (`accepted-3.json`); the reverse baseline is now
-running, and the hot controls remain pending. No production deployment
+For pair1, selected-core foreign load averaged1.146/1.076 cores, while
+SMT-sibling occupancy averaged3.317/1.283 cores. Pair2 sibling occupancy was
+3.096/1.402 cores (Off/Union). Most of that sibling occupancy was user-space,
+but the counters do not attribute it to particular processes. Both imbalances
+favored the candidate, so the wall-time ratios are not uncontaminated causal
+speedup estimates. Work-count reduction repeats independently of interpreting
+those timing differences. The finite control meets the numerical work gate,
+but the hot controls are still running at07:10 UTC. No production deployment
 decision is made yet.
 
 The decision requires two interleaved matched
