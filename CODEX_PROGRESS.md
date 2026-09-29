@@ -104,6 +104,34 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:10 UTC — consolidated native test executables built
+
+- [M] Frozen engine source `f083f254` finishes core/app native-test compilation
+  successfully: exit 0, no stop reason, 4,910.030 s (81m50s), minimum host
+  available memory 503,444,058,112 bytes, maximum single-child RSS 86,848,380 KiB.
+  Evidence: `TMP/codex-parallel-validation.RPJKV5/native-build-f083f254/`.
+  Both Cargo-emitted library-test executables exist; the G2/rescue lane now
+  executes full core then full app on CPUs64–127 under heavy/build-1 locks.
+  These are correctness binaries (app opt-level1), never performance binaries.
+- [M] Final-CLI monitoring/lifecycle driver is independently source-reviewed:
+  `TMP/codex-stage-a.2RU3AX/final_cli_monitor_smoke.py`, four bounded public
+  Python/CLI cases using existing process guards. No native case has run yet.
+  Actual unknown/positive activity observations, stop/resume, lockstep multi-cut
+  retirement and cold verification remain required as documented at15:34.
+- [M] Fresh Stage B owner commands are prepared, not executed:
+  `TMP/codex-stage-a.2RU3AX/stage-b-fresh-campaign-draft.md`.
+  Exact existing183 query objects/order and all67 saved-owner files are reused;
+  only the explicit116/67 role declaration is added for the fresh campaign.
+  No owner regeneration, production checkpoint import or production action.
+- [M] Existing matched-matrix binding helper received independent source review
+  by `epoch_g2_rescue_impl`; template identity checks address its one finding.
+  `TMP/codex-rolling-measurements.eBFGjR/bind_plans.py` has not bound or launched
+  any arm. Query digests use RustRed's existing compiled BLAKE3 dependency, not
+  an independent implementation. The future optimized binary remains unbound.
+- Next: inspect actual native-suite results before the optimized CLI build;
+  correctness fixes only. Final-source monitoring units remain typechecked,
+  while their actual final-CLI execution gates are still pending.
+
 ### 2026-09-29 15:34 UTC — full Python regression and native validation scope
 
 - [M] Full example/Python discovery passes 311 tests in 24.487 s with one
