@@ -432,6 +432,22 @@ root tests exercise the geometry reader and phase table; the actual authenticate
 reducer-to-Provisional root path and writer/reader integration remain required
 runtime gates, not implied by the source review.
 
+Record-field gap found during body-reader design: native stats can charge a
+breaking successor before the resolver refuses it, so their successor counters
+cannot reconstruct the accepted P3 counters on C2. The approved epoch-only
+`epoch.resolver_counters` subobject uses one typed versioned writer/reader schema
+for accepted successors/conditional successors, optional-refusal triplet and
+route mask counters. A checked small aggregate compares these exactly to saved
+walk counters; unknown fields, unsupported versions and arithmetic overflow
+cannot silently alter a partial sum. Existing algebra/report fields, legacy
+records and pending-growth calculations/rendering are unchanged. A synthetic
+P1-P3 C2 regression distinguishes two charged native successors from one accepted
+resolver successor and rejects substitution of that charged count. These source
+changes passed independent source review; compilation/execution remain pending.
+The semantic body visitor must invoke checked add/equality (serde alone admits
+an unsupported version), and validate the phase-specific zero fields. It will
+require this fresh-only field rather than import old S2 records.
+
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export
 does not fix cancellation latency. The next source slice needs separate

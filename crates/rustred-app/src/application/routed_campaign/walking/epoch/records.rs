@@ -1,4 +1,4 @@
-//! Records of semantics 3, JSON view (typed binary records land in S3).
+//! Records of semantics 3, JSON view (typed binary records remain S5 work).
 //! The keys the audit, the verifier and the legacy tooling read are kept
 //! (§11.8 audit key mapping); the epoch keys (merge epoch, v0, distinct edge
 //! count, class, break reason, panic) ride in a nested `epoch` object.
@@ -15,6 +15,84 @@ use super::ledger6::Entry6;
 use super::merge::{CheckedResult, Class, RecordBuilder};
 use super::state::EpochState;
 use serde_json::{Value, json};
+
+/// The exact resolver-side counters P3 adds, not native stats that may have
+/// already charged a breaking event which the resolver did not accept.
+/// Shared by newly written epoch records and the fresh-only CP6 reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ResolverCounters {
+    pub version: u32,
+    pub successors: u64,
+    pub conditional: u64,
+    /// Total, original, coalesced, matching JobResult::optional exactly.
+    pub optional: [u64; 3],
+    pub route_masks: u64,
+    pub route_joint_pruned: u64,
+}
+
+impl Default for ResolverCounters {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            successors: 0,
+            conditional: 0,
+            optional: [0; 3],
+            route_masks: 0,
+            route_joint_pruned: 0,
+        }
+    }
+}
+
+impl ResolverCounters {
+    pub fn from_result<const N: usize>(result: &super::job::JobResult<N>) -> Self {
+        Self {
+            version: 1,
+            successors: result.successors,
+            conditional: result.conditional,
+            optional: result.optional,
+            route_masks: result.route_masks,
+            route_joint_pruned: result.route_joint_pruned,
+        }
+    }
+
+    /// Restore-only aggregate. Compute the complete small sum before mutation;
+    /// a malformed version or overflow leaves the accumulator unchanged.
+    pub fn add(&mut self, next: &Self) -> Result<(), &'static str> {
+        if self.version != 1 || next.version != 1 {
+            return Err("epoch resolver counter version");
+        }
+        let sum = |a: u64, b: u64| a.checked_add(b).ok_or("epoch resolver counter overflow");
+        let value = Self {
+            version: 1,
+            successors: sum(self.successors, next.successors)?,
+            conditional: sum(self.conditional, next.conditional)?,
+            optional: [
+                sum(self.optional[0], next.optional[0])?,
+                sum(self.optional[1], next.optional[1])?,
+                sum(self.optional[2], next.optional[2])?,
+            ],
+            route_masks: sum(self.route_masks, next.route_masks)?,
+            route_joint_pruned: sum(self.route_joint_pruned, next.route_joint_pruned)?,
+        };
+        *self = value;
+        Ok(())
+    }
+
+    pub fn agrees_with(&self, counters: &super::state::WalkCounters) -> bool {
+        self.version == 1
+            && self.successors == counters.successors
+            && self.conditional == counters.conditional
+            && self.optional
+                == [
+                    counters.optional_total,
+                    counters.optional_original,
+                    counters.optional_coalesced,
+                ]
+            && self.route_masks == counters.route_masks
+            && self.route_joint_pruned == counters.route_joint_pruned
+    }
+}
 
 pub(super) const CONTAINMENT_AUTHORITY: &str = "same_snapshot_phase_owner_native_summary";
 
@@ -121,7 +199,8 @@ impl<const N: usize> RecordBuilder<N> for Builder {
             "distinct_edge_count":distinct_edges,"self_edge":self_edge,
             "class":entry.class.name(),"break_reason":r.break_reason.name(),
             "panic":r.panic,"emitted_events":r.emitted,"error_kind":r.error_kind.name(),
-            "job_local_duplicates":r.job_duplicates,"known_reuse":r.known_reuse});
+            "job_local_duplicates":r.job_duplicates,"known_reuse":r.known_reuse,
+            "resolver_counters":ResolverCounters::from_result(r)});
         if entry.class == Class::C2 {
             // The ledger6 NativeError class of this record (`err_class`).
             record["epoch"]["err_class"] = json!(super::ledger6::err_class::name(

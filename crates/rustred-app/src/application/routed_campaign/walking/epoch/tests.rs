@@ -1739,6 +1739,72 @@ fn termination_requires_monitor_available() {
 }
 
 #[test]
+fn epoch_record_resolver_counters_preserve_c2_breaking_event_difference() {
+    let mut state = state_with(&[boxed([0, 0], [1, 1])]);
+    let mut dispatch = Dispatch::new();
+    let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+    let mut native = result(&job, &[boxed([0, 0], [0, 0])]);
+    native.emitted = 2;
+    native.stats_events = 2;
+    native.stats_json = br#"{"events":2,"successors":2}"#.to_vec();
+    native.error_kind = ErrorKind::ConsumerStop;
+    native.break_reason = BreakReason::ResolverRange;
+    native.error = Some("second successor refused by resolver".into());
+    let expected = records::ResolverCounters::from_result(&native);
+    let mut rows = Rows(Vec::new());
+    merge_cut(&mut state, &mut dispatch, &mut rows, vec![native]).unwrap();
+    assert!(matches!(
+        state.ledger.get(0).unwrap(),
+        Entry6::NativeError { .. }
+    ));
+    let row = &rows.0[0];
+    assert_eq!(row["epoch"]["class"], "C2");
+    assert_eq!(row["stats"]["successors"], 2);
+    assert_eq!(state.counters.successors, 1);
+    let saved: records::ResolverCounters =
+        serde_json::from_value(row["epoch"]["resolver_counters"].clone()).unwrap();
+    assert_eq!(saved, expected);
+    let mut aggregate = records::ResolverCounters::default();
+    aggregate.add(&saved).unwrap();
+    assert!(aggregate.agrees_with(&state.counters));
+    let mut corrupted = row["epoch"]["resolver_counters"].clone();
+    corrupted["successors"] = 2.into();
+    let corrupted: records::ResolverCounters = serde_json::from_value(corrupted).unwrap();
+    assert!(
+        !corrupted.agrees_with(&state.counters),
+        "native charged count cannot replace accepted count"
+    );
+}
+
+#[test]
+fn epoch_record_counter_schema_and_overflow_refuse_without_partial_sum() {
+    let sample = records::ResolverCounters {
+        version: 1,
+        successors: 7,
+        conditional: 3,
+        optional: [11, 5, 6],
+        route_masks: 13,
+        route_joint_pruned: 2,
+    };
+    let mut total = records::ResolverCounters::default();
+    total.add(&sample).unwrap();
+    assert_eq!(total, sample);
+    let mut bad = sample;
+    bad.route_joint_pruned = u64::MAX;
+    assert!(total.add(&bad).is_err());
+    assert_eq!(total, sample);
+    bad.version = 2;
+    assert!(total.add(&bad).is_err());
+    assert_eq!(total, sample);
+    let mut value = serde_json::to_value(sample).unwrap();
+    value["unknown"] = true.into();
+    assert!(serde_json::from_value::<records::ResolverCounters>(value).is_err());
+    let mut value = serde_json::to_value(sample).unwrap();
+    value.as_object_mut().unwrap().remove("conditional");
+    assert!(serde_json::from_value::<records::ResolverCounters>(value).is_err());
+}
+
+#[test]
 fn initial_admission_errors_map_to_their_stop_reasons() {
     let mut state = EpochState::<2>::new(1, usize::MAX, usize::MAX);
     admit_initial(&mut state, &boxed([0, 0], [1, 1])).unwrap();
