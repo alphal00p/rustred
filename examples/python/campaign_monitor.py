@@ -296,7 +296,7 @@ def percent(value) -> str:
 
 
 def derived_lines(status: dict) -> list[str]:
-    """Three measured-rate lines from status["derived"]; every absent field is unknown."""
+    """Measured-rate lines from status["derived"]; absent fields stay unknown."""
     derived = status.get("derived")
     derived = derived if isinstance(derived, dict) else {}
     progress = status.get("progress", {})
@@ -317,11 +317,32 @@ def derived_lines(status: dict) -> list[str]:
     size_text = "unknown" if size is None else f"{size / 1e9:.2f} GB"
     seconds = number(checkpoint.get("duration_seconds"))
     seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
+    net = derived.get("discovery_closure_net_1h")
+    net = net if isinstance(net, dict) else {}
+    net_rate = number(net.get("per_second"))
+    net_text = "unknown" if net_rate is None else f"{net_rate:+.3f}/s"
+    closure = progress.get("descendant_closure")
+    closure = closure if isinstance(closure, dict) and closure.get("available") is True else None
+    stale = closure.get("snapshot_stale") if closure else net.get("snapshot_stale")
+    freshness = "stale" if stale is True else "fresh" if stale is False else "unknown"
+    scan = "scan advanced" if net.get("snapshot_advanced") is True else "no new closure scan" if net.get("snapshot_advanced") is False else "scan update unknown"
+    age = number(closure.get("snapshot_age_seconds")) if closure else number(net.get("snapshot_age_seconds"))
+    # progress_summary/read_status already age the live closure report. Only
+    # the fallback sampled endpoint needs the status-file heartbeat age added.
+    if closure is None and age is not None:
+        age += max(0, number(status.get("heartbeat_age_seconds")) or 0)
+    net_line = (f"Discovery−closure {net_text} observed gap · window {duration(net.get('covered_seconds'))}"
+                f"/{duration(net.get('window_seconds'))}" + (" warm-up" if net.get("warmup") is True else ""))
+    if net.get("state") not in (None, "valid", "warmup"):
+        net_line += f" · {clean(net['state'])}"
     return [
         f"Inspectors {computing_text} computing / {count(reservations.get('inspectors'))} reserved"
         f" · stall >=5 s {percent(derived.get('stall_share_5s'))} · coordinator duty {percent(derived.get('coordinator_duty_1h'))}",
         f"Rate {rate_text} per hour · pending {growth_text} per completion"
         f" · max scheduled rank {count(derived.get('max_scheduled_finite_rank'))} · RSS {rss_text} KB per domain",
+        net_line,
+        f"Closure snapshot {freshness} · age {duration(age)} · {scan}"
+        + (" · heartbeat stale" if status.get("heartbeat_stale") is True else ""),
         f"Checkpoint gen {count(checkpoint.get('generation'))} · {size_text} in {seconds_text}"
         f" · duty {percent(derived.get('checkpoint_duty'))} · roots closed {count(derived.get('roots_closed'))}/{count(derived.get('roots_total'))}",
     ]

@@ -59,6 +59,139 @@ def synthetic_stream():
 
 
 class HeartbeatWindowTests(unittest.TestCase):
+    @staticmethod
+    def closure_heartbeat(elapsed, total, closed, **changes):
+        # The unrelated top-level inventory must not enter the new metric.
+        record = heartbeat(elapsed, elapsed, 10, 999999, 1000, 0, 0)
+        record["progress"]["descendant_closure"] = dict(
+            available=True, total_domains=total, total_closed=closed,
+            snapshot_revision=10, snapshot_stale=True, **changes)
+        return record
+
+    def test_signed_conservative_gap_uses_same_telemetry_counters(self):
+        for closed, expected in ((25, 0.5), (40, -1.0), (30, 0.0)):
+            with self.subTest(closed=closed):
+                window = METRICS.HeartbeatWindow()
+                window.observe(self.closure_heartbeat(0, 100, 20))
+                window.observe(self.closure_heartbeat(10, 110, closed))
+                result = window.derived()["discovery_closure_net_1h"]
+                self.assertEqual(result["per_second"], expected)
+                self.assertEqual(result["covered_seconds"], 10)
+                self.assertEqual(result["state"], "valid")
+                self.assertTrue(result["warmup"])
+                self.assertTrue(result["snapshot_stale"])
+                self.assertFalse(result["snapshot_advanced"])
+                self.assertIsNone(result["snapshot_age_seconds"])
+
+    def test_net_rolling_hour_boundary_and_repeated_snapshot_age(self):
+        window = METRICS.HeartbeatWindow()
+        for elapsed, total in ((0, 100), (1, 110), (3600, 200)):
+            record = self.closure_heartbeat(elapsed, total, 20, snapshot_age_seconds=5)
+            record["progress_age_seconds"] = 2
+            window.observe(record)
+        result = window.derived()["discovery_closure_net_1h"]
+        self.assertAlmostEqual(result["per_second"], 100 / 3600)
+        self.assertFalse(result["warmup"])
+        self.assertFalse(result["snapshot_advanced"])
+        result = window.derived(now=3601)["discovery_closure_net_1h"]
+        self.assertEqual(result["samples"], 2)
+        self.assertEqual(result["covered_seconds"], 3599)
+        self.assertAlmostEqual(result["per_second"], 90 / 3599)
+        self.assertEqual(result["snapshot_age_seconds"], 8)
+        self.assertFalse(result["warmup"])
+        result = window.derived(now=7201)["discovery_closure_net_1h"]
+        self.assertEqual(result["state"], "no_recent_samples")
+        self.assertIsNone(result["per_second"])
+
+    def test_net_missing_invalid_and_snapshot_refresh(self):
+        window = METRICS.HeartbeatWindow()
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["state"], "missing_closure")
+        window.observe(self.closure_heartbeat(0, 100, 20))
+        self.assertIsNone(window.derived()["discovery_closure_net_1h"]["per_second"])
+        record = self.closure_heartbeat(10, 110, 50)
+        record["progress"]["descendant_closure"].update(snapshot_revision=11, snapshot_stale=False)
+        window.observe(record)
+        self.assertTrue(window.derived()["discovery_closure_net_1h"]["snapshot_advanced"])
+        self.assertFalse(window.derived()["discovery_closure_net_1h"]["snapshot_stale"])
+        for total, closed in ((True, 0), (100, None), (100, 101), (-1, 0)):
+            window.observe(self.closure_heartbeat(20, total, closed))
+            result = window.derived()["discovery_closure_net_1h"]
+            self.assertEqual(result["state"], "invalid_counts")
+            self.assertIsNone(result["per_second"])
+        record = self.closure_heartbeat(30, 100, 20)
+        record["progress"].pop("descendant_closure")
+        window.observe(record)
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["state"], "missing_current")
+        window.observe(self.closure_heartbeat(40, 100, 20))
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["samples"], 1)
+
+    def test_net_optional_telemetry_does_not_discard_valid_history(self):
+        window = METRICS.HeartbeatWindow()
+        window.observe(self.closure_heartbeat(0, 100, 20))
+        window.observe(self.closure_heartbeat(10, 110, 20))
+        # This is the real live Epoch scalar shape: counters, but no closure.
+        lean = heartbeat(20, 20, 10, 200, 1000, 0, 0)
+        lean["progress"]["event"] = "epoch_heartbeat"
+        window.observe(lean)
+        result = window.derived()["discovery_closure_net_1h"]
+        self.assertEqual(result["state"], "missing_current")
+        self.assertEqual(result["samples"], 2)
+        self.assertEqual(result["per_second"], 1)
+        window.observe(self.closure_heartbeat(30, 115, 30))
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["samples"], 3)
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["per_second"], 5 / 30)
+        # A resume clock reset is still observed in an optional-telemetry gap.
+        lean["elapsed_seconds"] = 0
+        window.observe(lean)
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["reset_reason"], "nonmonotonic_time")
+        window.observe(self.closure_heartbeat(40, 120, 35))
+        self.assertEqual(window.derived()["discovery_closure_net_1h"]["samples"], 1)
+
+    def test_net_non_aligned_full_hour_is_not_perpetual_warmup(self):
+        window = METRICS.HeartbeatWindow()
+        for elapsed in (0, 17, 1801, 3607, 3613):
+            window.observe(self.closure_heartbeat(elapsed, elapsed + 100, 20))
+        result = window.derived()["discovery_closure_net_1h"]
+        self.assertEqual(result["covered_seconds"], 3596)
+        self.assertFalse(result["warmup"])
+        self.assertEqual(result["per_second"], 1)
+
+    def test_net_invalid_time_and_refresh_count_only_marker(self):
+        window = METRICS.HeartbeatWindow()
+        for elapsed, refresh in ((0, 1), (10, 2)):
+            record = self.closure_heartbeat(elapsed, 100 + elapsed, 20, refresh_count=refresh)
+            record["progress"]["descendant_closure"].pop("snapshot_revision")
+            window.observe(record)
+        self.assertTrue(window.derived()["discovery_closure_net_1h"]["snapshot_advanced"])
+        for invalid in (None, -1, True, float("nan")):
+            window.observe(self.closure_heartbeat(invalid, 100, 20))
+            result = window.derived()["discovery_closure_net_1h"]
+            self.assertEqual(result["state"], "invalid_time")
+            self.assertIsNone(result["per_second"])
+
+    def test_net_resets_only_its_segment_on_resume_or_counter_regression(self):
+        cases = ((0, 110, 30, {}, "nonmonotonic_time"),
+                 (10, 110, 30, {}, "nonmonotonic_time"),
+                 (20, 99, 30, {}, "counter_reset"),
+                 (20, 110, 19, {}, "counter_reset"),
+                 (20, 110, 30, {"snapshot_revision": 9}, "snapshot_reset"),
+                 (20, 110, 30, {"refresh_count": 1}, "snapshot_reset"))
+        for elapsed, total, closed, changes, reason in cases:
+            with self.subTest(reason=reason, changes=changes):
+                window = METRICS.HeartbeatWindow()
+                window.observe(self.closure_heartbeat(0, 100, 20, refresh_count=2))
+                window.observe(self.closure_heartbeat(10, 110, 30, refresh_count=2))
+                record = self.closure_heartbeat(elapsed, total, closed)
+                record["progress"]["descendant_closure"].update(changes)
+                window.observe(record)
+                result = window.derived()["discovery_closure_net_1h"]
+                self.assertEqual(result["reset_reason"], reason)
+                self.assertEqual(result["samples"], 1)
+                self.assertIsNone(result["per_second"])
+                self.assertEqual(len(window.samples), 3)  # Legacy arithmetic untouched.
+                window.observe(self.closure_heartbeat(elapsed + 10, total + 5, closed + 10))
+                self.assertEqual(window.derived()["discovery_closure_net_1h"]["per_second"], -0.5)
+
     def test_epoch_unknown_activity_stops_carryover_but_preserves_historical_mean(self):
         for observation in ("unavailable", "inline_call_not_pollable", "saved_cut_observation_not_live"):
             with self.subTest(observation=observation):

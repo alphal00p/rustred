@@ -105,6 +105,30 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 21:25 UTC — requested rolling-hour metric implemented
+
+- [M] `parallel_gate_critique` implemented the display/heartbeat slice; root
+  reviewed the arithmetic and independently ran both focused modules:
+  47 tests passed in 0.151 seconds. Existing pending-growth arithmetic and
+  rendering are unchanged.
+- [M] The new signed quantity is
+  `delta(total_domains - total_closed) / sampled_seconds`, using paired counts
+  from the same closure telemetry over the trailing hour. Both TTY and plain
+  output show actual sample span, warm-up, snapshot freshness/age and whether
+  a scan advanced. Missing optional telemetry preserves history but is visibly
+  marked; invalid counts, clock/counter resets and resume discontinuities do
+  not fabricate a rate. The rolling boundary is not interpolated.
+- [M] Root corrected the initial warm-up definition during review: a slightly
+  shorter sampled span after a full hour is not perpetual startup. Age uses
+  the already-aged live progress report when available, avoiding both frozen
+  endpoint age and double-aging.
+- [D] Authorized `stage_a_release` to add the missing native Epoch observation
+  hook, reusing the existing duty-throttled exact Tracker scan with actual
+  cancellation at committed coordinator boundaries. It must not force scans
+  per checkpoint, change resolver decisions or grant closure authority. This
+  will be a separately identified optimized binary after the current pilot
+  prefix; the ongoing `89d90a3a` build is not being modified.
+
 ### 2026-09-29 21:21 UTC — guarded rescue planner independently checked
 
 - [M] `stage_a_release` completed the Python-only planner guard. Root reviewed

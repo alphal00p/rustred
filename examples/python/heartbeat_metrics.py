@@ -137,9 +137,108 @@ class HeartbeatWindow:
         self.last_elapsed = None
         self.records = 0
         self.samples_seen = 0
+        self.closure_samples = deque()
+        self.closure_state = "missing_closure"
+        self.closure_reset_reason = None
+        self.closure_segment_start = None
+        self.closure_last_elapsed = None
+
+    def _observe_closure(self, record):
+        """An independent segment: never change the historical pending metric."""
+        if not isinstance(record, dict) or record.get("event") != "heartbeat":
+            return
+        progress = _mapping(record.get("progress"))
+        counters = _mapping(progress.get("snapshot", progress))
+        closure = _mapping(counters.get("descendant_closure"))
+        elapsed = number(record.get("elapsed_seconds"))
+        total = nonnegative_int(closure.get("total_domains"))
+        closed = nonnegative_int(closure.get("total_closed"))
+        reason = None
+        if elapsed is None or elapsed < 0:
+            reason = "invalid_time"
+        elif self.closure_last_elapsed is not None and elapsed <= self.closure_last_elapsed:
+            reason = "nonmonotonic_time"
+        self.closure_last_elapsed = elapsed if elapsed is not None and elapsed >= 0 else None
+        if reason is not None:
+            self.closure_samples.clear()
+            self.closure_segment_start = None
+            self.closure_state = self.closure_reset_reason = reason
+        if reason == "invalid_time":
+            return
+        # Optional/lean telemetry is not a reset. Keep prior trustworthy pairs,
+        # but do not present a carried-forward rate as a current observation.
+        if closure.get("available") is not True:
+            self.closure_state = "missing_current" if not closure else "unavailable_current"
+            return
+        if total is None or closed is None or closed > total:
+            self.closure_samples.clear()
+            self.closure_segment_start = None
+            self.closure_state = self.closure_reset_reason = "invalid_counts"
+            return
+        age = number(closure.get("snapshot_age_seconds"))
+        progress_age = number(record.get("progress_age_seconds"))
+        sample = {"elapsed": float(elapsed), "total": total, "closed": closed,
+                  "snapshot_revision": nonnegative_int(closure.get("snapshot_revision")),
+                  "refresh_count": nonnegative_int(closure.get("refresh_count")),
+                  "snapshot_stale": closure.get("snapshot_stale") if type(closure.get("snapshot_stale")) is bool else None,
+                  "snapshot_age_seconds": None if age is None or age < 0 else age + max(0, progress_age or 0)}
+        if self.closure_samples:
+            previous = self.closure_samples[-1]
+            if elapsed <= previous["elapsed"]:
+                reason = "nonmonotonic_time"
+            elif total < previous["total"] or closed < previous["closed"]:
+                reason = "counter_reset"
+            elif any(sample[key] is not None and previous[key] is not None
+                     and sample[key] < previous[key] for key in ("snapshot_revision", "refresh_count")):
+                reason = "snapshot_reset"
+            if reason is not None:
+                self.closure_samples.clear()
+                self.closure_segment_start = None
+                self.closure_reset_reason = reason
+        if self.closure_segment_start is None:
+            self.closure_segment_start = float(elapsed)
+        self.closure_samples.append(sample)
+        while elapsed - self.closure_samples[0]["elapsed"] > self.retained_seconds:
+            self.closure_samples.popleft()
+        self.closure_state = "valid"
+
+    def _closure_derived(self, now, window):
+        """Observed conservative-gap trend, not an instantaneous closure rate.
+
+        Both counts come from one telemetry object. Its total is current, but
+        closed is a conservative last-scan count; repeated scans are disclosed.
+        No interpolation invents a closure update at the rolling boundary.
+        """
+        selected = [] if now is None else [sample for sample in self.closure_samples
+                                          if now - window <= sample["elapsed"] <= now]
+        result = {"per_second": None, "covered_seconds": None, "window_seconds": window,
+                  "samples": len(selected), "warmup": True, "state": self.closure_state,
+                  "reset_reason": self.closure_reset_reason, "snapshot_advanced": None,
+                  "snapshot_stale": None, "snapshot_age_seconds": None,
+                  "scope": "observed conservative-gap trend: delta(total_domains-total_closed)/seconds; as of last heartbeat, not instantaneous closure throughput"}
+        if not selected:
+            if self.closure_state == "valid":
+                result["state"] = "no_recent_samples"
+            return result
+        first, last = selected[0], selected[-1]
+        span = last["elapsed"] - first["elapsed"]
+        result.update(covered_seconds=span,
+                      state=self.closure_state if self.closure_state != "valid" else "valid" if span > 0 else "warmup",
+                      snapshot_stale=last["snapshot_stale"],
+                      snapshot_age_seconds=None if last["snapshot_age_seconds"] is None else
+                      last["snapshot_age_seconds"] + max(0, now - last["elapsed"]))
+        result["warmup"] = self.closure_segment_start is None or now - self.closure_segment_start < window
+        if span > 0:
+            result["per_second"] = ((last["total"] - first["total"]) -
+                                    (last["closed"] - first["closed"])) / span
+            changes = [last[key] > first[key] for key in ("snapshot_revision", "refresh_count")
+                       if first[key] is not None and last[key] is not None]
+            result["snapshot_advanced"] = any(changes) if changes else None
+        return result
 
     def observe(self, record):
         self.records += 1
+        self._observe_closure(record)
         elapsed = number(record.get("elapsed_seconds")) if isinstance(record, dict) else None
         if elapsed is not None and elapsed >= 0:
             self.last_elapsed = float(elapsed)
@@ -195,6 +294,7 @@ class HeartbeatWindow:
             "process_rss_bytes": None,
             "last_checkpoint": None,
             "scope": "measured heartbeat deltas; not an ETA, closure fraction or family certificate",
+            "discovery_closure_net_1h": self._closure_derived(now, window),
         }
         if now is None:
             return result
