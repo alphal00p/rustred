@@ -104,6 +104,20 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 17:54 UTC — owner has resumed LC2 with Stage A
+
+- [M] Read-only inspection shows run `20260929T165630.299496Z` using the
+  delivered Stage A executable SHA256 `0995f0fd...739c21`. The owner retained
+  183 query rows, Ready publication, G2 Off and100 reserved workers. Root did
+  not start, stop, resume or edit the production campaign.
+- [M] At the snapshot it was actively routing:120,836,403 scheduled domains,
+  48,098,563 local completions,42,348,337 pending and zero frontiers. Its saved
+  checkpoint generation8 reports7.279s save time. These are ongoing-run
+  counters, not a closure proof, matched speed measurement or completion ETA.
+- [D] Stage B remains a separate fresh CP6 campaign pending native and
+  performance gates. Existing LC2 retains its independent rollback/continuation
+  path; all development continues outside CPUs128–227.
+
 ### 2026-09-29 17:54 UTC — keep ordering and family experiments input-driven
 
 - [D] User reiterates that different families and supported orderings should
