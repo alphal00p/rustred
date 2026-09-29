@@ -152,7 +152,7 @@ fn execution_error<const N: usize>(
         );
         AppError::internal_invariant(error.to_string())
     } else {
-        AppError::input(error)
+        AppError::input(error.to_string())
     }
 }
 
@@ -280,8 +280,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         .checkpoint
         .as_ref()
         .ok_or_else(|| AppError::input("CP6 requires explicit checkpoint directory"))?;
-    let identity = Identity::new(request, owners, queries).map_err(AppError::input)?;
-    let roles = Roles::new(queries).map_err(AppError::input)?;
+    let identity = Identity::new(request, owners, queries)
+        .map_err(|error| AppError::input(error.to_string()))?;
+    let roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
     let failed = Cell::new(false);
     let telemetry = RefCell::new(Telemetry::new());
     if !options.resume {
@@ -299,7 +300,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     } else {
         admission::fresh(options.directory.clone(), &identity)
     }
-    .map_err(AppError::input)?;
+    .map_err(|error| AppError::input(error.to_string()))?;
     let last = RefCell::new(None::<Value>);
     let progress =
         |state: &epoch::state::EpochState<N>, dispatch: &epoch::dispatch::Dispatch, phase| {
@@ -413,7 +414,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                     cancellation,
                 );
             }
-            Err(error) => return Err(AppError::input(error)),
+            Err(error) => return Err(AppError::input(error.to_string())),
         };
         let context = Context {
             reducer,
