@@ -206,7 +206,7 @@ fn ledger_stream_preserves_all_words_and_refuses_malformed_or_unsupported_values
     let mut ledger = Ledger6::default();
     ledger.restore_word(entries[0].encode()).unwrap();
     let counts = ledger.counts();
-    assert!(ledger.restore_word(7 << 61).is_err());
+    assert!(ledger.restore_word((7 << 61) | (1 << 48)).is_err());
     assert_eq!(ledger.words(), &[entries[0].encode()]);
     assert_eq!(ledger.counts(), counts);
 }
