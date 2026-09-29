@@ -53,10 +53,10 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Rescue and explicit query roles | delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Merged `9ef5464d`; all116 required queries retained, tested combined quarantine/replay invariants |
 | Independent math/code audit | active | checkpoint_final_audit | Review runtime restore/stop slices and independently verify remaining control/measurement receipts |
 | Combined G2′ + rescue | delivered | joint_support_pruning + root + independent auditor | All14 controls independently accepted; native/dependency tree exactly matches frozen tested source |
-| G2′ deployment decision | active | root (measurement; joint_support_pruning prepared frozen plans), checkpoint_final_audit (independent interpretation) | Primary eight Ready deployment arms running after pushed milestone `e757fbbf`; no campaign-switch conclusion yet |
+| G2′ component baseline / consolidated deployment | active | root, joint_support_pruning, active_goal_delivery_audit | All eight Ready arms accepted/drained; repeated 24–28% work reduction establishes component baseline; latest user defers restart until validated remaining ideas are consolidated |
 | Python production G2′ steering | delivered | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d` merged via `9ef5464d`; real pause/resume/cold and post-merge regressions pass |
 | Coordinator latency / telemetry | deferred | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4` source audit/typecheck pass; reopen native execution after G2 measurements, five regressions still unexecuted |
-| Epoch S3–S6 | active | epoch_s3_delivery (source), epoch_native_validation (next execution), active_goal_delivery_audit (independent review) | Validation source frozen at `f404cf66`, identical to audited publisher `1e1d0943`; new controller uncompiled/unexecuted, public resume disabled; first native gates follow Ready comparisons and profiling |
+| Epoch S3–S6 | active | epoch_s3_delivery (source), epoch_native_validation (execution), active_goal_delivery_audit (independent review) | Frozen `f404cf66` metadata check passes; native build/tests remain outstanding, public resume disabled; next allocation follows verification/profiling drain |
 | N2 allocation-free geometry | pending | checkpoint_final_audit | Registered redundant-copy mechanism; profile after G2 before implementation decision |
 | N1 modular witnesses | pending | checkpoint_final_audit | API feasibility delivered; generic RHS witness is too late/insufficient; measure fully fixed predicate opportunity after G2 |
 | N4 coverage-first work | pending | checkpoint_final_audit + root | Feasibility delivered; count post-G2 eligible exact-payload cost before implementation, preserving mathematical obligations |
@@ -72,8 +72,9 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Decisions in force
 
-1. The approved plan supersedes stale stop/launch directives; production is
-   still owner-controlled. Never start/stop/signal/resume it from an agent.
+1. The approved plan supersedes stale stop/launch directives. Latest follow-up
+   permits a later restart but requires a consolidated validated build first;
+   leave LC2 untouched during that work. No G2′-only restart or launch now.
 2. Leave pending-growth calculation, name, and rendering unchanged.
 3. Resume compatibility is a convenience, not a veto or a migration project.
    Recommend fresh runs when necessary; preserve old campaigns for rollback.
@@ -85,6 +86,34 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 08:19 UTC — complete G2 component baseline; profiling started
+
+- [M] All eight Ready arms are accepted and root-owned session `89286` exited zero. Independent audit verifies unchanged previous seven receipts, final LC2 1,063,432/1,063,432 native reinspections, all 1,417,721 paired records and query/root 1/1 with zero violations/uncovered/blocked obligations. All 32 recorded native/verification groups and the comparison controller have drained. Final Python guard 108.190 s, body 107.101 s, exit zero/no stop reason.
+- Both finite pairs and both hot pairs meet the repeated numerical scheduled-work gate with observed wall ratios below 1.10. Finite domain ratios 0.7567/0.7549 and hot 0.7175/0.7232; observed whole-wall ratios 0.7241/0.7135 and 0.4638/0.4675. Unequal host activity remains an attribution caveat, not a timing correction. `joint_support_pruning` delivered `docs/research/codex_g2_ready_deployment_2026-09-29.md` for final independent review, retaining negative combined-control work results and all measured-versus-inferred limits. **No G2-only restart**, per the user's consolidation directive.
+- [M] After independently confirming both measurement and metadata groups drained, root launched the pre-reviewed owned-process profiling diagnostic at 08:17:49 UTC, session `71170`, process group 1086503. Exact command: `env TMPDIR=/common/dev/rustred/TMP PYTHONDONTWRITEBYTECODE=1 RUSTRED_POST_READY_PROFILE_APPROVED=1 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python -B TMP/codex-post-ready-profile-2026-09-29/driver.py --output /common/dev/rustred/TMP/codex-post-ready-profile-2026-09-29/prepared --execute`. It uses the frozen Union executable and reviewed CPU64–79/W16/heavy-lock/1200+540 s policy. No production attachment or new benchmark comparison; sample quality and findings remain pending. Epoch native build waits for this group to drain.
+
+### 2026-09-29 08:15 UTC — user defers restart until the improvements are consolidated
+
+- Added the user's follow-up verbatim as an amendment to `CODEX_PROGRESS_PLAN.md` and made it authoritative in `GOAL.md`: a restart is acceptable, but not for G2′ alone. Complete evaluation/integration of the planned epoch and profiling-led avenues first. Rejected/unproven ideas are not automatically enabled; preserve evidence and reopening conditions. Scope, safety and performance gates are unchanged.
+- Root informed implementation, measurement and review lanes. The running eight-arm comparison is unchanged and will become the component baseline, not trigger a restart. `joint_support_pruning` marks the draft report's G2-only commands as reference-only rather than current deployment instructions. No production process, input, checkpoint or resource setting was changed.
+
+### 2026-09-29 08:09 UTC — epoch controller metadata gate passes
+
+- [M] All eight native timing intervals finished before the metadata allocation. Final LC2 hot solve: 422.950 s, 1,417,721 scheduled/1,063,432 native; uncensored, exit zero/no stop or runner error. Its finalized after-native snapshot is 08:04:59.116 UTC and root independently found no members in owned group 905068. Full cold/Python verification remains in progress, so the accepted comparison count is still seven and the final report remains provisional.
+- [M] `epoch_native_validation` executed the reviewed Stage1 command on frozen clean `f404cf66624cc6bad6c516c9169f40dd4a3166a3`. Metadata PASS: guard 41.168916 s, exit zero/no stop reason; Cargo 37.49 s, only `Checking rustred-app` and cached warnings, no broad rebuild. Evidence: `TMP/codex-epoch-s3.JjASCU/typecheck-controller-light/{request.json,stderr,result.json,child.json}`. Minimum headroom 586,095,497,216 B; peak **single child** 1,248,364 KiB, not aggregate RSS. No native tests ran.
+- `active_goal_delivery_audit` independently confirms the actual CPU16–19/build1/j1/private-target command, frozen clean source and owned-group 990247 drain. The allocation ran 08:06:16.194–08:06:57.364 UTC, entirely after solver timing and during final verification. The benchmark report records this overlap without adjusting times or acceptance. Profiling and Stage2 have not launched; the existing sequence remains live and LC2 remains untouched.
+
+### 2026-09-29 08:04 UTC — narrow metadata allocation prepared after timing drain
+
+- Independent resource review supports allowing only the warm epoch metadata check after **all eight native solver intervals and owned groups have finished**, with finalized metrics/contention snapshots, while final cold/Python verification continues. CPU16–19/build1/j1 is disjoint from cold64–75/heavy and Python32–39/python-0. This revises the earlier all-work wait order explicitly; no launch yet. Preserve every verification deadline/result and record overlap: shared I/O/RAM can affect verification cost, so it is not a clean verification-speed comparison.
+- The TMP epoch validation plan now records the exception. Frozen source and the normal private Cargo cache remain unchanged; stop unexpected broad dependency rebuilding. Profiling must wait for **both** final verification and metadata-owned-group drain. Native compilation/tests remain after profiling, not part of this exception. No solver timing, production setting or acceptance gate is changed.
+
+### 2026-09-29 07:59 UTC — seven Ready arms fully accepted
+
+- [M] `accepted-7.json` adds the reverse-hot Union arm after its Python audit passed in 723.337 s (guard 724.388 s, exit zero/no stop reason). Independent reviewer confirms unchanged earlier acceptances, all 794,916 native reinspections, 1,025,239 paired records bound to generation 3, query/root 1/1 closed and zero violations/blocked obligations. The root-owned session `89286` remains live and has started the final LC2-Off arm. No second hot-pair ratio or overall deployment conclusion yet.
+- [M] One bounded read of LC2's live status records checkpoint generation 4 saved: start 07:45:25 UTC, saved 07:45:53 UTC, reported save duration 67.058 s. These fields describe different timing boundaries and are retained as reported. This is after reverse Union's native interval (07:39:24–07:42:42), during verification; no solver-time penalty is inferred. Production was not signalled or modified.
+- `joint_support_pruning` is drafting the paired benchmark/deployment report from accepted receipts, leaving the final arm explicitly pending. The decision will distinguish the numerical work/observed-wall gates from causal timing attribution and full-production representativeness. The next epoch executor is ready but has launched nothing; the existing comparison and profiling allocations still take priority. Previous turn was progress (private failure-path tests, independently checked cold pass and pushed `5a827f67`), not a stopped or restarted measurement.
 
 ### 2026-09-29 07:53 UTC — reverse candidate cold pass; validation preparation advanced
 

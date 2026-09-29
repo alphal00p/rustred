@@ -121,3 +121,30 @@ At a qualifying milestone:
 Continue read-only observation during development to guide priorities. Never infer eventual completion from zero frontiers, faster inspections, or a temporarily shrinking queue.
 
 The mathematical completion milestone is that **every required query in the frozen scope has its reachable obligations discharged**, with reusable output that cold-loads successfully. Report this as scoped closure, not unrestricted five-loop family closure. Until then, keep open dependencies, remaining research, and deployment decisions explicit in `CODEX_PROGRESS.md`.
+
+## September 29 follow-up: consolidate before restarting
+
+The user's subsequent directive, verbatim:
+
+> Continue as planned, and not that it's ok to restart the campaign.
+> But I would like you to have put in the build all ideas first.
+
+This supersedes the earlier milestone-by-milestone production-switch timing:
+do not recommend or perform a G2-only restart. A restart is acceptable after
+the planned improvement avenues have been evaluated and the beneficial,
+validated changes integrated into a consolidated build. Finish the current
+G2 comparison unchanged and use it as the baseline for that build.
+
+Continue the epoch S3–S6 work and the remaining profiling-led candidates;
+retain explicit evidence-backed dispositions for every avenue. "All ideas"
+does not mean enabling rejected, harmful, or untested experiments. Keep such
+results and reopening conditions in the backlog instead of silently dropping
+them or weakening their acceptance gates. Newly discovered speculative ideas
+must likewise be evaluated, not automatically added to the default engine.
+
+Leave LC2 running untouched while this consolidation proceeds. A later
+restart must use the tested consolidated executable, a qualified resource
+configuration and a graceful save/drain with the old campaign retained for
+rollback. Fresh recomputation remains acceptable; no checkpoint-compatibility
+project is required. Correctness, performance and scoped-closure requirements
+elsewhere in this plan remain unchanged.
