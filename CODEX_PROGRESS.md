@@ -49,12 +49,12 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | standalone native gates delivered; combined integration active | joint_support_pruning | Combined optimized native suite and campaign controls |
+| G2′ integration | standalone gates delivered; combined native regressions found two defects | joint_support_pruning | Fix zero-work activation persistence and verifier phase validation; rerun before campaign controls |
 | Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
-| Independent math/code audit | combined source passed; measurement audit active | checkpoint_final_audit | Check native receipts and pilot equivalence before release |
-| Combined G2′ + rescue | source frozen; native execution active | joint_support_pruning + root + independent auditor | `7546c44c`; full suite, named controls, paired pilot and restart decision |
-| Coordinator latency / telemetry | isolated source audit passed; execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | Five regressions prepared; no native test or performance result yet |
-| Epoch S3–S6 | S3 scoped implementation planning active; S4–S6 pending | epoch_s3_delivery, prior epoch_next_slice_review | Fresh-only CP6 first; audit proposed merge and interruption boundaries before edits |
+| Independent math/code audit | native defects diagnosed; corrective review active | checkpoint_final_audit | Re-audit activation durability, exact root phases and strengthened regressions before release |
+| Combined G2′ + rescue | corrections source-audited/typechecked; native rerun pending | joint_support_pruning + root + independent auditor | `d12db6cf`; preserve failed first receipts, rerun corrected optimized suite then campaign gates |
+| Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
+| Epoch S3–S6 | preparatory merge typecheck found two source seams; corrections active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Fail closed for G2 stats, update obsolete role fixture; internal S3 writer next, S4–S6 pending |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
@@ -80,7 +80,101 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
-### 2026-09-29 02:28 UTC — skeleton validation passed; speculative shortcut parked
+### 2026-09-29 02:51 UTC — corrected native retry running; other lanes isolated
+
+- [M] Corrected G2′/rescue optimized focus is running at clean `d12db6cf`:
+  `nice -n 5 nix develop --command cargo test --release --locked --offline
+  -j8 -p rustred-app --lib g2 -- --test-threads=1 --nocapture`.
+  Evidence: `TMP/codex-g2-rescue.tzdFuj/native-fixed-focus/`; protected
+  CPUs 0–15, heavy/build-0 locks, local TMP, required license environment,
+  250/150 GiB headroom guard. The full same-executable app suite follows
+  only after the focus passes. No result yet; this is the only owned heavy job.
+- [M] Isolated telemetry typecheck passed (69.180 s guarded, exit zero/no
+  stop reason, about 1.37 GiB peak single-child RSS). Evidence:
+  `TMP/codex-g2-rescue.tzdFuj/telemetry-typecheck/`. Its six reviewed files
+  are committed locally as `187854b43eb87e82e84d116dd817298392697383`, atop
+  baseline correction `faabf3e0`. Native tests and performance remain open;
+  this change is not included in the G2′ candidate.
+- [M] Epoch merge absorbed the identical baseline correction as `25f41db5`.
+  First guarded typecheck failed in 83.179 s: one missing `ApplyG2` statistics
+  match arm and one obsolete `helper_pattern` test field. Receipt:
+  `TMP/codex-epoch-s3.JjASCU/typecheck/`. These are source integration failures,
+  not campaign outcomes. Author will reject unsupported G2 results explicitly
+  and update the fixture's exact roles without relaxing assertions; independent
+  review is assigned. Its next build waits behind the corrected G2′ gates.
+- [M] Read-only LC2 snapshot at 02:50:23 UTC: 33,560,009 discovered,
+  11,138,252 native completions, 13,838,478 pending, conservative 6/67 initial
+  obligations closed, zero frontiers, 25.8 GB tree RSS, 14.8 observed cores.
+  Last-hour coordinator time remained dominated by commit (51.3%) and
+  preparation (29.3%). No stop reason, about 699 GB host available. These
+  metrics do not establish scoped closure or an ETA. Production is untouched.
+
+### 2026-09-29 02:46 UTC — corrective source committed; native gate still open
+
+- [M] Corrective integration commit
+  `d12db6cfa23c09f7d9c2946416ea49763ece48f0` changes four explicit paths:
+  activation-only checkpoint stamp invalidation, exact original/amended root
+  phase validation, strengthened durable zero-work activation/ordinary-resume
+  tests, and the sunset fixture's explicit roles. No geometry assertion was
+  weakened. Independent source audit passed; root also inspected the actual
+  checkpoint metadata/anchor schema and patch.
+- [M] `cargo check --release --tests --locked --offline -j8 -p rustred-app`
+  passed: 18.91 s Cargo / 22.161 s guarded command, exit zero/no stop reason,
+  roughly 1 GiB peak single-child RSS. Receipt:
+  `TMP/codex-g2-rescue.tzdFuj/typecheck-fixes/`. This is **not** a native
+  regression pass. First failed optimized focus/full-suite evidence remains
+  intact. No main engine merge, candidate CLI or benchmark yet.
+- Before the next long optimized test build, root allocated short isolated
+  telemetry and epoch typechecks, in that order, each with a private cache,
+  current baseline correction and shared heavy-job protection. No timing
+  comparison runs concurrently. They must not be mistaken for full native
+  validation or silently included in the first G2′/rescue candidate.
+- Main documentation milestone `2b4ade62` is pushed; subsequent event updates
+  preserve the failure diagnosis and correction status for the next handoff.
+
+### 2026-09-29 02:37 UTC — combined native gate found genuine integration defects
+
+- [M] Frozen `7546c44c` optimized focus completed: **17 passed, three failed**,
+  zero ignored, 7.44 s test time. Build-plus-test was 2,852.157 s (compilation
+  47m21s), exit 101/no resource-stop reason; compilation is not solver timing.
+  Evidence: `TMP/codex-g2-rescue.tzdFuj/focused-release/{stdout,stderr,result.json}`.
+  All five G2 mutation refusals and the pin/quarantine seam regressions passed.
+  The three new public amendment/activation pipeline tests did not pass.
+- Independent diagnosis confirmed two real defects: an already-drained
+  off-to-union activation changes checkpoint metadata/G2 state without a
+  ChangeStamp change, allowing the forced save to be skipped; and native
+  verification assumes Apply for original roots that initial admission
+  legitimately places in Route when an owner is missing. The latter is a
+  false rejection, not permission to accept arbitrary phase changes.
+- Integrator will invalidate the saved-stamp shortcut only for a newly
+  accepted G2 activation and independently derive expected original/amended
+  phases from immutable input/installed owners, retaining exact geometry and
+  containment checks. Original and amendment admission policies differ in
+  the non-overcover case; the auditor is checking that distinction. Keep all
+  failed receipts and strengthen durable no-work activation regressions.
+- [M] Full same-executable app run completed before source edits:
+  **853 passed, six failed, 12 ignored**, 136.67 s test time (137.198 s guarded
+  command), exit 101/no stop reason, about 89 MiB peak single-child RSS.
+  Evidence: `TMP/codex-g2-rescue.tzdFuj/full-app-first/`. Two additional rescue
+  pipeline failures share the phase defect. The sixth failure is an old
+  sunset fixture whose three named helpers lack an explicit role declaration;
+  the new contract correctly treats all five queries as required. Add exact
+  fixture roles while preserving its two-required/three-auxiliary assertions.
+  Candidate CLI, telemetry typecheck and epoch typecheck are held until
+  source-backed corrections are reconciled.
+  No benchmark, deployment gate or production action has occurred.
+- [M] Root independently ran full integration-tree `cargo fmt --all --
+  --check`: PASS. This does not override the native failures.
+- Epoch preparatory source merge is isolated at
+  `f81559a649baf125515f5cdac8d1de587033c0cb`, branch `codex/epoch-s3-lc2`.
+  Independent source audit passed after fixing offline verification's
+  acceptance of unsupported G2 flags. Its 54 focused Python tests passed
+  (11.243 s); no native test/typecheck yet. Evidence:
+  `TMP/codex-epoch-s3.JjASCU/python-focused.log`. It must absorb the above
+  baseline corrections before its consolidated typecheck. S3 itself is not
+  implemented or advertised as resumable.
+
+### 2026-09-29 02:26 UTC — skeleton validation passed; speculative shortcut parked
 
 - [M] Exact optional full five-loop skeleton enumeration passed: one test,
   84.763 s (85.184 s guarded command), exit zero/no stop reason, about 21 MiB
