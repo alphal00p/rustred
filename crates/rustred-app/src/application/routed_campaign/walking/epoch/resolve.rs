@@ -234,6 +234,39 @@ impl<const N: usize> Resolver<N> {
                     None,
                     false,
                 ),
+                NativeStats::ApplyG2(_, _) => {
+                    // Legacy G2 publication stamps/plans are not epoch
+                    // scopes. Reject even an otherwise successful result
+                    // as C5, never as full coverage or a retryable panic.
+                    return JobResult {
+                        seq: job.seq,
+                        parent: job.parent,
+                        v0: job.v0,
+                        kind: NativeKind::G2Residual,
+                        error_kind: ErrorKind::Other,
+                        break_reason: BreakReason::Protocol,
+                        panic: false,
+                        emitted: self.emitted,
+                        accepted: self.accepted,
+                        stats_events: u64::MAX,
+                        successors: self.successors,
+                        conditional: self.conditional,
+                        known_reuse: self.known_reuse,
+                        job_duplicates: self.job_duplicates,
+                        optional: [0; 3],
+                        route_masks: 0,
+                        route_joint_pruned: 0,
+                        seconds: finished.seconds,
+                        stats_json: Vec::new(),
+                        error: Some("legacy G2 result is unsupported by epoch".into()),
+                        frontiers: Vec::new(),
+                        refusals: Vec::new(),
+                        refusals_truncated: false,
+                        scope: None,
+                        g2: None,
+                        misses: Vec::new(),
+                    };
+                }
             };
         JobResult {
             seq: job.seq,

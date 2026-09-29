@@ -631,6 +631,47 @@ fn result_class_matrix() {
 }
 
 #[test]
+fn legacy_g2_result_is_protocol_fatal_not_coverage_or_retry() {
+    use super::super::g2::G2Scope;
+    use super::super::inspection::{Finished, NativeStats};
+    use super::resolve::Resolver;
+
+    let job = Job {
+        seq: 1,
+        parent: 0,
+        v0: 0,
+        attempts: 0,
+        flags: 0,
+        image: image(&boxed([0, 0], [1, 1])),
+    };
+    let result = Resolver::new().finish(
+        &job,
+        Finished {
+            stats: NativeStats::ApplyG2(
+                Default::default(),
+                G2Scope {
+                    snapshot: 0,
+                    residual: None,
+                    anchors: 1,
+                },
+            ),
+            error: None,
+            error_kind: "none",
+            seconds: 0.0,
+        },
+    );
+    // Check the actual inspector wire boundary too: it must retain C5.
+    let decoded = JobResult::<2>::decode(&result.encode()).unwrap();
+    assert_eq!(decoded.break_reason, BreakReason::Protocol);
+    assert!(!decoded.panic);
+    assert_eq!(decoded.kind, NativeKind::G2Residual);
+    assert!(decoded.scope.is_none() && decoded.g2.is_none());
+    for prior_error in [0, 4 /* C3's persisted last-error code */] {
+        assert!(merge::classify(&decoded, prior_error).is_err());
+    }
+}
+
+#[test]
 fn c2_error_stops_and_c1_requeues_without_penalty() {
     let mut state = state_with(&[boxed([0, 0], [1, 1]), boxed([4, 4], [5, 5])]);
     let mut dispatch = Dispatch::new();

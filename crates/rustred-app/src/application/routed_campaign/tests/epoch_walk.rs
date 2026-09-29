@@ -266,12 +266,13 @@ fn a9_roots_reported_separately() {
     let fixture = Fixture::new();
     let directory = fixture.directory.join("epoch-a9");
     let mut request = epoch_request(&fixture, 1);
-    request.matching.queries_json =
-        json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
-            {"id":"helper-ray","owner":"1","lower":[0],"upper":[null],"max_numerator_rank":11},
-            {"id":"physics-narrow","owner":"1","lower":[2],"upper":[2],"max_numerator_rank":11}
-        ]})
-        .to_string();
+    request.matching.queries_json = json!({"schema":"rustred.owner-domain-queries.json.v2",
+        "query_roles":{"required":["physics-narrow"],"auxiliary":["helper-ray"]},
+        "queries":[
+        {"id":"helper-ray","owner":"1","lower":[0],"upper":[null],"max_numerator_rank":11},
+        {"id":"physics-narrow","owner":"1","lower":[2],"upper":[2],"max_numerator_rank":11}
+    ]})
+    .to_string();
     request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
     let result =
         owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
@@ -280,9 +281,12 @@ fn a9_roots_reported_separately() {
         result.document["inputs"][1]["domain"], result.document["inputs"][0]["domain"],
         "the physics query is admitted as a hit on the helper"
     );
+    assert_eq!(result.document["inputs"][0]["role"], "auxiliary");
+    assert_eq!(result.document["inputs"][1]["role"], "required");
+    assert_eq!(result.document["inputs"][0]["role_declared"], true);
+    assert_eq!(result.document["inputs"][1]["role_declared"], true);
     let mut options = OwnerDomainWalkVerifyOptions::new(&directory);
     options.require_closure = true;
-    options.helper_pattern = "helper".into();
     let report = crate::owner_domain_walk_verify_closure(
         &request,
         &options,
