@@ -11,7 +11,7 @@
 //! closure through the legacy Tracker with forced refreshes only, typed
 //! records in their JSON view. Checkpointed public runs use the S3 durable
 //! lifecycle; checkpoint-free Memory runs retain the S2 full-result path.
-//! Snapshot lookup remains an explicit private comparison mode pending gates.
+//! Snapshot lookup is an explicit checkpoint-only comparison mode pending gates.
 //! Soundness rests on the invariants S1-S7 of the protocol:
 //! every edge target and every transfer holds a `Verified` token (`verify`),
 //! ledger6 refuses every transition outside its table, a source seals only
@@ -117,6 +117,9 @@ pub(in crate::application::routed_campaign) fn force_resolver_break(at_event: Op
 /// Unsupported execution extensions must also be refused by the offline
 /// verifier, whose request otherwise need not pass execution admission.
 pub(super) fn admit_extensions(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
+    request
+        .validate_epoch_inspector_lookup()
+        .map_err(AppError::input)?;
     if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off
         || request.g2_activate_on_resume
     {

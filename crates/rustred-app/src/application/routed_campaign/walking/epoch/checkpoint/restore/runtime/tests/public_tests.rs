@@ -3,12 +3,13 @@
 use super::super::{admission, controller, public};
 use super::controller_tests::native_equivalence::{closed_fixture, completed_snapshot};
 use super::*;
-use crate::OwnerDomainWalkCheckpointOptions;
 use crate::application::routed_campaign::walking::epoch::{
     self,
-    inspector::{Context, inspect_job},
+    inspector::{Context, inspect_job, inspect_job_with_snapshot},
     merge::StopReason,
+    snapshot::Publication,
 };
+use crate::{OwnerDomainWalkCheckpointOptions, OwnerDomainWalkEpochInspectorLookup};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, mpsc};
@@ -86,6 +87,122 @@ fn assert_summary(result: &crate::OwnerDomainWalkResult, drained: bool) {
         assert!(closure["reason"].is_string());
     }
     assert_eq!(progress["descendant_closure"], *closure);
+    assert_eq!(progress["epoch"], doc["epoch"]);
+}
+
+#[test]
+fn public_snapshot_lookup_matches_all_miss_with_real_hits_and_misses() {
+    const TEST: &str = "public CP6 lookup control W1/W2 differential";
+    if !crate::test_gates::workers_or_skip(TEST, 2)
+        || !std::thread::spawn(|| crate::test_gates::licensed_or_skip(TEST))
+            .join()
+            .unwrap()
+    {
+        return;
+    }
+    let mut fixture = closed_fixture();
+    let mut expected = None;
+    for mode in [
+        OwnerDomainWalkEpochInspectorLookup::AllMiss,
+        OwnerDomainWalkEpochInspectorLookup::Snapshot,
+    ] {
+        for width in [1, 2] {
+            fixture.directory = Directory::new();
+            fixture.request.epoch_inspector_lookup = mode;
+            options(&mut fixture, false, width);
+            let result = run_public(&fixture, &AtomicBool::new(false), &|_| {});
+            assert_summary(&result, true);
+            assert_eq!(
+                result.document["epoch"]["inspector_lookup_mode"],
+                mode.name()
+            );
+            let lookup = &result.document["epoch"]["inspector_lookup"];
+            let hits = lookup["stored_hits"].as_u64().unwrap();
+            let misses = lookup["coordinator_miss_rechecks_skipped"]
+                .as_u64()
+                .unwrap();
+            let queries = lookup["queries"].as_u64().unwrap();
+            assert_eq!(queries, hits + misses);
+            match mode {
+                OwnerDomainWalkEpochInspectorLookup::AllMiss => {
+                    assert_eq!((queries, hits, misses), (0, 0, 0))
+                }
+                OwnerDomainWalkEpochInspectorLookup::Snapshot => {
+                    assert!(hits > 0, "actual positive lookup required");
+                    assert!(misses > 0, "actual same-view miss bypass required");
+                }
+            }
+            let mut restored = fixture.open().unwrap();
+            assert_eq!(
+                restored.state.inspector_lookup.queries, 0,
+                "report counters are invocation-local"
+            );
+            let mut actual = completed_snapshot(&mut restored);
+            // Same exclusions as the reviewed private mode differential:
+            // work accounting only. The comparator already omits top-level
+            // record seconds and transport session; every record body,
+            // ledger token, edge, image, root/role and frontier stays exact.
+            actual.as_object_mut().unwrap().remove("lookup");
+            actual.as_object_mut().unwrap().remove("verify");
+            actual["walk_counters"]
+                .as_object_mut()
+                .unwrap()
+                .remove("miss_requests");
+            if let Some(expected) = &expected {
+                assert_eq!(&actual, expected);
+            } else {
+                expected = Some(actual);
+            }
+        }
+    }
+}
+
+#[test]
+fn cross_mode_resume_refuses_compatible_previous_before_session_adoption() {
+    for (saved, requested) in [
+        (
+            OwnerDomainWalkEpochInspectorLookup::AllMiss,
+            OwnerDomainWalkEpochInspectorLookup::Snapshot,
+        ),
+        (
+            OwnerDomainWalkEpochInspectorLookup::Snapshot,
+            OwnerDomainWalkEpochInspectorLookup::AllMiss,
+        ),
+    ] {
+        let mut fixture = closed_fixture();
+        options(&mut fixture, false, 1);
+        fixture.request.epoch_inspector_lookup = requested;
+        fixture.save(3, 0);
+        let mut restored = fixture.open().unwrap();
+        // Test-only construction of a valid latest in the other mode over a
+        // compatible previous. Ordinary cross-mode open must never do this.
+        fixture.request.epoch_inspector_lookup = saved;
+        resave(&fixture, &mut restored);
+        drop(restored);
+        let paths = [
+            publication::LATEST,
+            publication::PREVIOUS,
+            "epoch-session.bin",
+        ];
+        let before = paths.map(|name| fs::read(fixture.directory.0.join(name)).unwrap());
+        fixture.request.epoch_inspector_lookup = requested;
+        let error = fixture
+            .open()
+            .err()
+            .expect("cross-mode resume must refuse latest, not use previous");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        for (name, bytes) in paths.into_iter().zip(&before) {
+            assert_eq!(
+                &fs::read(fixture.directory.0.join(name)).unwrap(),
+                bytes,
+                "{name}"
+            );
+        }
+        fixture.request.epoch_inspector_lookup = saved;
+        let restored = fixture.open().unwrap();
+        assert!(restored.warnings.is_empty());
+        assert_eq!(restored.publisher.current_generation(), Some(2));
+    }
 }
 
 #[test]
@@ -141,15 +258,32 @@ fn public_cp6_real_native_w1_and_w2_preserve_full_snapshot_without_finalization(
 
 #[test]
 fn real_inline_and_pool_interruption_resume_in_both_width_directions() {
-    const TEST: &str = "public CP6 W1 to W2 and W2 to W1 interrupted native cut";
-    if !crate::test_gates::workers_or_skip(TEST, 3)
-        || !std::thread::spawn(|| crate::test_gates::licensed_or_skip(TEST))
+    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::AllMiss);
+}
+
+#[test]
+fn snapshot_inline_and_pool_interruption_resume_in_both_width_directions() {
+    interrupted_public_mode(OwnerDomainWalkEpochInspectorLookup::Snapshot);
+}
+
+fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
+    let test = match mode {
+        OwnerDomainWalkEpochInspectorLookup::AllMiss => {
+            "public CP6 AllMiss W1/W2 interrupted native cut"
+        }
+        OwnerDomainWalkEpochInspectorLookup::Snapshot => {
+            "public CP6 Snapshot W1/W2 interrupted native cut"
+        }
+    };
+    if !crate::test_gates::workers_or_skip(test, 3)
+        || !std::thread::spawn(move || crate::test_gates::licensed_or_skip(test))
             .join()
             .unwrap()
     {
         return;
     }
     let mut fixture = closed_fixture();
+    fixture.request.epoch_inspector_lookup = mode;
     options(&mut fixture, false, 1);
     assert_summary(
         &run_public(&fixture, &AtomicBool::new(false), &|_| {}),
@@ -179,6 +313,7 @@ fn real_inline_and_pool_interruption_resume_in_both_width_directions() {
         let cancel = AtomicBool::new(false);
         let caller = std::thread::current().id();
         let calls = AtomicUsize::new(0);
+        let snapshots = Publication::new();
         let saved = AtomicBool::new(false);
         let (entered_tx, entered_rx) = mpsc::sync_channel(1);
         let (release_tx, release_rx) = mpsc::sync_channel(1);
@@ -223,7 +358,12 @@ fn real_inline_and_pool_interruption_resume_in_both_width_directions() {
                     overlap: &overlap,
                     cancellation: if first == 1 { &cancel } else { worker_stop },
                 };
-                let result = inspect_job(&context, bytes);
+                let result = match mode {
+                    OwnerDomainWalkEpochInspectorLookup::AllMiss => inspect_job(&context, bytes),
+                    OwnerDomainWalkEpochInspectorLookup::Snapshot => {
+                        inspect_job_with_snapshot(&context, bytes, snapshots.acquire().unwrap())
+                    }
+                };
                 if call == 0 {
                     entered_tx.send(()).unwrap();
                     release_rx
@@ -272,7 +412,7 @@ fn real_inline_and_pool_interruption_resume_in_both_width_directions() {
                         }
                         saved.store(true, Ordering::Release);
                     },
-                    None,
+                    (mode == OwnerDomainWalkEpochInspectorLookup::Snapshot).then_some(&snapshots),
                     |_, _, _| {}
                 )
                 .unwrap(),

@@ -7,6 +7,8 @@ mod diagnostics;
 mod epoch;
 #[cfg(test)]
 pub(super) use epoch::force_resolver_break;
+#[cfg(test)]
+mod epoch_lookup_tests;
 mod execution;
 mod g2;
 mod index_report;
@@ -69,7 +71,7 @@ pub const WALK_SEMANTICS_VERSION: u32 = 1;
 /// `per_policy {ordered: 1, ready: 1, epoch: 3}`.
 pub use epoch::EPOCH_WALK_SEMANTICS_VERSION;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
-pub use publication::OwnerDomainWalkPublicationPolicy;
+pub use publication::{OwnerDomainWalkEpochInspectorLookup, OwnerDomainWalkPublicationPolicy};
 pub use rescue::{
     AMENDMENT_SCHEMA as OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
     MAX_AMENDMENT_BYTES as OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OwnerDomainWalkAmendment,
@@ -109,6 +111,9 @@ pub struct OwnerDomainWalkRequest {
     /// Ordered is the stable global stream. OwnerBatched uses independent
     /// phase/owner queues; diagnostic identities and capped prefixes may differ.
     pub publication_policy: OwnerDomainWalkPublicationPolicy,
+    /// Experimental lockstep inspector lookup; Snapshot requires explicit CP6.
+    /// Bound for same-mode resume; no default change or persisted snapshot view.
+    pub epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -152,6 +157,7 @@ impl OwnerDomainWalkRequest {
             workers: 1,
             inspection_workers: None,
             publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
+            epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup::AllMiss,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
@@ -166,6 +172,16 @@ impl OwnerDomainWalkRequest {
             max_route_masks: 100_000,
             amendments: Vec::new(),
         }
+    }
+
+    fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        if self.epoch_inspector_lookup != OwnerDomainWalkEpochInspectorLookup::AllMiss
+            && (self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
+                || self.checkpoint.is_none())
+        {
+            return Err("Snapshot inspector lookup requires checkpoint-enabled epoch publication");
+        }
+        Ok(())
     }
 
     pub(crate) fn validate_inspection_workers(
@@ -340,6 +356,10 @@ impl OwnerDomainWalkResult {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
             }
+        }
+        if document["epoch"]["inspector_lookup_mode"].is_string() {
+            // Only the bounded public CP6 report supplies this mode marker.
+            out["epoch"] = document["epoch"].clone();
         }
         if let Some(error) = document["error"].as_str() {
             out["error"] = json!(error.chars().take(512).collect::<String>());
@@ -526,6 +546,9 @@ fn frontier_stop_checkpoint<const N: usize>(
 /// host core-budget preflight follows separately: it depends on this
 /// process's affinity and license, not on the request.
 fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPause>, AppError> {
+    request
+        .validate_epoch_inspector_lookup()
+        .map_err(AppError::input)?;
     request.matching.preflight_queries()?;
     if request.max_domains == 0
         || request.max_events == 0
@@ -699,6 +722,9 @@ pub fn owner_domain_walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
         admitted["publication_policy"] = json!("epoch_merge_stream");
         admitted["walk_semantics_version"] = json!(EPOCH_WALK_SEMANTICS_VERSION);
+        if request.checkpoint.is_some() {
+            admitted["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
+        }
     }
     if let Some(pause) = diagnostic_pause {
         admitted["diagnostic_pause"] = json!(pause.name());

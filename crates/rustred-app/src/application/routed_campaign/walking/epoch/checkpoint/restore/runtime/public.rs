@@ -9,7 +9,8 @@ use crate::AppError;
 use crate::application::routed_campaign::{
     matching::input::Query,
     walking::{
-        OwnerDomainWalkRecords, OwnerDomainWalkRequest, OwnerDomainWalkResult,
+        OwnerDomainWalkEpochInspectorLookup, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
+        OwnerDomainWalkResult,
         epoch::{
             self,
             inspector::{Context, Status},
@@ -187,6 +188,13 @@ fn scalar_progress<const N: usize>(
         "requeue_waiting":dispatch.queued().0,"deferred_waiting":dispatch.queued().1})
 }
 
+fn lookup_mode(request: &OwnerDomainWalkRequest) -> controller::LookupMode {
+    match request.epoch_inspector_lookup {
+        OwnerDomainWalkEpochInspectorLookup::AllMiss => controller::LookupMode::AllMiss,
+        OwnerDomainWalkEpochInspectorLookup::Snapshot => controller::LookupMode::Snapshot,
+    }
+}
+
 /// Scalar subset of Tracker::json, with the same monitor-facing meanings but
 /// without its retained-storage census or any closure refresh.
 fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value {
@@ -260,6 +268,14 @@ fn summary<const N: usize>(
     doc.as_object_mut()
         .expect("summary object")
         .extend(progress);
+    doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
+    doc["epoch"]["inspector_lookup"] = json!(state.inspector_lookup);
+    doc["epoch"]["inspector_lookup_scope"] = json!(
+        "accepted P2 work in this invocation, including later P3 reservation refusal; excludes rejected or interrupted cuts; not checkpoint lifetime totals"
+    );
+    doc["epoch"]["coordinator_miss_rechecks_skipped_scope"] = json!(
+        "full Store::lookup calls avoided; not candidate comparisons, nonempty index probes or measured time"
+    );
     crate::application::routed_campaign::walking::finish_timing(&mut doc, started, prepared);
     doc
 }
@@ -293,7 +309,8 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         cancellation,
         &failed,
         json!({"event":"epoch_lifecycle","operation":"owner_domain_walk",
-        "phase":if options.resume {"restore"} else {"fresh"},"family_closure_claim":false}),
+        "phase":if options.resume {"restore"} else {"fresh"},
+        "epoch_inspector_lookup":request.epoch_inspector_lookup.name(),"family_closure_claim":false}),
     );
     let mut restored = if options.resume {
         open(options.directory.clone(), &identity, reducer, b)
@@ -427,7 +444,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             &identity,
             b,
             &context,
-            controller::LookupMode::AllMiss,
+            lookup_mode(request),
             saved,
             progress,
         )

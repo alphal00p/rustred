@@ -737,6 +737,9 @@ pub fn owner_domain_walk_verify_closure(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
+    request
+        .validate_epoch_inspector_lookup()
+        .map_err(AppError::input)?;
     if request.apply_subdivision.is_some() {
         // Physical parts inspect under part-local limits; the reference
         // inspection here would not reproduce them. Refuse, never guess.
