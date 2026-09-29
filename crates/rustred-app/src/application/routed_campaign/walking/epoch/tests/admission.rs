@@ -85,7 +85,7 @@ fn old_success(state: &mut EpochState<2>, domain: &Domain<2>) -> u32 {
         .contained_live(&q, &query, &mut state.lookup)
         .unwrap();
     state.reserve_ids(1).unwrap();
-    state.store.exact.try_reserve(&[q.digest]).unwrap();
+    state.store.reserve_exact(&[q.digest]).unwrap();
     let id = state.store.push(image, query.compact, q.digest).unwrap();
     state.admit_id(id);
     let mut expected = 0;
@@ -283,7 +283,7 @@ fn planned_retirement_refusal_precedes_initial_authority_mutation() {
     // Keep the real summary/index at point 2 but corrupt its raw authority
     // to point 9: reverse lookup still proposes ID 0, Planned verification
     // must reject it. No hook replaces the actual verifier.
-    state.store.domains[0] = image(&boxed([9, 0], [9, 0]));
+    state.store.unique_mut().unwrap().domains[0] = image(&boxed([9, 0], [9, 0]));
     let before = authority(&state);
     let error = admit_initial(&mut state, &boxed([1, 0], [5, 0])).unwrap_err();
     assert!(

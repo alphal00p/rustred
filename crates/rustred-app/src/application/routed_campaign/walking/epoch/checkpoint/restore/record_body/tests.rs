@@ -49,6 +49,7 @@ fn native(job: &Job<2>) -> JobResult<2> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        lookup: None,
         misses: Vec::new(),
     }
 }
@@ -119,6 +120,7 @@ fn fixture() -> (EpochState<2>, Vec<Value>) {
         ordinal: 0,
         digest: image.digest().0,
         image,
+        target: None,
     });
     let rows = merge_rows(&mut state, &mut dispatch, results);
     (state, rows)
@@ -387,6 +389,7 @@ fn real_initial_d_band_c0_and_c2_records_bind_anchor_and_residual_scope() {
             ordinal: 0,
             digest: image.digest().0,
             image,
+            target: None,
         });
         results[1].emitted = 1;
         results[1].accepted = 1;

@@ -179,8 +179,8 @@ mod tests {
         use super::super::super::{MergeBoundary, Section};
         let directory = Directory::new();
         let mut state = super::super::super::tests::state(4);
-        state.store = arena();
-        state.store.buckets[0].orthant = Some(2);
+        state.store = arena().into();
+        state.store.unique_mut().unwrap().buckets[0].orthant = Some(2);
         state.live[0] = 0b1011;
         let dispatch = Dispatch::new();
         let boundary = MergeBoundary::borrow(&state, &dispatch, 16).unwrap();

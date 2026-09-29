@@ -1,23 +1,23 @@
 //! Byte-serialized job and result types (W2.0 protocol §2.4). Jobs and
 //! results cross the inspector/coordinator boundary as little-endian bytes
-//! with no pointers, even in-process, so the same types serve the per-CCX
-//! process fallback. Explicit writer and reader; no new dependency.
+//! with no pointers. Shared lookup leases never travel in a result, and no
+//! serialized summary is trusted. Explicit writer/reader; no new dependency.
 //!
 //! S2 layout (versioned by `JOB_MAGIC` / `RESULT_MAGIC`): the job header is
 //! 32 bytes plus the canonical image; the result header is fixed and is
 //! followed by length-prefixed variable parts (stats, error, frontiers,
 //! refusal provenance, the initial-overlap scope, the G2' part and the
-//! misses). The record is assembled from these parts in P3 (typed binary
-//! records land in S3). S4 adds the parts of §2.4 that S2 does not ship
-//! (inspector targets, Locals, canary entries, refresh points, per-miss
-//! versions, timing) and bumps `RESULT_MAGIC` again (note D4).
+//! obligations). ERS4 adds private lockstep snapshot targets and work counters;
+//! all target images are independently verified, not sampled canaries. Local,
+//! MRU and rolling refresh are absent. This ephemeral byte version is not a
+//! checkpoint compatibility importer or a change to persisted record bodies.
 use super::super::queue::{CompactDomain, Domain, Phase};
 use rustred::solver::DomainPowerBounds;
 
 pub(super) const JOB_MAGIC: u32 = u32::from_le_bytes(*b"EJB2");
-/// ERS3: the G2' part (anchors with stamps and lent scopes, union-form
-/// residual) and the `G2Residual` native kind.
-pub(super) const RESULT_MAGIC: u32 = u32::from_le_bytes(*b"ERS3");
+/// ERS4: checked snapshot identity, inspector lookup work and optional stored
+/// target per obligation. No serialized summary is mathematical authority.
+pub(super) const RESULT_MAGIC: u32 = u32::from_le_bytes(*b"ERS4");
 
 // ---- little-endian writer and reader --------------------------------------
 
@@ -402,13 +402,89 @@ pub(super) struct G2Part {
     pub pieces: Vec<super::anchors::Piece>,
 }
 
-/// A request shipped to the merge (in S2 every Admit that was not an exact
-/// duplicate of an earlier Admit of the same job).
+/// One distinct Admit obligation. The historical type/field name `Miss` stays
+/// internal; a private S4 stored proposal is explicitly identified by `target`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Miss<const N: usize> {
     pub ordinal: u32,
     pub digest: u64,
     pub image: CompactDomain<N>,
+    /// A snapshot lookup proposal, independently verified in P2. None retains
+    /// the ordinary all-miss path. The image is always shipped in full.
+    pub target: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LookupReport {
+    pub version: u64,
+    pub published_len: u32,
+    pub lookup: super::store::LookupCounters,
+    pub verify: super::verify::VerifyCounters,
+    /// Admit-path elapsed time: preparation, deduplication, lookup and buffering.
+    /// Worker elapsed time, not CPU attribution or a whole-command estimate.
+    pub seconds: f64,
+}
+
+impl LookupReport {
+    fn encode(&self, w: &mut Writer) {
+        w.u64(self.version);
+        w.u32(self.published_len);
+        for n in [
+            self.lookup.exact_hits,
+            self.lookup.orthant_hits,
+            self.lookup.contained_hits,
+            self.lookup.misses,
+            self.lookup.forward_candidates,
+            self.lookup.forward_tests,
+            self.lookup.reverse_candidates,
+            self.lookup.reverse_tests,
+            self.verify.calls,
+            self.verify.accepted,
+            self.verify.raw_inclusions,
+            self.verify.recomputes,
+            self.verify.refused_range,
+            self.verify.refused_bucket,
+            self.verify.union_covers,
+        ] {
+            w.u64(n);
+        }
+        w.f64(self.seconds);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> Decoded<Self> {
+        let version = r.u64()?;
+        let published_len = r.u32()?;
+        let lookup = super::store::LookupCounters {
+            exact_hits: r.u64()?,
+            orthant_hits: r.u64()?,
+            contained_hits: r.u64()?,
+            misses: r.u64()?,
+            forward_candidates: r.u64()?,
+            forward_tests: r.u64()?,
+            reverse_candidates: r.u64()?,
+            reverse_tests: r.u64()?,
+        };
+        let verify = super::verify::VerifyCounters {
+            calls: r.u64()?,
+            accepted: r.u64()?,
+            raw_inclusions: r.u64()?,
+            recomputes: r.u64()?,
+            refused_range: r.u64()?,
+            refused_bucket: r.u64()?,
+            union_covers: r.u64()?,
+        };
+        let seconds = r.f64()?;
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err("invalid inspector lookup duration");
+        }
+        Ok(Self {
+            version,
+            published_len,
+            lookup,
+            verify,
+            seconds,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -440,6 +516,7 @@ pub(super) struct JobResult<const N: usize> {
     pub refusals_truncated: bool,
     pub scope: Option<Scope>,
     pub g2: Option<G2Part>,
+    pub lookup: Option<LookupReport>,
     pub misses: Vec<Miss<N>>,
 }
 
@@ -516,11 +593,19 @@ impl<const N: usize> JobResult<N> {
                 }
             }
         }
+        w.u8(u8::from(self.lookup.is_some()));
+        if let Some(lookup) = &self.lookup {
+            lookup.encode(&mut w);
+        }
         w.count(self.misses.len());
         for miss in &self.misses {
             w.u32(miss.ordinal);
             w.u64(miss.digest);
             write_image(&mut w, &miss.image);
+            w.u8(u8::from(miss.target.is_some()));
+            if let Some(target) = miss.target {
+                w.u32(target);
+            }
         }
         w.0
     }
@@ -609,6 +694,11 @@ impl<const N: usize> JobResult<N> {
         } else {
             None
         };
+        let lookup = if r.flag()? {
+            Some(LookupReport::decode(&mut r)?)
+        } else {
+            None
+        };
         let count = r.u32()?;
         let mut misses = Vec::new();
         misses
@@ -619,6 +709,7 @@ impl<const N: usize> JobResult<N> {
                 ordinal: r.u32()?,
                 digest: r.u64()?,
                 image: read_image::<N>(&mut r)?,
+                target: if r.flag()? { Some(r.u32()?) } else { None },
             });
         }
         r.finish()?;
@@ -662,6 +753,7 @@ impl<const N: usize> JobResult<N> {
             refusals_truncated,
             scope,
             g2,
+            lookup,
             misses,
         })
     }

@@ -268,6 +268,7 @@ fn validate<const N: usize>(
         refusals_truncated: false,
         scope: None,
         g2: None,
+        lookup: None,
         misses: Vec::new(),
     };
     // Merged C2 may be a recurring C3. The old retry word no longer exists;

@@ -234,7 +234,7 @@ fn orthant_slots_are_serialized_even_when_their_ids_are_not_live() {
     let mut state = state(2);
     // This test isolates persistence of the historical slot from later
     // mathematical restore validation of its full-orthant geometry.
-    state.store.buckets[0].orthant = Some(0);
+    state.store.unique_mut().unwrap().buckets[0].orthant = Some(0);
     state.set_live(0, false);
     let dispatch = Dispatch::new();
     let boundary = MergeBoundary::borrow(&state, &dispatch, 16).unwrap();

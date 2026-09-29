@@ -4,13 +4,22 @@
 use super::*;
 use crate::application::routed_campaign::walking::{
     epoch::{
-        inspector::{Context, inspect_job},
+        inspector::{Context, inspect_job, inspect_job_with_snapshot},
         job::{Writer, write_image},
+        snapshot::Publication,
     },
     initial_overlap::InitialOverlapIndex,
 };
 
 pub(super) fn finish_native(fixture: &Fixture, restored: &mut Restored<1>) {
+    finish_native_mode(fixture, restored, controller::LookupMode::AllMiss)
+}
+
+pub(super) fn finish_native_mode(
+    fixture: &Fixture,
+    restored: &mut Restored<1>,
+    mode: controller::LookupMode,
+) {
     let overlap = InitialOverlapIndex::empty();
     let cancellation = AtomicBool::new(false);
     let context = Context {
@@ -20,7 +29,8 @@ pub(super) fn finish_native(fixture: &Fixture, restored: &mut Restored<1>) {
         cancellation: &cancellation,
     };
     assert_eq!(
-        controller::run_native(restored, &fixture.identity(), 16, &context, |_, _| {}).unwrap(),
+        controller::run_native_lookup(restored, &fixture.identity(), 16, &context, mode, |_, _| {})
+            .unwrap(),
         Outcome::Drained
     );
 }
@@ -134,10 +144,19 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
     {
         return;
     }
+    for mode in [
+        controller::LookupMode::AllMiss,
+        controller::LookupMode::Snapshot,
+    ] {
+        interrupted_native_mode(mode);
+    }
+}
+
+fn interrupted_native_mode(mode: controller::LookupMode) {
     let mut fixture = closed_fixture();
     fixture.save(3, 3);
     let mut baseline = fixture.open().unwrap();
-    finish_native(&fixture, &mut baseline);
+    finish_native_mode(&fixture, &mut baseline, mode);
     drop(baseline);
     let expected = completed_snapshot(&mut fixture.open().unwrap());
 
@@ -154,6 +173,7 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
     let returned = AtomicBool::new(false);
     let calls = AtomicUsize::new(0);
     let overlap = InitialOverlapIndex::empty();
+    let snapshots = Publication::new();
     let (saved, receiving_save) = mpsc::channel();
     let latest = fixture.directory.0.join(publication::LATEST);
     std::thread::scope(|scope| {
@@ -180,15 +200,18 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
             calls.fetch_add(1, Ordering::Relaxed);
             let job = Job::<1>::decode(bytes).unwrap();
             assert!(job.parent < 2, "third Reserved job must remain queued");
-            let native = inspect_job(
-                &Context {
-                    reducer: &fixture.reducer,
-                    request: &fixture.request,
-                    overlap: &overlap,
-                    cancellation: cancel,
-                },
-                bytes,
-            );
+            let context = Context {
+                reducer: &fixture.reducer,
+                request: &fixture.request,
+                overlap: &overlap,
+                cancellation: cancel,
+            };
+            let native = match mode {
+                controller::LookupMode::AllMiss => inspect_job(&context, bytes),
+                controller::LookupMode::Snapshot => {
+                    inspect_job_with_snapshot(&context, bytes, snapshots.acquire().unwrap())
+                }
+            };
             let decoded = JobResult::<1>::decode(&native).unwrap();
             assert_eq!(decoded.seq, job.seq);
             assert_eq!(decoded.parent, job.parent);
@@ -215,7 +238,7 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
         };
         let mut observed_held = 0;
         assert_eq!(
-            controller::run_authorized(
+            controller::run_authorized_lookup_periodic(
                 &mut interrupted,
                 &fixture.identity(),
                 16,
@@ -231,6 +254,7 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
                     // Three polls guarantee Result(0) reached the polled prefix.
                     stop::requested(&AtomicBool::new(observed_held >= 3), None)
                 },
+                |_| false,
                 |receipt, status| {
                     assert_eq!(status.len(), 3);
                     assert!(status[0].started && status[0].returned);
@@ -239,6 +263,7 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
                     assert!(!returned.load(Ordering::Acquire));
                     saved.send(receipt.generation).unwrap();
                 },
+                (mode == controller::LookupMode::Snapshot).then_some(&snapshots),
             )
             .unwrap(),
             Outcome::Stopped(merge::StopReason::Paused)
@@ -246,6 +271,7 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
         observer.join().unwrap();
     });
     assert_eq!(calls.load(Ordering::Relaxed), 2);
+    interrupted.state.store.ensure_unique().unwrap();
     assert!(
         returned.load(Ordering::Acquire),
         "held worker joined after save"
@@ -281,7 +307,45 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
     assert_eq!(resumed.state.ledger.words(), original_ledger);
     assert_eq!(resumed.records.total(), 0);
     assert_eq!(resumed.state.edges.runs(), 0);
-    finish_native(&fixture, &mut resumed);
+    finish_native_mode(&fixture, &mut resumed, mode);
     drop(resumed);
     assert_eq!(completed_snapshot(&mut fixture.open().unwrap()), expected);
+}
+
+#[test]
+fn real_native_snapshot_lookup_preserves_all_miss_math_and_records() {
+    const TEST: &str = "real native epoch snapshot lookup differential";
+    if !crate::test_gates::workers_or_skip(TEST, 2)
+        || !std::thread::spawn(|| crate::test_gates::licensed_or_skip(TEST))
+            .join()
+            .unwrap()
+    {
+        return;
+    }
+    let mut fixture = closed_fixture();
+    fixture.save(3, 2);
+    let mut off = fixture.open().unwrap();
+    finish_native_mode(&fixture, &mut off, controller::LookupMode::AllMiss);
+    let mut expected = completed_snapshot(&mut off);
+    fixture.directory = Directory::new();
+    fixture.save(3, 2);
+    let mut on = fixture.open().unwrap();
+    finish_native_mode(&fixture, &mut on, controller::LookupMode::Snapshot);
+    assert!(
+        on.state.inspector_lookup.stored_hits > 0,
+        "real native lookup path exercised"
+    );
+    assert!(on.state.inspector_lookup.queries >= on.state.inspector_lookup.stored_hits);
+    let mut actual = completed_snapshot(&mut on);
+    // Explicitly different work accounting, not mathematical state. Keep every
+    // record field, domain, ledger, edge, root and closure comparison intact.
+    for snapshot in [&mut expected, &mut actual] {
+        snapshot.as_object_mut().unwrap().remove("lookup");
+        snapshot.as_object_mut().unwrap().remove("verify");
+        snapshot["walk_counters"]
+            .as_object_mut()
+            .unwrap()
+            .remove("miss_requests");
+    }
+    assert_eq!(actual, expected);
 }

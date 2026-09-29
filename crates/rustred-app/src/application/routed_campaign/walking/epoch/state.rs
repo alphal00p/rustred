@@ -5,7 +5,7 @@ use super::super::descendant_closure::Tracker;
 use super::anchors::{AnchorMap, MergedView};
 use super::edges::EdgeStore;
 use super::ledger6::{Entry6, Ledger6, Tag, Transition};
-use super::store::Store;
+use super::snapshot::StoreOwner;
 use super::verify::VerifyCounters;
 use std::collections::BTreeMap;
 
@@ -61,7 +61,7 @@ pub(super) struct WalkCounters {
 }
 
 pub(super) struct EpochState<const N: usize> {
-    pub store: Store<N>,
+    pub store: StoreOwner<N>,
     pub ledger: Ledger6,
     pub nodes: Vec<u8>,
     /// Bit set: the ID is still an entry of the lookup index.
@@ -80,6 +80,10 @@ pub(super) struct EpochState<const N: usize> {
     pub counters: WalkCounters,
     pub verify: VerifyCounters,
     pub lookup: super::store::LookupCounters,
+    /// Current-process inspector work accepted into P2 plans (including a later
+    /// P3 capacity refusal). Rejected/interrupted cuts are excluded. Not persisted:
+    /// restored totals above retain counted operations; this timing is session-only.
+    pub inspector_lookup: InspectorLookup,
     pub max_domains: usize,
     pub max_events: u64,
     pub max_frontiers: u64,
@@ -92,7 +96,7 @@ pub(super) struct EpochState<const N: usize> {
 impl<const N: usize> EpochState<N> {
     pub fn new(max_domains: usize, max_events: usize, max_frontiers: usize) -> Self {
         Self {
-            store: Store::new(),
+            store: StoreOwner::new(),
             ledger: Ledger6::default(),
             nodes: Vec::new(),
             live: Vec::new(),
@@ -107,6 +111,7 @@ impl<const N: usize> EpochState<N> {
             counters: WalkCounters::default(),
             verify: VerifyCounters::default(),
             lookup: Default::default(),
+            inspector_lookup: InspectorLookup::default(),
             max_domains,
             max_events: max_events as u64,
             max_frontiers: max_frontiers as u64,
@@ -188,4 +193,12 @@ impl<const N: usize> EpochState<N> {
             sealed == matches!(entry, Entry6::Native { .. } | Entry6::Alias { .. })
         })
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub(super) struct InspectorLookup {
+    /// Distinct obligations looked up. Timing also includes duplicate validation.
+    pub queries: u64,
+    pub stored_hits: u64,
+    pub seconds: f64,
 }

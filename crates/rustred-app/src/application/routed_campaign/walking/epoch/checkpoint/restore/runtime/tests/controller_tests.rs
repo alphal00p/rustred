@@ -50,6 +50,7 @@ fn result(job: &Job<1>, failure: bool) -> Vec<u8> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        lookup: None,
         misses: Vec::new(),
     }
     .encode()

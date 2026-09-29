@@ -25,6 +25,7 @@ use rustred::solver::DomainPowerBounds;
 use serde_json::Value;
 
 mod admission;
+mod snapshot;
 
 const APPLY: [bool; 2] = [true, false];
 const OTHER: [bool; 2] = [false, true];
@@ -86,6 +87,7 @@ fn result(job: &Job<2>, misses: &[Domain<2>]) -> JobResult<2> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        lookup: None,
         misses: misses
             .iter()
             .enumerate()
@@ -93,6 +95,7 @@ fn result(job: &Job<2>, misses: &[Domain<2>]) -> JobResult<2> {
                 ordinal: ordinal as u32,
                 digest: image(d).digest().0,
                 image: image(d),
+                target: None,
             })
             .collect(),
     }
@@ -324,7 +327,7 @@ fn epoch_u48_preflight() {
     let mut rows = Rows(Vec::new());
     assert_eq!(
         merge::p3_preflight(&mut state, &checked, &plan, &mut rows).err(),
-        Some(StopReason::Capacity)
+        Some(merge::PreflightError::Stop(StopReason::Capacity))
     );
     // A failed preflight changes nothing logical.
     assert_eq!(state.watermark(), 1);

@@ -1,16 +1,15 @@
-//! The S2 resolver sink (inspector side). It receives the unchanged native
-//! visitor's events and builds the job's `JobResult`. In S2 no successor is
-//! resolved on the inspector: every `Admit` becomes a miss for the merge,
-//! except an exact duplicate of an earlier `Admit` of the same job (tier 1,
-//! the job-local exact set, image-confirmed), which the merge would resolve
-//! to the same target. Inspector-side lookups (self, Local, MRU, orthant,
-//! tiers) are stage S4.
+//! Native event sink. The unchanged default ships every distinct Admit to P2.
+//! Private lockstep S4 can resolve stored targets through the existing immutable
+//! index; it retains full canonical images and independent P2 verification.
+//! No self-first, Local, MRU or rolling-refresh policy changes are introduced.
 use super::super::{
     diagnostics::OptionalRefusals,
     inspection::{Effect, Event, Finished, NativeStats},
-    queue::CompactDomain,
+    queue::{CompactDomain, Query},
 };
-use super::job::{BreakReason, ErrorKind, Job, JobResult, Miss, NativeKind, Scope};
+use super::job::{BreakReason, ErrorKind, Job, JobResult, LookupReport, Miss, NativeKind, Scope};
+use super::snapshot::Snapshot;
+use super::verify::QueryImage;
 use rustred::solver::DomainPowerSummary;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -38,7 +37,7 @@ fn forced_break(emitted: u64) -> Option<BreakReason> {
     }
 }
 
-pub(super) struct Resolver<const N: usize> {
+pub(super) struct Resolver<'a, const N: usize> {
     emitted: u64,
     accepted: u64,
     successors: u64,
@@ -53,9 +52,11 @@ pub(super) struct Resolver<const N: usize> {
     frontiers: Vec<Vec<u8>>,
     refusals: OptionalRefusals,
     break_reason: BreakReason,
+    snapshot: Option<&'a Snapshot<N>>,
+    lookup: Option<LookupReport>,
 }
 
-impl<const N: usize> Resolver<N> {
+impl<'a, const N: usize> Resolver<'a, N> {
     pub fn new() -> Self {
         Self {
             emitted: 0,
@@ -70,7 +71,22 @@ impl<const N: usize> Resolver<N> {
             frontiers: Vec::new(),
             refusals: OptionalRefusals::default(),
             break_reason: BreakReason::None,
+            snapshot: None,
+            lookup: None,
         }
+    }
+
+    pub fn with_snapshot(snapshot: &'a Snapshot<N>) -> Self {
+        let mut resolver = Self::new();
+        resolver.snapshot = Some(snapshot);
+        resolver.lookup = Some(LookupReport {
+            version: snapshot.version,
+            published_len: snapshot.published_len as u32,
+            lookup: Default::default(),
+            verify: Default::default(),
+            seconds: 0.0,
+        });
+        resolver
     }
 
     fn stop(&mut self, reason: BreakReason) -> ControlFlow<()> {
@@ -119,18 +135,28 @@ impl<const N: usize> Resolver<N> {
                     Ok(image) => image,
                     Err(_) => return self.stop(BreakReason::ResolverRange),
                 };
-                if DomainPowerSummary::try_new(
+                // F1 applies even to duplicates: a raw positive is not a
+                // substitute for a valid canonical native query summary.
+                let started = self.snapshot.map(|_| std::time::Instant::now());
+                let core = match DomainPowerSummary::try_new(
                     domain.owner,
                     &domain.lower,
                     &domain.upper,
                     domain.rank,
                     domain.powers,
-                )
-                .is_err()
-                {
-                    return self.stop(BreakReason::ResolverSummary);
-                }
-                let digest = image.digest().0;
+                ) {
+                    Ok(core) => core,
+                    Err(_) => return self.stop(BreakReason::ResolverSummary),
+                };
+                // CompactDomain is injective on the checked range: both facts
+                // derive from this same native event, without expanding two
+                // fresh coordinate vectors merely to repeat the projection.
+                let q = QueryImage {
+                    image,
+                    core,
+                    digest: image.digest().0,
+                };
+                let digest = q.digest;
                 let ordinal = self.admits;
                 self.admits += 1;
                 let known = self.exact.get(&digest).is_some_and(|slots| {
@@ -141,6 +167,22 @@ impl<const N: usize> Resolver<N> {
                 if known {
                     self.job_duplicates += count;
                 } else {
+                    let target =
+                        if let (Some(snapshot), Some(work)) = (self.snapshot, &mut self.lookup) {
+                            let query = Query::new(q.core.clone(), image.phase());
+                            match snapshot.lookup(
+                                &q,
+                                &query,
+                                snapshot.published_len,
+                                &mut work.lookup,
+                                &mut work.verify,
+                            ) {
+                                Ok(found) => found.map(|(id, _, _)| id),
+                                Err(_) => return self.stop(BreakReason::Protocol),
+                            }
+                        } else {
+                            None
+                        };
                     if self.misses.try_reserve(1).is_err() {
                         return self.stop(BreakReason::Alloc);
                     }
@@ -152,7 +194,11 @@ impl<const N: usize> Resolver<N> {
                         ordinal,
                         digest,
                         image,
+                        target,
                     });
+                }
+                if let (Some(work), Some(started)) = (&mut self.lookup, started) {
+                    work.seconds += started.elapsed().as_secs_f64();
                 }
                 (successor, conditional)
             }
@@ -264,6 +310,7 @@ impl<const N: usize> Resolver<N> {
                         refusals_truncated: false,
                         scope: None,
                         g2: None,
+                        lookup: self.lookup,
                         misses: Vec::new(),
                     };
                 }
@@ -299,6 +346,7 @@ impl<const N: usize> Resolver<N> {
             refusals_truncated: truncated,
             scope,
             g2: None,
+            lookup: self.lookup,
             misses: self.misses,
         }
     }
@@ -334,6 +382,7 @@ impl<const N: usize> Resolver<N> {
             refusals_truncated: false,
             scope: None,
             g2: None,
+            lookup: self.lookup,
             misses: Vec::new(),
         }
     }

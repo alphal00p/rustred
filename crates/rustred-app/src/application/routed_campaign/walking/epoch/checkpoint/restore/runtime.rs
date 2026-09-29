@@ -123,7 +123,7 @@ pub(super) fn open<const N: usize>(
     } = saved;
     let (max_domains, max_events, max_frontiers) = identity.limits();
     let mut state = EpochState {
-        store,
+        store: store.into(),
         ledger,
         nodes,
         live,
@@ -138,6 +138,7 @@ pub(super) fn open<const N: usize>(
         counters: scalars.walk,
         verify: scalars.verify,
         lookup: scalars.lookup,
+        inspector_lookup: Default::default(),
         max_domains,
         max_events: max_events as u64,
         max_frontiers: max_frontiers as u64,

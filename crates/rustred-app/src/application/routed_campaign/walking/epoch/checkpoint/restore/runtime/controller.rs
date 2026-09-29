@@ -9,10 +9,12 @@ use super::Restored;
 use crate::application::routed_campaign::walking::epoch::{
     dispatch::Refill,
     inspector::{
-        Context, Poll, RunError, Status, SubmitError, Work, inspect_job, with_authorized_pool,
+        Context, Poll, RunError, Status, SubmitError, Work, inspect_job, inspect_job_with_snapshot,
+        with_authorized_pool,
     },
     merge::{self, Fatal, MergeConfig, RecordOut, StopReason},
     records,
+    snapshot::Publication,
 };
 use crate::application::routed_campaign::walking::execution::records::Sidecar;
 use serde_json::Value;
@@ -171,6 +173,37 @@ pub(super) fn run_authorized_periodic<const N: usize>(
     mut periodic_due: impl FnMut(u64) -> bool,
     mut on_saved: impl FnMut(&publication::Receipt, &[Status]),
 ) -> io::Result<Outcome> {
+    run_authorized_lookup_periodic(
+        restored,
+        identity,
+        b,
+        budget,
+        config,
+        authorize,
+        inspect,
+        &mut stop_requested,
+        &mut periodic_due,
+        &mut on_saved,
+        None,
+    )
+}
+
+/// The private real-native path publishes one immutable lookup view per cut.
+/// Synthetic/all-miss callers retain the previous wrapper above.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_authorized_lookup_periodic<const N: usize>(
+    restored: &mut Restored<N>,
+    identity: &Identity<'_>,
+    b: usize,
+    budget: usize,
+    config: MergeConfig,
+    authorize: &(dyn Fn() -> Result<(), String> + Sync),
+    inspect: &(dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync),
+    mut stop_requested: impl FnMut() -> Option<stop::Stop>,
+    mut periodic_due: impl FnMut(u64) -> bool,
+    mut on_saved: impl FnMut(&publication::Receipt, &[Status]),
+    snapshots: Option<&Publication<N>>,
+) -> io::Result<Outcome> {
     if budget < 2
         || !(1..=4096).contains(&b)
         || !config.lockstep
@@ -260,6 +293,21 @@ pub(super) fn run_authorized_periodic<const N: usize>(
                 };
                 let mut work = Vec::new();
                 let mut results = Vec::new();
+                if let Some(snapshots) = snapshots {
+                    restored
+                        .state
+                        .store
+                        .ensure_unique()
+                        .map_err(|e| Failure::Engine(e.into()))?;
+                    let snapshot = restored
+                        .state
+                        .store
+                        .snapshot(restored.state.k)
+                        .map_err(|e| Failure::Engine(e.into()))?;
+                    snapshots
+                        .publish(snapshot)
+                        .map_err(|e| Failure::Engine(e.into()))?;
+                }
                 // Both lists are B-bounded, never an arena/snapshot clone.
                 if work.try_reserve_exact(jobs.len()).is_err()
                     || results.try_reserve_exact(jobs.len()).is_err()
@@ -308,6 +356,14 @@ pub(super) fn run_authorized_periodic<const N: usize>(
                         Poll::Drained => break,
                     }
                 }
+                if let Some(snapshots) = snapshots {
+                    snapshots.clear().map_err(|e| Failure::Engine(e.into()))?;
+                    restored
+                        .state
+                        .store
+                        .ensure_unique()
+                        .map_err(|e| Failure::Engine(e.into()))?;
+                }
                 // P1 sorts the complete cut; first-error handling is independent
                 // of worker completion order. Existing P1-P3 semantics unchanged.
                 let checked = merge::p1_check(&mut restored.state, results, config)?;
@@ -324,6 +380,12 @@ pub(super) fn run_authorized_periodic<const N: usize>(
                         &plan,
                         &mut Output(&mut restored.records),
                     ) {
+                        let reason = match reason {
+                            merge::PreflightError::Stop(reason) => reason,
+                            merge::PreflightError::Engine(error) => {
+                                return Err(Failure::Engine(error.into()));
+                            }
+                        };
                         merge::discard_cut(&mut restored.state, &checked, &mut |id, attempts| {
                             restored.dispatch.requeue(id, attempts)
                         })?;
@@ -363,6 +425,18 @@ pub(super) fn run_authorized_periodic<const N: usize>(
         }
         result
     });
+    // with_authorized_pool has joined every worker on all paths. Cancellation
+    // therefore may release publication here, but never before its durable save.
+    if let Some(snapshots) = snapshots {
+        snapshots
+            .clear()
+            .map_err(|e| pool_error(restored, RunError::Engine(e.into())))?;
+        restored
+            .state
+            .store
+            .ensure_unique()
+            .map_err(|e| pool_error(restored, RunError::Engine(e.into())))?;
+    }
     match outcome {
         Ok(Ok(outcome)) => Ok(outcome),
         Ok(Err(Failure::Save(error))) => Err(error),
@@ -378,6 +452,32 @@ pub(super) fn run_native<const N: usize>(
     identity: &Identity<'_>,
     b: usize,
     context: &Context<'_, N>,
+    on_saved: impl FnMut(&publication::Receipt, &[Status]),
+) -> io::Result<Outcome> {
+    run_native_lookup(
+        restored,
+        identity,
+        b,
+        context,
+        LookupMode::AllMiss,
+        on_saved,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LookupMode {
+    AllMiss,
+    Snapshot,
+}
+
+/// Explicit private comparison switch. No environment/public request default
+/// changes, and the old entry point remains all-miss.
+pub(super) fn run_native_lookup<const N: usize>(
+    restored: &mut Restored<N>,
+    identity: &Identity<'_>,
+    b: usize,
+    context: &Context<'_, N>,
+    mode: LookupMode,
     mut on_saved: impl FnMut(&publication::Receipt, &[Status]),
 ) -> io::Result<Outcome> {
     let schedule = periodic::Schedule::new(
@@ -398,8 +498,24 @@ pub(super) fn run_native<const N: usize>(
         }
         Ok(())
     };
+    let snapshots = Publication::new();
     let inspect = |bytes: &[u8], stop: &AtomicBool| {
-        inspect_job(
+        if mode == LookupMode::AllMiss {
+            return inspect_job(
+                &Context {
+                    reducer: context.reducer,
+                    request: context.request,
+                    overlap: context.overlap,
+                    cancellation: stop,
+                },
+                bytes,
+            );
+        }
+        let snapshot = match snapshots.acquire() {
+            Ok(snapshot) => snapshot,
+            Err(_) => return Vec::new(),
+        };
+        inspect_job_with_snapshot(
             &Context {
                 reducer: context.reducer,
                 request: context.request,
@@ -407,6 +523,7 @@ pub(super) fn run_native<const N: usize>(
                 cancellation: stop,
             },
             bytes,
+            snapshot,
         )
     };
     use crate::application::routed_campaign::walking::worker_budget::{self, WorkerBudget};
@@ -418,7 +535,7 @@ pub(super) fn run_native<const N: usize>(
     .map_err(invalid)?;
     let budget = WorkerBudget::for_request(context.request);
     // Reserved helper capacity is not silently converted into extra inspectors.
-    run_authorized_periodic(
+    run_authorized_lookup_periodic(
         restored,
         identity,
         b,
@@ -442,5 +559,6 @@ pub(super) fn run_native<const N: usize>(
             schedule.saved();
             on_saved(receipt, status);
         },
+        (mode == LookupMode::Snapshot).then_some(&snapshots),
     )
 }

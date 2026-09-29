@@ -49,14 +49,41 @@ fn assembly_panic<const N: usize>(job: &Job<N>, seconds: f64, prefix: (u64, u64)
 
 /// One job, bytes in, bytes out.
 pub(super) fn inspect_job<const N: usize>(context: &Context<'_, N>, bytes: &[u8]) -> Vec<u8> {
+    inspect_job_inner(context, bytes, None)
+}
+
+/// The owned lease cannot escape into result bytes. It is dropped before this
+/// callback returns, therefore before the pool sends Message::Result.
+pub(super) fn inspect_job_with_snapshot<const N: usize>(
+    context: &Context<'_, N>,
+    bytes: &[u8],
+    snapshot: super::snapshot::Snapshot<N>,
+) -> Vec<u8> {
+    inspect_job_inner(context, bytes, Some(&snapshot))
+}
+
+fn inspect_job_inner<const N: usize>(
+    context: &Context<'_, N>,
+    bytes: &[u8],
+    snapshot: Option<&super::snapshot::Snapshot<N>>,
+) -> Vec<u8> {
     let job = match Job::<N>::decode(bytes) {
         Ok(job) => job,
         // A job the coordinator encoded cannot fail to decode; an empty
         // result fails P1's decode and is engine-fatal there.
         Err(_) => return Vec::new(),
     };
+    if let Some(view) = snapshot {
+        if job.v0 != view.version
+            || job.parent as usize >= view.published_len
+            || view.published_len != view.len()
+            || view.domains[job.parent as usize] != job.image
+        {
+            return Vec::new(); // P1 C5; never inspect against a different view.
+        }
+    }
     let domain = job.image.expand();
-    let mut resolver = Resolver::<N>::new();
+    let mut resolver = snapshot.map_or_else(Resolver::<N>::new, Resolver::with_snapshot);
     let started = Instant::now();
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         inspection::inspect(

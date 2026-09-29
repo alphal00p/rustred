@@ -339,6 +339,7 @@ pub(super) fn p1_check<const N: usize>(
     cut: Vec<Vec<u8>>,
     config: MergeConfig,
 ) -> Result<Checked<N>, Fatal> {
+    state.store.ensure_unique().map_err(fatal)?;
     let mut entries = Vec::with_capacity(cut.len());
     let mut seen = std::collections::BTreeSet::new();
     for bytes in cut {
@@ -365,6 +366,18 @@ pub(super) fn p1_check<const N: usize>(
             return Err(fatal(format!(
                 "P1: result v0 {} beyond k {}",
                 result.v0, state.k
+            )));
+        }
+        if let Some(work) = &result.lookup {
+            if !config.lockstep
+                || work.version != result.v0
+                || work.published_len as usize != state.store.len()
+            {
+                return Err(fatal(format!("P1: {parent}: lookup snapshot mismatch")));
+            }
+        } else if result.misses.iter().any(|miss| miss.target.is_some()) {
+            return Err(fatal(format!(
+                "P1: {parent}: stored target without snapshot"
             )));
         }
         let (class, cause) = classify(&result, counters.last_err)?;
@@ -546,6 +559,7 @@ pub(super) struct P2Counters {
     pub verify: VerifyCounters,
     pub miss_requests: u64,
     pub antichain_folded: u64,
+    pub inspector: super::state::InspectorLookup,
 }
 
 impl P2Counters {
@@ -554,6 +568,9 @@ impl P2Counters {
         state.verify.add(&self.verify);
         state.counters.miss_requests += self.miss_requests;
         state.counters.antichain_folded += self.antichain_folded;
+        state.inspector_lookup.queries += self.inspector.queries;
+        state.inspector_lookup.stored_hits += self.inspector.stored_hits;
+        state.inspector_lookup.seconds += self.inspector.seconds;
     }
 }
 
@@ -742,8 +759,46 @@ pub(super) fn p2_plan<const N: usize>(
     for (position, entry) in checked.entries.iter().enumerate() {
         let mut entry_slots = Vec::new();
         if entry.class.merges() && !entry.recurring_panic {
+            if let Some(work) = &entry.result.lookup {
+                let hits = work
+                    .lookup
+                    .exact_hits
+                    .checked_add(work.lookup.orthant_hits)
+                    .and_then(|n| n.checked_add(work.lookup.contained_hits))
+                    .ok_or_else(|| fatal("P2: inspector lookup count overflow"))?;
+                if hits.checked_add(work.lookup.misses) != Some(entry.result.misses.len() as u64)
+                    || hits
+                        != entry
+                            .result
+                            .misses
+                            .iter()
+                            .filter(|miss| miss.target.is_some())
+                            .count() as u64
+                    || work.lookup.reverse_candidates != 0
+                    || work.lookup.reverse_tests != 0
+                    || work.verify.calls != hits
+                    || work.verify.accepted != hits
+                    || work.verify.refused_range != 0
+                    || work.verify.refused_bucket != 0
+                    || work.verify.union_covers != 0
+                    || work
+                        .verify
+                        .raw_inclusions
+                        .checked_add(work.verify.recomputes)
+                        != Some(hits)
+                    || work.lookup.forward_tests > work.lookup.forward_candidates
+                    || u128::from(work.lookup.forward_candidates)
+                        > (published_len as u128) * (entry.result.misses.len() as u128)
+                {
+                    return Err(fatal("P2: inspector lookup accounting mismatch"));
+                }
+                counters.lookup.add(&work.lookup);
+                counters.verify.add(&work.verify);
+                counters.inspector.queries += entry.result.misses.len() as u64;
+                counters.inspector.stored_hits += hits;
+                counters.inspector.seconds += work.seconds;
+            }
             for miss in &entry.result.misses {
-                counters.miss_requests += 1;
                 // F1 (SND-7): the digest recomputed from the shipped image.
                 if miss.image.digest().0 != miss.digest {
                     return Err(fatal(format!(
@@ -752,6 +807,27 @@ pub(super) fn p2_plan<const N: usize>(
                     )));
                 }
                 let q = QueryImage::new(miss.image).map_err(|e| fatal(format!("P2: {e}")))?;
+                if let Some(id) = miss.target {
+                    // F1 is independently re-established above, even for raw
+                    // inclusion or EMPTY queries. Only the kernel Query/index
+                    // search is skipped; a shipped summary is never trusted.
+                    // This proves containment, not canonical winner selection:
+                    // determinism comes from the unchanged worker Store::lookup
+                    // over this exact frozen view, tested against all-miss P2.
+                    let token = verify(
+                        Container::Stored {
+                            id,
+                            domains: &state.store.domains,
+                            published_len,
+                        },
+                        &q,
+                        &mut counters.verify,
+                    )
+                    .ok_or_else(|| fatal(format!("P2: stored target {id} failed verify")))?;
+                    entry_slots.push(Ok(token));
+                    continue;
+                }
+                counters.miss_requests += 1;
                 let query = Query::new(q.core.clone(), miss.image.phase());
                 let found = state
                     .store
@@ -972,6 +1048,12 @@ pub(super) trait RecordBuilder<const N: usize> {
 #[cfg(test)]
 pub(super) const PREFLIGHT_STEPS: usize = 7;
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum PreflightError {
+    Stop(StopReason),
+    Engine(&'static str),
+}
+
 #[cfg(test)]
 thread_local! {
     /// Test seam: the preflight step that fails (`p3_preflight_failure_is_noop`).
@@ -1000,13 +1082,17 @@ pub(super) fn p3_preflight<const N: usize>(
     checked: &Checked<N>,
     plan: &MergePlan<N>,
     records: &mut dyn RecordOut,
-) -> Result<(), StopReason> {
+) -> Result<(), PreflightError> {
+    state
+        .store
+        .ensure_unique()
+        .map_err(PreflightError::Engine)?;
     let n_s = plan.survivors.len();
     if injected(0) || state.store.len() + n_s > state.id_cap() {
-        return Err(StopReason::DomainAllowance);
+        return Err(PreflightError::Stop(StopReason::DomainAllowance));
     }
     if injected(1) || state.k + 1 >= EPOCH_LIMIT {
-        return Err(StopReason::Capacity);
+        return Err(PreflightError::Stop(StopReason::Capacity));
     }
     let anchor_edges: usize = checked
         .entries
@@ -1027,7 +1113,7 @@ pub(super) fn p3_preflight<const N: usize>(
     let reserved = !injected(2)
         && state.reserve_ids(n_s).is_ok()
         && !injected(3)
-        && state.store.exact.try_reserve(&digests).is_ok()
+        && state.store.reserve_exact(&digests).is_ok()
         && !injected(4)
         && state.edges.try_reserve(edge_words).is_ok()
         && !injected(5)
@@ -1035,7 +1121,7 @@ pub(super) fn p3_preflight<const N: usize>(
         && !injected(6)
         && records.reserve().is_ok();
     if !reserved {
-        return Err(StopReason::RamGuard);
+        return Err(PreflightError::Stop(StopReason::RamGuard));
     }
     Ok(())
 }
@@ -1057,6 +1143,7 @@ pub(super) fn p3_apply<const N: usize>(
     records: &mut dyn RecordOut,
     requeue: &mut dyn FnMut(u32, u8),
 ) -> Result<Applied, Fatal> {
+    state.store.ensure_unique().map_err(fatal)?;
     state.poisoned = true;
     let mut applied = Applied::default();
     let merge_epoch = state.k + 1;

@@ -479,12 +479,14 @@ fn replayed_error_is_terminal_across_actual_merge_save_restore() {
             refusals_truncated: false,
             scope: None,
             g2: None,
+            lookup: None,
             misses: if job.parent == 0 {
                 vec![
                     crate::application::routed_campaign::walking::epoch::job::Miss {
                         ordinal: 0,
                         digest: target.digest().0,
                         image: target,
+                        target: None,
                     },
                 ]
             } else {

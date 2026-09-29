@@ -283,7 +283,7 @@ fn alias_is_forward_unprotected_retired_contained_and_has_exact_run() {
     state.edges = EdgeStore::from_owned_log(vec![0, 0], 2).unwrap();
     assert!(check(&mut state, &digest, None).is_err());
     let mut state = alias_fixture();
-    state.store.domains.swap(0, 1); // canonical outer no longer contains source
+    state.store.unique_mut().unwrap().domains.swap(0, 1); // canonical outer no longer contains source
     assert!(
         check(&mut state, &digest, None)
             .unwrap_err()

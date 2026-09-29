@@ -1,0 +1,249 @@
+use super::*;
+use crate::application::routed_campaign::walking::epoch::{
+    resolve::Resolver,
+    snapshot::{Publication, Snapshot},
+};
+use crate::application::routed_campaign::walking::inspection::{
+    Effect, Event, Finished, NativeStats,
+};
+use std::ops::ControlFlow;
+
+fn resolved(job: &Job<2>, queries: &[Domain<2>], view: Option<&Snapshot<2>>) -> JobResult<2> {
+    let mut resolver = view.map_or_else(Resolver::new, Resolver::with_snapshot);
+    for domain in queries {
+        assert_eq!(
+            resolver.emit(Event::one(Effect::Admit {
+                domain: domain.clone(),
+                successor: domain.phase == Phase::Apply,
+                conditional: false,
+            })),
+            ControlFlow::Continue(())
+        );
+    }
+    resolver.finish(
+        job,
+        Finished {
+            stats: NativeStats::Apply(rustred::solver::OwnerAppliedStats {
+                events: queries.len(),
+                successors: queries.iter().filter(|q| q.phase == Phase::Apply).count(),
+                ..Default::default()
+            }),
+            error: None,
+            error_kind: "none",
+            seconds: 0.0,
+        },
+    )
+}
+
+#[test]
+fn snapshot_lookup_matches_all_miss_records_edges_and_canonical_targets() {
+    let mut route = boxed([0, 0], [9, 9]);
+    route.phase = Phase::Route;
+    let initial = [
+        boxed([2, 0], [2, 0]),
+        boxed([0, 0], [9, 9]),
+        domain(OTHER, [0, 0], [None, None]),
+        route.clone(),
+    ];
+    let mut correlated = domain(APPLY, [0, 0], [None, Some(0)]);
+    correlated.powers.max_positive_power = Some(3);
+    let mut route_query = boxed([1, 0], [3, 0]);
+    route_query.phase = Phase::Route;
+    let queries = [
+        initial[0].clone(),
+        boxed([1, 0], [5, 0]),
+        domain(OTHER, [1, 0], [Some(4), None]),
+        correlated,
+        route_query,
+        boxed([20, 0], [24, 0]),
+        boxed([21, 0], [22, 0]),
+        initial[0].clone(),
+    ];
+    let mut off = state_with(&initial);
+    let mut on = state_with(&initial);
+    let mut off_dispatch = Dispatch::new();
+    let mut on_dispatch = Dispatch::new();
+    let off_job = jobs(&mut off, &mut off_dispatch, 1).remove(0);
+    let on_job = jobs(&mut on, &mut on_dispatch, 1).remove(0);
+    let old = resolved(&off_job, &queries, None);
+    let snapshot = on.store.snapshot(on.k).unwrap();
+    assert!(!std::ptr::eq::<Store<2>>(&*off.store, &*snapshot));
+    assert!(
+        std::ptr::eq::<Store<2>>(&*on.store, &*snapshot),
+        "same arena, not a clone"
+    );
+    let new = resolved(&on_job, &queries, Some(&snapshot));
+    assert_eq!(new.job_duplicates, 1);
+    assert_eq!(new.misses[0].target, Some(0), "retired exact still wins");
+    assert_eq!(new.misses[1].target, Some(1), "minimum live containment");
+    assert_eq!(new.misses[2].target, Some(2), "dominant orthant");
+    assert_eq!(new.misses[3].target, Some(1), "nonraw correlated summary");
+    assert_eq!(new.misses[4].target, Some(3), "Route keeps its own phase");
+    assert_eq!(new.misses[5].target, None);
+    assert_eq!(JobResult::decode(&new.encode()).unwrap(), new);
+    drop(snapshot);
+    let mut old_rows = Rows(Vec::new());
+    let mut new_rows = Rows(Vec::new());
+    merge_cut(&mut off, &mut off_dispatch, &mut old_rows, vec![old]).unwrap();
+    merge_cut(&mut on, &mut on_dispatch, &mut new_rows, vec![new]).unwrap();
+    assert_eq!(old_rows.0, new_rows.0);
+    assert_eq!(off.store.domains, on.store.domains);
+    assert_eq!(off.ledger.words(), on.ledger.words());
+    assert_eq!(off.edges.log(), on.edges.log());
+    assert_eq!(off.live, on.live);
+    assert_eq!(off.nodes, on.nodes);
+    let mut a = serde_json::to_value(off.counters).unwrap();
+    let mut b = serde_json::to_value(on.counters).unwrap();
+    assert!(a["miss_requests"].as_u64().unwrap() > b["miss_requests"].as_u64().unwrap());
+    a.as_object_mut().unwrap().remove("miss_requests");
+    b.as_object_mut().unwrap().remove("miss_requests");
+    assert_eq!(a, b, "only the explicit work counter differs");
+    assert_eq!(on.inspector_lookup.stored_hits, 5);
+    assert!(
+        on.verify.calls > off.verify.calls,
+        "independent P2 rechecks are charged"
+    );
+}
+
+#[test]
+fn snapshot_mutation_refusals_are_engine_errors_not_ram_stops() {
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let mut dispatch = Dispatch::new();
+    let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+    let checked = merge::p1_check(&mut state, vec![result(&job, &[]).encode()], CONFIG).unwrap();
+    let plan = merge::p2(&mut state, &checked).unwrap();
+    let before = (
+        state.store.domains.clone(),
+        state.ledger.words().to_vec(),
+        state.live.clone(),
+    );
+    let slot = Publication::new();
+    slot.publish(state.store.snapshot(state.k).unwrap())
+        .unwrap();
+    let lease = slot.acquire().unwrap();
+    slot.clear().unwrap();
+    assert!(state.store.unique_mut().is_err());
+    assert!(matches!(
+        admit_initial(&mut state, &boxed([20, 0], [21, 0])),
+        Err(AdmissionError::Internal(_))
+    ));
+    assert!(matches!(
+        merge::p3_preflight(&mut state, &checked, &plan, &mut Rows(Vec::new())),
+        Err(merge::PreflightError::Engine(_))
+    ));
+    assert_eq!(
+        (
+            state.store.domains.clone(),
+            state.ledger.words().to_vec(),
+            state.live.clone()
+        ),
+        before
+    );
+    drop(lease);
+    assert!(state.store.unique_mut().is_ok());
+    merge::p3_preflight(&mut state, &checked, &plan, &mut Rows(Vec::new())).unwrap();
+}
+
+#[test]
+fn snapshot_target_and_identity_mutations_fail_closed() {
+    for mutation in 0..9 {
+        let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+        let mut dispatch = Dispatch::new();
+        let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+        let view = state.store.snapshot(state.k).unwrap();
+        let mut r = resolved(&job, &[boxed([2, 0], [3, 0])], Some(&view));
+        drop(view);
+        match mutation {
+            0 => r.lookup.as_mut().unwrap().version += 1,
+            1 => r.lookup.as_mut().unwrap().published_len += 1,
+            2 => r.lookup = None,
+            3 => r.misses[0].target = Some(state.watermark()),
+            4 => r.misses[0].digest ^= 1,
+            5 => {
+                let d = domain(OTHER, [2, 0], [Some(3), Some(0)]);
+                r.misses[0].image = image(&d);
+                r.misses[0].digest = image(&d).digest().0;
+            }
+            6 => r.lookup.as_mut().unwrap().verify.accepted += 1,
+            7 => r.lookup.as_mut().unwrap().lookup.forward_candidates = u64::MAX,
+            8 => r.lookup.as_mut().unwrap().seconds = f64::NAN,
+            _ => unreachable!(),
+        }
+        let outcome = merge::p1_check(&mut state, vec![r.encode()], CONFIG)
+            .and_then(|checked| merge::p2(&mut state, &checked));
+        assert!(outcome.is_err(), "mutation {mutation}");
+        assert_eq!(state.watermark(), 1);
+        assert_eq!(state.edges.edges(), 0);
+    }
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+    let mut old_format = result(&job, &[]).encode();
+    old_format[..4].copy_from_slice(b"ERS3");
+    assert!(JobResult::<2>::decode(&old_format).is_err());
+}
+
+#[test]
+fn snapshot_raw_positive_cannot_bypass_native_summary_validity() {
+    for bad_powers in [false, true] {
+        let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+        let mut dispatch = Dispatch::new();
+        let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+        let view = state.store.snapshot(state.k).unwrap();
+        let mut r = resolved(&job, &[boxed([2, 0], [3, 0])], Some(&view));
+        drop(view);
+        let mut malformed = boxed([3, 0], [2, 0]);
+        if bad_powers {
+            malformed = boxed([2, 0], [3, 0]);
+            malformed.powers.min_power_difference = Some(5);
+            malformed.powers.max_power_difference = Some(4);
+        }
+        r.misses[0].image = image(&malformed);
+        r.misses[0].digest = r.misses[0].image.digest().0;
+        assert!(state.store.domains[0].contains(&r.misses[0].image));
+        assert!(QueryImage::new(r.misses[0].image).is_err());
+        let checked = merge::p1_check(&mut state, vec![r.encode()], CONFIG).unwrap();
+        assert!(merge::p2(&mut state, &checked).is_err());
+    }
+}
+
+#[test]
+fn snapshot_resolver_keeps_range_summary_and_empty_phase_obligations() {
+    let state = state_with(&[boxed([0, 0], [9, 9])]);
+    let view = state.store.snapshot(0).unwrap();
+    let job = Job {
+        seq: 1,
+        parent: 0,
+        v0: 0,
+        attempts: 0,
+        flags: 0,
+        image: state.store.domains[0],
+    };
+    for (domain, reason) in [
+        (boxed([65535, 0], [65535, 0]), BreakReason::ResolverRange),
+        (boxed([3, 0], [2, 0]), BreakReason::ResolverSummary),
+    ] {
+        let mut resolver = Resolver::with_snapshot(&view);
+        assert_eq!(
+            resolver.emit(Event::one(Effect::Admit {
+                domain,
+                successor: true,
+                conditional: false
+            })),
+            ControlFlow::Break(())
+        );
+        assert_eq!(resolver.finish_panic(&job, 0.0).break_reason, reason);
+    }
+    let mut empty_other = domain(OTHER, [0, 0], [Some(0), Some(0)]);
+    empty_other.powers.max_positive_power = Some(0);
+    assert!(
+        QueryImage::new(image(&empty_other))
+            .unwrap()
+            .core
+            .is_empty()
+    );
+    let r = resolved(&job, &[empty_other], Some(&view));
+    assert_eq!(
+        r.misses[0].target, None,
+        "EMPTY must not bypass owner/phase"
+    );
+}

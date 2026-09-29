@@ -9,8 +9,9 @@
 //! the merge through the
 //! kernel lane's ID-ordered index (canonical min-ID semantics), serial P1-P3,
 //! closure through the legacy Tracker with forced refreshes only, typed
-//! records in their JSON view. No checkpoints (S3), no inspector-side
-//! lookups (S4). Soundness rests on the invariants S1-S7 of the protocol:
+//! records in their JSON view. The public entry remains S2; private S3
+//! checkpoint/controller and opt-in lockstep S4 lookup paths are separate.
+//! Soundness rests on the invariants S1-S7 of the protocol:
 //! every edge target and every transfer holds a `Verified` token (`verify`),
 //! ledger6 refuses every transition outside its table, a source seals only
 //! after its complete sorted edge run.
@@ -28,6 +29,7 @@ mod ledger6;
 mod merge;
 mod records;
 mod resolve;
+mod snapshot;
 mod state;
 mod store;
 #[cfg(test)]
@@ -240,6 +242,10 @@ fn admit_initial_with<const N: usize>(
     if state.poisoned {
         return Err(E::Internal("initial admission: state is poisoned".into()));
     }
+    state
+        .store
+        .ensure_unique()
+        .map_err(|e| E::Internal(e.into()))?;
     let image =
         CompactDomain::try_from_domain(domain).map_err(|e| E::Refused(format!("input: {e}")))?;
     let q = QueryImage::new(image).map_err(|e| E::Refused(format!("input: {e}")))?;
@@ -262,11 +268,7 @@ fn admit_initial_with<const N: usize>(
     checkpoint().map_err(E::index)?;
     state.reserve_ids(1).map_err(E::index)?;
     checkpoint().map_err(E::index)?;
-    state
-        .store
-        .exact
-        .try_reserve(&[q.digest])
-        .map_err(E::index)?;
+    state.store.reserve_exact(&[q.digest]).map_err(E::index)?;
     let prepared = state
         .store
         .prepare_initial(&image, &query, &mut checkpoint)
@@ -590,6 +592,10 @@ pub(super) fn run<const N: usize>(
                         if let Err(stop) =
                             merge::p3_preflight(&mut state, &checked, &plan, &mut Sink(&mut sink))
                         {
+                            let stop = match stop {
+                                merge::PreflightError::Stop(stop) => stop,
+                                merge::PreflightError::Engine(error) => return Err(Fatal(error.into())),
+                            };
                             merge::discard_cut(&mut state, &checked, &mut |id, a| {
                                 dispatch.requeue(id, a)
                             })?;

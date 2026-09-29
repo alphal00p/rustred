@@ -169,7 +169,7 @@ pub(super) enum Hit {
     Contained,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LookupCounters {
     pub exact_hits: u64,
@@ -177,7 +177,8 @@ pub(super) struct LookupCounters {
     pub contained_hits: u64,
     pub misses: u64,
     /// Forward candidates handed to the index predicate (prefilter-rejected
-    /// runs included): `containment_checks` of semantics 3 (in-merge only).
+    /// runs included). Includes inspector work when private S4 lookup is used;
+    /// coordinator verification is counted separately in VerifyCounters.
     pub forward_candidates: u64,
     pub forward_tests: u64,
     pub reverse_candidates: u64,

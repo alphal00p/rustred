@@ -1,10 +1,13 @@
 //! Nonfinal committed checkpoint, same-session continuation and width-changed
 //! cold reopen. No public CP6 activation or crash-during-CAS claim.
-use super::native_equivalence::{closed_fixture, completed_snapshot, finish_native};
+use super::native_equivalence::{closed_fixture, completed_snapshot, finish_native_mode};
 use super::periodic_tests::saved_scalars;
 use super::*;
 use crate::application::routed_campaign::walking::{
-    epoch::inspector::{Context, inspect_job},
+    epoch::{
+        inspector::{Context, inspect_job, inspect_job_with_snapshot},
+        snapshot::Publication,
+    },
     initial_overlap::InitialOverlapIndex,
 };
 
@@ -18,12 +21,21 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
     {
         return; // Explicit skip is no native equivalence coverage.
     }
+    for mode in [
+        controller::LookupMode::AllMiss,
+        controller::LookupMode::Snapshot,
+    ] {
+        periodic_native_mode(mode);
+    }
+}
+
+fn periodic_native_mode(mode: controller::LookupMode) {
     let mut fixture = closed_fixture();
     // Two original replay jobs plus a still-Pending third initial ID guarantee
     // a genuinely nonfinal first merge, independently of native descendants.
     fixture.save(3, 2);
     let mut baseline = fixture.open().unwrap();
-    finish_native(&fixture, &mut baseline);
+    finish_native_mode(&fixture, &mut baseline, mode);
     drop(baseline);
     let expected = completed_snapshot(&mut fixture.open().unwrap());
 
@@ -35,6 +47,7 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
     let active = AtomicUsize::new(0);
     let calls = AtomicUsize::new(0);
     let overlap = InitialOverlapIndex::empty();
+    let snapshots = Publication::new();
     let authorize = || {
         symbolica::license::LicenseManager::is_licensed()
             .then_some(())
@@ -43,15 +56,18 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
     let inspect = |bytes: &[u8], cancel: &AtomicBool| {
         active.fetch_add(1, Ordering::SeqCst);
         calls.fetch_add(1, Ordering::SeqCst);
-        let native = inspect_job(
-            &Context {
-                reducer: &fixture.reducer,
-                request: &fixture.request,
-                overlap: &overlap,
-                cancellation: cancel,
-            },
-            bytes,
-        );
+        let context = Context {
+            reducer: &fixture.reducer,
+            request: &fixture.request,
+            overlap: &overlap,
+            cancellation: cancel,
+        };
+        let native = match mode {
+            controller::LookupMode::AllMiss => inspect_job(&context, bytes),
+            controller::LookupMode::Snapshot => {
+                inspect_job_with_snapshot(&context, bytes, snapshots.acquire().unwrap())
+            }
+        };
         let result = JobResult::<1>::decode(&native).unwrap();
         assert!(!result.panic);
         assert_eq!(result.error_kind, ErrorKind::None);
@@ -62,7 +78,7 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
     };
     let mut saves = 0;
     assert_eq!(
-        controller::run_authorized_periodic(
+        controller::run_authorized_lookup_periodic(
             &mut periodic,
             &fixture.identity(),
             16,
@@ -106,6 +122,7 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
                     }
                 }
             },
+            (mode == controller::LookupMode::Snapshot).then_some(&snapshots),
         )
         .unwrap(),
         Outcome::Drained
@@ -128,7 +145,7 @@ fn real_native_periodic_continuation_and_reopen_preserve_full_snapshot() {
     assert_eq!(resumed.dispatch.checkpoint_snapshot().counter, 0);
     let before_records = resumed.records.total();
     assert_eq!(before_records, 2);
-    finish_native(&fixture, &mut resumed);
+    finish_native_mode(&fixture, &mut resumed, mode);
     assert!(resumed.records.total() > before_records);
     drop(resumed);
     assert_eq!(completed_snapshot(&mut fixture.open().unwrap()), expected);

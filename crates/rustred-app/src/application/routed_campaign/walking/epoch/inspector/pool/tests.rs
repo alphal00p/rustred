@@ -217,3 +217,4 @@ fn one_worker_capability_refusal_wakes_authorized_idle_siblings_without_dispatch
     assert_eq!(checks.load(Ordering::Relaxed), 3);
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
+mod snapshot;
