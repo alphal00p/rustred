@@ -16,6 +16,28 @@ pub(super) struct EdgeStore {
     records_digest: blake3::Hasher,
 }
 
+/// Feed the existing byte stream in bounded pieces, not one hasher call per
+/// word. Explicit LE conversion is portable; no allocation or native-endian
+/// view of the log is involved. The tail never includes unused scratch bytes.
+fn feed_words(digest: &mut blake3::Hasher, words: &[u32]) {
+    let mut bytes = [0u8; 1024];
+    for chunk in words.chunks(256) {
+        let used = chunk.len() * 4;
+        for (word, slot) in chunk.iter().zip(bytes[..used].chunks_exact_mut(4)) {
+            slot.copy_from_slice(&word.to_le_bytes());
+        }
+        digest.update(&bytes[..used]);
+    }
+}
+
+fn feed_record(digest: &mut blake3::Hasher, id: u32, tag: u8, distinct_edges: u32) {
+    let mut bytes = [0u8; 9];
+    bytes[..4].copy_from_slice(&id.to_le_bytes());
+    bytes[4] = tag;
+    bytes[5..].copy_from_slice(&distinct_edges.to_le_bytes());
+    digest.update(&bytes);
+}
+
 #[derive(Clone)]
 pub(super) struct Runs<'a> {
     remaining: &'a [u32],
@@ -77,9 +99,7 @@ impl EdgeStore {
             store.runs += 1;
             store.edges += count as u64;
             store.self_edges += u64::from(targets.binary_search(source).is_ok());
-            for word in &remaining[..2 + count] {
-                store.edge_digest.update(&word.to_le_bytes());
-            }
+            feed_words(&mut store.edge_digest, &remaining[..2 + count]);
             remaining = &remaining[2 + count..];
         }
         store.log = log;
@@ -113,24 +133,19 @@ impl EdgeStore {
             return Err(format!("edge run of {source} not strictly increasing"));
         }
         let n = u32::try_from(targets.len()).map_err(|_| "edge run length")?;
+        let start = self.log.len();
         self.log.push(source);
         self.log.push(n);
         self.log.extend_from_slice(targets);
         self.runs += 1;
         self.edges += u64::from(n);
         self.self_edges += u64::from(targets.binary_search(&source).is_ok());
-        self.edge_digest.update(&source.to_le_bytes());
-        self.edge_digest.update(&n.to_le_bytes());
-        for target in targets {
-            self.edge_digest.update(&target.to_le_bytes());
-        }
+        feed_words(&mut self.edge_digest, &self.log[start..]);
         Ok(())
     }
     /// Fold one merged native into the records digest (out-degree check).
     pub fn fold_record(&mut self, id: u32, tag: u8, distinct_edges: u32) {
-        self.records_digest.update(&id.to_le_bytes());
-        self.records_digest.update(&[tag]);
-        self.records_digest.update(&distinct_edges.to_le_bytes());
+        feed_record(&mut self.records_digest, id, tag, distinct_edges);
     }
     pub fn log(&self) -> &[u32] {
         &self.log
@@ -164,9 +179,7 @@ impl EdgeStore {
         for (source, targets) in self.run_iter() {
             match ledger.tag(source) {
                 Some(tag @ (Tag::Native | Tag::NativeFrontier | Tag::NativeError)) => {
-                    digest.update(&source.to_le_bytes());
-                    digest.update(&[tag as u8]);
-                    digest.update(&(targets.len() as u32).to_le_bytes());
+                    feed_record(&mut digest, source, tag as u8, targets.len() as u32);
                 }
                 Some(Tag::Alias) => {}
                 _ => return Err("epoch record digest run from unmerged source".into()),
@@ -179,3 +192,6 @@ impl EdgeStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
