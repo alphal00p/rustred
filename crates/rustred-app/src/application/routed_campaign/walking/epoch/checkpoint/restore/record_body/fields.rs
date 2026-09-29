@@ -133,6 +133,7 @@ impl<'de> Visitor<'de> for Seed<'_> {
                 | "seconds"
                 | "representative_id"
                 | "local_inspection_finished"
+                | "rescue_abandoned"
                 | "local_classification_discharged"
                 | "residual_inspection_finished"
                 | "native_inspection_scope"

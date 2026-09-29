@@ -175,8 +175,15 @@ fn plan<const N: usize>(
         .map(|a| rescue::parse(a, N))
         .collect::<Result<Vec<_>, _>>()
         .map_err(input_error)?;
-    let raw = checkpoint::read_raw::<N>(&options.checkpoint).map_err(input_error)?;
-    if checkpoint::request_binding(request) != raw.request {
+    let saved =
+        super::verify_closure::rescue_checkpoint::<N>(&options.checkpoint).map_err(input_error)?;
+    let raw = &saved.raw;
+    let binding = if raw.publication_policy == "epoch" {
+        checkpoint::epoch_request_binding(request)
+    } else {
+        checkpoint::request_binding(request)
+    };
+    if binding != raw.request {
         return Err(AppError::input(
             "checkpoint request digest differs from the command's request/queries binding",
         ));
@@ -233,8 +240,9 @@ fn plan<const N: usize>(
     let wanted: BTreeSet<usize> = frontier_nodes.iter().copied().collect();
     // Their frontier records (kind and disposition of every entry).
     let mut entries: BTreeMap<usize, Vec<(String, String)>> = BTreeMap::new();
-    for (path, _) in &raw.records {
-        let file = std::fs::File::open(path)
+    for (index, (path, _)) in raw.records.iter().enumerate() {
+        let file = saved
+            .record_reader(index)
             .map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
         for line in BufReader::with_capacity(1 << 20, file).lines() {
             let line = line.map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;

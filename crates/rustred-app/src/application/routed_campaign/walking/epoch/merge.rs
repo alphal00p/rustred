@@ -247,6 +247,13 @@ pub(super) fn p1_anchors<const N: usize>(
         return Ok(None);
     };
     let domains = &state.store.domains;
+    if record
+        .anchors
+        .iter()
+        .any(|anchor| state.store.is_quarantined(anchor.anchor))
+    {
+        return Err(fatal("P1: quarantined anchor"));
+    }
     let published_len = state.store.len();
     let node = domains[parent as usize];
     let anchor_map = &state.anchors;
@@ -269,7 +276,9 @@ pub(super) fn p1_anchors<const N: usize>(
     };
     let cover = |r: &AnchorRecord| union_cover(&node, domains, r, &cut_of);
     let visible = |id: u32, v0: u64| {
-        merged_view.contains(id, v0) && super::g2::eligible(domains, &state.ledger, anchor_map, id)
+        merged_view.contains(id, v0)
+            && !state.store.is_quarantined(id)
+            && super::g2::eligible(domains, &state.ledger, anchor_map, id)
     };
     let view = AnchorView {
         p0: state.p0,
@@ -384,6 +393,35 @@ pub(super) fn p1_check<const N: usize>(
             )));
         }
         let (class, cause) = classify(&result, counters.last_err)?;
+        let abandoned = result.kind == NativeKind::Abandoned;
+        if abandoned != (super::rescue::job_flags(state, parent) != 0)
+            || abandoned
+                && (class != Class::C4
+                    || result.emitted != 1
+                    || result.accepted != 1
+                    || result.successors != 0
+                    || result.conditional != 0
+                    || result.known_reuse != 0
+                    || result.job_duplicates != 0
+                    || result.optional != [0; 3]
+                    || result.route_masks != 0
+                    || result.route_joint_pruned != 0
+                    || !result.refusals.is_empty()
+                    || result.refusals_truncated
+                    || result.frontiers.len() != 1
+                    || !result.misses.is_empty()
+                    || result.scope.is_some()
+                    || result.g2.is_some()
+                    || result.error.is_some()
+                    || result.panic
+                    || serde_json::from_slice::<serde_json::Value>(&result.frontiers[0])
+                        .ok()
+                        .is_none_or(|value| {
+                            value["kind"] != super::super::inspection::RESCUE_ABANDONED_KIND
+                        }))
+        {
+            return Err(fatal("P1: unauthorized or malformed rescue abandonment"));
+        }
         let recurring_panic = result.panic && class == Class::C2;
         let anchors = p1_anchors(state, &result, config)?;
         entries.push(CheckedResult {
@@ -399,6 +437,7 @@ pub(super) fn p1_check<const N: usize>(
     let merging = || entries.iter().filter(|entry| entry.class.merges());
     let events: u64 = merging().map(|entry| entry.result.emitted).sum();
     let frontiers: u64 = merging()
+        .filter(|entry| entry.result.kind != NativeKind::Abandoned)
         .map(|entry| entry.result.frontiers.len() as u64)
         .sum();
     let stop = if state.counters.events.saturating_add(events) > state.max_events {
@@ -813,6 +852,9 @@ pub(super) fn p2_plan<const N: usize>(
                 }
                 let q = QueryImage::new(miss.image).map_err(|e| fatal(format!("P2: {e}")))?;
                 if let Some(id) = miss.target {
+                    if state.store.is_quarantined(id) {
+                        return Err(fatal("P2: stored target is quarantined"));
+                    }
                     // F1 is independently re-established above, even for raw
                     // inclusion or EMPTY queries. Only the kernel Query/index
                     // search is skipped; a shipped summary is never trusted.
@@ -1324,7 +1366,8 @@ pub(super) fn p3_apply<const N: usize>(
         }
         targets.sort_unstable();
         targets.dedup();
-        let sealed = entry.class == Class::C0;
+        let abandoned = entry.result.kind == NativeKind::Abandoned;
+        let sealed = entry.class == Class::C0 && !abandoned;
         state
             .edges
             .append_run(parent, &targets, state.is_sealed(parent))
@@ -1332,20 +1375,24 @@ pub(super) fn p3_apply<const N: usize>(
         for &target in &targets {
             state.tracker.edge(parent as usize, target as usize);
         }
-        let inspected = matches!(entry.class, Class::C0 | Class::C4);
+        let inspected = matches!(entry.class, Class::C0 | Class::C4) && !abandoned;
         state.tracker.finish(parent as usize, inspected, sealed);
         let anchor_kind = entry.anchor_kind();
-        let transition = match entry.class {
-            Class::C0 => Transition::T4Native {
-                epoch: merge_epoch,
-                residual: anchor_kind.is_some_and(AnchorKind::is_g2),
-                dband: anchor_kind == Some(AnchorKind::InitialDBand),
-            },
-            Class::C4 => Transition::T5Frontier { epoch: merge_epoch },
-            _ => Transition::T6Error {
-                epoch: merge_epoch,
-                err: error_class(entry),
-            },
+        let transition = if abandoned {
+            Transition::T13Abandon { epoch: merge_epoch }
+        } else {
+            match entry.class {
+                Class::C0 => Transition::T4Native {
+                    epoch: merge_epoch,
+                    residual: anchor_kind.is_some_and(AnchorKind::is_g2),
+                    dband: anchor_kind == Some(AnchorKind::InitialDBand),
+                },
+                Class::C4 => Transition::T5Frontier { epoch: merge_epoch },
+                _ => Transition::T6Error {
+                    epoch: merge_epoch,
+                    err: error_class(entry),
+                },
+            }
         };
         state
             .ledger
@@ -1398,12 +1445,16 @@ pub(super) fn p3_apply<const N: usize>(
         c.conditional += r.conditional;
         c.known_reuse += r.known_reuse;
         c.job_duplicates += r.job_duplicates;
-        c.frontiers += r.frontiers.len() as u64;
-        c.natives += 1;
+        c.frontiers += if abandoned {
+            0
+        } else {
+            r.frontiers.len() as u64
+        };
+        c.natives += u64::from(!abandoned);
         if entry.class == Class::C2 {
             c.native_errors += 1;
             any_error = true;
-        } else {
+        } else if !abandoned {
             c.completed += 1;
             c.initial_inspected += u64::from(parent < state.p0);
         }
@@ -1416,7 +1467,7 @@ pub(super) fn p3_apply<const N: usize>(
             c.optional_original += r.optional[1];
             c.optional_coalesced += r.optional[2];
         }
-        if entry.class == Class::C4 {
+        if entry.class == Class::C4 && !abandoned {
             any_frontier = true;
             state
                 .frontier_counts

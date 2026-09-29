@@ -344,7 +344,7 @@ pub(super) fn check<const N: usize>(
     sections: &EpochSections,
     domains: &[CompactDomain<N>],
     flags: &[u8],
-    record_of: &dyn Fn(usize) -> Option<(bool, u32, bool, Option<usize>)>,
+    record_of: &dyn Fn(usize) -> Option<(bool, u32, bool, Option<usize>, bool)>,
     add: &mut dyn FnMut(&'static str, String),
 ) {
     let total = domains.len();
@@ -361,11 +361,11 @@ pub(super) fn check<const N: usize>(
         );
         return;
     }
-    let mut counts = [0u64; 7];
+    let mut counts = [0u64; 8];
     let mut alias_to = vec![None; total];
     for (id, &word) in sections.ledger.iter().enumerate() {
         let (tag, payload) = decode(word);
-        if tag > 6 {
+        if tag > 7 {
             add(
                 "epoch_ledger",
                 format!("id {id}: invalid ledger6 tag {tag}"),
@@ -380,13 +380,13 @@ pub(super) fn check<const N: usize>(
                 format!("id {id}: ledger6 tag {tag} vs seal flag {sealed}"),
             );
         }
-        if matches!(tag, 2..=4) && (payload & ((1 << 48) - 1)) > k {
+        if matches!(tag, 2..=4 | 7) && (payload & ((1 << 48) - 1)) > k {
             add("epoch_ledger", format!("id {id}: merge epoch beyond k {k}"));
         }
         let record = record_of(id);
         match tag {
             2..=4 => match record {
-                Some((true, frontiers, error, _)) => {
+                Some((true, frontiers, error, _, false)) => {
                     let expected = if error {
                         4
                     } else if frontiers > 0 {
@@ -426,6 +426,18 @@ pub(super) fn check<const N: usize>(
                     );
                 }
             }
+            7 => {
+                if record != Some((true, 1, false, None, true))
+                    || flags[id] & 7 != 0
+                    || payload == 0
+                    || payload >> 48 != 0
+                {
+                    add(
+                        "epoch_abandoned",
+                        format!("id {id}: abandonment record, flags or epoch differs"),
+                    );
+                }
+            }
             _ => {
                 if record.is_some() {
                     add(
@@ -444,6 +456,7 @@ pub(super) fn check<const N: usize>(
         "native_error",
         "alias",
         "exhausted",
+        "abandoned",
     ];
     for (index, name) in names.iter().enumerate() {
         if manifest["ledger6_counts"][name].as_u64() != Some(counts[index]) {
@@ -491,7 +504,13 @@ pub(super) fn check<const N: usize>(
                     );
                 }
             }
-            2..=4 => {
+            2..=4 | 7 => {
+                if tag == 7 && !targets.is_empty() {
+                    add(
+                        "epoch_abandoned",
+                        format!("abandoned {source} has dependencies"),
+                    );
+                }
                 records_digest.update(&(source as u32).to_le_bytes());
                 records_digest.update(&[tag as u8]);
                 records_digest.update(&(targets.len() as u32).to_le_bytes());
@@ -503,7 +522,7 @@ pub(super) fn check<const N: usize>(
         }
     }
     for (id, &word) in sections.ledger.iter().enumerate() {
-        if matches!(decode(word).0, 2..=5) && !seen[id] {
+        if matches!(decode(word).0, 2..=5 | 7) && !seen[id] {
             add("epoch_runs", format!("merged id {id} has no edge run"));
         }
     }

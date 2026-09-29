@@ -31,7 +31,9 @@ pub(super) fn eligible<const N: usize>(
 }
 
 pub(super) fn publish<const N: usize>(state: &mut EpochState<N>, id: u32) {
-    if !eligible(&state.store.domains, &state.ledger, &state.anchors, id) {
+    if state.store.is_quarantined(id)
+        || !eligible(&state.store.domains, &state.ledger, &state.anchors, id)
+    {
         return;
     }
     let Ok(Entry6::Native { epoch, .. }) = state.ledger.get(id) else {

@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 mod admission;
 mod controller;
 mod public;
+mod rescue;
 pub(in crate::application::routed_campaign::walking::epoch) use public::run;
 
 pub(super) struct Restored<const N: usize> {
@@ -116,6 +117,7 @@ pub(super) fn open<const N: usize>(
         frontier_counts,
         dispatch: saved,
         record_segments,
+        rescue,
         ..
     } = decoded;
     let SavedDispatch {
@@ -137,6 +139,7 @@ pub(super) fn open<const N: usize>(
         anchors,
         merged_view: MergedView::default(),
         g2_store: None,
+        rescue,
         tracker,
         k: scalars.k,
         p0: scalars.p0,

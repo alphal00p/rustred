@@ -474,7 +474,7 @@ pub(super) struct SectionReceipt {
 /// Fixed-memory buffering and incremental hashing. Failed writes/flushes
 /// never return a digest receipt. No destructor retries buffered I/O after
 /// failure, so fault ordering is explicit and reproducible.
-struct Stream<W> {
+pub(super) struct Stream<W> {
     output: W,
     buffer: [u8; BUFFER_BYTES],
     used: usize,
@@ -484,7 +484,7 @@ struct Stream<W> {
 }
 
 impl<W: Write> Stream<W> {
-    fn new(output: W) -> Self {
+    pub(super) fn new(output: W) -> Self {
         Self {
             output,
             buffer: [0; BUFFER_BYTES],
@@ -513,7 +513,7 @@ impl<W: Write> Stream<W> {
         Ok(())
     }
 
-    fn finish(mut self) -> io::Result<(W, Digest)> {
+    pub(super) fn finish(mut self) -> io::Result<(W, Digest)> {
         self.flush()?;
         Ok((
             self.output,

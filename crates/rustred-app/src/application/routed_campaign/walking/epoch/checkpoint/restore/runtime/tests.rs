@@ -26,6 +26,7 @@ use std::sync::Arc;
 mod admission_tests;
 mod controller_tests;
 mod public_tests;
+mod rescue_tests;
 
 struct Fixture {
     directory: Directory,
@@ -538,7 +539,7 @@ fn foreign_manifest_shapes_refuse_previous_without_reserving_session() {
         "edge_digest":[],"edge_runs":0,"edges":0,"self_edges":0,"extra":{},
         "family_closure_claim":false});
     let mut future_schema = good.clone();
-    future_schema["manifest"]["schema"] = json!(2);
+    future_schema["manifest"]["schema"] = json!(3);
     future_schema["manifest"]["future_field"] = json!(true);
     let mut future_semantics = good.clone();
     future_semantics["manifest"]["walk_semantics_version"] = json!(4);

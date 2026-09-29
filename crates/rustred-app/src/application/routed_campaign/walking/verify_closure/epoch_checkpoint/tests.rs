@@ -23,7 +23,7 @@ impl Fixture {
             permissions: Vec::new(),
             manifest: Manifest {
                 format: FORMAT.into(),
-                schema: 1,
+                schema: 2,
                 generation: 1,
                 arity: 1,
                 walk_semantics_version: 3,
@@ -54,16 +54,16 @@ impl Fixture {
         value.section(8, 1, vec![0]);
         value.section(9, 0, vec![]);
         let empty_digest = blake3::hash(b"").to_hex().to_string();
-        let scalar = json!({"schema":2,"request":"bound-request","owner_count":0,
+        let scalar = json!({"schema":3,"request":"bound-request","owner_count":0,
             "owners_digest":blake3::hash(b"[]").as_bytes(),"walk_semantics_version":3,
             "lockstep_b":16,"max_domains":100,"k":0,"watermark":1,"p0":1,
-            "ledger_counts":[1,0,0,0,0,0,0],
+            "ledger_counts":[1,0,0,0,0,0,0,0],
             "walk":{"events":0,"successors":0,"conditional":0,"known_reuse":0,"job_duplicates":0,"frontiers":0,
-                "completed":0,"natives":0,"routed":0,"route_masks":0,"initial_inspected":0,"dispatched":0},
+                "completed":0,"natives":0,"routed":0,"route_masks":0,"initial_inspected":0,"dispatched":0,"g2_records":0},
             "closure":{"initial_closed":0,"unavailable":null},"edge_runs":0,"edges":0,
             "records_digest":empty_digest,"edge_digest":empty_digest,
             "initial_admission":"in_progress","total_queries":2,"processed_queries":1,"input_frontiers":0,
-            "amendments":[],"quarantined":[],"abandoned_obligations":[],"g2":"off",
+            "amendments":[],"quarantined":0,"abandoned_obligations":0,"g2":"off",
             "imported_prefix":0,"engine_certification_void":false});
         value.add("meta", 1, serde_json::to_vec(&scalar).unwrap());
         value.add("owners", 0, vec![]);

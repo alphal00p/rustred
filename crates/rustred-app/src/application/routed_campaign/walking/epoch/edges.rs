@@ -178,7 +178,9 @@ impl EdgeStore {
         let mut digest = blake3::Hasher::new();
         for (source, targets) in self.run_iter() {
             match ledger.tag(source) {
-                Some(tag @ (Tag::Native | Tag::NativeFrontier | Tag::NativeError)) => {
+                Some(
+                    tag @ (Tag::Native | Tag::NativeFrontier | Tag::NativeError | Tag::Abandoned),
+                ) => {
                     feed_record(&mut digest, source, tag as u8, targets.len() as u32);
                 }
                 Some(Tag::Alias) => {}

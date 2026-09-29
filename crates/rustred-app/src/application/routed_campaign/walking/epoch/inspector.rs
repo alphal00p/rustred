@@ -84,13 +84,25 @@ fn inspect_job_inner<const N: usize>(
     let mut resolver = snapshot.map_or_else(Resolver::<N>::new, Resolver::with_snapshot);
     let started = Instant::now();
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        super::g2::inspect(context, &job, &mut |event| resolver.emit(event))
+        if job.flags & super::job::JOB_RESCUE_ABANDONED != 0 {
+            (
+                super::super::inspection::abandoned(&job.image.expand(), &mut |event| {
+                    resolver.emit(event)
+                }),
+                None,
+            )
+        } else {
+            super::g2::inspect(context, &job, &mut |event| resolver.emit(event))
+        }
     }));
     let prefix = resolver.prefix();
     let seconds = || started.elapsed().as_secs_f64();
     let encoded = match outcome {
         Ok((finished, part)) => catch_unwind(AssertUnwindSafe(|| {
             let mut result: JobResult<N> = resolver.finish(&job, finished);
+            if job.flags & super::job::JOB_RESCUE_ABANDONED != 0 {
+                result.kind = super::job::NativeKind::Abandoned;
+            }
             if let Some(part) = part {
                 result.kind = super::job::NativeKind::G2Residual;
                 result.g2 = Some(part);

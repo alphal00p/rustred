@@ -78,6 +78,17 @@ fn input_inventory(inputs: &[Value], frontiers: &[Value]) -> Result<(), String> 
     let mut next_frontier = 0;
     for row in inputs {
         let object = row.as_object().ok_or("CP6 input row object")?;
+        let amended = match object.get("amendment") {
+            None => false,
+            Some(value)
+                if value.as_u64().is_some_and(|n| n > 0)
+                    && row["role"] == "auxiliary"
+                    && row["role_declared"] == true =>
+            {
+                true
+            }
+            _ => return Err("CP6 amendment row shape".into()),
+        };
         if !row["id"].is_string()
             || !matches!(row["role"].as_str(), Some("required" | "auxiliary"))
             || !row["role_declared"].is_boolean()
@@ -86,7 +97,9 @@ fn input_inventory(inputs: &[Value], frontiers: &[Value]) -> Result<(), String> 
         }
         match object.get("domain") {
             Some(Value::Number(id)) if id.as_u64().is_some_and(|n| n < u32::MAX as u64) => {
-                if object.len() != 4 || object.contains_key("source_validity_unresolved") {
+                if object.len() != 4 + usize::from(amended)
+                    || object.contains_key("source_validity_unresolved")
+                {
                     return Err("CP6 mapped input has unresolved or unknown fields".into());
                 }
             }
@@ -372,18 +385,19 @@ fn read_inner<const N: usize>(
     let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     let manifest = envelope.manifest;
     if manifest.format != FORMAT
-        || manifest.schema != 1
+        || manifest.schema != 2
         || manifest.generation == 0
         || manifest.arity != N
         || manifest.walk_semantics_version != 3
         || !manifest.resumable
-        || manifest.files.len() != 15
+        || manifest.files.len()
+            != 15 + usize::from(manifest.files.iter().any(|file| file.key == "rescue"))
         || *blake3::hash(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?).as_bytes()
             != envelope.blake3
     {
         return Err("manifest identity or digest differs".into());
     }
-    let names: Vec<String> = (1..=9)
+    let mut names: Vec<String> = (1..=9)
         .map(|n| format!("state-{n}"))
         .chain(
             [
@@ -397,6 +411,10 @@ fn read_inner<const N: usize>(
             .map(str::to_owned),
         )
         .collect();
+    let rescue_profile = manifest.files.iter().any(|file| file.key == "rescue");
+    if rescue_profile {
+        names.push("rescue".into());
+    }
     let file = |key: &str| -> Result<&FileRef, String> {
         manifest
             .files
@@ -416,6 +434,34 @@ fn read_inner<const N: usize>(
     let p0 = count(&scalar, "p0")?;
     let processed = count(&scalar, "processed_queries")?;
     let query_total = count(&scalar, "total_queries")?;
+    let amendments: Vec<super::super::rescue::AmendmentRef> =
+        serde_json::from_value(scalar["amendments"].clone()).map_err(|e| e.to_string())?;
+    if amendments.len() > super::super::rescue::MAX_AMENDMENTS
+        || amendments.is_empty() == rescue_profile
+    {
+        return Err("CP6 rescue profile differs".into());
+    }
+    let mut amended_queries = 0u64;
+    let mut previous_domain = p0 as u64;
+    let mut previous_generation = 0;
+    for (index, amendment) in amendments.iter().enumerate() {
+        if amendment.sequence != index as u64 + 1
+            || amendment.first_input != query_total as u64 + amended_queries
+            || amendment.first_domain < previous_domain
+            || amendment.first_domain > total as u64
+            || amendment.quarantined > amendment.first_domain
+            || amendment.resumed_generation == 0
+            || amendment.resumed_generation >= manifest.generation
+            || amendment.resumed_generation < previous_generation
+        {
+            return Err("CP6 amendment cursor inventory differs".into());
+        }
+        previous_domain = amendment.first_domain;
+        previous_generation = amendment.resumed_generation;
+        amended_queries = amended_queries
+            .checked_add(amendment.queries)
+            .ok_or("CP6 amendment count overflow")?;
+    }
     let rolling = match scalar.get("epoch_rolling") {
         None => false,
         Some(value) => value.as_bool().ok_or("invalid rolling policy")?,
@@ -430,7 +476,7 @@ fn read_inner<const N: usize>(
     let admission = scalar["initial_admission"]
         .as_str()
         .ok_or("missing admission state")?;
-    if scalar["schema"] != 2
+    if scalar["schema"] != 3
         || scalar["walk_semantics_version"] != 3
         || p0 > total
         || total >= u32::MAX as usize
@@ -444,9 +490,8 @@ fn read_inner<const N: usize>(
         || scalar["g2"] == "off" && scalar["walk"]["g2_records"] != 0
         || scalar["imported_prefix"] != 0
         || scalar["engine_certification_void"] != false
-        || ["amendments", "quarantined", "abandoned_obligations"]
-            .iter()
-            .any(|k| scalar[*k].as_array().is_none_or(|a| !a.is_empty()))
+        || count(&scalar, "quarantined")? > total
+        || count(&scalar, "abandoned_obligations")? > count(&scalar, "quarantined")?
     {
         return Err("scalar identity or supported scope differs".into());
     }
@@ -462,7 +507,9 @@ fn read_inner<const N: usize>(
     }
     let inputs: Vec<Value> = rows(directory, file("inputs")?).map_err(io)?;
     let input_frontiers: Vec<Value> = rows(directory, file("input-frontiers")?).map_err(io)?;
-    if inputs.len() != processed || input_frontiers.len() != count(&scalar, "input_frontiers")? {
+    if inputs.len() as u64 != processed as u64 + amended_queries
+        || input_frontiers.len() != count(&scalar, "input_frontiers")?
+    {
         return Err("input prefix inventory differs".into());
     }
     input_inventory(&inputs, &input_frontiers)?;
@@ -517,6 +564,60 @@ fn read_inner<const N: usize>(
         ledger.push(ledger_input.u64().map_err(io)?);
     }
     ledger_input.finish().map_err(io)?;
+    // Decode the rescue bitsets independently; runtime's helper is deliberately
+    // not called by the cold authority reader.
+    let mut abandoned_bits = Vec::new();
+    if !amendments.is_empty() {
+        let reference = file("rescue")?;
+        if reference.count != total as u64 || reference.bytes != 16 + total.div_ceil(64) as u64 * 16
+        {
+            return Err("CP6 rescue byte inventory differs".into());
+        }
+        let mut input = Input::open(directory, reference).map_err(io)?;
+        if &input.read_array::<8>().map_err(io)? != b"ERSC0001"
+            || input.u64().map_err(io)? != total as u64
+        {
+            return Err("CP6 rescue bitset header differs".into());
+        }
+        let words = total.div_ceil(64);
+        let mut quarantine = reserve(words).map_err(io)?;
+        abandoned_bits = reserve(words).map_err(io)?;
+        let mut qcount = 0u64;
+        let mut acount = 0u64;
+        for _ in 0..words {
+            let word = input.u64().map_err(io)?;
+            qcount += u64::from(word.count_ones());
+            quarantine.push(word);
+        }
+        for (index, &qword) in quarantine.iter().enumerate() {
+            let word = input.u64().map_err(io)?;
+            if word & !qword != 0
+                || index + 1 == words && total % 64 != 0 && qword >> (total % 64) != 0
+            {
+                return Err("CP6 rescue bitset subset or padding differs".into());
+            }
+            acount += u64::from(word.count_ones());
+            abandoned_bits.push(word);
+        }
+        input.finish().map_err(io)?;
+        if qcount != number(&scalar, "quarantined")?
+            || acount != number(&scalar, "abandoned_obligations")?
+        {
+            return Err("CP6 rescue bitset count differs".into());
+        }
+    } else if number(&scalar, "quarantined")? != 0 || number(&scalar, "abandoned_obligations")? != 0
+    {
+        return Err("CP6 rescue counts without chain".into());
+    }
+    for (id, &word) in ledger.iter().enumerate() {
+        let tag = word >> 61;
+        let abandoned = abandoned_bits
+            .get(id / 64)
+            .is_some_and(|word| word >> (id % 64) & 1 != 0);
+        if tag == 7 && !abandoned || abandoned && !matches!(tag, 0 | 1 | 6 | 7) {
+            return Err("CP6 abandoned authority differs from ledger".into());
+        }
+    }
     let (mut edge_input, n) = section(5)?;
     if n != count(&scalar, "edge_runs")?
         || n as u64 > edge_input.reference.bytes.saturating_sub(28) / 8
@@ -674,9 +775,9 @@ fn read_inner<const N: usize>(
     }
     let counts = scalar["ledger_counts"]
         .as_array()
-        .filter(|a| a.len() == 7)
+        .filter(|a| a.len() == 8)
         .ok_or("ledger counts")?;
-    let mut normalized = json!({"format":FORMAT,"schema":1,"generation":manifest.generation,
+    let mut normalized = json!({"format":FORMAT,"schema":2,"generation":manifest.generation,
         "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
         "k":scalar["k"],"p0":p0,"edge_digest":scalar["edge_digest"],"records_digest":scalar["records_digest"],
         "ledger6_counts":{}});
@@ -688,6 +789,7 @@ fn read_inner<const N: usize>(
         "native_error",
         "alias",
         "exhausted",
+        "abandoned",
     ]
     .iter()
     .zip(counts)
@@ -699,6 +801,7 @@ fn read_inner<const N: usize>(
     }
     let merged = counts[2..=5]
         .iter()
+        .chain(std::iter::once(&counts[7]))
         .try_fold(0u64, |sum, v| sum.checked_add(v.as_u64()?));
     if merged != Some(first) {
         return Err("record/ledger inventory differs".into());
@@ -751,7 +854,7 @@ fn read_inner<const N: usize>(
         domains,
         records,
         verify_seconds: start.elapsed().as_secs_f64(),
-        amendments: Vec::new(),
+        amendments,
         pending_frontiers: Vec::new(),
         g2_activation: None,
     };

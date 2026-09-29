@@ -111,9 +111,14 @@ impl<const N: usize> FixedSection<N> {
     /// Canonical arena, summaries, exact index and bucket interning only.
     /// No lookup index or dominant orthant is rebuilt here: persisted live
     /// membership and historical orthants have different restore rules.
-    pub fn domains(mut self) -> io::Result<Store<N>> {
+    pub fn domains(self) -> io::Result<Store<N>> {
+        self.domains_with_rescue(false)
+    }
+
+    pub fn domains_with_rescue(mut self, rescue: bool) -> io::Result<Store<N>> {
         self.expect(Section::Domains)?;
         let mut store = Store::new();
+        store.rescue_duplicates = rescue;
         let mut bytes = [0u8; 37 + 4 * 32];
         for _ in 0..self.count {
             let bytes = &mut bytes[..37 + 4 * N];
@@ -129,7 +134,7 @@ impl<const N: usize> FixedSection<N> {
                 .try_reserve_one(query.digest)
                 .map_err(io::Error::other)?;
             store
-                .push(image, compact, query.digest)
+                .push_restored(image, compact, query.digest)
                 .map_err(io::Error::other)?;
         }
         self.reader.finish()?;

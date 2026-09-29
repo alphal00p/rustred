@@ -46,6 +46,7 @@ fn merged(entry: Entry6) -> bool {
             | Entry6::NativeFrontier { .. }
             | Entry6::NativeError { .. }
             | Entry6::Alias { .. }
+            | Entry6::Abandoned { .. }
     )
 }
 
@@ -103,7 +104,7 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
                 }
                 Some(epoch)
             }
-            Entry6::NativeFrontier { epoch } => Some(epoch),
+            Entry6::NativeFrontier { epoch } | Entry6::Abandoned { epoch } => Some(epoch),
             Entry6::NativeError { epoch, err } => {
                 if !(1..=8).contains(&err) {
                     return Err(invalid("epoch native error class"));
@@ -277,9 +278,15 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
                 Entry6::Native { epoch, .. }
                 | Entry6::NativeFrontier { epoch }
                 | Entry6::NativeError { epoch, .. }
+                | Entry6::Abandoned { epoch }
                     if epoch >= previous_epoch =>
                 {
                     previous_epoch = epoch;
+                    if matches!(entry(view.ledger, source)?, Entry6::Abandoned { .. })
+                        && !targets.is_empty()
+                    {
+                        return Err(invalid("abandoned obligation has dependency edges"));
+                    }
                 }
                 _ => return Err(invalid("epoch run source tag, alias target or merge order")),
             }

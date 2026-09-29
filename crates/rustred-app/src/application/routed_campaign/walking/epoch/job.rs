@@ -15,6 +15,7 @@ use super::super::queue::{CompactDomain, Domain, Phase};
 use rustred::solver::DomainPowerBounds;
 
 pub(super) const JOB_MAGIC: u32 = u32::from_le_bytes(*b"EJB2");
+pub(super) const JOB_RESCUE_ABANDONED: u16 = 1;
 /// ERS4: checked snapshot identity, inspector lookup work and optional stored
 /// target per obligation. No serialized summary is mathematical authority.
 pub(super) const RESULT_MAGIC: u32 = u32::from_le_bytes(*b"ERS4");
@@ -302,6 +303,7 @@ pub(super) enum NativeKind {
     /// A G2' residual inspection (carries `G2Part`; W4 planner, refused
     /// without a bound G2' flag).
     G2Residual = 3,
+    Abandoned = 4,
 }
 
 /// The native `error_kind` values (`inspection.rs`), plus `Other` for any
@@ -623,6 +625,7 @@ impl<const N: usize> JobResult<N> {
             1 => NativeKind::ApplyPartial,
             2 => NativeKind::Route,
             3 => NativeKind::G2Residual,
+            4 => NativeKind::Abandoned,
             _ => return Err("invalid native kind"),
         };
         let error_kind = match r.u8()? {

@@ -26,6 +26,7 @@ use serde_json::Value;
 use std::sync::atomic::AtomicBool;
 
 mod admission;
+mod rescue;
 mod snapshot;
 
 const APPLY: [bool; 2] = [true, false];
@@ -198,7 +199,7 @@ fn ledger6_roundtrip_boundaries() {
     ] {
         assert_eq!(Entry6::decode(entry.encode()), Ok(entry), "{entry:?}");
     }
-    assert_eq!(Entry6::decode(7 << 61), Err(LedgerError::InvalidTag));
+    assert_eq!(Entry6::decode(7 << 61), Ok(Entry6::Abandoned { epoch: 0 }));
     // Payload bits outside a tag's layout are refused.
     assert_eq!(
         Entry6::decode((5 << 61) | (1 << 40)),
@@ -222,6 +223,7 @@ fn table_allows(from: Tag, t: Transition) -> bool {
         | Transition::T6Error { .. }
         | Transition::T7Requeue { .. }
         | Transition::T8Exhaust { .. } => from == Reserved,
+        Transition::T13Abandon { .. } => from == Reserved,
         Transition::T9Retry | Transition::T10ExhaustedAlias { .. } => from == Exhausted,
         Transition::T12ExhaustId => matches!(from, Pending | Reserved),
     }
@@ -257,6 +259,7 @@ fn ledger_at(tag: Tag) -> Ledger6 {
         ],
         Tag::Alias => &[Transition::T3Alias { to: 2 }],
         Tag::Exhausted => &[Transition::T12ExhaustId],
+        Tag::Abandoned => &[Transition::T2Reserve, Transition::T13Abandon { epoch: 1 }],
     };
     for &t in path {
         ledger.apply(0, t).unwrap();

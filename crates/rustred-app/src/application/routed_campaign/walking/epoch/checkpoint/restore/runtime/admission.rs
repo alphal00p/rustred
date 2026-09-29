@@ -132,7 +132,8 @@ fn protected_overlap<const N: usize>(
         cancelled()?;
         prefix.push(Arc::new(image.expand()));
     }
-    let index = InitialOverlapIndex::from_initial(&prefix, cancellation);
+    let index = InitialOverlapIndex::from_initial(&prefix, cancellation)
+        .without_anchors(&|id| restored.state.store.is_quarantined(id as u32));
     cancelled()?;
     Ok(index)
 }

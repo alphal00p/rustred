@@ -30,6 +30,7 @@ mod job;
 mod ledger6;
 mod merge;
 mod records;
+mod rescue;
 mod resolve;
 mod snapshot;
 mod state;
@@ -126,9 +127,14 @@ pub(super) fn admit_extensions(request: &OwnerDomainWalkRequest) -> Result<(), A
             "epoch publication does not support G2' activation; start a fresh Union campaign",
         ));
     }
-    if !request.amendments.is_empty() {
+    if !request.amendments.is_empty()
+        && request
+            .checkpoint
+            .as_ref()
+            .is_some_and(|options| !options.resume)
+    {
         return Err(AppError::input(
-            "epoch publication does not yet support rescue amendments",
+            "epoch rescue amendments require resuming a durable CP6 campaign",
         ));
     }
     Ok(())
@@ -138,6 +144,11 @@ pub(super) fn admit_extensions(request: &OwnerDomainWalkRequest) -> Result<(), A
 /// any input is parsed.
 pub(super) fn admit(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
     admit_extensions(request)?;
+    if !request.amendments.is_empty() && request.checkpoint.is_none() {
+        return Err(AppError::input(
+            "epoch rescue requires a durable CP6 checkpoint",
+        ));
+    }
     if request.max_containment_checks.is_some() {
         return Err(AppError::input(
             "epoch publication refuses a finite containment check allowance (F20)",

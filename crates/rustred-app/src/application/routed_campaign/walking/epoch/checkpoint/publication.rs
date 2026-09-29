@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 mod tests;
 
 pub(super) const FORMAT: &str = "RUSTRED-WALK-CP6";
-pub(super) const SCHEMA: u32 = 1;
+pub(super) const SCHEMA: u32 = 2;
 pub(super) const LATEST: &str = "latest.json";
 pub(super) const PREVIOUS: &str = "previous.json";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -285,7 +285,8 @@ impl Store {
         let record_count = counts.get(Tag::Native)
             + counts.get(Tag::NativeFrontier)
             + counts.get(Tag::NativeError)
-            + counts.get(Tag::Alias);
+            + counts.get(Tag::Alias)
+            + counts.get(Tag::Abandoned);
         if record_count != records.total() as u64 {
             return Err(invalid("epoch record/ledger inventory differs"));
         }
@@ -316,7 +317,7 @@ impl Store {
         progress();
         let mut files = Vec::new();
         files
-            .try_reserve_exact(15)
+            .try_reserve_exact(16)
             .map_err(|_| io::Error::other("epoch manifest allocation"))?;
         for section in Section::ALL {
             let receipt = boundary.write_new_section_observed(
@@ -373,6 +374,22 @@ impl Store {
             progress,
             |file| write_orthants(boundary, file),
         )?);
+        if let Some(rescue) = &boundary.state.rescue {
+            files.push(self.aux(
+                generation,
+                "rescue",
+                u64::from(boundary.state.watermark()),
+                progress,
+                |file| {
+                    super::super::rescue::write(
+                        boundary.state.watermark(),
+                        &boundary.state.store.quarantine,
+                        &rescue.abandoned,
+                        file,
+                    )
+                },
+            )?);
+        }
         #[cfg(test)]
         self.at(FailPoint::AfterSections)?;
         File::open(&self.directory)?.sync_all()?;
@@ -569,7 +586,8 @@ pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
     }
     if manifest.generation == 0
         || !manifest.resumable
-        || manifest.files.len() != 15
+        || manifest.files.len()
+            != 15 + usize::from(manifest.files.iter().any(|file| file.key == "rescue"))
         || manifest_digest(&manifest)? != envelope.blake3
     {
         return Err(invalid("epoch CP6 manifest identity or digest"));
@@ -602,6 +620,12 @@ pub(super) fn read_manifest(path: &Path) -> io::Result<Manifest> {
         {
             return Err(invalid("epoch private manifest metadata path inventory"));
         }
+    }
+    if manifest.files.iter().any(|file| {
+        file.key == "rescue"
+            && file.file != format!("epoch-{:020}-rescue.part", manifest.generation)
+    }) {
+        return Err(invalid("epoch rescue inventory path"));
     }
     Ok(manifest)
 }

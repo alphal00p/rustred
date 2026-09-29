@@ -358,24 +358,54 @@ impl Tracker {
     /// pending obligations): every node reaching a frontier-bearing native
     /// or a seed.
     pub fn tainted_with(&self, extra: &[u64]) -> Option<Vec<u64>> {
-        if self.unavailable.is_some() {
+        self.tainted_with_cancellable(extra, &mut || false)
+    }
+
+    /// Resume preparation may stop between bounded scan chunks. `None` also
+    /// covers unavailable scratch; the caller retains its cancellation flag
+    /// to distinguish interruption from allocation failure.
+    pub fn tainted_with_cancellable(
+        &self,
+        extra: &[u64],
+        stop: &mut impl FnMut() -> bool,
+    ) -> Option<Vec<u64>> {
+        if self.unavailable.is_some() || stop() {
             return None;
         }
         let nodes = self.flags.len();
-        let mut tainted = vec![0u64; nodes.div_ceil(64)];
+        let mut tainted = Vec::new();
+        tainted.try_reserve_exact(nodes.div_ceil(64)).ok()?;
+        tainted.resize(nodes.div_ceil(64), 0u64);
         let mut stack: Vec<u32> = Vec::new();
+        if stop() {
+            return None;
+        }
         for (id, &flag) in self.flags.iter().enumerate() {
+            if id % 1024 == 0 && stop() {
+                return None;
+            }
             let seeded = extra.get(id / 64).is_some_and(|w| w >> (id % 64) & 1 != 0);
             if seeded || flag & FLAG_INSPECTED != 0 && flag & FLAG_SEALED == 0 {
                 tainted[id / 64] |= 1 << (id % 64);
+                stack.try_reserve(1).ok()?;
                 stack.push(id as u32);
             }
         }
+        let mut visited = 0usize;
         while let Some(id) = stack.pop() {
+            visited = visited.wrapping_add(1);
+            if visited % 1024 == 0 && stop() {
+                return None;
+            }
             for source in self.edges.incoming(id as usize) {
+                visited = visited.wrapping_add(1);
+                if visited % 1024 == 0 && stop() {
+                    return None;
+                }
                 let (word, bit) = (source as usize / 64, 1u64 << (source % 64));
                 if tainted[word] & bit == 0 {
                     tainted[word] |= bit;
+                    stack.try_reserve(1).ok()?;
                     stack.push(source);
                 }
             }
@@ -388,44 +418,97 @@ impl Tracker {
     /// transient CSR by source (4 B per edge plus 8 B per node). None when the
     /// monitor is unavailable or the scratch cannot be reserved.
     pub fn reachable_from(&self, roots: impl IntoIterator<Item = usize>) -> Option<Vec<u64>> {
-        if self.unavailable.is_some() {
+        self.reachable_from_cancellable(roots, &mut || false)
+    }
+
+    pub fn reachable_from_cancellable(
+        &self,
+        roots: impl IntoIterator<Item = usize>,
+        stop: &mut impl FnMut() -> bool,
+    ) -> Option<Vec<u64>> {
+        if self.unavailable.is_some() || stop() {
             return None;
         }
         let nodes = self.flags.len();
         let mut offsets: Vec<usize> = Vec::new();
         offsets.try_reserve_exact(nodes + 1).ok()?;
         offsets.resize(nodes + 1, 0);
-        let _ = self.edges.try_for_each(|source, _| {
-            offsets[source as usize + 1] += 1;
-            ControlFlow::<()>::Continue(())
-        });
+        let mut visited = 0usize;
+        self.edges
+            .try_for_each(|source, _| {
+                visited = visited.wrapping_add(1);
+                if visited % 1024 == 0 && stop() {
+                    return ControlFlow::Break(());
+                }
+                offsets[source as usize + 1] += 1;
+                ControlFlow::<()>::Continue(())
+            })
+            .continue_value()?;
         for index in 1..offsets.len() {
+            if index % 1024 == 0 && stop() {
+                return None;
+            }
             offsets[index] += offsets[index - 1];
         }
         let mut targets: Vec<u32> = Vec::new();
+        if stop() {
+            return None;
+        }
         targets.try_reserve_exact(offsets[nodes]).ok()?;
         targets.resize(offsets[nodes], 0);
-        let mut fill = offsets.clone();
-        let _ = self.edges.try_for_each(|source, target| {
-            let slot = &mut fill[source as usize];
-            targets[*slot] = target;
-            *slot += 1;
-            ControlFlow::<()>::Continue(())
-        });
+        if stop() {
+            return None;
+        }
+        let mut fill = Vec::new();
+        fill.try_reserve_exact(offsets.len()).ok()?;
+        fill.extend_from_slice(&offsets);
+        self.edges
+            .try_for_each(|source, target| {
+                visited = visited.wrapping_add(1);
+                if visited % 1024 == 0 && stop() {
+                    return ControlFlow::Break(());
+                }
+                let slot = &mut fill[source as usize];
+                targets[*slot] = target;
+                *slot += 1;
+                ControlFlow::<()>::Continue(())
+            })
+            .continue_value()?;
         drop(fill);
-        let mut live = vec![0u64; nodes.div_ceil(64)];
+        if stop() {
+            return None;
+        }
+        let mut live = Vec::new();
+        live.try_reserve_exact(nodes.div_ceil(64)).ok()?;
+        live.resize(nodes.div_ceil(64), 0u64);
         let mut stack: Vec<usize> = Vec::new();
-        for root in roots {
+        if stop() {
+            return None;
+        }
+        for (index, root) in roots.into_iter().enumerate() {
+            if index % 1024 == 0 && stop() {
+                return None;
+            }
             if root < nodes && live[root / 64] >> (root % 64) & 1 == 0 {
                 live[root / 64] |= 1 << (root % 64);
+                stack.try_reserve(1).ok()?;
                 stack.push(root);
             }
         }
         while let Some(id) = stack.pop() {
+            visited = visited.wrapping_add(1);
+            if visited % 1024 == 0 && stop() {
+                return None;
+            }
             for &target in &targets[offsets[id]..offsets[id + 1]] {
+                visited = visited.wrapping_add(1);
+                if visited % 1024 == 0 && stop() {
+                    return None;
+                }
                 let target = target as usize;
                 if live[target / 64] >> (target % 64) & 1 == 0 {
                     live[target / 64] |= 1 << (target % 64);
+                    stack.try_reserve(1).ok()?;
                     stack.push(target);
                 }
             }

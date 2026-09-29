@@ -123,6 +123,7 @@ fn validate<const N: usize>(
     let (class, stored_epoch) = match entry {
         Entry6::Native { epoch, .. } => (Class::C0, epoch),
         Entry6::NativeFrontier { epoch } => (Class::C4, epoch),
+        Entry6::Abandoned { epoch } => (Class::C4, epoch),
         Entry6::NativeError { epoch, .. } => (Class::C2, epoch),
         _ => return Err(invalid("epoch record belongs to unmerged ID")),
     };
@@ -134,6 +135,16 @@ fn validate<const N: usize>(
         .has_error
         .ok_or_else(|| invalid("epoch native error field missing"))?;
     let anchored = view.anchors.get(source);
+    let abandoned = matches!(entry, Entry6::Abandoned { .. });
+    if fields.has("rescue_abandoned") != abandoned
+        || abandoned
+            && (!fields.boolean("rescue_abandoned")?
+                || frontiers != 1
+                || !targets.is_empty()
+                || anchored.is_some())
+    {
+        return Err(invalid("epoch abandoned record differs from ledger"));
+    }
     let expected_kind = if anchored.is_some_and(|a| a.kind.is_g2()) {
         "g2_residual_inspection"
     } else if anchored.is_some() {
@@ -151,9 +162,10 @@ fn validate<const N: usize>(
         || error != (class == Class::C2)
         || (class == Class::C0 && frontiers != 0)
         || (class == Class::C4
+            && !abandoned
             && view.frontier_counts.get(&source).copied().map(u64::from) != Some(frontiers))
         || fields.boolean("local_inspection_finished")?
-            != (class != Class::C2 && anchored.is_none())
+            != (class != Class::C2 && anchored.is_none() && !abandoned)
         || fields.boolean("local_classification_discharged")?
             != (class == Class::C0 && anchored.is_none())
     {
@@ -257,7 +269,9 @@ fn validate<const N: usize>(
         seq: 0,
         parent: source,
         v0,
-        kind: if image.phase() == Phase::Route {
+        kind: if abandoned {
+            NativeKind::Abandoned
+        } else if image.phase() == Phase::Route {
             NativeKind::Route
         } else if anchored.is_some_and(|a| a.kind.is_g2()) {
             NativeKind::G2Residual
@@ -296,6 +310,21 @@ fn validate<const N: usize>(
     };
     // Merged C2 may be a recurring C3. The old retry word no longer exists;
     // persisted terminal error class, not invented retry accounting, is checked.
+    if abandoned
+        && (observation.emitted != 1
+            || observation.accepted != 1
+            || observation.stats_events != 1
+            || observation.successors != 0
+            || observation.conditional != 0
+            || observation.known_reuse != 0
+            || observation.job_duplicates != 0
+            || observation.optional != [0; 3]
+            || observation.route_masks != 0
+            || observation.route_joint_pruned != 0
+            || panic)
+    {
+        return Err(invalid("epoch abandonment carries native work counters"));
+    }
     let (derived, _) =
         merge::classify(&observation, 4).map_err(|_| invalid("epoch record P1 parity/protocol"))?;
     if derived != class {
@@ -318,11 +347,15 @@ fn validate<const N: usize>(
         if !fields.boolean("conservative_route_overcover")? {
             return Err(invalid("epoch Route record scope"));
         }
-        add(&mut totals.routed, 1)?;
+        if !abandoned {
+            add(&mut totals.routed, 1)?;
+        }
     }
     totals.resolver.add(&delta).map_err(io::Error::other)?;
     add(&mut totals.events, observation.emitted)?;
-    add(&mut totals.frontiers, frontiers)?;
+    if !abandoned {
+        add(&mut totals.frontiers, frontiers)?;
+    }
     add(&mut totals.known_reuse, observation.known_reuse)?;
     add(&mut totals.job_duplicates, observation.job_duplicates)?;
     Ok(())

@@ -73,6 +73,7 @@ pub(super) struct EpochState<const N: usize> {
     pub anchors: AnchorMap,
     pub merged_view: MergedView,
     pub g2_store: Option<std::sync::Arc<super::super::g2::Store<N>>>,
+    pub rescue: Option<super::rescue::State>,
     pub tracker: Tracker,
     /// Merge counter k (S_k is the state after merge k).
     pub k: u64,
@@ -108,6 +109,7 @@ impl<const N: usize> EpochState<N> {
             anchors: AnchorMap::default(),
             merged_view: MergedView::default(),
             g2_store: None,
+            rescue: None,
             tracker: Tracker::new(0),
             k: 0,
             p0: 0,
@@ -156,6 +158,12 @@ impl<const N: usize> EpochState<N> {
             .try_reserve(n)
             .map_err(|_| "node flag allocation")?;
         let words = (self.store.len() + n).div_ceil(64);
+        if let Some(rescue) = &mut self.rescue {
+            rescue
+                .abandoned
+                .try_reserve(words.saturating_sub(rescue.abandoned.len()))
+                .map_err(|_| "abandoned bitset allocation")?;
+        }
         self.live
             .try_reserve(words.saturating_sub(self.live.len()))
             .map_err(|_| "live bitset allocation")?;
@@ -165,6 +173,9 @@ impl<const N: usize> EpochState<N> {
     /// Per-ID arrays for a freshly pushed ID (after `store.push`): T1,
     /// node flags 0, live.
     pub fn admit_id(&mut self, id: u32) {
+        if let Some(rescue) = &mut self.rescue {
+            rescue.abandoned.resize(self.store.len().div_ceil(64), 0);
+        }
         self.ledger
             .apply(id, Transition::T1New { dispatch_class: 0 })
             .expect("T1 at the watermark after preflight");

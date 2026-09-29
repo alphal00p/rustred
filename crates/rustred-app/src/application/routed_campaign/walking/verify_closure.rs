@@ -782,6 +782,42 @@ fn load<const N: usize>(
     load_records(raw, epoch, cp6_records, digests, violations)
 }
 
+/// Read-only rescue-planner view of one selected immutable generation. Record
+/// streams keep the captured CP6 references, so a later latest.json cannot
+/// redirect or silently replace the records classified by the planner.
+pub(super) struct RescueCheckpoint<const N: usize> {
+    pub raw: checkpoint::RawCheckpoint<N>,
+    records: Option<Vec<epoch_checkpoint::RecordRef>>,
+}
+
+impl<const N: usize> RescueCheckpoint<N> {
+    pub fn record_reader(&self, index: usize) -> std::io::Result<Box<dyn std::io::Read>> {
+        let (path, count) = &self.raw.records[index];
+        if let Some(records) = &self.records {
+            Ok(Box::new(records[index].open(path, *count)?))
+        } else {
+            Ok(Box::new(std::fs::File::open(path)?))
+        }
+    }
+}
+
+pub(super) fn rescue_checkpoint<const N: usize>(
+    directory: &std::path::Path,
+) -> Result<RescueCheckpoint<N>, String> {
+    if epoch_checkpoint::present(directory) {
+        let (raw, _, records) = epoch_checkpoint::read_raw(directory)?;
+        Ok(RescueCheckpoint {
+            raw,
+            records: Some(records),
+        })
+    } else {
+        Ok(RescueCheckpoint {
+            raw: checkpoint::read_raw(directory)?,
+            records: None,
+        })
+    }
+}
+
 fn load_records<const N: usize>(
     mut raw: checkpoint::RawCheckpoint<N>,
     epoch: Option<epoch_export::EpochSections>,
@@ -2107,11 +2143,11 @@ fn verify<const N: usize>(
         let nodes = &loaded.nodes;
         let record_of = |id: usize| {
             nodes.get(id).and_then(|node| match node.kind {
-                Kind::Native | Kind::Partial => Some((true, node.frontiers, node.error, None)),
-                Kind::Alias => Some((false, 0, false, Some(node.link))),
-                // S2 never executes G2; its records cannot stand in for a
-                // native record even when their legacy stamps are valid.
-                Kind::Missing | Kind::G2 => None,
+                Kind::Native | Kind::Partial | Kind::G2 => {
+                    Some((true, node.frontiers, node.error, None, node.abandoned))
+                }
+                Kind::Alias => Some((false, 0, false, Some(node.link), false)),
+                Kind::Missing => None,
             })
         };
         epoch_export::check(
@@ -2228,7 +2264,12 @@ fn verify<const N: usize>(
         native_counter,
         ..,
     ] = loaded.raw.counters;
-    let record_frontiers: u64 = nodes.iter().map(|n| u64::from(n.frontiers)).sum();
+    let epoch_abandonment = loaded.raw.publication_policy == "epoch";
+    let record_frontiers: u64 = nodes
+        .iter()
+        .filter(|n| !epoch_abandonment || !n.abandoned)
+        .map(|n| u64::from(n.frontiers))
+        .sum();
     let carried_frontiers: u64 = loaded
         .raw
         .uncommitted
@@ -2242,8 +2283,14 @@ fn verify<const N: usize>(
             format!("saved frontier counter {frontier_counter} != {explicit_frontiers} explicit frontiers")
         });
     }
-    let natives = nodes.iter().filter(|n| n.native()).count();
-    let completed = nodes.iter().filter(|n| n.native() && !n.error).count();
+    let natives = nodes
+        .iter()
+        .filter(|n| n.native() && (!epoch_abandonment || !n.abandoned))
+        .count();
+    let completed = nodes
+        .iter()
+        .filter(|n| n.native() && !n.error && (!epoch_abandonment || !n.abandoned))
+        .count();
     if native_counter != natives || completed_counter != completed {
         violations.add("native_counter", || {
             format!(
@@ -2352,8 +2399,9 @@ fn verify<const N: usize>(
         .is_some_and(|e| e.manifest["format"] == "RUSTRED-WALK-CP6");
     let unadmitted = if cp6 {
         let metadata = &loaded.epoch.as_ref().expect("CP6 sections").manifest;
-        if metadata["total_queries"].as_u64() != Some(queries.len() as u64)
-            || metadata["processed_queries"].as_u64() != Some(loaded.raw.inputs.len() as u64)
+        if metadata["total_queries"].as_u64() != Some(amended_start as u64)
+            || metadata["processed_queries"].as_u64()
+                != Some(loaded.raw.inputs.len().min(amended_start) as u64)
         {
             violations.add("root_mapping", || {
                 "CP6 query prefix inventory differs".into()

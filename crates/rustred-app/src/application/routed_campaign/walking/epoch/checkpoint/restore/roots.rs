@@ -59,11 +59,35 @@ struct Row {
     role: Role,
     role_declared: bool,
     source_validity_unresolved: Option<bool>,
+    amendment: Option<u64>,
 }
 
 pub(super) struct Roots {
     pub rows: Vec<Value>,
     pub frontiers: Vec<Value>,
+}
+
+fn phase_for<const N: usize>(
+    identity: &Identity<'_>,
+    reducer: &RoutedCandidateReducer<N>,
+    query: &Query,
+    amended: Option<u64>,
+) -> Option<Phase> {
+    if amended.is_some() {
+        crate::application::routed_campaign::walking::rescue::domain::<N>(
+            query,
+            reducer
+                .programs()
+                .owner_sectors()
+                .any(|owner| owner.as_slice() == query.owner.as_slice()),
+            identity.route_domain_overcover(),
+            reducer.domain_routing_requires_source_conditions(),
+        )
+        .ok()
+        .map(|domain| domain.phase)
+    } else {
+        query_phase(reducer, identity.route_domain_overcover(), query)
+    }
 }
 
 pub(super) fn read<const N: usize>(
@@ -75,14 +99,14 @@ pub(super) fn read<const N: usize>(
     store: &Store<N>,
     p0: u32,
 ) -> io::Result<Roots> {
-    read_with_phase(
+    read_query_rows(
         directory,
         inputs,
         frontiers,
-        identity.queries(),
+        &identity.query_rows(identity.amendments().len()),
         store,
         p0,
-        |query| query_phase(reducer, identity.route_domain_overcover(), query),
+        |query, amended| phase_for(identity, reducer, query, amended),
     )
 }
 
@@ -94,6 +118,26 @@ fn read_with_phase<const N: usize>(
     store: &Store<N>,
     p0: u32,
     phase_of: impl Fn(&Query) -> Option<Phase>,
+) -> io::Result<Roots> {
+    read_query_rows(
+        directory,
+        inputs,
+        frontiers,
+        &queries.iter().map(|q| (q, None)).collect::<Vec<_>>(),
+        store,
+        p0,
+        |query, _| phase_of(query),
+    )
+}
+
+fn read_query_rows<const N: usize>(
+    directory: &Path,
+    inputs: &FileRef,
+    frontiers: &FileRef,
+    queries: &[(&Query, Option<u64>)],
+    store: &Store<N>,
+    p0: u32,
+    phase_of: impl Fn(&Query, Option<u64>) -> Option<Phase>,
 ) -> io::Result<Roots> {
     if N > 32
         || p0 as usize > store.len()
@@ -132,7 +176,7 @@ fn read_with_phase<const N: usize>(
     };
     let mut admitted = 0u32;
     let mut counters = VerifyCounters::default();
-    for query in queries.iter().take(inputs.count as usize) {
+    for &(query, amendment) in queries.iter().take(inputs.count as usize) {
         if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
             return Err(invalid("epoch root query arity"));
         }
@@ -144,7 +188,10 @@ fn read_with_phase<const N: usize>(
             .ok_or_else(|| invalid("epoch query row bound overflow"))?;
         input_budget.set(row_bound);
         let row = Row::deserialize(&mut input_decoder).map_err(io::Error::other)?;
-        let phase = phase_of(query);
+        if row.amendment != amendment {
+            return Err(invalid("epoch amendment root order differs"));
+        }
+        let phase = phase_of(query, amendment);
         let frontier = match (phase, row.domain.0, row.source_validity_unresolved) {
             (None, None, Some(true)) if (result.frontiers.len() as u64) < frontiers.count => {
                 frontier_budget.set(
@@ -175,6 +222,9 @@ fn read_with_phase<const N: usize>(
             result.frontiers.push(actual);
         }
         let mut value = super::super::super::input_row(query, row.domain.0);
+        if let Some(sequence) = amendment {
+            value["amendment"] = sequence.into();
+        }
         if row.source_validity_unresolved == Some(true) {
             value["source_validity_unresolved"] = true.into();
         }
@@ -212,6 +262,9 @@ fn check_row<const N: usize>(
     admitted: &mut u32,
     counters: &mut VerifyCounters,
 ) -> io::Result<()> {
+    if row.amendment.is_some() && phase.is_none() {
+        return Err(invalid("epoch amendment has unresolved source validity"));
+    }
     if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
         return Err(invalid("epoch root query arity"));
     }
@@ -222,6 +275,35 @@ fn check_row<const N: usize>(
         return Err(invalid("epoch root order or exact query role differs"));
     }
     match (phase, row.domain.0, row.source_validity_unresolved) {
+        (Some(phase), Some(id), None) if row.amendment.is_some() && (id as usize) < store.len() => {
+            if !query.auxiliary || !query.role_declared {
+                return Err(invalid("epoch amendment changed required scope"));
+            }
+            let domain = Domain {
+                phase,
+                owner: query.owner.as_slice().try_into().expect("arity checked"),
+                lower: query.lower.clone(),
+                upper: query.upper.clone(),
+                rank: query.rank,
+                powers: query.powers,
+            };
+            let image =
+                QueryImage::new(CompactDomain::try_from_domain(&domain).map_err(io::Error::other)?)
+                    .map_err(io::Error::other)?;
+            if verify(
+                Container::Stored {
+                    id,
+                    domains: &store.domains,
+                    published_len: store.len(),
+                },
+                &image,
+                counters,
+            )
+            .is_none()
+            {
+                return Err(invalid("epoch amendment root does not contain query"));
+            }
+        }
         (Some(phase), Some(id), None) if id < p0 && id <= *admitted => {
             let domain = Domain {
                 phase,
@@ -273,9 +355,13 @@ pub(super) fn validate<const N: usize>(
     store: &Store<N>,
     p0: u32,
 ) -> io::Result<()> {
-    validate_with_phase(roots, identity.queries(), store, p0, |query| {
-        query_phase(reducer, identity.route_domain_overcover(), query)
-    })
+    validate_query_rows(
+        roots,
+        &identity.query_rows(identity.amendments().len()),
+        store,
+        p0,
+        |query, amended| phase_for(identity, reducer, query, amended),
+    )
 }
 
 fn validate_with_phase<const N: usize>(
@@ -285,13 +371,32 @@ fn validate_with_phase<const N: usize>(
     p0: u32,
     phase_of: impl Fn(&Query) -> Option<Phase>,
 ) -> io::Result<()> {
+    validate_query_rows(
+        roots,
+        &queries.iter().map(|q| (q, None)).collect::<Vec<_>>(),
+        store,
+        p0,
+        |query, _| phase_of(query),
+    )
+}
+
+fn validate_query_rows<const N: usize>(
+    roots: &Roots,
+    queries: &[(&Query, Option<u64>)],
+    store: &Store<N>,
+    p0: u32,
+    phase_of: impl Fn(&Query, Option<u64>) -> Option<Phase>,
+) -> io::Result<()> {
     if roots.rows.len() > queries.len() || p0 as usize > store.len() {
         return Err(invalid("epoch query-root inventory shape"));
     }
     let (mut admitted, mut next_frontier) = (0, 0);
     let mut counters = VerifyCounters::default();
-    for (value, query) in roots.rows.iter().zip(queries) {
+    for (value, &(query, amendment)) in roots.rows.iter().zip(queries) {
         let row = Row::deserialize(value).map_err(io::Error::other)?;
+        if row.amendment != amendment {
+            return Err(invalid("epoch amendment root order differs"));
+        }
         let frontier = row
             .domain
             .0
@@ -301,7 +406,7 @@ fn validate_with_phase<const N: usize>(
         check_row(
             query,
             &row,
-            phase_of(query),
+            phase_of(query, amendment),
             frontier,
             store,
             p0,

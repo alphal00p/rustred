@@ -54,6 +54,7 @@ impl Roles {
         })
     }
     fn json(&self, admitted: usize) -> Value {
+        let admitted = admitted.min(self.total);
         let required = self.required_prefix[self.total];
         let admitted_required = self.required_prefix[admitted];
         json!({"requested":self.total,"admitted":admitted,"unadmitted":self.total-admitted,
@@ -168,7 +169,8 @@ fn checkpoint<const N: usize>(restored: &Restored<N>, receipt: &publication::Rec
         "manifest_digest_scope":"canonical manifest object inside authenticated envelope",
         "directory":restored.publisher.directory(),"resumable":true,"saved_this_invocation":true,
         "paused":restored.stop_reason.is_some(),"stop_reason":restored.stop_reason,
-        "committed_domains":native+counts.get(Tag::Alias),"completed_native_inspections":native,
+        "committed_domains":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),"completed_native_inspections":native,
+        "abandoned_obligations":counts.get(Tag::Abandoned),
         "committed_events":restored.state.counters.events,"pending_domains":restored.state.pending_or_reserved(),
         "warnings":receipt.warnings})
 }
@@ -182,8 +184,9 @@ fn scalar_progress<const N: usize>(
         counts.get(Tag::Native) + counts.get(Tag::NativeFrontier) + counts.get(Tag::NativeError);
     json!({"k":state.k,"scheduled_nodes":state.watermark(),"completed_nodes":state.counters.completed,
         "queued_nodes":state.pending_or_reserved(),"events":state.counters.events,
-        "committed_events":state.counters.events,"committed_domains":native+counts.get(Tag::Alias),
-        "processed_nodes":native+counts.get(Tag::Alias),"native_processed_nodes":native,
+        "committed_events":state.counters.events,"committed_domains":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),
+        "processed_nodes":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),"native_processed_nodes":native,
+        "abandoned_obligations":counts.get(Tag::Abandoned),
         "frontiers":state.counters.frontiers,"ledger6":state.ledger.counts().json(),
         "requeue_waiting":dispatch.queued().0,"deferred_waiting":dispatch.queued().1})
 }
@@ -246,8 +249,9 @@ fn summary<const N: usize>(
     // Keep each macro expansion bounded without changing the summary object.
     let Value::Object(progress) = json!({
         "scheduled_nodes":state.watermark(),"completed_nodes":state.counters.completed,
-        "queued_nodes":state.pending_or_reserved(),"processed_nodes":native+counts.get(Tag::Alias),
-        "committed_domains":native+counts.get(Tag::Alias),"native_processed_nodes":native,
+        "queued_nodes":state.pending_or_reserved(),"processed_nodes":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),
+        "committed_domains":native+counts.get(Tag::Alias)+counts.get(Tag::Abandoned),"native_processed_nodes":native,
+        "abandoned_obligations":counts.get(Tag::Abandoned),
         "failed_nodes":counts.get(Tag::NativeError),"events":state.counters.events,"committed_events":state.counters.events,
         "frontiers":state.counters.frontiers,"input_frontiers_count":restored.roots.frontiers.len(),
         "initial_entry_domains_total":state.p0,"initial_entry_domains_published":null,
@@ -274,6 +278,13 @@ fn summary<const N: usize>(
         .expect("summary object")
         .extend(progress);
     doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
+    if let Some(rescue) = &state.rescue {
+        doc["amendments"] =
+            crate::application::routed_campaign::walking::rescue::chain_json(&rescue.amendments);
+        doc["rescue"] = json!({"quarantined_domains":epoch::rescue::count(&state.store.quarantine),
+            "abandoned_obligations":epoch::rescue::count(&rescue.abandoned),
+            "scope":"future lookup exclusion; historical records and dependencies retained", "family_closure_claim":false});
+    }
     if let Some(report) = epoch::g2::report(state) {
         doc["g2_residual_anchors"] = report;
     }
@@ -391,6 +402,15 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     let drained = if admission_stopped {
         false
     } else {
+        super::rescue::apply(
+            &mut restored,
+            &identity,
+            reducer,
+            b,
+            || stop::requested(cancellation, request.epoch_stop_file.as_deref()).is_some(),
+            &mut |restored, receipt| saved(restored, receipt, &[]),
+        )
+        .map_err(|error| AppError::input(error.to_string()))?;
         // Reuse is computed only over validated protected p0, including on a
         // resumed nonzero merge. Do not admit a worker merely because it built.
         let overlap = match admission::resumed_overlap(&restored, request, cancellation, b) {
@@ -432,8 +452,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                 })?;
                 saved(&restored, &receipt, &[]);
                 return finish(
-                    &restored,
+                    &mut restored,
                     request,
+                    &identity,
                     &roles,
                     last.into_inner(),
                     &telemetry.into_inner(),
@@ -474,8 +495,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         matches!(outcome, controller::Outcome::Drained)
     };
     finish(
-        &restored,
+        &mut restored,
         request,
+        &identity,
         &roles,
         last.into_inner(),
         &telemetry.into_inner(),
@@ -491,8 +513,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
 
 #[allow(clippy::too_many_arguments)]
 fn finish<const N: usize>(
-    restored: &Restored<N>,
+    restored: &mut Restored<N>,
     request: &OwnerDomainWalkRequest,
+    identity: &Identity<'_>,
     roles: &Roles,
     receipt: Option<Value>,
     telemetry: &Telemetry,
@@ -506,6 +529,10 @@ fn finish<const N: usize>(
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let receipt = receipt
         .ok_or_else(|| AppError::internal_invariant("CP6 outcome without a durable receipt"))?;
+    let evaluate_required = drained && restored.state.rescue.is_some();
+    if evaluate_required {
+        restored.state.tracker.refresh(cancellation, true);
+    }
     let mut document = summary(
         restored,
         request,
@@ -518,6 +545,58 @@ fn finish<const N: usize>(
         prepared,
         observer_failed,
     );
+    if evaluate_required {
+        let rows = identity.query_rows(
+            restored
+                .state
+                .rescue
+                .as_ref()
+                .map_or(0, |r| r.amendments.len()),
+        );
+        let ids = rows
+            .iter()
+            .map(|(q, _)| (q.id.as_str(), q.auxiliary))
+            .collect::<Vec<_>>();
+        let domains = rows
+            .iter()
+            .map(
+                |(q, _)| crate::application::routed_campaign::walking::queue::Domain {
+                    phase: crate::application::routed_campaign::walking::queue::Phase::Apply,
+                    owner: q
+                        .owner
+                        .as_slice()
+                        .try_into()
+                        .expect("validated query arity"),
+                    lower: q.lower.clone(),
+                    upper: q.upper.clone(),
+                    rank: q.rank,
+                    powers: q.powers,
+                },
+            )
+            .collect::<Vec<_>>();
+        let coverage = crate::application::routed_campaign::walking::rescue::query_certification(
+            &ids,
+            &domains,
+            &restored.roots.rows,
+            |id| {
+                restored
+                    .state
+                    .store
+                    .domains
+                    .get(id)
+                    .map(|image| image.expand())
+            },
+            |id| restored.state.tracker.closed(id),
+        );
+        document["query_admission"]["required_closed"] =
+            coverage["required_queries_certified"].clone();
+        document["query_admission"]["required_closed_evaluated"] = true.into();
+        document["required_queries_resolved"] =
+            (coverage["required_queries_total"] == coverage["required_queries_certified"]).into();
+        document["query_certification"] = coverage;
+        document["finalization"] = "required_query_coverage_evaluated_not_independent".into();
+        document["descendant_closure"]["refreshed_for_result"] = true.into();
+    }
     let failed = Cell::new(observer_failed);
     emit(
         observer,

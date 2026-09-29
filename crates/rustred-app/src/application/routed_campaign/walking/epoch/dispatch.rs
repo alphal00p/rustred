@@ -49,6 +49,23 @@ pub(super) enum Refill<const N: usize> {
 }
 
 impl Dispatch {
+    pub fn rescue_retry(
+        &mut self,
+        id: u32,
+        ledger: &mut super::ledger6::Ledger6,
+    ) -> Result<(), String> {
+        self.requeue
+            .try_reserve(1)
+            .map_err(|_| "rescue requeue allocation".to_owned())?;
+        ledger
+            .apply(id, Transition::T9Retry)
+            .map_err(|e| e.to_string())?;
+        ledger
+            .apply(id, Transition::T2Reserve)
+            .map_err(|e| e.to_string())?;
+        self.requeue.push_back(id);
+        Ok(())
+    }
     /// Admission and replay readiness are distinct: restoring an unfinished
     /// cut must rebuild its immutable input overlap before replay can run.
     pub fn admission_complete(&self) -> bool {
@@ -210,7 +227,7 @@ impl Dispatch {
                 parent: id,
                 v0: state.k,
                 attempts: counters.attempts,
-                flags: 0,
+                flags: super::rescue::job_flags(state, id),
                 image,
             });
         }
@@ -290,7 +307,7 @@ impl Dispatch {
             parent: id,
             v0: state.k,
             attempts,
-            flags: 0,
+            flags: super::rescue::job_flags(state, id),
             image: state.store.domains[id as usize],
         }
     }

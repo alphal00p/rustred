@@ -124,6 +124,93 @@ fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
 }
 
 #[test]
+fn epoch_union_rescue_abandons_auxiliaries_and_cold_certifies_unchanged_required_scope() {
+    let mut fixture = g2_fixture();
+    fixture.queries["query_roles"] = json!({"required":["anchor011"],
+        "auxiliary":["anchor110","anchor","big","big-inner"]});
+    let dir = scratch("epoch-g2-rescue-required");
+    let selection = write_owners(&dir.0, fixture.rank, fixture.omit, &fixture.routes);
+    std::fs::write(dir.0.join("selection.json"), selection).unwrap();
+    std::fs::write(dir.0.join("queries.json"), fixture.queries.to_string()).unwrap();
+    let mut argv = walk_argv(&dir.0, 1, &["--g2-residual-anchors", "union"]);
+    let at = argv
+        .iter()
+        .position(|s| s == "--publication-policy")
+        .unwrap();
+    argv[at + 1] = "epoch".into();
+    let mut request = crate::cli::walk_request_from_argv(argv).unwrap();
+    request.max_events = 0;
+    let stopped = walk(&dir.0, &request);
+    assert_eq!(stopped["stop_reason"], "event_allowance", "{stopped}");
+    let p0 = stopped["epoch"]["p0"].as_u64().unwrap();
+    request.max_events = 1_000_000;
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let mut helper = fixture.queries["queries"][1].clone();
+    helper["id"] = "replacement110".into();
+    let amendment = json!({"schema":super::super::rescue::AMENDMENT_SCHEMA,"sequence":1,
+        "parent":checkpoint::epoch_request_binding(&request),"queries":[helper],
+        "supersede":["anchor110","anchor","big","big-inner"]})
+    .to_string();
+    request.amendments.push(crate::OwnerDomainWalkAmendment {
+        path: dir.0.join("amendment.json"),
+        text: amendment,
+    });
+    let rescued = walk(&dir.0, &request);
+    assert_eq!(rescued["recursive_worklist_exhausted"], true, "{rescued}");
+    assert_eq!(rescued["epoch"]["p0"], p0);
+    assert!(rescued["abandoned_obligations"].as_u64().unwrap() > 0);
+    assert_eq!(rescued["query_certification"]["required_queries_total"], 1);
+    assert_eq!(rescued["required_queries_resolved"], true, "{rescued}");
+    let (raw, sections, _) = epoch_checkpoint::read_raw::<3>(&dir.0.join("checkpoint")).unwrap();
+    assert_eq!(raw.inputs[0]["role"], "required");
+    assert_eq!(raw.inputs.last().unwrap()["role"], "auxiliary");
+    assert_eq!(raw.domains[1], raw.domains[p0 as usize]);
+    assert!(sections.ledger.iter().any(|word| word >> 61 == 7));
+    let mut options = OwnerDomainWalkVerifyOptions::new(dir.0.join("checkpoint"));
+    options.require_closure = true;
+    options.certification_scope = OwnerDomainWalkVerifyScope::PhysicsQueries;
+    let manifest = std::fs::read(dir.0.join("checkpoint/latest.json")).unwrap();
+    let session = std::fs::read(dir.0.join("checkpoint/epoch-session.bin")).unwrap();
+    let report =
+        owner_domain_walk_verify_closure(&request, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(report["verdict"], "PASS", "{report}");
+    assert_eq!(
+        report["certification_scope"],
+        "physics_queries_through_closed_containing_roots"
+    );
+    options.certification_scope = OwnerDomainWalkVerifyScope::AllRoots;
+    let all = owner_domain_walk_verify_closure(&request, &options, &AtomicBool::new(false), |_| {})
+        .unwrap();
+    assert_ne!(
+        all["verdict"], "PASS",
+        "abandoned helpers must not become closed"
+    );
+    assert_eq!(
+        std::fs::read(dir.0.join("checkpoint/latest.json")).unwrap(),
+        manifest
+    );
+    assert_eq!(
+        std::fs::read(dir.0.join("checkpoint/epoch-session.bin")).unwrap(),
+        session
+    );
+    let resumed = walk(&dir.0, &request);
+    assert_eq!(
+        resumed["epoch"]["records_digest"],
+        rescued["epoch"]["records_digest"]
+    );
+    assert_eq!(
+        resumed["epoch"]["edge_digest"],
+        rescued["epoch"]["edge_digest"]
+    );
+    let mut mutated = request.clone();
+    mutated.amendments[0].text.push(' ');
+    assert!(
+        crate::owner_domain_walk_with_progress(mutated, &AtomicBool::new(false), |_| {}).is_err()
+    );
+}
+
+#[test]
 fn g2_sunset_walk_plans_residuals_passes_the_gate_and_every_g2_mutation_fails() {
     let run = g2_run("g2-drained", "1", 1);
     let result = &run.result;

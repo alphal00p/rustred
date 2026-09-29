@@ -120,8 +120,9 @@ impl<const N: usize> RecordBuilder<N> for Builder {
         self_edge: bool,
     ) -> Result<Value, String> {
         let r = &entry.result;
-        let finished = matches!(entry.class, Class::C0 | Class::C4);
-        let error = if finished {
+        let abandoned = r.kind == super::job::NativeKind::Abandoned;
+        let finished = matches!(entry.class, Class::C0 | Class::C4) && !abandoned;
+        let error = if finished || abandoned {
             None
         } else {
             let detail = r.error.clone().unwrap_or_else(|| "native error".into());
@@ -148,6 +149,9 @@ impl<const N: usize> RecordBuilder<N> for Builder {
                 .collect::<Result<_, _>>()?,
         );
         record["record_kind"] = json!("native_inspection");
+        if abandoned {
+            record["rescue_abandoned"] = json!(true);
+        }
         record["local_classification_discharged"] =
             json!(entry.class == Class::C0 && entry.anchors.is_none());
         if image.phase() == Phase::Apply {

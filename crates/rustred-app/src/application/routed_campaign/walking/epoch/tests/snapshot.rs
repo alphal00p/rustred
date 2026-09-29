@@ -185,6 +185,24 @@ fn snapshot_target_and_identity_mutations_fail_closed() {
 }
 
 #[test]
+fn a_historical_snapshot_positive_cannot_reauthorize_a_quarantined_target() {
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+    let view = state.store.snapshot(state.k).unwrap();
+    let result = resolved(&job, &[boxed([2, 0], [3, 0])], Some(&view));
+    assert_eq!(result.misses[0].target, Some(0));
+    drop(view); // Real rescue runs before new views and discards old worker bytes.
+    state.store.rescue_duplicates = true;
+    state.store.install_quarantine(vec![1]).unwrap();
+    let checked = merge::p1_check(&mut state, vec![result.encode()], CONFIG).unwrap();
+    assert!(
+        merge::p2(&mut state, &checked).is_err(),
+        "geometry alone cannot renew excluded authority"
+    );
+    assert_eq!(state.edges.edges(), 0);
+}
+
+#[test]
 fn snapshot_raw_positive_cannot_bypass_native_summary_validity() {
     for bad_powers in [false, true] {
         let mut state = state_with(&[boxed([0, 0], [9, 9])]);

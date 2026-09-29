@@ -25,6 +25,7 @@ pub(super) struct Provisional<const N: usize> {
     pub anchors: AnchorMap,
     pub frontier_counts: std::collections::BTreeMap<u32, u32>,
     pub dispatch: dispatch_state::SavedDispatch,
+    pub rescue: Option<super::super::super::rescue::State>,
     pub record_segments:
         Vec<crate::application::routed_campaign::walking::checkpoint::manifest::Segment>,
 }
@@ -143,7 +144,9 @@ fn inventories(manifest: &Manifest, saved: &OwnedScalars) -> io::Result<()> {
             != saved.ledger_counts[super::super::super::ledger6::Tag::Reserved as usize]
         || file(manifest, "state-9")?.count > watermark
         || file(manifest, "orthants")?.count > watermark
-        || file(manifest, "inputs")?.count != saved.processed_queries as u64
+        || file(manifest, "inputs")?.count
+            != saved.processed_queries as u64
+                + saved.amendments.iter().map(|a| a.queries).sum::<u64>()
         || file(manifest, "input-frontiers")?.count != saved.input_frontiers as u64
     {
         return Err(invalid(
@@ -187,12 +190,66 @@ pub(super) fn read_manifest<const N: usize>(
         lockstep_b
     };
     identity.validate_saved(&scalars, lockstep_b)?;
+    if scalars
+        .amendments
+        .iter()
+        .any(|a| a.resumed_generation >= manifest.generation)
+    {
+        return Err(invalid(
+            "epoch amendment resumed generation is not historical",
+        ));
+    }
     inventories(&manifest, &scalars)?;
     owners(directory, file(&manifest, "owners")?, identity)?;
-    let store = fixed::<N>(directory, &manifest, Section::Domains)?.domains()?;
+    let rescue_active = !scalars.amendments.is_empty();
+    let mut store =
+        fixed::<N>(directory, &manifest, Section::Domains)?.domains_with_rescue(rescue_active)?;
+    let rescue = if rescue_active {
+        let entry = file(&manifest, "rescue")?;
+        if entry.count != u64::from(scalars.watermark)
+            || entry.bytes != 16 + u64::from(scalars.watermark).div_ceil(64) * 16
+        {
+            return Err(invalid("epoch rescue byte inventory"));
+        }
+        let mut reader = checked(directory, entry)?;
+        let (quarantine, abandoned) =
+            super::super::super::rescue::read(&mut reader, scalars.watermark)?;
+        reader.finish()?;
+        if super::super::super::rescue::count(&quarantine) != scalars.quarantined
+            || super::super::super::rescue::count(&abandoned) != scalars.abandoned_obligations
+        {
+            return Err(invalid("epoch rescue scalar inventory"));
+        }
+        store.install_quarantine(quarantine).map_err(invalid)?;
+        Some(super::super::super::rescue::State {
+            amendments: scalars.amendments.clone(),
+            abandoned,
+        })
+    } else {
+        if manifest.files.iter().any(|file| file.key == "rescue") {
+            return Err(invalid("unexpected epoch rescue state"));
+        }
+        None
+    };
     let mut nodes = fixed::<N>(directory, &manifest, Section::Nodes)?.flags(false)?;
     let live = fixed::<N>(directory, &manifest, Section::Live)?.live(scalars.watermark)?;
     let ledger = fixed::<N>(directory, &manifest, Section::Ledger)?.ledger()?;
+    for id in 0..scalars.watermark {
+        let marked = rescue
+            .as_ref()
+            .is_some_and(|r| super::super::super::rescue::contains(&r.abandoned, id));
+        let tag = ledger.tag(id);
+        use super::super::super::ledger6::Tag;
+        if (tag == Some(Tag::Abandoned) && !marked)
+            || marked
+                && !matches!(
+                    tag,
+                    Some(Tag::Pending | Tag::Reserved | Tag::Exhausted | Tag::Abandoned)
+                )
+        {
+            return Err(invalid("epoch abandoned bitset/ledger differs"));
+        }
+    }
     if ledger.counts().0 != scalars.ledger_counts {
         return Err(invalid("epoch scalar ledger tag counts differ"));
     }
@@ -302,6 +359,7 @@ pub(super) fn read_manifest<const N: usize>(
         anchors,
         frontier_counts,
         dispatch,
+        rescue,
         record_segments,
     })
 }

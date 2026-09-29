@@ -29,6 +29,7 @@ pub(super) struct Identity<'a> {
     epoch_rolling: bool,
     epoch_cut_size: usize,
     adaptive: bool,
+    amendments: Vec<super::super::super::rescue::Parsed>,
 }
 
 impl<'a> Identity<'a> {
@@ -55,8 +56,22 @@ impl<'a> Identity<'a> {
         let mut stream = Stream::new(io::sink());
         serde_json::to_writer(&mut stream, owners).map_err(io::Error::other)?;
         let (_, owners_digest) = stream.finish()?;
+        let amendments = request
+            .amendments
+            .iter()
+            .map(|amendment| {
+                super::super::super::rescue::parse(
+                    amendment,
+                    queries.first().map_or(0, |q| q.owner.len()),
+                )
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let binding = super::super::super::checkpoint::epoch_request_binding(request);
+        super::super::super::rescue::check_chain(&[], &amendments, &binding, queries)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         Ok(Self {
-            request: super::super::super::checkpoint::epoch_request_binding(request),
+            request: binding,
             owners,
             owners_digest: owners_digest.blake3,
             queries,
@@ -69,6 +84,7 @@ impl<'a> Identity<'a> {
             epoch_cut_size: super::super::lockstep_b()
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
             adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
+            amendments,
         })
     }
 
@@ -76,12 +92,40 @@ impl<'a> Identity<'a> {
     /// arrays. Aggregate allowances may change between sessions, but the
     /// saved arena must fit both its saved and the requested domain limits.
     pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
-        if saved.schema != 2 {
+        if saved.schema != 3 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported private epoch scalar version; fresh state required",
             ));
         }
+        super::super::super::rescue::check_chain(
+            &saved.amendments,
+            &self.amendments,
+            &self.request,
+            self.queries,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let mut previous_domain = u64::from(saved.p0);
+        let mut previous_generation = 0;
+        let amended_queries = saved
+            .amendments
+            .iter()
+            .try_fold(0usize, |sum, reference| {
+                let count = usize::try_from(reference.queries).ok()?;
+                if reference.first_input != (self.queries.len() + sum) as u64
+                    || reference.first_domain < previous_domain
+                    || reference.first_domain > u64::from(saved.watermark)
+                    || reference.quarantined > reference.first_domain
+                    || reference.resumed_generation == 0
+                    || reference.resumed_generation < previous_generation
+                {
+                    return None;
+                }
+                previous_domain = reference.first_domain;
+                previous_generation = reference.resumed_generation;
+                sum.checked_add(count)
+            })
+            .ok_or_else(|| invalid("epoch amendment cursor inventory"))?;
         let watermark = u64::from(saved.watermark);
         // Request/capability refusals must not silently select an older, smaller
         // generation. Other decode/validation/I/O failures may use a fully
@@ -118,7 +162,11 @@ impl<'a> Identity<'a> {
                 .try_fold(0u64, |sum, value| sum.checked_add(*value))
                 != Some(watermark)
             || saved.processed_queries > saved.total_queries
-            || saved.input_frontiers > saved.processed_queries
+            || saved.input_frontiers > saved.processed_queries + amended_queries
+            || saved.quarantined > watermark
+            || saved.abandoned_obligations > saved.quarantined
+            || saved.amendments.is_empty()
+                && (saved.quarantined != 0 || saved.abandoned_obligations != 0)
             || matches!(saved.initial_admission, Admission::Complete)
                 && saved.processed_queries != saved.total_queries
             || matches!(saved.initial_admission, Admission::InProgress)
@@ -154,6 +202,7 @@ impl<'a> Identity<'a> {
             Tag::NativeFrontier,
             Tag::NativeError,
             Tag::Alias,
+            Tag::Abandoned,
         ]
         .into_iter()
         .try_fold(0u64, |sum, tag| {
@@ -201,6 +250,23 @@ impl<'a> Identity<'a> {
 
     pub(super) fn queries(&self) -> &[Query] {
         self.queries
+    }
+
+    pub(super) fn amendments(&self) -> &[super::super::super::rescue::Parsed] {
+        &self.amendments
+    }
+
+    pub(super) fn query_rows(&self, applied: usize) -> Vec<(&Query, Option<u64>)> {
+        self.queries
+            .iter()
+            .map(|q| (q, None))
+            .chain(self.amendments.iter().take(applied).flat_map(|amendment| {
+                amendment
+                    .queries
+                    .iter()
+                    .map(move |q| (q, Some(amendment.sequence)))
+            }))
+            .collect()
     }
 
     pub(super) fn route_domain_overcover(&self) -> bool {
@@ -358,7 +424,7 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub max_domains: usize,
     pub max_events: u64,
     pub max_frontiers: u64,
-    pub ledger_counts: [u64; 7],
+    pub ledger_counts: [u64; 8],
     pub walk: W,
     pub lookup: L,
     pub verify: V,
@@ -375,10 +441,9 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub stop_reason: Option<S>,
     pub operational_stop: Option<C>,
     pub admission_failure: Option<AdmissionFailure>,
-    // Reserved provenance fields: this implementation admits none of these.
-    pub amendments: [(); 0],
-    pub quarantined: [(); 0],
-    pub abandoned_obligations: [(); 0],
+    pub amendments: Vec<super::super::super::rescue::AmendmentRef>,
+    pub quarantined: u64,
+    pub abandoned_obligations: u64,
     pub g2: S,
     pub imported_prefix: u64,
     pub engine_certification_void: bool,
@@ -406,6 +471,32 @@ impl Inputs<'_> {
         {
             return Err(invalid("epoch G2 state is not bound to Union"));
         }
+        match &state.rescue {
+            Some(rescue)
+                if !rescue.amendments.is_empty()
+                    && state.store.rescue_duplicates
+                    && super::super::rescue::valid(&rescue.abandoned, state.store.len())
+                    && super::super::rescue::valid(&state.store.quarantine, state.store.len()) =>
+            {
+                super::super::super::rescue::check_chain(
+                    &rescue.amendments,
+                    &self.identity.amendments,
+                    &self.identity.request,
+                    self.identity.queries,
+                )
+                .map_err(io::Error::other)?;
+                if rescue
+                    .abandoned
+                    .iter()
+                    .zip(&state.store.quarantine)
+                    .any(|(a, q)| a & !q != 0)
+                {
+                    return Err(invalid("epoch abandonment outside quarantine"));
+                }
+            }
+            None if !state.store.rescue_duplicates && state.store.quarantine.is_empty() => {}
+            _ => return Err(invalid("epoch rescue profile or bitset differs")),
+        }
         if matches!(self.admission, Admission::InProgress) {
             super::super::dispatch::Dispatch::validate_admission(state, boundary.dispatch)
                 .map_err(|_| {
@@ -421,14 +512,16 @@ impl Inputs<'_> {
         validate_failure(
             self.admission_failure,
             self.admission,
-            self.rows.len(),
+            self.rows.len().min(self.identity.queries.len()),
             self.identity.queries.len(),
             self.stop.map(StopReason::name),
             self.operational_stop.is_some(),
         )?;
-        if self.rows.len() > self.identity.queries.len()
-            || matches!(self.admission, Admission::Complete)
-                && self.rows.len() != self.identity.queries.len()
+        let queries = self
+            .identity
+            .query_rows(state.rescue.as_ref().map_or(0, |r| r.amendments.len()));
+        if self.rows.len() > queries.len()
+            || matches!(self.admission, Admission::Complete) && self.rows.len() != queries.len()
             || matches!(self.admission, Admission::InProgress)
                 && (state.k != 0
                     || !state.in_flight.is_empty()
@@ -438,7 +531,7 @@ impl Inputs<'_> {
             return Err(invalid("epoch input admission progress is inconsistent"));
         }
         let mut next_frontier = 0;
-        for (row, query) in self.rows.iter().zip(self.identity.queries) {
+        for (row, (query, amendment)) in self.rows.iter().zip(queries) {
             let expected_role = if query.auxiliary {
                 "auxiliary"
             } else {
@@ -447,12 +540,19 @@ impl Inputs<'_> {
             if row["id"].as_str() != Some(query.id.as_str())
                 || row["role"].as_str() != Some(expected_role)
                 || row["role_declared"].as_bool() != Some(query.role_declared)
+                || row.get("amendment").and_then(Value::as_u64) != amendment
             {
                 return Err(invalid("epoch query root order or exact role changed"));
             }
             match row.get("domain") {
                 Some(Value::Number(number))
-                    if number.as_u64().is_some_and(|id| id < u64::from(state.p0)) => {}
+                    if number.as_u64().is_some_and(|id| {
+                        id < u64::from(if amendment.is_some() {
+                            state.watermark()
+                        } else {
+                            state.p0
+                        })
+                    }) => {}
                 Some(Value::Null)
                     if row["source_validity_unresolved"] == true
                         && self
@@ -479,7 +579,7 @@ impl Inputs<'_> {
         while start < u64::from(state.p0) {
             let mut seen = [0u64; MEMBERSHIP_WORDS];
             let end = (start + width).min(u64::from(state.p0));
-            for row in self.rows {
+            for row in self.rows.iter().take(self.identity.queries.len()) {
                 if let Some(id) = row["domain"]
                     .as_u64()
                     .filter(|id| *id >= start && *id < end)
@@ -509,7 +609,7 @@ impl Inputs<'_> {
         self.validate(boundary)?;
         let state = boundary.state;
         let scalars = Scalars {
-            schema: 2,
+            schema: 3,
             request: self.identity.request.as_str(),
             owner_count: self.identity.owners.len(),
             owners_digest: self.identity.owners_digest,
@@ -539,14 +639,20 @@ impl Inputs<'_> {
             edge_digest: state.edges.edge_digest(),
             initial_admission: self.admission,
             total_queries: self.identity.queries.len(),
-            processed_queries: self.rows.len(),
+            processed_queries: self.rows.len().min(self.identity.queries.len()),
             input_frontiers: self.frontiers.len(),
             stop_reason: self.stop.map(StopReason::name),
             operational_stop: self.operational_stop,
             admission_failure: self.admission_failure.cloned(),
-            amendments: [],
-            quarantined: [],
-            abandoned_obligations: [],
+            amendments: state
+                .rescue
+                .as_ref()
+                .map_or_else(Vec::new, |r| r.amendments.clone()),
+            quarantined: super::super::rescue::count(&state.store.quarantine),
+            abandoned_obligations: state
+                .rescue
+                .as_ref()
+                .map_or(0, |r| super::super::rescue::count(&r.abandoned)),
             g2: self.identity.g2,
             imported_prefix: 0,
             engine_certification_void: false,

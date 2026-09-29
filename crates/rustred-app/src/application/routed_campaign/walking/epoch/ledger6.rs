@@ -59,10 +59,11 @@ pub(super) enum Tag {
     NativeError = 4,
     Alias = 5,
     Exhausted = 6,
+    Abandoned = 7,
 }
 
 impl Tag {
-    pub const ALL: [Tag; 7] = [
+    pub const ALL: [Tag; 8] = [
         Tag::Pending,
         Tag::Reserved,
         Tag::Native,
@@ -70,6 +71,7 @@ impl Tag {
         Tag::NativeError,
         Tag::Alias,
         Tag::Exhausted,
+        Tag::Abandoned,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -80,6 +82,7 @@ impl Tag {
             Tag::NativeError => "native_error",
             Tag::Alias => "alias",
             Tag::Exhausted => "exhausted",
+            Tag::Abandoned => "abandoned",
         }
     }
     fn from_bits(bits: u64) -> Option<Self> {
@@ -91,6 +94,7 @@ impl Tag {
             4 => Tag::NativeError,
             5 => Tag::Alias,
             6 => Tag::Exhausted,
+            7 => Tag::Abandoned,
             _ => return None,
         })
     }
@@ -151,6 +155,9 @@ pub(super) enum Entry6 {
         to: u32,
     },
     Exhausted(Counters),
+    Abandoned {
+        epoch: u64,
+    },
 }
 
 impl Entry6 {
@@ -163,6 +170,7 @@ impl Entry6 {
             Entry6::NativeError { .. } => Tag::NativeError,
             Entry6::Alias { .. } => Tag::Alias,
             Entry6::Exhausted(_) => Tag::Exhausted,
+            Entry6::Abandoned { .. } => Tag::Abandoned,
         }
     }
     pub fn encode(self) -> u64 {
@@ -186,10 +194,11 @@ impl Entry6 {
             ),
             Entry6::Alias { to } => (Tag::Alias, u64::from(to)),
             Entry6::Exhausted(c) => (Tag::Exhausted, c.encode()),
+            Entry6::Abandoned { epoch } => (Tag::Abandoned, epoch & EPOCH_MASK),
         };
         ((tag as u64) << TAG_SHIFT) | payload
     }
-    /// Refuses tag 7 and any payload bit outside the tag's layout.
+    /// Refuses any payload bit outside the tag's layout.
     pub fn decode(word: u64) -> Result<Self, LedgerError> {
         let tag = Tag::from_bits(word >> TAG_SHIFT).ok_or(LedgerError::InvalidTag)?;
         let payload = word & PAYLOAD_MASK;
@@ -212,6 +221,12 @@ impl Entry6 {
                     return Err(LedgerError::Malformed);
                 }
                 Entry6::NativeFrontier { epoch: payload }
+            }
+            Tag::Abandoned => {
+                if payload >> 48 != 0 {
+                    return Err(LedgerError::Malformed);
+                }
+                Entry6::Abandoned { epoch: payload }
             }
             Tag::NativeError => {
                 if payload >> 56 != 0 {
@@ -290,13 +305,15 @@ pub(super) enum Transition {
     /// Pending or Reserved -> Exhausted (restore with --exhaust-id).
     #[allow(dead_code)] // restore-time operator flag (S3)
     T12ExhaustId,
+    /// Reserved -> Abandoned: explicit resume-rescue retirement, never inspected.
+    T13Abandon { epoch: u64 },
 }
 
 impl Transition {
     /// Every transition kind once (payloads are placeholders), for the
     /// exhaustive table test.
     #[cfg(test)]
-    pub const KINDS: [Transition; 11] = [
+    pub const KINDS: [Transition; 12] = [
         Transition::T1New { dispatch_class: 0 },
         Transition::T2Reserve,
         Transition::T3Alias { to: 1 },
@@ -320,6 +337,7 @@ impl Transition {
         Transition::T9Retry,
         Transition::T10ExhaustedAlias { to: 1 },
         Transition::T12ExhaustId,
+        Transition::T13Abandon { epoch: 1 },
     ];
 
     /// The tag an existing entry must have (None: T1, which creates it).
@@ -336,6 +354,7 @@ impl Transition {
                 | (Transition::T9Retry, Tag::Exhausted)
                 | (Transition::T10ExhaustedAlias { .. }, Tag::Exhausted)
                 | (Transition::T12ExhaustId, Tag::Pending | Tag::Reserved)
+                | (Transition::T13Abandon { .. }, Tag::Reserved)
         )
     }
 }
@@ -373,7 +392,7 @@ impl std::fmt::Display for LedgerError {
 
 /// Per-tag counts, kept current by `apply`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct TagCounts(pub [u64; 7]);
+pub(super) struct TagCounts(pub [u64; 8]);
 
 impl TagCounts {
     pub fn get(&self, tag: Tag) -> u64 {
@@ -458,6 +477,10 @@ impl Ledger6 {
             return Err(LedgerError::Refused { from });
         }
         let next = match (t, current) {
+            (Transition::T13Abandon { epoch }, _) => {
+                check_epoch(epoch)?;
+                Entry6::Abandoned { epoch }
+            }
             (Transition::T2Reserve, Entry6::Pending(c)) => Entry6::Reserved(c),
             (Transition::T3Alias { to }, _) | (Transition::T10ExhaustedAlias { to }, _) => {
                 if to <= id {

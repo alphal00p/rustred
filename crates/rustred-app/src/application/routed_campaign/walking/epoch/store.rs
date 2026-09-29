@@ -103,15 +103,25 @@ impl ExactIndex {
         image: &CompactDomain<N>,
         domains: &[CompactDomain<N>],
     ) -> Option<u32> {
+        self.get_admissible(digest, image, domains, |_| true)
+    }
+
+    pub fn get_admissible<const N: usize>(
+        &self,
+        digest: u64,
+        image: &CompactDomain<N>,
+        domains: &[CompactDomain<N>],
+        admissible: impl Fn(u32) -> bool,
+    ) -> Option<u32> {
         let &id = self.shards[shard_of(digest)].get(&digest)?;
-        if domains[id as usize] == *image {
+        if domains[id as usize] == *image && admissible(id) {
             return Some(id);
         }
         self.overflow
             .get(&digest)?
             .iter()
             .copied()
-            .find(|&id| domains[id as usize] == *image)
+            .find(|&id| domains[id as usize] == *image && admissible(id))
     }
     fn primary_taken(&self, digest: u64) -> bool {
         self.shards[shard_of(digest)].contains_key(&digest)
@@ -245,6 +255,10 @@ pub(super) struct Store<const N: usize> {
     pub bucket_of: HashMap<(u8, u32), u32>,
     pub max_finite_rank: Option<u32>,
     pub unbounded_rank_domains: u64,
+    /// Resume-boundary lookup exclusions. Historical edges/records are untouched.
+    pub quarantine: Vec<u64>,
+    /// Explicitly enabled only by an authenticated rescue amendment chain.
+    pub rescue_duplicates: bool,
 }
 
 struct Forward<'a, const N: usize> {
@@ -279,7 +293,12 @@ impl<const N: usize> Visit for Reverse<'_, N> {
     fn test(&mut self, id: usize) -> Result<bool, &'static str> {
         *self.candidates += 1;
         *self.tests += 1;
-        Ok(self.stored.contained_by(id, self.query))
+        Ok(!self
+            .stored
+            .quarantine
+            .get(id / 64)
+            .is_some_and(|w| w >> (id % 64) & 1 != 0)
+            && self.stored.contained_by(id, self.query))
     }
 }
 
@@ -371,6 +390,8 @@ impl<const N: usize> Store<N> {
             bucket_of: HashMap::new(),
             max_finite_rank: None,
             unbounded_rank_domains: 0,
+            quarantine: Vec::new(),
+            rescue_duplicates: false,
         }
     }
 
@@ -378,13 +399,28 @@ impl<const N: usize> Store<N> {
         self.domains.len()
     }
 
+    pub fn is_quarantined(&self, id: u32) -> bool {
+        self.quarantine
+            .get(id as usize / 64)
+            .is_some_and(|w| w >> (id % 64) & 1 != 0)
+    }
+
+    pub fn install_quarantine(&mut self, bits: Vec<u64>) -> Result<(), &'static str> {
+        if !self.rescue_duplicates
+            || bits.len() != self.len().div_ceil(64)
+            || self.len() % 64 != 0 && bits.last().is_some_and(|w| w >> (self.len() % 64) != 0)
+        {
+            return Err("rescue quarantine mode, count or padding");
+        }
+        self.quarantine = bits;
+        Ok(())
+    }
+
     fn stored(&self) -> Stored<'_, N> {
         Stored {
             domains: &self.domains,
             summaries: &self.summaries,
-            // Epoch admission refuses rescue amendments until its ledger
-            // carries quarantine and abandoned-obligation provenance.
-            quarantine: &[],
+            quarantine: &self.quarantine,
         }
     }
 
@@ -398,8 +434,11 @@ impl<const N: usize> Store<N> {
         counters: &mut LookupCounters,
         verify_counters: &mut VerifyCounters,
     ) -> Result<Option<(u32, Verified, Hit)>, String> {
-        if let Some(id) = self.exact.get(q.digest, &q.image, &self.domains)
-            && (id as usize) < published_len
+        if let Some(id) = self
+            .exact
+            .get_admissible(q.digest, &q.image, &self.domains, |id| {
+                (id as usize) < published_len && !self.is_quarantined(id)
+            })
         {
             let token = verify(
                 Container::Stored {
@@ -449,6 +488,7 @@ impl<const N: usize> Store<N> {
                 && stored.is_full_orthant()
                 && rank_contains(stored.rank(), q.image.rank())
                 && (orthant as usize) < published_len
+                && !self.is_quarantined(orthant)
             {
                 let token = verify(container(orthant), q, verify_counters)
                     .ok_or_else(|| format!("orthant hit {orthant} failed verify"))?;
@@ -519,6 +559,15 @@ impl<const N: usize> Store<N> {
 
     /// Capacity for `n` new IDs in the arena and summaries (P3 preflight).
     pub fn try_reserve(&mut self, n: usize) -> Result<(), &'static str> {
+        if self.rescue_duplicates {
+            self.quarantine
+                .try_reserve(
+                    (self.len() + n)
+                        .div_ceil(64)
+                        .saturating_sub(self.quarantine.len()),
+                )
+                .map_err(|_| "quarantine allocation")?;
+        }
         self.domains
             .try_reserve(n)
             .map_err(|_| "domain arena allocation")?;
@@ -545,14 +594,40 @@ impl<const N: usize> Store<N> {
         summary: CompactSummary<N>,
         key: u64,
     ) -> Result<u32, String> {
+        self.push_inner(image, summary, key, false)
+    }
+
+    /// Historical equal groups are legitimate after a later quarantine shrinks.
+    /// Only the authenticated rescue profile may rebuild such an arena.
+    pub fn push_restored(
+        &mut self,
+        image: CompactDomain<N>,
+        summary: CompactSummary<N>,
+        key: u64,
+    ) -> Result<u32, String> {
+        self.push_inner(image, summary, key, true)
+    }
+
+    fn push_inner(
+        &mut self,
+        image: CompactDomain<N>,
+        summary: CompactSummary<N>,
+        key: u64,
+        restoring: bool,
+    ) -> Result<u32, String> {
         if image.digest().0 != key {
             return Err("survivor digest differs from its image".into());
         }
-        if let Some(existing) = self.exact.get(key, &image, &self.domains) {
+        if let Some(existing) = self.exact.get_admissible(key, &image, &self.domains, |id| {
+            !self.rescue_duplicates || !restoring && !self.is_quarantined(id)
+        }) {
             return Err(format!("image already stored as {existing} (E3)"));
         }
         let id = self.domains.len() as u32;
         self.domains.push(image);
+        if self.rescue_duplicates {
+            self.quarantine.resize(self.domains.len().div_ceil(64), 0);
+        }
         self.summaries.push(summary);
         self.exact.insert(key, id);
         let bucket_key = bucket_key(&image);
