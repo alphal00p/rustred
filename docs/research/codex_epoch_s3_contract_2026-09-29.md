@@ -1,10 +1,11 @@
 # Epoch S2 integration and S3 checkpoint contract
 
-Status: preparatory integration and corrective source audit passed; release
-typecheck failed, corrective source awaits recheck. Internal S3 section-writer
-primitives passed independent source review, pending compilation/execution.
-No native execution, campaign pilot
-or deployment claim is made.
+Status: preparatory integration, corrective source, internal writer and private
+publisher passed independent source review and consolidated release typecheck
+at `6f7eb9fd`. The first typecheck failure is retained below. Follow-on bounded
+restore primitives passed independent source review; their typecheck and execution
+remain pending.
+No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
 and socket-1 launch instructions do not authorize those actions now.
@@ -82,7 +83,12 @@ Protocol/C5 receipt for unsupported legacy G2 stats (`panic=false`, no
 coverage or retry), and declares exact A9 query roles. Independent review
 also caught a private `Class::code()` call in the new test before compilation;
 the test now uses the existing documented persisted C3 code. Corrective
-format/diff checks pass; repeat Rust typecheck and execution remain pending.
+format/diff checks pass. The consolidated guarded `cargo check --release --tests`
+at `6f7eb9fd` passed after 25.166 s, exit 0, reason null, on CPUs 16-31 with
+eight jobs. Receipt: `TMP/codex-epoch-s3.JjASCU/typecheck-retry`; minimum available
+RAM 831,233,785,856 bytes, maximum single-child RSS 1,162,360 KiB. This includes
+writer `2cc3710d` and publisher source `2662a846` (cherry-picked as `6f7eb9fd`).
+It executes no native regressions and does not validate later restore sources.
 
 ## Internal writer slice (not CP6 publication)
 
@@ -109,8 +115,8 @@ dispatch/in-flight state, stale closure flags and frontier counts. It never
 allocates a full encoded section or refreshes closure on save. Tests cover
 byte/hash fidelity, attempts/order/B preservation, anchor-layout agreement,
 poison/reservation mutations, partial/interrupted writes, write/flush failure,
-and immutable non-advertised files. These new tests are source-only pending
-the allocated consolidated build.
+and immutable non-advertised files. These test sources passed the consolidated
+typecheck but have not executed.
 
 These `.part` files are deliberately orphan-only infrastructure: no directory
 publication or durable restart is claimed. Request/roles/record-tail binding,
@@ -121,8 +127,8 @@ validators and asynchronous stop integration are the next reviewed slices.
 
 The follow-on worktree `codex-epoch-s3-publish` starts from the frozen writer
 commit `2cc3710d`; it does not change that tree's pending validation target.
-The next source slice passed independent source audit, pending compilation and
-execution. It streams
+The next source slice passed independent source audit and the consolidated
+typecheck; execution remains pending. It streams
 scalar counters, root rows, input frontiers, owner fingerprints, sealed record
 segment descriptors and historical dominant-orthant slots. Scalars borrow the
 existing counters. The request binding and owner-inventory digest are computed
@@ -166,6 +172,40 @@ The pinned Symbolica restricted permit has no public thread handoff API:
 unlicensed W1 remains inline with its responsiveness limit. A licensed async
 worker must validate authorization on the worker itself and account explicitly
 for control execution; W1 capability is still open, not silently promised.
+
+### Bounded provisional decode slice (source-only)
+
+The follow-on publisher worktree adds a fixed 32-KiB authenticated reader and
+fixed-width section decoders. They verify local filenames, regular-file lengths,
+section magic/version/arity/kind/count and checked count-times-width against the
+actual remaining bytes before reserving count-sized runtime storage. Each decoded
+section remains provisional until full consumption, exact EOF and its digest pass.
+Canonical images reuse the existing job-image decoder and summary construction;
+no Symbolica state or new CAS serialization is introduced. Ledger words preserve
+attempts/guard bits and rebuild counts; unsupported residual flags and invalid
+alias direction/range are refused. Complete cross-state ledger checks remain open.
+
+Only final runtime arrays are allocated: canonical arena/summaries/exact shards,
+raw flags/live words/ledger, and the owned u32 edge-run log. Per-image scratch is
+165 bytes. The edge log validates endpoint ranges, strictly increasing targets
+and exact run boundaries, then supplies a repeatable borrowed pair iterator.
+Closure construction moves owned flags and builds the final CSR in two passes;
+equal edge counts alone are insufficient, so both passes must also match their
+ordered digest. No full expanded pair vector, bucket partition or flag clone is
+created. Source tests cover equal-count changed target distributions, malformed
+run lengths/endpoints/order, forged huge counts with tiny bodies, flags/live
+padding, all ledger word layouts and duplicate/noncanonical canonical images.
+
+The arena decoder deliberately leaves lookup indices empty and orthant slots
+unset. Reindexing only persisted live IDs and independently validating historical
+orthants (including retired full-orthant IDs) is a required next gate, not inferred
+from a newly constructed antichain. Other remaining obligations: manifest/scalar
+and actual diagnostic-B binding, counts versus request/resource limits, sparse
+frontiers/anchors, run uniqueness/seals/records and record digests, closure versus
+ledger state, complete/partial initial roots and role binding, exact dispatch
+replay and journal-backed cross-session reservation. Merely using saved_session+1
+would reuse sequence IDs after a crash before a new generation; no runtime resume
+is enabled by these section readers. New regression execution is still pending.
 
 ## Proposed S3 state and writer contract
 

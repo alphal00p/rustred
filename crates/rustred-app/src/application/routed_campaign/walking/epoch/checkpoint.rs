@@ -18,6 +18,8 @@ use std::path::Path;
 
 mod metadata;
 mod publication;
+mod read;
+mod restore;
 #[cfg(test)]
 mod tests;
 

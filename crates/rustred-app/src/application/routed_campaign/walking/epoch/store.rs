@@ -122,6 +122,25 @@ impl ExactIndex {
         }
         Ok(())
     }
+
+    /// Bounded restore insertion: avoid constructing three temporary maps
+    /// for each individual image while decoding a section as a stream.
+    pub fn try_reserve_one(&mut self, digest: u64) -> Result<(), &'static str> {
+        if self.primary_taken(digest) {
+            self.overflow
+                .try_reserve(1)
+                .map_err(|_| "exact index allocation")?;
+            self.overflow
+                .entry(digest)
+                .or_default()
+                .try_reserve(1)
+                .map_err(|_| "exact index allocation")
+        } else {
+            self.shards[shard_of(digest)]
+                .try_reserve(1)
+                .map_err(|_| "exact index allocation")
+        }
+    }
     /// Insert `id` under `digest`. The caller (`Store::push`) has refused an
     /// equal image already (E3: exact uniqueness of images).
     pub fn insert(&mut self, digest: u64, id: u32) {

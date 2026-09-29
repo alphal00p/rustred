@@ -16,6 +16,27 @@ pub(super) struct EdgeStore {
     records_digest: blake3::Hasher,
 }
 
+#[derive(Clone)]
+pub(super) struct Runs<'a> {
+    remaining: &'a [u32],
+}
+
+impl<'a> Iterator for Runs<'a> {
+    type Item = (u32, &'a [u32]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining.is_empty() {
+            return None;
+        }
+        // Only an append-validated or restore-validated log creates Runs.
+        let source = self.remaining[0];
+        let end = 2 + self.remaining[1] as usize;
+        let targets = &self.remaining[2..end];
+        self.remaining = &self.remaining[end..];
+        Some((source, targets))
+    }
+}
+
 impl EdgeStore {
     pub fn new() -> Self {
         Self {
@@ -31,6 +52,51 @@ impl EdgeStore {
         self.log
             .try_reserve(words)
             .map_err(|_| "edge log allocation")
+    }
+    /// Take the final runtime log, not a copy of its serialized section.
+    /// This checks run geometry and rebuilds the edge digest; ledger/run
+    /// uniqueness, record tags and the records digest remain cross-section
+    /// restore checks before this provisional store can reach a worker.
+    pub fn from_owned_log(log: Vec<u32>, watermark: u32) -> Result<Self, String> {
+        let mut store = Self::new();
+        let mut remaining = log.as_slice();
+        while !remaining.is_empty() {
+            let [source, count, ..] = remaining else {
+                return Err("truncated checkpoint edge run".into());
+            };
+            let count = *count as usize;
+            let targets = remaining
+                .get(2..2usize.checked_add(count).ok_or("edge run overflow")?)
+                .ok_or("truncated checkpoint edge targets")?;
+            if *source >= watermark
+                || targets.iter().any(|&target| target >= watermark)
+                || targets.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                return Err("invalid checkpoint edge run".into());
+            }
+            store.runs += 1;
+            store.edges += count as u64;
+            store.self_edges += u64::from(targets.binary_search(source).is_ok());
+            for word in &remaining[..2 + count] {
+                store.edge_digest.update(&word.to_le_bytes());
+            }
+            remaining = &remaining[2 + count..];
+        }
+        store.log = log;
+        Ok(store)
+    }
+
+    pub fn run_iter(&self) -> Runs<'_> {
+        Runs {
+            remaining: &self.log,
+        }
+    }
+
+    /// Repeatable borrowed traversal, used to rebuild the closure CSR in
+    /// two passes without materializing all dependency pairs.
+    pub fn pairs(&self) -> impl Iterator<Item = (u32, u32)> + Clone + '_ {
+        self.run_iter()
+            .flat_map(|(source, targets)| targets.iter().map(move |&target| (source, target)))
     }
     /// Append one run. Err on a violated precondition (the caller treats it
     /// as a P3 internal failure, C5).

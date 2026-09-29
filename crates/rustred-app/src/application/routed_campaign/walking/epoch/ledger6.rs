@@ -1,7 +1,8 @@
 //! ledger6: one `u64` per ID (W2.0 protocol §4). Bits 63..61 hold the tag;
-//! the payload depends on the tag. `Ledger6::apply` is the only mutator: it
+//! the payload depends on the tag. `Ledger6::apply` is the runtime mutator: it
 //! checks the current tag against the exhaustive transition table and refuses
 //! every other pair without mutation (a release check, never a debug assert).
+//! Restore appends validated raw words only to a provisional private ledger.
 //!
 //! Preconditions that need more than the ledger (containment tokens, buckets,
 //! the protected prefix, the watermark `W_k`, `in_flight` sequence numbers)
@@ -415,6 +416,19 @@ impl Ledger6 {
     /// The raw words (export and identity comparison).
     pub fn words(&self) -> &[u64] {
         &self.entries
+    }
+
+    /// Restore-only append to a provisional ledger. Decode before mutation,
+    /// preserve every attempts/guard bit, and rebuild tag counts. The section
+    /// digest and cross-state validators still precede any dispatch.
+    pub fn restore_word(&mut self, word: u64) -> Result<(), LedgerError> {
+        let entry = Entry6::decode(word)?;
+        self.entries
+            .try_reserve(1)
+            .map_err(|_| LedgerError::Overflow)?;
+        self.entries.push(word);
+        self.counts.0[entry.tag() as usize] += 1;
+        Ok(())
     }
 
     /// The only mutator. T1 appends `id == len`; every other transition

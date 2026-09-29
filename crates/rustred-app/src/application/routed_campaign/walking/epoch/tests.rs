@@ -1600,6 +1600,13 @@ fn exact_index_forced_collision_and_duplicate_images_refused() {
     assert_eq!(exact.get(digest, &c, &domains), None);
     assert_eq!(exact.get(digest ^ 1, &a, &domains), None);
     assert_eq!((exact.len(), exact.overflow_len()), (2, 1));
+    let mut streamed = ExactIndex::new();
+    for (id, domain) in domains.iter().enumerate() {
+        streamed.try_reserve_one(digest).unwrap();
+        streamed.insert(digest, id as u32);
+        assert_eq!(streamed.get(digest, domain, &domains), Some(id as u32));
+    }
+    assert_eq!((streamed.len(), streamed.overflow_len()), (2, 1));
     // E3 and SND-7 in the store: a duplicate image or a wrong key is refused.
     let mut store = Store::<2>::new();
     let q = QueryImage::new(a).unwrap();
