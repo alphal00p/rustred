@@ -51,7 +51,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
-| Compatible Stage A executable | validated; push active | `stage_a_release`, root independent review | Optimized binary frozen; Ordered and Ready native pause/upgrade/resume/cold drills PASS; publish delivery document and notify user |
+| Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
 | Rolling Epoch controller and lookup replicas | integrated; native validation pending | `epoch_rolling_impl`, root review | Finish narrow rescue snapshot/watermark composition, then consolidated native checks |
 | Fresh CP6 G2 Union | delivered source; validation active | `epoch_g2_rescue_impl`, root review | Integrated `714970bc`; execute real save/restore/cold tests |
 | CP6 rescue and required scope | integrated; native validation pending | `epoch_g2_rescue_impl`, root/rolling critique | `1bacf9d9`: explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; compile/run combined tests |
@@ -119,7 +119,8 @@ evidence, not a claim that the new parallel implementation has passed its gates.
   Evidence: `TMP/codex-stage-a.2RU3AX/native-upgrade-smoke-{ordered-v3,ready}/`.
   Earlier controller-field/thread-cap mistakes remain recorded as incomplete.
   These are representative controls, not a60.7GB full LC2 replay.
-- [M] Stable delivery source/docs independently approved for fast-forward push.
+- [M] Stable delivery source/docs independently approved and fast-forward pushed
+  as `931d006c`; remote identity verified. Owner upgrade command communicated.
   No production operation performed. Plain upgrade retains frozen G2 Off;
   do not attribute the earlier Union savings to this compatible upgrade.
 - [M] CP6 rescue source `69490a40` integrated as `1bacf9d9`, retaining adaptive
@@ -281,6 +282,29 @@ evidence, not a claim that the new parallel implementation has passed its gates.
   Stage B implementation. No speed or five-loop completion claim follows from
   the architecture choice. Algebraic-pivot review is queued for the next free
   agent slot; adaptive dispatch remains a separate deliverable.
+### Stable-branch event retained on merge — 2026-09-29 14:41 UTC
+
+- [M] Independent stable clone native source `986d046e` adds only the two
+  reviewed geometry-buffer/lean-telemetry cherry-picks to `e56b8cdb`; no
+  private Epoch code. Symbolica stays clean `ef0db494`.
+- [M] Real optimized campaign CLI build passed after 3,566.486 s, guarded
+  on CPUs 0–15 with heavy/build-0 locks and 250/150 GiB headroom floors.
+  The build exceeded the 30-minute target under the approved build/correctness
+  exception; Stage B continues in the root `fable_5_1_parallel` checkout.
+- [M] New frozen binary SHA-256
+  `0995f0fda2637eb4bf0bdc5b46249aba9c6f4ba513196143a2b07d3aaa739c21`.
+  Read-only LC2 input/options checks and CP5/schema5/semantics1 probe match.
+  No production write, launch or signal; the compatible upgrade keeps G2 Off.
+- [M] Ordered/W6 and Ready/W6 FG248 drills passed genuine old-binary durable
+  pause, candidate upgrade/resume, unchanged input/options, public history
+  rollback probe and full cold verification: 248/248 roots in each, all
+  98,869 / 98,841 native records reinspected respectively. Two earlier harness
+  setup failures remain recorded as incomplete, not passing gates.
+- [M] Evidence: `TMP/codex-stage-a.2RU3AX/`; delivery and owner commands:
+  `docs/research/fable51_stable_upgrade_2026-09-29.md`. Independent final
+  source/binary/receipt/delivery review passed; stable push follows the
+  documentation commit. No full-size
+  LC2 replay, actual post-upgrade old-binary rollback, or new speedup claimed.
 
 ### 2026-09-29 13:25 UTC — approval; concurrent Stage A build and Stage B implementation
 
