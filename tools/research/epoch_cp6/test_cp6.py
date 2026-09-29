@@ -103,6 +103,17 @@ class PredicateTests(unittest.TestCase):
         values[1]["epoch"]["schedule"]["window"] = 16
         with self.assertRaises(ValueError):
             accept(*values)  # No implicit widening of old receipt semantics.
+        values = documents("/unused/checkpoint")
+        values[6].update(b=1, schedule={"kind": "rolling", "depth": 1, "b": 1,
+                "window": 1, "cut_size": 1, "publication_order": "oldest_sequence_prefix",
+                "dispatch": "fifo"})
+        values[1]["epoch"]["schedule"] = copy.deepcopy(values[6]["schedule"])
+        self.assertTrue(accept(*values)["accepted"])
+        for key in ("b", "window", "cut_size", "depth"):
+            mutated = copy.deepcopy(values)
+            mutated[1]["epoch"]["schedule"][key] = True
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                accept(*mutated)
 
     def test_only_raw_cold_all_not_python_pass_is_authority(self):
         result = accept(*documents("/unused/checkpoint"))

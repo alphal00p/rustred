@@ -9,8 +9,8 @@ remain recorded; successful collection prints `COLLECTED_UNACCEPTED`.
 then calls that same method on that same guard with unchanged arguments. The
 original guard owns start/session, stop handling, lock lifetime, sampler shutdown
 and descendant drain. No second process supervisor or native subprocess exists
-here. This adapter is for fresh, checkpoint-enabled Epoch, G2 off, explicit
-`all-miss` or `snapshot`, no perf. A rejected launch keeps the original runner's
+here. This adapter is for fresh, checkpoint-enabled Epoch, explicitly bound G2
+Off or Union, explicit `all-miss` or `snapshot`, and no perf. A rejected launch keeps the original runner's
 failure receipts. A receipt-write failure after drain cannot become acceptance.
 
 ## Plan and operation

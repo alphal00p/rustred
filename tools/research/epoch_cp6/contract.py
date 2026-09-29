@@ -78,10 +78,13 @@ def clean_collection(metrics, summary, expected):
             and type(summary["parallel"]["active_workers"]) is int
             and summary["parallel"]["active_workers"] == 0, "workers not joined")
     epoch = summary["epoch"]
-    require(type(epoch["schedule"]["depth"]) is int and type(epoch["schedule"]["b"]) is int
+    schedule = expected_schedule(expected)
+    actual_schedule = epoch["schedule"]
+    require(isinstance(actual_schedule, dict) and actual_schedule.keys() == schedule.keys()
+            and all(type(actual_schedule[key]) is type(value) and actual_schedule[key] == value
+                    for key, value in schedule.items())
             and epoch["engine_certification_void"] is False
-            and epoch["inspector_lookup_mode"] == expected["mode"]
-            and epoch["schedule"] == expected_schedule(expected),
+            and epoch["inspector_lookup_mode"] == expected["mode"],
             "mode, B or engine authority differs")
     g2 = expected.get("g2", "off")
     require(g2 in ("off", "union"), "unknown G2 control")
