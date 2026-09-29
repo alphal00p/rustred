@@ -184,3 +184,87 @@ At handoff, deliver a stable pushed revision, frozen executable and exact
 Nix/build/launch instructions, measured versus unmeasured benefits, disposition
 of each remaining avenue, retained old campaign/checkpoint, and concise next
 steps. Do not claim five-loop closure or an ETA from pilot success.
+
+## September 29 revised timebox: first useful Epoch deployment candidate
+
+The user's latest directive, verbatim:
+
+> I am really excited about this architectural re-design (and it's ok if it requires the launch of a whole new campaign) especially if it mains being able to scale up core utilization without doing excessive redundant work.
+>
+> So can you fit a compiled reasonably tested build to have a first shot at the 5-loop campaign with this architecture within a time budget of 6 to 8 hours max then (with some subagents to speed up the implementation)?
+> I am a bit short on quota so I would need a delivery of this promising idea within that time/compute frame.
+> You sort of know what do do already, so can you adjust the plan to get there within the allotted time?
+
+This supersedes the preceding 3–4-hour legacy-first delivery scope. Target a
+useful fresh-start **Epoch candidate**, not the entire long-term architecture.
+Window measured from 12:57 UTC: aim for 18:57 UTC, hard handoff by 20:57 UTC.
+If execution is unavailable because of quota/capacity, report that explicitly;
+do not imply agents are working or silently extend the deadline. Current goal
+status is `usageLimited`; reactivation of a subagent was rejected with `agent
+thread limit reached`. The root cannot clear either condition through goal tools.
+
+### Required first-campaign functionality
+
+- Real bounded overlap of inspection and publication, beyond the current
+  16-job global lockstep barrier. Versioned immutable lookup data must coexist
+  with new publication without copying the whole store per worker or epoch.
+  Maintain a bounded in-flight window and bounded old-view retention. A larger
+  lockstep batch alone does not meet this objective.
+- Reuse the existing inspector-side lookup and exact merge checks. Negative
+  lookups are only reusable for the state actually searched; new proposals
+  still undergo deduplication. Preserve complete dependency edges, publication
+  order, replay decisions and strict lifecycle transitions.
+- Integrate fresh-start G2 Union to avoid paying for higher utilization with
+  excessive redundant domain work. Keep the Off control. Correct eligibility
+  and inspected scope must agree in planner, merge, checkpoint and cold reader.
+- Preserve all116 required queries and67 original auxiliary helpers. Rescue
+  must retain its append-only scope and quarantine semantics; do not silently
+  remove it. A candidate still refusing required rescue is explicitly partial,
+  not a fully qualified replacement for the current campaign.
+- Retain graceful interruption, RAM-stop and durable checkpoint/resume within
+  the new engine, plus truthful native/Python monitoring. Fresh input is fine;
+  no CP5-to-CP6 migration or historical-checkpoint compatibility project.
+- Reuse Symbolica thread-owned contexts and current exact algebra. No new CAS,
+  rational reconstruction, terminal minimization or Vakint work in this window.
+
+### Parallel lanes and scope control
+
+When agent capacity is available, use three orthogonal lanes: (1) bounded
+rolling/snapshot lifetime and merge implementation; (2) G2/rescue integration;
+(3) independent code/mathematical audit and validation. Root integrates,
+coordinates resources, profiles and prepares delivery. Reviewers do not approve
+their own changes. Serialize overlapping edits and heavy jobs.
+
+First30minutes: finish/assess the frozen9ec build, settle the smallest viable
+overlap mechanism and separate edit ownership. By hour3, require an integrated
+source candidate with real overlap and reuse, or explicitly report the missing
+mechanism. Reserve at least the final3hours for one optimized build, focused
+native/CLI/Python checks, controls, cold verification, pilots and handoff.
+After source freeze allow narrow correctness fixes, not more optimization ideas.
+Use existing harnesses and receipts; do not build another acceptance framework.
+
+### Acceptance and recommendation
+
+- Test same-mode checkpoint/resume, cancellation and resource stops, stale
+  snapshots, duplicate proposals, G2 coverage and quarantine interactions.
+  Validate mathematical output independently; utilization is not correctness.
+- Run FG/BMW/H/X, combined four-loop, finite five-loop and hot-sector controls
+  with frozen release binaries and the existing bounded pilot rules. Report
+  unfinished controls as censored. Scope/role counts must remain unchanged.
+- Compare whole-campaign time, CPU, memory and domain work against current
+  G2-enabled legacy, not only LC2 with G2 off. Include matched worker placement
+  and observed busy cores. Keep the established1.5x Epoch deployment gate;
+  high CPU use alone never justifies switching.
+- A correctly executing candidate that misses the performance gate may be
+  delivered as experimental, but is not recommended to replace LC2. An
+  incomplete or failing engine is preserved as unfinished work, not called
+  launch-ready. No five-loop completion-time promise or closure claim.
+
+Defer adaptive ordering, sophisticated compaction/NUMA tuning, general migration,
+extra witness algorithms and unrelated micro-optimizations. Their omission is
+intentional; the deadline is for a useful first architecture, not every idea.
+
+Deliver the tested revision and frozen executable, exact Nix/build/fresh-launch
+instructions, resource configuration, known limitations, pilot evidence and
+rollback to untouched LC2. Commit/push coherent code and update progress before
+handoff. Only the user stops or launches production.

@@ -1,5 +1,18 @@
 # RustRed project goal
 
+## September 29 latest directive: first useful Epoch build in 6–8 hours
+
+The latest section of `CODEX_PROGRESS_PLAN.md` supersedes the earlier legacy-first
+timebox. Target a compiled, reasonably tested fresh-start Epoch candidate with
+bounded inspection/publication overlap, G2 reuse, safe checkpoints and unchanged
+116-required-query scope. Aim for 18:57 UTC, hard handoff20:57 UTC. Do not confuse
+larger lockstep batches or higher utilization with a faster qualified engine.
+Preserve correctness and the matched1.5x deployment gate; explicitly label any
+partial/experimental delivery. Defer nonessential ideas rather than overrun.
+LC2 stays untouched and the user launches production. Quota/capacity currently
+prevents agent continuation; report lost execution time rather than claiming
+background progress. See the plan for planned lanes, freeze and acceptance.
+
 ## September 29 latest directive: timeboxed stable delivery
 
 Deliver a consolidated stable push within 3–4 hours of 12:46 UTC (target

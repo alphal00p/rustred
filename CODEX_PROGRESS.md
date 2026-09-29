@@ -87,6 +87,31 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 12:57 UTC — revised Epoch delivery target; execution capacity unavailable
+
+- User replaces the 3–4-hour legacy-first checkpoint with a 6–8-hour target
+  for a useful fresh-start Epoch build. Latest plan section records the message
+  verbatim and narrows the deliverable to bounded real overlap, G2/rescue
+  composition, durable restart and representative measured controls. Target
+  18:57 UTC, hard handoff20:57 UTC. Long-term extras and migration are deferred.
+  A performance-gate failure cannot become a production-switch recommendation.
+- [M] `get_goal` now returns **usageLimited**, not active. Root attempted
+  `followup_task` to restart the G2 implementation lane; the tool rejected it
+  with **agent thread limit reached**. No agent is claimed to be implementing
+  the new plan. The existing goal is not recreated or reset to evade limits.
+  Independent new implementation/audit work awaits restored execution capacity.
+- [M] Existing guarded native compilation still runs: original PG235042,
+  recovery monitor912342 under root session89700. Source/cache unchanged;
+  no result receipt yet. Read-only source review for the architectural answer
+  confirmed current Snapshot uses one shared Store and cannot mutate until
+  readers release it. Real rolling execution therefore requires a storage/view
+  lifetime change, not merely increasing batch size. Original protocol replica
+  proposals are superseded by Symbolica thread-owned contexts; no replicas
+  or historical canary shortcuts are being quietly adopted.
+- Latest authoritative docs before this update are pushed at `bea52d29`.
+  LC2 and all unrelated main edits remain untouched. No new benchmark or
+  five-loop closure claim follows from this revised schedule.
+
 ### 2026-09-29 12:46 UTC — user sets 3–4 hour stable-delivery window
 
 - Latest directive recorded verbatim in the plan; target handoff 15:46 UTC,
