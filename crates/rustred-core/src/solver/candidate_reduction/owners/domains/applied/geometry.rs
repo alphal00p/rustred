@@ -221,6 +221,16 @@ pub(super) struct Image<const N: usize> {
     pub rank: Option<u32>,
     pub delta_rank: i128,
 }
+
+impl<const N: usize> Image<N> {
+    /// `image` already filled both vectors with exactly N coordinates. Keep
+    /// their storage when the exact power projection returns same-arity arrays.
+    pub(super) fn copy_projected_endpoints(&mut self, lower: &[u64; N], upper: &[Option<u64>; N]) {
+        self.lower.copy_from_slice(lower);
+        self.upper.copy_from_slice(upper);
+    }
+}
+
 pub(super) fn image<const N: usize>(
     cell: &LatticeBox,
     owner: &[bool; N],
