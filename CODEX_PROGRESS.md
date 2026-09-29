@@ -62,7 +62,8 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | N4 coverage-first work | pending | checkpoint_final_audit + root | Feasibility delivered; count post-G2 eligible exact-payload cost before implementation, preserving mathematical obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
-| New algorithms / literature | active | closure_acceleration_research; independent critique active_goal_delivery_audit | Primary-source reachability/reuse review; require measured post-G2 opportunity before promoting new mechanisms; retain coalescing/backward-cover negatives |
+| New algorithms / literature | delivered | closure_acceleration_research; independent critique active_goal_delivery_audit | `docs/research/codex_exact_closure_acceleration_2026-09-29.md`; one-piece coordinate/A/R/D shadow test pending opportunity; no engine implementation recommended |
+| Post-G2 critical-path sampling | active | closure_acceleration_research (diagnostic preparation), root (resource allocation), independent auditor | Prepare only while Ready pairs run; owned-process CPU sampling after measurement drain, not production attachment |
 | Closed-descendant query witnesses | deferred | checkpoint_final_audit; independent critique by joint_support_pruning | Negative census independently reproduced; reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
 | Required-scope versus broad-helper dependencies | pending | checkpoint_final_audit + root | Source audit delivered, whole-helper dependency granularity confirmed; measure useful finite-query opportunity before reopening earlier negative approaches |
 | I1 L*-helper input variant | deferred | root + independent research/measurement lane | Not rejected; revisit after combined rescue gates and fresh matched net runtime benefit, preserving all 116 required queries |
@@ -83,6 +84,14 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 06:58 UTC — exact traversal research independently critiqued
+
+- Read-only primary-literature and source review is delivered in `docs/research/codex_exact_closure_acceleration_2026-09-29.md`; `active_goal_delivery_audit` independently accepts its deliberately conditional recommendation. No engine change or new closure/speed claim follows from the research.
+- A bounded future shadow test may ask whether one residual can shrink in coordinates and A/R as well as D: include every point not proved covered by eligible older anchors, take its representable bounding constraints, and intersect with the original domain. This preserves exact union coverage but needs actual dispatch-time snapshots, whole dependencies and independent checks. The34,345 no-covered-D-level jobs are merely a sample cohort, not observed opportunities. Schema/replay changes are not authorized absent worthwhile measured shrinkage.
+- Symbolic capacity fallback has zero opportunity in the observed Ready finite control; multiple D pieces remain deferred on sparse historical incidence. Generic WQO/recurrence acceleration has no proved guard/pole invariance and universal RHS-exit coverage here. The literature does not remove these obligations or imply eventual production termination.
+- Next diagnostic preparation is a separate guarded, owned-process CPU sampling run using the frozen Union binary and the same finite input after primary8 finishes. The author may prepare/mocked-test the driver now, but no perf/native/build execution competes with the active comparisons. This follows the measured coordinator/helper/commit bottleneck priority rather than speculative engine work.
+- Previous goal turn classification: **progress**—first-pair acceptance and source-only epoch mapping were independently verified and recorded in pushed73f48d68. Current pilot session89286 was polled live; it continued the same reverse-baseline run, not a restarted campaign.
 
 ### 2026-09-29 06:53 UTC — first Ready pair fully accepted; repeat and hot controls pending
 
