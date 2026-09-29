@@ -110,6 +110,32 @@ counter refresh; supply those through the existing throttled exact tracker in
 the next separately identified optimized build. Keep the already-running
 comparison build frozen, and charge refresh work to subsequent native timings.
 
+### Additional dashboard request — 2026-09-29 about22:49 UTC
+
+Delegate an orthogonal Python monitoring slice: replace the plain stacked-text
+presentation with a clean, aligned, coloured ratatui-like terminal dashboard.
+Separate a generic normalized data producer/stream from the dashboard consumer
+in its own module, so a later web dashboard can consume the same observations
+without acquiring control of campaign execution. Preserve a readable non-TTY
+mode, existing pending-growth semantics, the new signed hourly discovery-minus-
+closure metric, and honest missing/stale/warm-up/reset states.
+
+Persist or export completion and recursively-closed-domain rate time series,
+including raw counters and actual observation spans, and provide a Python
+plotting utility. Closure scans are batched; do not invent instantaneous rates
+or smooth missing samples into evidence. Keep plotting dependencies optional
+for headless campaign operation. Test rendering at fixed terminal sizes,
+ANSI colours, stream consumers, reset handling and representative saved data.
+This work must not change native solver code, the in-flight3428 build, or LC2.
+
+The existing runtime `--permutation` / `IntegralOrder::with_permutation` surface
+already allows coordinate-tie pivot experiments without recompilation. The
+banana natural/mixed-line-first generators have executed; terminal-set and
+full58-query closure/performance checks remain necessary. These are not a claim
+of an unrestricted programmable sector/monomial ordering API: earlier sector
+and degree comparisons remain fixed. Input reindexing is a separate broader
+experiment requiring consistent family/routing remapping, not just a flag.
+
 ## Stage A — compatible stable milestone on `fable_5_1`
 
 ### Scope

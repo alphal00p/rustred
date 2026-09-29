@@ -57,6 +57,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | Python and actual focused Tracker checks pass; final native build active | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 metadata PASS; Tracker12 PASS/one ignored; final live CLI refresh/restore pending |
+| Dashboard and rate-series stream | active, additive Python-only slice | `dashboard_stream`; independent root/StageA review | Normalized telemetry producer, separate coloured terminal consumer and dependency-free plotting utility; preserve native build and metric meanings |
 | Mechanistic input/pivot ordering | four query pairs delivered negative; two pivot generations delivered; terminal-key gate pending | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Query-only changes not decisive; banana sparse generations complete, loader diagnostic censored, no terminal-equivalence or stitched walk claim |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
 | Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
@@ -104,6 +105,27 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 22:51 UTC — orthogonal dashboard and timeseries directive
+
+- [D] User requests a substantial coloured/aligned terminal dashboard, a clean
+  producer/consumer abstraction supporting a later website consumer, and saved
+  completion/recursive-closure rate series with a plotting utility. Delegated
+  implementation to`dashboard_stream`; root integrates, StageA/critic reviews
+  independently after existing lifecycle/diagnostic slots. No native edit or
+  production operation. Existing pending-growth arithmetic stays unchanged.
+  Plot dependencies must not burden headless campaign execution. The stream
+  retains raw observations and freshness rather than presenting scan-batched
+  closure jumps as instantaneous throughput. Scope added toSHORTENED_PLAN.md.
+- [M] Clarified pivot control honestly: existingCLI`--permutation` and Rust
+  `IntegralOrder::with_permutation` change coordinate ties without rebuilding.
+  Natural/slot9-first banana generators completed, but exact terminal-key and
+  full58-query comparison is still pending. The option does not reorder earlier
+  sector/degree comparisons. Regenerating changed rules is still necessary.
+- [M] Progress/doc milestone`abc24fdf` pushed to`origin/fable_5_1_parallel`.
+  Same-cache3428 optimized build continues unchanged; prior engine/comparison
+  binaries remain frozen. Root checkedCPU32–81 are50 distinct physical cores
+  on socket0, disjoint fromLC2's128–227 on socket1, including SMT identities.
 
 ### 2026-09-29 22:23 UTC — bounded remaining diagnostics
 
