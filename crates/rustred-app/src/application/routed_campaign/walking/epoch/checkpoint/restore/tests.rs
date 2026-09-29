@@ -176,12 +176,6 @@ fn ledger_stream_preserves_all_words_and_refuses_malformed_or_unsupported_values
     for word in [
         7 << 61,
         1 << 28,
-        Entry6::Native {
-            epoch: 0,
-            residual: true,
-            dband: false,
-        }
-        .encode(),
         Entry6::Alias { to: 0 }.encode(),
         Entry6::Alias { to: 1 }.encode(),
     ] {
@@ -193,6 +187,21 @@ fn ledger_stream_preserves_all_words_and_refuses_malformed_or_unsupported_values
                 .is_err()
         );
     }
+    let residual = Entry6::Native {
+        epoch: 1,
+        residual: true,
+        dband: false,
+    }
+    .encode();
+    let receipt = raw(&directory.0, Section::Ledger, 1, &residual.to_le_bytes());
+    assert_eq!(
+        FixedSection::<2>::open(&directory.0, &receipt, 1)
+            .unwrap()
+            .ledger()
+            .unwrap()
+            .words(),
+        &[residual]
+    );
     let mut ledger = Ledger6::default();
     ledger.restore_word(entries[0].encode()).unwrap();
     let counts = ledger.counts();

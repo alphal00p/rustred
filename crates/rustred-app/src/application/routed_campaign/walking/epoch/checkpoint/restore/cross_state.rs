@@ -3,7 +3,9 @@
 //! allocation must pass before any runnable EpochState can be constructed.
 use super::super::super::anchors::{AnchorKind, AnchorMap, AnchorRecord, AnchorView, union_cover};
 use super::super::super::ledger6::{EPOCH_LIMIT, Entry6, Ledger6, MAX_ATTEMPTS, MAX_GUARD, Tag};
-use super::super::super::state::{NODE_ANCHORED, NODE_INSPECTED, NODE_SEALED, WalkCounters};
+use super::super::super::state::{
+    NODE_ANCHORED, NODE_INSPECTED, NODE_RESIDUAL, NODE_SEALED, WalkCounters,
+};
 use super::super::super::store::{Store, bucket_key};
 use super::super::super::verify::{Container, QueryImage, VerifyCounters, verify};
 use super::super::invalid;
@@ -59,7 +61,7 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
         || view
             .nodes
             .iter()
-            .any(|flag| flag & !(NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED) != 0)
+            .any(|flag| flag & !(NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED | NODE_RESIDUAL) != 0)
     {
         return Err(invalid("epoch cross-state shape or node flags"));
     }
@@ -79,6 +81,7 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
         if (flags & NODE_SEALED != 0) != sealed
             || (flags & NODE_INSPECTED != 0) != inspected
             || (flags & NODE_ANCHORED != 0) != anchor.is_some()
+            || (flags & NODE_RESIDUAL != 0) != anchor.is_some_and(|a| a.kind.is_g2())
             || view.closure_flags.is_some_and(|closure| {
                 let saved = closure[id as usize];
                 saved & !7 != 0 || saved & 3 != flags & 3 || saved & 4 != 0 && !sealed
@@ -93,7 +96,9 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
                 residual,
                 dband,
             } => {
-                if residual || dband != anchor.is_some() {
+                if residual != anchor.is_some_and(|a| a.kind.is_g2())
+                    || dband != anchor.is_some_and(|a| a.kind == AnchorKind::InitialDBand)
+                {
                     return Err(invalid("epoch native anchor flags differ"));
                 }
                 Some(epoch)
@@ -171,7 +176,9 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
         }
         if let Some(record) = anchor {
             let epoch = epoch.expect("anchor requires a merged entry above");
-            if record.kind != AnchorKind::InitialDBand || record.dispatch_version >= epoch {
+            if domains[id as usize].phase() != super::super::super::super::queue::Phase::Apply
+                || record.dispatch_version >= epoch
+            {
                 return Err(invalid(
                     "epoch anchor dispatch version is not before its merge",
                 ));
@@ -195,6 +202,8 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
             let cover = |record: &AnchorRecord| {
                 union_cover(&domains[id as usize], domains, record, &cut_of)
             };
+            let eligible =
+                |id, _v0| super::super::super::g2::eligible(domains, view.ledger, view.anchors, id);
             record
                 .validate(
                     &AnchorView {
@@ -205,7 +214,7 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
                         same_bucket: &same_bucket,
                         record_of: &record_of,
                         edges_of: None,
-                        merged_view: None,
+                        merged_view: Some(&eligible),
                         cover: &cover,
                     },
                     epoch,
@@ -214,7 +223,20 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
         }
     }
     if view.frontier_counts.len() as u64 != view.ledger.counts().get(Tag::NativeFrontier)
-        || view.anchors.len() as u64 != view.walk.partials
+        || view
+            .anchors
+            .records()
+            .iter()
+            .filter(|r| r.kind == AnchorKind::InitialDBand)
+            .count() as u64
+            != view.walk.partials
+        || view
+            .anchors
+            .records()
+            .iter()
+            .filter(|r| r.kind.is_g2())
+            .count() as u64
+            != view.walk.g2_records
         || view
             .anchors
             .records()

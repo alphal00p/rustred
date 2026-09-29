@@ -64,6 +64,66 @@ fn kinds(result: &Value) -> BTreeMap<String, u64> {
 }
 
 #[test]
+fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
+    let fixture = g2_fixture();
+    let dir = scratch("epoch-g2-cp6");
+    let selection = write_owners(&dir.0, fixture.rank, fixture.omit, &fixture.routes);
+    std::fs::write(dir.0.join("selection.json"), selection).unwrap();
+    std::fs::write(dir.0.join("queries.json"), fixture.queries.to_string()).unwrap();
+    let mut argv = walk_argv(&dir.0, 1, &["--g2-residual-anchors", "union"]);
+    let at = argv
+        .iter()
+        .position(|s| s == "--publication-policy")
+        .unwrap();
+    argv[at + 1] = "epoch".into();
+    let mut request = crate::cli::walk_request_from_argv(argv).unwrap();
+    let result = walk(&dir.0, &request);
+    assert_eq!(result["recursive_worklist_exhausted"], true, "{result}");
+    assert!(
+        result["g2_residual_anchors"]["logged_g2_records"]
+            .as_u64()
+            .unwrap()
+            > 0,
+        "{result}"
+    );
+    let mut options = OwnerDomainWalkVerifyOptions::new(dir.0.join("checkpoint"));
+    options.result = None;
+    options.threads = 1;
+    options.require_closure = true;
+    let manifest = std::fs::read(dir.0.join("checkpoint/latest.json")).unwrap();
+    let session = std::fs::read(dir.0.join("checkpoint/epoch-session.bin")).unwrap();
+    for _ in 0..2 {
+        let report =
+            owner_domain_walk_verify_closure(&request, &options, &AtomicBool::new(false), |_| {})
+                .unwrap();
+        assert_eq!(report["verdict"], "PASS", "{report}");
+    }
+    assert_eq!(
+        std::fs::read(dir.0.join("checkpoint/latest.json")).unwrap(),
+        manifest
+    );
+    assert_eq!(
+        std::fs::read(dir.0.join("checkpoint/epoch-session.bin")).unwrap(),
+        session
+    );
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let resumed = walk(&dir.0, &request);
+    assert_eq!(resumed["recursive_worklist_exhausted"], true);
+    assert_eq!(
+        resumed["epoch"]["records_digest"],
+        result["epoch"]["records_digest"]
+    );
+    assert_eq!(
+        resumed["epoch"]["edge_digest"],
+        result["epoch"]["edge_digest"]
+    );
+    request.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Off;
+    assert!(
+        crate::owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).is_err()
+    );
+}
+
+#[test]
 fn g2_sunset_walk_plans_residuals_passes_the_gate_and_every_g2_mutation_fails() {
     let run = g2_run("g2-drained", "1", 1);
     let result = &run.result;

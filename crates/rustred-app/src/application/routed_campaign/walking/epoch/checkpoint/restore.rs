@@ -7,7 +7,7 @@ use super::super::super::queue::Query;
 use super::super::edges::EdgeStore;
 use super::super::job::{Reader, read_image};
 use super::super::ledger6::{Entry6, Ledger6};
-use super::super::state::{NODE_ANCHORED, NODE_INSPECTED, NODE_SEALED};
+use super::super::state::{NODE_ANCHORED, NODE_INSPECTED, NODE_RESIDUAL, NODE_SEALED};
 use super::super::store::Store;
 use super::super::verify::QueryImage;
 use super::read::CheckedRead;
@@ -145,7 +145,7 @@ impl<const N: usize> FixedSection<N> {
         let allowed = if closure {
             7
         } else {
-            NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED
+            NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED | NODE_RESIDUAL
         };
         let mut flags = Vec::new();
         flags
@@ -192,9 +192,6 @@ impl<const N: usize> FixedSection<N> {
         for id in 0..self.count {
             let word = self.reader.u64()?;
             match Entry6::decode(word).map_err(|error| io::Error::other(error.to_string()))? {
-                Entry6::Native { residual: true, .. } => {
-                    return Err(invalid("unsupported epoch residual ledger"));
-                }
                 Entry6::Alias { to } if to as usize <= id || to as usize >= self.count => {
                     return Err(invalid("epoch alias target range or order"));
                 }

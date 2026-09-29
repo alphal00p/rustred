@@ -25,6 +25,7 @@ pub(super) struct Identity<'a> {
     event_limit: usize,
     frontier_limit: usize,
     route_domain_overcover: bool,
+    g2: &'static str,
 }
 
 impl<'a> Identity<'a> {
@@ -60,6 +61,7 @@ impl<'a> Identity<'a> {
             event_limit: request.max_events,
             frontier_limit: request.max_frontiers,
             route_domain_overcover: request.route_domain_overcover,
+            g2: request.g2_residual_anchors.name(),
         })
     }
 
@@ -83,6 +85,7 @@ impl<'a> Identity<'a> {
             || saved.total_queries != self.queries.len()
             || saved.lockstep_b != lockstep_b
             || saved.watermark as usize > self.domain_limit
+            || saved.g2 != self.g2
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -108,8 +111,7 @@ impl<'a> Identity<'a> {
                 && (saved.k != 0
                     || saved.p0 != saved.watermark
                     || saved.ledger_counts[Tag::Pending as usize] != watermark)
-            || saved.g2 != "off"
-            || saved.walk.g2_records != 0
+            || saved.g2 == "off" && saved.walk.g2_records != 0
             || saved.imported_prefix != 0
             || saved.engine_certification_void
             || saved.self_edges > saved.edges
@@ -355,6 +357,10 @@ pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCount
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
         let state = boundary.state;
+        if self.identity.g2 == "off" && (state.counters.g2_records != 0 || state.g2_store.is_some())
+        {
+            return Err(invalid("epoch G2 state is not bound to Union"));
+        }
         if matches!(self.admission, Admission::InProgress) {
             super::super::dispatch::Dispatch::validate_admission(state, boundary.dispatch)
                 .map_err(|_| {
@@ -490,7 +496,7 @@ impl Inputs<'_> {
             amendments: [],
             quarantined: [],
             abandoned_obligations: [],
-            g2: "off",
+            g2: self.identity.g2,
             imported_prefix: 0,
             engine_certification_void: false,
         };

@@ -6,11 +6,11 @@
 //! and exact dispatch order, and uses fixed scratch independent of domains.
 #![allow(dead_code)] // Private lifecycle lands before its runtime integration.
 
-use super::anchors::{ANCHORS_VERSION, AnchorKind, AnchorScope};
+use super::anchors::{ANCHORS_VERSION, MAX_ANCHORS, scope_bytes};
 use super::dispatch::{Dispatch, DispatchSnapshot};
 use super::job::{Writer, write_image};
 use super::ledger6::{EPOCH_LIMIT, Entry6, Tag};
-use super::state::{EpochState, NODE_RESIDUAL};
+use super::state::EpochState;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
@@ -103,15 +103,13 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
         {
             return Err(invalid("epoch dispatch sequence range"));
         }
-        if state.merged_view.len() != 0
-            || state.counters.g2_records != 0
-            || state
-                .anchors
-                .records()
-                .iter()
-                .any(|record| record.kind.is_g2())
-        {
-            return Err(invalid("epoch checkpoint does not support G2 state"));
+        if state.counters.g2_records != state.anchors.records().iter().filter(|r| r.kind.is_g2()).count() as u64
+            || (0..state.watermark()).any(|id| {
+                let residual = state.anchors.get(id).is_some_and(|r| r.kind.is_g2());
+                (state.nodes[id as usize] & super::state::NODE_RESIDUAL != 0) != residual
+                    || matches!(state.ledger.get(id), Ok(Entry6::Native { residual: bit, .. }) if bit != residual)
+            }) {
+            return Err(invalid("epoch residual anchor, ledger and counter inventory differs"));
         }
         let boundary = Self {
             state,
@@ -274,25 +272,28 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
             let Some(record) = self.state.anchors.get(id) else {
                 continue;
             };
-            let AnchorScope::DBandCut(cut) = record.scope else {
-                return Err(invalid("unsupported epoch anchor scope"));
-            };
-            if record.kind != AnchorKind::InitialDBand || record.anchors.len() != 1 {
-                return Err(invalid("invalid initial D-band anchor shape"));
+            let scope = scope_bytes(&record.scope).map_err(io::Error::other)?;
+            if record.anchors.is_empty() || record.anchors.len() > MAX_ANCHORS {
+                return Err(invalid("epoch anchor count outside bound"));
             }
             out.write_all(&record.node.to_le_bytes())?;
             out.write_all(&[record.kind as u8, 0, 0, 0])?;
-            out.write_all(&1u32.to_le_bytes())?;
-            out.write_all(&8u32.to_le_bytes())?;
+            out.write_all(&(record.anchors.len() as u32).to_le_bytes())?;
+            out.write_all(
+                &u32::try_from(scope.len())
+                    .map_err(|_| invalid("epoch scope length"))?
+                    .to_le_bytes(),
+            )?;
             out.write_all(&record.dispatch_version.to_le_bytes())?;
-            let anchor = &record.anchors[0];
-            if anchor.stamp == Some(u64::MAX) {
-                return Err(invalid("noncanonical epoch anchor stamp"));
+            for anchor in &record.anchors {
+                if anchor.stamp == Some(u64::MAX) {
+                    return Err(invalid("noncanonical epoch anchor stamp"));
+                }
+                out.write_all(&anchor.anchor.to_le_bytes())?;
+                out.write_all(&[anchor.lent as u8, 0, 0, 0])?;
+                out.write_all(&anchor.stamp.unwrap_or(u64::MAX).to_le_bytes())?;
             }
-            out.write_all(&anchor.anchor.to_le_bytes())?;
-            out.write_all(&[anchor.lent as u8, 0, 0, 0])?;
-            out.write_all(&anchor.stamp.unwrap_or(u64::MAX).to_le_bytes())?;
-            out.write_all(&cut.to_le_bytes())?;
+            out.write_all(&scope)?;
             written += 1;
         }
         if written != self.state.anchors.len() {
@@ -346,13 +347,6 @@ impl Reservations<'_> {
                 .ledger
                 .get(id as u32)
                 .map_err(|_| invalid("epoch ledger word"))?;
-            if matches!(entry, Entry6::Native { residual: true, .. })
-                || state.nodes[id] & NODE_RESIDUAL != 0
-            {
-                return Err(invalid(
-                    "epoch checkpoint does not support residual G2 state",
-                ));
-            }
             if matches!(entry, Entry6::Reserved(_)) {
                 reserved += 1;
             }
@@ -381,9 +375,8 @@ impl Reservations<'_> {
         }
         for (&id, meta) in state.in_flight {
             if !matches!(state.ledger.get(id), Ok(Entry6::Reserved(_)))
-                // This writer is lockstep-only: every unfinished member
-                // must replay against this exact saved merge version.
-                || meta.v0 != state.k
+                // Unpublished work is reissued against the saved generation.
+                || meta.v0 > state.k
                 || meta.seq >> 40 != self.dispatch.session
                 || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) == 0
                 || meta.seq & (SEQUENCE_COUNTER_LIMIT - 1) > self.dispatch.counter

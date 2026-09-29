@@ -80,6 +80,68 @@ fn actual_anchor_writer_reuses_existing_codec_one_record_at_a_time() {
 }
 
 #[test]
+fn variable_residual_and_full_cover_anchors_roundtrip_with_bounded_counts() {
+    use super::super::super::super::{anchors::Piece, state::NODE_RESIDUAL};
+    let directory = Directory::new();
+    let mut state = state(4);
+    state.p0 = 1;
+    state.k = 3;
+    for id in [2, 3] {
+        state.ledger.apply(id, Transition::T2Reserve).unwrap();
+        state
+            .ledger
+            .apply(
+                id,
+                Transition::T4Native {
+                    epoch: u64::from(id),
+                    residual: true,
+                    dband: false,
+                },
+            )
+            .unwrap();
+        state.nodes[id as usize] |= NODE_RESIDUAL;
+        state
+            .anchors
+            .push(AnchorRecord {
+                node: id,
+                kind: AnchorKind::G2Residual,
+                dispatch_version: u64::from(id - 1),
+                scope: AnchorScope::Residual(if id == 2 {
+                    vec![Piece::band(2, Some(-2), Some(2))]
+                } else {
+                    Vec::new()
+                }),
+                anchors: vec![AnchorRef {
+                    anchor: id - 1,
+                    stamp: Some(u64::from(id - 1)),
+                    lent: Lent::Full,
+                }],
+            })
+            .unwrap();
+    }
+    state.counters.g2_records = 2;
+    let dispatch = Dispatch::new();
+    let original = MergeBoundary::borrow(&state, &dispatch, 16)
+        .unwrap()
+        .write_section(Vec::new(), Section::Anchors)
+        .unwrap()
+        .0;
+    let file = receipt(&directory.0, Section::Anchors, &original);
+    let decoded = anchors::<2>(&directory.0, &file, 2, 4, 1, 3).unwrap();
+    assert_eq!(decoded.records(), state.anchors.records());
+    for (at, value) in [(46, u32::MAX), (50, u32::MAX), (78, u32::MAX)] {
+        let mut bad = original.clone();
+        bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        let file = receipt(&directory.0, Section::Anchors, &bad);
+        assert!(anchors::<2>(&directory.0, &file, 2, 4, 1, 3).is_err());
+    }
+    for end in [0, 27, 37, 61, original.len() - 1] {
+        let file = receipt(&directory.0, Section::Anchors, &original[..end]);
+        assert!(anchors::<2>(&directory.0, &file, 2, 4, 1, 3).is_err());
+    }
+}
+
+#[test]
 fn anchor_count_shape_version_range_and_provenance_mutations_refuse() {
     let directory = Directory::new();
     let (original, count) = encoded_anchors();

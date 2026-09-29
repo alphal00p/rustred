@@ -132,6 +132,7 @@ pub(super) fn open<const N: usize>(
         edges,
         anchors,
         merged_view: MergedView::default(),
+        g2_store: None,
         tracker,
         k: scalars.k,
         p0: scalars.p0,
@@ -146,6 +147,9 @@ pub(super) fn open<const N: usize>(
         max_frontiers: max_frontiers as u64,
         poisoned: false,
     };
+    if scalars.g2 == "union" && matches!(scalars.initial_admission, Admission::Complete) {
+        super::super::super::g2::enable(&mut state);
+    }
     if matches!(scalars.initial_admission, Admission::InProgress) {
         Dispatch::validate_admission(
             &state,

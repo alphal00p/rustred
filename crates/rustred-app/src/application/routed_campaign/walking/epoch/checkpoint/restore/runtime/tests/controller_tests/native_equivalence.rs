@@ -27,6 +27,7 @@ pub(super) fn finish_native_mode(
         request: &fixture.request,
         overlap: &overlap,
         cancellation: &cancellation,
+        g2: None,
     };
     assert_eq!(
         controller::run_native_lookup(restored, &fixture.identity(), 16, &context, mode, |_, _| {})
@@ -205,6 +206,7 @@ fn interrupted_native_mode(mode: controller::LookupMode) {
                 request: &fixture.request,
                 overlap: &overlap,
                 cancellation: cancel,
+                g2: None,
             };
             let native = match mode {
                 controller::LookupMode::AllMiss => inspect_job(&context, bytes),

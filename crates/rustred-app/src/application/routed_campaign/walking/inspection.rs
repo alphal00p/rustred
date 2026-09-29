@@ -256,7 +256,7 @@ fn inspect_untapped<const N: usize>(
     inspect_options(reducer, domain, request, cancellation, initial, true, emit)
 }
 
-fn inspect_initial_overlap<const N: usize>(
+pub(super) fn inspect_initial_overlap<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,
@@ -383,7 +383,7 @@ pub(super) fn inspect_with_reuse<const N: usize>(
     )
 }
 
-fn inspect_options<const N: usize>(
+pub(super) fn inspect_options<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,

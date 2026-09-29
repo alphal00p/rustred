@@ -526,7 +526,26 @@ pub(super) fn check<const N: usize>(
         .iter()
         .map(|(s, t)| (*s as usize, t))
         .collect();
-    for (node, kind, _dispatch, list, scope) in &sections.anchors {
+    let anchor_of: std::collections::BTreeMap<u32, &AnchorRow> =
+        sections.anchors.iter().map(|r| (r.0, r)).collect();
+    for (id, &word) in sections.ledger.iter().enumerate() {
+        let (tag, payload) = decode(word);
+        let anchor = anchor_of.get(&(id as u32));
+        let residual = anchor.is_some_and(|a| a.1 != 0);
+        if flags
+            .get(id)
+            .is_none_or(|f| (f & 8 != 0) != anchor.is_some() || (f & 16 != 0) != residual)
+            || tag == 2
+                && ((payload & (1 << 48) != 0) != residual
+                    || (payload & (1 << 49) != 0) != anchor.is_some_and(|a| a.1 == 0))
+        {
+            add(
+                "epoch_anchor",
+                format!("node {id}: raw anchor, node and ledger flags differ"),
+            );
+        }
+    }
+    for (node, kind, dispatch, list, scope) in &sections.anchors {
         let node = *node as usize;
         if node >= total || node < p0 {
             add(
@@ -536,10 +555,55 @@ pub(super) fn check<const N: usize>(
             continue;
         }
         if *kind != 0 {
-            add(
-                "epoch_anchor",
-                format!("node {node}: anchor kind {kind} not produced in S2"),
-            );
+            let (tag, payload) = decode(sections.ledger[node]);
+            let epoch = payload & ((1 << 48) - 1);
+            if !matches!(kind, 1 | 2)
+                || !matches!(tag, 2..=4)
+                || *dispatch >= epoch
+                || domains[node].phase() != Phase::Apply
+                || list.is_empty()
+            {
+                add(
+                    "epoch_anchor",
+                    format!("node {node}: G2 source kind, scope or dispatch epoch"),
+                );
+            }
+            let mut distinct = std::collections::BTreeSet::new();
+            for &(anchor, lent, stamp) in list {
+                let a = anchor as usize;
+                if a >= total {
+                    add(
+                        "epoch_anchor",
+                        format!("node {node}: G2 anchor {a} outside arena"),
+                    );
+                    continue;
+                }
+                let (tag, payload) = decode(sections.ledger[a]);
+                let prior = anchor_of.get(&anchor);
+                let expected_lent = u8::from(prior.is_some_and(|r| r.1 == 0));
+                let empty_residual =
+                    prior.is_some_and(|r| r.1 != 0 && r.4.get(..4) == Some(&[0, 0, 0, 0]));
+                if !distinct.insert(anchor)
+                    || tag != 2
+                    || stamp != payload & ((1 << 48) - 1)
+                    || stamp > *dispatch
+                    || stamp == 0
+                    || lent != expected_lent
+                    || empty_residual
+                    || *kind == 1 && prior.is_some()
+                    || bucket(&domains[a]) != bucket(&domains[node])
+                    || !run_of
+                        .get(&node)
+                        .is_some_and(|t| t.binary_search(&anchor).is_ok())
+                {
+                    add(
+                        "epoch_anchor",
+                        format!(
+                            "node {node}: G2 lender {a} violates scope, eligibility, edge or prior-cut stamp"
+                        ),
+                    );
+                }
+            }
             continue;
         }
         if list.len() != 1 || scope.len() != 8 {
@@ -553,6 +617,7 @@ pub(super) fn check<const N: usize>(
             let ok = anchor < p0
                 && lent == 0
                 && stamp == u64::MAX
+                && !anchor_of.contains_key(&(anchor as u32))
                 && bucket(&domains[anchor]) == bucket(&domains[node])
                 && run_of
                     .get(&node)

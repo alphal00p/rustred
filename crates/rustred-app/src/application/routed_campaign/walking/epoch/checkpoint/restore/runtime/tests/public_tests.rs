@@ -206,6 +206,26 @@ fn cross_mode_resume_refuses_compatible_previous_before_session_adoption() {
 }
 
 #[test]
+fn g2_cross_mode_resume_refuses_both_directions_before_session_adoption() {
+    use crate::OwnerDomainWalkG2ResidualAnchors::{Off, Union};
+    for (saved, requested) in [(Off, Union), (Union, Off)] {
+        let mut fixture = closed_fixture();
+        fixture.request.g2_residual_anchors = saved;
+        fixture.save(3, 0);
+        let before = fs::read(fixture.directory.0.join("epoch-session.bin")).unwrap();
+        fixture.request.g2_residual_anchors = requested;
+        assert_eq!(
+            fixture.open().err().unwrap().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            fs::read(fixture.directory.0.join("epoch-session.bin")).unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
 fn public_cp6_real_native_w1_and_w2_preserve_full_snapshot_without_finalization() {
     const TEST: &str = "public CP6 real W1/W2 lifecycle";
     if !crate::test_gates::workers_or_skip(TEST, 2) {
@@ -357,6 +377,7 @@ fn interrupted_public_mode(mode: OwnerDomainWalkEpochInspectorLookup) {
                     request: &fixture.request,
                     overlap: &overlap,
                     cancellation: if first == 1 { &cancel } else { worker_stop },
+                    g2: None,
                 };
                 let result = match mode {
                     OwnerDomainWalkEpochInspectorLookup::AllMiss => inspect_job(&context, bytes),

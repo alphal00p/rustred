@@ -110,6 +110,15 @@ impl<'de> Visitor<'de> for Seed<'_> {
                     self.0.set(u64::MAX);
                     fields.has_error = Some(map.next_value::<Option<de::IgnoredAny>>()?.is_some());
                 }
+                "g2" => {
+                    if fields.values.contains_key(&key) {
+                        return Err(de::Error::custom("duplicate epoch G2 field"));
+                    }
+                    // Bounded by the planner's point/anchor cap; ordinary
+                    // geometry and counter fields keep their small budget.
+                    self.0.set(128 * (1 << 18) + FIELD_BYTES);
+                    fields.values.insert(key, map.next_value::<Value>()?);
+                }
                 "id"
                 | "record_kind"
                 | "phase"

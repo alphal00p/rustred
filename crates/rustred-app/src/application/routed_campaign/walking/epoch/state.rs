@@ -69,6 +69,7 @@ pub(super) struct EpochState<const N: usize> {
     pub edges: EdgeStore,
     pub anchors: AnchorMap,
     pub merged_view: MergedView,
+    pub g2_store: Option<std::sync::Arc<super::super::g2::Store<N>>>,
     pub tracker: Tracker,
     /// Merge counter k (S_k is the state after merge k).
     pub k: u64,
@@ -103,6 +104,7 @@ impl<const N: usize> EpochState<N> {
             edges: EdgeStore::new(),
             anchors: AnchorMap::default(),
             merged_view: MergedView::default(),
+            g2_store: None,
             tracker: Tracker::new(0),
             k: 0,
             p0: 0,

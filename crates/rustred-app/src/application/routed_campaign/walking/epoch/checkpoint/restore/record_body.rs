@@ -1,7 +1,7 @@
 //! Restore-critical record summaries in run order, through the same reader
 //! which authenticates each sealed body. Diagnostic payloads are skipped,
 //! never collected into a whole record/section; cold reinspection is separate.
-use super::super::super::anchors::{AnchorMap, cell_of, low_slice};
+use super::super::super::anchors::{AnchorMap, AnchorScope, Lent, cell_of, low_slice};
 use super::super::super::job::{BreakReason, ErrorKind, JobResult, NativeKind};
 use super::super::super::ledger6::{Entry6, Ledger6, err_class};
 use super::super::super::merge::{self, CheckedResult, Class};
@@ -134,14 +134,16 @@ fn validate<const N: usize>(
         .has_error
         .ok_or_else(|| invalid("epoch native error field missing"))?;
     let anchored = view.anchors.get(source);
-    let expected_kind = if anchored.is_some() {
+    let expected_kind = if anchored.is_some_and(|a| a.kind.is_g2()) {
+        "g2_residual_inspection"
+    } else if anchored.is_some() {
         "partial_initial_overlap_inspection"
     } else {
         "native_inspection"
     };
     if fields.text("record_kind")? != expected_kind
         || merge_epoch != stored_epoch
-        || v0.checked_add(1) != Some(merge_epoch)
+        || v0 >= merge_epoch
         || integer(epoch, "distinct_edge_count")? != targets.len() as u64
         || boolean(epoch, "self_edge")? != targets.binary_search(&source).is_ok()
         || text(epoch, "class")? != class.name()
@@ -163,21 +165,40 @@ fn validate<const N: usize>(
                 "epoch anchor and native record dispatch versions differ",
             ));
         }
-        let (anchor_id, cut) = anchor
-            .d_band()
-            .ok_or_else(|| invalid("epoch record unsupported anchor"))?;
-        let residual =
-            low_slice(cell_of(image), cut).ok_or_else(|| invalid("epoch record residual cut"))?;
-        let expected = json!({"anchor_id":anchor_id,"cut":cut,"covered_slice":"original_intersect_D_ge_cut",
+        if let Some((anchor_id, cut)) = anchor.d_band() {
+            let residual = low_slice(cell_of(image), cut)
+                .ok_or_else(|| invalid("epoch record residual cut"))?;
+            let expected = json!({"anchor_id":anchor_id,"cut":cut,"covered_slice":"original_intersect_D_ge_cut",
             "residual_power_bounds":power_bounds_json(residual.powers),"coordinates_and_rank_unchanged":true,
             "authority":CONTAINMENT_AUTHORITY});
-        if fields.value("initial_overlap")? != &expected
-            || fields.text("native_inspection_scope")? != "low_D_residual_only"
-            || fields.boolean("residual_inspection_finished")? != (class != Class::C2)
-        {
-            return Err(invalid("epoch partial record scope differs from anchor"));
+            if fields.value("initial_overlap")? != &expected
+                || fields.text("native_inspection_scope")? != "low_D_residual_only"
+                || fields.boolean("residual_inspection_finished")? != (class != Class::C2)
+            {
+                return Err(invalid("epoch partial record scope differs from anchor"));
+            }
+            if fields.has("g2") {
+                return Err(invalid("epoch initial record carries G2 scope"));
+            }
+        } else {
+            let AnchorScope::Residual(pieces) = &anchor.scope else {
+                return Err(invalid("epoch residual scope"));
+            };
+            let expected = json!({"kind":anchor.kind.name(),"dispatch_version":v0,
+                "anchors":anchor.anchors.iter().map(|a| json!({"id":a.anchor,"stamp":a.stamp,
+                    "lent":match a.lent { Lent::Full => "domain", Lent::LowSlice => "inspected_low_D_slice" }})).collect::<Vec<_>>(),
+                "residual":pieces.iter().map(|p| json!({"d_lo":p.d_lo,"d_hi":p.d_hi,"lower":p.lower,"upper":p.upper})).collect::<Vec<_>>(),
+                "authority":"exact_union_cover_lattice"});
+            if fields.value("g2")? != &expected
+                || fields.has("initial_overlap")
+                || fields.text("native_inspection_scope")? != "g2_residual_only"
+                || fields.boolean("residual_inspection_finished")? != (class != Class::C2)
+            {
+                return Err(invalid("epoch G2 record scope differs from anchor"));
+            }
         }
     } else if fields.has("initial_overlap")
+        || fields.has("g2")
         || fields.has("residual_inspection_finished")
         || fields.has("native_inspection_scope")
     {
@@ -238,6 +259,8 @@ fn validate<const N: usize>(
         v0,
         kind: if image.phase() == Phase::Route {
             NativeKind::Route
+        } else if anchored.is_some_and(|a| a.kind.is_g2()) {
+            NativeKind::G2Residual
         } else if anchored.is_some() {
             NativeKind::ApplyPartial
         } else {

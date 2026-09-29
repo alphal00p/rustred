@@ -23,6 +23,7 @@ use super::verify::{Container, QueryImage, VerifyCounters, verify};
 use super::{AdmissionError, admit_initial, anchor_self_check, certification, records};
 use rustred::solver::DomainPowerBounds;
 use serde_json::Value;
+use std::sync::atomic::AtomicBool;
 
 mod admission;
 mod snapshot;
@@ -826,7 +827,7 @@ fn f20_refused_lanes() {
     assert!(super::admit(&resume).is_err());
     let mut g2 = base();
     g2.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Union;
-    assert!(super::admit(&g2).unwrap_err().to_string().contains("G2'"));
+    assert!(super::admit(&g2).is_ok());
     let mut activation = base();
     activation.g2_activate_on_resume = true;
     assert!(
@@ -937,6 +938,100 @@ const G2: MergeConfig = MergeConfig {
     lockstep: true,
     g2: true,
 };
+
+#[test]
+fn indexed_epoch_planner_uses_dispatch_cut_and_drops_no_partial_plan_state() {
+    let (mut state, _, _, job) = d_band_fixture(G2);
+    super::g2::enable(&mut state);
+    let index = state.g2_store.as_ref().unwrap();
+    let query = job.image.expand();
+    let cancel = AtomicBool::new(false);
+    assert!(matches!(
+        index.plan_at(1, &query, &cancel),
+        super::super::g2::Outcome::Whole
+    ));
+    let super::super::g2::Outcome::Planned(plan) = index.plan_at(job.v0 + 1, &query, &cancel)
+    else {
+        panic!("visible initial Native supplies a real residual opportunity");
+    };
+    assert!(plan.residual.is_some());
+    assert!(plan.anchors.iter().all(|a| a.stamp <= job.v0));
+    assert!(index.peek(job.parent as usize).is_none());
+    assert!(index.pending_pins().is_empty());
+    index.append(
+        &query.owner,
+        super::super::g2::Store::entry(&query, 99, job.v0 + 1, super::super::g2::kind::NATIVE),
+    );
+    assert_eq!(
+        index.plan_at(job.v0 + 1, &query, &cancel),
+        super::super::g2::Outcome::Planned(plan)
+    );
+}
+
+#[test]
+fn merged_lender_eligibility_excludes_route_frontier_and_empty_residual() {
+    let (mut state, _, _, _) = d_band_fixture(G2);
+    assert!(super::g2::eligible(
+        &state.store.domains,
+        &state.ledger,
+        &state.anchors,
+        0
+    ));
+    assert!(!super::g2::eligible(
+        &state.store.domains,
+        &state.ledger,
+        &state.anchors,
+        3
+    ));
+    state
+        .anchors
+        .push(AnchorRecord {
+            node: 0,
+            kind: AnchorKind::G2Residual,
+            dispatch_version: 0,
+            scope: AnchorScope::Residual(Vec::new()),
+            anchors: vec![AnchorRef {
+                anchor: 1,
+                stamp: Some(1),
+                lent: Lent::Full,
+            }],
+        })
+        .unwrap();
+    assert!(!super::g2::eligible(
+        &state.store.domains,
+        &state.ledger,
+        &state.anchors,
+        0
+    ));
+    let mut route = boxed([0, 0], [1, 1]);
+    route.phase = Phase::Route;
+    let mut route_state = state_with(&[route]);
+    let mut dispatch = Dispatch::new();
+    let job = jobs(&mut route_state, &mut dispatch, 1).remove(0);
+    let mut native = result(&job, &[]);
+    native.kind = NativeKind::Route;
+    merge_cut_with(
+        &mut route_state,
+        &mut dispatch,
+        &mut Rows(Vec::new()),
+        vec![native],
+        G2,
+    )
+    .unwrap();
+    assert_eq!(route_state.merged_view.len(), 0);
+    let mut frontier = state_with(&[boxed([0, 0], [1, 1])]);
+    frontier.ledger.apply(0, Transition::T2Reserve).unwrap();
+    frontier
+        .ledger
+        .apply(0, Transition::T5Frontier { epoch: 1 })
+        .unwrap();
+    assert!(!super::g2::eligible(
+        &frontier.store.domains,
+        &frontier.ledger,
+        &frontier.anchors,
+        0
+    ));
+}
 
 /// The edge run of `source` in the log.
 fn run_of(state: &EpochState<2>, source: u32) -> Vec<u32> {

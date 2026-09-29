@@ -1130,6 +1130,9 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
     if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {
         value["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
     }
+    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off {
+        value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
+    }
     blake3::hash(value.to_string().as_bytes())
         .to_hex()
         .to_string()

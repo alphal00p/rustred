@@ -75,9 +75,9 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
             self.assertFalse((refused / "bin" / "steering.json").exists())
             args.auto_rescue = False
             args.g2_residual_anchors = "union"
-            with self.assertRaisesRegex(ValueError, "ordered or ready"):
-                PRODUCTION.frozen_policy(refused, args, Path("/frozen/native"), inputs, 0, 0)
-            self.assertFalse((refused / "bin" / "steering.json").exists())
+            union = PRODUCTION.frozen_policy(refused, args, Path("/frozen/native"), inputs, 0, 0)
+            self.assertEqual(union["options"]["g2_residual_anchors"], "union")
+            self.assertEqual(union["options"]["publication_policy"], "epoch")
 
     def test_cp6_cannot_enter_executable_upgrade_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:

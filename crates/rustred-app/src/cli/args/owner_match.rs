@@ -582,10 +582,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         if matches!(
             result.publication_policy,
             crate::OwnerDomainWalkPublicationPolicy::OwnerBatched
-                | crate::OwnerDomainWalkPublicationPolicy::Epoch
         ) {
             return Err(ArgError::InvalidCombination(
-                "--g2-residual-anchors union requires ordered or ready publication",
+                "--g2-residual-anchors union requires ordered, ready or epoch publication",
             ));
         }
     }

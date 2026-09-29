@@ -268,7 +268,9 @@ pub(super) fn p1_anchors<const N: usize>(
             .map(|(_, cut)| cut)
     };
     let cover = |r: &AnchorRecord| union_cover(&node, domains, r, &cut_of);
-    let visible = |id: u32, v0: u64| merged_view.contains(id, v0);
+    let visible = |id: u32, v0: u64| {
+        merged_view.contains(id, v0) && super::g2::eligible(domains, &state.ledger, anchor_map, id)
+    };
     let view = AnchorView {
         p0: state.p0,
         published_len,
@@ -1353,14 +1355,7 @@ pub(super) fn p3_apply<const N: usize>(
                 .map_err(|e| fatal(format!("P3: {e}")))?;
         }
         if config.g2 && entry.class == Class::C0 {
-            // MergedView (G2' only; P4's job from S4): what this native lends.
-            let bucket = state.store.bucket_of[&bucket_key(&state.store.domains[parent as usize])];
-            let lent = if anchor_kind == Some(AnchorKind::InitialDBand) {
-                Lent::LowSlice
-            } else {
-                Lent::Full
-            };
-            state.merged_view.push(bucket, parent, merge_epoch, lent);
+            super::g2::publish(state, parent);
         }
         let tag = state.ledger.tag(parent).expect("merged tag") as u8;
         state.edges.fold_record(parent, tag, targets.len() as u32);
