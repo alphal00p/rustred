@@ -200,5 +200,9 @@ pub(super) struct InspectorLookup {
     /// Distinct obligations looked up. Timing also includes duplicate validation.
     pub queries: u64,
     pub stored_hits: u64,
+    /// Full coordinator Store::lookup calls avoided after a same-view inspector
+    /// miss and an independent exact-uniqueness check. Not a count of candidate
+    /// tests or nonempty forward-index probes: an absent bucket also qualifies.
+    pub coordinator_miss_rechecks_skipped: u64,
     pub seconds: f64,
 }

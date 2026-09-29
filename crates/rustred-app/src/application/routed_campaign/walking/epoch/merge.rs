@@ -570,6 +570,8 @@ impl P2Counters {
         state.counters.antichain_folded += self.antichain_folded;
         state.inspector_lookup.queries += self.inspector.queries;
         state.inspector_lookup.stored_hits += self.inspector.stored_hits;
+        state.inspector_lookup.coordinator_miss_rechecks_skipped +=
+            self.inspector.coordinator_miss_rechecks_skipped;
         state.inspector_lookup.seconds += self.inspector.seconds;
     }
 }
@@ -829,7 +831,30 @@ pub(super) fn p2_plan<const N: usize>(
                 }
                 counters.miss_requests += 1;
                 let query = Query::new(q.core.clone(), miss.image.phase());
-                let found = state
+                if entry.result.lookup.is_some() {
+                    // P1 admitted this report only for the identical lockstep
+                    // view. No store publication/retirement occurs before P3.
+                    // Keep exact uniqueness independently checked (also retired
+                    // IDs); an exact hit contradicts the shipped miss.
+                    if state
+                        .store
+                        .lookup_exact(
+                            &q,
+                            published_len,
+                            &mut counters.lookup,
+                            &mut counters.verify,
+                        )
+                        .map_err(|e| fatal(format!("P2: {e}")))?
+                        .is_some()
+                    {
+                        return Err(fatal("P2: inspector miss contradicts exact image"));
+                    }
+                    counters.inspector.coordinator_miss_rechecks_skipped += 1;
+                    // A negative is not coverage authority. It goes through the
+                    // unchanged cut antichain, reverse checks and Planned tokens.
+                    // A fabricated nonexact miss may add work/change IDs, never
+                    // discharge an obligation merely because lookup was skipped.
+                } else if let Some((_, token, _hit)) = state
                     .store
                     .lookup(
                         &q,
@@ -838,8 +863,8 @@ pub(super) fn p2_plan<const N: usize>(
                         &mut counters.lookup,
                         &mut counters.verify,
                     )
-                    .map_err(|e| fatal(format!("P2: {e}")))?;
-                if let Some((_, token, _hit)) = found {
+                    .map_err(|e| fatal(format!("P2: {e}")))?
+                {
                     entry_slots.push(Ok(token));
                     continue;
                 }

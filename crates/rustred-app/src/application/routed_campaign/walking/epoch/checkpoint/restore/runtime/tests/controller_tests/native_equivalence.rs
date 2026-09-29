@@ -336,6 +336,16 @@ fn real_native_snapshot_lookup_preserves_all_miss_math_and_records() {
         "real native lookup path exercised"
     );
     assert!(on.state.inspector_lookup.queries >= on.state.inspector_lookup.stored_hits);
+    assert_eq!(
+        on.state.inspector_lookup.queries,
+        on.state.inspector_lookup.stored_hits
+            + on.state.inspector_lookup.coordinator_miss_rechecks_skipped,
+        "every accepted distinct worker query is a positive or a skipped recheck"
+    );
+    assert_eq!(
+        off.state.inspector_lookup.coordinator_miss_rechecks_skipped,
+        0
+    );
     let mut actual = completed_snapshot(&mut on);
     // Explicitly different work accounting, not mathematical state. Keep every
     // record field, domain, ledger, edge, root and closure comparison intact.

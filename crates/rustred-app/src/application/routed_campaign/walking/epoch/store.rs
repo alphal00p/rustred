@@ -313,6 +313,35 @@ impl<const N: usize> Store<N> {
         }
     }
 
+    /// Collision-confirmed exact lookup, including retired images. A positive
+    /// still passes the same independent containment verifier as any other hit.
+    /// A negative says nothing about containment by a different image.
+    pub fn lookup_exact(
+        &self,
+        q: &QueryImage<N>,
+        published_len: usize,
+        counters: &mut LookupCounters,
+        verify_counters: &mut VerifyCounters,
+    ) -> Result<Option<(u32, Verified, Hit)>, String> {
+        if let Some(id) = self.exact.get(q.digest, &q.image, &self.domains)
+            && (id as usize) < published_len
+        {
+            let token = verify(
+                Container::Stored {
+                    id,
+                    domains: &self.domains,
+                    published_len,
+                },
+                q,
+                verify_counters,
+            )
+            .ok_or_else(|| format!("exact hit {id} failed verify"))?;
+            counters.exact_hits += 1;
+            return Ok(Some((id, token, Hit::Exact)));
+        }
+        Ok(None)
+    }
+
     /// Canonical S2 resolution of `q` against the store (the snapshot S_k:
     /// every ID < `published_len`): exact, orthant, minimum live ID of the
     /// ID-ordered index. The winner is verified; an index winner that fails
@@ -330,13 +359,8 @@ impl<const N: usize> Store<N> {
             domains: &self.domains,
             published_len,
         };
-        if let Some(id) = self.exact.get(q.digest, &q.image, &self.domains)
-            && (id as usize) < published_len
-        {
-            let token = verify(container(id), q, verify_counters)
-                .ok_or_else(|| format!("exact hit {id} failed verify"))?;
-            counters.exact_hits += 1;
-            return Ok(Some((id, token, Hit::Exact)));
+        if let Some(hit) = self.lookup_exact(q, published_len, counters, verify_counters)? {
+            return Ok(Some(hit));
         }
         let Some(&bucket) = self.bucket_of.get(&bucket_key(&q.image)) else {
             counters.misses += 1;

@@ -99,6 +99,8 @@ fn snapshot_lookup_matches_all_miss_records_edges_and_canonical_targets() {
     b.as_object_mut().unwrap().remove("miss_requests");
     assert_eq!(a, b, "only the explicit work counter differs");
     assert_eq!(on.inspector_lookup.stored_hits, 5);
+    assert_eq!(on.inspector_lookup.coordinator_miss_rechecks_skipped, 2);
+    assert_eq!(off.inspector_lookup.coordinator_miss_rechecks_skipped, 0);
     assert!(
         on.verify.calls > off.verify.calls,
         "independent P2 rechecks are charged"
@@ -245,5 +247,208 @@ fn snapshot_resolver_keeps_range_summary_and_empty_phase_obligations() {
     assert_eq!(
         r.misses[0].target, None,
         "EMPTY must not bypass owner/phase"
+    );
+}
+
+/// Mutate only the lookup answer/accounting of one otherwise valid obligation.
+/// A false negative is not a proof and must never directly discharge that work.
+fn forge_single_miss(result: &mut JobResult<2>) {
+    assert_eq!(result.misses.len(), 1);
+    result.misses[0].target = None;
+    let report = result.lookup.as_mut().unwrap();
+    report.lookup = super::super::store::LookupCounters {
+        misses: 1,
+        ..Default::default()
+    };
+    report.verify = VerifyCounters::default();
+}
+
+#[test]
+fn snapshot_miss_exact_and_retired_exact_contradictions_are_fatal() {
+    for retired in [false, true] {
+        let query = boxed([2, 0], [2, 0]);
+        let mut initial = vec![query.clone()];
+        if retired {
+            initial.push(boxed([0, 0], [9, 9]));
+        }
+        let mut state = state_with(&initial);
+        assert_eq!(state.is_live(0), !retired);
+        let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+        let view = state.store.snapshot(state.k).unwrap();
+        let mut r = resolved(&job, &[query], Some(&view));
+        assert_eq!(r.misses[0].target, Some(0));
+        drop(view);
+        forge_single_miss(&mut r);
+        let checked = merge::p1_check(&mut state, vec![r.encode()], CONFIG).unwrap();
+        let error = match merge::p2(&mut state, &checked) {
+            Err(error) => error,
+            Ok(_) => panic!("exact contradiction admitted"),
+        };
+        assert!(error.0.contains("miss contradicts exact image"));
+        assert_eq!(state.store.len(), initial.len());
+        assert_eq!(state.edges.edges(), 0);
+        assert_eq!(state.inspector_lookup.coordinator_miss_rechecks_skipped, 0);
+    }
+}
+
+#[test]
+fn snapshot_false_negative_subset_only_adds_unresolved_work() {
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let mut dispatch = Dispatch::new();
+    let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+    let query = boxed([2, 0], [3, 0]);
+    let view = state.store.snapshot(state.k).unwrap();
+    let mut r = resolved(&job, &[query.clone()], Some(&view));
+    assert_eq!(r.misses[0].target, Some(0));
+    drop(view);
+    forge_single_miss(&mut r);
+    let checked = merge::p1_check(&mut state, vec![r.encode()], CONFIG).unwrap();
+    let plan = merge::p2(&mut state, &checked).unwrap();
+    assert_eq!(plan.survivors.len(), 1);
+    assert_eq!(plan.survivors[0].image, image(&query));
+    assert!(plan.transfers.is_empty());
+    assert_eq!(plan.targets[0][0].into_id(1).unwrap().id(), 1);
+    merge::p3_preflight(&mut state, &checked, &plan, &mut Rows(Vec::new())).unwrap();
+    merge::p3_apply(
+        &mut state,
+        checked,
+        plan,
+        CONFIG,
+        &records::Builder,
+        &mut Rows(Vec::new()),
+        &mut |id, attempts| dispatch.requeue(id, attempts),
+    )
+    .unwrap();
+    assert_eq!(state.store.len(), 2, "extra work, not record/ID identity");
+    assert!(matches!(entry(&state, 1), Entry6::Pending(_)));
+    state
+        .tracker
+        .refresh(&std::sync::atomic::AtomicBool::new(false), true);
+    assert_eq!(state.tracker.closed(0), Some(false));
+    assert_eq!(state.tracker.closed(1), Some(false));
+    assert_eq!(state.inspector_lookup.coordinator_miss_rechecks_skipped, 1);
+}
+
+#[test]
+fn snapshot_miss_bypass_requires_current_lockstep_report_and_exact_image_check() {
+    // Missing report takes the historical lookup path even if the caller
+    // replaces a contained answer with None. No negative certificate is assumed.
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+    let view = state.store.snapshot(state.k).unwrap();
+    let mut r = resolved(&job, &[boxed([2, 0], [3, 0])], Some(&view));
+    drop(view);
+    forge_single_miss(&mut r);
+    r.lookup = None;
+    let checked = merge::p1_check(&mut state, vec![r.encode()], CONFIG).unwrap();
+    let plan = merge::p2(&mut state, &checked).unwrap();
+    assert!(plan.survivors.is_empty());
+    assert_eq!(plan.targets[0][0].into_id(1).unwrap().id(), 0);
+    assert_eq!(plan.counters.inspector.coordinator_miss_rechecks_skipped, 0);
+
+    for stale in [false, true] {
+        let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+        let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+        let view = state.store.snapshot(state.k).unwrap();
+        let mut r = resolved(&job, &[boxed([20, 0], [21, 0])], Some(&view));
+        drop(view);
+        let mut config = CONFIG;
+        if stale {
+            r.lookup.as_mut().unwrap().version += 1;
+        } else {
+            config.lockstep = false;
+        }
+        assert!(merge::p1_check(&mut state, vec![r.encode()], config).is_err());
+        assert_eq!(state.store.len(), 1);
+        assert_eq!(state.inspector_lookup.coordinator_miss_rechecks_skipped, 0);
+    }
+
+    // Inject a hash collision with a different canonical image. The reused
+    // exact-index API must compare the complete image, not treat a key as proof.
+    let mut state = state_with(&[boxed([0, 0], [9, 9])]);
+    let query = boxed([20, 0], [21, 0]);
+    state
+        .store
+        .unique_mut()
+        .unwrap()
+        .exact
+        .insert(image(&query).digest().0, 0);
+    let job = jobs(&mut state, &mut Dispatch::new(), 1).remove(0);
+    let view = state.store.snapshot(state.k).unwrap();
+    let r = resolved(&job, &[query], Some(&view));
+    assert_eq!(r.misses[0].target, None);
+    drop(view);
+    let checked = merge::p1_check(&mut state, vec![r.encode()], CONFIG).unwrap();
+    let plan = merge::p2(&mut state, &checked).unwrap();
+    assert_eq!(plan.survivors.len(), 1);
+    assert_eq!(plan.counters.inspector.coordinator_miss_rechecks_skipped, 1);
+}
+
+#[test]
+fn snapshot_mixed_cut_requeue_retains_cross_parent_antichain_and_accounting() {
+    let initial = [
+        boxed([0, 0], [9, 9]),
+        domain(OTHER, [0, 0], [Some(9), Some(9)]),
+    ];
+    let queries = [
+        vec![boxed([1, 0], [3, 0]), boxed([20, 0], [25, 0])],
+        vec![boxed([21, 0], [24, 0]), boxed([20, 0], [25, 0])],
+    ];
+    let run = |snapshot: bool| {
+        let mut state = state_with(&initial);
+        let mut dispatch = Dispatch::new();
+        let first = jobs(&mut state, &mut dispatch, 2);
+        let make = |state: &EpochState<2>, batch: &[Job<2>]| {
+            let view = snapshot.then(|| state.store.snapshot(state.k).unwrap());
+            batch
+                .iter()
+                .map(|job| resolved(job, &queries[job.parent as usize], view.as_ref()))
+                .collect::<Vec<_>>()
+        };
+        let discarded = make(&state, &first);
+        let checked = merge::p1_check(
+            &mut state,
+            discarded.iter().map(JobResult::encode).collect(),
+            CONFIG,
+        )
+        .unwrap();
+        merge::discard_cut(&mut state, &checked, &mut |id, attempts| {
+            dispatch.requeue(id, attempts)
+        })
+        .unwrap();
+        assert_eq!(state.inspector_lookup.coordinator_miss_rechecks_skipped, 0);
+        assert_eq!(state.store.len(), 2);
+        let replay = jobs(&mut state, &mut dispatch, 2);
+        for (before, after) in first.iter().zip(&replay) {
+            assert_eq!(before.parent, after.parent);
+            assert_eq!(before.image, after.image);
+            assert_eq!(before.v0, after.v0);
+            assert_ne!(before.seq, after.seq);
+        }
+        let results = make(&state, &replay);
+        let mut rows = Rows(Vec::new());
+        merge_cut(&mut state, &mut dispatch, &mut rows, results).unwrap();
+        (state, rows)
+    };
+    let (off, off_rows) = run(false);
+    let (on, on_rows) = run(true);
+    assert_eq!(off_rows.0, on_rows.0);
+    assert_eq!(off.store.domains, on.store.domains);
+    assert_eq!(off.ledger.words(), on.ledger.words());
+    assert_eq!(off.edges.log(), on.edges.log());
+    assert_eq!(off.nodes, on.nodes);
+    assert_eq!(off.live, on.live);
+    assert_eq!(on.store.len(), 3, "one cross-parent antichain survivor");
+    assert_eq!(on.inspector_lookup.queries, 4);
+    assert_eq!(on.inspector_lookup.stored_hits, 1);
+    assert_eq!(on.inspector_lookup.coordinator_miss_rechecks_skipped, 3);
+    assert_eq!(off.inspector_lookup.coordinator_miss_rechecks_skipped, 0);
+    assert_eq!(
+        on.lookup.misses, off.lookup.misses,
+        "no imaginary second miss probe"
+    );
+    assert!(
+        on.verify.calls > off.verify.calls,
+        "positive recheck still charged"
     );
 }
