@@ -3,6 +3,8 @@
 Status: **implementation integrated; native execution and performance gates
 pending**. This is not yet a production-switch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
+The latest requested launch is alongside LC2 in session `rustred`, tab
+`codex_astra`, using disjoint resources, not a replacement of the current run.
 
 ## Delivered separately: compatible Stage A
 
@@ -92,6 +94,13 @@ Python can automatically resume with a rescue amendment.
   stale checkpoint/test fixtures. Audited corrections are integrated at
   `f3f707af`; the complete corrected application suite is being rebuilt and
   rerun. The failed receipt is retained, not counted as a green milestone.
+- Corrected full app execution on `f3f707af`:1,116 passed,one failed,12 ignored,
+  with no unexpected skips. The remaining rescue test exposed a cold-reader
+  inventory check that counted amended roots as if they belonged to the original
+  protected prefix. Audited narrow correction `d40c1b76` preserves missing-prefix
+  detection and all per-query checks. Final validation will use the actual
+  optimized CLI on the preserved failing checkpoint, including required-scope
+  PASS and all-root non-PASS; this is not labelled a final full-suite rerun.
 - Optimized Stage B binary: not yet frozen. Never use the app-opt1 correctness
   or app-opt0 correctness executable for performance comparisons.
 - Matched controls: prepared, independently checked, not executed. Required

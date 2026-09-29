@@ -13,6 +13,14 @@ Use implementation and one-time independent audit agents; omit new research and
 nonessential tuning. This supersedes the older hard deadlines and paused-work
 assumptions below. The broad scoped-closure objective remains unchanged.
 
+Latest follow-up: continue through a stable, committed/pushed parallel delivery
+with demonstrated combined four-loop performance and a bounded input/family/
+coordinate-order experiment. Runtime input variants use one frozen executable,
+not per-family Rust rebuilds. The owner intends to launch in tab `codex_astra`
+of session `rustred` **alongside** LC2; final CPU and RAM assignments must allow
+coexistence and must not reuse LC2's CPUs128–227. Do not stop at an unvalidated
+source checkpoint or silently reinterpret a failed performance gate as a pass.
+
 ## Superseded September 29 directive: first useful Epoch build in 6–8 hours
 
 Historical directive retained for context; the approved shortened plan above
