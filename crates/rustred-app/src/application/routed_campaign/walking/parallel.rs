@@ -11,8 +11,10 @@ use std::time::{Duration, Instant};
 
 mod escrow;
 mod owner_retention;
+mod telemetry;
 use escrow::Escrow;
 pub(super) use escrow::Limits as EscrowLimits;
+pub(super) use telemetry::LeanSnapshot;
 
 // The observed first owner emits >700k logical callbacks. Even with homogeneous
 // successor compression, productive rules usually retain a Count boundary and
@@ -107,7 +109,7 @@ impl<const N: usize> Slot<N> {
                 .map_or(0.0, |idle| idle.elapsed().as_secs_f64())
     }
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Totals {
     returned: usize,
     native: usize,
@@ -141,11 +143,9 @@ impl<const N: usize> State<N> {
             .map(|(slot, _)| slot)
     }
 }
-/// How much of the pool state a snapshot serializes; see the `snapshot_*`
-/// methods. Lean is the historical key set.
+/// Additional detail beyond the owned historical scalar snapshot.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SnapshotTier {
-    Lean,
     Detailed,
     Full,
 }
@@ -481,29 +481,19 @@ impl<const N: usize> Pool<N> {
     /// The historical key set only, for per-domain progress events: no
     /// activity breakdown and no per-slot timing arrays.
     pub fn snapshot_lean(&self) -> Value {
-        self.snapshot_tier(SnapshotTier::Lean)
+        self.capture_lean().into_json()
+    }
+    /// Copy scalars and rare failure details while locked. No JSON map or
+    /// string serialization holds the scheduler mutex in this hot path.
+    pub fn capture_lean(&self) -> LeanSnapshot {
+        let state = self.lock();
+        LeanSnapshot::capture(self, &state)
     }
     fn snapshot_tier(&self, tier: SnapshotTier) -> Value {
         let state = self.lock();
         let running = state.slots.iter().filter(|s| s.running).count();
-        let mut snapshot = json!({"workers":state.slots.len(), "active_workers":running,
-            "occupied_native_slots":state.slots.iter().filter(|s| s.id.is_some()).count(),
-            "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count() + state.escrow.len(),
-            "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count() + state.escrow.len(),
-            "backpressured_workers":state.totals.waiting, "backpressure_seconds":state.totals.wait_seconds,
-            "attempted_events":self.attempted.load(Ordering::Relaxed),
-            "returned_inspections":state.totals.returned, "attempted_native_operations":state.totals.native,
-            "attempted_rule_checks":state.totals.rules, "attempted_predicates":state.totals.predicates,
-            "attempted_optional_coefficient_refusals":state.totals.optional,
-            "native_attempt_counters_scope":"returned_inspections_including_uncommitted_and_cancelled",
-            "worker_buffered_events":self.buffered_events.load(Ordering::Relaxed),
-            "worker_buffered_logical_bytes":self.buffered_bytes.load(Ordering::Relaxed),
-            "peak_worker_buffered_logical_bytes":self.peak_bytes.load(Ordering::Relaxed),
-            "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_records":CHUNK_RECORDS,
-            "per_worker_chunk_logical_bytes":CHUNK_BYTES,
-            "first_failure":state.failure.as_ref().map(Failure::json),
-            "non_cancellation_failure":state.non_cancellation_failure.as_ref().map(Failure::json)});
-        if tier >= SnapshotTier::Detailed {
+        let lean = LeanSnapshot::capture(self, &state);
+        let detailed = (tier >= SnapshotTier::Detailed).then(|| {
             let blocked = state
                 .slots
                 .iter()
@@ -514,52 +504,45 @@ impl<const N: usize> Pool<N> {
                 .iter()
                 .filter(|s| s.running)
                 .filter_map(|s| Some((s.id?, s.started?.elapsed().as_secs_f64(), s.stream_events)))
-                .max_by(|a, b| a.1.total_cmp(&b.1))
-                .map(|(id, seconds, events)| {
-                    json!({"id":id, "seconds":seconds, "attempted_events":events})
-                });
+                .max_by(|a, b| a.1.total_cmp(&b.1));
+            (
+                blocked,
+                heaviest,
+                state.slots.iter().filter(|s| s.finished.is_some()).count(),
+            )
+        });
+        let full = (tier >= SnapshotTier::Full).then(|| {
+            (
+                state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>(),
+                state
+                    .slots
+                    .iter()
+                    .map(|s| s.backpressure_seconds)
+                    .collect::<Vec<_>>(),
+                state.slots.iter().map(Slot::idle_now).collect::<Vec<_>>(),
+            )
+        });
+        drop(state);
+        let mut snapshot = lean.into_json();
+        if let Some((blocked, heaviest, finished)) = detailed {
             snapshot["computing_workers"] = json!(running - blocked);
-            snapshot["finished_awaiting_poll"] =
-                json!(state.slots.iter().filter(|s| s.finished.is_some()).count());
-            snapshot["heaviest_active_stream"] = json!(heaviest);
+            snapshot["finished_awaiting_poll"] = json!(finished);
+            snapshot["heaviest_active_stream"] = json!(heaviest.map(|(id, seconds, events)| {
+                json!({"id":id, "seconds":seconds, "attempted_events":events})
+            }));
             snapshot["stream_stall_share"] = json!(if running == 0 {
                 0.0
             } else {
                 blocked as f64 / running as f64
             });
         }
-        if tier >= SnapshotTier::Full {
-            snapshot["slot_busy_seconds"] =
-                json!(state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>());
-            snapshot["slot_backpressure_seconds"] = json!(
-                state
-                    .slots
-                    .iter()
-                    .map(|s| s.backpressure_seconds)
-                    .collect::<Vec<_>>()
-            );
-            snapshot["slot_idle_seconds"] =
-                json!(state.slots.iter().map(Slot::idle_now).collect::<Vec<_>>());
+        if let Some((busy, backpressure, idle)) = full {
+            snapshot["slot_busy_seconds"] = json!(busy);
+            snapshot["slot_backpressure_seconds"] = json!(backpressure);
+            snapshot["slot_idle_seconds"] = json!(idle);
             snapshot["slot_timing_scope"] = json!(
                 "cumulative_wall_seconds_per_physical_slot_this_process; busy_includes_backpressure; idle_is_time_without_a_stream"
             );
-        }
-        let escrow = json!({
-            "worker_buffer_accounting_scope":"all_pool_owned_chunks_including_completed_escrow; excludes_coordinator_chunk",
-            "completed_escrow_entries":state.escrow.len(),
-            "completed_escrow_events":state.escrow.events,
-            "completed_escrow_accounted_bytes":state.escrow.bytes,
-            "completed_escrow_peak_entries":state.escrow.peak_entries,
-            "completed_escrow_peak_accounted_bytes":state.escrow.peak_bytes,
-            "completed_slots_reclaimed":state.escrow.reclaimed,
-            "completed_escrow_max_entries":state.escrow.limits.entries,
-            "completed_escrow_max_accounted_bytes":state.escrow.limits.bytes,
-            "completed_escrow_reserve_fallback":state.escrow.reserve_failed});
-        if let Value::Object(fields) = escrow {
-            snapshot
-                .as_object_mut()
-                .expect("snapshot object")
-                .extend(fields);
         }
         snapshot
     }
