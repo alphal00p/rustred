@@ -217,6 +217,7 @@ fn walk_request(
     walk.applied_limits.max_shift_groups = args.max_shift_groups;
     walk.applied_limits.max_sign_splits = args.max_sign_splits;
     walk.checkpoint = args.checkpoint.clone();
+    walk.epoch_stop_file = args.stop_file.clone();
     walk.apply_subdivision = args.apply_subdivision;
     walk.applied_limits.cell_refinement = args.apply_cell_refinement_max_cardinality.map_or(
         rustred::solver::OwnerAppliedCellRefinement::Off,

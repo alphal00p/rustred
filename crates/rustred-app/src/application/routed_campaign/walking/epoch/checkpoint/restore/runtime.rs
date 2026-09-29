@@ -15,6 +15,8 @@ use rustred::solver::RoutedCandidateReducer;
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod controller;
+
 pub(super) struct Restored<const N: usize> {
     pub state: EpochState<N>,
     pub dispatch: Dispatch,
@@ -24,6 +26,7 @@ pub(super) struct Restored<const N: usize> {
     pub roots: Roots,
     pub admission: Admission,
     pub stop_reason: Option<String>,
+    pub operational_stop: Option<super::super::stop::Stop>,
     pub publisher: publication::Store,
     pub records: Sidecar,
     pub warnings: Vec<String>,
@@ -173,6 +176,7 @@ pub(super) fn open<const N: usize>(
         roots,
         admission: scalars.initial_admission,
         stop_reason: scalars.stop_reason,
+        operational_stop: scalars.operational_stop,
         publisher,
         records,
         warnings,

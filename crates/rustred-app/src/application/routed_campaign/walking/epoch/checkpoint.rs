@@ -21,6 +21,7 @@ mod publication;
 mod read;
 mod restore;
 mod session;
+mod stop;
 pub(super) use session::Session;
 #[cfg(test)]
 mod tests;

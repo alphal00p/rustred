@@ -64,6 +64,7 @@ fn metadata_records_full_inventory_even_before_initial_admission_finishes() {
         rows: &rows[..1],
         frontiers: &[],
         stop: None,
+        operational_stop: None,
     };
     let (bytes, digest) = inputs.write_scalars(&boundary, Vec::new()).unwrap();
     let meta: Value = serde_json::from_slice(&bytes).unwrap();
@@ -108,6 +109,7 @@ fn metadata_refuses_role_reordering_and_hidden_initial_ids() {
             rows: &rows,
             frontiers: &[],
             stop: None,
+            operational_stop: None,
         };
         assert!(inputs.validate(&boundary).is_err(), "mutation {mutation}");
     }
@@ -132,6 +134,7 @@ fn internal_publication_is_bound_and_latest_precedes_previous() {
         rows: &rows,
         frontiers: &[],
         stop: None,
+        operational_stop: None,
     };
     let first = store.save(&boundary, &inputs, &mut records).unwrap();
     assert_eq!(first.generation, 1);
@@ -193,6 +196,7 @@ fn preinstallation_failure_preserves_old_authority_and_only_leaves_orphans() {
             rows: &rows,
             frontiers: &[],
             stop: None,
+            operational_stop: None,
         };
         store.save(&boundary, &inputs, &mut records).unwrap();
         let old = fs::read(directory.0.join(LATEST)).unwrap();
@@ -252,6 +256,7 @@ fn large_owner_inventory_does_not_make_scalar_metadata_unsavable() {
         rows: &rows,
         frontiers: &[],
         stop: None,
+        operational_stop: None,
     };
     let (_, inventory) = inputs.write_owners(io::sink()).unwrap();
     assert!(inventory.bytes > MAX_META_BYTES);

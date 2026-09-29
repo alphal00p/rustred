@@ -158,6 +158,11 @@ impl<'a> Identity<'a> {
         }) {
             return Err(invalid("epoch scalar stop reason"));
         }
+        if saved.operational_stop.as_ref().is_some_and(|stop| {
+            !stop.valid() || saved.stop_reason.as_deref() != Some(stop.kind().name())
+        }) {
+            return Err(invalid("epoch operational stop context differs"));
+        }
         Ok(())
     }
 
@@ -193,11 +198,12 @@ pub(super) struct Inputs<'a> {
     pub rows: &'a [Value],
     pub frontiers: &'a [Value],
     pub stop: Option<StopReason>,
+    pub operational_stop: Option<&'a super::stop::Stop>,
 }
 
 #[derive(Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Scalars<W, L, V, S> {
+pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub schema: u32,
     pub request: S,
     pub owner_count: usize,
@@ -225,6 +231,7 @@ pub(super) struct Scalars<W, L, V, S> {
     pub processed_queries: usize,
     pub input_frontiers: usize,
     pub stop_reason: Option<S>,
+    pub operational_stop: Option<C>,
     // Reserved provenance fields: this implementation admits none of these.
     pub amendments: [(); 0],
     pub quarantined: [(); 0],
@@ -239,6 +246,12 @@ pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCount
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
         let state = boundary.state;
+        if self
+            .operational_stop
+            .is_some_and(|context| !context.valid() || self.stop != Some(context.kind()))
+        {
+            return Err(invalid("epoch save operational stop context differs"));
+        }
         if self.rows.len() > self.identity.queries.len()
             || matches!(self.admission, Admission::Complete)
                 && self.rows.len() != self.identity.queries.len()
@@ -349,6 +362,7 @@ impl Inputs<'_> {
             processed_queries: self.rows.len(),
             input_frontiers: self.frontiers.len(),
             stop_reason: self.stop.map(StopReason::name),
+            operational_stop: self.operational_stop,
             amendments: [],
             quarantined: [],
             abandoned_obligations: [],

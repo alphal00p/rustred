@@ -88,6 +88,10 @@ pub use work_policy::FrontierPolicy as OwnerDomainWalkFrontierPolicy;
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
     pub checkpoint: Option<OwnerDomainWalkCheckpointOptions>,
+    /// Optional supervisor stop-file context for epoch checkpoint diagnostics.
+    /// Operational only: excluded from mathematical binding; cancellation is
+    /// authoritative even when this file is absent or malformed.
+    pub epoch_stop_file: Option<std::path::PathBuf>,
     pub apply_subdivision: Option<OwnerDomainWalkApplySubdivision>,
     /// Load policy and per-domain matcher allowances; max_total_pieces applies
     /// only to local-match reports, not this streaming worklist.
@@ -141,6 +145,7 @@ impl OwnerDomainWalkRequest {
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
         Self {
             checkpoint: None,
+            epoch_stop_file: None,
             apply_subdivision: None,
             matching,
             applied_limits: Default::default(),

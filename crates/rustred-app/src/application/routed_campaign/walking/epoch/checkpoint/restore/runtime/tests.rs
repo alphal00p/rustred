@@ -23,6 +23,8 @@ use serde_json::{Value, json};
 use std::fs;
 use std::sync::Arc;
 
+mod controller_tests;
+
 struct Fixture {
     directory: Directory,
     request: OwnerDomainWalkRequest,
@@ -143,6 +145,7 @@ powers=[1]
             rows: &rows,
             frontiers: &[],
             stop: None,
+            operational_stop: None,
         };
         let mut publisher = publication::Store::fresh(self.directory.0.clone()).unwrap();
         let mut sidecar = Sidecar::new(self.directory.0.clone(), 1);
@@ -172,6 +175,7 @@ fn resave(fixture: &Fixture, restored: &mut Restored<1>) {
         rows: &restored.roots.rows,
         frontiers: &restored.roots.frontiers,
         stop: (restored.state.counters.native_errors != 0).then_some(merge::StopReason::ErrorStop),
+        operational_stop: None,
     };
     restored
         .publisher
@@ -308,6 +312,7 @@ fn durable_stop_save_precedes_held_worker_join_and_preserves_reserved_replay() {
                 rows: &restored.roots.rows,
                 frontiers: &restored.roots.frontiers,
                 stop: Some(merge::StopReason::RamGuard),
+                operational_stop: None,
             };
             // No closure refresh or CAS call is part of the memory stop save.
             let receipt = restored

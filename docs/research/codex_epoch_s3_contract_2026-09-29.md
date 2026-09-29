@@ -549,6 +549,55 @@ and cancellation races. These tests are unexecuted. No responsive native license
 path or runtime controller is claimed yet; extra start/status traffic in the S2
 adapter has unmeasured overhead. Public resume remains refused.
 
+### Private restored-state controller (source slice, tests pending)
+
+The next private controller connects restored replay, polling and the existing
+P1-P3 merge path. A complete replay cut must finish before Pending admission.
+An observed cancellation discards both already-polled result bytes and the
+queued/late channel before streaming the coherent Reserved state. The cancelled
+B-sized status inventory is moved, not newly allocated, into the stop callback;
+statuses from an earlier merged cut are never reported as current in-flight.
+Completed error/frontier/preflight stops save their existing merge/bookkeeping
+state. C5 installs a sticky atomic poison marker, not a new generation. The
+native wrapper checks LicenseManager::is_licensed on every actual worker before
+the controller can submit anything, honors explicit inspection partitioning,
+and requires inspector+controller
+budget >=2. Public unlicensed W1 remains inline and unchanged.
+Independent review rejected the first wrapper's empty-result-on-missing-license
+path: it incorrectly poisoned a valid checkpoint as C5. A narrow worker
+authorization barrier now returns a typed operational Capability refusal,
+leaving replay and latest untouched and never entering CAS. The regression
+refuses, reopens under a fresh session, changes capability, then completes and
+restores; genuinely malformed inspection results still poison. Review
+found pre-dispatch handle-allocation/thread-spawn failures taking the same C5
+path; these now use Resource refusals and an injected mapping/reopen regression.
+Review also
+restored the original initial-frontier startup stop, and drained saves retain
+drained_uncertified when the existing certification predicate refuses.
+
+The existing CLI stop-file path is passed as optional epoch-only operational
+context, excluded from mathematical binding. After cancellation, at most4KiB
+is parsed. Empty/missing/malformed/oversized metadata still stops with explicit
+unknown context. Only the three documented RAM reasons map to ram_guard;
+host-wide pressure without own-memory evidence is unattributed. Typed scalar
+metadata persists the reason/context and validates consistency on restore.
+Tree attribution does not itself charge any job or all Reserved descriptors.
+
+Source regressions connect a genuinely polled invalid prefix, held second
+worker and never-started third job to durable save-before-join and full replay;
+cover C2 terminal error resave, C5 poison, replay-before-Pending, native wrapper
+authorization and actual native records, W1 refusal, manual empty file, signal/API
+flag with no context, supported RAM reasons, malformed reasons and unbound path.
+Independent source review passed after those corrections; compilation and
+execution of this controller slice are pending. These are source-found defects,
+not reproduced runtime failures. Worker startup authorization is not timeout-
+bounded. The initial-frontier helper test is not full prepared-frontier restore
+integration. The controller remains
+private: fresh/input-prefix continuation, periodic-save scheduling, cooperative
+grace (this private controller cancels immediately for either operational stop),
+durable Start/Grow/End attribution/clean-session crash policy and all deployment
+gates still precede public resume. No bounded native-join guarantee is made.
+
 For lockstep cancellation, persist the exact unfinished batch and dispatch
 state so restore reruns the same reserved work against the saved merge
 version before admitting new Pending work. Retrying a cancelled inspection

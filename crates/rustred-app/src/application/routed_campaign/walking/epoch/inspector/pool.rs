@@ -10,9 +10,49 @@ use std::time::Duration;
 const MAX_BATCH: usize = 4096;
 type Inspect<'a> = dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync + 'a;
 
+#[derive(Debug)]
+pub(in super::super) enum RunError {
+    Capability(String),
+    /// Handle allocation/thread creation failed before the body can dispatch.
+    Resource(String),
+    Engine(String),
+}
+impl From<String> for RunError {
+    fn from(error: String) -> Self {
+        Self::Engine(error)
+    }
+}
+impl From<&str> for RunError {
+    fn from(error: &str) -> Self {
+        Self::Engine(error.into())
+    }
+}
+impl From<RunError> for String {
+    fn from(error: RunError) -> Self {
+        match error {
+            RunError::Capability(message)
+            | RunError::Resource(message)
+            | RunError::Engine(message) => message,
+        }
+    }
+}
+
 pub(in super::super) struct Work {
     pub key: u64,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub(in super::super) enum SubmitError {
+    Allocation(&'static str),
+    Protocol(&'static str),
+}
+impl From<SubmitError> for String {
+    fn from(error: SubmitError) -> Self {
+        match error {
+            SubmitError::Allocation(message) | SubmitError::Protocol(message) => message.into(),
+        }
+    }
 }
 
 /// Worker acceptance/return observations, not RSS attribution or job blame.
@@ -67,35 +107,41 @@ fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<
 }
 
 impl Pool<'_> {
-    pub fn submit(&mut self, jobs: Vec<Work>) -> Result<(), String> {
+    pub fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         if self.cancelled || self.remaining != 0 || jobs.len() > MAX_BATCH {
-            return Err("epoch submit outside an empty lockstep slot (C5)".into());
+            return Err(SubmitError::Protocol(
+                "epoch submit outside an empty lockstep slot (C5)",
+            ));
         }
         for (at, job) in jobs.iter().enumerate() {
             if jobs[..at].iter().any(|earlier| earlier.key == job.key) {
-                return Err("epoch duplicate submitted sequence (C5)".into());
+                return Err(SubmitError::Protocol(
+                    "epoch duplicate submitted sequence (C5)",
+                ));
             }
         }
         self.receipts.clear();
         self.receipts
             .try_reserve(jobs.len())
-            .map_err(|_| "epoch result receipt allocation")?;
+            .map_err(|_| SubmitError::Allocation("epoch result receipt allocation"))?;
         let mut guard = self
             .queue
             .lock()
-            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+            .map_err(|_| SubmitError::Protocol("epoch inspector queue poisoned (C5)"))?;
         if guard.shutdown || !guard.jobs.is_empty() {
-            return Err("epoch submit to stopped/nonempty queue (C5)".into());
+            return Err(SubmitError::Protocol(
+                "epoch submit to stopped/nonempty queue (C5)",
+            ));
         }
         guard
             .jobs
             .try_reserve(jobs.len())
-            .map_err(|_| "epoch inspector queue allocation")?;
+            .map_err(|_| SubmitError::Allocation("epoch inspector queue allocation"))?;
         guard.status.clear();
         guard
             .status
             .try_reserve(jobs.len())
-            .map_err(|_| "epoch inspector status allocation")?;
+            .map_err(|_| SubmitError::Allocation("epoch inspector status allocation"))?;
         self.remaining = jobs.len();
         self.receipts.resize(jobs.len(), 0);
         for (index, job) in jobs.into_iter().enumerate() {
@@ -189,6 +235,23 @@ impl Pool<'_> {
         Ok(values)
     }
 
+    /// Move the already allocated B-sized receipt inventory after cancellation.
+    /// Late workers cannot mutate this captured stop observation; no allocation
+    /// is required on a memory-pressure save path.
+    pub fn take_cancelled_status(&mut self) -> Result<Vec<Status>, String> {
+        if !self.cancelled {
+            return Err("epoch status take before cancellation (C5)".into());
+        }
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+        if !guard.shutdown {
+            return Err("epoch cancelled status with live queue (C5)".into());
+        }
+        Ok(std::mem::take(&mut guard.status))
+    }
+
     /// Stop admission first, release queued and channel-buffered result bytes,
     /// then let the caller save its last coherent merge state before join.
     pub fn cancel(&mut self) -> Result<(), String> {
@@ -210,6 +273,17 @@ pub(in super::super) fn with_polling_pool<R>(
     job: &Inspect<'_>,
     body: impl FnOnce(&mut Pool<'_>) -> R,
 ) -> Result<R, String> {
+    with_authorized_pool(threads, &|| Ok(()), job, body).map_err(String::from)
+}
+
+/// Every actual worker proves its operational capability before body can
+/// submit even one descriptor. A refusal never becomes a malformed job result.
+pub(in super::super) fn with_authorized_pool<R>(
+    threads: usize,
+    authorize: &(dyn Fn() -> Result<(), String> + Sync),
+    job: &Inspect<'_>,
+    body: impl FnOnce(&mut Pool<'_>) -> R,
+) -> Result<R, RunError> {
     if threads == 0 {
         return Err("responsive epoch pool requires an inspector plus its coordinator".into());
     }
@@ -221,16 +295,25 @@ pub(in super::super) fn with_polling_pool<R>(
     let ready = Condvar::new();
     let stop = AtomicBool::new(false);
     let (sender, receiver) = mpsc::channel();
+    let (authorized, authorization) = mpsc::channel();
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         handles
             .try_reserve_exact(threads)
-            .map_err(|_| "epoch worker handle allocation")?;
+            .map_err(|_| RunError::Resource("epoch worker handle allocation".into()))?;
         for slot in 0..threads {
-            let (queue, ready, stop, sender) = (&queue, &ready, &stop, sender.clone());
+            let (queue, ready, stop, sender, authorized) =
+                (&queue, &ready, &stop, sender.clone(), authorized.clone());
             match std::thread::Builder::new()
                 .name(format!("epoch-inspector-{slot}"))
                 .spawn_scoped(scope, move || {
+                    let capability = catch_unwind(AssertUnwindSafe(authorize))
+                        .unwrap_or_else(|_| Err("epoch worker capability check panicked".into()));
+                    let accepted = capability.is_ok();
+                    if authorized.send(capability).is_err() || !accepted {
+                        return;
+                    }
+                    drop(authorized);
                     loop {
                         let next = {
                             let Ok(mut guard) = queue.lock() else { return };
@@ -256,7 +339,13 @@ pub(in super::super) fn with_polling_pool<R>(
                         let result = catch_unwind(AssertUnwindSafe(|| job(&bytes, stop)))
                             .unwrap_or_default();
                         let Ok(mut guard) = queue.lock() else { return };
-                        guard.status[index].returned = true;
+                        if let Some(status) = guard.status.get_mut(index) {
+                            status.returned = true;
+                        } else {
+                            // Cancellation may have moved the stop inventory to
+                            // the save path; never recreate it for a late result.
+                            assert!(guard.shutdown, "missing live epoch worker status");
+                        }
                         drop(guard);
                         if sender.send(Message::Result(index, result)).is_err() {
                             return;
@@ -266,11 +355,29 @@ pub(in super::super) fn with_polling_pool<R>(
                 Ok(handle) => handles.push(handle),
                 Err(error) => {
                     let _ = shutdown(&queue, &ready, &stop);
-                    return Err(format!("epoch inspector spawn: {error}"));
+                    return Err(RunError::Resource(format!(
+                        "epoch inspector spawn: {error}"
+                    )));
                 }
             }
         }
         drop(sender);
+        drop(authorized);
+        for _ in 0..threads {
+            match authorization.recv() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    let _ = shutdown(&queue, &ready, &stop);
+                    return Err(RunError::Capability(error));
+                }
+                Err(_) => {
+                    let _ = shutdown(&queue, &ready, &stop);
+                    return Err(RunError::Engine(
+                        "epoch worker capability channel disconnected".into(),
+                    ));
+                }
+            }
+        }
         let mut pool = Pool {
             queue: &queue,
             ready: &ready,

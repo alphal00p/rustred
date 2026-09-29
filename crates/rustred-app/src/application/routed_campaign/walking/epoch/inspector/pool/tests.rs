@@ -194,3 +194,26 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
     assert!(stop.load(Ordering::Acquire));
     assert!(queue.lock().err().unwrap().into_inner().shutdown);
 }
+
+#[test]
+fn one_worker_capability_refusal_wakes_authorized_idle_siblings_without_dispatch() {
+    let checks = AtomicUsize::new(0);
+    let calls = AtomicUsize::new(0);
+    let authorize = || {
+        if checks.fetch_add(1, Ordering::Relaxed) == 0 {
+            Err("synthetic unavailable worker capability".into())
+        } else {
+            Ok(())
+        }
+    };
+    let job = |_: &[u8], _: &AtomicBool| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        Vec::new()
+    };
+    let result = with_authorized_pool(3, &authorize, &job, |_| {
+        panic!("body cannot run without all capabilities")
+    });
+    assert!(matches!(result, Err(RunError::Capability(_))));
+    assert_eq!(checks.load(Ordering::Relaxed), 3);
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+}

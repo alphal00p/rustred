@@ -84,6 +84,25 @@ enum FailPoint {
 }
 
 impl Store {
+    /// Sticky C5 authority, including failure outside P3. Never publish another
+    /// generation after this call; a failed fsync does not claim durability.
+    pub(super) fn poison(&mut self, merge: u64, reason: &str) -> io::Result<()> {
+        self.failed = true;
+        write_file_atomically_with(
+            &self.directory.join("epoch-internal-poison"),
+            true,
+            |output| {
+                writeln!(output, "epoch engine-fatal at merge {merge}")
+                    .map_err(|error| error.to_string())?;
+                let bytes = reason.as_bytes();
+                output
+                    .write_all(&bytes[..bytes.len().min(4096)])
+                    .map_err(|error| error.to_string())
+            },
+        )
+        .map_err(io::Error::other)
+    }
+
     /// Fresh-only internal store: no CP5, S2 export or old private snapshot
     /// is imported. The restore constructor is a later independently gated
     /// implementation; this one requires a genuinely empty directory.

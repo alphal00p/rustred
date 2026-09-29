@@ -64,6 +64,7 @@ impl Fixture {
             rows: &rows,
             frontiers: &[],
             stop: None,
+            operational_stop: None,
         };
         let mut publisher = publication::Store::fresh(fixture.directory.0.clone()).unwrap();
         let mut records = Sidecar::new(fixture.directory.0.clone(), 1);
