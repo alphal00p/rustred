@@ -104,6 +104,28 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 18:38 UTC — ordering inputs ready; independent delivery audit
+
+- [M] `bounded_ordering_pilots` prepared the helpers-first control with the
+  existing stager:16 owners/6,562,373bytes and all58 exact query objects/roles
+  retained; only order differs. Setup2.04s including Nix/lock, not solver time.
+  Root reviewed the data/plan diff. Original28 arms and seven controls are
+  unchanged; two helper-first arms append at28/29, using the same binder.
+  Evidence: `TMP/codex-ordering-study.7nspU4/FIXTURE_PREPARATION.md` and
+  `matrix-ordering.diff`; updated unbound matrix SHA256 `af28bc44...cbbe9`.
+- [D] Execute combined controls in order8,9,28,29,10,11: ReadyA1,FIFOB1,
+  H1,H2,FIFOB2,ReadyA2. This keeps both engine pairs adjacent and supplies a
+  contemporaneous preserve/helpers-first two-pair comparison. No solver has
+  run, and no speed benefit follows from setup or reordered input alone.
+- [M] The independent ordering agent also audited code it did not implement:
+  protected-prefix fix PASS. It requested an existing remapped-query negative
+  and a specifically abandoned-root AllRoots failure; the execution lane
+  accepted both checks. Audit: `TMP/codex-ordering-study.7nspU4/DELIVERY_AUDIT.md`.
+- [D] Provisional alongside allocation is W50/CPUs32–81, requested400GB, live
+  host reserve150GB, leaving LC2's CPU128–227/600GB/50GB-floor policy unchanged.
+  These are distinct physical cores. Requested ceilings are not reservations;
+  final launch remains contingent on tests and current available resources.
+
 ### 2026-09-29 18:23 UTC — final optimized build active
 
 - [M] `stage_a_release` started the one optimized CLI build from clean
