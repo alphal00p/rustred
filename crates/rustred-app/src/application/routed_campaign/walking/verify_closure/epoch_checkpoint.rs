@@ -348,7 +348,7 @@ pub(super) fn read_raw<const N: usize>(
 }
 fn read_inner<const N: usize>(
     directory: &Path,
-) -> Result<(RawCheckpoint<N>, EpochSections), String> {
+) -> Result<(RawCheckpoint<N>, EpochSections, Vec<RecordRef>), String> {
     let start = std::time::Instant::now();
     let io = |error: io::Error| error.to_string();
     let meta = fs::symlink_metadata(directory).map_err(io)?;
