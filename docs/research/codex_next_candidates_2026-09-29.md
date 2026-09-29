@@ -323,3 +323,38 @@ The simpler identically-zero predicate seam in
 caller is the separate guarded-domain API, not the ordinary walker, and its
 power-bounded wrapper rejects the campaign's nontrivial A/D bounds. Optimizing
 that path would not demonstrate a benefit for the current five-loop run.
+
+## 9. N4: an opt-in coverage-only visitor, if profiles justify it
+
+Read-only source evidence at combined `d12db6cf` is in
+`TMP/codex-integration/n4-coverage-first-feasibility-2026-09-29.md`.
+The live Apply path materializes, normalizes and classifies RHS coefficients
+before the app tests target reuse, although the walker does not retain the
+exact coefficients. G2 already avoids whole inspections, and empty source
+geometry already avoids this coefficient work; measure what remains after G2.
+Route uses a different geometry visitor, so N4 cannot automatically address
+a Route-heavy workload.
+
+A separate internal coverage-only visitor could ask exact target containment
+earlier and avoid materializing unneeded payloads. Existing Symbolica polynomial
+substitution/GCD/addition suffice. Do not weaken the public visitor's exact
+coefficient contract. For the opt-in visitor, a resource failure caused only
+by an operation that is safely avoided need not be reproduced, nor must old
+operation counts match. Its new cost/event contract must be explicit; flag-off
+identity remains required.
+
+Mathematical obligations are different: original poles, source/child validity,
+descent, genuine frontiers and Uniform/Conditional support cannot disappear.
+Individually zero terms and a cancelling pair of nonzero terms have different
+existing source-validity obligations. A naive return-on-covered-target skips
+these checks and is not justified. Start with a non-affine singleton case and
+exact fallback, only if a post-G2 profile finds substantial eligible cost.
+
+The smallest falsifier uses an admitted target and nonconstant coefficient
+under fixed indices, followed by uncovered-target, pole, zero-term,
+cancelling-pair, child-condition, guard-zero and optional-refusal variants.
+Compare exact images, A/R/D constraints, obligations and replay—not just queue
+size. Count covered singleton groups and all fallback/lookup costs. This is
+a feasible architectural direction, **not an implemented or measured gain**;
+it does not reopen deferred backward covers or previously rejected helper-bound
+variants.

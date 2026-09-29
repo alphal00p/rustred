@@ -53,12 +53,12 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Rescue and explicit query roles | source and combined native suites delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Campaign/CLI and independent full-reinspection gates remain at `d12db6cf` |
 | Independent math/code audit | combined corrections and private epoch writer/publisher source passed | checkpoint_final_audit | Independently review bounded restore next; verify execution receipts before release |
 | Combined G2′ + rescue | corrected optimized focus/full suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; matched campaign profile, CLI and independent control reinspection next |
-| Python production G2′ steering | active, integration gap found | joint_support_pruning (author), checkpoint_final_audit (independent review) | Fresh-campaign off/union option, frozen forwarding through resume/rescue; preserve exact flag-off argv, no activation migration project |
+| Python production G2′ steering | committed locally and independently tested | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real Python/native pause-resume composition smoke after CLI gates, then integrate |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | private writer/publisher source audit and consolidated typecheck passed; bounded restore active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen `6f7eb9fd` native tests still pending; runtime publication/restore/stop gates and S4–S6 remain open |
+| Epoch S3–S6 | writer/publisher typechecked; decoder and lookup reconstruction source-audited | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen validation `dc046711` awaits check; full assembly/session/stop and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
-| N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
+| N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
 | New algorithms / literature | census delivered; narrow coalescing parked | work_reduction_research + checkpoint_final_audit | Reopen only with post-G2 miss-cohort evidence; backward covers deferred |
@@ -82,6 +82,117 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 04:04 UTC — lookup restoration frozen; timing-lane contention checked
+
+- [M] Independently source-audited live-index/historical-orthant reconstruction
+  committed as `79db22c93220fc695c4035a35262ba4a1c13aaed`. The idle validation
+  tree now consolidates decoder, count correction and lookup slices at
+  `dc0467110591b14548e20a119ad3da08c319ef73`; no check has run on that tip.
+  Rebuild only persisted live membership, replay historical orthant updates
+  separately, and never recompute antichain retirement during restore. Actual
+  writer/header layouts were crosschecked during the independent review.
+  This remains private reconstruction, not usable full-state/public resume.
+- [M] Inert pilot recipes and hashes are in
+  `TMP/codex-g2-pilot-prep.n7Kd5q/COMMANDS.md`; candidate executable identity
+  remains pending. The proposed 64–79 lane contains 16 distinct NUMA2 physical
+  cores, but a short snapshot showed 4.574 busy cores plus 0.110 on SMT siblings.
+  That is material contention, not an exclusive reservation. A short read-only
+  comparison of other permitted physical-core blocks is authorized before
+  freezing the timed lane; no affinity/settings of other jobs may change.
+- Candidate compilation remains the sole owned heavy job. No benchmark or
+  production launch has occurred, and no speed/closure conclusion is drawn
+  from these preparation observations.
+
+### 2026-09-29 04:02 UTC — frontend milestone committed; composition smoke queued
+
+- [M] Python G2′ steering is committed locally as
+  `cd52c90d5280125f42f6c348a14f89e862206798` on `codex/g2-steering-lc2`:
+  four explicit files, clean tree, independent final audit passed. Exact
+  test/guard receipts remain in `TMP/codex-g2-rescue.tzdFuj/`. It is not yet
+  merged into main, and does not change the frozen `d12db6cf` Rust build.
+- The six existing CLI tests cover native composition, not the Python
+  supervisor. After they pass, run a small real fresh-Union / cooperative
+  pause / ordinary-resume / cold-verification smoke entirely under TMP.
+  Reuse established supervisor ownership and stop-file handling; do not
+  place a session-spawning supervisor inside an incompatible outer PG guard.
+  This closes a process-chain gap left by fake frontend tests plus separate
+  actual native amendment/activation tests. No production launch is authorized.
+- Epoch lookup reconstruction (persisted-live index and independently replayed
+  historical orthants) is source-written and awaiting independent review.
+  It is not public restore. The author may consolidate the idle validation
+  checkout after review, retaining all prior receipts; no second heavy build
+  competes with the candidate CLI compile.
+
+### 2026-09-29 04:00 UTC — Python steering passes final audit; decoder correction recorded
+
+- [M] Final Python G2′ steering suite: 284 tests with one expected optional
+  enumeration skip, 22.425 s; focused seven tests 1.085 s. Independent rerun:
+  seven passed in 1.078 s, guard exit 0/no stop reason, 2.155 s, recorded in
+  `TMP/codex-g2-rescue.tzdFuj/python-steering-independent-final/`.
+  The reviewer confirmed unchanged off-mode argv/frozen bytes, sticky union
+  across ordinary/rescue resumes, query preservation, and refusal of implicit
+  activation and inconsistent frozen options. Both parsers already disable
+  abbreviations; new tests prove that refusal without changing parser behavior.
+- [M] Epoch edge decoder correction committed locally as
+  `95599fcdbc132e317a954642330f877439e2a6b6`, independently re-reviewed.
+  Allocation derives from actual body words; minimum bytes/run and exact
+  decoded run count are checked. Empty/nonempty and mismatched-run regressions
+  supplement the actual-writer roundtrip. This corrects `daad0376`; neither
+  decoder commit has yet passed typechecking or native execution.
+- [M] Read-only LC2 generation-3 save completed: reported 63.6895 s and
+  24,909,444,805 bytes; domain/edge/index sections report 11.0366/5.0648/1.1047 s.
+  No pause/resource intervention occurred. At 03:58:48, LC2 remains running
+  with 41,753,211 discovered, 16,278,426 pending and 6/67 conservative initial
+  obligations closed. One roughly minute-long save per four hours is not
+  currently the leading amortized throughput cost. S3 durability/stop work
+  remains necessary for epoch correctness, not a demonstrated checkpoint
+  speed improvement.
+
+### 2026-09-29 03:57 UTC — pre-release defects retained and corrected in isolation
+
+- Epoch author found a missed interface mismatch after the decoder's initial
+  source audit: the edge-section header counts runs, but the decoder treated
+  it as a word count. Nonempty writer/reader roundtrips would fail closed.
+  The auditor acknowledged the miss; `daad0376` is not a passing decoder
+  implementation. A narrow correction and re-audit are underway, with the
+  existing nonempty roundtrip regression still awaiting execution. Public
+  restore remains disabled; the production engine is unaffected.
+- Independent Python steering tests pass (seven fake-only tests, 1.062 s),
+  but review found an alternate `--g2-residual-anchors=union` spelling could
+  evade frozen mode/argv consistency checking. Generated policies use the
+  canonical spelling. The author is fixing refusal of noncanonical frozen
+  options; abbreviation handling is included in review. Do not publish a
+  final source PASS until that correction and its tests are reviewed.
+- Both findings illustrate why source audit/typechecking are not substitutes
+  for runtime and mutation tests. The frozen G2′ Rust campaign build continues
+  unchanged; neither finding affects its completed 861-test native gate.
+
+### 2026-09-29 03:55 UTC — decoder slice delivered; frontend suite passes
+
+- [M] `epoch_s3_delivery` committed independently source-audited bounded
+  reader/fixed-section decoders as `daad03767f4cb7eadf0685fed9d73863eba7020d`
+  in the isolated publisher branch. They validate count/length relationships
+  before large allocations and finish section digests before acceptance.
+  Owned flags and a repeatable, hashed two-pass CSR build avoid full temporary
+  copies. Mutation regression sources cover forged counts and changed
+  equal-count iterators. **This slice is not compiled/executed yet.**
+- Full restore assembly, live index versus historical orthants, request/root/
+  record validation, durable session reservation and save-before-join remain
+  outstanding. Private readers do not expose a runnable or public resume.
+  The last passing typecheck remains the earlier `6f7eb9fd` writer/publisher.
+- Root and independent auditor recorded N4's actual late-materialization seam
+  in `docs/research/codex_next_candidates_2026-09-29.md` section 9. New opt-in
+  cost semantics may avoid unnecessary CAS and its resource failures; this
+  does not waive poles/guards/source/descent/frontier obligations. No speed
+  claim or implementation; post-G2 profiling is the prerequisite.
+- [M] Separate Python steering implementation passes seven focused fake-only
+  tests and full frontend discovery: 284 tests, one expected optional skeleton
+  enumeration skip, 22.829 s. Guard exit 0/no stop reason, 24.170 s. Enumeration
+  passed separately earlier on unchanged planner code; not rerun here.
+  Independent review is underway. The compiling `d12db6cf` Rust source/cache
+  is unchanged. Main progress milestone `9db7aa13` is pushed; unrelated user
+  changes remain untouched.
 
 ### 2026-09-29 03:47 UTC — Python steering gap identified before deployment
 
