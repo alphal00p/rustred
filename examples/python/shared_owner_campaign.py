@@ -1275,6 +1275,7 @@ def main() -> int:
     tail.observers.append(metrics.observe)
     presenter = MONITOR.Presenter(enabled=not args.no_progress,
                                   plain_seconds=args.plain_progress_seconds)
+    telemetry = MONITOR.TELEMETRY.TelemetryStream(output / "telemetry.jsonl")
     last_checkpoint = {"state": "awaiting_first_save", "directory": checkpoint_directory} if checkpoint_directory else None
     resume_command = None
     identities = {"supervisor": {"pid": os.getpid(), "start_ticks": collector.identities.get(os.getpid())}}
@@ -1321,9 +1322,11 @@ def main() -> int:
                   "event_reader": tail.diagnostics(), "event_read_error": read_error,
                   "hard_timeout_seconds": None, "closure_eta_seconds": None,
                   "native_stderr": str(output / "native.stderr"), "family_closure_claim": False}
+        frame = telemetry.emit(status)
+        status["telemetry_stream"] = telemetry.diagnostics()
         MONITOR.atomic_json(output / "status.json", status)
         try:
-            presenter.render(status, force=exit_status is not None)
+            presenter.render_frame(frame, force=exit_status is not None)
         except OSError:
             # A detached/closed terminal does not invalidate durable monitoring.
             presenter.enabled = False

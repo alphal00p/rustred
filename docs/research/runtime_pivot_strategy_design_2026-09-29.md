@@ -133,7 +133,12 @@ language, in simpler-first notation, is:
 3. A bounded lexicographic list of nonnegative integer weighted excess-degree
    rows. For physical index `n`, use excess `n-1` on an active coordinate and
    `-n` on an inactive coordinate. These values are nonnegative in their sector.
-4. A validated coordinate permutation and explicit forward/reverse tie direction.
+4. A validated coordinate permutation and explicit forward/reverse tie direction,
+   with the denominator and numerator tie groups stated separately. The current
+   default compares denominator ties before numerator ties, with their existing
+   signs; a single interleaved coordinate lexicographic comparison is not an
+   equivalent default. Encode the group priority in the descriptor and test it
+   against `IntegralOrder::compare_coordinate_ties`.
 
 Require every excess coordinate to have a positive coefficient in at least one
 aggregate row. Thus fixing the entire aggregate tuple leaves only finitely many

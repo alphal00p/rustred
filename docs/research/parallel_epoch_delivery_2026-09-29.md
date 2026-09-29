@@ -1,7 +1,7 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
 Status: **earlier optimized-binary lifecycle gates passed; combined four-loop
-performance gate not met; consolidated monitored build in progress**.
+performance gate not met; consolidated monitored build frozen, gates running**.
 This is not a production-launch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
@@ -19,9 +19,14 @@ remain pending. See [the detailed ordering study](mechanistic_ordering_2026-09-2
 The requested hourly discovery-minus-closure monitor passes the complete Python
 suite (323 passed, one optional skip), native test metadata and the actual
 focused Tracker tests (12 passed, one ignored scale benchmark). The separately
-identified optimized `3428b519` build started22:16 UTC, including native live
-closure refresh. Its actual CLI pause/resume and final matched controls remain
-pending. None of that telemetry work is present in the frozen89 comparisons.
+identified optimized `3428b519` build finished successfully in3786.523s, including
+native live closure refresh. Its frozen executable is
+`TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519`, SHA256
+`321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`.
+Actual CLI pause/resume/live-refresh and final matched controls are now running
+or pending. None of that telemetry work is present in the frozen89 comparisons.
+The later Python dashboard/stream change is a separately validated source
+slice; freeze its matching consumer modules before delivery.
 
 ## Delivered separately: compatible Stage A
 

@@ -57,7 +57,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | Python and actual focused Tracker checks pass; final native build active | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 metadata PASS; Tracker12 PASS/one ignored; final live CLI refresh/restore pending |
-| Dashboard and rate-series stream | active, additive Python-only slice | `dashboard_stream`; independent root/StageA review | Normalized telemetry producer, separate coloured terminal consumer and dependency-free plotting utility; preserve native build and metric meanings |
+| Dashboard and rate-series stream | delivered; independent full Python suite passes | `dashboard_stream`; independent root/StageA/`parallel_gate_critique` review |344 tests:343 pass/one optional skip; freeze matching Python modules, then actual supervisor stream smoke |
 | Mechanistic input/pivot ordering | four query pairs delivered negative; two pivot generations delivered; terminal-key gate pending | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Query-only changes not decisive; banana sparse generations complete, loader diagnostic censored, no terminal-equivalence or stitched walk claim |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
 | Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
@@ -105,6 +105,61 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 23:27 UTC — dashboard milestone ready for push
+
+- [M] Final independent review/test pass:344 Python tests,343 passed,one
+  existing optional skip,32.380s; clean diff check. The hard-link input/output
+  overwrite regression also passes. Evidence summary:
+  `TMP/codex-dashboard-preview.kLzfrO/receipt-independent-critique.json`.
+  Author's synthetic previews and measured presentation-only cost remain
+  separate from real campaign/solver evidence. No native source changed.
+- [M] Final3428 M4 lockstep/public lifecycle control passed with no unobserved
+  paths (`TMP/codex-stage-a.2RU3AX/final3428-M4/result.json`). The one extra M2
+  two-inspector control is running. Next actual dashboard stream smoke will
+  use a separately frozen matching Python checkout and the same native binary.
+
+### 2026-09-29 23:24 UTC — independent dashboard audit; lifecycle observation gap
+
+- [M] `parallel_gate_critique` independently audited the telemetry/UI/plot slice
+  and corrected stale unresolved counts to an explicit upper bound, suppressed
+  invalid/reset local rates in the plain summary, and rejected unrepresentable
+  malformed numeric input in presentation. Raw legacy fields and pending-growth
+  arithmetic remain unchanged. Full Python343 tests:342 passed,one optional
+  skip,30.197s. A reproduced SVG/input hard-link overwrite hazard is receiving
+  a final narrow guard/regression before source freeze and commit.
+- [M] Final3428 M2 actual pause/resume, joined worker accounting and independent
+  cold-All248/no-write checks passed. The extra resumed live-heartbeat predicate
+  is INCOMPLETE: resumed work finished in4.634s, before the5s emission interval.
+  First-leg live telemetry and increased final restored refresh counters are
+  present; neither is substituted for the missing heartbeat observation.
+- [D] After M4, authorized one additional M2 using the sameFG248/W6 request and
+  public two-inspector allocation on both legs, retaining unchanged observation
+  predicates and all original receipts. No artificial delay, engine edit or
+  repeated open-ended test adjustment. Then hand off the bounded N10 diagnostic.
+- [M] Independent strategy review accepts the finite-plan and weighted-order
+  proof design, with an explicit denominator-before-numerator tie-group detail
+  added for faithful default equivalence. Broader pivot control remains design,
+  not a currently implemented or benchmarked engine capability.
+
+### 2026-09-29 23:21 UTC — monitored optimized binary frozen
+
+- [M] Final native3428 build completed successfully:3786.523s wall,
+  3600.041s user+144.338s system; maximum single-child RSS17,318,900KiB;
+  minimum host available704.589GB. Source/build tree clean and owned processes
+  drained. Immutable executable:
+  `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519`, SHA256
+  `321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`,
+  125,735,216bytes. Compilation is not solver time; frozen89 remains unchanged.
+- [D] Resource sequence: final actual CLI M2/M4 lifecycle gates (`stage_a_release`),
+  one bounded N10 terminal-key loader attempt (`parallel_gate_critique`), then
+  final combined4L ABBA and AllMiss falsifier (`bounded_ordering_pilots`).
+  Four-loop parity/win is still unproven. Do not start production from the draft.
+- [M] Read-only LC2 snapshot:148,712,265 discovered,62,225,465 local completions,
+  48,013,427pending,zero frontiers;6/67 initial roots and7,185,109 domains closed
+  in a conservative snapshot about1496s old;67.79GB process-tree RSS. No ETA or
+  fresh closure claim is inferred. The active supervisor remains untouched.
+- [M] Strategy/plan documentation committed and pushed as94226d15.
 
 ### 2026-09-29 23:18 UTC — dashboard delivered; runtime strategy design reviewed
 

@@ -536,6 +536,7 @@ class DerivedDashboardTests(unittest.TestCase):
     def test_measured_derived_values_are_formatted_and_partial_blocks_degrade(self):
         derived = {"computing_inspectors_mean_1h": 3.26, "stall_share_5s": 0.317, "coordinator_duty_1h": 0.42,
                    "completions_per_hour_1h": 12345.6, "pending_growth_per_completion_1h": 1.234,
+                   "window_wall_seconds": 600, "first_elapsed_seconds": 0, "last_elapsed_seconds": 600,
                    "max_scheduled_finite_rank": 21, "rss_bytes_per_discovered_domain": 4375.0,
                    "last_checkpoint": {"generation": 18, "bytes": 68_696_213_315, "duration_seconds": 496.1},
                    "checkpoint_duty": 0.077, "roots_closed": 7, "roots_total": 67}

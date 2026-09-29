@@ -6,8 +6,8 @@ This module observes receipts only. It cannot resume work or certify closure.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from collections import deque
-from datetime import datetime, timezone
 import json
 import math
 import os
@@ -19,6 +19,17 @@ import time
 
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_POLL_BYTES = 4 * MAX_RECORD_BYTES
+
+
+def _sibling(name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+TELEMETRY = _sibling("campaign_telemetry")
+DASHBOARD = _sibling("campaign_dashboard")
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -156,67 +167,7 @@ def number(value):
     return None
 
 
-def descendant_closure_summary(value) -> dict:
-    """Keep native dependency closure distinct from local publication counters."""
-    result = {
-        "available": False,
-        "initial_total": None,
-        "initial_closed": None,
-        "total_domains": None,
-        "total_closed": None,
-        "locally_inspected": None,
-        "unresolved_domains": None,
-        "dependency_edges": None,
-        "graph_revision": None,
-        "snapshot_revision": None,
-        "snapshot_stale": None,
-        "snapshot_age_seconds": None,
-        "last_refresh_seconds": None,
-        "refresh_count": None,
-        "refresh_seconds": None,
-        "retained_storage_estimate_bytes": None,
-        "refresh_scratch_estimate_bytes": None,
-        "storage_estimate_scope": None,
-        "closed_counts_are_conservative_lower_bounds": True,
-        "family_closure_claim": False,
-        "scope": "discovered_dependency_coverage; not termination or family certificate",
-        "method": None,
-        "reason": "native descendant closure was not reported",
-    }
-    if not isinstance(value, dict):
-        return result
-    counts = {key: value.get(key) if type(value.get(key)) is int and value[key] >= 0 else None
-              for key in ("initial_total", "initial_closed", "total_domains", "total_closed",
-                          "locally_inspected", "unresolved_domains", "dependency_edges")}
-    for key in ("initial_total", "total_domains", "locally_inspected", "dependency_edges"):
-        result[key] = counts[key]
-    for key in ("graph_revision", "snapshot_revision", "refresh_count",
-                "retained_storage_estimate_bytes", "refresh_scratch_estimate_bytes"):
-        if type(value.get(key)) is int and value[key] >= 0:
-            result[key] = value[key]
-    for key in ("snapshot_age_seconds", "last_refresh_seconds", "refresh_seconds"):
-        if number(value.get(key)) is not None and value[key] >= 0:
-            result[key] = value[key]
-    if type(value.get("snapshot_stale")) is bool:
-        result["snapshot_stale"] = value["snapshot_stale"]
-    for key in ("scope", "method", "storage_estimate_scope"):
-        if isinstance(value.get(key), str):
-            result[key] = value[key]
-    if value.get("available") is not True:
-        result["reason"] = (value.get("reason") if isinstance(value.get("reason"), str)
-                            and value["reason"] else "native descendant closure unavailable")
-        return result
-    required = ("initial_total", "initial_closed", "total_domains", "total_closed", "unresolved_domains")
-    if (any(counts[key] is None for key in required)
-            or not 0 <= counts["initial_closed"] <= counts["initial_total"] <= counts["total_domains"]
-            or not counts["initial_closed"] <= counts["total_closed"] <= counts["total_domains"]
-            or counts["unresolved_domains"] != counts["total_domains"] - counts["total_closed"]):
-        result["reason"] = "invalid native descendant-closure counters"
-        return result
-    result.update(counts, available=True, reason=None)
-    return result
-
-
+descendant_closure_summary = TELEMETRY.descendant_closure_summary
 def progress_summary(event: dict, observed_at: float | None, now: float) -> dict:
     """Only native counters establish progress; no inferred closure fraction."""
     outer = event.get("progress", event)
@@ -276,233 +227,12 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
     }
 
 
-def clean(value) -> str:
-    return "".join(character for character in str(value) if character.isprintable())
-
-
-def count(value) -> str:
-    return "unknown" if number(value) is None else f"{value:,.0f}"
-
-
-def duration(seconds) -> str:
-    if number(seconds) is None:
-        return "unknown"
-    seconds = max(0, int(seconds))
-    return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
-
-
-def percent(value) -> str:
-    return "unknown" if number(value) is None else f"{100 * value:.0f}%"
-
-
-def derived_lines(status: dict) -> list[str]:
-    """Measured-rate lines from status["derived"]; absent fields stay unknown."""
-    derived = status.get("derived")
-    derived = derived if isinstance(derived, dict) else {}
-    progress = status.get("progress", {})
-    progress = progress if isinstance(progress, dict) else {}
-    reservations = progress.get("worker_reservations", {})
-    reservations = reservations if isinstance(reservations, dict) else {}
-    computing = number(derived.get("computing_inspectors_mean_1h"))
-    computing_text = "unknown" if computing is None else f"{computing:.1f}"
-    rate = number(derived.get("completions_per_hour_1h"))
-    rate_text = "unknown" if rate is None else f"{rate:,.0f}"
-    growth = number(derived.get("pending_growth_per_completion_1h"))
-    growth_text = "unknown" if growth is None else f"{growth:+.2f}"
-    rss_per_domain = number(derived.get("rss_bytes_per_discovered_domain"))
-    rss_text = "unknown" if rss_per_domain is None else f"{rss_per_domain / 1000:.1f}"
-    checkpoint = derived.get("last_checkpoint")
-    checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
-    size = number(checkpoint.get("bytes"))
-    size_text = "unknown" if size is None else f"{size / 1e9:.2f} GB"
-    seconds = number(checkpoint.get("duration_seconds"))
-    seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
-    net = derived.get("discovery_closure_net_1h")
-    net = net if isinstance(net, dict) else {}
-    net_rate = number(net.get("per_second"))
-    net_text = "unknown" if net_rate is None else f"{net_rate:+.3f}/s"
-    closure = progress.get("descendant_closure")
-    closure = closure if isinstance(closure, dict) and closure.get("available") is True else None
-    stale = closure.get("snapshot_stale") if closure else net.get("snapshot_stale")
-    freshness = "stale" if stale is True else "fresh" if stale is False else "unknown"
-    scan = "scan advanced" if net.get("snapshot_advanced") is True else "no new closure scan" if net.get("snapshot_advanced") is False else "scan update unknown"
-    age = number(closure.get("snapshot_age_seconds")) if closure else number(net.get("snapshot_age_seconds"))
-    # progress_summary/read_status already age the live closure report. Only
-    # the fallback sampled endpoint needs the status-file heartbeat age added.
-    if closure is None and age is not None:
-        age += max(0, number(status.get("heartbeat_age_seconds")) or 0)
-    net_line = (f"Discovery−closure {net_text} observed gap · window {duration(net.get('covered_seconds'))}"
-                f"/{duration(net.get('window_seconds'))}" + (" warm-up" if net.get("warmup") is True else ""))
-    if net.get("state") not in (None, "valid", "warmup"):
-        net_line += f" · {clean(net['state'])}"
-    return [
-        f"Inspectors {computing_text} computing / {count(reservations.get('inspectors'))} reserved"
-        f" · stall >=5 s {percent(derived.get('stall_share_5s'))} · coordinator duty {percent(derived.get('coordinator_duty_1h'))}",
-        f"Rate {rate_text} per hour · pending {growth_text} per completion"
-        f" · max scheduled rank {count(derived.get('max_scheduled_finite_rank'))} · RSS {rss_text} KB per domain",
-        net_line,
-        f"Closure snapshot {freshness} · age {duration(age)} · {scan}"
-        + (" · heartbeat stale" if status.get("heartbeat_stale") is True else ""),
-        f"Checkpoint gen {count(checkpoint.get('generation'))} · {size_text} in {seconds_text}"
-        f" · duty {percent(derived.get('checkpoint_duty'))} · roots closed {count(derived.get('roots_closed'))}/{count(derived.get('roots_total'))}",
-    ]
-
-
-def bar(value, total, elapsed=0, width=16) -> str:
-    if number(value) is None or number(total) is None or total <= 0 or not 0 <= value <= total:
-        marker = int(elapsed or 0) % width
-        return "[" + " " * marker + "·" + " " * (width - marker - 1) + "]"
-    filled = int(width * value / total)
-    return "[" + "━" * filled + "─" * (width - filled) + "]"
-
-
-def dashboard(status: dict) -> list[str]:
-    progress = status.get("progress", {})
-    work = progress.get("work", {})
-    entry = progress.get("initial_entry_progress", {})
-    closure = descendant_closure_summary(progress.get("descendant_closure"))
-    resources = status.get("resources", {})
-    checkpoint = status.get("checkpoint") or progress.get("checkpoint") or {}
-    checkpoint_write = status.get("checkpoint_write", progress.get("checkpoint_write")) or {}
-    allocation = progress.get("worker_reservations", {})
-    cpu = number(resources.get("native_busy_cores"))
-    cpu_text = "warming sample" if cpu is None else f"{cpu:.1f} observed cores"
-    rss = number(resources.get("aggregate_rss_bytes"))
-    memory_text = "unknown" if rss is None else f"{rss / 1e9:.2f} GB"
-    available = number(resources.get("host_available_bytes"))
-    host_text = "unknown" if available is None else f"{available / 1e9:.1f} GB"
-    rate = number(work.get("recent_local_completions_per_second"))
-    rate_text = "unknown" if rate is None else f"{rate:,.1f}/s"
-    checkpoint_text = checkpoint.get("state", "not yet reported by Rust")
-    if checkpoint.get("generation") is not None:
-        checkpoint_text += f" generation {checkpoint['generation']}"
-    if checkpoint.get("directory"):
-        checkpoint_text += " · " + clean(checkpoint["directory"])
-    if number(checkpoint.get("saved_unix_time")) is not None:
-        try:
-            checkpoint_text += " · completed " + datetime.fromtimestamp(checkpoint["saved_unix_time"], timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        except (OSError, OverflowError, ValueError):
-            checkpoint_text += " · completion timestamp invalid"
-    if number(checkpoint.get("duration_seconds")) is not None:
-        checkpoint_text += f" in {checkpoint['duration_seconds']:.2f}s"
-    if checkpoint.get("bootstrap"):
-        checkpoint_text += " · bootstrap; preparation restarts on resume"
-    if checkpoint_write.get("state") == "writing":
-        started_text = ""
-        if number(checkpoint_write.get("started_unix_time")) is not None:
-            try:
-                started_text = " · started " + datetime.fromtimestamp(checkpoint_write["started_unix_time"], timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-            except (OSError, OverflowError, ValueError):
-                started_text = " · start timestamp invalid"
-        checkpoint_text = f"WRITING generation {checkpoint_write.get('generation', '?')}{started_text} · {clean(checkpoint_write.get('state_path', checkpoint_write.get('directory', '')))} · last {checkpoint_text}"
-    hard = number(status.get("hard_memory_bytes"))
-    soft = number(status.get("soft_memory_bytes"))
-    hard_text = "unknown" if hard is None else f"{hard / 1e9:.2f} GB"
-    soft_text = "unknown" if soft is None else f"{soft / 1e9:.2f} GB"
-    closure_bar = bar(closure["initial_closed"], closure["initial_total"], status.get("elapsed_seconds"))
-    closure_note = "" if closure["available"] else " · " + clean(closure["reason"])
-    closed_prefix = unresolved_prefix = ""
-    if closure["available"] and closure["snapshot_stale"]:
-        closure_note = f" · conservative snapshot {duration(closure['snapshot_age_seconds'])} ago"
-        closed_prefix, unresolved_prefix = "≥", "≤"
-    discovered = closure["total_domains"]
-    if discovered is None:
-        discovered = work.get("scheduled")
-    stale = " · STALE HEARTBEAT; current activity unverified" if status.get("heartbeat_stale") else ""
-    state = clean(status.get('state', 'starting')).upper()
-    if status.get("heartbeat_stale") and state in ("STARTING", "RUNNING", "STOPPING"):
-        state = "LAST REPORTED " + state
-    reason = status.get("stop_reason") or status.get("native_stop_reason") or progress.get("native_stop_reason")
-    if reason:
-        state += " · stop " + clean(reason)
-    own_swap = number(resources.get("own_swap_growth_bytes_per_second"))
-    if own_swap:
-        host_text += f" · own swap +{own_swap / 1e6:.1f} MB/s"
-    swap_rate = number(resources.get("host_swap_in_bytes_per_second"))
-    if swap_rate is not None:
-        host_text += f" · host swap-in {swap_rate / 1e6:.1f} MB/s"
-    return [
-        f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
-        f"CPU {bar(cpu, status.get('workers'))} {cpu_text} / {count(status.get('workers'))} total reserved",
-        f"Workers {count(progress.get('active_native_slots'))} native active, {count(progress.get('backpressured_native_slots'))} blocked"
-        + (f" · {count(progress['finished_native_awaiting_publication'])} finished waiting"
-           if progress.get('finished_native_awaiting_publication') is not None else "")
-        + f" · reserved {count(allocation.get('inspectors'))} inspect + {count(allocation.get('admission_helpers'))} admission + {count(allocation.get('coordinator'))} coordinator",
-        f"Closure {closure_bar} {closed_prefix}{count(closure['initial_closed'])} / {count(closure['initial_total'])} initial roots recursively closed{closure_note}",
-        f"Domains {count(discovered)} discovered · {closed_prefix}{count(closure['total_closed'])} recursively closed · {unresolved_prefix}{count(closure['unresolved_domains'])} unresolved",
-        f"Initial {count(entry.get('published'))} / {count(entry.get('total'))} published · initial native inspected {count(entry.get('locally_inspected'))} · not closure",
-        f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} local · frontiers {count(work.get('frontiers'))}",
-        f"Descendants {count(work.get('pending_descendants'))} pending · discovered dependency coverage only; not termination/family proof · closure ETA unknown",
-        *derived_lines(status),
-        f"Memory {memory_text} / {hard_text} ceiling · save+stop at {soft_text} · host available {host_text}",
-        f"Checkpoint {clean(checkpoint_text)}",
-        f"Phase {clean(progress.get('phase', 'starting'))} · update age {duration(progress.get('progress_age_seconds'))} · heartbeat age {duration(status.get('heartbeat_age_seconds'))} · closure ETA unknown",
-        f"Receipts {clean(status.get('run_directory', ''))}",
-    ]
-
-
-class Presenter:
-    """One reusable display; redirected output contains plain periodic lines."""
-    def __init__(self, stream=None, enabled=True, plain_seconds=30.0):
-        self.stream = sys.stderr if stream is None else stream
-        self.enabled = enabled
-        self.tty = self.stream.isatty() and os.environ.get("TERM") != "dumb"
-        self.color = self.tty and "NO_COLOR" not in os.environ
-        self.plain_seconds = plain_seconds
-        self.last_at = None
-        self.last_state = None
-        self.drawn = 0
-        self.last_milestone = 0
-
-    def render(self, status: dict, now=None, force=False):
-        if not self.enabled:
-            return
-        now = time.monotonic() if now is None else now
-        milestones = [event for event in status.get("checkpoint_milestones", [])
-                      if event.get("sequence", 0) > self.last_milestone]
-        if milestones:
-            if self.tty and self.drawn:
-                self.stream.write(f"\x1b[{self.drawn}A\r\x1b[J")
-                self.drawn = 0
-            for event in milestones:
-                label = "started" if event["event"] == "checkpoint_started" else "saved"
-                detail = f"RustRed checkpoint {label} · generation {event.get('generation', '?')}"
-                timestamp = number(event.get("started_unix_time" if label == "started" else "saved_unix_time"))
-                if timestamp is not None:
-                    try:
-                        detail += " · " + datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                    except (OSError, OverflowError, ValueError):
-                        detail += " · timestamp invalid"
-                if number(event.get("duration_seconds")) is not None:
-                    detail += f" · {event['duration_seconds']:.2f}s"
-                detail += " · " + str(event.get("state_path", event.get("directory", "")))
-                self.stream.write(clean(detail) + "\n")
-            self.last_milestone = max(event["sequence"] for event in milestones)
-            self.stream.flush()
-        state = status.get("state")
-        if not self.tty and not force and self.last_at is not None and state == self.last_state and now - self.last_at < self.plain_seconds:
-            return
-        lines = dashboard(status)
-        if self.tty:
-            width = max(20, shutil.get_terminal_size((100, 24)).columns - 1)
-            if self.drawn:
-                self.stream.write(f"\x1b[{self.drawn}A")
-            for index, line in enumerate(lines):
-                line = clean(line)
-                line = line if len(line) <= width else line[:width - 1] + "…"
-                if self.color:
-                    color = "1;36" if index == 0 else "32" if line.startswith("CPU") else "33" if line.startswith("Memory") else "34" if line.startswith("Closure") else None
-                    if color:
-                        line = f"\x1b[{color}m" + line + "\x1b[0m"
-                self.stream.write("\r\x1b[2K" + line + "\n")
-            self.drawn = len(lines)
-        else:
-            self.stream.write(" | ".join(clean(line) for line in lines[:-1]) + "\n")
-        self.stream.flush()
-        self.last_at = now
-        self.last_state = state
-
-
+# Public convenience names; presentation is implemented in its own consumer.
+Presenter = DASHBOARD.Presenter
+dashboard = DASHBOARD.dashboard
+derived_lines = DASHBOARD.derived_lines
+clean = DASHBOARD.clean
+duration = DASHBOARD.duration
 def read_status(directory: Path) -> dict:
     with (directory / "status.json").open("rb") as stream:
         raw = stream.read(MAX_RECORD_BYTES + 1)

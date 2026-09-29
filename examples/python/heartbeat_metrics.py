@@ -137,6 +137,8 @@ class HeartbeatWindow:
         self.last_elapsed = None
         self.records = 0
         self.samples_seen = 0
+        self.completion_segment_start = None
+        self.completion_last_sample = None
         self.closure_samples = deque()
         self.closure_state = "missing_closure"
         self.closure_reset_reason = None
@@ -212,6 +214,9 @@ class HeartbeatWindow:
         selected = [] if now is None else [sample for sample in self.closure_samples
                                           if now - window <= sample["elapsed"] <= now]
         result = {"per_second": None, "covered_seconds": None, "window_seconds": window,
+                  "discovered_delta": None, "closed_delta": None,
+                  "discovered_per_second": None, "closed_per_second": None,
+                  "first_elapsed_seconds": None, "last_elapsed_seconds": None,
                   "samples": len(selected), "warmup": True, "state": self.closure_state,
                   "reset_reason": self.closure_reset_reason, "snapshot_advanced": None,
                   "snapshot_stale": None, "snapshot_age_seconds": None,
@@ -223,12 +228,17 @@ class HeartbeatWindow:
         first, last = selected[0], selected[-1]
         span = last["elapsed"] - first["elapsed"]
         result.update(covered_seconds=span,
+                      first_elapsed_seconds=first["elapsed"], last_elapsed_seconds=last["elapsed"],
                       state=self.closure_state if self.closure_state != "valid" else "valid" if span > 0 else "warmup",
                       snapshot_stale=last["snapshot_stale"],
                       snapshot_age_seconds=None if last["snapshot_age_seconds"] is None else
                       last["snapshot_age_seconds"] + max(0, now - last["elapsed"]))
         result["warmup"] = self.closure_segment_start is None or now - self.closure_segment_start < window
         if span > 0:
+            result.update(discovered_delta=last["total"] - first["total"],
+                          closed_delta=last["closed"] - first["closed"],
+                          discovered_per_second=(last["total"] - first["total"]) / span,
+                          closed_per_second=(last["closed"] - first["closed"]) / span)
             result["per_second"] = ((last["total"] - first["total"]) -
                                     (last["closed"] - first["closed"])) / span
             changes = [last[key] > first[key] for key in ("snapshot_revision", "refresh_count")
@@ -244,6 +254,11 @@ class HeartbeatWindow:
             self.last_elapsed = float(elapsed)
         sample = sample_from_record(record, self.last_elapsed)
         if sample is not None:
+            previous = self.completion_last_sample
+            if (self.completion_segment_start is None or previous is not None and
+                    (sample["elapsed"] <= previous["elapsed"] or sample["completed"] < previous["completed"])):
+                self.completion_segment_start = sample["elapsed"]
+            self.completion_last_sample = sample
             self.samples_seen += 1
             self.samples.append(sample)
             while self.samples and sample["elapsed"] - self.samples[0]["elapsed"] > self.retained_seconds:
@@ -273,6 +288,9 @@ class HeartbeatWindow:
             "first_elapsed_seconds": None,
             "last_elapsed_seconds": None,
             "completions_per_hour_1h": None,
+            "completions_delta_1h": None,
+            "completions_warmup_1h": now is None or self.completion_segment_start is None or now - self.completion_segment_start < window,
+            "completions_window_valid_1h": False,
             "stall_share_5s": None,
             "stall_share_20s": None,
             "pending_growth_per_completion_1h": None,
@@ -320,6 +338,9 @@ class HeartbeatWindow:
                           roots_closed=last["roots_closed"], roots_total=last["roots_total"],
                           computing_workers=computing_now, active_workers=last["active"])
             completions = last["completed"] - first["completed"]
+            result["completions_delta_1h"] = completions
+            result["completions_window_valid_1h"] = (wall > 0 and completions >= 0 and
+                self.completion_segment_start is not None and first["elapsed"] >= self.completion_segment_start)
             if wall > 0:
                 result["completions_per_hour_1h"] = completions / wall * 3600.0
                 stalled = {threshold: 0.0 for threshold in self.stall_thresholds}

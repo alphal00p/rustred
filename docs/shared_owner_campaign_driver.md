@@ -399,7 +399,8 @@ recursive coverage from local processing. Descendant work has no fixed final
 denominator or fabricated ETA. Missing dependency history uses an indeterminate
 bar, not a publication fallback. Sampled actual native CPU occupancy and blocked/active slots are separate
 from reserved inspector/admission/coordinator workers. `NO_COLOR` suppresses
-color; redirected output is low-rate plain text, including checkpoint status.
+color; redirected output is low-rate append-only JSON events, including
+checkpoint status (a readable message accompanies each structured frame).
 Resource records expose local completion rates and RSS slope.
 `status.json` additionally carries a `derived` block (schema string unchanged;
 the block is additive) computed from a bounded deque of the last two hours of
@@ -412,7 +413,8 @@ preparation plus ordered-commit wall over delta wall), `checkpoint_duty`
 until the native heartbeat reports `computing_workers`),
 `max_scheduled_finite_rank`, `roots_closed`, `roots_total` and
 `last_checkpoint` (generation, bytes, duration). The dashboard shows them on
-the `Inspectors`, `Rate` and `Checkpoint gen` lines, `unknown` when absent.
+the responsive table, `unknown` when absent; tall terminals show secondary
+worker/checkpoint details that smaller terminals hide.
 These are measured deltas, not estimates: nothing in the status or dashboard
 is an ETA. `examples/python/heartbeat_metrics.py EVENTS.jsonl [--start S
 --end E --window W]` recomputes the same numbers offline for any elapsed
@@ -432,6 +434,32 @@ previous process and scan age is unknown until the next native refresh.
 Epoch refreshes the dependency tracker periodically at committed boundaries
 with the existing dirty, duty and cancellation checks. Heartbeat serialization
 is O(1), and saving a checkpoint does not force an additional scan.
+
+Presentation and measurement are separate. `campaign_telemetry.py` converts one
+status into a bounded `rustred.campaign-telemetry.v1` frame and appends it to
+the run's `telemetry.jsonl`; `campaign_dashboard.py` consumes that same frame
+for an aligned, colored, overwriting terminal table or plain JSON events.
+Neither module can control the solver or certify closure. Raw counts, measured
+local-completion and conservative recursive-closure deltas/rates, actual
+window endpoints, and freshness/missing/reset flags remain available to a
+future website consumer without scraping terminal text. This adds no Python
+or Nix dependency and no native graph scan. Stream failures are nonfatal and
+visible in `status.json.telemetry_stream`; each frame is at most 64 KiB.
+
+`examples/python/plot_campaign_rates.py RUN/telemetry.jsonl --output rates.svg`
+renders both rates in a standalone SVG using the Python standard library.
+The read-only utility streams its input twice with bounded memory, preserving
+an extrema envelope when downsampling. Missing/invalid samples and stale
+heartbeats break a curve; ordinary graph-dirty snapshots remain dashed/hollow
+conservative observations, with scan-age and refresh-marker disclosure.
+No smoothed curve, zero fill or inferred closure ETA is introduced.
+`--start S --end E` selects an elapsed-time interval.
+
+Existing runs can be viewed with the updated standalone monitor without
+mutation, but only updated supervisor runs write the normalized time series.
+Frozen Python steering must include the two new sibling modules and plot
+utility alongside `campaign_monitor.py`; the standalone consumer works from
+that copied directory without repository imports.
 Each resource record also includes per-PID/start CPU deltas and RSS, with the
 supervisor and owned native process labelled separately. Newly observed or
 temporarily unreadable processes have no CPU delta until a fresh baseline is

@@ -176,7 +176,8 @@ full 700 GB is admitted). Plans and receipts distinguish these policies.
 
 `active-run.json` identifies the latest run. Each run has atomic `status.json`,
 PID/start/boot metadata, bounded-tail event monitoring and separate native
-stdout/stderr. The colored TTY header/bar and plain redirected summaries show
+stdout/stderr. The aligned, colored, overwriting TTY dashboard and append-only
+JSON redirected summaries show
 measured CPU activity separately from worker reservations, finite initial-entry
 publication separately from descendant work, and checkpoint writing/completion.
 The progress bar counts recursively closed initial domains; the publication
@@ -184,8 +185,10 @@ counter stays separate. Neither is a percentage of all eventual work, and the
 closure ETA stays unknown.
 Use `--once` or `--json` with the monitor for a read-only snapshot; `NO_COLOR`
 disables color. Stale heartbeats/process identities are reported explicitly.
-Further lines (`Inspectors`, `Rate`, `Checkpoint gen`) show measured
-rates from `status.json`'s additive `derived` block: completions per hour,
+The dashboard adapts to terminal width/height (additional detail is visible in
+taller terminals). The full normalized frame is always saved, even when a short
+terminal hides secondary detail. Rates come from `status.json`'s additive
+`derived` block: completions per hour,
 stall share (fraction of wall time in heartbeat intervals of at least 5 s or
 20 s with no completion), coordinator duty, pending growth per completion,
 RSS per discovered domain, computing inspectors, max scheduled finite rank,
@@ -210,6 +213,43 @@ existing duty-throttled, cancellable scan at complete merge boundaries, never
 by forcing a graph scan for each heartbeat or checkpoint.
 The rolling window restarts on each launcher invocation, including resume or
 automatic rescue; persisted closure counts do not restore an hour of samples.
+
+New supervisor runs also append `telemetry.jsonl` in the run directory, including
+with `--no-progress`. It records raw local-completion and recursive-closure
+counts, their distinct measured rates/deltas, actual window endpoints, warm-up,
+scan age and reset/missing-data state. Frames are bounded to 64 KiB; recording
+also preserves checkpoint milestones for consumers reading only this stream.
+Local-completion warm-up begins at the first usable heartbeat, not at the
+start of a potentially long preparation phase. The normalized
+recording
+uses constant memory and cannot stop a campaign if the stream fails (the error
+is exposed under `status.json.telemetry_stream`). A normalized data producer
+(`campaign_telemetry.py`) is independent of the terminal/JSON consumer
+(`campaign_dashboard.py`), so future dashboards need not change the producer.
+
+Plot the two rates without installing any plotting package:
+
+```sh
+nix develop --command python examples/python/plot_campaign_rates.py \
+  campaigns/NAME/runs/RUN_NAME/telemetry.jsonl --output campaign-rates.svg
+```
+
+The SVG shows observed local completions and conservative, scan-batched
+recursive closure in domains/second, including shorter warm-up windows.
+Exact sampled endpoints, covered spans and warm-up flags remain in the JSON
+stream; the plot does not label each point's window.
+Graph-dirty snapshots stay visible as dashed lines/hollow markers; larger
+markers identify an advanced scan. Missing/invalid observations and stale
+heartbeats are gaps, never fabricated zeros. `--start S --end E` selects run
+elapsed seconds; the default bounded extrema envelope keeps at most 20,000
+plot points. The SVG is a read-only visualization, not a closure certificate.
+
+The new standalone monitor can read an existing run's `status.json` without
+restarting or modifying that run. Old supervisors do **not** acquire a new
+`telemetry.jsonl` retroactively; this stream starts with the updated supervisor.
+When freezing/copying steering scripts, keep `campaign_monitor.py`,
+`campaign_telemetry.py`, `campaign_dashboard.py` and `plot_campaign_rates.py`
+together in the same directory. There are no new Nix/Python dependencies.
 
 `--prepare-from SOURCE --queries NEW.json --attach FILE ...` stages a new,
 verified query document (schema v2, only the six native row fields, owners
