@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 14:47 UTC
+## Current shortened-delivery ownership — 2026-09-29 15:31 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,11 +52,11 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | integrated; native validation pending | `epoch_rolling_impl`, root review | Finish narrow rescue snapshot/watermark composition, then consolidated native checks |
+| Rolling Epoch controller and lookup replicas | source frozen; native validation pending | `epoch_rolling_impl`, root review | Composition complete; finish consolidated native build and execute tests |
 | Fresh CP6 G2 Union | delivered source; validation active | `epoch_g2_rescue_impl`, root review | Integrated `714970bc`; execute real save/restore/cold tests |
 | CP6 rescue and required scope | integrated; native validation pending | `epoch_g2_rescue_impl`, root/rolling critique | `1bacf9d9`: explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; compile/run combined tests |
 | Adaptive dispatch | integrated; native validation pending | `stage_a_release`, root independent review | Successful-publication observations wired; execute native/pilot tests |
-| CLI/Python policy surfaces | delivered source; native validation pending | root, independent review by other lanes | 103 Python lifecycle tests PASS; native compilation and end-to-end checks remain |
+| CLI/Python policy surfaces and monitoring | source frozen; native validation pending | root/`epoch_rolling_impl`, independent `stage_a_release` audit | 103 lifecycle and 37 final monitor/metrics Python checks PASS; native compilation and end-to-end checks remain |
 | Algebraic input/pivot ordering review | delivered | `stage_a_release`, root | Retain natural saved programs; no qualified replacement. Reopen only with the documented small prescreen |
 | Matched performance and deployment | pending | root, independent interpretation audit | Freeze integrated source; matched current-G2 legacy comparisons and cold controls; no speedup claim yet |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
@@ -103,6 +103,31 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 15:31 UTC — final monitoring integration audited
+
+- [M] Final adapter integration `e8ba4cc6` retains actual configured worker
+  reservations and distinguishes explicit unknown Epoch activity from a legacy
+  lean heartbeat with missing fields. Unknown does not silently become zero or
+  carry forward stale activity. No invented preparation/duty timings; pending
+  growth is unchanged. Independent source audit passes:
+  `TMP/codex-stage-a.2RU3AX/stage-b-monitor-adapter-source-audit.md`.
+- [M] The 37 monitor/metrics Python tests pass in 0.164 s (guarded whole command
+  1.274 s): `TMP/codex-epoch-monitor-adapter.22BCOp/full-corrected/`.
+  One stale expected label was corrected in the preceding failed run; that
+  evidence remains preserved. This is not native or performance validation.
+- [M] Final-source release compiler/test-type check passes in 49.266 s,
+  source `e8ba4cc6`, evidence
+  `TMP/codex-parallel-campaign.oiPK29/typecheck-final-monitor/`.
+  Heavy core/app native-test build still uses frozen `f083f254`; the core
+  executable has emitted, app code generation continues. The G2/rescue agent
+  will execute full core then full app under the shared locks after a clean
+  build receipt, including actual W50 mechanical checks. The final monitoring
+  slice requires its own subsequent native check; do not attribute this older
+  executable to final source.
+- [M] Stage A source audit lane completed the measurement interpretation
+  checklist and now prepares fresh Stage B launch instructions without starting
+  production. No optimized Stage B build or solver pilot has run yet.
 
 ### 2026-09-29 15:04 UTC — Stage B implementation freeze and native build
 
