@@ -105,7 +105,23 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
-### 2026-09-29 21:34 UTC — native closure telemetry source reviewed
+### 2026-09-29 21:37 UTC — integrated Python regression pass
+
+- [M] Root ran all example steering/monitor tests on the current branch:
+  324 run, **323 passed / one existing optional skip**, 30.417 seconds.
+  Command: `TMPDIR=/common/dev/rustred/TMP PYTHONPATH=examples/python
+  flock TMP/locks/python-0.lock taskset -c 32-39
+  /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
+  -B -m unittest discover -s examples/python -p 'test_*.py'`.
+- [M] The preceding four-CPU invocation had one diagnostic-test failure:
+  that test deliberately requests six workers, so affinity admission rejected
+  it before the intended incompatible-scope diagnostic. Rerunning with eight
+  permitted CPUs resolved it without editing code or weakening assertions.
+- [M] Mechanistic pivot preparation caught and removed incompatible explicit
+  finite-retention flags under the unchanged `search` policy. No generation
+  arm has run yet; prepared input variants remain distinct from measurements.
+
+### 2026-09-29 21:32 UTC — native closure telemetry source reviewed
 
 - [M] `stage_a_release` added committed-boundary monitoring maintenance to
   both rolling and lockstep Epoch controllers. `parallel_gate_critique` and

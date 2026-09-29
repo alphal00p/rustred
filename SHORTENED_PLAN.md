@@ -104,7 +104,11 @@ sample span during warm-up, and closure-snapshot freshness: closure counts are
 updated in batches, so a negative observed gap trend is encouraging but not a
 proof of convergence or an ETA. Handle missing telemetry, counter resets and
 resumes without manufacturing a rate. Reuse existing monitoring and telemetry;
-this presentation change must not require a solver rebuild or modify LC2.
+the Python presentation itself requires no rebuild and must not modify LC2.
+Integration audit found that Epoch lacked live closure telemetry and periodic
+counter refresh; supply those through the existing throttled exact tracker in
+the next separately identified optimized build. Keep the already-running
+comparison build frozen, and charge refresh work to subsequent native timings.
 
 ## Stage A — compatible stable milestone on `fable_5_1`
 

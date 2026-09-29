@@ -155,7 +155,7 @@ numeric sector lexicographic comparison, cuts, total degree and numerator
 degree are decided first. Thus merely passing `--permutation 0,9,...` cannot
 be advertised as choosing which support to pinch. `family-candidates` and
 `family-close` already expose this tie control; changed rules need generation
-and certification, not a rebuilt CLI. Coefficient variable order is a separate
+and candidate-policy validation, not a rebuilt CLI. Coefficient variable order is a separate
 Rust-side representation option, not a substitute sector control.
 
 Reordering selection owners or route records does not choose another route:
@@ -244,8 +244,8 @@ seconds in P2, so direct BMW evaluator savings alone cannot close the total
 performance gap. Any useful gain must affect downstream geometry or sharing.
 
 All three commands use the unchanged original family, `--nonpositive-indices
-0,9`, sparse backend, depth 2, finite-case search, explicit identical finite
-and case budgets, no rank restriction, and W16. The public CLI generates the
+0,9`, sparse backend, depth 2, finite-case search, identical default finite
+policy and explicit case budgets, no rank restriction, and W16. The public CLI generates the
 BMW root **downset**, not only one literal sector. Only its BMW single-sector
 checkpoint shard may replace the selected BMW payload afterward; the other
 15 selected payloads, all 508 routes, all 58 query rows/roles and their order
@@ -257,20 +257,83 @@ The command arrays retain a clearly invalid binary placeholder until the
 final freeze is supplied. They use both existing locks, CPUs 32..47, a
 1,740-second whole-arm soft deadline including admission (at most 1,800 with
 the kill grace), a 1,500-second guarded pipeline
-deadline, and stage limits of 600 seconds generation, 600 certification, and
-120 cold artifact inspection. Timeout is a censored result, not permission
+deadline, and a 600-second generation limit. The prepared pipeline stops after
+generation; native candidate inspection and the stitched full-58 campaign are
+separate granted steps. Timeout is a censored result, not permission
 to increase a budget. No commands have run. The existing guard requires at
 least 250 GiB available at start and stops below 150 GiB host headroom.
 
-Before any stitched performance test, require source certification and cold
-artifact load to succeed. Compare the `campaign inspect` master-key sets in
-the same physical coordinates, both the whole BMW-downset set and the subset
-whose positive support is exactly BMW. Keep terminal policy and finite-search
+The sparse backend constructs exact candidates after modular discovery, but
+the generation report explicitly says `prepare-solve-save; no source replay
+or closure certification`. This is the same candidate-policy authority as
+the packaged baseline, not independent replay of the original IBP sources.
+`certify-candidates` without degree bounds attempts unrestricted whole-downset
+closure as well as source checking; it is not a required gate for this scoped
+exploratory study, and natural BMW has no established passing receipt for that
+stronger task. The core source-replay-only API is not exposed by the current
+CLI, and the separate `PrunedExactMaterializer` path is not this generator.
+
+Before any stitched performance test, require native candidate loading and
+inspection through existing APIs. `campaign inspect` accepts a certified
+artifact, not the uncertified candidate produced here; do not fabricate that
+pipeline. The existing public candidate loader exposes retained terminal keys;
+use that authority for a same-coordinate key-set comparison, both the whole
+BMW-downset set and the subset whose positive support is exactly BMW. Keep terminal policy and finite-search
 budgets unchanged. Report added/removed terminal keys and counts explicitly;
 a faster variant with an enlarged or otherwise changed admitted terminal set
 is not an equivalent-task speedup without a separate equivalence argument.
 After stitching, native route verification and full all-source/all-root cold
-closure remain mandatory. No old owner/checkpoint is overwritten.
+closure remain mandatory, but validate the walk relative to its supplied
+candidate rules, not independent replay of their original IBP algebra. No old
+owner/checkpoint is overwritten.
+
+## Dominant banana: one mixed-momentum promotion
+
+The measured banana owner `0111100001` uses active zero-based slots
+`[1,2,3,4,9]`: `k2`, `k3`, `k4`, `k1-k4`, and `k1-k2-k3`, respectively.
+Their literal loop-momentum incidence counts are `1,1,1,2,3`; slot 9 is the
+unique densest active line in this input basis. Promote only that slot:
+`--permutation 9,0,1,2,3,4,5,6,7,8`, compared with same-root regenerated natural
+`0,1,2,3,4,5,6,7,8,9`. The relative order of every other active or inactive
+coordinate is unchanged. This is representation-aware input design, not a
+graph-invariant edge ranking or a new algebra implementation.
+
+The admitted routing table provides a second concrete distinction. Deleting
+any of the five active lines reaches owner `0111100000`; deleting slot 9 is
+already that representative (no transport), whereas deleting 1, 2, 3 or 4
+uses a verified transport. This does **not** imply the new tie order pinches
+slot 9 first: the actual sector ordering remains fixed. The falsifiable
+hypothesis is that promoting the mixed line changes same-degree pivot choices
+and simplifies the dominant banana recurrence or its emitted geometry. Its
+58–66% share of measured native time offers greater direct leverage than
+BMW's <1%. Larger coefficients, unchanged/worse banana Apply cost or total
+native+cold time refute a useful gain; terminal inflation cannot count as one.
+
+`banana-pivot-commands.json` and `banana-pivot-pipeline.sh` prepare exactly these
+two bounded arms, with `--nonpositive-indices 0,5,6,7,8`, the same sparse/depth2/
+finite-search/case/bundle/checkpoint policy and W16/CPU/lock/deadline guards as
+the BMW commands. Neither has run. Generation covers the banana root downset;
+only the exact-mask root shard may replace the selected banana payload. The
+other 15 owners, all 508 routes and all 58 query rows, roles and order remain
+fixed. Original owner ordinal 297 is not assumed for new checkpoints.
+
+Native candidate inspection/loading, rule/coefficient/byte/time costs and
+exact terminal-key/count comparison precede the full selected-owner 58-query
+native/cold gate. The sparse candidates have baseline-equivalent generation
+authority, not independent original-source replay. Unrestricted
+`certify-candidates` is not a mandatory step. Public `candidate_bundle inspect`
+is an existing example adapter for counts, not terminal-key enumeration; exact
+keys are available from the existing public loaded reducer API, and an
+appropriate native adapter must be identified before asserting set equality.
+
+CLI integration audit corrected both preparation scripts: explicit
+`--finite-max-visited-points` / `--finite-max-retained-terminals` options are
+only accepted with `retain-rank-finite`, even when values equal defaults. They
+are therefore omitted under the baseline `search` policy. Do not switch to
+finite retention to make those flags parse. Depth2/search/unrestricted scope
+canonically encodes the packaged `ordinary-source-port-default-v1` policy;
+mixed saved roots and tie orders are accepted, but the common saved solver
+policy and family fingerprint must match exactly.
 
 ## Fair smallest gate
 
@@ -284,13 +347,13 @@ wall time, native inspections, Route/Apply counts, emitted work, peak memory,
 and censored/incomplete outcomes. Repeat only a promising candidate in reversed
 arm order before interpreting a small difference.
 
-The reindex arm needs bounded root generation first, exact source certificate
-checks, all route verification, and then the same complete 58-query pair.
+The reindex arm needs bounded root generation first, native candidate-policy
+checks, all exact route verification, and then the same complete 58-query pair.
 Compare physical coverage after inverse remapping, not byte identity. Keep
 finite-case policy and terminal admission policy fixed, and explicitly report
 the inverse-mapped terminal key set difference and count: terminal inflation
 must not be hidden as a speedup. Report rule/coefficient bytes, exceptional
-branches or uncovered geometry, and generation/certification cost separately
+branches or uncovered geometry, and generation/validation cost separately
 from walk savings. The prior natural/reverse single-owner trial had fewer
 rules but much larger coefficients and was slower, so rule count alone is
 not an optimization metric.
