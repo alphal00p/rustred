@@ -417,6 +417,18 @@ These are measured deltas, not estimates: nothing in the status or dashboard
 is an ETA. `examples/python/heartbeat_metrics.py EVENTS.jsonl [--start S
 --end E --window W]` recomputes the same numbers offline for any elapsed
 window of any `events.jsonl`, tolerating a partially written last line.
+The additive `discovery_closure_net_1h` object reports
+`delta(total_domains - total_closed) / observed_seconds` over the trailing
+hour, with actual span, warm-up, reset state and closure-snapshot freshness.
+`Discovery−closure` renders this signed domains/second rate; `Closure snapshot`
+reports scan age and whether a scan advanced. It is an observed trend in the
+conservative unresolved count, not instantaneous closure throughput: batching
+can cause jumps, and negative does not certify eventual termination. Missing
+optional telemetry is labelled; invalid or reset counters start a new segment.
+It does not alter `pending_growth_per_completion_1h` or its existing display.
+Epoch refreshes the dependency tracker periodically at committed boundaries
+with the existing dirty, duty and cancellation checks. Heartbeat serialization
+is O(1), and saving a checkpoint does not force an additional scan.
 Each resource record also includes per-PID/start CPU deltas and RSS, with the
 supervisor and owned native process labelled separately. Newly observed or
 temporarily unreadable processes have no CPU delta until a fresh baseline is

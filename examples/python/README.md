@@ -179,10 +179,12 @@ PID/start/boot metadata, bounded-tail event monitoring and separate native
 stdout/stderr. The colored TTY header/bar and plain redirected summaries show
 measured CPU activity separately from worker reservations, finite initial-entry
 publication separately from descendant work, and checkpoint writing/completion.
-The entry bar is not a closure percentage; the closure ETA stays unknown.
+The progress bar counts recursively closed initial domains; the publication
+counter stays separate. Neither is a percentage of all eventual work, and the
+closure ETA stays unknown.
 Use `--once` or `--json` with the monitor for a read-only snapshot; `NO_COLOR`
 disables color. Stale heartbeats/process identities are reported explicitly.
-Three further lines (`Inspectors`, `Rate`, `Checkpoint gen`) show measured
+Further lines (`Inspectors`, `Rate`, `Checkpoint gen`) show measured
 rates from `status.json`'s additive `derived` block: completions per hour,
 stall share (fraction of wall time in heartbeat intervals of at least 5 s or
 20 s with no completion), coordinator duty, pending growth per completion,
@@ -193,6 +195,19 @@ estimates; absent fields print `unknown`, and no line carries an ETA.
 `heartbeat_metrics.py EVENTS.jsonl --start S --end E` recomputes the same
 numbers offline for any elapsed window, so a pilot can be compared with the
 live run at matched elapsed time.
+
+`Discovery−closure` adds the signed change in discovered domains minus
+recursively closed domains, divided by the observed seconds over the last
+hour. For example, `-12.400/s` means the recorded unresolved-domain gap shrank
+by 12.4 domains per second over that window. The display includes actual sample
+span and startup warm-up; `Closure snapshot` shows age, staleness and whether
+the closure scan advanced. Closure counts update in batches and are conservative
+lower bounds, so a sustained negative value is encouraging, not proof of
+convergence or an ETA. Missing telemetry and resume/counter resets are marked
+rather than turned into an invented rate. The existing `pending ... per
+completion` metric is unchanged. Epoch supplies these snapshots through its
+existing duty-throttled, cancellable scan at complete merge boundaries, never
+by forcing a graph scan for each heartbeat or checkpoint.
 
 `--prepare-from SOURCE --queries NEW.json --attach FILE ...` stages a new,
 verified query document (schema v2, only the six native row fields, owners
