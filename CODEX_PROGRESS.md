@@ -55,7 +55,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Combined G2′ + rescue | corrected optimized focus/full suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; matched campaign profile, CLI and independent control reinspection next |
 | Python production G2′ steering | committed locally and independently tested | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real Python/native pause-resume composition smoke after CLI gates, then integrate |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | writer/publisher typechecked; decoder and lookup reconstruction source-audited | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen validation `dc046711` awaits check; full assembly/session/stop and S4–S6 remain open |
+| Epoch S3–S6 | decoder/lookup/provisional assembly source-audited and typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `43253bfe`; native execution, full cross-state/session/stop and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
 | N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
@@ -82,6 +82,43 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 04:23 UTC — provisional assembly typechecks
+
+- [M] Validation `43253bfe06bb0bfb61252bd502a6823455db7b46` (audited source `03bd236d`) passes `cargo check --release --tests --locked --offline -j1 -p rustred-app` in the private warm target. Receipt `TMP/codex-epoch-s3.JjASCU/typecheck-assembly-light/`: exit0/no stop reason,39.162s (Cargo35.78s), peak1,184,068KiB. Root independently read the receipt and checked the clean validation tree. The light build1 slot is released; no native tests or usable resume are claimed.
+- New variable anchor/frontier decoder work remains isolated and is not covered by that check. Next author/auditor gate is actual-codec roundtrip and malformed-section regression review, followed by full cross-state validation; no production or public epoch activation.
+
+### 2026-09-29 04:21 UTC — provisional assembly reviewed; live priorities unchanged
+
+- [M] Private epoch manifest/scalar assembly committed as `03bd236d654757528b70a1708e377418aca1df3e`, independently source-audited. It binds request/actual batch size, owner inventory, section counts and allocation limits before returning provisional arrays and lookup. It does **not** construct a runnable epoch state or enable resume. Roots, records, dispatch, full cross-state checks, session reservation and durable stop handling remain open. A one-worker metadata-only check is authorized in the same bounded light slot; execution remains pending.
+- [M] G2′/rescue campaign build has reached the final binary's fat-LTO link at frozen `d12db6cf`; the six external CLI tests and real Python/native smoke remain queued. No candidate binary/timing is claimed yet.
+- [M] Read-only LC2 snapshot: running, 44,793,072 discovered, 17,647,027 pending, 6/67 conservative initial obligations closed, RSS26,380,632,064B. Generation3 remains the latest completed save. Over the reported one-hour window, commit and preparation account for53.20% and29.42% of coordinator elapsed time, versus0.94% progress JSON. This continues to favor successor/merge work over a large claimed telemetry gain. No eventual-closure inference or production intervention.
+
+### 2026-09-29 04:15 UTC — consolidated decoder check passes after retained test correction
+
+- [M] A narrowly allocated metadata-only slot ran alongside the heavy candidate
+  code-generation build: CPU16–19, one Cargo worker, private warm check target,
+  build1 lock and existing250/150GiB headroom guard. Earlier checks measured
+  about1.1GiB, and this job performs no native code generation or solver timing.
+  The campaign build remained on0–15 and retained the sole heavy-job lock.
+  No timed pilot overlaps either validation job.
+- [M] First frozen `dc046711` check failed with E0277: a new regression compared
+  runtime usize index pairs with persisted u32 pairs. Receipt
+  `TMP/codex-epoch-s3.JjASCU/typecheck-restore-light/`: exit101/no stop reason,
+  37.172s. The independently reviewed correction widens only the expected test
+  indices, retaining order/cardinality and every assertion; runtime is unchanged.
+- [M] Source fix `770ff058`, validation `33b0c2ab27c6fef7e1972d30b62a2b9aaed836b4`:
+  retry `cargo check --release --tests --locked --offline -j1 -p rustred-app`
+  passes. Fresh receipt `typecheck-restore-light-retry/`: exit0/no stop reason,
+  38.168s (Cargo35.14s), peak1,171,996KiB. Root independently read the receipt.
+  This includes corrected decoders/lookup regression sources, **not executed
+  native tests, full-state assembly, or working resume**. Assembly WIP remains
+  isolated in the publisher tree.
+- Retain timing CPUs64–79 (hot64–75): alternative short samples showed similar
+  contention rather than a materially cleaner lane. Finite Ordered runs are
+  identity controls; finite deployment pairs use Ready, matching production's
+  policy, at matched W16. The hot control uses matched Ready/W12. Per-arm contention
+  recording and the original deployment gates remain unchanged.
 
 ### 2026-09-29 04:04 UTC — lookup restoration frozen; timing-lane contention checked
 
