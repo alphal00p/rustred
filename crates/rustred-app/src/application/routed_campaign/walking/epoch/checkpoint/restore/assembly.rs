@@ -7,7 +7,8 @@ use super::super::metadata::{Identity, OwnedScalars};
 use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
 use super::{
-    CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, dispatch_state, lookup,
+    CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, cross_state, dispatch_state,
+    lookup,
 };
 use std::io::{self, Read};
 use std::path::Path;
@@ -147,13 +148,13 @@ pub(super) fn read<const N: usize>(
     inventories(&manifest, &scalars)?;
     owners(directory, file(&manifest, "owners")?, identity)?;
     let store = fixed::<N>(directory, &manifest, Section::Domains)?.domains()?;
-    let nodes = fixed::<N>(directory, &manifest, Section::Nodes)?.flags(false)?;
+    let mut nodes = fixed::<N>(directory, &manifest, Section::Nodes)?.flags(false)?;
     let live = fixed::<N>(directory, &manifest, Section::Live)?.live(scalars.watermark)?;
     let ledger = fixed::<N>(directory, &manifest, Section::Ledger)?.ledger()?;
     if ledger.counts().0 != scalars.ledger_counts {
         return Err(invalid("epoch scalar ledger tag counts differ"));
     }
-    let edges = fixed::<N>(directory, &manifest, Section::Edges)?.edges(scalars.watermark)?;
+    let mut edges = fixed::<N>(directory, &manifest, Section::Edges)?.edges(scalars.watermark)?;
     if edges.runs() != scalars.edge_runs
         || edges.edges() != scalars.edges
         || edges.self_edges() != scalars.self_edges
@@ -212,6 +213,25 @@ pub(super) fn read<const N: usize>(
         store,
         &live,
     )?;
+    cross_state::validate(cross_state::View {
+        store: &store,
+        ledger: &ledger,
+        nodes: &mut nodes,
+        live: &live,
+        edges: &mut edges,
+        anchors: &anchors,
+        frontier_counts: &frontier_counts,
+        closure_flags: scalars
+            .closure
+            .unavailable
+            .is_none()
+            .then_some(closure_flags.as_slice()),
+        walk: &scalars.walk,
+        k: scalars.k,
+        p0: scalars.p0,
+        input_frontiers: scalars.input_frontiers,
+        records_digest: &scalars.records_digest,
+    })?;
     Ok(Provisional {
         manifest,
         scalars,

@@ -150,4 +150,32 @@ impl EdgeStore {
     pub fn records_digest(&self) -> String {
         self.records_digest.finalize().to_hex().to_string()
     }
+
+    /// Restore the appendable records hash from authenticated runs and ledger
+    /// tags. Run uniqueness/completeness is a separate cross-state prerequisite;
+    /// this commits the reconstructed hasher only after the expected digest agrees.
+    pub fn restore_records_digest(
+        &mut self,
+        ledger: &super::ledger6::Ledger6,
+        expected: &str,
+    ) -> Result<(), String> {
+        use super::ledger6::Tag;
+        let mut digest = blake3::Hasher::new();
+        for (source, targets) in self.run_iter() {
+            match ledger.tag(source) {
+                Some(tag @ (Tag::Native | Tag::NativeFrontier | Tag::NativeError)) => {
+                    digest.update(&source.to_le_bytes());
+                    digest.update(&[tag as u8]);
+                    digest.update(&(targets.len() as u32).to_le_bytes());
+                }
+                Some(Tag::Alias) => {}
+                _ => return Err("epoch record digest run from unmerged source".into()),
+            }
+        }
+        if digest.finalize().to_hex().as_str() != expected {
+            return Err("epoch records digest differs from ledger/runs".into());
+        }
+        self.records_digest = digest;
+        Ok(())
+    }
 }

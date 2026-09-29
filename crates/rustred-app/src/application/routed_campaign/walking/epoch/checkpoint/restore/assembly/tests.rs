@@ -180,6 +180,25 @@ fn bound_prefix_is_not_reclassified_as_complete_admission() {
 }
 
 #[test]
+fn authenticated_sections_still_need_cross_state_seals_and_record_digest() {
+    let fixture = Fixture::new(false);
+    fixture.replace_file("state-2", |mut bytes| {
+        bytes[28] = 1; // authenticated but Pending cannot be sealed
+        bytes
+    });
+    assert!(fixture.read().is_err());
+    let fixture = Fixture::new(false);
+    fixture.replace_file("state-8", |mut bytes| {
+        bytes[28] = 4; // authenticated Pending cannot be closed either
+        bytes
+    });
+    assert!(fixture.read().is_err());
+    let fixture = Fixture::new(false);
+    fixture.mutate_meta(|meta| meta["records_digest"] = "0".repeat(64).into());
+    assert!(fixture.read().is_err());
+}
+
+#[test]
 fn scalar_identity_counts_reserved_features_and_overflows_fail_before_arrays() {
     for (key, value) in [
         ("walk_semantics_version", json!(2)),

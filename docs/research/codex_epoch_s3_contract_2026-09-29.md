@@ -6,8 +6,10 @@ at `6f7eb9fd`. The first typecheck failure is retained below. Bounded section
 decoding and lookup reconstruction passed independent source review and the
 lightweight release typecheck at `33b0c2ab` after a test-only correction. The
 subsequent manifest/scalar-bound assembly passed independent source review and
-the lightweight typecheck at `43253bfe`. All new runtime tests remain unexecuted;
-later anchor/frontier decoding passed source review, pending typecheck/execution.
+the lightweight typecheck at `43253bfe`. Anchor/frontier and saved-dispatch
+decoding passed independent source review and the batched lightweight typecheck
+at `97787259`. Cross-state validation passed independent source review and
+awaits typecheck; all new runtime tests remain unexecuted.
 No epoch native execution, campaign pilot or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
@@ -351,11 +353,46 @@ including pending-cursor and attempts-class checks, without a domain-sized clone
 It returns saved data only, never a runnable `Dispatch`. Tests use actual writer
 bytes and mutate counts, sequence/session ranges, queue membership, versions and
 digests. The refill interface now rejects a zero budget before consuming any
-deferred work. This slice passed independent source review; typecheck and
-execution remain pending.
+deferred work. This slice passed independent source review and the batched
+lightweight typecheck at validation `97787259` (source `7f31433f` maps to
+`d329cb18`, source `a21d76bc` to `97787259`). The unchanged receipt is
+`TMP/codex-epoch-s3.JjASCU/typecheck-dispatch-light`: exit 0, reason null,
+40.167 s guard / 37.34 s Cargo, maximum single-child RSS 1,179,528 KiB,
+minimum available RAM 805,331,378,176 bytes. Only CPUs 16-19, one Cargo
+worker and the build-1 lock were used; no native tests executed. The later
+cross-state source below was excluded from that frozen validation tree.
 Before mutable session issuance lands, counter exhaustion must be checked before
 increment/bit composition and session exhaustion before durable reservation;
 neither may wrap, and a crash before the next checkpoint must not reuse a session.
+
+The subsequent provisional cross-state validator binds node seals/inspection and
+anchor flags to ledger tags, validates merge epochs and retry/error classes,
+requires aliases to be forward, unprotected, retired and contained using the
+existing containment authority, and checks one exact run per merged ID. A spare
+bit in the owned unpublished node buffer provides O(N + E) run-source census
+without another domain-sized allocation; the bit is rejected in input and
+cleared on ordinary success/error. Initial D-band covers reuse the existing
+anchor validator; anchor edges are checked in borrowed run slices, without a
+full edge map or target-vector clones. The appendable records hasher is rebuilt
+from ledger tags and actual runs and committed only after digest comparison.
+
+Only ledger-derived aggregate counters are checked here. In particular, initial
+input obligations and sparse C4 frontiers form a lower bound on the aggregate;
+C2 error prefixes may also contribute. Author follow-up inspection caught the
+initial draft omitting the input-obligation contribution (initialized at
+`epoch/mod.rs:497`) before audit completion; the bound now includes it explicitly.
+Regressions cover input-only frontiers and a C2 aggregate larger than the sparse sum.
+Independent review also required rejecting merge epoch zero: the raw ledger
+codec permits it, but actual P3 stamps start at one. The cross-state validator
+now requires every merged native epoch in 1..=k and has a zero-epoch mutation.
+Local closure flags must agree with nodes; a claimed closed source with an
+unclosed descendant is rejected, including a Pending-descendant mutation.
+Stale closed bits remain provisional and do not become certification: owned
+closure reconstruction and its existing full counter/graph validator still
+precede runnable state. Record bodies, roots/roles, whole-query admission and
+durable session/replay still remain required. This cross-state slice passed
+independent source review after the two corrections above; compilation and
+execution remain pending.
 
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export

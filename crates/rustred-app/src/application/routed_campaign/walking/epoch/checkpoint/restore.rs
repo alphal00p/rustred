@@ -17,6 +17,7 @@ use std::path::Path;
 
 mod assembly;
 mod auxiliary;
+mod cross_state;
 mod dispatch_state;
 mod lookup;
 
