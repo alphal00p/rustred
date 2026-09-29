@@ -1,5 +1,18 @@
 # RustRed project goal
 
+## Current execution directive — approved shortened plan, September 29
+
+Follow `SHORTENED_PLAN.md`, approved at13:25 UTC. Stage A is a compatible stable
+`fable_5_1` build in a workspace-local clone, overlapping Stage B development
+on `fable_5_1_parallel` at the repository root. Notify the user as soon as the
+compatible upgrade is actually ready. Preserve LC2; only the user operates it.
+Aim for a first parallel build in6±1hours, but do not compromise correctness
+to hit that guideline. Include bounded adaptive dispatch and a later delegated
+review of algebraic pivot/input ordering informed by existing four-loop results.
+Use implementation and one-time independent audit agents; omit new research and
+nonessential tuning. This supersedes the older hard deadlines and paused-work
+assumptions below. The broad scoped-closure objective remains unchanged.
+
 ## September 29 latest directive: first useful Epoch build in 6–8 hours
 
 The latest section of `CODEX_PROGRESS_PLAN.md` supersedes the earlier legacy-first

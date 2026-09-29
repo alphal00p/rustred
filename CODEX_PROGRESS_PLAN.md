@@ -1,5 +1,10 @@
 # RustRed five-loop completion: optimization, integration, and controlled deployment
 
+Current delivery authority: `SHORTENED_PLAN.md`, approved September29 at13:25
+UTC, with the user's overlapping Stage A clone/build and root Stage B branch
+instruction. It supersedes historical delivery deadlines below. The6±1-hour
+target is guidance; correctness takes precedence. Overall scope is unchanged.
+
 ## 1. Goal and execution rules
 
 Advance RustRed toward a reusable closing rule system for the **existing frozen five-loop QCD-renormalization input scope**, prioritizing near-ready improvements, reducing redundant domain traversal, and improving multicore efficiency. Preserve topology- and loop-count-generic algorithms.

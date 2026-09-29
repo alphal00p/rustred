@@ -87,6 +87,51 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 13:25 UTC — approval; concurrent Stage A build and Stage B implementation
+
+- User approved `SHORTENED_PLAN.md` and started the clock: T0=13:25UTC,
+  target19:25UTC plus one-hour reserve. Explicitly allow necessary overruns
+  rather than compromising implementation. Stage A builds in an isolated
+  workspace-local repository clone; Stage B proceeds at the root on
+  `fable_5_1_parallel` without waiting for Stage A or production actions.
+- The latest approval also requests a later delegated algebraic-pivot/input
+  review using existing four-loop knowledge, distinct from adaptive dispatch.
+  No open-ended research or regeneration is authorized implicitly.
+- Root re-read main state: `6a153d3b`, branch `fable_5_1`; unrelated Cargo.toml,
+  feynkit and reference/untracked work retained. No AGENTS.md was found by the
+  scoped repository search. The completed9ec build receipt remains available
+  for actual test execution; no new native PASS claimed yet.
+- Tool goal status still reports paused, but this explicit user go-ahead
+  authorizes implementation. No goal reset/recreation or status falsification;
+  the tool has no resume setter. Current agents can execute (planning probe
+  succeeded), and separate implementation/build/audit lanes are being assigned.
+
+### 2026-09-29 — shortened two-branch proposal; awaiting approval, clock not started
+
+- User requests a roughly30-minute compatible `fable_5_1` milestone, followed
+  by5h30 of parallel implementation on `fable_5_1_parallel`, with one hour of
+  reserve. Root wrote `SHORTENED_PLAN.md`; it is a proposal, not authorization
+  to start. No implementation, new builds/tests, branch creation or production
+  changes occurred. Previous absolute deadlines are superseded only on approval;
+  T0 is that go-ahead. Tool-managed goal remains paused.
+- A fresh planning subagent `short_plan_feasibility` successfully ran, so the
+  earlier agent-capacity refusal is not currently reproduced. Its read-only
+  review confirmed two delivery risks: an optimized CLI build previously took
+  about57minutes, and public performance-only upgrade does not enable native
+  G2 activation or migrate roles. Those limitations are explicit in the plan;
+  an Off resume must not inherit the measured Union speedup claim.
+- The one-time independent plan audit recommended source freeze at T+2h30–3h
+  and explicit tests for genuinely adaptive, bounded, fair and replayable
+  dispatch ordering. Both were incorporated. No research or new acceptance
+  framework is planned; deferred NUMA and other nonessential work stays out.
+- [M] Root read the now-completed recovery receipt:
+  `TMP/codex-epoch-s3.JjASCU/public-9ecad89f-build-recovered/result.json`,
+  exit0/no stop,1486.728796s recovery-interval wall. The final incremental Cargo
+  command finished in0.15s with `build-finished: success=true`; original build
+  and recovery PIDs are absent. This establishes witnessed build completion,
+  not execution of tests, an optimized CLI or original-build total CPU/RSS.
+  Exact source/artifact identity must be verified before reuse after approval.
+
 ### 2026-09-29 12:57 UTC — revised Epoch delivery target; execution capacity unavailable
 
 - User replaces the 3–4-hour legacy-first checkpoint with a 6–8-hour target
