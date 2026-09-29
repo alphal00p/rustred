@@ -477,6 +477,53 @@ available RAM784,696,246,272B, CPU16–19/build1/one metadata worker. The body
 visitor passed independent source review after the partial-version correction;
 its compilation and all test execution remain pending.
 
+The next cohesive private lifecycle slice consumes the provisional arrays and
+prepared-reducer roots into an EpochState, moves closure flags into the existing
+two-pass CSR builder and calls the existing Tracker restore validator. An
+unavailable monitor receives no optional CSR edges, while the mathematical edge
+log remains intact. A restored input prefix retains InProgress and its Dispatch
+refuses scheduling; continuing initial admission is still runtime wiring work.
+
+The publisher reopens under its exclusive lock, refuses sticky poison, scans
+generation filenames without collecting them, and skips orphan state/record
+generations. Latest is fully validated before use; rejected latest can explicitly
+fall back to fully validated previous. A changed request/owner/B or insufficient
+requested domain limit is an InvalidInput refusal, never permission to silently
+select a smaller old generation. Other latest failures are reported when previous
+is used; both failures retain their reasons if neither generation validates.
+This private policy includes allocation/permission/I/O failures, not only
+corruption. A selected generation whose saved session exceeds the journal
+high-water is conservatively refused at adoption, without trying previous.
+
+A separate fixed48-byte authenticated session high-water file is atomically
+installed and directory-synced before issuing a restore Session capability.
+It advances independently of merge saves: repeated crashes before the next save
+cannot reuse saved_session+1. Missing/corrupt/out-of-range journals fail closed;
+no old private writer snapshot is imported. A rename/fsync uncertainty returns
+no capability and is sticky for that publisher. Dispatch reissues the saved
+unfinished batch in saved sequence order with fresh sequence numbers, preserving
+attempt/guard words, queues and k; new Pending work cannot overtake replay.
+Counter exhaustion is checked before queue/ledger mutation and maps to a safe
+capacity stop, never wrap. Session exhaustion refuses before reservation.
+
+Source tests now connect actual owner preparation, private save, restored
+EpochState/Tracker, replay, real P1/P2/P3 error merge and resave/restore. They also
+cover crash-before-save session monotonicity, replay order, unchanged attempts,
+partial-admission refusal, unavailable monitoring with retained mathematical
+edges, orphan generation skipping, explicit previous fallback, exclusive lock,
+poison, changed-limit non-fallback and closure-counter corruption before session
+reservation. This private slice passed independent source review; compilation
+and all test execution remain pending.
+Fresh entry integration, stop/memory polling, durable save before worker join,
+session crash-attribution policy and public resume remain unimplemented gates.
+
+For any eventual performance/deployment comparison, the contemporaneous legacy
+baseline must include its best validated configuration (G2 Union if it qualifies
+in matched pilots). Private epoch still refuses G2/rescue; that reduced capability
+is not production equivalence. Complete-workload throughput and native-calls/s
+are distinct measurements; neither the private lifecycle nor source checks claim
+the required >=1.5x matched throughput gate.
+
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export
 does not fix cancellation latency. The next source slice needs separate

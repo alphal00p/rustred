@@ -1,11 +1,11 @@
-//! Internal S3 section-writer primitives, NOT a resumable checkpoint.
+//! Private S3 checkpoint implementation; NOT a public resumable format yet.
 //!
-//! No runtime caller, manifest or public probe accepts these sections yet.
-//! Request/root roles, record tails, closure/counter metadata, publication,
-//! restore validation and save-before-join wiring remain separate gates.
+//! Private publication and full restore assembly have source implementations;
+//! no public probe accepts this format. Runtime stop/save-before-join wiring
+//! and consolidated execution gates still precede public durable restart.
 //! The writer borrows one state for its entire lifetime, preserves live bits
 //! and exact dispatch order, and uses fixed scratch independent of domains.
-#![allow(dead_code)] // Internal writer lands before its runtime integration.
+#![allow(dead_code)] // Private lifecycle lands before its runtime integration.
 
 use super::anchors::{ANCHORS_VERSION, AnchorKind, AnchorScope};
 use super::dispatch::{Dispatch, DispatchSnapshot};
@@ -20,13 +20,15 @@ mod metadata;
 mod publication;
 mod read;
 mod restore;
+mod session;
+pub(super) use session::Session;
 #[cfg(test)]
 mod tests;
 
 const BUFFER_BYTES: usize = 32 * 1024;
 const MEMBERSHIP_WORDS: usize = 1024;
-const SEQUENCE_COUNTER_LIMIT: u64 = 1 << 40;
-const SESSION_LIMIT: u64 = 1 << 24;
+pub(super) const SEQUENCE_COUNTER_LIMIT: u64 = 1 << 40;
+pub(super) const SESSION_LIMIT: u64 = 1 << 24;
 
 fn invalid(reason: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, reason)

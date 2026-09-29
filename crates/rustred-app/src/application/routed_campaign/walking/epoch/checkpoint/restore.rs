@@ -23,6 +23,7 @@ mod lookup;
 mod record_body;
 mod record_segments;
 mod roots;
+mod runtime;
 
 fn open_section<const N: usize>(
     directory: &Path,

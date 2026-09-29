@@ -159,6 +159,15 @@ pub(super) fn read<const N: usize>(
     lockstep_b: usize,
 ) -> io::Result<Provisional<N>> {
     let manifest = publication::read_manifest(&directory.join(publication::LATEST))?;
+    read_manifest(directory, identity, lockstep_b, manifest)
+}
+
+pub(super) fn read_manifest<const N: usize>(
+    directory: &Path,
+    identity: &Identity<'_>,
+    lockstep_b: usize,
+    manifest: Manifest,
+) -> io::Result<Provisional<N>> {
     if N > 32 || manifest.arity != N {
         return Err(invalid("epoch private manifest arity differs"));
     }

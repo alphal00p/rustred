@@ -16,7 +16,7 @@ mod tests;
 
 const FORMAT: &str = "RUSTRED-EPOCH-INTERNAL-WRITER";
 pub(super) const LATEST: &str = "epoch-internal-latest.json";
-const PREVIOUS: &str = "epoch-internal-previous.json";
+pub(super) const PREVIOUS: &str = "epoch-internal-previous.json";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 pub(super) const MAX_META_BYTES: u64 = 1024 * 1024;
 
@@ -70,6 +70,7 @@ pub(super) struct Store {
     next: u64,
     latest: Option<Manifest>,
     failed: bool,
+    session: u64,
     #[cfg(test)]
     fail: Option<FailPoint>,
 }
@@ -113,15 +114,106 @@ impl Store {
             .open(directory.join("epoch-internal.lock"))?;
         lock.try_lock()
             .map_err(|error| io::Error::other(error.to_string()))?;
+        let session = super::session::initial(&directory)?.number();
         Ok(Self {
             directory,
             _lock: lock,
             next: 1,
             latest: None,
             failed: false,
+            session,
             #[cfg(test)]
             fail: None,
         })
+    }
+
+    /// Lock first, then validate all checkpoint data before `adopt` reserves
+    /// another session. This does not enable a public resume/import entry.
+    pub(super) fn open(directory: PathBuf) -> io::Result<Self> {
+        let metadata = fs::symlink_metadata(&directory)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid(
+                "epoch checkpoint directory is not a real directory",
+            ));
+        }
+        let lock_path = directory.join("epoch-internal.lock");
+        let metadata = fs::symlink_metadata(&lock_path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(invalid("epoch checkpoint lock is not a regular file"));
+        }
+        let lock = OpenOptions::new().read(true).write(true).open(lock_path)?;
+        lock.try_lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        let session = super::session::read(&directory)?;
+        // One streaming directory pass, including orphan state/record tails:
+        // never collide with a generation used before a crash. No deletion.
+        let mut greatest = 0;
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.starts_with("poison-") || name == "epoch-internal-poison" {
+                return Err(invalid("epoch checkpoint is permanently poisoned"));
+            }
+            let digits = name
+                .strip_prefix("epoch-internal-")
+                .filter(|rest| rest.as_bytes().get(20) == Some(&b'-'))
+                .or_else(|| {
+                    name.strip_prefix("records-")
+                        .filter(|rest| rest.get(20..) == Some(".jsonl"))
+                })
+                .and_then(|rest| rest.get(..20));
+            if let Some(digits) = digits.filter(|text| text.bytes().all(|b| b.is_ascii_digit())) {
+                let generation = digits
+                    .parse::<u64>()
+                    .map_err(|_| invalid("epoch orphan generation range"))?;
+                greatest = greatest.max(generation);
+            }
+        }
+        let next = greatest
+            .checked_add(1)
+            .ok_or_else(|| invalid("epoch generation exhausted"))?;
+        Ok(Self {
+            directory,
+            _lock: lock,
+            next,
+            latest: None,
+            failed: false,
+            session,
+            #[cfg(test)]
+            fail: None,
+        })
+    }
+
+    pub(super) fn directory(&self) -> &Path {
+        &self.directory
+    }
+    pub(super) fn next_generation(&self) -> u64 {
+        self.next
+    }
+
+    /// Called only after full state/root validation. A successful reservation
+    /// is durable even if the subsequent restored-state assembly is interrupted.
+    pub(super) fn adopt(
+        &mut self,
+        manifest: Manifest,
+        saved_session: u64,
+    ) -> io::Result<super::Session> {
+        if self.failed || self.latest.is_some() || manifest.generation >= self.next {
+            return Err(invalid("epoch publisher cannot adopt this generation"));
+        }
+        let reservation = super::session::reserve(&self.directory, saved_session);
+        match reservation {
+            Ok(session) => {
+                self.session = session.number();
+                self.latest = Some(manifest);
+                Ok(session)
+            }
+            Err(error) => {
+                self.failed = true;
+                Err(error)
+            }
+        }
     }
 
     /// One state-bound orchestration writes every section itself. It never
@@ -139,6 +231,9 @@ impl Store {
             return Err(io::Error::other("epoch internal store already failed"));
         }
         inputs.validate(boundary)?;
+        if boundary.dispatch.session != self.session {
+            return Err(invalid("epoch save does not own the reserved session"));
+        }
         if records.directory() != self.directory || records.generation() != self.next {
             return Err(invalid(
                 "epoch record tail belongs to another directory or generation",

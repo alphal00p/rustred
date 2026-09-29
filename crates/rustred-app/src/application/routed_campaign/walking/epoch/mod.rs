@@ -564,6 +564,7 @@ pub(super) fn run<const N: usize>(
                         }
                         let jobs = match dispatch.refill(&mut state, lockstep) {
                             Refill::Drained => return Ok(Some(End::Drained)),
+                            Refill::SequenceExhausted => return Ok(Some(End::Stopped(StopReason::Capacity))),
                             Refill::Stalled => {
                                 return Err(Fatal(
                                     "dispatch_stall: Pending or Reserved IDs but nothing dispatchable"

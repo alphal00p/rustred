@@ -22,6 +22,8 @@ pub(super) struct Identity<'a> {
     owners_digest: [u8; 32],
     queries: &'a [Query],
     domain_limit: usize,
+    event_limit: usize,
+    frontier_limit: usize,
     route_domain_overcover: bool,
 }
 
@@ -55,6 +57,8 @@ impl<'a> Identity<'a> {
             owners_digest: owners_digest.blake3,
             queries,
             domain_limit: request.max_domains,
+            event_limit: request.max_events,
+            frontier_limit: request.max_frontiers,
             route_domain_overcover: request.route_domain_overcover,
         })
     }
@@ -64,24 +68,33 @@ impl<'a> Identity<'a> {
     /// saved arena must fit both its saved and the requested domain limits.
     pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
         let watermark = u64::from(saved.watermark);
-        if saved.schema != 1
-            || saved.request != self.request
+        // Request/capability refusals must not silently select an older, smaller
+        // generation. Other decode/validation/I/O failures may use a fully
+        // validated previous generation, with the latest failure reported.
+        if saved.request != self.request
             || saved.owner_count != self.owners.len()
             || saved.owners_digest != self.owners_digest
+            || saved.total_queries != self.queries.len()
+            || saved.lockstep_b != lockstep_b
+            || saved.watermark as usize > self.domain_limit
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "epoch checkpoint/request binding or requested domain limit differs",
+            ));
+        }
+        if saved.schema != 1
             || saved.walk_semantics_version != super::super::EPOCH_WALK_SEMANTICS_VERSION
             || !(1..=4096).contains(&lockstep_b)
-            || saved.lockstep_b != lockstep_b
             || saved.k >= super::super::ledger6::EPOCH_LIMIT
             || saved.watermark == u32::MAX
             || saved.p0 > saved.watermark
             || saved.watermark as usize > saved.max_domains
-            || saved.watermark as usize > self.domain_limit
             || saved
                 .ledger_counts
                 .iter()
                 .try_fold(0u64, |sum, value| sum.checked_add(*value))
                 != Some(watermark)
-            || saved.total_queries != self.queries.len()
             || saved.processed_queries > saved.total_queries
             || saved.input_frontiers > saved.processed_queries
             || matches!(saved.initial_admission, Admission::Complete)
@@ -158,6 +171,10 @@ impl<'a> Identity<'a> {
 
     pub(super) fn route_domain_overcover(&self) -> bool {
         self.route_domain_overcover
+    }
+
+    pub(super) fn limits(&self) -> (usize, usize, usize) {
+        (self.domain_limit, self.event_limit, self.frontier_limit)
     }
 }
 
