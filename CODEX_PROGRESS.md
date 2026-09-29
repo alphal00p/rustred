@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 17:05 UTC
+## Current shortened-delivery ownership — 2026-09-29 18:23 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,12 +52,12 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | source frozen; final native rerun active | original `epoch_rolling_impl`; validation `stage_a_release`, root | Full core PASS; app ten-failure correction independently audited; final app-opt1 build runs after opt0 link-size failure |
-| Fresh CP6 G2 Union | integrated and audited; final execution pending | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | `f3f707af` corrects obsolete lockstep guard and preserves real W1 cold/resume coverage |
-| CP6 rescue and required scope | integrated and audited; final execution pending | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | Explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation; complete corrected suite and CLI gates remain |
+| Rolling Epoch controller and lookup replicas | native tests passed; optimized CLI building | original `epoch_rolling_impl`; validation `stage_a_release`, root | Full core PASS; final app execution has1,116 passes and one separately corrected cold-reader failure; matched performance remains pending |
+| Fresh CP6 G2 Union | native cold/resume tests passed | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | Actual W1 lockstep Union and other G2 tests passed; final CLI lifecycle and timed controls remain |
+| CP6 rescue and required scope | final reader correction audited; optimized regression pending | root narrow fix; independent `stage_a_release` | `d40c1b76` corrects protected-prefix accounting after amendments; preserved failing checkpoint will exercise actual final CLI, without claiming a rerun of the complete suite |
 | Adaptive dispatch | integrated and reviewed; pilot pending | author `stage_a_release`, root independent review | Successful-publication observations wired; final native and matched adaptive pilots remain |
 | CLI/Python policy surfaces and monitoring | Python PASS; final native validation pending | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Full Python310 PASS/one optional slow skip; final CLI lifecycle checks await optimized binary |
-| Algebraic input/pivot ordering review | delivered | `stage_a_release`, root | Retain natural saved programs; no qualified replacement. Reopen only with the documented small prescreen |
+| Algebraic input/pivot ordering review and experiments | review delivered; bounded pilot preparation active | `bounded_ordering_pilots`, root; prior review `stage_a_release` | Same-binary helper-first four-loop comparisons and a small coordinate-priority prescreen; no broad generation sweep |
 | Matched performance and deployment | prepared, not executed | root, independent `stage_a_release` interpretation audit | 28 planned arms (including repeats/adaptive/optional W50); explicit combined4L parity and five-loop1.5x gates; no speedup claim |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
@@ -103,6 +103,24 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 18:23 UTC — final optimized build active
+
+- [M] `stage_a_release` started the one optimized CLI build from clean
+  `e1bdb9e7` (engine correction `d40c1b76`), with unchanged campaign profile,
+  pinned clean Symbolica, CPUs0–15, heavy/build0 locks and eight build workers.
+  Evidence: `TMP/codex-parallel-campaign.oiPK29/campaign-build-e1bdb9e7/`.
+  No engine input variant triggers another build.
+- [M] The exact pre-fix rescue regression rerun preserved its real checkpoint
+  and failed as expected in1.149s, with the same sole protected-prefix finding.
+  Fixture: `TMP/rustred-verify-closure-epoch-g2-rescue-required-825707-0`;
+  receipt: `TMP/codex-parallel-validation.RPJKV5/native-rescue-prefix-before-f3f707af/`.
+  Final optimized CLI checks remain pending and must not edit checkpoint state
+  to obtain a PASS.
+- [D] A requested extra audit-agent slot was unavailable due the thread limit.
+  Root and `stage_a_release` retain separate implementation/review duties;
+  `bounded_ordering_pilots` prepares experiments but cannot self-approve them.
+  No additional heavy job runs beside the optimized build.
 
 ### 2026-09-29 18:22 UTC — one final cold-reader defect; bounded ordering lane
 
