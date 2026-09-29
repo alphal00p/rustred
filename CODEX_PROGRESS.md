@@ -104,6 +104,22 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:40 UTC — settle the matched deliverable before measuring
+
+- [D] Root and independent `stage_a_release` review agree that the common
+  deliverable is durable, resumable records plus cold-All proof of the same
+  frozen scope. Native-plus-cold time is a legitimate **end-to-end verified-
+  closure pipeline** comparison; merely producing different JSON layouts is
+  not a missing mathematical operation. Actual CP6 resume and intact records
+  remain gates, as do two valid finite/hot pairs for a1.5x switch recommendation.
+- [D] Report native-only timing separately and disclose any gain from avoiding
+  full-result materialization. Do not attribute it all to faster inspections or
+  claim drop-in compatibility with a consumer requiring Ready's complete JSON
+  and paired Python proof. Charge a specific downstream adapter if one becomes
+  part of the workload. No such additional consumer is in this delivery's scope.
+  This resolves the earlier finalization-accounting reservation **before any
+  Stage B arm has run**; it does not relax cold verification or query scope.
+
 ### 2026-09-29 16:36 UTC — measurement budget review and production observation
 
 - [M] Independent measurement-plan review (`stage_a_release`) found the initial

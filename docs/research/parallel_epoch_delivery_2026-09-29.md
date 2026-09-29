@@ -105,8 +105,13 @@ Each pilot includes preparation and orderly shutdown within 30 minutes. Native
 whole-command time, independent cold time, CPU time, memory and domain work are
 reported separately. The comparison also charges common cold-All verification
 to both variants. Ready's full result and Epoch's checkpoint-only summary are
-different output contracts; native drain speed alone cannot establish the
-1.5x deployment-throughput gate. Failed, censored and unexecuted cells remain
+different representations. The agreed common deliverable is durable, resumable
+records plus independent cold-All verification of the same scope; native plus
+cold time can qualify as an end-to-end verified-closure speedup. Avoiding large
+full-result materialization is disclosed as part of that gain, not misattributed
+to inspection. Native drain speed alone cannot establish the 1.5x gate, and no
+drop-in compatibility with consumers requiring Ready's full JSON is assumed.
+Failed, censored and unexecuted cells remain
 explicit. No eventual five-loop completion time follows from zero frontiers or
 increased worker activity.
 
