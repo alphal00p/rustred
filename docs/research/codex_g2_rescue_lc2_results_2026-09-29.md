@@ -135,7 +135,32 @@ tooling-only fix is now merged as `77059cdf`; the original control tool and
 its receipts remain unchanged. The Ready arms use the same frozen corrected
 runner on both sides.
 
-No new speedup is claimed yet. The decision requires two interleaved matched
+The first Ready finite-five-loop pair has completed all acceptance gates:
+
+| Metric | LC2 Off | G2 Union |
+|---|---:|---:|
+| Whole command wall time | 249.626 s | 180.746 s |
+| Scheduled domains | 1,275,122 | 964,909 |
+| Native inspections | 979,714 | 758,183 |
+| Waited CPU time | 1,082.484 s | 564.716 s |
+| Sampled peak aggregate RSS | 6.361 GB | 6.239 GB |
+
+That is27.6% less wall time and24.3% less scheduled work for this control.
+Both required-query counts are1/1, with every native record reinspected and
+every scheduled record paired by the Python audit. Candidate cold verification
+and Python pairing are separate from the solver timing; its Python check alone
+took494.608s. Evidence: `deployment-continuation/accepted-2.json` under the
+pilot directory. These are **not** timings for full production closure.
+
+Selected-core foreign load averaged1.146/1.076 cores, while SMT-sibling load
+averaged3.317/1.283 cores over the arms. This imbalance favored the candidate,
+so the first wall-time ratio is not an uncontaminated causal speedup estimate.
+The reverse candidate solve took180.010s and passed cold verification and
+Python pairing by06:55 UTC (`accepted-3.json`); the reverse baseline is now
+running, and the hot controls remain pending. No production deployment
+decision is made yet.
+
+The decision requires two interleaved matched
 Ready pairs with identical inputs, CPU placement and worker budgets, recorded
 contention and independently verified completion. Every pilot and cold check
 has its own <=30-minute ceiling. Censored results are not completion timings.

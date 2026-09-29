@@ -56,13 +56,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | G2′ deployment decision | active | root (measurement; joint_support_pruning prepared frozen plans), checkpoint_final_audit (independent interpretation) | Primary eight Ready deployment arms running after pushed milestone `e757fbbf`; no campaign-switch conclusion yet |
 | Python production G2′ steering | delivered | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d` merged via `9ef5464d`; real pause/resume/cold and post-merge regressions pass |
 | Coordinator latency / telemetry | deferred | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4` source audit/typecheck pass; reopen native execution after G2 measurements, five regressions still unexecuted |
-| Epoch S3–S6 | active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Body/private restore/session lifecycle metadata validation `52d7f57f` passes; native execution, async save-before-join and S4–S6 remain open |
+| Epoch S3–S6 | active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Validation source frozen at `f404cf66`, identical to audited publisher `1e1d0943`; new controller uncompiled/unexecuted, public resume disabled; first native gates follow Ready comparisons |
 | N2 allocation-free geometry | pending | checkpoint_final_audit | Registered redundant-copy mechanism; profile after G2 before implementation decision |
 | N1 modular witnesses | pending | checkpoint_final_audit | API feasibility delivered; generic RHS witness is too late/insufficient; measure fully fixed predicate opportunity after G2 |
 | N4 coverage-first work | pending | checkpoint_final_audit + root | Feasibility delivered; count post-G2 eligible exact-payload cost before implementation, preserving mathematical obligations |
 | Scheduling / ordering | pending | research/measurement | Compare work volume and censored Ready outcomes |
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
-| New algorithms / literature | pending | research lane, rotated after current integration | Initial census delivered; narrow coalescing deferred until positive post-G2 miss-cohort evidence; backward covers deferred |
+| New algorithms / literature | active | closure_acceleration_research; independent critique active_goal_delivery_audit | Primary-source reachability/reuse review; require measured post-G2 opportunity before promoting new mechanisms; retain coalescing/backward-cover negatives |
 | Closed-descendant query witnesses | deferred | checkpoint_final_audit; independent critique by joint_support_pruning | Negative census independently reproduced; reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
 | Required-scope versus broad-helper dependencies | pending | checkpoint_final_audit + root | Source audit delivered, whole-helper dependency granularity confirmed; measure useful finite-query opportunity before reopening earlier negative approaches |
 | I1 L*-helper input variant | deferred | root + independent research/measurement lane | Not rejected; revisit after combined rescue gates and fresh matched net runtime benefit, preserving all 116 required queries |
@@ -83,6 +83,16 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 06:53 UTC — first Ready pair fully accepted; repeat and hot controls pending
+
+- [M] Both arms of the first finite-five-loop Ready pair pass native completion, full cold reinspection and paired Python audit. LC2-Off/Union:249.626/180.746s whole command;1,275,122/964,909 scheduled domains;979,714/758,183 native inspections;1,082.484/564.716s waited CPU;6.361/6.239GB sampled peak aggregate RSS. This is27.6% less wall time and24.3% less domain work on this control, **not full production closure**. Receipt: `TMP/codex-g2-pilot-prep.n7Kd5q/deployment-continuation/accepted-2.json`.
+- Contention caveat: selected-core foreign load was1.146/1.076 cores, but SMT-sibling load was3.317/1.283 cores over the arms, favoring Union. Preserve that confounder. Reverse-order repetition and both hot-sector pairs remain necessary; **keep LC2 running unchanged, no deployment recommendation yet**.
+- [M] Reverse-pair Union native solve:180.010s,963,440 scheduled/758,280 native; cold full verification passes, Python pairing remains in progress. Root owns the existing sequential primary8 driver/session89286; `joint_support_pruning` independently aggregates receipts, and `active_goal_delivery_audit` reviews the interpretation. No duplicate measurement jobs are launched.
+- [M] 06:55 update: reverse Union Python audit also passes; `accepted-3.json` now records the fully accepted arm. The reverse LC2-Off native run has started. The matched second-pair comparison is still incomplete.
+- [M] Epoch private controller source is frozen in validation at `f404cf66624cc6bad6c516c9169f40dd4a3166a3`, identical tracked tree to publisher `1e1d0943` (`a1c287437c493ee76a1c73bdd5f11f1a3ea8a5c6`). Mappings:1bacf62f→ef60f9a5;1e1d0943→f404cf66. Source audit passes; **this advance has not been compiled or executed**. Last actual metadata PASS remains52d7f57f. No competing builds until primary8 drains. Receipt: `TMP/codex-epoch-s3.JjASCU/controller-source-advance.json`.
+- The epoch native-wrapper smoke accepts any successful typed outcome, so it is not yet an interruption-equivalence or closure oracle. The next gate is frozen metadata plus one native focused/full-suite executable; real-native uninterrupted/interrupted equivalence, failure lifecycle, public wiring and1.5x performance qualification remain open. Do not treat the lockstep/private skeleton as finished deployment architecture.
+- Research continues read-only alongside the runs. Finite Union r1 has **zero** unbounded/point-cap/test-budget G2 fallbacks; its G2 planner takes5.630466s of79.936175s traversal. Thus a symbolic-cap fallback has no demonstrated opportunity here. Interior multi-band reuse likewise needs new evidence: earlier partial-domain census found2,284/2,298 residuals already single-piece. These are conditional research avenues, not approved implementation work.
 
 ### 2026-09-29 06:31 UTC — first Ready baseline accepted; candidate verification ongoing
 
