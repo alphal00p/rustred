@@ -239,11 +239,10 @@ fn geometry_flags_live_and_edge_run_mutations_fail_closed() {
         vec![0, 2, 1, 1],
     ] {
         let payload: Vec<_> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
-        let receipt = raw(&directory.0, Section::Edges, words.len() as u64, &payload);
+        let receipt = raw(&directory.0, Section::Edges, 1, &payload);
         assert!(
-            FixedSection::<2>::open(&directory.0, &receipt, words.len() as u64)
-                .unwrap()
-                .edges(3)
+            FixedSection::<2>::open(&directory.0, &receipt, 1)
+                .and_then(|section| section.edges(3))
                 .is_err()
         );
     }
@@ -273,5 +272,43 @@ fn geometry_flags_live_and_edge_run_mutations_fail_closed() {
             .unwrap()
             .domains()
             .is_err()
+    );
+}
+
+#[test]
+fn edge_header_counts_runs_not_words_and_exact_inventory_is_checked() {
+    let directory = Directory::new();
+    // Two runs (one empty, one two-target), six final runtime words.
+    let words = [0u32, 0, 1, 2, 0, 2];
+    let payload: Vec<_> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+    let receipt = raw(&directory.0, Section::Edges, 2, &payload);
+    let decoded = FixedSection::<2>::open(&directory.0, &receipt, 2)
+        .unwrap()
+        .edges(3)
+        .unwrap();
+    assert_eq!(decoded.log(), words);
+    assert_eq!((decoded.runs(), decoded.edges()), (2, 2));
+    // Both claims fit the conservative minimum, but disagree with the runs.
+    for count in [1, 3] {
+        let receipt = raw(&directory.0, Section::Edges, count, &payload);
+        assert!(
+            FixedSection::<2>::open(&directory.0, &receipt, count)
+                .unwrap()
+                .edges(3)
+                .is_err()
+        );
+    }
+    for (count, bytes) in [(0, payload.as_slice()), (1, &[][..]), (1, &[0u8; 9][..])] {
+        let receipt = raw(&directory.0, Section::Edges, count, bytes);
+        assert!(FixedSection::<2>::open(&directory.0, &receipt, count).is_err());
+    }
+    let receipt = raw(&directory.0, Section::Edges, 0, &[]);
+    assert_eq!(
+        FixedSection::<2>::open(&directory.0, &receipt, 0)
+            .unwrap()
+            .edges(0)
+            .unwrap()
+            .runs(),
+        0
     );
 }

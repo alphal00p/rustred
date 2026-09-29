@@ -1,4 +1,4 @@
-//! Provisional fixed-width section assembly, not a restore entry point.
+//! Provisional fixed-width fields/run-log assembly, not a restore entry point.
 //! Counts must agree with actual file lengths before any count-sized reserve.
 //! Arrays are the final runtime representation, never a full encoded copy.
 //! Cross-section geometry, records, roots, anchors and dispatch/session checks
@@ -46,12 +46,24 @@ impl<const N: usize> FixedSection<N> {
             Section::Domains => 37 + 4 * N as u64,
             Section::Nodes | Section::ClosureFlags => 1,
             Section::Live | Section::Ledger | Section::Frontiers => 8,
-            Section::Edges => 4,
+            // Edge headers count runs, not u32 words. A run has at least
+            // source/count (8 bytes), followed by its variable target list.
+            Section::Edges => {
+                if reader.remaining() % 4 != 0
+                    || count
+                        .checked_mul(8)
+                        .is_none_or(|minimum| minimum > reader.remaining())
+                    || (count == 0) != (reader.remaining() == 0)
+                {
+                    return Err(invalid("epoch edge run count does not fit byte length"));
+                }
+                0
+            }
             Section::Anchors | Section::Dispatch => {
                 return Err(invalid("variable epoch section needs its own decoder"));
             }
         };
-        if count.checked_mul(width) != Some(reader.remaining()) {
+        if width != 0 && count.checked_mul(width) != Some(reader.remaining()) {
             return Err(invalid("epoch section count does not match byte length"));
         }
         let count = usize::try_from(count).map_err(|_| invalid("epoch section count range"))?;
@@ -181,15 +193,21 @@ impl<const N: usize> FixedSection<N> {
         if watermark == u32::MAX {
             return Err(invalid("epoch edge watermark range"));
         }
+        let word_count = usize::try_from(self.reader.remaining() / 4)
+            .map_err(|_| invalid("epoch edge word count range"))?;
         let mut words = Vec::new();
         words
-            .try_reserve_exact(self.count)
+            .try_reserve_exact(word_count)
             .map_err(|_| io::Error::other("epoch edge log allocation"))?;
-        for _ in 0..self.count {
+        for _ in 0..word_count {
             words.push(self.reader.u32()?);
         }
         self.reader.finish()?;
-        EdgeStore::from_owned_log(words, watermark).map_err(io::Error::other)
+        let edges = EdgeStore::from_owned_log(words, watermark).map_err(io::Error::other)?;
+        if edges.runs() != self.count as u64 {
+            return Err(invalid("epoch decoded edge run count differs"));
+        }
+        Ok(edges)
     }
 }
 

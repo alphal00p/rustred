@@ -178,7 +178,9 @@ for control execution; W1 capability is still open, not silently promised.
 The follow-on publisher worktree adds a fixed 32-KiB authenticated reader and
 fixed-width section decoders. They verify local filenames, regular-file lengths,
 section magic/version/arity/kind/count and checked count-times-width against the
-actual remaining bytes before reserving count-sized runtime storage. Each decoded
+actual remaining bytes before reserving count-sized runtime storage. Edge headers
+count runs, not words: their minimum run bytes must fit, actual body bytes determine
+the owned word allocation, and decoded run cardinality must match exactly. Each decoded
 section remains provisional until full consumption, exact EOF and its digest pass.
 Canonical images reuse the existing job-image decoder and summary construction;
 no Symbolica state or new CAS serialization is introduced. Ledger words preserve
@@ -206,6 +208,13 @@ ledger state, complete/partial initial roots and role binding, exact dispatch
 replay and journal-backed cross-session reservation. Merely using saved_session+1
 would reuse sequence IDs after a crash before a new generation; no runtime resume
 is enabled by these section readers. New regression execution is still pending.
+
+Negative source evidence: after committing `daad0376`, next-interface inspection
+found that its edge reader incorrectly interpreted the writer's run count as a
+word count. Its real-writer roundtrip regression would fail for nonempty edges;
+neither source audit nor an unrun test constitutes execution evidence. A narrow
+follow-up corrects the count/length contract and adds explicit empty-run, variable
+target-count and mismatched-inventory mutations before any runtime exposure.
 
 ## Proposed S3 state and writer contract
 
