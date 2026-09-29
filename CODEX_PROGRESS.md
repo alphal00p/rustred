@@ -49,13 +49,14 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | active | joint_support_pruning | Native/full/W50/CLI and real pause-resume checks pass; final finite-Union control remains |
-| Rescue and explicit query roles | active | joint_support_pruning (integration; original author bounded_helpers_bmw) | Combined native gates pass at `d12db6cf`; finish representative controls, then merge |
+| G2′ integration | delivered | joint_support_pruning | Merged `9ef5464d`; all14 controls, full/native/W50/CLI and real pause/resume checks pass |
+| Rescue and explicit query roles | delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Merged `9ef5464d`; all116 required queries retained, tested combined quarantine/replay invariants |
 | Independent math/code audit | active | checkpoint_final_audit | Review runtime restore/stop slices and independently verify remaining control/measurement receipts |
-| Combined G2′ + rescue | active | joint_support_pruning + root + independent auditor | 13/14 representative mode/control combinations pass; merge after final cold/audit gate, then Ready comparisons |
-| Python production G2′ steering | active | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real pause/resume/cold checks pass, integrate with representative-gated native source |
+| Combined G2′ + rescue | delivered | joint_support_pruning + root + independent auditor | All14 controls independently accepted; native/dependency tree exactly matches frozen tested source |
+| G2′ deployment decision | active | joint_support_pruning (measurement), checkpoint_final_audit + root (independent interpretation) | Primary eight Ready deployment arms prepared; post-merge gates pass, await milestone push and explicit timing authorization |
+| Python production G2′ steering | delivered | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d` merged via `9ef5464d`; real pause/resume/cold and post-merge regressions pass |
 | Coordinator latency / telemetry | deferred | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4` source audit/typecheck pass; reopen native execution after G2 measurements, five regressions still unexecuted |
-| Epoch S3–S6 | active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing metadata validation `c51839c1`; audited body `0762955c` and private restore/session lifecycle `7005de75` queued for metadata check; native execution, async save-before-join and S4–S6 remain open |
+| Epoch S3–S6 | active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Body/private restore/session lifecycle metadata validation `52d7f57f` passes; native execution, async save-before-join and S4–S6 remain open |
 | N2 allocation-free geometry | pending | checkpoint_final_audit | Registered redundant-copy mechanism; profile after G2 before implementation decision |
 | N1 modular witnesses | pending | checkpoint_final_audit | API feasibility delivered; generic RHS witness is too late/insufficient; measure fully fixed predicate opportunity after G2 |
 | N4 coverage-first work | pending | checkpoint_final_audit + root | Feasibility delivered; count post-G2 eligible exact-payload cost before implementation, preserving mathematical obligations |
@@ -82,6 +83,14 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 06:06 UTC — G2/rescue integrated after all14 representative gates
+
+- [M] Final finite-Union Python audit passed:969,467 records paired to cold generation3,752,033 natives independently reinspected,80,181 exact G2 covers/215,989 anchor links checked, all required queries closed and no frontiers/errors/uncovered domains. Native226.745s; separate cold guard152.224s and Python guard446.320s. Every one of14 native runs and63 per-stage guards passed and drained; `CONTROL_RESULTS.json`/`CONTROL_DRAIN.json` retain exact receipts.
+- Independent auditor approved the complete matrix and conflict-free merge. Main integration is `9ef5464d`, with bounded metric-reader fix cherry-picked as `77059cdf`. The **entire committed** crates/Cargo/.cargo/vendor tree is identical to tested native `d12db6cf`; Python steering equals tested `cd52c90d`. User-owned dirty FeynKit content retained identical SHA256 `33819cb3e5053a59f3587741e29b297a3a5b53bfa35dabcbe2e8fe95fe700332`; reference-only/untracked material was not staged.
+- [M] Root post-merge Python suite passed284 tests in22.601s (one expected optional enumeration skip, already separately tested); tooling suite passed24/24 in3.860s. Guards exited0/null in24.175s/4.158s, all processes drained. Exact commands and receipts: `TMP/codex-g2-rescue.tzdFuj/post-merge-{python,tooling}/`. Neither required native recompilation because the merged native source is identical to the frozen tested source.
+- [M] Epoch body/private runtime restore/session lifecycle metadata-only check passed at validation `52d7f57f`:41.178s guarded,37.33s Cargo, peak single child1,226,180KiB. Receipt `TMP/codex-epoch-s3.JjASCU/typecheck-lifecycle-light/`. All check processes drained. This is not native execution or a working public checkpoint claim; source-only async work was excluded.
+- Next executable steps: push this audited opt-in milestone; launch only the preregistered eight Ready deployment arms. No LC2 action or production-switch recommendation yet. The original foreground/production input and pending-growth metric remain untouched.
 
 ### 2026-09-29 05:58 UTC — final control verifying; production remains read-only
 

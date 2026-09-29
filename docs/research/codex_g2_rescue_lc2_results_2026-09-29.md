@@ -1,6 +1,7 @@
 # Combined G2′ / explicit-role rescue on LC2
 
-Status: integration validation in progress; **not a production-switch recommendation**.
+Status: integrated on `fable_5_1`; all14 representative correctness runs pass.
+**Not yet a production-switch recommendation.**
 Plan: `CODEX_PROGRESS_PLAN.md`. Measurement protocol:
 `codex_lc2_integration_protocol_2026-09-29.md`. Continuous record:
 `CODEX_PROGRESS.md`.
@@ -33,6 +34,7 @@ terminals, or change pending-growth-per-completion.
 |---|---|
 | Tested native source | `d12db6cfa23c09f7d9c2946416ea49763ece48f0` |
 | Tested Python steering | `cd52c90d5280125f42f6c348a14f89e862206798` |
+| Main integration / metric-reader follow-up | `9ef5464d` / `77059cdf` |
 | Symbolica | `ef0db494533c87adb40356c996241680dc5a7bff`, patch-free, atom format 6 |
 | Optimized candidate SHA-256 | `8169221a8977ae261e777ddca5ac9e82fcb339377362d988472930595b1ea341` |
 | LC2 reference SHA-256 | `fd9b9ac96a50513d8119a43938313e8a729110d6a3815b0f949cec4acb1d9d60` |
@@ -43,6 +45,8 @@ It is a read-only frozen copy. Both comparison executables use the campaign
 profile: release optimization, fat LTO and one codegen unit. Compilation is
 excluded from runtime measurements; the candidate build itself took
 3,446.419 seconds including its guarded launcher.
+The merged committed native/dependency tree is identical to the tested native
+source. The metric-reader follow-up changes only Python research tooling.
 
 ## Completed validation
 
@@ -55,6 +59,7 @@ excluded from runtime measurements; the candidate build itself took
 | Full Python suite | 284 tests, one expected optional enumeration skip, 22.425 s |
 | Separate optional full input enumeration | Passed, 84.763 s |
 | Offline input checker | 7,424 membership probes, zero disagreements |
+| Root post-merge Python / tooling reruns | 284 tests, one expected optional skip /24 passed;22.601s /3.860s |
 
 The width-50 tests establish correctness coverage, not scaling or high CPU
 utilization. They overlap the full suite and must not be summed into a new
@@ -88,9 +93,9 @@ combined four-loop partial-initial control, and finite five-loop. Each Off
 result must match the valid LC2 record/counter reference exactly. Both modes
 also require full cold reinspection and a paired Python audit.
 
-All six four-loop controls now pass both modes with full reinspection.
-Counts below are Off / Union; all listed input queries close. The finite
-five-loop pair remains pending. These single Ordered correctness runs are
+All seven controls now pass both modes with full reinspection.
+Counts below are Off / Union; all listed input queries close. These single
+Ordered correctness runs are
 not substitutes for the Ready deployment pairs.
 
 | Control | Required input queries | Distinct roots | Scheduled domains: Off / Union | Native inspections: Off / Union |
@@ -101,12 +106,21 @@ not substitutes for the Ready deployment pairs.
 | X | 656 | 656 | 47,193 / 46,060 | 46,826 / 46,017 |
 | Combined four-loop | 58 | 32 | 65,444 / 68,184 | 30,159 / 32,085 |
 | Combined, partial-initial variant | 58 | 32 | 68,483 / 71,284 | 31,717 / 33,663 |
+| Finite five-loop | 1 | 1 | 1,273,376 / 969,467 | 967,621 / 752,033 |
 
 In particular, G2 increases domain/native work on the combined controls.
 This negative result is retained: exact reuse is not universally cheaper,
 and opting into it needs workload-specific evidence. The finite-five-loop
 control has one initial region containing1,324 integer tuples; it does not
 represent completion of the full frozen production request.
+
+The finite Ordered pair took310.284s Off and226.745s Union, including process
+launch and output. Union's separate cold verifier took152.224s; the paired
+Python guard took446.320s and checked all80,181 exact union records and215,989
+anchor links. Verification costs are not solver times. All14 native runs are
+uncensored, all63 per-stage guards exited0 without a stop reason, and every
+owned process group drained. Receipts/index are in
+`TMP/codex-g2-pilot-prep.n7Kd5q/CONTROL_RESULTS.json` and `CONTROL_DRAIN.json`.
 
 An independent review found that the historical benchmark extractor could
 read nested `successors`/`events` rather than root totals. The original FG Off
@@ -117,8 +131,9 @@ Preserved original receipts are supplemented with root-aware
 The tracked bounded extractor is corrected in `3832bf58`, independently
 reviewed and covered by24 focused tests. It uses complete root/path-qualified
 fields from bounded buffers, leaving unavailable fields unknown. This
-tooling-only fix is not yet merged here; the original running control tool
-and its receipts remain unchanged.
+tooling-only fix is now merged as `77059cdf`; the original control tool and
+its receipts remain unchanged. The Ready arms use the same frozen corrected
+runner on both sides.
 
 No new speedup is claimed yet. The decision requires two interleaved matched
 Ready pairs with identical inputs, CPU placement and worker budgets, recorded

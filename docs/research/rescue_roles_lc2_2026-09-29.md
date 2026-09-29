@@ -76,12 +76,17 @@ failed, 12 ignored diagnostics. Evidence is
 `TMP/codex-g2-rescue.tzdFuj/native-fixed-{focus,full}/`; both guards exited0
 with no stop reason. All six failures from the first combined attempt are
 preserved in the earlier receipts and passed after source-backed fixes.
-The16-CPU allocation omitted10 genuine W50 subcases; two additional capacity
-notices came from tests already limited to<=6. These are separate from the
-12 ignored diagnostics, and no all-width claim is made. The public pipeline
+The original16-CPU allocation omitted10 genuine W50 subcases; two additional
+capacity notices came from tests already limited to<=6. A subsequent independent
+50-physical-core run passed13 tests, including all10 omitted subcases, with no
+capacity skips. These tests overlap the full suite and are not extra unique
+test counts; the12 ignored diagnostics remain ignored. The public pipeline
 tests exercise amendment/activation ordering; separate state/checkpoint tests
 exercise actual G2 loans and late taint. Representative workload/oracle and
-performance gates remain separate. No production campaign was started,
+performance gates remain separate. All14 representative Off/Union controls
+subsequently passed, including strict Off identity and full native reinspection;
+see `codex_g2_rescue_lc2_results_2026-09-29.md`. Repeated Ready performance gates
+are still pending. No production campaign was started,
 stopped, resumed or edited during this integration.
 
 The focused frontend matrix ran 161 tests: 160 passed, one optional full
