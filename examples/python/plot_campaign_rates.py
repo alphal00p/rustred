@@ -147,6 +147,7 @@ def make_svg(points, metadata, title="RustRed campaign rates"):
     origin = min(point["elapsed"] for point in samples)
     last = max(point["elapsed"] for point in samples)
     span = max(1.0, last - origin)
+    time_scale, time_unit = (1.0, "Seconds") if span < 120 else (60.0, "Minutes") if span < 7200 else (3600.0, "Hours")
     left, right, top, bottom, width = 95, 1050, 115, 475, 1120
     rate_values = [point[key] for point in samples for key in ("completion", "closure") if point[key] is not None]
     ymax = max(rate_values, default=0)
@@ -165,11 +166,11 @@ def make_svg(points, metadata, title="RustRed campaign rates"):
         svg += [f'<line x1="{left}" x2="{right}" y1="{yy:.2f}" y2="{yy:.2f}" stroke="#27384e"/>',
                 f'<text x="{left - 12}" y="{yy + 5:.2f}" text-anchor="end" class="axis">{value:,.3g}</text>']
         xx = left + index / 5 * (right - left)
-        elapsed = span * index / 5 / 3600
+        elapsed = span * index / 5 / time_scale
         svg += [f'<line x1="{xx:.2f}" x2="{xx:.2f}" y1="{top}" y2="{bottom}" stroke="#1b2b40"/>',
                 f'<text x="{xx:.2f}" y="{bottom + 28}" text-anchor="middle" class="axis">{elapsed:.2f}</text>']
     svg += ['<text x="22" y="280" transform="rotate(-90 22 280)" text-anchor="middle" class="axis">domains / second</text>',
-            f'<text x="{(left + right) / 2}" y="{bottom + 55}" text-anchor="middle" class="axis">Hours since plotted interval start (run elapsed {origin / 3600:.3f} h)</text>']
+            f'<text x="{(left + right) / 2}" y="{bottom + 55}" text-anchor="middle" class="axis">{time_unit} since plotted interval start (run elapsed {origin:.3f} s)</text>']
     for key, color, label in (("completion", "#59cbfa", "Local completions"),
                               ("closure", "#d0a0ff", "Recursively closed — conservative scan-batched observations")):
         count = 0

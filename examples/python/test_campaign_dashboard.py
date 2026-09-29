@@ -157,6 +157,12 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual([event["event"] for event in events], ["checkpoint", "campaign_status"])
         self.assertIn("/run/checkpoint/state-4", events[0]["message"])
         self.assertIn("pending +0.22 per completion", events[1]["message"])
+        # Epoch checkpoint milestones supply a directory, not a state_path.
+        frame["checkpoint_milestones"][0]["state_path"] = ""
+        frame["checkpoint_milestones"][0]["directory"] = "/run/epoch/checkpoints/main"
+        output = io.StringIO()
+        DASHBOARD.Presenter(output).render_frame(frame, now=0)
+        self.assertIn("/run/epoch/checkpoints/main", json.loads(output.getvalue().splitlines()[0])["message"])
 
     def test_no_untrusted_ansi_or_nan_in_normalized_frame(self):
         status = sample_status()
@@ -195,6 +201,22 @@ class DashboardTests(unittest.TestCase):
         for label in ("Local completions", "Recursive closure", "pending +0.22 per completion",
                       "Discovery−closure -12.000/s", "Closure snapshot stale", "scan advanced", "warm-up"):
             self.assertIn(label, lines)
+
+    def test_real_width_rate_labels_and_warmup_do_not_clip(self):
+        status = sample_status()
+        status["derived"]["window_wall_seconds"] = 11
+        status["derived"]["discovery_closure_net_1h"]["covered_seconds"] = 11
+        frame = TELEMETRY.normalize_status(status)
+        for width in (79, 99, 139):
+            lines = DASHBOARD.render_table(frame, width, 31, True)
+            text = "\n".join(lines)
+            self.assertIn("\x1b[94m", text)
+            self.assertNotIn("\x1b[34m", text)
+            for label in ("Local completions", "Recursive closure"):
+                line = next(line for line in lines if label in line)
+                self.assertNotIn("…", line)
+                self.assertIn("warm-up", line)
+            self.assertIn("scan-batched", text)
 
     def test_tty_overwrites_resize_and_plain_is_json(self):
         class Tty(io.StringIO):
@@ -273,6 +295,8 @@ class PlotTests(unittest.TestCase):
             self.assertIn("Test &lt;&amp;&gt;", svg)
             self.assertIn("graph-dirty closure snapshot", svg)
             self.assertIn("not proof", svg)
+            self.assertIn("Seconds since plotted interval start", svg)
+            self.assertIn(">2.00</text>", svg)
 
     def test_repeated_poll_endpoint_does_not_create_a_measurement(self):
         frame = TELEMETRY.normalize_status(sample_status())

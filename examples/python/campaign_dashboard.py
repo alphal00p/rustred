@@ -229,8 +229,10 @@ def render_table(frame, width=100, height=24, color=True):
     snap, gap = frame["closure_snapshot"], rates["discovery_minus_closure"]
     checkpoint, writing = frame["checkpoint"], frame["checkpoint_write"]
     inner = width - 4
-    label_width = min(19, max(10, inner // 5))
-    value_width = min(25, max(8, inner // 3))
+    # Keep the two scientifically distinct rate labels whole even at 80
+    # columns; numeric cells do not need 25 columns on a narrow terminal.
+    label_width = 19 if width >= 74 else min(19, max(10, inner // 5))
+    value_width = 20 if 74 <= width < 100 else min(25, max(8, inner // 3))
     detail_width = inner - label_width - value_width - 6
     table = detail_width >= 12
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
@@ -248,6 +250,24 @@ def render_table(frame, width=100, height=24, color=True):
     def window(value):
         return (f"window {duration(value.get('covered_seconds'))}/{duration(value.get('window_seconds'))}"
                 + (" warm-up" if value.get("warmup") is True else ""))
+
+    def compact_window(value):
+        def short(seconds):
+            if number(seconds) is None:
+                return "?"
+            seconds = max(0, int(seconds))
+            if seconds >= 3600:
+                return f"{seconds // 3600}h" + (f"{seconds // 60 % 60:02d}m" if seconds // 60 % 60 else "")
+            if seconds >= 60:
+                return f"{seconds // 60}m{seconds % 60:02d}s"
+            return f"{seconds}s"
+        return (f"{short(value.get('covered_seconds'))}/{short(value.get('window_seconds'))}"
+                + (" warm-up" if value.get("warmup") is True else ""))
+
+    def rate_window(value, scan_batched=False):
+        prefix = "scan-batched " if scan_batched else "window "
+        detailed = ("observed scan-batched · " if scan_batched else "") + window(value)
+        return detailed if cell_width(detailed) <= detail_width else prefix + compact_window(value)
 
     state = clean(frame["state"]).upper()
     stale_heartbeat = frame["heartbeat_stale"]
@@ -281,7 +301,7 @@ def render_table(frame, width=100, height=24, color=True):
         checkpoint_text = f"WRITING generation {count(writing['generation'])} · last {checkpoint_text}"
     # Priorities are for terminal-height adaptation, not a progress heuristic.
     rows = [
-        (0, row("ROOT CLOSURE", root, bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "34")),
+        (0, row("ROOT CLOSURE", root, bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "94")),
         (1, row("Domains", count(counts["total_domains"]), f"{conservative}{count(counts['total_closed'])} closed · {unresolved_bound}{count(counts['unresolved_domains'])} unresolved")),
         (2, row("Queue / local", count(counts["pending"]) + " pending", f"{count(counts['locally_completed'])} completions · frontiers {count(counts['frontiers'])}")),
         (2, row("CPU", cpu_text, workers, "32")),
@@ -291,8 +311,8 @@ def render_table(frame, width=100, height=24, color=True):
         (3, row("Memory (GB)", f"{gb(resource['aggregate_rss_bytes'])} / {gb(resource['hard_memory_bytes'])}", f"stop {gb(resource['soft_memory_bytes'])} · host free {gb(resource['host_available_bytes'])}", "33")),
         (5, row("Max scheduled rank", count(rates["max_scheduled_finite_rank"]),
                 "RSS " + ("unknown" if rates["rss_bytes_per_discovered_domain"] is None else f"{rates['rss_bytes_per_discovered_domain'] / 1000:.1f} KB / domain"))),
-        (-2, row("Local completions", _rate(completion["per_second"]), window(completion), "36")),
-        (-2, row("Recursive closure", _rate(closure["per_second"]), "observed scan-batched · " + window(closure), "35")),
+        (-2, row("Local completions", _rate(completion["per_second"]), rate_window(completion), "36")),
+        (-2, row("Recursive closure", _rate(closure["per_second"]), rate_window(closure, scan_batched=True), "35")),
         (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure")),
         (0, full(f"Discovery−closure {gap_text} observed gap", "32" if gap_rate is not None and gap_rate < 0 else "33")),
         (0, full(gap_detail)),
@@ -386,7 +406,7 @@ class Presenter:
                         detail += " · timestamp invalid"
                 if number(event.get("duration_seconds")) is not None:
                     detail += f" · {event['duration_seconds']:.2f}s"
-                detail += " · " + str(event.get("state_path", event.get("directory", "")))
+                detail += " · " + str(event.get("state_path") or event.get("directory", ""))
                 if self.tty:
                     self.stream.write(clean(detail) + "\n")
                 else:

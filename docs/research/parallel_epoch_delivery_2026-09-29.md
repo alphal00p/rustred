@@ -1,7 +1,7 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
-Status: **earlier optimized-binary lifecycle gates passed; combined four-loop
-performance gate not met; consolidated monitored build frozen, gates running**.
+Status: **final monitored-binary lifecycle and combined four-loop correctness
+gates passed; combined four-loop performance gate not met**.
 This is not a production-launch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
@@ -12,9 +12,42 @@ passes both combined matched pairs and all four query-order pairs in correctness
 but not the performance gate. The baseline two-run means are Ready23.2965s
 versus Epoch25.8450s, including independent cold reinspection: Epoch is10.94%
 slower. Native timings are worse in both pairs. No mechanistic query-order
-candidate produced a decisive gain. The banana pivot candidates were generated
-successfully, but their exact terminal-set comparison and stitched closure gate
-remain pending. See [the detailed ordering study](mechanistic_ordering_2026-09-29.md).
+candidate produced a decisive gain. A subsequent banana-owner stitched pilot
+keeps all58 required queries,508 routing witnesses and15 other owner payloads
+unchanged. Fresh-natural Ready/Epoch both cold-All pass in24.839/24.347s (one
+pair, not a speedup gate). Mixed-line-first blows up in both engines: Epoch is
+censored at129.177s/1,445,109 domains and Ready at60.672s/215,330 domains. Neither
+mixed arm closes. Aggregate terminal counts are not terminal-key identity proofs;
+this exploratory comparison makes no such claim. See
+[the detailed ordering study](mechanistic_ordering_2026-09-29.md).
+
+The final monitored3428 build confirms that negative result on the original
+matched combined control (native traversal plus independent cold-All; Python
+summary audit timed separately):
+
+| Arm | Native seconds | Cold-All seconds | Sum seconds |
+| --- | ---: | ---: | ---: |
+| Ready A1 | 9.977 | 15.157 | 25.134 |
+| Epoch FIFO P1 | 11.987 | 16.165 | 28.152 |
+| Epoch FIFO P2 | 11.383 | 15.155 | 26.538 |
+| Ready A2 | 8.782 | 15.173 | 23.955 |
+
+All four independently verify all58 required queries (32 admitted roots) with
+zero uncovered obligations. Epoch's mean27.345s versus Ready24.545s is11.41%
+slower; both pairs are unfavorable. The first Epoch arm's only10s contention
+sample estimated3.26 foreign busy CPUs on the16 assigned CPUs, while the first
+Ready arm ended before a sample. Do not infer a contention-adjusted speedup.
+Raw receipts: `TMP/codex-final-monitor-matrix.LJLGfi/runs/`. Further input/runtime
+diagnostics remain exploratory, not grounds for a launch recommendation yet.
+
+The already exposed `all-miss` lookup control also completes the same scope:
+10.984s native plus16.159s cold=27.143s, with the same51,139 domains as Snapshot.
+That is only0.74% below Snapshot's mean and10.58% above Ready's mean; it is not
+a useful improvement and is not being repeated. Its lower boundary cost
+(0.063s versus Snapshot P1's0.332s) is offset by greater merge cost
+(2.130s versus1.665s). These phase measurements are diagnostic, not additive
+substitutes for whole-command timing. Evidence: `all-miss-results.json` beside
+`final-abba-results.json` under the final-monitor matrix directory.
 
 The requested hourly discovery-minus-closure monitor passes the complete Python
 suite (323 passed, one optional skip), native test metadata and the actual
@@ -23,10 +56,27 @@ identified optimized `3428b519` build finished successfully in3786.523s, includi
 native live closure refresh. Its frozen executable is
 `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519`, SHA256
 `321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`.
-Actual CLI pause/resume/live-refresh and final matched controls are now running
-or pending. None of that telemetry work is present in the frozen89 comparisons.
-The later Python dashboard/stream change is a separately validated source
-slice; freeze its matching consumer modules before delivery.
+Actual CLI pause/resume/live-refresh and lockstep controls passed on this
+binary; remaining family/five-loop performance controls remain pending. The first M2
+resumed leg finished before its5s heartbeat and remains an incomplete live
+observation. One additional same-FG248/W6 run with two inspectors observed
+genuine live refresh both before pause and after resume and passed independent
+cold-All248. M4 also passed cold-All248 with6,177 committed cuts. These are
+lifecycle/correctness receipts, not a speedup. None of that telemetry work is
+present in the frozen89 comparisons.
+
+The Python dashboard/stream milestone `4a1371a5` is pushed separately. A real
+FG248 pilot then exercised five PTY monitors at80/100/140 columns, live resize
+and NO_COLOR; root and the author visually inspected captured terminal states.
+Narrow fixes improve contrast, prevent clipped rate labels, preserve checkpoint
+directory notices, and scale short-run plot axes. The corrected full Python suite
+is344 PASS/one existing optional skip. Real cold-All248 passes; the encompassing
+visual-pilot M4 receipt remains INCOMPLETE only because a positive computing-worker
+sample was not captured. It is not a new performance measurement or an all-gates
+pass. Evidence: `TMP/codex-dashboard-live.09MDmS/VISUAL_AUDIT.md`. Rendered images
+are captured-state exports/replays, not OS screenshots, and pyte does not
+reproduce faint intensity. Normalized telemetry, coloured table and SVG consumers
+do not change native decisions or the existing pending-growth calculation.
 
 ## Delivered separately: compatible Stage A
 

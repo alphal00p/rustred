@@ -300,7 +300,7 @@ class MonitorTests(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=True):
                 MONITOR.Presenter(stream).render({"state": "running"}, now=0)
             self.assertEqual("\x1b[1;36m" in stream.getvalue(), not no_color)
-            self.assertEqual("\x1b[34m" in stream.getvalue(), not no_color)
+            self.assertEqual("\x1b[94m" in stream.getvalue(), not no_color)
             self.assertIn("\x1b[2K", stream.getvalue())
 
     def test_atomic_status_and_stale_or_reused_pid_observation(self):

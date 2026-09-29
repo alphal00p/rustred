@@ -128,6 +128,17 @@ for headless campaign operation. Test rendering at fixed terminal sizes,
 ANSI colours, stream consumers, reset handling and representative saved data.
 This work must not change native solver code, the in-flight3428 build, or LC2.
 
+Latest follow-up: the dashboard author must visually inspect a real four-loop
+pilot in a terminal, not only synthetic fixtures or string assertions. Capture
+actual PTY output and rendered evidence at ordinary and narrow sizes, exercise
+resizing, checkpoint notices, long paths, colours/NO_COLOR and stale states,
+and inspect alignment, clipping, overwrite behaviour and readability. Keep
+synthetically induced alarm states explicitly separate from live observations.
+Use a disposable workspace pilot, the frozen native binary and matching Python
+source; no production tab or campaign mutation. Schedule it outside matched
+timing runs. A recreated image is labelled as a rendering of captured terminal
+data rather than a screenshot of an actual terminal application.
+
 The existing runtime `--permutation` / `IntegralOrder::with_permutation` surface
 already allows coordinate-tie pivot experiments without recompilation. The
 banana natural/mixed-line-first generators have executed; terminal-set and

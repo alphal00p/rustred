@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 22:20 UTC
+## Current shortened-delivery ownership — 2026-09-29 23:55 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,13 +52,14 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | compiled; earlier lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` baseline and four query-order pairs complete: no reliable parity/win; final monitored build underway |
+| Rolling Epoch controller and lookup replicas | final build/lifecycle pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Final3428 original ABBA:27.345s Epoch versus24.545s Ready,11.41% slower; input/pivot controls continue |
 | Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | Python and actual focused Tracker checks pass; final native build active | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 metadata PASS; Tracker12 PASS/one ignored; final live CLI refresh/restore pending |
-| Dashboard and rate-series stream | delivered; independent full Python suite passes | `dashboard_stream`; independent root/StageA/`parallel_gate_critique` review |344 tests:343 pass/one optional skip; freeze matching Python modules, then actual supervisor stream smoke |
-| Mechanistic input/pivot ordering | four query pairs delivered negative; two pivot generations delivered; terminal-key gate pending | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Query-only changes not decisive; banana sparse generations complete, loader diagnostic censored, no terminal-equivalence or stitched walk claim |
+| Dashboard and rate-series stream | real-PTY visual audit and fixes delivered | `dashboard_stream`; independent root/StageA/`parallel_gate_critique` review |345 tests:344 pass/one optional skip; root viewed real80/140-column replays and plot; freeze corrected modules |
+| Mechanistic input/pivot ordering | query controls negative; mixed banana pivot blows up in both engines | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | Natural pair cold-All passes; mixed arms censored. Finite-prefix proxy complete but slower; individual controls and one bounded full-coordinate reindex next |
+| Runtime discovery-strategy API | isolated draft, not merged | author `stage_a_release`; independent `parallel_gate_critique`/root | Finite source/sector permutations, original source IDs, JSON checkpoint binding; metadata check then actual tests required |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
 | Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
@@ -105,6 +106,164 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 23:55 UTC — visual audit delivered; pivot/prefix negatives retained
+
+- [M] Real FG248 dashboard audit covers five PTYs, resize and NO_COLOR. Narrow
+  fixes improve root-count contrast,80-column rate names/windows, directory-only
+  checkpoint notices and short-run plot axes. Author inspected all frames; root
+  independently viewed corrected80/140 and actual-rate PNGs. Unknown worker and
+  publication fields are absent native telemetry, not parser losses. Full Python
+ 345 tests:344 PASS/one existing optional skip in30.160s; root independently
+  reran21 dashboard tests PASS using workspace-localTMP.
+- [M] Evidence/report: `TMP/codex-dashboard-live.09MDmS/VISUAL_AUDIT.md`.
+  Images are pyte/Chromium exports of captured PTY state; faint-intensity limits
+  are disclosed. Post-fix images replay data, not a second solver run. Actual
+  visual pilot cold-All248 passes but computing-positive observation stays
+  INCOMPLETE. No lifecycle or performance claim is inferred from a screenshot.
+- [M] Fresh-natural banana: Ready24.839s versus Epoch24.347s including cold-All,
+  both pass, one pair only. Mixed-line-first explodes on both: Epoch stopped at
+ 129.177s/1,445,109 domains; Ready censored at60.672s/215,330 domains. Neither
+  completes or cold-verifies. Fewer generated rules do not imply less traversal.
+- [M] Finite-prefix proxy completes in91.4s inclusive pilot time. Native13.065s
+  plus cold22.179s=35.244s,48 admitted roots/all74 query rows cold-All accepted,
+  including original58 required rows. Domains49,174 versus51,139 baseline, but
+  primary wall28.89% worse than contemporary FIFOmean. This rejects only the
+  cheap early-helper prefix, not true staged rank deepening. All jobs drained.
+- [D] Continue required individual controls and one already prepared true
+  sector-priority coordinate reindex, regenerating all payloads and remapping
+  every query/route. Independent reviewer audits the isolated discovery-strategy
+  draft; metadata alone is not executed test evidence or a launch gate.
+
+### 2026-09-29 23:43 UTC — actual four-loop dashboard visual findings
+
+- [M] Disposable FG248 run completed with raw cold-All248 PASS and no checkpoint
+  mutation. The encompassing M4 observation receipt is honestly INCOMPLETE
+  because a positive computing-worker sample was not observed; this is not
+  relabelled as all lifecycle predicates passing. The earlier final native M4
+  pass remains separate. Captured about2.1MB of genuine PTY output from five
+  cleanly exiting monitors, including100→80→140→100 resizing and NO_COLOR.
+- [M] Dashboard author and root both inspected rasterized captured-live PTY
+  frames at80 and140 columns (`TMP/codex-dashboard-live.09MDmS/`). Layout,
+  checkpoint notices and resize cleanup held, but ordinary ANSI blue gave poor
+  contrast and the80-column layout clipped the two rate names. Approved narrow
+  bright-blue/column-allocation/window-wording fixes, with regression tests and
+  captured-frame replay. This does not alter native telemetry or arithmetic.
+- [D] Check whether unknown counters during checkpoint events are absent native
+  telemetry or parser loss; do not manufacture values or silently reuse stale
+  activity. Frozen4a source remains unchanged while fixes are reviewed at root.
+  The render uses a fixed xterm palette and pyte (no SGR2 faint emulation), not
+  an OS terminal screenshot. Native benchmark resources have been handed back.
+
+### 2026-09-29 23:40 UTC — lookup falsifier negative; real visual audit running
+
+- [M] AllMiss finishes and is independently cold-All accepted for the same
+  58 queries/32 roots:10.984+16.159=27.143s;51,139 domains,31,846 inspections.
+  It is0.74% below Snapshot's paired mean but10.58% above Ready's mean: no
+  useful win, no repeat. Snapshot P1 inspection/merge/boundary/checkpoint
+  seconds4.904/1.665/0.332/0.029; AllMiss4.565/2.130/0.063/0.027. Do not add
+  overlapping phase/worker totals as a replacement for measured wall time.
+  Raw summaries: `TMP/codex-final-monitor-matrix.LJLGfi/{final-abba-results,
+  all-miss-results}.json`; all15 owned groups drained before handoff.
+- [M] `dashboard_stream` now runs the disposable actualFG248 M4 control,
+  monitors on real PTYs at multiple widths/resize/NO_COLOR, and captures actual
+  stream data. Evidence-only pyte0.8.2/wcwidth0.2.13 are installed only in
+  ignoredTMP. Chromium renders captured terminal states; pyte's lack of SGR2
+  faint support will be disclosed. No production state or terminal is changed.
+
+### 2026-09-29 23:38 UTC — final original-input four-loop gate remains negative
+
+- [M] Final3428 ABBA completes with four raw cold-All passes, each covering
+  all58 required queries/32 admitted roots with no uncovered obligations.
+  Native+cold seconds: ReadyA1 25.134,EpochP1 28.152,EpochP2 26.538,ReadyA2 23.955.
+  Means:Ready24.545 versus Epoch27.345,11.41% slower. Root checked the raw
+  request binding, role/physical coverage and CP6 acceptance separation;
+  checkpoint-only Python audit remains honestly INCOMPLETE, while raw cold-All
+  establishes the claimed scoped control closure. No parity or speed gate pass.
+- [D] Continue the already prepared AllMiss and pivot diagnostics, not an
+  unbounded blind permutation search. The dashboard author has the real4L
+  visual-audit handoff next; a local isolated pyte dependency is authorized for
+  faithful replay of captured terminal state, rather than a home-grown emulator.
+  Its resource use is not included in matched solver timings.
+
+### 2026-09-29 23:36 UTC — pivot diagnostic unblocked without an equality claim
+
+- [M] Independent review concludes raw terminal-key equality is not a
+  prerequisite for an exploratory pivot comparison. Selected-owner loading
+  permits owner-specific orders while checking family/solver policy and
+  native programs. Different finite bases can be legitimate; equal aggregate
+  residual counts are not an identity proof. Cold-All remains required, with
+  its actual scope: closure relative to supplied candidate programs, not an
+  independent replay of their original algebraic derivation.
+- [D] Authorized a fresh-natural versus mixed-line-first banana2x2 crossed with
+  Ready/Epoch, unchanged full58-query scope and matching budgets. This separates
+  pivot effects from scheduler effects. Record native loaded-terminal counts;
+  do not claim production readiness or cross-program reduction equivalence.
+- [M] Root prepared inputs only under `TMP/codex-banana-stitch.4Lf4R3/`, using
+  its `stitch.py`. The exact generated root mask selects ordinal5; all15 other
+  payload bytes,508 route objects and58 query bytes/roles are preserved. Payload
+  metadata uses actual bytes, not stale original informational hashes. The
+  execution lane is independently checking these inputs before native use.
+- [M] First final matched pair cold-All passed: Ready9.977+15.157=25.134s;
+  Epoch FIFO11.987+16.165=28.152s. No performance win. FIFO's one10s contention
+  sample estimates3.26 foreign busy CPUs on the16 assigned CPUs; Ready ended
+  before a corresponding sample. Retain this caveat, not an invented correction.
+
+### 2026-09-29 23:32 UTC — isolated runtime-policy implementation begins
+
+- [D] Approved `stage_a_release`'s A-only source/tests implementation in
+  `TMP/codex-runtime-discovery.280crc/repo`, branch
+  `codex/runtime-discovery-strategy`, based on4a1371a5. It must not alter the
+  qualified-for-lifecycle3428 build or force a new long build into the current
+  performance-gate path. No broader B-order implementation is implied.
+- [M] Existing generation checkpoints already bind family input, fingerprint,
+  root, permutation, solver policy, backend, sector inventory and source/
+  preconditioning recipe version. There is no existing portable prepared-basis
+  coefficient digest. Use the explicit recipe-version binding plus persisted
+  validated finite ordinal plans, with deterministic basis regeneration and
+  row-count/bijection checks; do not invent a coefficient hashing or CAS layer.
+  Plans guide scheduling, while original source IDs and exact replay remain
+  mathematical authority. A freshly implemented framework needs separate tests
+  before merge; it is not yet exposed in the stable CLI/Python build.
+- [M] Final combined4L ABBA measurement started after the N10 job drained;
+  first Ready native9.977s completed with32 initial roots closed. Independent
+  cold verification is still running, so no accepted pair or new win yet.
+
+### 2026-09-29 23:30 UTC — real-terminal visual audit requested
+
+- [D] User requests deep visual inspection by the dashboard author on a real4L
+  run. Reassign the prepared actual supervisor-stream smoke from StageA to
+  `dashboard_stream` after the critique slot frees. Require real PTY capture,
+  actual rendered-image inspection, multiple terminal dimensions and resize/
+  checkpoint/readability checks; distinguish replay/synthetic stress states
+  from live observations. No production tab/campaign changes. Root found an
+  already installed Chromium renderer; no new website, network service or
+  solver build is necessary for visual evidence.
+- [M] The single final-bound N10 diagnostic compile was censored at120.202s
+  without an executable. No retry or ad-hoc decoder. Terminal identity remains
+  unmeasured. Independent reviewer is assessing whether an exploratory stitched
+  pivot control can validly proceed without that equality claim, comparing the
+  same new programs between engines and retaining full original query scope.
+  No deployment or cross-program equivalence is inferred from residual counts.
+
+### 2026-09-29 23:29 UTC — final native lifecycle passes; dashboard pushed
+
+- [M] Final3428 M2 with two inspectors passes every observation and exact
+  lifecycle gate: saved refresh4, genuine resumed heartbeat refresh5 with
+  46,876/90,095 domains closed. Both legs use the sameFG248/W6 request and
+  inspector allocation. Native17.221+7.483s; full case38.594s. Independent
+  cold-All248 passes, no checkpoint mutation and all owned groups drained.
+  First M2's short resumed leg remains honestly INCOMPLETE, not overwritten.
+- [M] M4 passes: native14.425s,6,177 committed cuts, case26.756s,
+  independent cold-All248. Receipts under
+  `TMP/codex-stage-a.2RU3AX/final3428-M2-live-inspect2` and `final3428-M4`.
+  Explicit heavy-resource handoff to the single bounded N10 diagnostic occurred;
+  final combined4L measurements follow. No lifecycle timings imply speedup.
+- [M] Dashboard/source milestone4a1371a5 committed and pushed. Separate frozen
+  Python checkout at `TMP/codex-parallel-campaign.oiPK29/python-delivery-4a1371a5`
+  preserves the native3428 source and binary. Actual supervisor-stream smoke
+  is being prepared for a gap after the combined4L comparisons. Production
+  remains untouched and the launch draft remains unqualified.
 
 ### 2026-09-29 23:27 UTC — dashboard milestone ready for push
 
