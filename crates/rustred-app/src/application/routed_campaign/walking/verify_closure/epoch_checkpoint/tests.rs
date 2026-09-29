@@ -310,7 +310,7 @@ fn cp6_input_reads_selected_immutable_reference_even_if_latest_changes() {
 
 #[test]
 fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
-    use super::super::super::{Violations, load_records};
+    use super::super::{Violations, load_records};
     let mut fixture = Fixture::new();
     let path = fixture.record();
     let original = fs::read(&path).unwrap();
@@ -455,7 +455,7 @@ fn cp6_source_frontier_is_checked_against_full_bound_query_geometry() {
 
 #[test]
 fn cp6_summary_binding_is_explicitly_incomplete_and_generation_mismatch_is_not_waived() {
-    use super::super::super::{Loaded, Node, Violations, bind_result};
+    use super::super::{Loaded, Node, Violations, bind_result};
     let fixture = Fixture::new();
     let (mut raw, epoch, _) = read_raw::<1>(&fixture.directory).unwrap();
     let domains = std::mem::take(&mut raw.domains);
