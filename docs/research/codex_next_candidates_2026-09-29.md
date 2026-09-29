@@ -31,9 +31,29 @@ payload handling separately. The expected saving is one coordinator forward
 search per true miss, not the whole admission cost. No reduced forward work or
 no repeatable net campaign improvement falsifies the performance case.
 
-This is a source-design decision only, after the independently reviewed S4
-freeze; no bypass has been implemented or measured yet. Its source integration
-must not silently change the frozen build currently executing validation.
+The five-file implementation was independently source-reviewed and privately
+committed as `f128f550`, then combined with the first S5 hash-feed slice at
+`fa783fc5`. Four new miss tests and the strengthened native assertions have
+not yet executed. No reduced work or speedup has been measured. The running
+validation build remains the older frozen `29e30a79`, with source and cache
+unchanged; its results cannot validate this later slice.
+
+### S5 edge-feed batching: first bounded source slice
+
+The first private S5 slice (`9dc770a4`, integrated at `fa783fc5`) batches the
+same little-endian edge words into existing BLAKE3 with a 1 KiB stack buffer;
+record digest inputs use the same nine bytes as before. No new hash, CAS,
+schema or record authority is introduced. Independent reviews preserve
+append/restore order, exact bytes, mutation/refusal boundaries and failure
+behavior. Five scalar-oracle/prefix/restore tests are written, not executed.
+
+Expected benefit is fewer tiny hash-update calls, not fewer mathematical
+obligations. Buffer packing/zeroing can instead lose for short edge runs.
+Measure zero, 1, 2, 8, 16, 64, 256 and 1024 targets against the old scalar
+feed, including prefix restoration; then require representative campaign
+evidence. Changed digest bytes or a net slowdown falsifies the slice.
+Typed records, bulk dependency updates and parallel merge preparation remain
+separate unfinished S5 work; this micro-optimization does not complete them.
 
 ### Process-local NUMA: no gross cross-socket-placement opportunity observed
 
