@@ -812,7 +812,13 @@ mod tests {
         assert_eq!(restored.flags, original.flags);
         assert_eq!(restored.total_closed, 1);
         assert_ne!(restored.snapshot_revision, restored.revision);
-        assert_eq!(restored.dependencies().collect::<Vec<_>>(), pairs);
+        assert_eq!(
+            restored.dependencies().collect::<Vec<_>>(),
+            pairs
+                .iter()
+                .map(|&(source, target)| (source as usize, target as usize))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(restored.edges.incoming(2).collect::<Vec<_>>(), [1, 0]);
         restored.finish(0, true, true);
         scan(&mut restored);
