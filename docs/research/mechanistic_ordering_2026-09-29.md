@@ -341,6 +341,40 @@ policy and family fingerprint must match exactly.
 
 ## Fair smallest gate
 
+A separately prepared smallest broad-anchor input pair keeps the original
+array as its control and moves only original row 45 (banana R12) immediately
+before original rows 6..8. Its file is
+`banana-broad-anchor-first/queries.json`, SHA-256
+`f0c9f41c703567e302f6893138a05987bf28d3ca7140c0331febc08123d7d35c`.
+The complete 58-row multiset and explicit query roles are unchanged; all
+other rows retain their relative order. Unlike the three earlier candidates,
+this intentionally removes one row from the R12 suffix. The existing
+`input-mapping.json` records the exact bijection and control/variant pair;
+the frozen 28-arm execution matrix was not changed.
+
+Containment is complete, not partial: row45 has the same owner, all local
+lower bounds zero, all upper/A/D bounds absent, and rank12; rows6..8 have
+rank5/5/4 and only additional restrictions. Ready `Queue::admit` and Epoch
+`admit_initial_with` may map a later query to an already admitted containing
+domain. In the original inputs, banana R5 already absorbs its two constrained
+rows, so the expected immediate gain is **one** fewer initial root, not three.
+Original saved initial banana records are R5/id3 and R12/id19; their native
+times were Ready0.224/0.873s and Epoch0.241/0.894s. Most banana cost is later
+work, so a decisive gain would require changed descendant reuse or geometry.
+
+Initial domains themselves bypass G2 residual planning and initial-D-band
+pruning. The plausible G2 benefit is instead a broader banana native becoming
+published earlier for later eligible descendants. It can also stall an older
+publication prefix or change ID/cut geometry adversely. Report admitted
+initial inventory, initial/descendant banana Apply time, native inspections,
+emitted events and full native+cold wall time; unchanged/worse work or time
+falsifies the performance hypothesis. All 58 required query rows still need
+exact cold verification; containment may change the initial-root count.
+The root agent has authorized this pair after the original three query-order
+pairs; execution and results remain pending, with no claimed gain.
+An independent StageA review confirmed the exact row permutation, unchanged
+full row objects and top-level metadata/roles, and the recorded SHA-256.
+
 After the current build, matched four-arm gate, and two cold mutation controls
 have drained, run one fresh full four-loop Ready/Epoch pair for each query-only
 candidate, using the same frozen optimized binary, W16, resource envelope,

@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 21:06 UTC
+## Current shortened-delivery ownership — 2026-09-29 21:53 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,14 +52,14 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` application rebuild in progress; repeat the combined gate, separating native and cold costs |
+| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` two pairs complete: no reliable parity/win; test mechanistic query/pivot candidates next |
 | Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
-| CLI/Python policy surfaces and monitoring | final lifecycle and Python checks pass | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Python310 PASS/one optional slow skip; M1–M4 actual CLI checks pass |
-| Mechanistic input/pivot ordering | active; structural inputs prepared | `parallel_gate_critique`; independent `stage_a_release` and root | Shared-interface-first and dependency-ready-cost preserve all 58 rows/roles; bounded BMW pivot candidates next. No new timing yet |
+| CLI/Python policy surfaces and monitoring | integrated Python checks pass; native monitor build pending | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 native metadata PASS; execute exact Tracker harness and final live CLI refresh/restore controls |
+| Mechanistic input/pivot ordering | active; four narrow query candidates prepared | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Shared-interface, dependency-ready, critical-interface and banana broad-anchor inputs preserve58 rows/roles; banana coordinate promotion targets measured dominant cost |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
-| Matched performance and deployment | active; combined four-loop parity fails | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | New binary, combined two pairs, mutation controls, then remaining family and ordering controls. No production launch or claimed speedup |
+| Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -104,6 +104,46 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 22:04 UTC — structural query-order evidence
+
+- [M] Same89 binary, same58 query rows/roles and owner programs, W16:
+  shared-interface-first gives Ready24.955696s versus Epoch24.964190s;
+  dependency-ready-cost gives Ready22.170699s versus Epoch24.337209s.
+  Both pairs pass full cold verification. Epoch's scheduled count changes
+  only slightly (51,573 /51,097 versus original51,139); its native work stays
+  essentially31,846 inspections. No meaningful native improvement established.
+- [M] Critical-interface-first native/cold receipts likewise remain negative:
+  Ready9.584+12.163389s versus Epoch10.992+15.150294s; all32 roots verify.
+  Final secondary acceptance is being collected by the measurement lane.
+- [D] Keep the one-owner broad-anchor pair and the narrow actual pivot test,
+  not a factorial permutation sweep. The larger verification/pilot record
+  continues to distinguish cold-check savings, native work and scope changes.
+- [M] Root reviewed the opt-in M2 live-monitor acceptance extension to the
+  existing driver: actual periodic native closure observations are required
+  before pause, and a newer refresh than the saved count after resume. Missing
+  observations remain incomplete; original stop/resume/FG248 cold-All checks
+  stay intact. Execution waits for the monitored binary, not the current89.
+
+### 2026-09-29 21:54 UTC — repeated baseline and mutation gates
+
+- [M] Second counterbalanced pair: Epoch11.195s native +13.154533s cold =
+  **24.349533s**; Ready9.780s +15.156218s = **24.936218s**. All four runs pass
+  full cold-All32/32 roots /58-query scope, zero violations. Mean combined
+  time is Epoch25.8450s versus Ready23.2965s (10.94% slower). One nearly even
+  pair does not establish parity; native timing remains worse in both pairs.
+- [M] Independent critic ran the public routed-false-hit mutation on both
+  preserved checkpoints with the frozen89 verifier. Both deliberately fail
+  exactly one uncovered successor; all22,601 Ready /31,846 Epoch natives were
+  reinspected, with zero exact/brute or G2 disagreements. The Epoch source has
+  exactly16 distinct targets, exercising the newly indexed medium-fanout path.
+  Checkpoint authority/files and executable remain unchanged. Root checked
+  receipts at `TMP/codex-cold-negative.HgFhPT/{ready,epoch}/receipt.json`.
+- [D] The critic returned both heavy/pilot locks. Proceed with the three
+  original mechanistic query-order pairs, then the separately bound one-owner
+  broad-anchor variant. That variant moves only existing row45 before rows6–8,
+  retains all58 rows/roles and avoids one narrow initial banana root; its
+  downstream work benefit is a hypothesis, not established by containment.
 
 ### 2026-09-29 21:48 UTC — first new paired control remains negative
 
