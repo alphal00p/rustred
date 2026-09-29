@@ -3,6 +3,7 @@ use crate::application::routed_campaign::walking::inspection::NativeStats;
 
 mod escrow;
 mod owner_retention;
+mod telemetry;
 
 fn domain(n: u64) -> Arc<Domain<1>> {
     Arc::new(Domain {

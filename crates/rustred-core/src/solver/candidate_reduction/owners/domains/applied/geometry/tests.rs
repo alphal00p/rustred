@@ -330,3 +330,117 @@ fn normalization_reuse_preserves_scratch_boundary_cancel_and_overflow_prefixes()
     assert_eq!(partial.failure, Some(OwnerAppliedFailure::Cancelled));
     assert_eq!(partial.stats.boundary_cells, 1);
 }
+
+/// The production copy helper preserves the complete shifted image while
+/// retaining both existing allocations. Exact geometry and failure semantics
+/// remain covered by the applied/power-bound and boundary-budget suites above.
+#[test]
+fn projected_image_endpoints_reuse_storage_and_match_replacement_fields() {
+    let high = u64::from(u32::MAX) + 1;
+    let cases = [
+        Input {
+            // Fixed crossing from positive support into numerator support.
+            owner: [true, true, false],
+            shift: [-2, 0, 0],
+            lower: [0; 3],
+            upper: [Some(0), Some(2), Some(1)],
+            rank: Some(1),
+            powers: DomainPowerBounds {
+                max_positive_power: Some(5),
+                min_power_difference: Some(1),
+                max_power_difference: Some(4),
+            },
+        },
+        Input {
+            // Unbounded coordinates tightened by correlated A/R/D predicates.
+            owner: [true, false, true],
+            shift: [1, -1, 0],
+            lower: [0; 3],
+            upper: [None; 3],
+            rank: None,
+            powers: DomainPowerBounds {
+                max_positive_power: Some(7),
+                min_power_difference: Some(0),
+                max_power_difference: Some(4),
+            },
+        },
+        Input {
+            // A one-sided D bound leaves genuine infinite endpoints.
+            owner: [true, false, false],
+            shift: [0; 3],
+            lower: [0; 3],
+            upper: [None, Some(2), None],
+            rank: None,
+            powers: DomainPowerBounds {
+                min_power_difference: Some(-3),
+                ..Default::default()
+            },
+        },
+        Input {
+            // Finite implied R above u32 must not become a clipped rank cap.
+            owner: [true, false, false],
+            shift: [0; 3],
+            lower: [0; 3],
+            upper: [Some(0), None, Some(0)],
+            rank: None,
+            powers: DomainPowerBounds {
+                min_power_difference: Some(1 - high as i64),
+                ..Default::default()
+            },
+        },
+    ];
+    let mut tightened = 0;
+    for input in cases {
+        let source = copy_box(&input.lower, &input.upper).unwrap();
+        let mut actual = image(&source, &input.owner, &input.shift, input.rank).unwrap();
+        let lower_storage = (actual.lower.as_ptr(), actual.lower.capacity());
+        let upper_storage = (actual.upper.as_ptr(), actual.upper.capacity());
+        let sector = actual.sector;
+        let delta_rank = actual.delta_rank;
+        let delta_d: i128 = input.shift.iter().map(|&shift| i128::from(shift)).sum();
+        let target_powers = input
+            .powers
+            .shifted(delta_rank + delta_d, delta_d)
+            .unwrap()
+            .unwrap();
+        let projected = power_domain::project(
+            &actual.sector,
+            &actual.lower,
+            &actual.upper,
+            actual.rank,
+            target_powers,
+        )
+        .unwrap()
+        .unwrap();
+        tightened +=
+            usize::from(actual.lower != projected.lower || actual.upper != projected.upper);
+        // The previous engine assignments, as the full-field reference.
+        let expected = Image {
+            sector,
+            lower: projected.lower.to_vec(),
+            upper: projected.upper.to_vec(),
+            rank: projected.effective_rank,
+            delta_rank,
+        };
+        actual.copy_projected_endpoints(&projected.lower, &projected.upper);
+        actual.rank = projected.effective_rank;
+        assert_eq!(
+            (actual.lower.as_ptr(), actual.lower.capacity()),
+            lower_storage
+        );
+        assert_eq!(
+            (actual.upper.as_ptr(), actual.upper.capacity()),
+            upper_storage
+        );
+        assert_eq!(actual.sector, expected.sector);
+        assert_eq!(actual.lower, expected.lower);
+        assert_eq!(actual.upper, expected.upper);
+        assert_eq!(actual.rank, expected.rank);
+        assert_eq!(actual.delta_rank, expected.delta_rank);
+        assert_eq!(projected.powers, target_powers, "retain exact predicates");
+    }
+    assert!(
+        tightened > 0,
+        "exercise changed endpoints, not only identity copies"
+    );
+}

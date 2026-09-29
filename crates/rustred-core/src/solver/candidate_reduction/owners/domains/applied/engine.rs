@@ -738,8 +738,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             .ok_or(OwnerAppliedFailure::InternalInvariant(
                 "nonempty source has empty shifted image",
             ))?;
-            image.lower = projected.lower.to_vec();
-            image.upper = projected.upper.to_vec();
+            image.copy_projected_endpoints(&projected.lower, &projected.upper);
             image.rank = projected.effective_rank;
         }
         budget.successor(piece.owner(), &image.sector, nonzero == Zero::Unknown)?;

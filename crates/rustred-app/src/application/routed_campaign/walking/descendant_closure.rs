@@ -202,6 +202,8 @@ impl Tracker {
     /// after a costly scan. Dirty older counts remain a monotone conservative
     /// bound. `force` bypasses the throttle, never the cancellation checks.
     pub fn refresh(&mut self, cancellation: &AtomicBool, force: bool) {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         if self.scan(cancellation, force).is_err() {
             self.disable("dependency refresh allocation unavailable");
         }
@@ -215,6 +217,8 @@ impl Tracker {
     /// closed), which restore accepts, so the save never gives up the monitor
     /// it is about to persist (102adcc3 disabled it there).
     pub fn refresh_before_save(&mut self) {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         let _ = self.scan(&AtomicBool::new(false), true);
     }
 
@@ -298,6 +302,8 @@ impl Tracker {
     }
 
     pub fn json(&self, total: usize, initial: usize) -> Value {
+        #[cfg(test)]
+        super::epoch::assert_large_finalization_allowed();
         let available =
             self.unavailable.is_none() && self.flags.len() == total && self.initial == initial;
         json!({"available":available,"initial_total":initial,
@@ -582,6 +588,42 @@ impl Tracker {
         })
     }
 
+    /// Epoch restore already owns the decoded flags and authenticated run
+    /// log. Move flags and build CSR in two passes over a repeatable run
+    /// iterator; do not clone flags or expand all runs into temporary pairs.
+    /// The same `restore` validator still runs before any state is usable.
+    pub fn from_owned_parts(
+        counters: Counters,
+        flags: Vec<u8>,
+        pairs: impl Iterator<Item = (u32, u32)> + Clone,
+    ) -> Result<Self, String> {
+        if counters.unavailable.is_some() && (!flags.is_empty() || pairs.clone().next().is_some()) {
+            return Err("unavailable dependency monitor retains nodes or edges".into());
+        }
+        if flags
+            .iter()
+            .any(|flag| flag & !(FLAG_SEALED | FLAG_INSPECTED | FLAG_CLOSED) != 0)
+        {
+            return Err("invalid checkpoint dependency node flags".into());
+        }
+        Ok(Self {
+            edges: edges::Edges::from_iter(flags.len(), pairs)?,
+            flags,
+            initial: counters.initial,
+            unavailable: counters.unavailable,
+            revision: counters.revision,
+            snapshot_revision: counters.snapshot_revision,
+            initial_closed: counters.initial_closed,
+            total_closed: counters.total_closed,
+            inspected: counters.inspected,
+            refresh_count: counters.refresh_count,
+            refresh_seconds: counters.refresh_seconds,
+            open_targets: HashMap::new(),
+            last_refresh: None,
+            last_refresh_seconds: 0.0,
+        })
+    }
+
     /// Validate and rebuild only ephemeral dedup state. Never reconstruct
     /// missing historical dependencies from counters or domain geometry.
     /// Endpoint ranges are checked here again (and in `from_parts`); the
@@ -752,6 +794,76 @@ mod tests {
         let mut bad = Tracker::from_parts(g.counters(), &flags, &edges).unwrap();
         bad.total_closed = 1;
         assert!(bad.restore(3, 1).is_err());
+    }
+    #[test]
+    fn owned_parts_move_flags_and_preserve_stale_closure_and_edge_order() {
+        let mut original = Tracker::new(1);
+        original.discovered(3);
+        original.edge(0, 1);
+        original.edge(1, 2);
+        original.edge(0, 2);
+        original.finish(2, true, true);
+        scan(&mut original);
+        original.finish(1, true, true); // A valid deliberately stale snapshot.
+        let (flags, pairs) = parts(&original);
+        let allocation = flags.as_ptr();
+        let mut restored =
+            Tracker::from_owned_parts(original.counters(), flags, pairs.iter().copied()).unwrap();
+        assert_eq!(
+            allocation,
+            restored.flags.as_ptr(),
+            "flags move without cloning"
+        );
+        restored.restore(3, 1).unwrap();
+        assert_eq!(restored.flags, original.flags);
+        assert_eq!(restored.total_closed, 1);
+        assert_ne!(restored.snapshot_revision, restored.revision);
+        assert_eq!(
+            restored.dependencies().collect::<Vec<_>>(),
+            pairs
+                .iter()
+                .map(|&(source, target)| (source as usize, target as usize))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(restored.edges.incoming(2).collect::<Vec<_>>(), [1, 0]);
+        restored.finish(0, true, true);
+        scan(&mut restored);
+        assert_eq!(restored.total_closed, 3);
+        assert!(
+            Tracker::from_owned_parts(original.counters(), vec![8, 0, 0], pairs.iter().copied())
+                .is_err()
+        );
+        assert!(
+            Tracker::from_owned_parts(original.counters(), vec![0; 3], [(0, 3)].into_iter())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn owned_parts_refuse_equal_length_changed_iterator_distribution() {
+        struct Changed {
+            rows: std::vec::IntoIter<(u32, u32)>,
+        }
+        impl Iterator for Changed {
+            type Item = (u32, u32);
+            fn next(&mut self) -> Option<Self::Item> {
+                self.rows.next()
+            }
+        }
+        impl Clone for Changed {
+            fn clone(&self) -> Self {
+                Self {
+                    rows: vec![(0, 1), (1, 2)].into_iter(),
+                }
+            }
+        }
+        let source = Tracker::new(3);
+        // First pass sees one edge to each target, second pass sees two to
+        // target 1. Both inventories have valid endpoints and equal length.
+        let pairs = Changed {
+            rows: vec![(0, 1), (2, 1)].into_iter(),
+        };
+        assert!(Tracker::from_owned_parts(source.counters(), vec![0; 3], pairs).is_err());
     }
     #[test]
     fn interrupted_prefix_roundtrip_keeps_edges_and_deduplicates_replay() {

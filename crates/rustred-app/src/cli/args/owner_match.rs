@@ -43,6 +43,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub workers: usize,
     pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
+    pub epoch_inspector_lookup: Option<crate::OwnerDomainWalkEpochInspectorLookup>,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
@@ -97,6 +98,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         workers: 1,
         inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
+        epoch_inspector_lookup: None,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
@@ -170,6 +172,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--follow-successors" => "--follow-successors",
             "--workers" => "--workers",
             "--publication-policy" => "--publication-policy",
+            "--epoch-inspector-lookup" => "--epoch-inspector-lookup",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
@@ -253,11 +256,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "ordered" => crate::OwnerDomainWalkPublicationPolicy::Ordered,
                     "owner-batched" => crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
                     "ready" => crate::OwnerDomainWalkPublicationPolicy::Ready,
+                    "epoch" => crate::OwnerDomainWalkPublicationPolicy::Epoch,
                     _ => {
                         return Err(ArgError::InvalidValue {
                             option: name,
                             value,
-                            expected: "ordered, owner-batched, or ready",
+                            expected: "ordered, owner-batched, ready, or epoch",
                         });
                     }
                 };
@@ -265,6 +269,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead" => {
                 result.transfer_unreserved_lookahead =
                     NonZeroUsize::new(parse_positive_integer(name, value)?);
+            }
+            "--epoch-inspector-lookup" => {
+                result.epoch_inspector_lookup = Some(
+                    crate::OwnerDomainWalkEpochInspectorLookup::parse(&value).ok_or(
+                        ArgError::InvalidValue {
+                            option: name,
+                            value,
+                            expected: "all-miss or snapshot",
+                        },
+                    )?,
+                );
             }
             "--frontier-policy" => {
                 result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::parse(&value)
@@ -422,8 +437,22 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--unbounded-work cannot be combined with explicit diagnostic work caps",
         ));
     }
+    let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    // Epoch (walk semantics 3): frontier stop is the default (A10) and needs
+    // no checkpoint; explicit checkpoint/resume uses CP6.
+    if result.epoch_inspector_lookup.is_some()
+        && (!result.follow_successors || !epoch || result.checkpoint.is_none())
+    {
+        return Err(ArgError::InvalidCombination(
+            "--epoch-inspector-lookup requires --follow-successors, --publication-policy epoch and --checkpoint or --resume",
+        ));
+    }
+    if epoch && !seen.contains("--frontier-policy") {
+        result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::Stop;
+    }
     if result.frontier_policy == crate::OwnerDomainWalkFrontierPolicy::Stop
         && result.checkpoint.is_none()
+        && !epoch
     {
         return Err(ArgError::InvalidCombination(
             "--frontier-policy stop requires --checkpoint or --resume",
@@ -441,6 +470,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     {
         return Err(ArgError::InvalidCombination(
             "ready publication requires --transfer-unreserved-lookahead",
+        ));
+    }
+    if epoch && result.transfer_unreserved_lookahead.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "epoch publication requires --transfer-unreserved-lookahead (transfers are part of walk semantics 3; the value is not used)",
         ));
     }
     if result.apply_subdivision.is_some()
@@ -481,6 +515,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--amend-queries",
             "--inspection-workers",
             "--publication-policy",
+            "--epoch-inspector-lookup",
             "--max-domains",
             "--max-frontiers",
             "--frontier-policy",
@@ -544,7 +579,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 "--g2-residual-anchors union does not support physical Apply subdivision",
             ));
         }
-        if result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched {
+        if matches!(
+            result.publication_policy,
+            crate::OwnerDomainWalkPublicationPolicy::OwnerBatched
+                | crate::OwnerDomainWalkPublicationPolicy::Epoch
+        ) {
             return Err(ArgError::InvalidCombination(
                 "--g2-residual-anchors union requires ordered or ready publication",
             ));
@@ -566,6 +605,42 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn epoch_inspector_lookup_is_explicit_durable_and_rejects_duplicate_or_wrong_scope() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let epoch = format!("{base} --publication-policy epoch --transfer-unreserved-lookahead 16");
+        let Command::OwnerDomainMatch(default) = parse(base).unwrap() else {
+            panic!("match")
+        };
+        assert_eq!(default.epoch_inspector_lookup, None);
+        for checkpoint in ["--checkpoint", "--resume"] {
+            for mode in ["all-miss", "snapshot"] {
+                let Command::OwnerDomainMatch(args) = parse(&format!(
+                    "{epoch} {checkpoint} cp --epoch-inspector-lookup {mode}"
+                ))
+                .unwrap() else {
+                    panic!("match")
+                };
+                assert_eq!(args.epoch_inspector_lookup.unwrap().name(), mode);
+            }
+        }
+        for bad in [
+            format!("{base} --epoch-inspector-lookup all-miss"),
+            format!("{base} --checkpoint cp --epoch-inspector-lookup snapshot"),
+            format!("{epoch} --epoch-inspector-lookup snapshot"),
+            format!("{epoch} --checkpoint cp --epoch-inspector-lookup maybe"),
+            format!(
+                "{epoch} --checkpoint cp --epoch-inspector-lookup snapshot --epoch-inspector-lookup all-miss"
+            ),
+            format!(
+                "{} --checkpoint cp --epoch-inspector-lookup snapshot",
+                epoch.replace("--follow-successors", "")
+            ),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -195,6 +195,7 @@ fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
         OwnerDomainWalkPublicationPolicy::Ordered => "ordered",
         OwnerDomainWalkPublicationPolicy::Ready => "ready",
         OwnerDomainWalkPublicationPolicy::OwnerBatched => "owner_batched",
+        OwnerDomainWalkPublicationPolicy::Epoch => "epoch",
     }
 }
 fn unix_time() -> Result<u64, String> {
@@ -1104,6 +1105,36 @@ pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
     binding(request)
 }
 
+/// The request digest of an `epoch` walk (walk semantics 3, W2.0 protocol
+/// §11.5, A7). Bound: owner selection, queries, limits, publication and
+/// semantics, the D-band, Route and query allowances, the frontier policy,
+/// and a nondefault Epoch inspector-lookup comparison mode.
+/// Not bound: workers, inspection workers, the schedule and its lookahead,
+/// and the aggregate `max_domains` / `max_events` / `max_frontiers`
+/// allowances. Shared by the epoch export and the closure verifier; the
+/// CP5 `binding` above is unchanged.
+pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String {
+    let mut value = json!({"selection":request.matching.selection_json,
+        "queries":request.matching.queries_json,
+        "limits":super::limits_json(request),
+        "reduction":format!("{:?}",request.matching.reduction_limits),
+        "publication":"epoch","walk_semantics_version":3,
+        "reuse_initial_d_bands":request.reuse_initial_d_bands,
+        "route_domain_overcover":request.route_domain_overcover,
+        "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
+        "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
+        "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes,
+        "frontier_policy":request.frontier_policy.name()});
+    // AllMiss preserves the original Epoch binding byte-for-byte. The
+    // experimental mode is frozen across resume without a new scalar schema.
+    if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {
+        value["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
+    }
+    blake3::hash(value.to_string().as_bytes())
+        .to_hex()
+        .to_string()
+}
+
 /// Read-only decode of one CP5 generation for the offline closure verifier:
 /// file lengths and digests, section headers and codecs only. No restore
 /// validator, index, ledger or dependency tracker is rebuilt; the verifier
@@ -1253,6 +1284,19 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::time::Duration;
+
+    #[test]
+    fn epoch_lookup_control_does_not_change_cp5_binding() {
+        let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+            "selection".into(),
+            "queries".into(),
+        ));
+        let old = binding(&request);
+        request.epoch_inspector_lookup =
+            super::super::OwnerDomainWalkEpochInspectorLookup::Snapshot;
+        // Native admission refuses this combination; CP5's byte identity is untouched.
+        assert_eq!(binding(&request), old);
+    }
 
     fn request(path: &Path) -> OwnerDomainWalkRequest {
         let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(

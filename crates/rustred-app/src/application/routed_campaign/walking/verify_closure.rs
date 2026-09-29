@@ -48,6 +48,8 @@
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
 #[cfg(test)]
 mod e2e_tests;
+mod epoch_checkpoint;
+mod epoch_export;
 #[cfg(test)]
 mod g2_e2e_tests;
 mod graph;
@@ -723,6 +725,9 @@ struct Loaded<const N: usize> {
     /// Position of each record in the publication stream (its merge stamp,
     /// re-derived from the record order; u64::MAX: unpublished).
     positions: Vec<u64>,
+    /// An epoch (walk semantics 3) S2 export: its raw ledger6, edge runs and
+    /// anchors for the epoch-specific re-derivations.
+    epoch: Option<epoch_export::EpochSections>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -732,6 +737,9 @@ pub fn owner_domain_walk_verify_closure(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
+    request
+        .validate_epoch_inspector_lookup()
+        .map_err(AppError::input)?;
     if request.apply_subdivision.is_some() {
         // Physical parts inspect under part-local limits; the reference
         // inspection here would not reproduce them. Refuse, never guess.
@@ -752,7 +760,36 @@ fn load<const N: usize>(
     digests: bool,
     violations: &mut Violations,
 ) -> Result<Loaded<N>, String> {
-    let mut raw = checkpoint::read_raw::<N>(&options.checkpoint)?;
+    if options.checkpoint.join(epoch_export::MANIFEST).exists()
+        && options.checkpoint.join("latest.json").exists()
+    {
+        return Err("ambiguous epoch export and resumable checkpoint authorities".into());
+    }
+    let (raw, epoch, cp6_records) = if epoch_checkpoint::present(&options.checkpoint) {
+        let (raw, sections, records) = epoch_checkpoint::read_raw::<N>(&options.checkpoint)?;
+        (raw, Some(sections), Some(records))
+    } else if options.checkpoint.join(epoch_export::MANIFEST).is_file() {
+        let (raw, sections) = epoch_export::read_raw::<N>(&options.checkpoint)?;
+        (raw, Some(sections), None)
+    } else {
+        (checkpoint::read_raw::<N>(&options.checkpoint)?, None, None)
+    };
+    load_records(raw, epoch, cp6_records, digests, violations)
+}
+
+fn load_records<const N: usize>(
+    mut raw: checkpoint::RawCheckpoint<N>,
+    epoch: Option<epoch_export::EpochSections>,
+    cp6_records: Option<Vec<epoch_checkpoint::RecordRef>>,
+    digests: bool,
+    violations: &mut Violations,
+) -> Result<Loaded<N>, String> {
+    if cp6_records
+        .as_ref()
+        .is_some_and(|r| r.len() != raw.records.len())
+    {
+        return Err("CP6 captured record inventory differs".into());
+    }
     let domains = std::mem::take(&mut raw.domains);
     let total = domains.len();
     if raw.flags.len() != total {
@@ -770,8 +807,18 @@ fn load<const N: usize>(
     let mut g2 = BTreeMap::new();
     let mut positions = vec![u64::MAX; total];
     let mut records = 0usize;
-    for (path, count) in &raw.records {
-        let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    for (segment, (path, count)) in raw.records.iter().enumerate() {
+        let file: Box<dyn std::io::Read> = if let Some(references) = &cp6_records {
+            Box::new(
+                references
+                    .get(segment)
+                    .ok_or("CP6 missing captured record reference")?
+                    .open(path, *count)
+                    .map_err(|e| format!("{}: {e}", path.display()))?,
+            )
+        } else {
+            Box::new(std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?)
+        };
         let mut lines = 0usize;
         for line in BufReader::with_capacity(1 << 20, file).lines() {
             let line = line.map_err(|e| format!("{}: {e}", path.display()))?;
@@ -827,6 +874,7 @@ fn load<const N: usize>(
         residuals,
         g2,
         positions,
+        epoch,
     })
 }
 
@@ -1883,6 +1931,25 @@ fn bind_result<const N: usize>(
             top.bytes
         ),
     );
+    if top.full_result == Some(false) {
+        problem(
+            loaded
+                .epoch
+                .as_ref()
+                .is_some_and(|s| s.manifest["format"] == "RUSTRED-WALK-CP6")
+                && top.checkpoint["format"] == "RUSTRED-WALK-CP6"
+                && top.checkpoint["state"] == "saved"
+                && generation_matches
+                && !top.has_domains
+                && top.rows == 0,
+            "checkpoint-only summary identity, generation or shape differs".into(),
+        );
+        return Ok(json!({"kind":"checkpoint_only_summary", "complete":false,
+            "generation":generation, "generation_matches":generation_matches,
+            "result":path,"bytes":top.bytes,"blake3":top.blake3,
+            "note":"summary metadata is not full record binding; verify raw checkpoint with --no-result (omitting --result still auto-selects a nearby result.json)",
+            "seconds":started.elapsed().as_secs_f64()}));
+    }
     problem(top.has_domains, "result has no domains array".into());
     problem(
         generation_matches,
@@ -1955,6 +2022,9 @@ fn verify<const N: usize>(
     )?;
     let mut loaded =
         load::<N>(options, options.result.is_some(), &mut violations).map_err(AppError::input)?;
+    if loaded.raw.publication_policy == "epoch" {
+        super::epoch::admit_extensions(request)?;
+    }
     let loaded_seconds = started.elapsed().as_secs_f64();
     let memory_loaded = memory_status();
     observer(
@@ -2015,7 +2085,32 @@ fn verify<const N: usize>(
         }
         None => None,
     };
-    let bound = checkpoint::request_binding(request) == loaded.raw.request;
+    // Walk semantics 3 binds its own request digest (A7: workers, schedule
+    // and aggregate allowances are not bound).
+    let bound = if loaded.raw.publication_policy == "epoch" {
+        checkpoint::epoch_request_binding(request)
+    } else {
+        checkpoint::request_binding(request)
+    } == loaded.raw.request;
+    if let Some(sections) = &loaded.epoch {
+        let nodes = &loaded.nodes;
+        let record_of = |id: usize| {
+            nodes.get(id).and_then(|node| match node.kind {
+                Kind::Native | Kind::Partial => Some((true, node.frontiers, node.error, None)),
+                Kind::Alias => Some((false, 0, false, Some(node.link))),
+                // S2 never executes G2; its records cannot stand in for a
+                // native record even when their legacy stamps are valid.
+                Kind::Missing | Kind::G2 => None,
+            })
+        };
+        epoch_export::check(
+            sections,
+            &loaded.domains,
+            &loaded.raw.flags,
+            &record_of,
+            &mut |class, message| violations.add(class, || message),
+        );
+    }
     if !bound {
         violations.add("binding", || {
             "checkpoint request digest differs from the command's request/queries binding".into()
@@ -2239,7 +2334,25 @@ fn verify<const N: usize>(
     // Roots: every query's record, authenticated by the request binding.
     let mut root_of_query = Vec::new();
     let mut admitting = BTreeMap::<usize, usize>::new();
-    if loaded.raw.inputs.len() != queries.len() {
+    let mut unresolved_input_queries = 0usize;
+    let cp6 = loaded
+        .epoch
+        .as_ref()
+        .is_some_and(|e| e.manifest["format"] == "RUSTRED-WALK-CP6");
+    let unadmitted = if cp6 {
+        let metadata = &loaded.epoch.as_ref().expect("CP6 sections").manifest;
+        if metadata["total_queries"].as_u64() != Some(queries.len() as u64)
+            || metadata["processed_queries"].as_u64() != Some(loaded.raw.inputs.len() as u64)
+        {
+            violations.add("root_mapping", || {
+                "CP6 query prefix inventory differs".into()
+            });
+        }
+        queries.len().saturating_sub(loaded.raw.inputs.len())
+    } else {
+        0
+    };
+    if loaded.raw.inputs.len() != queries.len() && !(cp6 && unadmitted > 0) {
         violations.add("root_mapping", || {
             format!(
                 "{} saved inputs for {} queries",
@@ -2250,6 +2363,12 @@ fn verify<const N: usize>(
     }
     for (index, query) in queries.iter().enumerate() {
         let entry = loaded.raw.inputs.get(index);
+        if cp6 && entry.is_none() && index >= loaded.raw.inputs.len() {
+            // An authenticated unfinished initial-admission suffix is not an
+            // invalid root, nor an implicitly discharged request.
+            root_of_query.push(None);
+            continue;
+        }
         let record = entry.and_then(|e| e["domain"].as_u64()).map(|r| r as usize);
         // Derive phase from the immutable request and independently prepared
         // owner registry, never from the record being authenticated. Initial
@@ -2268,6 +2387,34 @@ fn verify<const N: usize>(
             violations.add("root_mapping", || {
                 format!("saved input {index} is not query {}", query.id)
             });
+        }
+        if cp6 {
+            let role = if query.auxiliary {
+                "auxiliary"
+            } else {
+                "required"
+            };
+            if entry.and_then(|e| e["role"].as_str()) != Some(role)
+                || entry.and_then(|e| e["role_declared"].as_bool()) != Some(query.role_declared)
+            {
+                violations.add("root_mapping", || {
+                    format!("CP6 query {} role differs", query.id)
+                });
+            }
+            if phase.is_none()
+                && entry.is_some_and(|e| {
+                    e["domain"].is_null() && e["source_validity_unresolved"] == true
+                })
+                && loaded
+                    .raw
+                    .input_frontiers
+                    .get(unresolved_input_queries)
+                    .is_some_and(|f| epoch_checkpoint::source_frontier_matches::<N>(query, f))
+            {
+                unresolved_input_queries += 1;
+                root_of_query.push(None);
+                continue;
+            }
         }
         if let Some(sequence) = amendment_of[index] {
             // An amended query resolves to any admitted record (a new one, or
@@ -2331,6 +2478,16 @@ fn verify<const N: usize>(
             });
         }
         root_of_query.push(Some(record));
+    }
+    if cp6 && (admitting.len() != initial_count || admitting.keys().copied().ne(0..initial_count)) {
+        violations.add("root_mapping", || {
+            "CP6 protected prefix contains an ID without an admitting query".into()
+        });
+    }
+    if cp6 && unresolved_input_queries != loaded.raw.input_frontiers.len() {
+        violations.add("root_mapping", || {
+            "CP6 input frontiers differ from independently required source obligations".into()
+        });
     }
     let result_binding = match &options.result {
         Some(path) => Some(bind_result(path, loaded, &closed, &mut violations)?),
@@ -2434,6 +2591,12 @@ fn verify<const N: usize>(
                 continue;
             }
             total_physics += 1;
+            if cp6 && root_of_query[index].is_none() {
+                if uncertified.len() < 1_000 {
+                    uncertified.push(query.id.clone());
+                }
+                continue;
+            }
             let cell = query_cell(query);
             let own = root_of_query[index];
             let phase = own.map_or(Phase::Apply, |r| loaded.domains[r].phase());
@@ -2521,15 +2684,26 @@ fn verify<const N: usize>(
     } else {
         0
     };
+    let summary_only = result_binding
+        .as_ref()
+        .is_some_and(|b| b["kind"] == "checkpoint_only_summary");
     let verdict = if !consistent {
         "FAIL"
-    } else if !complete || (options.require_closure && roots_not_independently_verified > 0) {
+    } else if unadmitted > 0
+        || unresolved_input_queries > 0
+        || summary_only
+        || !complete
+        || (options.require_closure && roots_not_independently_verified > 0)
+    {
         "INCOMPLETE"
     } else {
         "PASS"
     };
     let verdict_reason = match verdict {
         "FAIL" => "violations found".to_string(),
+        "INCOMPLETE" if summary_only => "checkpoint-only result has no full record proof; verify the checkpoint with --no-result (omitting --result still auto-selects a nearby result.json)".into(),
+        "INCOMPLETE" if unadmitted > 0 => format!("{unadmitted} immutable input queries remain UNADMITTED; no closure certificate"),
+        "INCOMPLETE" if unresolved_input_queries > 0 => format!("{unresolved_input_queries} input queries retain unresolved source validity; no closure certificate"),
         "INCOMPLETE" => format!(
             "no violation found, but only {} of {} natives were re-inspected ({} of {} roots \
              have a fully re-inspected cone); not a certificate",
@@ -2559,7 +2733,13 @@ fn verify<const N: usize>(
             .unwrap_or((false, false));
         let admitted = root.is_some_and(|r| admitting.get(&r) == Some(&index));
         *entry
-            .entry(if admitted { "admitting" } else { "absorbed" })
+            .entry(if cp6 && index >= loaded.raw.inputs.len() {
+                "unadmitted"
+            } else if admitted {
+                "admitting"
+            } else {
+                "absorbed"
+            })
             .or_default() += 1;
         *entry.entry("oracle_closed").or_default() += u64::from(state.0);
         *entry.entry("consistent_closed").or_default() += u64::from(consistent && state.0);
@@ -2622,7 +2802,9 @@ fn verify<const N: usize>(
             "file_digest_verify_seconds": loaded.raw.verify_seconds,
             "engine_closure": loaded.raw.closure},
         "result_binding": result_binding,
-        "queries": {"count": queries.len(),
+        "queries": {"count": queries.len(), "admitted_prefix":loaded.raw.inputs.len(),
+            "unadmitted":unadmitted, "unadmitted_ids":queries.iter().skip(queries.len() - unadmitted).map(|q| &q.id).collect::<Vec<_>>(),
+            "unresolved_input_frontiers":unresolved_input_queries,
             "blake3": blake3::hash(request.matching.queries_json.as_bytes()).to_hex().to_string()},
         "counts": {"domains": total, "edges": edge_records,
             "g2_residual_records": loaded.g2.values().filter(|info| info.residual.is_some()).count(),

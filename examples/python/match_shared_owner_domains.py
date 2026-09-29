@@ -29,7 +29,9 @@ TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
 JOINT_SUPPORT_PRUNING = "route-joint-source-support-pruning"
 PUBLICATION_POLICY = "publication-policy"
-PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready")
+PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready", "epoch")
+EPOCH_INSPECTOR_LOOKUP = "epoch-inspector-lookup"
+EPOCH_INSPECTOR_LOOKUP_MODES = ("all-miss", "snapshot")
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -101,10 +103,10 @@ def validate_inspection_workers(parser, workers, inspectors, containment_cap):
 
 
 def validate_publication_policy(parser, policy, transfer_lookahead, checkpoint, subdivision):
-    if policy == "ready" and transfer_lookahead is None:
-        parser.error("ready publication requires --transfer-unreserved-lookahead")
+    if policy in ("ready", "epoch") and transfer_lookahead is None:
+        parser.error(f"{policy} publication requires --transfer-unreserved-lookahead")
     if checkpoint and policy == "owner-batched":
-        parser.error("checkpoint/resume requires ordered or ready publication")
+        parser.error("checkpoint/resume requires ordered, ready or epoch publication")
     if subdivision and policy not in (None, "ordered"):
         parser.error("physical subdivision requires ordered publication")
 
@@ -113,6 +115,16 @@ def validate_frontier_policy(parser, policy, checkpoint):
     """A10: stop saves and stops at the first frontier, so it needs a checkpoint."""
     if policy == "stop" and not checkpoint:
         parser.error("--frontier-policy stop requires --checkpoint or --resume")
+
+
+def validate_epoch_inspector_lookup(mode, symbolic, publication, checkpoint):
+    if mode is None:
+        return
+    if mode not in EPOCH_INSPECTOR_LOOKUP_MODES:
+        raise ValueError("epoch inspector lookup must be all-miss or snapshot")
+    if not symbolic or publication != "epoch" or not checkpoint:
+        raise ValueError("--epoch-inspector-lookup requires a symbolic successor walk, "
+                         "--publication-policy epoch and --checkpoint or --resume")
 
 
 def main() -> None:
@@ -153,7 +165,9 @@ def main() -> None:
     parser.add_argument("--" + INITIAL_D_REUSE, action=StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
     parser.add_argument("--" + PUBLICATION_POLICY, choices=PUBLICATION_POLICIES,
-                        help="successor publication: ordered (default), owner-batched, or ready; ready requires unreserved delegation; saved rules are unchanged")
+                        help="successor publication: ordered (default), owner-batched, ready or epoch; ready/epoch require unreserved delegation; epoch checkpoints use CP6")
+    parser.add_argument("--" + EPOCH_INSPECTOR_LOOKUP, choices=EPOCH_INSPECTOR_LOOKUP_MODES,
+                        action=StoreOnce, help="CP6 Epoch comparison control; default all-miss; frozen on resume")
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,
@@ -191,6 +205,11 @@ def main() -> None:
     validate_publication_policy(parser, args.publication_policy, args.transfer_unreserved_lookahead,
                                 args.checkpoint is not None or args.resume is not None,
                                 args.apply_subdivision_axis is not None)
+    try:
+        validate_epoch_inspector_lookup(args.epoch_inspector_lookup, args.follow_successors,
+                                        args.publication_policy, args.checkpoint is not None or args.resume is not None)
+    except ValueError as error:
+        parser.error(str(error))
     validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
                                 args.max_containment_checks)
     validate_frontier_policy(parser, args.frontier_policy, args.checkpoint is not None or args.resume is not None)
@@ -221,7 +240,7 @@ def main() -> None:
                    "apply_subdivision_axis", "apply_subdivision_cut"):
         if (value := getattr(args, option)) is not None:
             command += ["--" + option.replace("_", "-"), str(value)]
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, EPOCH_INSPECTOR_LOOKUP, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
                    FRONTIER_POLICY, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])

@@ -685,7 +685,7 @@ physical Apply subdivision. Ordered walks use the snapshot id + 1 - H.
 a checkpoint written without G2' to G2': a recorded binding amendment; the G2'
 log is back-filled from the ledger and the record order, and every stream with
 accepted events finishes as a whole inspection.
---publication-policy ordered|owner-batched|ready requires --follow-successors and
+--publication-policy ordered|owner-batched|ready|epoch requires --follow-successors and
 defaults to ordered. The opt-in owner-batched mode shares immutable saved rules
 but uses separate phase/owner admission and publication queues. Bounded native
 chunks are delivered to destination queues; all descendants remain required.
@@ -701,12 +701,37 @@ It supports checkpoint/resume but cannot be combined with physical subdivision.
 Its IDs, covers and work counts may depend on scheduling; saved rules and
 obligation requirements are unchanged. Use a new campaign for a changed policy;
 never attach an ordered checkpoint to a ready run.
+The opt-in epoch policy (walk semantics 3) commits whole native
+inspections in bulk merges by one coordinator: Lockstep epochs of the 16 lowest
+pending IDs (B = 16, independent of the worker count), every successor resolved
+in the merge (canonical minimum-ID index semantics, verified containment), IDs
+assigned at merge, full reverse retirement with verified transfers. Results are
+identical across worker counts for a fixed B; the diagnostic-only environment
+override RUSTRED_EPOCH_LOCKSTEP_B changes the walk and is recorded in the result.
+It requires --transfer-unreserved-lookahead H (the value is unused), refuses a
+finite containment cap and physical subdivision, defaults --frontier-policy to
+stop (no checkpoint needed). With --checkpoint DIR it saves resumable CP6
+generations; --resume accepts only this CP6 format, not CP5 or old private
+snapshots. CP6 terminal output is checkpoint-only, even on a drained worklist:
+finalization is not evaluated and the summary does not claim scoped closure.
+Use walk-verify-closure --no-result on the checkpoint for independent
+reinspection; omitting --result alone still auto-selects a nearby result.json.
+G2 anchors, rescue amendments and executable upgrades are not
+supported by this staged CP6 workflow. Without a checkpoint the legacy
+memory-only epoch path still emits a full, non-resumable result.
+--epoch-inspector-lookup all-miss|snapshot is an explicit CP6 Epoch comparison
+control (default all-miss). It requires --follow-successors, --publication-policy
+epoch and --checkpoint or --resume. Snapshot performs inspector-side lookup
+against the same immutable lockstep view; it does not grant closure authority.
+The mode is bound to the checkpoint request and cannot change on resume.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.
 
 `walk-semantics-version` prints one JSON line with this executable's
-walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
+walk_semantics_version, checkpoint_format and checkpoint_schema (the legacy
+lanes' CP5 identity), plus per_policy walk semantics and checkpoint_formats,
+then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same
 format, schema and walk semantics version.

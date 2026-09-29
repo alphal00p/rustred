@@ -29,9 +29,10 @@ import uuid
 INNER_POOLS = ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS")
 # The native walk's correctness-gate pause seam (ready_resume_control.py runs
-# the executable directly); a supervised campaign never inherits it from the
-# operator's shell.
-DIAGNOSTIC_ONLY_ENVIRONMENT = ("RUSTRED_WALK_DIAGNOSTIC_PAUSE",)
+# the executable directly) and the epoch engine's lockstep-size override (a
+# diagnostic that changes the walk, W2 S2 note section 4); a supervised
+# campaign never inherits either from the operator's shell.
+DIAGNOSTIC_ONLY_ENVIRONMENT = ("RUSTRED_WALK_DIAGNOSTIC_PAUSE", "RUSTRED_EPOCH_LOCKSTEP_B")
 
 # Reuse the thin domain driver's option whitelist without depending on the
 # caller's working directory or Python module search path.
@@ -58,7 +59,8 @@ SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
 SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
-                    DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
+                    DOMAIN.PUBLICATION_POLICY, DOMAIN.EPOCH_INSPECTOR_LOOKUP,
+                    DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
                     DOMAIN.FRONTIER_POLICY)
 G2_RESIDUAL_ANCHORS = "g2-residual-anchors"
 G2_RESIDUAL_MODES = ("off", "union")
@@ -93,6 +95,70 @@ FINITE_ALLOWANCES = {
     "max-coalescing-additions": 256_000_000,
     "max-rule-applications": 16_000_000,
 }
+
+
+def resumable_checkpoint(checkpoint):
+    """CP6 explicitly attests durability/usability; retain the CP5 contract."""
+    return (isinstance(checkpoint, dict) and checkpoint.get("state") == "saved"
+            and (checkpoint.get("format") != "RUSTRED-WALK-CP6"
+                 or checkpoint.get("resumable") is True))
+
+
+def advance_checkpoint(current, candidate):
+    """CP6 terminal invalidation survives replay of cached saved events."""
+    if (isinstance(current, dict) and current.get("format") == "RUSTRED-WALK-CP6"
+            and current.get("state") in ("poisoned", "unconfirmed_after_process_exit")):
+        return current
+    if isinstance(candidate, dict):
+        if candidate.get("format") == "RUSTRED-WALK-CP6" and candidate.get("state") == "poisoned":
+            return candidate
+        generation = MONITOR.number(candidate.get("generation"))
+        if isinstance(generation, int) and (current is None or generation >= current.get("generation", 0)):
+            return candidate
+    return current
+
+
+def terminal_checkpoint(policy, status, event, checkpoint):
+    """A stale heartbeat is insufficient after a missing/failed CP6 terminal handoff."""
+    if policy != "epoch" or not isinstance(checkpoint, dict) or checkpoint.get("format") != "RUSTRED-WALK-CP6":
+        return checkpoint
+    if checkpoint.get("state") == "poisoned":
+        return checkpoint
+    native = event.get("progress", event)
+    native = native if isinstance(native, dict) else {}
+    native = native.get("snapshot", native)
+    final = native.get("checkpoint") if isinstance(native, dict) else None
+    if (status == 4 and isinstance(native, dict) and native.get("event") == "finished"
+            and native.get("full_result_in_output_document") is False
+            and native.get("full_state_in_checkpoint") is True
+            and resumable_checkpoint(final) and final.get("format") == "RUSTRED-WALK-CP6"
+            and final.get("generation") == checkpoint.get("generation")):
+        return checkpoint
+    return dict(checkpoint, state="unconfirmed_after_process_exit", resumable=False,
+                reason="no complete CP6 terminal handoff; inspect the raw checkpoint before resuming")
+
+
+def terminal_state(status, policy, event, progress, checkpoint, operator_stop):
+    """CP6 checkpoint-only output never masquerades as solver completion."""
+    saved = resumable_checkpoint(checkpoint)
+    if policy == "epoch" and isinstance(checkpoint, dict) and checkpoint.get("format") == "RUSTRED-WALK-CP6":
+        if not saved:
+            return "failed"
+        native = event.get("progress", event)
+        native = native if isinstance(native, dict) else {}
+        native = native.get("snapshot", native)
+        if status == 4 and isinstance(native, dict) and native.get("full_result_in_output_document") is False:
+            if (progress.get("native_status") == "incomplete"
+                    and native.get("recursive_worklist_exhausted") is True
+                    and native.get("all_scheduled_domains_resolved") is False
+                    and native.get("finalization") == "not_evaluated"):
+                return "checkpoint_only"
+            if progress.get("native_status") == "stopped":
+                return ("paused" if progress.get("native_stop_reason") == "paused"
+                        else "stopped")
+        return "stopped" if operator_stop else "failed"
+    paused = status == 4 and progress.get("native_status") == "paused" and saved
+    return "completed" if status == 0 else "paused" if paused else "stopped" if operator_stop else "failed"
 
 
 def restart_command(args, output: Path, checkpoint: str, cpus: set[int]) -> list[str]:
@@ -774,6 +840,9 @@ def main() -> int:
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
                         help="symbolic publication policy; requires --queries; ready requires unreserved delegation; nonordered modes may change diagnostic traversal order")
+    parser.add_argument("--" + DOMAIN.EPOCH_INSPECTOR_LOOKUP, choices=DOMAIN.EPOCH_INSPECTOR_LOOKUP_MODES,
+                        action=DOMAIN.StoreOnce,
+                        help="CP6 Epoch comparison control; default all-miss; resume must retain its mode")
     parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
                         help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
                              "ordered/ready publication and no physical subdivision; resume must retain its original mode")
@@ -839,6 +908,8 @@ def main() -> int:
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     try:
+        DOMAIN.validate_epoch_inspector_lookup(args.epoch_inspector_lookup, symbolic,
+                                               args.publication_policy, args.checkpoint is not None or args.resume is not None)
         validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,
                                      args.publication_policy, args.apply_subdivision_axis is not None)
     except ValueError as error:
@@ -852,6 +923,8 @@ def main() -> int:
                                        args.apply_subdivision_axis is not None)
     DOMAIN.validate_frontier_policy(parser, args.frontier_policy,
                                     args.checkpoint is not None or args.resume is not None)
+    if args.publication_policy == "epoch" and (args.auto_rescue or args.amend_queries):
+        parser.error("epoch CP6 does not support rescue or query amendments")
     if args.amend_queries and (not symbolic or args.resume is None):
         parser.error("--amend-queries requires --queries and --resume")
     if args.auto_rescue and (args.frontier_policy != "stop" or not symbolic
@@ -978,6 +1051,8 @@ def main() -> int:
     # One supervisor display owns the terminal; native JSONL heartbeats continue.
     command.append("--no-progress")
     checkpoint_directory = args.checkpoint or args.resume
+    epoch_policy = ({"epoch_inspector_lookup": args.epoch_inspector_lookup or "all-miss"}
+                    if symbolic and args.publication_policy == "epoch" else {})
     checkpoint_directory = str(checkpoint_directory.resolve()) if checkpoint_directory is not None else None
     amendments_directory = None
     if args.auto_rescue:
@@ -985,6 +1060,7 @@ def main() -> int:
                                 else default_amendments_directory(checkpoint_directory))
     # Never include the process environment or license in provenance.
     (output / "request.json").write_text(json.dumps({
+        **epoch_policy,
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
@@ -1074,18 +1150,16 @@ def main() -> int:
             read_error = str(error)
         progress = MONITOR.progress_summary(tail.latest, tail.observed_at, now)
         for candidate in (progress["checkpoint"], tail.saved_checkpoint):
-            generation = None if candidate is None else MONITOR.number(candidate.get("generation"))
-            if isinstance(generation, int) and (last_checkpoint is None or
-                    generation >= last_checkpoint.get("generation", 0)):
-                last_checkpoint = candidate
+            last_checkpoint = advance_checkpoint(last_checkpoint, candidate)
         writings = [candidate for candidate in (progress.get("checkpoint_write"), tail.checkpoint_write)
                     if candidate is not None and isinstance(MONITOR.number(candidate.get("generation")), int)]
         writing = max(writings, key=lambda candidate: candidate["generation"], default=None)
-        if writing and last_checkpoint and writing["generation"] <= last_checkpoint.get("generation", 0):
+        if writing and last_checkpoint and writing["generation"] <= (last_checkpoint.get("generation") or 0):
             writing = None
         if exit_status is not None:
             writing = None
         status = {"schema": "rustred.campaign-status.v1", "heartbeat_unix_time": time.time(),
+                  **epoch_policy,
                   "heartbeat_age_seconds": 0.0, "heartbeat_stale": False,
                   "state": state, "elapsed_seconds": now-started, "sample_seconds": args.sample_seconds,
                   "run_directory": str(output), "process_identity": identities,
@@ -1214,18 +1288,16 @@ def main() -> int:
     tail.poll()
     terminal_progress = MONITOR.progress_summary(tail.latest, tail.observed_at, time.monotonic())
     for candidate in (terminal_progress["checkpoint"], tail.saved_checkpoint):
-        generation = None if candidate is None else MONITOR.number(candidate.get("generation"))
-        if isinstance(generation, int) and (last_checkpoint is None or
-                generation >= last_checkpoint.get("generation", 0)):
-            last_checkpoint = candidate
-    paused = (status == 4 and terminal_progress.get("native_status") == "paused"
-              and last_checkpoint is not None and last_checkpoint.get("state") == "saved")
-    if last_checkpoint and last_checkpoint.get("state") == "saved" and checkpoint_directory:
+        last_checkpoint = advance_checkpoint(last_checkpoint, candidate)
+    last_checkpoint = terminal_checkpoint(args.publication_policy, status, tail.latest, last_checkpoint)
+    if resumable_checkpoint(last_checkpoint) and checkpoint_directory:
         resume_command = restart_command(args, output, checkpoint_directory, cpus)
-    state = "completed" if status == 0 else "paused" if paused else "stopped" if stop_reason else "failed"
+    state = terminal_state(status, args.publication_policy, tail.latest, terminal_progress,
+                           last_checkpoint, stop_reason)
     publish_status(last_resources, state, status)
     (output / "run.status").write_text(str(status) + "\n")
     (output / "supervisor-result.json").write_text(json.dumps({
+        **epoch_policy,
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
@@ -1246,9 +1318,9 @@ def main() -> int:
         "min_observed_host_available_bytes": min_available,
         "max_observed_zfs_arc_bytes": max_arc,
         "hard_stopped": hard_stopped,
-        "work_checkpoint": bool(last_checkpoint and last_checkpoint.get("state") == "saved"
+        "work_checkpoint": bool(resumable_checkpoint(last_checkpoint)
                                 and not last_checkpoint.get("bootstrap", False)),
-        "resume_checkpoint_available": bool(last_checkpoint and last_checkpoint.get("state") == "saved"),
+        "resume_checkpoint_available": resumable_checkpoint(last_checkpoint),
         "checkpoint": last_checkpoint, "state": state, "resume_requested": args.resume is not None,
         "resume_command": resume_command,
         "unbounded_work": args.unbounded_work, "family_closure_claim": False,

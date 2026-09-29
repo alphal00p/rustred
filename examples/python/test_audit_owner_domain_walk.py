@@ -235,6 +235,46 @@ class SyntheticWalkAuditTests(unittest.TestCase):
                 self.assertEqual(report["receipt"]["exit_status"], 0)
                 self.assertEqual(report["checkpoint_manifest_schema"], 2 if policy == "ready" else 1)
 
+    def test_epoch_walk_passes_and_its_export_and_pool_are_checked(self):
+        def epoch_run(temporary, edit=None, order=None):
+            def mutate(top):
+                for record in top["domains"]:
+                    if record["record_kind"] != "delegated_not_inspected":
+                        record["accepted_events"] = record["stats"]["events"]
+                top["schema"] = "rustred.owner-domain-walk.json.v6"
+                top["parallel"].update(merged_inspections=5, discarded_inspections=0, returned_inspections=5)
+                top["checkpoint"] = {"format": "RUSTRED-EPOCH-EXPORT", "generation": 1, "state": "saved",
+                                     "paused": False, "resumable": False, "pending_domains": 0,
+                                     "committed_domains": 6, "completed_native_inspections": 5,
+                                     "committed_events": 9, "stop_reason": None}
+                if edit is not None:
+                    edit(top)
+            run = build_run(Path(temporary), "epoch", mutate=mutate, order=order)
+            result = json.loads((run / "result.json").read_text())
+            (Path(temporary) / "checkpoint" / "epoch-export.json").write_text(json.dumps({
+                "format": "RUSTRED-EPOCH-EXPORT", "resumable": False, "walk_semantics_version": 3,
+                "metadata": result["checkpoint"]}))
+            return run
+        with tempfile.TemporaryDirectory() as temporary:
+            report = AUDIT.audit_walk(epoch_run(temporary, order=[1, 0, 3, 2, 5, 4]))
+            self.assertEqual(report["violations"], [])
+            self.assertEqual(report["publication_policy"], "epoch")
+        for fragment, edit in (
+            ("epoch pool merged_inspections", lambda top: top["parallel"].update(merged_inspections=4)),
+            ("lacks accepted_events", lambda top: top["domains"][0].pop("accepted_events")),
+            ("epoch export manifest differs", lambda top: top["checkpoint"].update(committed_events=9, generation=2)),
+        ):
+            with self.subTest(fragment=fragment), tempfile.TemporaryDirectory() as temporary:
+                run = epoch_run(temporary, edit=edit)
+                if fragment == "epoch export manifest differs":
+                    manifest = Path(temporary) / "checkpoint" / "epoch-export.json"
+                    document = json.loads(manifest.read_text())
+                    document["metadata"]["generation"] = 1
+                    manifest.write_text(json.dumps(document))
+                report = AUDIT.audit_walk(run)
+                self.assertEqual(report["audit"], "FAIL")
+                self.assertTrue(any(fragment in v for v in report["violations"]), report["violations"])
+
     def test_ready_walk_accepts_out_of_order_records_but_ordered_does_not(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = build_run(Path(temporary) / "ready", "ready", order=[1, 0, 3, 2, 5, 4])

@@ -1,0 +1,120 @@
+"""Strict opt-in CP6 checkpoint-only receipts; not a replacement for Ready gates."""
+import math
+
+CONTRACT = "rustred.epoch-cp6-control.v1"
+FORMAT = "RUSTRED-WALK-CP6"
+TIMING = "launcher-inclusive nice+nix+native launch through owned process-group drain; lock admission and recorder shutdown excluded"
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def integer(value, minimum=0):
+    return type(value) is int and value >= minimum
+
+
+def clean_collection(metrics, summary, expected):
+    require(expected["contract"] == CONTRACT, "explicit CP6 contract required")
+    require(metrics["exit_code"] == 4 and metrics["stop_reason"] is None
+            and metrics["runner_error"] is None and metrics["censored"] is False
+            and metrics["killed_after_grace"] is False, "native failure or censoring")
+    guard = metrics["resource_guard"]
+    require(guard["child_started"] is True and guard["stop_reason"] is None
+            and integer(guard["process_group"], 1), "native guard did not own a clean arm")
+    for key in ("launcher_wait_seconds", "owned_group_drain_seconds"):
+        require(type(guard[key]) in (int, float) and math.isfinite(guard[key]) and guard[key] >= 0,
+                "missing owned-group drain timing")
+    require(metrics["whole_command_timing_scope"] == TIMING
+            and type(metrics["whole_command_seconds"]) in (int, float)
+            and math.isfinite(metrics["whole_command_seconds"])
+            and metrics["whole_command_seconds"] > 0, "timing boundary differs")
+    for key, value in {"status": "incomplete", "finalization": "not_evaluated",
+                       "recursive_worklist_exhausted": True, "admission_complete": True,
+                       "full_result_in_output_document": False, "full_state_in_checkpoint": True,
+                       "all_scheduled_domains_resolved": False, "observer_failed": False,
+                       "family_closure_claim": False}.items():
+        require(summary[key] == value and type(summary[key]) is type(value), f"summary {key}")
+    require("domains" not in summary, "summary is not full inventory")
+    for key in ("stop_reason", "operational_stop", "admission_failure"):
+        require(summary[key] is None, f"summary {key}")
+    for key in ("frontiers", "input_frontiers_count", "failed_nodes", "queued_nodes"):
+        require(type(summary[key]) is int and summary[key] == 0, f"unfinished {key}")
+    for key in ("scheduled_nodes", "native_processed_nodes"):
+        require(integer(summary[key], 1), f"invalid {key}")
+    require(summary["parallel"]["workers_joined"] is True
+            and type(summary["parallel"]["active_workers"]) is int
+            and summary["parallel"]["active_workers"] == 0, "workers not joined")
+    epoch = summary["epoch"]
+    require(type(epoch["schedule"]["depth"]) is int and type(epoch["schedule"]["b"]) is int
+            and epoch["engine_certification_void"] is False
+            and epoch["inspector_lookup_mode"] == expected["mode"]
+            and epoch["schedule"] == {"kind": "lockstep", "depth": 1, "b": expected["b"]},
+            "mode, B or engine authority differs")
+    roles = expected["roles"]
+    admission = summary["query_admission"]
+    for key, value in {"requested": roles["total"], "admitted": roles["total"], "unadmitted": 0,
+                       "required": roles["required"], "auxiliary": roles["auxiliary"],
+                       "admitted_required": roles["required"], "admitted_auxiliary": roles["auxiliary"]}.items():
+        require(type(admission[key]) is int and admission[key] == value, f"query census {key}")
+    checkpoint = summary["checkpoint"]
+    require(checkpoint["format"] == FORMAT and checkpoint["schema"] == 1
+            and checkpoint["state"] == "saved" and checkpoint["resumable"] is True
+            and type(checkpoint["schema"]) is int and checkpoint["saved_this_invocation"] is True
+            and checkpoint["paused"] is False and checkpoint["stop_reason"] is None
+            and checkpoint["directory"] == expected["checkpoint"]
+            and integer(checkpoint["generation"], 1), "saved CP6 authority absent")
+
+
+def accept(metrics, summary, cold, audit, cold_guard, audit_guard, expected):
+    """No I/O: callers must separately bind/freeze files and guard commands."""
+    clean_collection(metrics, summary, expected)
+    for receipt, exit_code in ((cold_guard, 0), (audit_guard, 1)):
+        require(type(receipt["exit_code"]) is int and receipt["exit_code"] == exit_code
+                and receipt["reason"] is None, "verification guard failed/censored")
+    require(cold["verdict"] == "PASS" and cold["family_closure_claim"] is False
+            and cold["mutation"] is None and cold["reference"]["native_levers"] == "Off"
+            and cold["result_binding"] is None and cold["violations"] == []
+            and type(cold["violations_suppressed"]) is int
+            and cold["violations_suppressed"] == 0, "raw independent closure gate")
+    total = cold["roots_total"]
+    require(integer(total, 1) and type(cold["roots_independently_verified"]) is int
+            and cold["roots_independently_verified"] == total, "root scope incomplete")
+    reinspect = cold["reinspection"]
+    n = reinspect["candidates"]
+    require(integer(n, 1) and reinspect["mode"] == "All" and reinspect["complete"] is True
+            and type(reinspect["selected"]) is int and reinspect["selected"] == n
+            and type(reinspect["tally"]["inspected"]) is int
+            and reinspect["tally"]["inspected"] == n, "not full native reinspection")
+    require(n == summary["native_processed_nodes"], "native count mismatch")
+    cp = cold["checkpoint"]
+    require(cp["directory"] == expected["checkpoint"]
+            and integer(cp["generation"], 1)
+            and cp["generation"] == summary["checkpoint"]["generation"]
+            and cp["publication_policy"] == "epoch" and type(cp["walk_semantics_version"]) is int
+            and cp["walk_semantics_version"] == 3
+            and cp["request_binding_matches"] is True and cp["owner_digests_match"] is True,
+            "cold checkpoint generation/request binding")
+    queries = cold["queries"]
+    require(queries["blake3"] == expected["queries_blake3"], "cold query bytes differ")
+    for key, value in {"count": expected["roles"]["total"], "admitted_prefix": expected["roles"]["total"],
+                       "unadmitted": 0, "unresolved_input_frontiers": 0}.items():
+        require(type(queries[key]) is int and queries[key] == value, f"cold query {key}")
+    require(queries["unadmitted_ids"] == [], "unadmitted suffix")
+    for name, count in (("physics", expected["roles"]["required"]), ("helper", expected["roles"]["auxiliary"])):
+        row = cold["certification"]["classes"].get(name, {})
+        for key in ("total", "independently_verified", "consistent_closed", "oracle_closed"):
+            require(type(row.get(key, 0)) is int and row.get(key, 0) == count, f"{name} {key}")
+    require(integer(cold["counts"]["domains"], 1) and integer(cold["counts"]["oracle_closed"], 1)
+            and cold["counts"]["domains"] == summary["scheduled_nodes"]
+            and cold["counts"]["oracle_closed"] == cold["counts"]["domains"], "unfinished domain inventory")
+    require(audit["audit"] == "INCOMPLETE" and audit["violations"] == []
+            and type(audit["violations_suppressed"]) is int and audit["violations_suppressed"] == 0
+            and audit["all_local_obligations_discharged"] is False
+            and audit["incomplete_reason"].startswith("checkpoint-only output has no full record proof;")
+            and "verifier_pairing" not in audit, "Python summary contract is not a full-result PASS")
+    return {"contract": CONTRACT, "accepted": True, "authority": "raw_cp6_cold_all",
+            "generation": cp["generation"], "mode": expected["mode"], "roles": expected["roles"],
+            "native_exit_code": 4, "python_audit": "INCOMPLETE", "full_result_proof": False,
+            "whole_command_seconds": metrics["whole_command_seconds"], "family_closure_claim": False}

@@ -336,12 +336,19 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> 
 /// One JSON line naming the walk-checkpoint resume identity of this binary.
 /// Launchers compare it with a paused CP5 manifest before swapping in a
 /// performance-only executable; it opens no file and runs no algebra.
+/// Backward compatible: the three legacy keys stay first and unchanged (they
+/// describe the CP5 lanes); `per_policy` and `checkpoint_formats {cp5, cp6}`
+/// describe the separate CP6 epoch lane. The old S2 export is not resumable.
 fn walk_semantics_probe() -> String {
     format!(
-        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{}}}\n",
+        "{{\"walk_semantics_version\":{},\"checkpoint_format\":{},\"checkpoint_schema\":{},\"per_policy\":{{\"ordered\":{},\"ready\":{},\"epoch\":{}}},\"checkpoint_formats\":{{\"cp5\":{},\"cp6\":\"RUSTRED-WALK-CP6\"}},\"epoch_checkpoint\":{{\"format\":\"RUSTRED-WALK-CP6\",\"schema\":1,\"walk_semantics_version\":3,\"resumable\":true}}}}\n",
         crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
         serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
         crate::OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
+        crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+        crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
+        crate::OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION,
+        serde_json::Value::from(crate::OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT),
     )
 }
 
@@ -375,14 +382,35 @@ mod tests {
         let line = walk_semantics_probe();
         assert!(line.ends_with('\n') && line.matches('\n').count() == 1);
         let probe: serde_json::Value = serde_json::from_str(&line).unwrap();
+        // The frozen legacy keys, unchanged (production_saved_owner_campaign.py
+        // reads exactly these three).
+        for (key, value) in [
+            (
+                "walk_semantics_version",
+                serde_json::json!(crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION),
+            ),
+            ("checkpoint_format", serde_json::json!("RUSTRED-WALK-CP5")),
+            ("checkpoint_schema", serde_json::json!(5)),
+        ] {
+            assert_eq!(probe[key], value, "{key}");
+        }
+        assert_eq!(probe["walk_semantics_version"], 1);
         assert_eq!(
-            probe,
+            probe["per_policy"],
+            serde_json::json!({"ordered": 1, "ready": 1, "epoch": 3})
+        );
+        assert_eq!(
+            probe["checkpoint_formats"],
+            serde_json::json!({"cp5": "RUSTRED-WALK-CP5", "cp6": "RUSTRED-WALK-CP6"})
+        );
+        assert_eq!(
+            probe["epoch_checkpoint"],
             serde_json::json!({
-                "walk_semantics_version": crate::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
-                "checkpoint_format": "RUSTRED-WALK-CP5",
-                "checkpoint_schema": 5,
+                "format": "RUSTRED-WALK-CP6", "schema": 1,
+                "walk_semantics_version": 3, "resumable": true
             })
         );
+        assert_eq!(probe.as_object().unwrap().len(), 6);
         assert!(line.starts_with("{\"walk_semantics_version\":"));
     }
 }

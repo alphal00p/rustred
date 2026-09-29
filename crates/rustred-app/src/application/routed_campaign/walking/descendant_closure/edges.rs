@@ -136,6 +136,73 @@ fn build(nodes: usize, old: &Csr, extra: &[(u32, u32)]) -> Option<Csr> {
 }
 
 impl Edges {
+    /// Restore from a repeatable immutable edge iterator with no temporary
+    /// pair/partition arrays. Both passes keep the source order within each
+    /// target. Allocations are only the final CSR and normal empty-log heads.
+    pub fn from_iter(
+        nodes: usize,
+        pairs: impl Iterator<Item = (u32, u32)> + Clone,
+    ) -> Result<Self, String> {
+        if nodes >= NONE as usize {
+            return Err("invalid checkpoint dependency inventory".into());
+        }
+        let mut offsets = Vec::new();
+        offsets
+            .try_reserve_exact(nodes + 1)
+            .map_err(|_| "dependency restore allocation")?;
+        offsets.resize(nodes + 1, 0u64);
+        let mut total = 0usize;
+        let mut first_hash = blake3::Hasher::new();
+        for (source, target) in pairs.clone() {
+            if source as usize >= nodes || target as usize >= nodes {
+                return Err("invalid checkpoint dependency edge".into());
+            }
+            total = total
+                .checked_add(1)
+                .ok_or("dependency edge count overflow")?;
+            offsets[target as usize + 1] += 1;
+            first_hash.update(&source.to_le_bytes());
+            first_hash.update(&target.to_le_bytes());
+        }
+        for target in 1..=nodes {
+            offsets[target] += offsets[target - 1];
+        }
+        let mut sources = Vec::new();
+        sources
+            .try_reserve_exact(total)
+            .map_err(|_| "dependency restore allocation")?;
+        sources.resize(total, 0u32);
+        let mut copied = 0usize;
+        let mut second_hash = blake3::Hasher::new();
+        for (source, target) in pairs {
+            if source as usize >= nodes || target as usize >= nodes {
+                return Err("invalid checkpoint dependency edge".into());
+            }
+            let cursor = &mut offsets[target as usize];
+            let slot = sources
+                .get_mut(*cursor as usize)
+                .ok_or("dependency iterator changed")?;
+            *slot = source;
+            *cursor += 1;
+            copied += 1;
+            second_hash.update(&source.to_le_bytes());
+            second_hash.update(&target.to_le_bytes());
+        }
+        if copied != total || first_hash.finalize() != second_hash.finalize() {
+            return Err("dependency iterator changed".into());
+        }
+        offsets.copy_within(..nodes, 1);
+        offsets[0] = 0;
+        let mut edges = Self {
+            csr: Csr { offsets, sources },
+            log: EdgeLog::default(),
+        };
+        edges
+            .grow(nodes)
+            .map_err(|()| "dependency restore allocation")?;
+        Ok(edges)
+    }
+
     /// Rebuild the folded graph from persisted (source, target) pairs; every
     /// endpoint must name one of `nodes` nodes.
     pub fn from_pairs(nodes: usize, pairs: &[(u32, u32)]) -> Result<Self, String> {
