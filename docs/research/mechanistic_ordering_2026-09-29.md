@@ -1,7 +1,9 @@
 # Mechanistic ordering inputs, 2026-09-29
 
-Status: input design and source audit only. No new native job, performance
-claim, production mutation, graph canonizer, or algebra implementation. The
+Status: four query-order pairs and two banana-pivot generations completed;
+no decisive performance gain established. Exact pivot terminal-set comparison
+and the corresponding stitched closure tests remain pending. No production
+mutation, graph canonizer, or algebra implementation. The
 prepared inputs are in `TMP/codex-mechanistic-ordering.5NFxVw/`; their exact
 permutations and preservation checks are in `input-mapping.json`.
 The query source is the actual matched matrix input
@@ -312,7 +314,9 @@ native+cold time refute a useful gain; terminal inflation cannot count as one.
 `banana-pivot-commands.json` and `banana-pivot-pipeline.sh` prepare exactly these
 two bounded arms, with `--nonpositive-indices 0,5,6,7,8`, the same sparse/depth2/
 finite-search/case/bundle/checkpoint policy and W16/CPU/lock/deadline guards as
-the BMW commands. Neither has run. Generation covers the banana root downset;
+the BMW commands. Both generations have completed, as recorded below;
+terminal-set comparison and stitched full-58 verification remain pending.
+Generation covers the banana root downset;
 only the exact-mask root shard may replace the selected banana payload. The
 other 15 owners, all 508 routes and all 58 query rows, roles and order remain
 fixed. Original owner ordinal 297 is not assumed for new checkpoints.
@@ -338,6 +342,21 @@ finite retention to make those flags parse. Depth2/search/unrestricted scope
 canonically encodes the packaged `ordinary-source-port-default-v1` policy;
 mixed saved roots and tie orders are accepted, but the common saved solver
 policy and family fingerprint must match exactly.
+
+The two authorized banana generations completed on frozen `89d90a3a`:
+natural/slot9-first took 6.331/6.428 native-reported seconds (9.161/9.154
+guarded wall seconds), with six solved sectors and 16 aggregate finite
+residuals each. Aggregate rule counts were 549/469, but aggregate coefficient
+bytes increased from 2,604,135 to 2,965,222. These aggregate costs include the
+whole generated downset, not only the replacement owner. The exact banana
+mask is native ordinal 5 in both new manifests; its shard sizes are
+3,322,117/2,695,401 bytes. Receipts and hashes are in
+`banana-pivot-results.json` under the preparation artifact directory.
+The separately bounded loader-only diagnostic reached its 120-second limit
+without producing an executable; no retry or alternate decoder was used.
+Exact terminal-key comparison and the stitched full-58 gate remain pending,
+so these generation results establish neither equivalent terminal inventories
+nor a walk-performance improvement. All three owned process groups drained.
 
 ## Fair smallest gate
 
@@ -370,20 +389,66 @@ initial inventory, initial/descendant banana Apply time, native inspections,
 emitted events and full native+cold wall time; unchanged/worse work or time
 falsifies the performance hypothesis. All 58 required query rows still need
 exact cold verification; containment may change the initial-root count.
-The root agent has authorized this pair after the original three query-order
-pairs; execution and results remain pending, with no claimed gain.
+This pair completed after the original three query-order pairs, with no
+claimed gain; the measured results are below.
 An independent StageA review confirmed the exact row permutation, unchanged
 full row objects and top-level metadata/roles, and the recorded SHA-256.
 
-After the current build, matched four-arm gate, and two cold mutation controls
-have drained, run one fresh full four-loop Ready/Epoch pair for each query-only
-candidate, using the same frozen optimized binary, W16, resource envelope,
-rule payloads, all 58 queries, and independent all-source cold verification.
+After the matched four-arm gate and two cold mutation controls drained, one
+fresh full four-loop Ready/Epoch pair ran for each query-only candidate, using
+the same frozen optimized binary, W16, resource envelope, rule payloads,
+all 58 queries, and independent all-source cold verification.
 Compare to the contemporaneous original-input Ready/Epoch controls. A candidate
 must not be favored merely because one engine benefits; report native+cold
 wall time, native inspections, Route/Apply counts, emitted work, peak memory,
 and censored/incomplete outcomes. Repeat only a promising candidate in reversed
 arm order before interpreting a small difference.
+
+### Completed query-order measurements
+
+The optimized `89d90a3a` executable has SHA256
+`581dc252aaeffd647032a37c944df673aaa3c8e91120394d08ce0eb67679ae5c`.
+All eight arms pass full cold-All verification with zero violations; none is
+censored. These are one pair per candidate, not repeatable optimum claims.
+Times charge native command and independent cold reinspection separately.
+
+| Query order | Ready native / cold (s) | Epoch native / cold (s) | Epoch total difference |
+| --- | ---: | ---: | ---: |
+| Shared interface first | 9.786 / 15.170 | 11.808 / 13.156 | +0.03% (one noisy tie) |
+| Dependency-ready cost | 8.998 / 13.173 | 11.180 / 13.157 | +9.77% |
+| Critical interface first | 9.584 / 12.163 | 10.992 / 15.150 | +20.21% |
+| Banana broad anchor first | 9.980 / 13.155 | 11.752 / 14.152 | +11.97% |
+
+Broad-anchor admission reduces independently checked initial roots from32 to31
+while retaining every one of the58 requested rows. Relative to original FIFO,
+its saved domains fall51,139→49,038 (4.11%), but native inspections barely fall
+31,846→31,667 (0.56%). Its25.904s total is not an improvement over original
+FIFO's25.845s two-run mean. Other query-block permutations leave native work
+essentially unchanged. No pair supports a decisive native speedup.
+
+Full CPU, memory, work, contention and process-drain receipts are preserved in
+`TMP/codex-verifier16-matrix.0xtHE0/QUERY_ORDER89_RESULTS.md` and
+`query-order89-results.json`. The report's SHA256 is
+`aff38f767d906e23f01a075ee8fd66fca6abc990c8a1e1729ea844e01a3ddcb7`;
+the JSON's is`2dfd168684e0cded175fb15ae783c140db6b14cbc9d804cb2d38159f462000ea`.
+Native-tree and cold-single-child RSS have different scopes and are not summed.
+Sparse host-contention samples do not justify correcting these timings.
+
+Source-boundary interpretation: both Ready and checkpointed Epoch finish
+initial query admission before dispatching native work (`walking/mod.rs`
+initial-admission loop; Epoch `restore/runtime/public.rs` admission stage and
+`controller.rs`'s complete-admission precondition). Their full-containment
+lookups can reuse an admitted live domain without requiring it to have been
+inspected or recursively closed (`queue.rs::admit_with_lookup` and
+`epoch/store.rs::lookup`). Thus all admitted initial geometry is available to
+descendant full-containment lookup before any query-order scheduling advantage.
+An unchanged inspection count across the first three block permutations is
+consistent with limited additional full-cover sharing from solving an owner
+earlier; it is not evidence that order can never matter. Initial maximal-cover
+admission, representative/cut choices, later generated domains, partial G2
+coverage and native-cost overlap can still change. This is a source-supported
+interpretation, not a universal invariant. A pivot change is different: it can
+change emitted rule/domain geometry, not merely the schedule of fixed inputs.
 
 The reindex arm needs bounded root generation first, native candidate-policy
 checks, all exact route verification, and then the same complete 58-query pair.

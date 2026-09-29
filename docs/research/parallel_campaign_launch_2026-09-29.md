@@ -6,6 +6,11 @@ controls belong in [the delivery report](parallel_epoch_delivery_2026-09-29.md).
 Only the owner starts or stops production. LC2 continues unchanged alongside
 the new campaign.
 
+Consolidation note (22:20 UTC): the executable identities below still describe
+the earlier `e1bdb9e7` draft, not the new monitored build. The clean `3428b519`
+build is underway; replace the source, binary and checksum together after it
+is frozen and passes its gates. Do not use this draft to launch either version.
+
 ## Frozen executable and environment
 
 The optimized executable is already built on this machine; another compilation

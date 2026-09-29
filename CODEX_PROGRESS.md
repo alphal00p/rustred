@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 21:53 UTC
+## Current shortened-delivery ownership — 2026-09-29 22:20 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,12 +52,12 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` two pairs complete: no reliable parity/win; test mechanistic query/pivot candidates next |
+| Rolling Epoch controller and lookup replicas | compiled; earlier lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Optimized `89d90a3a` baseline and four query-order pairs complete: no reliable parity/win; final monitored build underway |
 | Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
-| CLI/Python policy surfaces and monitoring | integrated Python checks pass; native monitor build pending | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 native metadata PASS; execute exact Tracker harness and final live CLI refresh/restore controls |
-| Mechanistic input/pivot ordering | active; four narrow query candidates prepared | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Shared-interface, dependency-ready, critical-interface and banana broad-anchor inputs preserve58 rows/roles; banana coordinate promotion targets measured dominant cost |
+| CLI/Python policy surfaces and monitoring | Python and actual focused Tracker checks pass; final native build active | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 metadata PASS; Tracker12 PASS/one ignored; final live CLI refresh/restore pending |
+| Mechanistic input/pivot ordering | four query pairs delivered negative; two pivot generations delivered; terminal-key gate pending | `parallel_gate_critique`; execution `bounded_ordering_pilots`, independent root | Query-only changes not decisive; banana sparse generations complete, loader diagnostic censored, no terminal-equivalence or stitched walk claim |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
 | Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
@@ -104,6 +104,60 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 22:23 UTC — bounded remaining diagnostics
+
+- [D] Register one runtime-only falsifier for replica overhead on the short
+  combined4L control: final-binary rolling FIFO+Union with existing
+  `--epoch-inspector-lookup all-miss`, versus the contemporaneous Ready and
+  Snapshot arms. All58 rows, W16, placement and cold-All gates remain identical.
+  No recent equivalent rolling receipt exists; older S2 tests are not this
+  comparison. `all-miss` omits lookup Publication replicas and uses the ordinary
+  inspector Resolver plus merge-time resolution. Falsifier: unchanged/worse
+  native+cold time or increased work with no net gain. One arm after original
+  final ABBA; repeat only a material benefit. No new native implementation.
+- [D] The optional raw-terminal diagnostic is narrowed to the actual N10 fixture
+  to avoid15 unnecessary generic instantiations. This is a research adapter,
+  not topology-specific engine logic. Existing public loader and key enumeration
+  remain byte-identical. StageA independently reviewed it; bind only coherent
+  final3428 artifacts after build, then allow one120s compile attempt. No
+  unbound older app library, custom decoder or further fallback. Exact keys
+  remain pending until that native API actually executes.
+
+### 2026-09-29 22:20 UTC — final build and completed ordering evidence
+
+- [M] All eight same89 query-order arms pass full cold-All verification of
+  the unchanged58 required rows. None establishes a decisive gain. The broad
+  banana anchor reduces roots32→31, domains51,139→49,038 and inspections
+  31,846→31,667, but total25.904s is11.97% slower than its matched Ready arm.
+  Evidence: `TMP/codex-verifier16-matrix.0xtHE0/QUERY_ORDER89_RESULTS.md`
+  and `query-order89-results.json`; exact hashes/CPU/RSS and interpretation
+  are preserved in the mechanistic-ordering report. All36 groups drained.
+- [M] Banana natural/slot9-first sparse generation completes in6.331/6.428s
+  native-reported time (9.161/9.154s guarded); six sectors and16 aggregate
+  residuals each. Rules549→469 but coefficient bytes2,604,135→2,965,222.
+  The native ordinal5 root shards differ in size; counts alone do not prove
+  terminal-key equality. The bounded loader diagnostic timed out after120s
+  without an executable. No stitched58-query test or pivot gain is claimed.
+  Root and StageA independently checked the receipt; all groups drained.
+- [M] Actual a35 Tracker harness passes12 tests, zero failures, one ignored
+  scale benchmark, using coherent existing non-LTO dependencies. Guard elapsed
+  3.152s; tests0.06s. Evidence:
+  `TMP/codex-closure-monitor-tests.qzQuvW/tracker-guard-v3/`.
+  This executes Tracker internals, not the new controller/full-app tests.
+- [D] After explicit critic resource/cache handoff, root authorized the
+  unchanged same-cache optimized build at3428b519. Started22:16:31.858 UTC,
+  group3181595, CPUs0–15, heavy/build0 locks; receipt:
+  `TMP/codex-parallel-campaign.oiPK29/campaign-build-3428b519/`.
+  Clean89 source/vendor and immutable89 binary retained. Initial available
+  host memory722.785GB. Prior65-minute compilation informs an estimate only;
+  no solver timing includes compilation. Final M2/M4, individual/combined4L,
+  finite/hot5L and measuredW50 controls remain pending, not launch-qualified.
+- [E] Source audit explains limited query-order leverage: both engines admit
+  initial geometry before native dispatch, and full-containment lookups can
+  use admitted pending domains. Earlier solving is not required for that reuse.
+  Partial G2, representative/cut choices and pivot-induced geometry can still
+  change work. This is not an order-invariance theorem.
 
 ### 2026-09-29 22:04 UTC — structural query-order evidence
 

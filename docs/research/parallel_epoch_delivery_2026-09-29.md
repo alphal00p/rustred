@@ -1,20 +1,27 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
-Status: **implementation and final-binary lifecycle gates passed; combined
-four-loop performance gate not met**. A bounded merge-work diagnosis is in
-progress. This is not a production-launch recommendation. Follow
+Status: **earlier optimized-binary lifecycle gates passed; combined four-loop
+performance gate not met; consolidated monitored build in progress**.
+This is not a production-launch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
 `codex_astra`, using disjoint resources, not a replacement of the current run.
 
 September29 follow-up: the separately frozen `89d90a3a` verifier-lookup build
-has completed, but its first matched combined pair is still negative:
-Ready9.496s native +12.160875s cold versus Epoch11.183s +16.157556s cold.
-Both pass full cold reinspection; 21.657s versus27.341s is **not** a deployment
-win. Repeats and mechanistic input/pivot variants are in progress. Source
-changes adding the requested hourly discovery-minus-closure monitor have passed
-Python regression tests and native type checks, but require a subsequent
-optimized build and live checks; they are not present in that89 binary.
+passes both combined matched pairs and all four query-order pairs in correctness,
+but not the performance gate. The baseline two-run means are Ready23.2965s
+versus Epoch25.8450s, including independent cold reinspection: Epoch is10.94%
+slower. Native timings are worse in both pairs. No mechanistic query-order
+candidate produced a decisive gain. The banana pivot candidates were generated
+successfully, but their exact terminal-set comparison and stitched closure gate
+remain pending. See [the detailed ordering study](mechanistic_ordering_2026-09-29.md).
+
+The requested hourly discovery-minus-closure monitor passes the complete Python
+suite (323 passed, one optional skip), native test metadata and the actual
+focused Tracker tests (12 passed, one ignored scale benchmark). The separately
+identified optimized `3428b519` build started22:16 UTC, including native live
+closure refresh. Its actual CLI pause/resume and final matched controls remain
+pending. None of that telemetry work is present in the frozen89 comparisons.
 
 ## Delivered separately: compatible Stage A
 
@@ -64,7 +71,8 @@ IBP, removes an obligation or creates a terminal.
 FIFO remains the comparison baseline. The separate
 [algebraic-ordering review](parallel_delivery_ordering_review_2026-09-29.md)
 found no qualified replacement for the current natural saved programs and
-helpers-first query order. No owner artifacts were regenerated for this change.
+helpers-first query order. The selected campaign library remains unchanged;
+separate experimental banana owner generations are not deployed replacements.
 
 ## Interfaces and checkpoint boundary
 
@@ -128,7 +136,8 @@ Python can automatically resume with a rescue amendment.
 - Matched controls: prepared and independently checked; FG and repeated combined
   four-loop comparisons have completed, as detailed below. Required
   scopes are FG, BMW, H, X, combined four-loop, finite five-loop and hot-sector.
-  Both sides use the same future optimized binary and the same query bytes.
+  Both sides of each completed pair use the same frozen optimized binary and
+  the same query bytes. The newly monitored binary requires its own controls.
 - Adaptive comparisons: one complete combined four-loop pair favors FIFO;
   no adaptive benefit claimed. Finite/hot five-loop comparisons remain pending.
 - Combined four-family physics-capped performance is an explicit acceptance
@@ -177,9 +186,10 @@ gate, not a speedup justified by memory or worker activity.
 A preregistered runtime falsifier reduced Epoch's inspectors from 15 to 8
 within the same W16 budget. It completed correctly but took 31.514 seconds,
 with 31,555 Route inspections versus 31,558 at the default width. This does
-not support further flight-width tuning. The next narrowly scoped diagnostic
-tests publication-cut grouping without a rebuild; no source remedy or gain
-has yet been established.
+not support further flight-width tuning. The subsequent cut-size-one
+diagnostic was also negative (31.469s). Neither is a useful measured remedy.
+The remaining runtime-only falsifier compares the existing `all-miss` lookup
+mode against Snapshot on the consolidated build; it has not yet executed.
 
 The final optimized executable's lifecycle evidence remains valid despite
 this negative performance result. Launch instructions remain explicitly

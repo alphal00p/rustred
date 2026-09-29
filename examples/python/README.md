@@ -208,6 +208,8 @@ rather than turned into an invented rate. The existing `pending ... per
 completion` metric is unchanged. Epoch supplies these snapshots through its
 existing duty-throttled, cancellable scan at complete merge boundaries, never
 by forcing a graph scan for each heartbeat or checkpoint.
+The rolling window restarts on each launcher invocation, including resume or
+automatic rescue; persisted closure counts do not restore an hour of samples.
 
 `--prepare-from SOURCE --queries NEW.json --attach FILE ...` stages a new,
 verified query document (schema v2, only the six native row fields, owners

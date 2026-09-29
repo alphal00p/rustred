@@ -426,6 +426,9 @@ conservative unresolved count, not instantaneous closure throughput: batching
 can cause jumps, and negative does not certify eventual termination. Missing
 optional telemetry is labelled; invalid or reset counters start a new segment.
 It does not alter `pending_growth_per_completion_1h` or its existing display.
+Each launcher invocation, including resume or automatic rescue, starts a fresh
+window. Closure counts persist, but sample history is not imported from the
+previous process and scan age is unknown until the next native refresh.
 Epoch refreshes the dependency tracker periodically at committed boundaries
 with the existing dirty, duty and cancellation checks. Heartbeat serialization
 is O(1), and saving a checkpoint does not force an additional scan.
