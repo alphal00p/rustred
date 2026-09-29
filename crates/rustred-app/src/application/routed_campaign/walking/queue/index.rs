@@ -462,6 +462,43 @@ pub(in super::super) struct IndexBytes {
 }
 
 impl<const N: usize> AggregateIndex<N> {
+    /// One-time copy into a globally shared epoch lookup buffer. Subsequent
+    /// publications replay only new insertions and their retirement sets.
+    pub(in super::super) fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+        let mut copy = Self::default();
+        copy.groups
+            .try_reserve_exact(self.groups.len())
+            .map_err(|_| "lookup replica groups allocation")?;
+        copy.positions
+            .try_reserve(self.positions.len())
+            .map_err(|_| "lookup replica groups allocation")?;
+        copy.positions
+            .extend(self.positions.iter().map(|(&key, &value)| (key, value)));
+        for group in &self.groups {
+            let mut meta = Vec::new();
+            let mut blocks = Vec::new();
+            meta.try_reserve_exact(group.meta.len())
+                .map_err(|_| "lookup replica rows allocation")?;
+            blocks
+                .try_reserve_exact(group.blocks.len())
+                .map_err(|_| "lookup replica blocks allocation")?;
+            for (row, block) in group.meta.iter().zip(&group.blocks) {
+                let (row, block) = row.try_clone_pair(block)?;
+                meta.push(row);
+                blocks.push(block);
+            }
+            copy.groups.push(Group {
+                signature: group.signature,
+                meta,
+                blocks,
+                live: group.live,
+            });
+        }
+        copy.live = self.live;
+        copy.totals = copy.recount();
+        Ok(copy)
+    }
+
     #[cfg(test)]
     pub(super) fn set_work_counters_enabled(&mut self, enabled: bool) {
         self.work.enabled = enabled;

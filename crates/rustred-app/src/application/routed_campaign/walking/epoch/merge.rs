@@ -371,9 +371,10 @@ pub(super) fn p1_check<const N: usize>(
             )));
         }
         if let Some(work) = &result.lookup {
-            if !config.lockstep
-                || work.version != result.v0
-                || work.published_len as usize != state.store.len()
+            if work.version != result.v0
+                || work.published_len != meta.published_len
+                || work.published_len as usize > state.store.len()
+                || parent >= work.published_len
             {
                 return Err(fatal(format!("P1: {parent}: lookup snapshot mismatch")));
             }
@@ -822,7 +823,11 @@ pub(super) fn p2_plan<const N: usize>(
                         Container::Stored {
                             id,
                             domains: &state.store.domains,
-                            published_len,
+                            published_len: entry
+                                .result
+                                .lookup
+                                .as_ref()
+                                .map_or(published_len, |work| work.published_len as usize),
                         },
                         &q,
                         &mut counters.verify,
@@ -833,7 +838,9 @@ pub(super) fn p2_plan<const N: usize>(
                 }
                 counters.miss_requests += 1;
                 let query = Query::new(q.core.clone(), miss.image.phase());
-                if entry.result.lookup.is_some() {
+                if entry.result.lookup.as_ref().is_some_and(|work| {
+                    work.version == state.k && work.published_len as usize == published_len
+                }) {
                     // P1 admitted this report only for the identical lockstep
                     // view. No store publication/retirement occurs before P3.
                     // Keep exact uniqueness independently checked (also retired
@@ -1146,7 +1153,16 @@ pub(super) fn p3_preflight<const N: usize>(
         && !injected(5)
         && state.anchors.try_reserve(anchors).is_ok()
         && !injected(6)
-        && records.reserve().is_ok();
+        && records.reserve().is_ok()
+        && state
+            .store
+            .prepare_snapshot_updates(
+                state.watermark(),
+                plan.survivors
+                    .iter()
+                    .map(|survivor| survivor.retire.as_slice()),
+            )
+            .is_ok();
     if !reserved {
         return Err(PreflightError::Stop(StopReason::RamGuard));
     }

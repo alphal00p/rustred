@@ -4,11 +4,14 @@
 use crate::application::routed_campaign::walking::epoch::inspector::{
     Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
 };
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub(super) trait Execution {
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
+    fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
+    fn retire(&mut self, keys: &[u64]) -> Result<(), String>;
     fn poll(&mut self, timeout: Duration) -> Result<Poll, String>;
     fn cancel(&mut self) -> Result<(), String>;
     fn take_cancelled_status(&mut self) -> Result<Vec<Status>, String>;
@@ -17,6 +20,12 @@ pub(super) trait Execution {
 impl Execution for Pool<'_> {
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         Pool::submit(self, jobs)
+    }
+    fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
+        Pool::submit_rolling(self, jobs)
+    }
+    fn retire(&mut self, keys: &[u64]) -> Result<(), String> {
+        Pool::retire(self, keys)
     }
     fn poll(&mut self, timeout: Duration) -> Result<Poll, String> {
         Pool::poll(self, timeout)
@@ -31,7 +40,7 @@ impl Execution for Pool<'_> {
 
 struct Inline<'a> {
     inspect: &'a (dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync),
-    jobs: std::vec::IntoIter<Work>,
+    jobs: VecDeque<Work>,
     status: Vec<Status>,
     next: usize,
     stop: AtomicBool,
@@ -58,7 +67,7 @@ impl Execution for Inline<'_> {
             started: false,
             returned: false,
         }));
-        self.jobs = jobs.into_iter();
+        self.jobs = jobs.into();
         self.next = 0;
         Ok(())
     }
@@ -67,7 +76,7 @@ impl Execution for Inline<'_> {
         if self.stop.load(Ordering::Acquire) {
             return Err("inline poll after cancellation".into());
         }
-        let Some(job) = self.jobs.next() else {
+        let Some(job) = self.jobs.pop_front() else {
             return Ok(Poll::Drained);
         };
         let status = self
@@ -89,9 +98,50 @@ impl Execution for Inline<'_> {
         })
     }
 
+    fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
+        if self.stop.load(Ordering::Acquire) || self.status.len().saturating_add(jobs.len()) > 4096
+        {
+            return Err(SubmitError::Protocol(
+                "inline rolling bound or cancellation",
+            ));
+        }
+        for (at, job) in jobs.iter().enumerate() {
+            if self.status.iter().any(|s| s.key == job.key)
+                || jobs[..at].iter().any(|j| j.key == job.key)
+            {
+                return Err(SubmitError::Protocol("inline duplicate rolling sequence"));
+            }
+        }
+        self.status
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("inline status allocation"))?;
+        self.jobs
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("inline jobs allocation"))?;
+        self.status.extend(jobs.iter().map(|job| Status {
+            key: job.key,
+            started: false,
+            returned: false,
+        }));
+        self.jobs.extend(jobs);
+        Ok(())
+    }
+
+    fn retire(&mut self, keys: &[u64]) -> Result<(), String> {
+        if keys
+            .iter()
+            .any(|key| !self.status.iter().any(|s| s.key == *key && s.returned))
+        {
+            return Err("inline retirement before returned receipt".into());
+        }
+        self.status.retain(|s| !keys.contains(&s.key));
+        self.next = self.next.saturating_sub(keys.len());
+        Ok(())
+    }
+
     fn cancel(&mut self) -> Result<(), String> {
         self.stop.store(true, Ordering::Release);
-        self.jobs = Vec::new().into_iter();
+        self.jobs.clear();
         Ok(())
     }
 
@@ -112,7 +162,7 @@ pub(super) fn with<R>(
     if budget == 1 {
         let mut inline = Inline {
             inspect,
-            jobs: Vec::new().into_iter(),
+            jobs: VecDeque::new(),
             status: Vec::new(),
             next: 0,
             stop: AtomicBool::new(false),

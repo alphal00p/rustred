@@ -84,9 +84,10 @@ fn cancel_keeps_immutable_lookup_readable_until_held_callback_joins() {
         .unwrap();
         received.recv_timeout(Duration::from_secs(5)).unwrap();
         pool.cancel().unwrap();
-        assert!(owner.ensure_unique().is_err());
+        assert!(owner.ensure_unique().is_ok());
         // Like S3's save-before-join, immutable state is still readable. The
-        // queued second callback is never executed and no write is allowed.
+        // queued second callback is never executed. Canonical mutation no
+        // longer depends on a reader of an independent lookup buffer.
         assert_eq!(owner.len(), 0);
         release.send(()).unwrap();
     })

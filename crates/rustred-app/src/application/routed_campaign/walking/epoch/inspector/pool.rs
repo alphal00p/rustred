@@ -66,6 +66,7 @@ pub(in super::super) struct Status {
 struct Queue {
     jobs: VecDeque<(usize, Vec<u8>)>,
     status: Vec<Status>,
+    occupied: Vec<bool>,
     shutdown: bool,
 }
 enum Message {
@@ -138,10 +139,15 @@ impl Pool<'_> {
             .try_reserve(jobs.len())
             .map_err(|_| SubmitError::Allocation("epoch inspector queue allocation"))?;
         guard.status.clear();
+        guard.occupied.clear();
         guard
             .status
             .try_reserve(jobs.len())
             .map_err(|_| SubmitError::Allocation("epoch inspector status allocation"))?;
+        guard
+            .occupied
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch inspector slot allocation"))?;
         self.remaining = jobs.len();
         self.receipts.resize(jobs.len(), 0);
         for (index, job) in jobs.into_iter().enumerate() {
@@ -150,10 +156,101 @@ impl Pool<'_> {
                 started: false,
                 returned: false,
             });
+            guard.occupied.push(true);
             guard.jobs.push_back((index, job.bytes));
         }
         drop(guard);
         self.ready.notify_all();
+        Ok(())
+    }
+
+    /// Add bounded work without waiting for unrelated running inspections.
+    /// Slots remain occupied after their bytes return until the controller
+    /// acknowledges publication (or discard), so stop receipts describe the
+    /// complete unmerged inventory, including buffered results.
+    pub fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| SubmitError::Protocol("epoch inspector queue poisoned (C5)"))?;
+        let occupied = guard.occupied.iter().filter(|&&live| live).count();
+        if self.cancelled || guard.shutdown || occupied.saturating_add(jobs.len()) > MAX_BATCH {
+            return Err(SubmitError::Protocol(
+                "epoch rolling in-flight bound or stopped pool",
+            ));
+        }
+        for (at, job) in jobs.iter().enumerate() {
+            if jobs[..at].iter().any(|other| other.key == job.key)
+                || guard
+                    .status
+                    .iter()
+                    .zip(&guard.occupied)
+                    .any(|(status, &live)| live && status.key == job.key)
+            {
+                return Err(SubmitError::Protocol(
+                    "epoch duplicate submitted sequence (C5)",
+                ));
+            }
+        }
+        // Reserve every collection before accepting any descriptor.
+        guard
+            .jobs
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch inspector queue allocation"))?;
+        guard
+            .status
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch inspector status allocation"))?;
+        guard
+            .occupied
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch inspector slot allocation"))?;
+        self.receipts
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch result receipt allocation"))?;
+        self.remaining += jobs.len();
+        for job in jobs {
+            let status = Status {
+                key: job.key,
+                started: false,
+                returned: false,
+            };
+            let index = if let Some(index) = guard.occupied.iter().position(|&live| !live) {
+                guard.occupied[index] = true;
+                guard.status[index] = status;
+                self.receipts[index] = 0;
+                index
+            } else {
+                let index = guard.status.len();
+                guard.status.push(status);
+                guard.occupied.push(true);
+                self.receipts.push(0);
+                index
+            };
+            guard.jobs.push_back((index, job.bytes));
+        }
+        drop(guard);
+        self.ready.notify_all();
+        Ok(())
+    }
+
+    pub fn retire(&mut self, keys: &[u64]) -> Result<(), String> {
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+        for &key in keys {
+            let index = guard
+                .status
+                .iter()
+                .zip(&guard.occupied)
+                .position(|(status, &live)| live && status.key == key)
+                .ok_or("epoch retirement sequence absent (C5)")?;
+            if self.receipts.get(index) != Some(&2) {
+                return Err("epoch retirement before returned receipt (C5)".into());
+            }
+            guard.occupied[index] = false;
+        }
         Ok(())
     }
 
@@ -231,7 +328,13 @@ impl Pool<'_> {
         values
             .try_reserve_exact(guard.status.len())
             .map_err(|_| "epoch status snapshot allocation")?;
-        values.extend_from_slice(&guard.status);
+        values.extend(
+            guard
+                .status
+                .iter()
+                .zip(&guard.occupied)
+                .filter_map(|(status, &live)| live.then_some(*status)),
+        );
         Ok(values)
     }
 
@@ -249,7 +352,15 @@ impl Pool<'_> {
         if !guard.shutdown {
             return Err("epoch cancelled status with live queue (C5)".into());
         }
-        Ok(std::mem::take(&mut guard.status))
+        let mut status = std::mem::take(&mut guard.status);
+        let occupied = std::mem::take(&mut guard.occupied);
+        let mut index = 0;
+        status.retain(|_| {
+            let keep = occupied[index];
+            index += 1;
+            keep
+        });
+        Ok(status)
     }
 
     /// Stop admission first, release queued and channel-buffered result bytes,
@@ -290,6 +401,7 @@ pub(in super::super) fn with_authorized_pool<R>(
     let queue = Mutex::new(Queue {
         jobs: VecDeque::new(),
         status: Vec::new(),
+        occupied: Vec::new(),
         shutdown: false,
     });
     let ready = Condvar::new();

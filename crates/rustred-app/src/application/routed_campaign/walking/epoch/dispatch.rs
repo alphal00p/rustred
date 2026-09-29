@@ -202,13 +202,13 @@ impl Dispatch {
             let Ok(Entry6::Reserved(counters)) = state.ledger.get(id) else {
                 return Err("epoch replay ID is not Reserved".into());
             };
-            if meta.v0 != state.k || meta.seq >> 40 >= number {
+            if meta.v0 > state.k || meta.seq >> 40 >= number {
                 return Err("epoch replay does not have a fresh session".into());
             }
             jobs.push(Job {
                 seq: meta.seq,
                 parent: id,
-                v0: meta.v0,
+                v0: state.k,
                 attempts: counters.attempts,
                 flags: 0,
                 image,
@@ -234,6 +234,7 @@ impl Dispatch {
                 .expect("validated replay parent") = JobMeta {
                 seq: job.seq,
                 v0: job.v0,
+                published_len: state.watermark(),
             };
         }
         Ok((dispatch, jobs))
@@ -270,7 +271,14 @@ impl Dispatch {
             .filter(|&next| next < SEQUENCE_COUNTER_LIMIT)
             .expect("refill preflighted sequence capacity");
         let seq = (self.session << 40) | self.counter;
-        state.in_flight.insert(id, JobMeta { seq, v0: state.k });
+        state.in_flight.insert(
+            id,
+            JobMeta {
+                seq,
+                v0: state.k,
+                published_len: state.watermark(),
+            },
+        );
         let attempts = state
             .ledger
             .get(id)

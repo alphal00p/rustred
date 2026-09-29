@@ -57,6 +57,29 @@ fn shard_of(digest: u64) -> usize {
 }
 
 impl ExactIndex {
+    fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+        let mut copy = Self::new();
+        for (source, target) in self.shards.iter().zip(&mut copy.shards) {
+            target
+                .try_reserve(source.len())
+                .map_err(|_| "lookup replica exact allocation")?;
+            target.extend(source.iter().map(|(&key, &id)| (key, id)));
+        }
+        copy.overflow
+            .try_reserve(self.overflow.len())
+            .map_err(|_| "lookup replica collision allocation")?;
+        for (&key, ids) in &self.overflow {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(ids.len())
+                .map_err(|_| "lookup replica collision allocation")?;
+            values.extend_from_slice(ids);
+            copy.overflow.insert(key, values);
+        }
+        copy.entries = self.entries;
+        Ok(copy)
+    }
+
     pub fn new() -> Self {
         Self {
             shards: (0..EXACT_SHARDS).map(|_| DigestMap::default()).collect(),
@@ -287,6 +310,40 @@ pub(super) fn bucket_key<const N: usize>(image: &CompactDomain<N>) -> (u8, u32) 
 }
 
 impl<const N: usize> Store<N> {
+    /// Copy lookup-only state once when initializing the fixed replica pool.
+    /// Store contains no prepared program, CAS value, ledger, edge or record.
+    /// Epoch publication must use the delta replay in `snapshot`, never this
+    /// method, after the pool has been initialized.
+    pub fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+        let mut copy = Self::new();
+        copy.domains
+            .try_reserve_exact(self.domains.len())
+            .map_err(|_| "lookup replica arena allocation")?;
+        copy.summaries
+            .try_reserve_exact(self.summaries.len())
+            .map_err(|_| "lookup replica summary allocation")?;
+        copy.buckets
+            .try_reserve_exact(self.buckets.len())
+            .map_err(|_| "lookup replica buckets allocation")?;
+        copy.bucket_of
+            .try_reserve(self.bucket_of.len())
+            .map_err(|_| "lookup replica buckets allocation")?;
+        copy.domains.extend_from_slice(&self.domains);
+        copy.summaries.extend_from_slice(&self.summaries);
+        copy.exact = self.exact.try_lookup_clone()?;
+        copy.bucket_of
+            .extend(self.bucket_of.iter().map(|(&key, &value)| (key, value)));
+        for bucket in &self.buckets {
+            copy.buckets.push(Bucket {
+                index: bucket.index.try_lookup_clone()?,
+                orthant: bucket.orthant,
+            });
+        }
+        copy.max_finite_rank = self.max_finite_rank;
+        copy.unbounded_rank_domains = self.unbounded_rank_domains;
+        Ok(copy)
+    }
+
     pub fn new() -> Self {
         Self {
             domains: Vec::new(),

@@ -163,6 +163,7 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
             started: true,
             returned: false,
         }],
+        occupied: vec![true],
         shutdown: false,
     });
     let ready = Condvar::new();
@@ -193,6 +194,85 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
     assert!(pool.cancel().is_err());
     assert!(stop.load(Ordering::Acquire));
     assert!(queue.lock().err().unwrap().into_inner().shutdown);
+}
+
+#[test]
+fn rolling_refill_and_slot_reuse_progress_while_an_older_worker_is_held() {
+    let gate = (Mutex::new(false), Condvar::new());
+    let held = AtomicBool::new(false);
+    let inspect = |bytes: &[u8], _: &AtomicBool| {
+        if bytes == [1] {
+            held.store(true, Ordering::Release);
+            gate.1.notify_all();
+            let (open, wait) = gate
+                .1
+                .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |open| {
+                    !*open
+                })
+                .unwrap();
+            assert!(!wait.timed_out() && *open);
+        } else {
+            let (_, wait) = gate
+                .1
+                .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |_| {
+                    !held.load(Ordering::Acquire)
+                })
+                .unwrap();
+            assert!(!wait.timed_out());
+        }
+        bytes.to_vec()
+    };
+    with_polling_pool(2, &inspect, |pool| {
+        pool.submit_rolling(vec![work(1), work(2)]).unwrap();
+        for expected in 2..=20 {
+            loop {
+                match pool.poll(Duration::from_secs(5)).unwrap() {
+                    Poll::Result { key, bytes } => {
+                        assert_eq!(key, expected);
+                        assert_eq!(bytes, [expected as u8]);
+                        break;
+                    }
+                    Poll::Started(_) => {}
+                    _ => panic!("rolling successor stalled behind held job"),
+                }
+            }
+            assert!(held.load(Ordering::Acquire));
+            assert!(
+                pool.submit_rolling(vec![work(expected)]).is_err(),
+                "returned but unmerged sequence stays reserved"
+            );
+            pool.retire(&[expected]).unwrap();
+            assert!(
+                pool.queue.lock().unwrap().status.len() <= 2,
+                "retired slots must be reused, never grow with publication count"
+            );
+            if expected < 20 {
+                pool.submit_rolling(vec![work(expected + 1)]).unwrap();
+            }
+        }
+        assert_eq!(
+            pool.snapshot()
+                .unwrap()
+                .iter()
+                .map(|s| s.key)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+        loop {
+            match pool.poll(Duration::from_secs(5)).unwrap() {
+                Poll::Result { key: 1, .. } => {
+                    pool.retire(&[1]).unwrap();
+                }
+                Poll::Started(_) => {}
+                Poll::Drained => break,
+                _ => panic!("held job did not finish"),
+            }
+        }
+        assert!(pool.snapshot().unwrap().is_empty());
+    })
+    .unwrap();
 }
 
 #[test]

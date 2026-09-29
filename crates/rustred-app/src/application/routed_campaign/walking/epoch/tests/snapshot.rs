@@ -69,9 +69,15 @@ fn snapshot_lookup_matches_all_miss_records_edges_and_canonical_targets() {
     let snapshot = on.store.snapshot(on.k).unwrap();
     assert!(!std::ptr::eq::<Store<2>>(&*off.store, &*snapshot));
     assert!(
-        std::ptr::eq::<Store<2>>(&*on.store, &*snapshot),
-        "same arena, not a clone"
+        !std::ptr::eq::<Store<2>>(&*on.store, &*snapshot),
+        "immutable lookup data has independent lifetime from canonical mutation"
     );
+    let shared = on.store.snapshot(on.k).unwrap();
+    assert!(
+        std::ptr::eq::<Store<2>>(&*shared, &*snapshot),
+        "readers share one lookup buffer"
+    );
+    drop(shared);
     let new = resolved(&on_job, &queries, Some(&snapshot));
     assert_eq!(new.job_duplicates, 1);
     assert_eq!(new.misses[0].target, Some(0), "retired exact still wins");
@@ -108,7 +114,7 @@ fn snapshot_lookup_matches_all_miss_records_edges_and_canonical_targets() {
 }
 
 #[test]
-fn snapshot_mutation_refusals_are_engine_errors_not_ram_stops() {
+fn held_snapshot_does_not_prevent_canonical_publication_or_change_old_lookup() {
     let mut state = state_with(&[boxed([0, 0], [9, 9])]);
     let mut dispatch = Dispatch::new();
     let job = jobs(&mut state, &mut dispatch, 1).remove(0);
@@ -124,23 +130,16 @@ fn snapshot_mutation_refusals_are_engine_errors_not_ram_stops() {
         .unwrap();
     let lease = slot.acquire().unwrap();
     slot.clear().unwrap();
-    assert!(state.store.unique_mut().is_err());
-    assert!(matches!(
-        admit_initial(&mut state, &boxed([20, 0], [21, 0])),
-        Err(AdmissionError::Internal(_))
-    ));
-    assert!(matches!(
-        merge::p3_preflight(&mut state, &checked, &plan, &mut Rows(Vec::new())),
-        Err(merge::PreflightError::Engine(_))
-    ));
-    assert_eq!(
-        (
-            state.store.domains.clone(),
-            state.ledger.words().to_vec(),
-            state.live.clone()
-        ),
-        before
-    );
+    assert!(state.store.unique_mut().is_ok());
+    admit_initial(&mut state, &boxed([20, 0], [21, 0])).unwrap();
+    assert_eq!(lease.domains, before.0);
+    assert_eq!(lease.len(), 1);
+    assert_eq!(state.store.len(), 2);
+    let newer = state.store.snapshot(state.k + 1).unwrap();
+    assert_eq!(newer.domains, state.store.domains);
+    assert_eq!(state.store.retained().0, 2);
+    assert_eq!(lease.len(), 1, "held historical view remains unchanged");
+    drop(newer);
     drop(lease);
     assert!(state.store.unique_mut().is_ok());
     merge::p3_preflight(&mut state, &checked, &plan, &mut Rows(Vec::new())).unwrap();
@@ -357,6 +356,13 @@ fn snapshot_miss_bypass_requires_current_lockstep_report_and_exact_image_check()
             r.lookup.as_mut().unwrap().version += 1;
         } else {
             config.lockstep = false;
+            // Rolling accepts an honest same-view report; the independently
+            // checked miss still traverses ordinary antichain/retirement.
+            let checked = merge::p1_check(&mut state, vec![r.encode()], config).unwrap();
+            let plan = merge::p2(&mut state, &checked).unwrap();
+            assert_eq!(plan.survivors.len(), 1);
+            assert_eq!(plan.counters.inspector.coordinator_miss_rechecks_skipped, 1);
+            continue;
         }
         assert!(merge::p1_check(&mut state, vec![r.encode()], config).is_err());
         assert_eq!(state.store.len(), 1);

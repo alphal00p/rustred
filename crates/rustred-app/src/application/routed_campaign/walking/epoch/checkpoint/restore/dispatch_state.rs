@@ -136,6 +136,7 @@ pub(super) fn read<const N: usize>(
         in_flight.insert(
             id,
             JobMeta {
+                published_len: 0, // Refreshed with v0 when the saved job is reissued.
                 seq: reader.u64()?,
                 v0: reader.u64()?,
             },

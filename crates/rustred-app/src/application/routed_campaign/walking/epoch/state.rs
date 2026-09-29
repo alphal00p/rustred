@@ -24,6 +24,9 @@ pub(super) const NODE_RESIDUAL: u8 = 16;
 pub(super) struct JobMeta {
     pub seq: u64,
     pub v0: u64,
+    /// Runtime lease identity. CP6 reissues unfinished jobs against the
+    /// restored current store; historical lookup buffers are not persisted.
+    pub published_len: u32,
 }
 
 /// Aggregate walk counters (semantics 3 meanings; see the result report).
