@@ -49,13 +49,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | focus/full/W50 native suites and campaign CLI build delivered | joint_support_pruning | Six CLI tests running; then composition, identity and full-reinspection controls |
+| G2′ integration | focus/full/W50 native suites, CLI and real pause/resume/cold checks delivered | joint_support_pruning | Seven Ordered identity and independent full-reinspection controls now authorized |
 | Rescue and explicit query roles | source and combined native suites delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Campaign/CLI and independent full-reinspection gates remain at `d12db6cf` |
 | Independent math/code audit | combined corrections and private epoch writer/publisher source passed | checkpoint_final_audit | Independently review bounded restore next; verify execution receipts before release |
-| Combined G2′ + rescue | corrected optimized focus/full suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; matched campaign profile, CLI and independent control reinspection next |
-| Python production G2′ steering | committed locally and independently tested | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real Python/native pause-resume composition smoke after CLI gates, then integrate |
+| Combined G2′ + rescue | optimized native/CLI suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; frozen campaign binary available; representative controls/reinspection next |
+| Python production G2′ steering | committed locally; real pause/resume, native cold verification and Python audit passed | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; representative controls, then integrate |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | provisional arrays, anchors/frontiers and saved dispatch source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `97787259`; native execution, full cross-state/session/stop and S4–S6 remain open |
+| Epoch S3–S6 | provisional sections and structural cross-state checks source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `613e9c6f`; records/roots, native execution, full assembly/session/stop and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
 | N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
@@ -82,6 +82,46 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 05:14 UTC — full real-process composition gate independently accepted
+
+- [M] Corrected Python audit passed in 6.139 s (guard7.163 s, exit0/no stop reason). It accounts for 19 carried unfinished attempts, all 305 G2 records/314 anchor links, and all 98,867 closed nodes without disagreements. Original invocation failure remains intact. Author and independent auditor checked all 124 owner payload hashes and all 248 staged query objects against the unchanged originals; all four owned process identities have drained.
+- This closes the real Python→native fresh-Union/pause/ordinary-resume/cold-verification composition gate. It does not close the seven representative controls, establish durable accepted-pin process replay, or measure a speedup.
+- Epoch typed-counter source `c772f9c6` is independently audited; consolidated validation `c51839c1` is running a warm metadata-only check with the earlier record/root slices. No native runtime test is implied. G2 control measurements wait for that small check to drain.
+
+### 2026-09-29 05:12 UTC — real Union pause/resume and cold reinspection pass
+
+- [M] The real Python/native process smoke completed in 21.699 s including preparation. First leg paused cleanly (exit4) with a durable checkpoint after 156 published/351 scheduled domains; ordinary second-leg resume retained Union and completed (exit0). Owned groups drained without resource/kill/observation errors. Final result has 98,867 domains, all 248 required roots closed, and 305 G2 records (299 residual, six full) with 314 anchor links. Evidence: `TMP/codex-g2-pilot-prep.n7Kd5q/python-union-smoke/`.
+- [M] Separate cold native verification passed: 98,843/98,843 native records independently reinspected; 248/248 roots closed, zero errors/frontiers/uncovered. Guard exit0/no stop reason, 11.156 s. This is correctness evidence, not a matched performance comparison.
+- Limitation: the pause preceded the first accepted G2 loan. This process test proves sticky Union and real later reuse, not accepted-plan replay across a process boundary; the latter is covered by native seam tests. Preserve that distinction.
+- First Python audit invocation failed before scanning because `--command` expects a JSON array, not the supervisor request object. Source inspection confirms omitting the argument invokes its existing request-object handling. Root authorized this invocation-only correction into fresh evidence, retaining the failed receipt; no source/assertion change or rerun of the native solve.
+- Next authorized lane: seven sequential Ordered controls, flag-off identity and Union independent reinspection, on the original roleless query bytes. Stop on substantive failure; matched performance pairs remain gated on these results. The epoch lane may first run one bounded warm metadata check for audited record/root/counter slices, then releases the measurement slot.
+
+### 2026-09-29 05:06 UTC — real smoke starts; restore-record provenance decision
+
+- [M] The authorized real Python/native smoke has launched in fresh `TMP/codex-g2-pilot-prep.n7Kd5q/python-union-smoke/`, with the audited controller owning the heavy lock and both process lifetimes. No outer process-group-only wrapper is used. Final outcome and independent cold verification remain pending; no production path is touched.
+- Epoch source-only slices `b14c4231` (streamed record registry/body-byte authentication) and `e0c7510a` (prepared-reducer-derived root phases/geometry) are independently audited and committed locally. They are not yet typechecked/executed. Root validation must use the actual reducer/request, not saved phase labels; record-body semantics and runtime state/session/stop assembly remain unfinished.
+- Decision: add a small typed **epoch-only** resolver-counter subobject to newly written native records. Existing records persist accepted/emitted events but omit some successor/conditional totals, and native statistics can include a breaking event refused by the resolver on C2. Thus those totals cannot generally be reconstructed from native statistics alone. Preserve the existing algebra/report fields and legacy records; share writer/reader schema, add C2/counter mutations, and independently review. Do not alter pending-growth computation/rendering or introduce an old-checkpoint importer.
+- No metadata build overlaps the real smoke/cold-verification phase. Source work may continue privately; next check waits for root resource release.
+
+### 2026-09-29 05:04 UTC — CLI gate passes; real composition smoke authorized
+
+- [M] `campaign-cli-tests/` passes all six external CLI tests (0.16 s; zero failures/ignored). Guard exits 0/no stop reason, 1,044.515 s including 17m22s test-target compilation, peak single child 8,899,048 KiB. Root independently checked stdout/result and the unchanged candidate hash.
+- Frozen executable: `TMP/codex-g2-rescue.tzdFuj/candidate-bin/rustred-d12-8169221a`, read-only copy, SHA-256 `8169221a8977ae261e777ddca5ac9e82fcb339377362d988472930595b1ea341`. Source remains `d12db6cf`; heavy/build0 locks have drained. No comparison timing yet.
+- Root authorized the independently audited real Python Union smoke on unchanged FG248 inputs, Ordered/W6 on CPUs64–69, with no auto-rescue. Use the final controller `2d4c4a81…`, Python `cd52c90d`, shared heavy lock, 250/150 GiB host headroom and the registered 1,200+540 s bounds including preparation. Only its own fresh TMP stop-file/process identities may be touched.
+- If both legs pass, separately run full cold reinspection and the Python result audit; real PASS and positive equal verified/total counts are required. Any failed gate stops this lane for diagnosis. This authorization is not a claimed smoke result, performance measurement or production switch.
+
+### 2026-09-29 04:56 UTC — LC2 observation and final smoke-mode assertions
+
+- [M] LC2 remains running and untouched: 49,547,121 discovered, 19,529,574 pending, 17,602,450 local completions, zero reported frontiers, 6/67 conservative initial obligations closed, RSS 28,616,056,832 B, latest save generation3. One-hour coordinator shares remain dominated by commit52.10% and preparation30.59%, versus progress JSON1.21%. No scoped-closure or ETA claim follows from these readings.
+- [M] The real-smoke controller now also checks the actual native argv and paused/final native report for Union mode, rather than relying on Python metadata. Its independently reviewed pure mutation test passes (guard exit0/no stop reason,1.150 s), complementing the unchanged seven ownership mocks. Final controller SHA-256 `2d4c4a817fee76d3fa6e043aca634b3659cc9446ab8d3d8f5ab6c69cb7bc72ab` supersedes the earlier draft identity. Evidence: `TMP/codex-g2-pilot-prep.n7Kd5q/controller-native-mode-test-independent/`. No positive loan count is required for this functional test; real native execution and cold verification are still pending CLI-test compilation.
+
+### 2026-09-29 04:52 UTC — structural cross-state restore validation typechecks
+
+- [M] Independently audited source `8cea173a` adds structural ledger/flag/edge/alias/anchor checks to the private provisional loader. It reuses existing exact containment and cover validators; an owned scratch flag avoids a second full-size bitmap and is cleared on success/error. It does not make saved closure bits authoritative or enable runnable resume.
+- Two pre-build findings were corrected and retained: aggregate frontier counts also include initial-input obligations, not just native C4/C2 contributions; merged Native nodes must have epoch at least one, since publication stamps `k+1`. Regressions include these cases and refusal of an inconsistent closed node with an unresolved descendant.
+- [M] Validation `613e9c6f86dc5aa5cd99bad39060c24d01b6d188` passes the same metadata-only check. Receipt `TMP/codex-epoch-s3.JjASCU/typecheck-cross-state-light/`: exit 0/no stop reason, 40.165 s (Cargo 37.54 s), peak 1,211,848 KiB. Root independently read the receipt. These new native tests have **not** executed.
+- Next: stream sealed-record summaries through existing serde machinery, independently derive root phases/conditions from reducer+request, assemble validated runtime state, then durable session reservation and save-before-join behavior. Avoid a new arbitrary record-size restriction; the existing writer's legitimate records must remain readable. No general checkpoint compatibility project is introduced.
 
 ### 2026-09-29 04:47 UTC — previously omitted 50-worker subcases exercised
 
