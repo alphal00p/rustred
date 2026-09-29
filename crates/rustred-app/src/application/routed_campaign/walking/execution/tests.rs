@@ -795,3 +795,100 @@ fn observe_attaches_the_lean_pool_tier_to_per_domain_events_only() {
         3
     );
 }
+
+#[test]
+fn reused_lean_state_adds_resume_attempts_once_and_removes_detailed_extensions() {
+    let pool = parallel::Pool::<1>::new(3);
+    let mut state = ledger_state(true);
+    let previous = json!({
+        "attempted_events":3, "returned_inspections":5,
+        "attempted_native_operations":7, "attempted_rule_checks":11,
+        "attempted_predicates":13, "attempted_optional_coefficient_refusals":17
+    });
+    state.set_parallel(pool.snapshot(), &previous);
+    assert!(state.parallel.get("slot_busy_seconds").is_some());
+    assert!(state.parallel.get("coordinator_duty").is_some());
+    for _ in 0..3 {
+        let mut expected = state.enrich_with(pool.snapshot_lean(), true);
+        let mut error = None;
+        accumulate_attempts(&mut expected, &previous, &mut error);
+        state.set_parallel_lean(pool.capture_lean(), &previous);
+        assert_eq!(state.parallel, expected);
+        for (key, value) in previous.as_object().unwrap() {
+            assert_eq!(
+                &state.parallel[key], value,
+                "{key}: resume totals added twice"
+            );
+        }
+        assert!(state.parallel.get("slot_busy_seconds").is_none());
+        assert!(state.parallel.get("coordinator_duty").is_none());
+        assert_eq!(state.parallel.as_object().unwrap().len(), 33);
+        assert!(state.error.is_none());
+    }
+    // A fresh process/session without previous counters must not retain the
+    // accumulation or its scope string from the reusable object.
+    state.set_parallel_lean(pool.capture_lean(), &Value::Null);
+    assert_eq!(state.parallel["returned_inspections"], 0);
+    assert_eq!(
+        state.parallel["native_attempt_counters_scope"],
+        "returned_inspections_including_uncommitted_and_cancelled"
+    );
+}
+
+#[test]
+fn reused_lean_state_decodes_each_raw_failure_ticket_exactly_once() {
+    let mut queue = Queue::<1>::new(8, None);
+    for coordinate in 0..3 {
+        assert_eq!(
+            queue
+                .admit(super::super::queue::Domain {
+                    phase: Phase::Apply,
+                    owner: [true],
+                    lower: vec![coordinate],
+                    upper: vec![Some(coordinate)],
+                    rank: None,
+                    powers: Default::default(),
+                })
+                .unwrap(),
+            (coordinate as usize, true)
+        );
+    }
+    let mut state = State::new(queue, 0, None);
+    state.physical_enabled = true;
+    let pool = parallel::Pool::<1>::new(1);
+    let raw = Ticket {
+        parent: 2,
+        part: Some(1),
+    }
+    .encode(true)
+    .unwrap();
+    pool.fail(parallel::Failure {
+        id: Some(raw),
+        phase: Some(Phase::Apply),
+        kind: "native_failure",
+        detail: "physical test fault".into(),
+    });
+    for _ in 0..3 {
+        state.set_parallel_lean(pool.capture_lean(), &Value::Null);
+        for key in ["first_failure", "non_cancellation_failure"] {
+            assert_eq!(state.parallel[key]["domain"], 2);
+            assert_eq!(state.parallel[key]["physical_part"], 1);
+            assert_eq!(state.parallel[key]["lower"], json!([2]));
+            assert_eq!(state.parallel[key]["detail"], "physical test fault");
+        }
+    }
+    // A later healthy snapshot cannot inherit either a fault or physical-only
+    // keys when the receiving coordinator is no longer in physical mode.
+    let healthy = parallel::Pool::<1>::new(1);
+    state.physical_enabled = false;
+    state.set_parallel_lean(healthy.capture_lean(), &Value::Null);
+    assert!(state.parallel["first_failure"].is_null());
+    assert!(state.parallel["non_cancellation_failure"].is_null());
+    assert!(state.parallel.get("inspection_count_scope").is_none());
+    assert!(
+        state
+            .parallel
+            .get("physical_inspections_published")
+            .is_none()
+    );
+}
