@@ -48,6 +48,7 @@
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
 #[cfg(test)]
 mod e2e_tests;
+mod epoch_export;
 #[cfg(test)]
 mod g2_e2e_tests;
 mod graph;
@@ -723,6 +724,9 @@ struct Loaded<const N: usize> {
     /// Position of each record in the publication stream (its merge stamp,
     /// re-derived from the record order; u64::MAX: unpublished).
     positions: Vec<u64>,
+    /// An epoch (walk semantics 3) S2 export: its raw ledger6, edge runs and
+    /// anchors for the epoch-specific re-derivations.
+    epoch: Option<epoch_export::EpochSections>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -752,7 +756,12 @@ fn load<const N: usize>(
     digests: bool,
     violations: &mut Violations,
 ) -> Result<Loaded<N>, String> {
-    let mut raw = checkpoint::read_raw::<N>(&options.checkpoint)?;
+    let (mut raw, epoch) = if options.checkpoint.join(epoch_export::MANIFEST).is_file() {
+        let (raw, sections) = epoch_export::read_raw::<N>(&options.checkpoint)?;
+        (raw, Some(sections))
+    } else {
+        (checkpoint::read_raw::<N>(&options.checkpoint)?, None)
+    };
     let domains = std::mem::take(&mut raw.domains);
     let total = domains.len();
     if raw.flags.len() != total {
@@ -827,6 +836,7 @@ fn load<const N: usize>(
         residuals,
         g2,
         positions,
+        epoch,
     })
 }
 
@@ -1955,6 +1965,9 @@ fn verify<const N: usize>(
     )?;
     let mut loaded =
         load::<N>(options, options.result.is_some(), &mut violations).map_err(AppError::input)?;
+    if loaded.raw.publication_policy == "epoch" {
+        super::epoch::admit_extensions(request)?;
+    }
     let loaded_seconds = started.elapsed().as_secs_f64();
     let memory_loaded = memory_status();
     observer(
@@ -2015,7 +2028,32 @@ fn verify<const N: usize>(
         }
         None => None,
     };
-    let bound = checkpoint::request_binding(request) == loaded.raw.request;
+    // Walk semantics 3 binds its own request digest (A7: workers, schedule
+    // and aggregate allowances are not bound).
+    let bound = if loaded.raw.publication_policy == "epoch" {
+        checkpoint::epoch_request_binding(request)
+    } else {
+        checkpoint::request_binding(request)
+    } == loaded.raw.request;
+    if let Some(sections) = &loaded.epoch {
+        let nodes = &loaded.nodes;
+        let record_of = |id: usize| {
+            nodes.get(id).and_then(|node| match node.kind {
+                Kind::Native | Kind::Partial => Some((true, node.frontiers, node.error, None)),
+                Kind::Alias => Some((false, 0, false, Some(node.link))),
+                // S2 never executes G2; its records cannot stand in for a
+                // native record even when their legacy stamps are valid.
+                Kind::Missing | Kind::G2 => None,
+            })
+        };
+        epoch_export::check(
+            sections,
+            &loaded.domains,
+            &loaded.raw.flags,
+            &record_of,
+            &mut |class, message| violations.add(class, || message),
+        );
+    }
     if !bound {
         violations.add("binding", || {
             "checkpoint request digest differs from the command's request/queries binding".into()

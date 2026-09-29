@@ -297,6 +297,11 @@ fn annotate_walk_policy(
         document["requested_publication_policy"] = json!("ready");
         return;
     }
+    if policy == OwnerDomainWalkPublicationPolicy::Epoch {
+        // Walk semantics 3 keeps its own v6 schema (or a preparation error's).
+        document["requested_publication_policy"] = json!("epoch");
+        return;
+    }
     document["schema"] = json!(if lookahead.is_some() {
         "rustred.owner-domain-walk.json.v3"
     } else {

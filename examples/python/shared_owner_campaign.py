@@ -29,9 +29,10 @@ import uuid
 INNER_POOLS = ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS")
 # The native walk's correctness-gate pause seam (ready_resume_control.py runs
-# the executable directly); a supervised campaign never inherits it from the
-# operator's shell.
-DIAGNOSTIC_ONLY_ENVIRONMENT = ("RUSTRED_WALK_DIAGNOSTIC_PAUSE",)
+# the executable directly) and the epoch engine's lockstep-size override (a
+# diagnostic that changes the walk, W2 S2 note section 4); a supervised
+# campaign never inherits either from the operator's shell.
+DIAGNOSTIC_ONLY_ENVIRONMENT = ("RUSTRED_WALK_DIAGNOSTIC_PAUSE", "RUSTRED_EPOCH_LOCKSTEP_B")
 
 # Reuse the thin domain driver's option whitelist without depending on the
 # caller's working directory or Python module search path.

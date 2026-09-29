@@ -16,10 +16,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod blocks;
 use blocks::{AxisEnvelope, BLOCK_SIZE, BlockBox, Meta, range_mask};
-pub(super) use blocks::{Coordinates, Entry, LaneSource, Lanes, Probe};
+pub(in super::super) use blocks::{Coordinates, Entry, LaneSource, Lanes, Probe};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(super) enum Upper {
+pub(in super::super) enum Upper {
     Finite(u128),
     Infinity,
 }
@@ -35,7 +35,7 @@ impl Upper {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(super) enum Lower {
+pub(in super::super) enum Lower {
     NegativeInfinity,
     Finite(i128),
 }
@@ -52,7 +52,7 @@ impl Lower {
 
 /// Tight native extrema, not optional raw input labels or finite sentinels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(super) enum Signature {
+pub(in super::super) enum Signature {
     Empty,
     Nonempty {
         positive: Upper,
@@ -62,7 +62,7 @@ pub(super) enum Signature {
 }
 
 impl Signature {
-    pub(super) fn of<const N: usize>(summary: &DomainPowerSummary<N>) -> Self {
+    pub(in super::super) fn of<const N: usize>(summary: &DomainPowerSummary<N>) -> Self {
         summary
             .extrema()
             .map_or(Self::Empty, |extrema| Self::Nonempty {
@@ -82,7 +82,7 @@ impl Signature {
     }
 
     /// A necessary condition only: Q subset C implies this test for (C,Q).
-    pub(super) fn may_contain(self, other: Self) -> bool {
+    pub(in super::super) fn may_contain(self, other: Self) -> bool {
         match (self, other) {
             (_, Self::Empty) => true,
             (Self::Empty, Self::Nonempty { .. }) => false,
@@ -103,7 +103,7 @@ impl Signature {
 }
 
 /// Receives a scan's logical candidates in order.
-pub(super) trait Visit {
+pub(in super::super) trait Visit {
     /// Consecutive candidates the prefilter rejected; bit j of `word` is set
     /// when `run[j]` failed the bit word (the rest failed only the lanes).
     fn rejected(&mut self, run: &[u32], word: u32) -> Result<(), &'static str>;
@@ -112,7 +112,7 @@ pub(super) trait Visit {
 }
 
 /// The infallible visitor of reverse retirement.
-pub(super) trait Retire {
+pub(in super::super) trait Retire {
     fn rejected(&mut self, run: &[u32], word: u32);
     fn test(&mut self, id: usize) -> bool;
     /// `count` examined candidates that a helper-prepared set decided (they
@@ -122,7 +122,7 @@ pub(super) trait Retire {
 
 /// Every candidate is tested (an unfiltered probe never rejects).
 #[cfg(test)]
-pub(super) struct Each<F>(pub F);
+pub(in super::super) struct Each<F>(pub F);
 
 #[cfg(test)]
 impl<F: FnMut(usize) -> Result<bool, &'static str>> Visit for Each<F> {
@@ -310,7 +310,7 @@ struct Group<const N: usize> {
 }
 
 /// Prepared insertion owns new storage until all queue preflights succeed.
-pub(super) struct Insertion<const N: usize> {
+pub(in super::super) struct Insertion<const N: usize> {
     signature: Signature,
     new_group: Option<Group<N>>,
     /// Prepared before responsibility mutation, or None when the existing tail
@@ -328,7 +328,7 @@ impl<const N: usize> Insertion<N> {
     }
 }
 
-pub(super) struct AggregateIndex<const N: usize> {
+pub(in super::super) struct AggregateIndex<const N: usize> {
     groups: Vec<Group<N>>,
     positions: HashMap<Signature, usize>,
     live: usize,
@@ -454,7 +454,7 @@ struct BlockStorage {
 /// Reserved bytes of the index storage: group vectors, sequential block rows
 /// and boxed blocks (allocator and hash-map overhead excluded).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct IndexBytes {
+pub(in super::super) struct IndexBytes {
     pub blocks: usize,
     pub rows: usize,
     pub live: usize,
@@ -516,7 +516,7 @@ impl<const N: usize> AggregateIndex<N> {
 
     /// Admission IDs are monotone within each group; skip the immutable prefix
     /// already disproved by a read-only snapshot lookup.
-    pub(super) fn find_from(
+    pub(in super::super) fn find_from(
         &self,
         signature: Signature,
         probe: &Probe<'_, N>,
@@ -615,7 +615,7 @@ impl<const N: usize> AggregateIndex<N> {
         }
     }
 
-    pub(super) fn is_live(&self, signature: Signature, id: usize) -> bool {
+    pub(in super::super) fn is_live(&self, signature: Signature, id: usize) -> bool {
         let Ok(id) = u32::try_from(id) else {
             return false;
         };
@@ -630,7 +630,7 @@ impl<const N: usize> AggregateIndex<N> {
         })
     }
 
-    pub(super) fn prepare(
+    pub(in super::super) fn prepare(
         &mut self,
         signature: Signature,
         coordinates: Option<Coordinates<'_>>,
@@ -735,7 +735,7 @@ impl<const N: usize> AggregateIndex<N> {
     /// at every group and block boundary, as in `find_controlled`. More than
     /// `limit` accepted IDs is an error so a pathological snapshot never holds
     /// an unbounded helper allocation.
-    pub(super) fn collect_contained(
+    pub(in super::super) fn collect_contained(
         &self,
         signature: Signature,
         probe: &Probe<'_, N>,
@@ -853,7 +853,7 @@ impl<const N: usize> AggregateIndex<N> {
     /// Infallible after queue counter/storage preflight. Preserve the insertion
     /// signature's reserved group even if it becomes empty; remove other empty
     /// groups so historical signatures do not accumulate in the hot scan.
-    pub(super) fn retire(
+    pub(in super::super) fn retire(
         &mut self,
         insertion: &Insertion<N>,
         probe: &Probe<'_, N>,
@@ -956,7 +956,7 @@ impl<const N: usize> AggregateIndex<N> {
         removed
     }
 
-    pub(super) fn insert(&mut self, mut insertion: Insertion<N>, entry: Entry<'_, N>) {
+    pub(in super::super) fn insert(&mut self, mut insertion: Insertion<N>, entry: Entry<'_, N>) {
         let spare = insertion.spare_envelope.take();
         let lossy = entry.lanes.as_ref().is_some_and(|lanes| lanes.lossy);
         if let Some(mut group) = insertion.new_group.take() {
@@ -1007,7 +1007,7 @@ impl<const N: usize> AggregateIndex<N> {
 
     /// Reserved storage of the index (see `IndexBytes`), from the running
     /// totals: O(1), cheap enough for every coordinator heartbeat.
-    pub(super) fn storage(&self) -> IndexBytes {
+    pub(in super::super) fn storage(&self) -> IndexBytes {
         IndexBytes {
             blocks: self.totals.blocks * std::mem::size_of::<blocks::Block<N>>(),
             rows: self.totals.rows,

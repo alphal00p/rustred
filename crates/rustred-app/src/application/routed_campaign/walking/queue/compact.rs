@@ -176,7 +176,7 @@ impl<const N: usize> CompactDomain<N> {
     }
 
     /// `Domain::contains` on the encoded fields.
-    pub(super) fn contains(&self, other: &Self) -> bool {
+    pub(in super::super) fn contains(&self, other: &Self) -> bool {
         self.phase == other.phase
             && self.owner == other.owner
             && super::rank_contains(self.rank(), other.rank())
@@ -189,22 +189,24 @@ impl<const N: usize> CompactDomain<N> {
     /// The (phase, owner) bucket key, compared explicitly by every positive
     /// (A1): summary containment ignores phase and accepts an empty
     /// candidate before it compares owners.
-    pub(super) fn same_bucket(&self, phase: u8, owner: u32) -> bool {
+    pub(in super::super) fn same_bucket(&self, phase: u8, owner: u32) -> bool {
         self.phase == phase && self.owner == owner
     }
 
-    pub(super) fn bucket_code(&self) -> (u8, u32) {
+    pub(in super::super) fn bucket_code(&self) -> (u8, u32) {
         (self.phase, self.owner)
     }
 
-    pub(super) fn is_full_orthant(&self) -> bool {
+    pub(in super::super) fn is_full_orthant(&self) -> bool {
         self.powers().is_unconstrained()
             && self.lower.iter().all(|&x| x == 0)
             // Same box predicate as general containment: rank is not part of it.
             && self.upper.iter().all(|&x| x == INFINITE_COORDINATE)
     }
 
-    pub(super) fn try_native_summary(&self) -> Result<DomainPowerSummary<N>, DomainPowerError> {
+    pub(in super::super) fn try_native_summary(
+        &self,
+    ) -> Result<DomainPowerSummary<N>, DomainPowerError> {
         let domain = self.expand();
         DomainPowerSummary::try_new(
             domain.owner,
@@ -217,7 +219,7 @@ impl<const N: usize> CompactDomain<N> {
 
     /// The native summary this domain was admitted with. `try_new` is a pure
     /// function of the domain, and it succeeded at admission or restore.
-    pub(super) fn native_summary(&self) -> DomainPowerSummary<N> {
+    pub(in super::super) fn native_summary(&self) -> DomainPowerSummary<N> {
         self.try_native_summary()
             .expect("an admitted domain's native summary is reproducible")
     }
@@ -255,7 +257,7 @@ impl<const N: usize> CompactDomain<N> {
 
     /// 64-bit blake3 prefix of the canonical little-endian field bytes
     /// (padding never enters the digest).
-    pub(super) fn digest(&self) -> Digest {
+    pub(in super::super) fn digest(&self) -> Digest {
         let mut bytes = [0_u8; 12 + 4 * MAX_COMPACT_ARITY + 24];
         let mut at = 0;
         let mut put = |field: &[u8]| {
@@ -283,7 +285,7 @@ impl<const N: usize> CompactDomain<N> {
 /// is (about 4e-5 expected colliding pairs among 38M domains, an estimate);
 /// one word keeps a map bucket at 16 bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Digest(pub u64);
+pub(in super::super) struct Digest(pub u64);
 
 impl Hash for Digest {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -542,7 +544,7 @@ fn optional<W, T: TryFrom<W> + Default>(value: Option<W>, bit: u8, flags: &mut u
 /// below 2^32, D within i32; anything else is `wide` (exact native fallback).
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) struct CompactSummary<const N: usize> {
+pub(in super::super) struct CompactSummary<const N: usize> {
     owner: u32,
     positive_lower: u32,
     positive_upper: u32,
@@ -786,7 +788,7 @@ impl<const N: usize> CompactSummary<N> {
 /// wide comparison), the compact image compared on the hot path, and the
 /// kernel's word and lanes. `bucket` is the query's (phase, owner) code.
 #[derive(Clone)]
-pub(super) struct Query<const N: usize> {
+pub(in super::super) struct Query<const N: usize> {
     pub core: DomainPowerSummary<N>,
     pub compact: CompactSummary<N>,
     pub word: u64,
@@ -821,7 +823,7 @@ impl<const N: usize> Query<N> {
 /// The kernel word and lanes of an admitted ID, rebuilt from its immutable
 /// summary (a wide one from its native summary): exactly what `Query::image`
 /// gave at its admission.
-pub(super) fn stored_image<const N: usize>(
+pub(in super::super) fn stored_image<const N: usize>(
     domain: &CompactDomain<N>,
     summary: &CompactSummary<N>,
 ) -> Result<(u64, Option<Lanes<N>>), String> {
@@ -836,7 +838,7 @@ pub(super) fn stored_image<const N: usize>(
 
 /// Read-only view of the stored candidate geometry for containment callbacks.
 #[derive(Clone, Copy)]
-pub(super) struct Stored<'a, const N: usize> {
+pub(in super::super) struct Stored<'a, const N: usize> {
     pub domains: &'a [CompactDomain<N>],
     pub summaries: &'a [CompactSummary<N>],
     /// Rescue quarantine bitset (`rescue.rs`); empty unless the walk was

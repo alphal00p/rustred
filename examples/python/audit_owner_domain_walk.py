@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Streaming, phase-aware audit of an exhausted Ordered/Ready owner-domain walk.
+"""Streaming, phase-aware audit of an exhausted Ordered/Ready/Epoch owner-domain walk.
 
 Every logical record of `result.json` is streamed once with bounded memory:
 aliases must resolve to a same-phase, same-owner completed native
@@ -854,7 +854,12 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     check = audit.check
     containment = containment if containment is not None else Containment()
     policy = located["policy"]
-    check(policy in ("ordered", "ready"), f"unsupported publication policy {policy!r}")
+    check(policy in ("ordered", "ready", "epoch"), f"unsupported publication policy {policy!r}")
+    # Walk semantics 3 (epoch, W2 stage S2): records in merge order, every
+    # native record carries accepted_events, the pool reports merged and
+    # discarded inspections, and --checkpoint names a final export
+    # (epoch-export.json), not a CP5 generation.
+    streamed_order = policy in ("ready", "epoch")
     queries_document = read_json(located["queries"])
     queries = queries_document["queries"]
     query_roles = ROLES.query_roles(queries_document, require_explicit=bool(located.get("amendments")))
@@ -1065,8 +1070,8 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             target[field] += value
         native_phases[phase] += 1
         events = row.get("accepted_events")
-        if policy == "ready":
-            check(type(events) is int and events >= 0, f"record {identity}: ready record lacks accepted_events")
+        if streamed_order:
+            check(type(events) is int and events >= 0, f"record {identity}: {policy} record lacks accepted_events")
         if events is not None:
             # F7: a committed record accepted exactly the events its native stream emitted.
             if check(type(events) is int and events >= 0, f"record {identity}: invalid accepted_events"):
@@ -1251,9 +1256,9 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
           "event totals do not match native statistics")
     check(top.get("routed_domains") == native_phases["Route"], "routed_domains != native Route inspections")
     check(top.get("route_masks") == route_stats["masks_examined"], "route_masks != examined masks")
-    if policy == "ready":
-        check(accepted == top.get("events"), "ready accepted_events do not sum to events")
-        check(top.get("contiguous_publication_watermark") == total, "ready publication watermark not contiguous")
+    if streamed_order:
+        check(accepted == top.get("events"), f"{policy} accepted_events do not sum to events")
+        check(top.get("contiguous_publication_watermark") == total, f"{policy} publication watermark not contiguous")
     else:
         check(out_of_order == 0, "ordered records published out of order")
     for field in ("successors", "conditional_successors", "optional_coefficient_refusals",
@@ -1384,7 +1389,15 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
     expected = native_count + carried
     returned = pool.get("returned_inspections")
     surplus = None
-    if located["resumed"]:
+    if policy == "epoch":
+        # Every merged inspection is a native record; discarded (requeued)
+        # attempts are reported beside them, never merged.
+        merged, discarded = pool.get("merged_inspections"), pool.get("discarded_inspections")
+        if check(merged == native_count and type(discarded) is int and discarded >= 0
+                 and returned == merged + discarded,
+                 "epoch pool merged_inspections != native records or returned != merged + discarded"):
+            surplus = discarded
+    elif located["resumed"]:
         if check(type(returned) is int and returned >= expected,
                  "pool returned_inspections < native records + carried earlier-session attempts"):
             surplus = returned - expected
@@ -1432,7 +1445,16 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
               "final checkpoint domain counts mismatch")
         check(checkpoint.get("completed_native_inspections") == native_count
               and checkpoint.get("committed_events") == top.get("events"), "final checkpoint native/event counts mismatch")
-        if located["checkpoint"] is not None:
+        if located["checkpoint"] is not None and policy == "epoch":
+            export = located["checkpoint"] / "epoch-export.json"
+            if check(export.is_file(), "epoch export directory has no epoch-export.json"):
+                manifest = read_json(export)
+                check(manifest.get("format") == "RUSTRED-EPOCH-EXPORT" and manifest.get("resumable") is False
+                      and manifest.get("walk_semantics_version") == 3,
+                      "epoch export manifest format/semantics")
+                check(manifest.get("metadata") == checkpoint,
+                      "epoch export manifest differs from the result's checkpoint bookkeeping")
+        elif located["checkpoint"] is not None:
             latest = located["checkpoint"] / "latest.json"
             if check(latest.is_file(), "checkpoint directory has no latest.json"):
                 manifest = read_json(latest)
