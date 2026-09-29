@@ -104,6 +104,34 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 16:20 UTC — native suite results and focused corrections
+
+- [M] Full core suite on `f083f254`: 2,845 passed, zero failed,32 ignored,
+  zero filtered; strict-license guard exit0/no stop,132.215s. Full app suite:
+  1,103 passed,10 failed,12 ignored,zero filtered;231.252s, exit101/no resource
+  stop. No SKIPPED markers; both named actual W50 mechanical tests passed.
+  Evidence: `TMP/codex-parallel-validation.RPJKV5/native-{core,app}-f083f254/`.
+  The failed app receipt is retained and is **not** a green native milestone.
+- [M] One real integration gap identified: public CP6 lockstep+Union reaches an
+  obsolete `config.g2` rejection in the responsive controller. This must be fixed
+  and exercised; changing the end-to-end test to rolling would hide the bug.
+  The final CLI M4 control intentionally remains lockstep+Union.
+- [M] Remaining failures concern obsolete unsupported-G2 verifier expectations,
+  seven-versus-eight ledger count fixtures, newly valid node flag/mutation values,
+  runtime-only replay lookup watermark expectations, three rolling fixtures
+  lacking their required checkpoint configuration, and a zero event allowance
+  rejected by public request validation. The G2/rescue lane owns the complete
+  diagnosis/fix mapping; root and `stage_a_release` independently review it.
+  Assertions must test the current guarantees, not be dropped to obtain a pass.
+- [D] A public-API harness for the first stale test alone is no longer sufficient
+  after the complete ten-failure inventory. Rebuild and execute the **full final
+  app correctness suite** after the audited corrections, using app opt-level0
+  if needed to avoid another81-minute LLVM optimization pass. Core and Symbolica
+  remain optimized. Such a binary is never used for solver timings; the separate
+  optimized campaign build and final public-CLI gates remain mandatory.
+- No optimized Stage B build or performance arm has started. No production
+  operation or alteration of the116 required queries has occurred.
+
 ### 2026-09-29 16:10 UTC — consolidated native test executables built
 
 - [M] Frozen engine source `f083f254` finishes core/app native-test compilation
