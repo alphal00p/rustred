@@ -161,11 +161,12 @@ fn ledger_stream_preserves_all_words_and_refuses_malformed_or_unsupported_values
         Entry6::NativeError { epoch: 4, err: 1 },
         Entry6::Alias { to: 6 },
         Entry6::Exhausted(counters),
+        Entry6::Abandoned { epoch: 5 },
     ];
     let words: Vec<_> = entries.iter().map(|entry| entry.encode()).collect();
     let payload: Vec<_> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
-    let receipt = raw(&directory.0, Section::Ledger, 7, &payload);
-    let ledger = FixedSection::<2>::open(&directory.0, &receipt, 7)
+    let receipt = raw(&directory.0, Section::Ledger, 8, &payload);
+    let ledger = FixedSection::<2>::open(&directory.0, &receipt, 8)
         .unwrap()
         .ledger()
         .unwrap();
@@ -174,7 +175,7 @@ fn ledger_stream_preserves_all_words_and_refuses_malformed_or_unsupported_values
         assert_eq!(ledger.counts().get(tag), 1);
     }
     for word in [
-        7 << 61,
+        (7 << 61) | (1 << 48), // Abandoned has only the low48 epoch payload.
         1 << 28,
         Entry6::Alias { to: 0 }.encode(),
         Entry6::Alias { to: 1 }.encode(),
