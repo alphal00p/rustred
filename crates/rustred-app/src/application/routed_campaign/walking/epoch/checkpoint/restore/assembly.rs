@@ -178,6 +178,14 @@ pub(super) fn read_manifest<const N: usize>(
     let mut reader = checked(directory, meta)?;
     let scalars: OwnedScalars = serde_json::from_reader(&mut reader).map_err(io::Error::other)?;
     reader.finish()?;
+    // Worker width is operational. A rolling resume retains the authenticated
+    // saved window; policy/cut size and the full request binding are still
+    // checked independently before any campaign-sized allocation.
+    let lockstep_b = if identity.epoch_rolling() {
+        scalars.lockstep_b
+    } else {
+        lockstep_b
+    };
     identity.validate_saved(&scalars, lockstep_b)?;
     inventories(&manifest, &scalars)?;
     owners(directory, file(&manifest, "owners")?, identity)?;

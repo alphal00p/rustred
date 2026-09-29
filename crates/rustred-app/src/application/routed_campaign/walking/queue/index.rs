@@ -464,7 +464,11 @@ pub(in super::super) struct IndexBytes {
 impl<const N: usize> AggregateIndex<N> {
     /// One-time copy into a globally shared epoch lookup buffer. Subsequent
     /// publications replay only new insertions and their retirement sets.
-    pub(in super::super) fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+    pub(in super::super) fn try_lookup_clone_with(
+        &self,
+        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Self, &'static str> {
+        checkpoint()?;
         let mut copy = Self::default();
         copy.groups
             .try_reserve_exact(self.groups.len())
@@ -482,7 +486,10 @@ impl<const N: usize> AggregateIndex<N> {
             blocks
                 .try_reserve_exact(group.blocks.len())
                 .map_err(|_| "lookup replica blocks allocation")?;
-            for (row, block) in group.meta.iter().zip(&group.blocks) {
+            for (at, (row, block)) in group.meta.iter().zip(&group.blocks).enumerate() {
+                if at % 1024 == 0 {
+                    checkpoint()?;
+                }
                 let (row, block) = row.try_clone_pair(block)?;
                 meta.push(row);
                 blocks.push(block);

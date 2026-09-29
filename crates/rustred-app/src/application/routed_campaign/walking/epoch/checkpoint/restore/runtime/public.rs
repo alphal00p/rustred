@@ -230,6 +230,7 @@ fn summary<const N: usize>(
     observer_failed: bool,
 ) -> Value {
     let state = &restored.state;
+    let cut_size = restored.cut_size;
     let counts = state.ledger.counts();
     let native =
         counts.get(Tag::Native) + counts.get(Tag::NativeFrontier) + counts.get(Tag::NativeError);
@@ -259,7 +260,10 @@ fn summary<const N: usize>(
             "cancellation":"W1 cooperative caller-thread CAS; W>=2 durable save may precede join"},
         "descendant_closure":scalar_closure(state),
         "epoch":{"stage":"S3_checkpoint_lifecycle","k":state.k,"p0":state.p0,"watermark":state.watermark(),
-            "schedule":{"kind":"lockstep","depth":1,"b":b},"resolution":"canonical_in_merge",
+            "schedule":{"kind":if request.epoch_rolling {"rolling"} else {"lockstep"},
+                "depth":if request.epoch_rolling { b.div_ceil(cut_size.min(b)) } else {1},
+                "b":b,"window":b,"cut_size":if request.epoch_rolling { cut_size.min(b) } else {b},
+                "publication_order":"oldest_sequence_prefix"},"resolution":"canonical_in_merge",
             "records_digest":state.edges.records_digest(),"edge_digest":state.edges.edge_digest(),
             "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}})
     else {
@@ -299,6 +303,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         .checkpoint
         .as_ref()
         .ok_or_else(|| AppError::input("CP6 requires explicit checkpoint directory"))?;
+    let b = request.epoch_window(b);
     let identity = Identity::new(request, owners, queries)
         .map_err(|error| AppError::input(error.to_string()))?;
     let roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
@@ -321,6 +326,12 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         admission::fresh(options.directory.clone(), &identity)
     }
     .map_err(|error| AppError::input(error.to_string()))?;
+    let b = if options.resume && request.epoch_rolling {
+        restored.window
+    } else {
+        b
+    };
+    restored.window = b;
     let last = RefCell::new(None::<Value>);
     let progress =
         |state: &epoch::state::EpochState<N>, dispatch: &epoch::dispatch::Dispatch, phase| {

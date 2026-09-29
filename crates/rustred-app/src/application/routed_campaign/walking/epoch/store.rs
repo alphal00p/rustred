@@ -57,9 +57,13 @@ fn shard_of(digest: u64) -> usize {
 }
 
 impl ExactIndex {
-    fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+    fn try_lookup_clone(
+        &self,
+        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Self, &'static str> {
         let mut copy = Self::new();
         for (source, target) in self.shards.iter().zip(&mut copy.shards) {
+            checkpoint()?;
             target
                 .try_reserve(source.len())
                 .map_err(|_| "lookup replica exact allocation")?;
@@ -315,6 +319,14 @@ impl<const N: usize> Store<N> {
     /// Epoch publication must use the delta replay in `snapshot`, never this
     /// method, after the pool has been initialized.
     pub fn try_lookup_clone(&self) -> Result<Self, &'static str> {
+        self.try_lookup_clone_with(&mut || Ok(()))
+    }
+
+    pub fn try_lookup_clone_with(
+        &self,
+        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Self, &'static str> {
+        checkpoint()?;
         let mut copy = Self::new();
         copy.domains
             .try_reserve_exact(self.domains.len())
@@ -328,14 +340,20 @@ impl<const N: usize> Store<N> {
         copy.bucket_of
             .try_reserve(self.bucket_of.len())
             .map_err(|_| "lookup replica buckets allocation")?;
-        copy.domains.extend_from_slice(&self.domains);
-        copy.summaries.extend_from_slice(&self.summaries);
-        copy.exact = self.exact.try_lookup_clone()?;
+        for chunk in self.domains.chunks(32 * 1024) {
+            checkpoint()?;
+            copy.domains.extend_from_slice(chunk);
+        }
+        for chunk in self.summaries.chunks(32 * 1024) {
+            checkpoint()?;
+            copy.summaries.extend_from_slice(chunk);
+        }
+        copy.exact = self.exact.try_lookup_clone(checkpoint)?;
         copy.bucket_of
             .extend(self.bucket_of.iter().map(|(&key, &value)| (key, value)));
         for bucket in &self.buckets {
             copy.buckets.push(Bucket {
-                index: bucket.index.try_lookup_clone()?,
+                index: bucket.index.try_lookup_clone_with(checkpoint)?,
                 orthant: bucket.orthant,
             });
         }

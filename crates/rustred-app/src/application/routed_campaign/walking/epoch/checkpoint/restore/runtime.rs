@@ -21,6 +21,9 @@ mod public;
 pub(in crate::application::routed_campaign::walking::epoch) use public::run;
 
 pub(super) struct Restored<const N: usize> {
+    /// Frozen logical dispatch bound. Inspector width may change on resume.
+    pub window: usize,
+    pub cut_size: usize,
     pub state: EpochState<N>,
     pub dispatch: Dispatch,
     /// Original unfinished cut, in original sequence order with fresh seqs.
@@ -181,7 +184,12 @@ pub(super) fn open<const N: usize>(
         &mut state,
     )
     .map_err(io::Error::other)?;
-    MergeBoundary::borrow(&state, &dispatch, lockstep_b)?;
+    let window = if identity.epoch_rolling() {
+        scalars.lockstep_b
+    } else {
+        lockstep_b
+    };
+    MergeBoundary::borrow(&state, &dispatch, window)?;
     if record_segments.iter().try_fold(0usize, |sum, segment| {
         usize::try_from(segment.count)
             .ok()
@@ -198,6 +206,8 @@ pub(super) fn open<const N: usize>(
         publisher.next_generation(),
     );
     Ok(Restored {
+        window,
+        cut_size: identity.epoch_cut_size(),
         state,
         dispatch,
         replay,

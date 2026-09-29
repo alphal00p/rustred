@@ -109,6 +109,9 @@ powers=[1]
         self.save_order(admitted, reserved, false);
     }
     fn save_order(&self, admitted: usize, reserved: usize, reverse: bool) {
+        self.save_window(admitted, reserved, reverse, 16);
+    }
+    fn save_window(&self, admitted: usize, reserved: usize, reverse: bool, window: usize) {
         let mut state = EpochState::<1>::new(
             self.request.max_domains,
             self.request.max_events,
@@ -150,7 +153,7 @@ powers=[1]
         let identity = self.identity();
         let inputs = Inputs {
             identity: &identity,
-            admission: if admitted == 3 {
+            admission: if admitted == self.queries.len() {
                 Admission::Complete
             } else {
                 Admission::InProgress
@@ -165,7 +168,7 @@ powers=[1]
         let mut sidecar = Sidecar::new(self.directory.0.clone(), 1);
         publisher
             .save(
-                &MergeBoundary::borrow(&state, &dispatch, 16).unwrap(),
+                &MergeBoundary::borrow(&state, &dispatch, window).unwrap(),
                 &inputs,
                 &mut sidecar,
             )

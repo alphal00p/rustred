@@ -1158,6 +1158,7 @@ pub(super) fn p3_preflight<const N: usize>(
             .store
             .prepare_snapshot_updates(
                 state.watermark(),
+                &digests,
                 plan.survivors
                     .iter()
                     .map(|survivor| survivor.retire.as_slice()),

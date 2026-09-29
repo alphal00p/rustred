@@ -105,8 +105,7 @@ fn public_snapshot_lookup_matches_all_miss_with_real_hits_and_misses() {
     // exercise hits only. These three points leave power 1 absent initially,
     // while retaining the real 3 -> 2 positive lookup and terminal at 0.
     fixture.queries[2].upper = vec![Some(0)];
-    let mut queries: Value =
-        serde_json::from_str(&fixture.request.matching.queries_json).unwrap();
+    let mut queries: Value = serde_json::from_str(&fixture.request.matching.queries_json).unwrap();
     queries["queries"][2]["upper"] = json!([0]);
     fixture.request.matching.queries_json = queries.to_string();
     let mut expected = None;

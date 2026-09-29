@@ -13,7 +13,7 @@ use crate::application::routed_campaign::walking::epoch::{
     },
     merge::{self, Fatal, MergeConfig, RecordOut, StopReason},
     records,
-    snapshot::Publication,
+    snapshot::{Publication, Snapshot},
     state::EpochState,
 };
 use crate::application::routed_campaign::walking::execution::records::Sidecar;
@@ -25,6 +25,41 @@ use std::time::Duration;
 
 mod execution;
 mod periodic;
+mod rolling;
+
+enum Refresh<const N: usize> {
+    Ready(Option<Snapshot<N>>),
+    Stopped(stop::Stop),
+    RamGuard,
+}
+
+fn refresh_snapshot<const N: usize>(
+    restored: &Restored<N>,
+    stop_requested: &mut impl FnMut() -> Option<stop::Stop>,
+    progress: &mut impl FnMut(&EpochState<N>, &Dispatch, &'static str),
+) -> Result<Refresh<N>, Failure> {
+    let mut stopped = None;
+    let result = restored
+        .state
+        .store
+        .try_snapshot_with(restored.state.k, &mut || {
+            progress(&restored.state, &restored.dispatch, "boundary");
+            if let Some(context) = stop_requested() {
+                stopped = Some(context);
+                Err("lookup refresh interrupted")
+            } else {
+                Ok(())
+            }
+        });
+    if let Some(context) = stopped {
+        return Ok(Refresh::Stopped(context));
+    }
+    match result {
+        Ok(snapshot) => Ok(Refresh::Ready(snapshot)),
+        Err(error) if error.contains("allocation") => Ok(Refresh::RamGuard),
+        Err(error) => Err(Failure::Engine(error.into())),
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Outcome {
@@ -257,6 +292,22 @@ pub(super) fn run_observed<const N: usize>(
     snapshots: Option<&Publication<N>>,
     mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str),
 ) -> io::Result<Outcome> {
+    if !config.lockstep {
+        return rolling::run(
+            restored,
+            identity,
+            b,
+            budget,
+            config,
+            authorize,
+            inspect,
+            stop_requested,
+            periodic_due,
+            on_saved,
+            snapshots,
+            progress,
+        );
+    }
     if budget == 0
         || !(1..=4096).contains(&b)
         || !config.lockstep
@@ -381,11 +432,42 @@ pub(super) fn run_observed<const N: usize>(
                         .store
                         .ensure_unique()
                         .map_err(|e| Failure::Engine(e.into()))?;
-                    let snapshot = restored
-                        .state
-                        .store
-                        .snapshot(restored.state.k)
-                        .map_err(|e| Failure::Engine(e.into()))?;
+                    let snapshot =
+                        match refresh_snapshot(restored, &mut stop_requested, &mut progress)? {
+                            Refresh::Ready(Some(snapshot)) => snapshot,
+                            Refresh::Ready(None) => {
+                                return Err(Failure::Engine(
+                                    "drained lockstep lookup buffers remain leased".into(),
+                                ));
+                            }
+                            Refresh::Stopped(context) => {
+                                pool.cancel().map_err(Failure::Engine)?;
+                                let reason = context.kind();
+                                let receipt = save_observed(
+                                    restored,
+                                    identity,
+                                    b,
+                                    Some(reason),
+                                    Some(context),
+                                    &mut progress,
+                                )?;
+                                on_saved(restored, &receipt, &[]);
+                                return Ok(Outcome::Stopped(reason));
+                            }
+                            Refresh::RamGuard => {
+                                pool.cancel().map_err(Failure::Engine)?;
+                                let receipt = save_observed(
+                                    restored,
+                                    identity,
+                                    b,
+                                    Some(StopReason::RamGuard),
+                                    None,
+                                    &mut progress,
+                                )?;
+                                on_saved(restored, &receipt, &[]);
+                                return Ok(Outcome::Stopped(StopReason::RamGuard));
+                            }
+                        };
                     snapshots
                         .publish(snapshot)
                         .map_err(|e| Failure::Engine(e.into()))?;
@@ -647,7 +729,13 @@ pub(super) fn run_native_observed<const N: usize>(
                 bytes,
             );
         }
-        let snapshot = match snapshots.acquire() {
+        let snapshot = match if context.request.epoch_rolling {
+            crate::application::routed_campaign::walking::epoch::job::Job::<N>::decode(bytes)
+                .map_err(|_| "epoch rolling job decode")
+                .and_then(|job| snapshots.acquire_job(job.seq))
+        } else {
+            snapshots.acquire()
+        } {
             Ok(snapshot) => snapshot,
             Err(_) => return Vec::new(),
         };
@@ -680,7 +768,7 @@ pub(super) fn run_native_observed<const N: usize>(
         MergeConfig {
             frontier_stop: context.request.frontier_policy
                 == crate::OwnerDomainWalkFrontierPolicy::Stop,
-            lockstep: true,
+            lockstep: !context.request.epoch_rolling,
             g2: context.g2.is_some(),
         },
         &authorize,

@@ -212,7 +212,7 @@ fn rolling_refill_and_slot_reuse_progress_while_an_older_worker_is_held() {
                 .unwrap();
             assert!(!wait.timed_out() && *open);
         } else {
-            let (_, wait) = gate
+            let (_guard, wait) = gate
                 .1
                 .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |_| {
                     !held.load(Ordering::Acquire)

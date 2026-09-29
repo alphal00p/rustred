@@ -45,6 +45,9 @@ struct Views<const N: usize> {
     prepared: VecDeque<Update>,
     first: u64,
     bytes: usize,
+    /// Remaining insertions of a quiescent oversized cut. Such a cut is
+    /// mirrored directly instead of allocating a journal above the bound.
+    direct: usize,
 }
 impl<const N: usize> Views<N> {
     fn new() -> Self {
@@ -54,10 +57,17 @@ impl<const N: usize> Views<N> {
             prepared: VecDeque::new(),
             first: 0,
             bytes: 0,
+            direct: 0,
         }
     }
 
-    fn advance_idle(&mut self, source: &Store<N>, version: u64) -> Result<(), &'static str> {
+    fn advance_idle(
+        &mut self,
+        source: &Store<N>,
+        version: u64,
+        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<(), &'static str> {
+        checkpoint()?;
         for replica in &mut self.replicas {
             let Some(target) = Arc::get_mut(&mut replica.store) else {
                 continue;
@@ -73,6 +83,9 @@ impl<const N: usize> Views<N> {
             // P3 appends the entire survivor cohort before its index updates.
             // Replay in the same order, with collision-confirmed exact entries.
             for id in target.len()..source.len() {
+                if id % 4096 == 0 {
+                    checkpoint()?;
+                }
                 let image = source.domains[id];
                 let key = image.digest().0;
                 target.exact.try_reserve_one(key)?;
@@ -89,6 +102,9 @@ impl<const N: usize> Views<N> {
                 .iter()
                 .skip((replica.applied - self.first) as usize)
             {
+                if replica.applied % 256 == 0 {
+                    checkpoint()?;
+                }
                 let image = target.domains[update.id as usize];
                 let q = QueryImage::new(image)?;
                 let query = Query::new(q.core, image.phase());
@@ -116,8 +132,25 @@ impl<const N: usize> Views<N> {
         Ok(())
     }
 
-    fn record(&mut self, id: u32, retire: &[u32]) -> Result<(), &'static str> {
+    fn record(
+        &mut self,
+        id: u32,
+        query: &Query<N>,
+        retire: &[u32],
+        expected: u64,
+    ) -> Result<(), &'static str> {
         if self.replicas.is_empty() {
+            return Ok(());
+        }
+        if self.direct != 0 {
+            for replica in &mut self.replicas {
+                let target = Arc::get_mut(&mut replica.store)
+                    .ok_or("direct lookup update acquired a reader")?;
+                if target.index_survivor(id, query, retire)? != expected {
+                    return Err("direct lookup retirement differs");
+                }
+            }
+            self.direct -= 1;
             return Ok(());
         }
         let update = if let Some(update) = self.prepared.pop_front() {
@@ -179,6 +212,14 @@ impl<const N: usize> StoreOwner<N> {
     }
 
     pub fn try_snapshot(&self, version: u64) -> Result<Option<Snapshot<N>>, &'static str> {
+        self.try_snapshot_with(version, &mut || Ok(()))
+    }
+
+    pub fn try_snapshot_with(
+        &self,
+        version: u64,
+        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Option<Snapshot<N>>, &'static str> {
         u32::try_from(self.len()).map_err(|_| "epoch snapshot watermark exceeds u32")?;
         let mut views = self
             .views
@@ -191,14 +232,14 @@ impl<const N: usize> StoreOwner<N> {
                 .map_err(|_| "lookup replica inventory allocation")?;
             for _ in 0..LOOKUP_BUFFERS {
                 replicas.push(Replica {
-                    store: Arc::new(Box::new(self.store.try_lookup_clone()?)),
+                    store: Arc::new(Box::new(self.store.try_lookup_clone_with(checkpoint)?)),
                     version,
                     applied: 0,
                 });
             }
             views.replicas = replicas;
         }
-        views.advance_idle(&self.store, version)?;
+        views.advance_idle(&self.store, version, checkpoint)?;
         Ok(views
             .replicas
             .iter()
@@ -222,6 +263,13 @@ impl<const N: usize> StoreOwner<N> {
         let added = ids
             .saturating_mul(std::mem::size_of::<Update>())
             .saturating_add(retirements.saturating_mul(std::mem::size_of::<u32>()));
+        if added > MAX_LOOKUP_DELTA_BYTES {
+            return views.updates.is_empty()
+                && views
+                    .replicas
+                    .iter()
+                    .all(|r| Arc::strong_count(&r.store) == 1);
+        }
         views.bytes.saturating_add(added) <= MAX_LOOKUP_DELTA_BYTES
             && views
                 .replicas
@@ -234,17 +282,57 @@ impl<const N: usize> StoreOwner<N> {
     pub fn prepare_snapshot_updates<'a>(
         &mut self,
         first: u32,
-        retirements: impl ExactSizeIterator<Item = &'a [u32]>,
+        digests: &[u64],
+        retirements: impl ExactSizeIterator<Item = &'a [u32]> + Clone,
+    ) -> Result<(), &'static str> {
+        self.prepare_updates_with_bound(first, digests, retirements, MAX_LOOKUP_DELTA_BYTES)
+    }
+
+    fn prepare_updates_with_bound<'a>(
+        &mut self,
+        first: u32,
+        digests: &[u64],
+        retirements: impl ExactSizeIterator<Item = &'a [u32]> + Clone,
+        limit: usize,
     ) -> Result<(), &'static str> {
         let views = self
             .views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?;
         views.prepared.clear();
+        views.direct = 0;
         if views.replicas.is_empty() {
             return Ok(());
         }
         let count = retirements.len();
+        if count != digests.len() {
+            return Err("lookup preflight digest/retirement cardinality");
+        }
+        let bytes = retirements
+            .clone()
+            .try_fold(
+                count.saturating_mul(std::mem::size_of::<Update>()),
+                |sum, retire| {
+                    sum.checked_add(retire.len().saturating_mul(std::mem::size_of::<u32>()))
+                },
+            )
+            .ok_or("lookup delta size overflow")?;
+        if bytes > limit {
+            if !views.updates.is_empty() {
+                return Err("direct lookup publication before delta drain");
+            }
+            for replica in &mut views.replicas {
+                let target = Arc::get_mut(&mut replica.store)
+                    .ok_or("direct lookup publication before reader drain")?;
+                if target.len() != first as usize {
+                    return Err("direct lookup watermark differs");
+                }
+                target.try_reserve(count)?;
+                target.exact.try_reserve(digests)?;
+            }
+            views.direct = count;
+            return Ok(());
+        }
         views
             .prepared
             .try_reserve(count)
@@ -262,7 +350,7 @@ impl<const N: usize> StoreOwner<N> {
             added = added
                 .checked_add(update.bytes())
                 .ok_or("lookup delta size overflow")?;
-            if views.bytes.saturating_add(added) > MAX_LOOKUP_DELTA_BYTES {
+            if views.bytes.saturating_add(added) > limit {
                 return Err("lookup delta byte bound");
             }
             views.prepared.push_back(update);
@@ -282,7 +370,21 @@ impl<const N: usize> StoreOwner<N> {
         summary: CompactSummary<N>,
         key: u64,
     ) -> Result<u32, String> {
-        self.store.push(image, summary, key)
+        let id = self.store.push(image, summary, key)?;
+        let views = self
+            .views
+            .get_mut()
+            .map_err(|_| "lookup views lock poisoned")?;
+        if views.direct != 0 {
+            for replica in &mut views.replicas {
+                let target = Arc::get_mut(&mut replica.store)
+                    .ok_or("direct lookup append acquired a reader")?;
+                if target.push(image, summary, key)? != id {
+                    return Err("direct lookup append ID differs".into());
+                }
+            }
+        }
+        Ok(id)
     }
     pub fn prepare_initial(
         &mut self,
@@ -303,7 +405,7 @@ impl<const N: usize> StoreOwner<N> {
         self.views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?
-            .record(id, retire)?;
+            .record(id, query, retire, removed)?;
         Ok(removed)
     }
     pub fn index_survivor(
@@ -316,8 +418,18 @@ impl<const N: usize> StoreOwner<N> {
         self.views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?
-            .record(id, retire)?;
+            .record(id, query, retire, removed)?;
         Ok(removed)
+    }
+
+    #[cfg(test)]
+    pub fn prepare_direct_for_test<'a>(
+        &mut self,
+        first: u32,
+        digests: &[u64],
+        retirements: impl ExactSizeIterator<Item = &'a [u32]> + Clone,
+    ) -> Result<(), &'static str> {
+        self.prepare_updates_with_bound(first, digests, retirements, 0)
     }
 
     #[cfg(test)]

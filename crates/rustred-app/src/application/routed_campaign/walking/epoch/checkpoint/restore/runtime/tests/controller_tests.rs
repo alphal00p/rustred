@@ -10,6 +10,7 @@ pub(super) mod native_equivalence;
 mod native_periodic;
 mod native_prefix;
 mod periodic_tests;
+mod rolling_tests;
 
 fn config() -> MergeConfig {
     MergeConfig {

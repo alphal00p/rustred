@@ -45,6 +45,8 @@ pub(super) fn fresh<const N: usize>(
         dispatch.enable_adaptive().map_err(io::Error::other)?;
     }
     Ok(Restored {
+        window: 0, // Set by the fresh public execution's selected window.
+        cut_size: identity.epoch_cut_size(),
         state: EpochState::new(domains, events, frontiers),
         dispatch,
         replay: Vec::new(),

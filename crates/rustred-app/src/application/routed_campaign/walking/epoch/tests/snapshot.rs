@@ -458,3 +458,212 @@ fn snapshot_mixed_cut_requeue_retains_cross_parent_antichain_and_accounting() {
         "positive recheck still charged"
     );
 }
+
+#[test]
+fn stale_snapshot_miss_rechecks_exact_and_containing_new_publications() {
+    for exact in [false, true] {
+        let mut state = state_with(&[boxed([10, 0], [10, 0]), boxed([20, 0], [20, 0])]);
+        let mut dispatch = Dispatch::new();
+        let jobs = jobs(&mut state, &mut dispatch, 2);
+        let old = state.store.snapshot(0).unwrap();
+        let query = boxed([30, 0], [30, 0]);
+        let delayed = resolved(&jobs[0], &[query.clone()], Some(&old));
+        assert_eq!(delayed.misses[0].target, None);
+        let publication = if exact {
+            query
+        } else {
+            boxed([29, 0], [31, 0])
+        };
+        let earlier = resolved(&jobs[1], &[publication], Some(&old));
+        let config = merge::MergeConfig {
+            lockstep: false,
+            ..CONFIG
+        };
+        let checked = merge::p1_check(&mut state, vec![earlier.encode()], config).unwrap();
+        let plan = merge::p2(&mut state, &checked).unwrap();
+        assert_eq!(plan.survivors.len(), 1);
+        let mut rows = Rows(Vec::new());
+        merge::p3_preflight(&mut state, &checked, &plan, &mut rows).unwrap();
+        merge::p3_apply(
+            &mut state,
+            checked,
+            plan,
+            config,
+            &records::Builder,
+            &mut rows,
+            &mut |id, attempts| dispatch.requeue(id, attempts),
+        )
+        .unwrap();
+        assert_eq!(state.k, 1);
+        assert_eq!(
+            old.len(),
+            2,
+            "publication cannot mutate the old lookup view"
+        );
+        let checked = merge::p1_check(&mut state, vec![delayed.encode()], config).unwrap();
+        let plan = merge::p2(&mut state, &checked).unwrap();
+        assert!(
+            plan.survivors.is_empty(),
+            "a stale miss is not negative authority"
+        );
+        assert_eq!(plan.targets[0][0].into_id(3).unwrap().id(), 2);
+        assert_eq!(plan.counters.inspector.coordinator_miss_rechecks_skipped, 0);
+    }
+}
+
+#[test]
+fn two_leased_lookup_buffers_bound_versions_and_refresh_only_the_returned_one() {
+    use super::super::snapshot::{MAX_LOOKUP_DELTA_BYTES, MAX_LOOKUP_LAG};
+    let mut state = state_with(&[boxed([0, 0], [0, 0])]);
+    let old = state.store.snapshot(0).unwrap();
+    admit_initial(&mut state, &boxed([10, 0], [10, 0])).unwrap();
+    let second = state.store.snapshot(1).unwrap();
+    let second_address: *const Store<2> = &*second;
+    admit_initial(&mut state, &boxed([20, 0], [20, 0])).unwrap();
+    assert!(state.store.try_snapshot(2).unwrap().is_none());
+    assert_eq!(state.store.retained().0, 2);
+    assert!(state.store.retained().1 <= MAX_LOOKUP_DELTA_BYTES);
+    assert!(!state.store.publication_room(MAX_LOOKUP_LAG, 0, 0));
+    assert!(
+        !state
+            .store
+            .publication_room(2, 1, MAX_LOOKUP_DELTA_BYTES / 4 + 1)
+    );
+    drop(second);
+    let refreshed = state.store.snapshot(2).unwrap();
+    assert_eq!(
+        &*refreshed as *const Store<2>, second_address,
+        "an existing buffer is incrementally advanced, not replaced by a Store clone"
+    );
+    assert_eq!(refreshed.domains, state.store.domains);
+    assert_eq!(old.len(), 1);
+    drop(old);
+    drop(refreshed);
+    drop(state.store.snapshot(2).unwrap());
+    assert_eq!(
+        state.store.retained().1,
+        0,
+        "returned views allow complete journal reclamation"
+    );
+    assert!(
+        state
+            .store
+            .publication_room(2, 1, MAX_LOOKUP_DELTA_BYTES / 4 + 1),
+        "a large legal cut has a quiescent direct-publication path"
+    );
+}
+
+#[test]
+fn interrupted_lookup_bootstrap_and_delta_replay_leave_canonical_state_saveable() {
+    let mut state = state_with(&[boxed([0, 0], [0, 0])]);
+    let mut checks = 0;
+    assert!(
+        state
+            .store
+            .try_snapshot_with(0, &mut || {
+                checks += 1;
+                if checks == 2 {
+                    Err("test stop")
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+    );
+    assert_eq!(state.store.retained().0, 0);
+    assert_eq!(state.store.len(), 1);
+    let old = state.store.snapshot(0).unwrap();
+    admit_initial(&mut state, &boxed([10, 0], [10, 0])).unwrap();
+    checks = 0;
+    assert!(
+        state
+            .store
+            .try_snapshot_with(1, &mut || {
+                checks += 1;
+                if checks == 2 {
+                    Err("test stop")
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+    );
+    assert_eq!(old.len(), 1);
+    assert_eq!(state.store.len(), 2);
+    let resumed = state.store.snapshot(1).unwrap();
+    assert_eq!(resumed.domains, state.store.domains);
+    let query = QueryImage::new(state.store.domains[1]).unwrap();
+    let native = Query::new(query.core.clone(), query.image.phase());
+    assert_eq!(
+        resumed
+            .lookup(
+                &query,
+                &native,
+                resumed.len(),
+                &mut Default::default(),
+                &mut Default::default()
+            )
+            .unwrap()
+            .unwrap()
+            .0,
+        1
+    );
+}
+
+#[test]
+fn quiescent_oversized_cut_directly_mirrors_both_views_without_a_delta_copy() {
+    let mut state = state_with(&[boxed([0, 0], [0, 0])]);
+    let mut dispatch = Dispatch::new();
+    let job = jobs(&mut state, &mut dispatch, 1).remove(0);
+    drop(state.store.snapshot(0).unwrap());
+    let output = resolved(&job, &[boxed([0, 0], [5, 0])], None);
+    let checked = merge::p1_check(&mut state, vec![output.encode()], CONFIG).unwrap();
+    let plan = merge::p2(&mut state, &checked).unwrap();
+    assert_eq!(plan.survivors.len(), 1);
+    assert_eq!(plan.survivors[0].retire, [0]);
+    let mut rows = Rows(Vec::new());
+    merge::p3_preflight(&mut state, &checked, &plan, &mut rows).unwrap();
+    // Exercise the exact production oversized-cut branch with a zero-byte
+    // test threshold rather than constructing eight million retirement IDs.
+    state
+        .store
+        .prepare_direct_for_test(
+            1,
+            &[plan.survivors[0].digest],
+            plan.survivors.iter().map(|s| s.retire.as_slice()),
+        )
+        .unwrap();
+    merge::p3_apply(
+        &mut state,
+        checked,
+        plan,
+        CONFIG,
+        &records::Builder,
+        &mut rows,
+        &mut |id, attempts| dispatch.requeue(id, attempts),
+    )
+    .unwrap();
+    assert_eq!(state.store.retained().1, 0);
+    let first = state.store.snapshot(1).unwrap();
+    assert_eq!(first.domains, state.store.domains);
+    admit_initial(&mut state, &boxed([10, 0], [10, 0])).unwrap();
+    let second = state.store.snapshot(2).unwrap();
+    assert_eq!(second.domains, state.store.domains);
+    let q = QueryImage::new(first.domains[1]).unwrap();
+    let native = Query::new(q.core.clone(), q.image.phase());
+    for view in [&first, &second] {
+        assert_eq!(
+            view.lookup(
+                &q,
+                &native,
+                view.len(),
+                &mut Default::default(),
+                &mut Default::default()
+            )
+            .unwrap()
+            .unwrap()
+            .0,
+            1
+        );
+    }
+}
