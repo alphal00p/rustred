@@ -1,7 +1,7 @@
 # Bounded adaptive Epoch dispatch
 
-Implementation note, 2026-09-29. This is experimental source; integrated
-native tests, independent review, and performance qualification are pending.
+Implementation note, 2026-09-29. Integrated native adaptive tests and independent
+source review have passed; matched performance qualification remains pending.
 It is not part of the compatible Stage A stable executable.
 
 The public policy contract is `--epoch-dispatch fifo|adaptive`. FIFO is the
@@ -42,10 +42,13 @@ binary section layout. Restored unfinished jobs retain replay precedence and
 are not replaced by newly chosen candidates. Fresh-only configuration cannot
 reset a resumed observation history.
 
-Focused source tests cover individual cost/growth/reuse priority effects,
+Executed native tests cover individual cost/growth/reuse priority effects,
 deterministic ties, oldest-slot fairness, saturated arithmetic, malformed
 state, candidate conservation, retry/deferred precedence, binary section
-round-trip, and authenticated CP6 replay/resave. These tests must run on the
-integrated source before qualification. A later matched comparison must report
+round-trip, authenticated CP6 replay/resave and real interruption/resume. All12
+adaptive-named tests pass in the `f3f707af` application run; its separate
+cold-reader failure and final targeted correction are accounted for in the
+delivery ledger, not hidden by this narrower result. The final executable keeps
+this adaptive implementation unchanged. A matched comparison must report
 work volume and closure as well as elapsed time; this heuristic has no claimed
 speedup yet.

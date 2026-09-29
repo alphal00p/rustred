@@ -104,6 +104,97 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 19:43 UTC — final lifecycle gates passed; matched FG begins
+
+- [M] All four final optimized-CLI cases pass with no missing required
+  observations: M1 W1 inline unknown-to-joined-zero; M2 W6 real interruption,
+  saved cancelled work, same-binary resume and cold-All248/248; M3 explicit
+  2-inspector/3-helper/1-coordinator reservations; M4 W6 lockstep6177 cuts and
+  cold-All248/248. M2/M4 cold reads preserve checkpoint bytes. Complete case
+  times84.354/36.118/27.710/30.223s respectively; these are lifecycle tests,
+  not performance comparisons. Their existing harness does not capture reaped
+  CPU seconds, so those are unreported rather than inferred. Evidence:
+  `TMP/codex-stage-a.2RU3AX/final-cli-M{1,2,3,4}-e1bdb9e7/`.
+- [M] Root checked raw rescue and lifecycle receipts; all owned groups drained,
+  both development locks free at19:42:31. LC2 remains untouched. Native adaptive
+  tests also explicitly pass: all12 adaptive-named cases in the full `f3f707af`
+  app receipt, including real interruption/restoration; adaptive speed is not
+  yet established.
+- [D] Granted `bounded_ordering_pilots` only the first FG Ready/FIFO pair from
+  `TMP/codex-rolling-measurements.eBFGjR/bound-e1bdb9e7-pilot-lock/` on W6,
+  CPUs32–37. It must return complete native/cold/audit receipts for independent
+  review before further allocation. The obsolete socket1-bound plans remain
+  unexecuted. No build or source change is needed for these input-driven tests.
+
+### 2026-09-29 19:37 UTC — actual final-binary rescue regression passed
+
+- [M] `stage_a_release` completed the focused final-CLI regression, independently
+  reviewed by root against raw outputs: required-scope cold PASS1/1 with8/8
+  native reinspection; AllRoots rejects exactly the three abandoned helper
+  roots; the existing remapped-query mutation triggers protected-prefix
+  rejection; altered amendment bytes are refused explicitly. Cold reads leave
+  fixture bytes unchanged. Actual resume preserves the original prefix,
+  abandoned set and record/dependency digests; post-resume cold verification
+  passes. Evidence: `TMP/codex-stage-a.2RU3AX/rescue-prefix-final-cli-run2/`.
+- [M] Six guarded legs total7.270s wall; complete pilot through checks175s.
+  This resolves the final cold-reader defect on the actual optimized binary,
+  not by weakening a test. The prior full suite remains1116/1/12 on pre-fix
+  source; this targeted final-code execution is not relabelled as a full-suite
+  rerun. M1–M4 lifecycle checks now begin on the same frozen executable.
+
+### 2026-09-29 19:34 UTC — frozen identity; pilot admission corrected
+
+- [M] Root independently checked the frozen executable:
+  `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-e1bdb9e7`,
+  SHA256 `b5bd346cd9bfa925a4324031660cb3b2993e23c11f1e53765cb6758b87d9d95c`,
+  125,735,056bytes,mode0555; its build clone remains clean at
+  `e1bdb9e7d102652b69a6a671635b131ea6b5fc6d`.
+- [M] The first focused regression attempt waited at admission, without
+  launching a solver: `socket1.lock` is held by the existing orchestrator's
+  reservation explicitly for CPUs128–227. The planning text incorrectly
+  treated this as a spare historical label. Root verified holder text, live
+  LC2 affinity and CPU32–81's distinct physical socket0 cores. No foreign
+  process, lock or campaign was changed.
+- [D] Retain that admission-only failure; stop only our waiting guard and
+  restart a fresh bounded pilot. All our pilots now use the existing global
+  heavy lock plus `TMP/locks/parallel-pilot-cpus32-81.lock`, leaving the reserved
+  socket1 lock untouched. Update only unexecuted plans/test-driver lock paths
+  and rebind their hashes. CPUs, inputs, headroom, timing and acceptance rules
+  are unchanged; this does not require a Rust rebuild.
+
+### 2026-09-29 19:30 UTC — optimized Stage B build passed
+
+- [M] The clean `e1bdb9e7` campaign build completed: exit0, no stop reason,
+  3,990.666s guarded wall,4,394.775s user CPU,163.678s system CPU,
+  maximum single-child RSS17,309,628KiB; minimum host available696,641,871,872B.
+  Cargo confirms the actual CLI target at opt3, no debug assertions or debug
+  information, unchanged fat-LTO/one-codegen-unit campaign profile. Evidence:
+  `TMP/codex-parallel-campaign.oiPK29/campaign-build-e1bdb9e7/`.
+- [D] `stage_a_release` freezes that executable, then owns the already approved
+  rescue and M1–M4 lifecycle checks. The measurement agent remains on standby;
+  no competing heavy job, production launch or speed claim follows from build
+  success. Compilation is excluded from all upcoming solver measurements.
+
+### 2026-09-29 19:25 UTC — delivery reserve; alongside launch reviewed
+
+- [M] The tentative six-hour target is reached while the unchanged optimized
+  campaign build remains in its final binary fat-LTO stage. No compiler error
+  is reported. Root disclosed the delay and is using the agreed reserve; the
+  latest user directive permits necessary correctness/performance overrun.
+  This is not a final-binary acceptance or timing result. No more features are
+  being added before the frozen-build gates.
+- [M] `bounded_ordering_pilots` updated the workspace-local launch draft, and
+  root independently reviewed it: new `rustred` / `codex_astra` tab, W50 on
+  CPUs32–81, requested400GB,5% save margin,150GB live host floor. LC2 stays
+  running on its existing resources; rollback stops only the new campaign.
+  Draft: `TMP/codex-stage-a.2RU3AX/stage-b-fresh-campaign-draft.md`, SHA256
+  `35f3541e7d06ce362eb40f8029bb0749931c29133da9524d57beb4d8c5d28d2a`.
+  No production preparation or launch was executed. Final executable identity
+  and measured width qualification remain mandatory before handoff.
+- [D] Final-binary rescue/lifecycle checks precede the first matched FG pair;
+  root reviews its receipts before authorizing the wider matrix. All ordering
+  variants reuse this same optimized executable, with no rebuild per input.
+
 ### 2026-09-29 18:38 UTC — ordering inputs ready; independent delivery audit
 
 - [M] `bounded_ordering_pilots` prepared the helpers-first control with the

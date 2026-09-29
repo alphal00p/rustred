@@ -1,7 +1,7 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
-Status: **implementation integrated; native execution and performance gates
-pending**. This is not yet a production-switch recommendation. Follow
+Status: **implementation and final-binary lifecycle gates passed; matched
+performance gates running**. This is not yet a production-launch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
 `codex_astra`, using disjoint resources, not a replacement of the current run.
@@ -92,18 +92,30 @@ Python can automatically resume with a rescue amendment.
   app 1,103 passed/10 failed/12 ignored. Both actual W50 mechanics tests passed.
   One app failure exposed an obsolete public lockstep-G2 rejection; nine were
   stale checkpoint/test fixtures. Audited corrections are integrated at
-  `f3f707af`; the complete corrected application suite is being rebuilt and
-  rerun. The failed receipt is retained, not counted as a green milestone.
+  `f3f707af`; the complete corrected application suite was then rebuilt and
+  rerun, as recorded below. The failed receipt is retained.
 - Corrected full app execution on `f3f707af`:1,116 passed,one failed,12 ignored,
   with no unexpected skips. The remaining rescue test exposed a cold-reader
   inventory check that counted amended roots as if they belonged to the original
   protected prefix. Audited narrow correction `d40c1b76` preserves missing-prefix
-  detection and all per-query checks. Final validation will use the actual
-  optimized CLI on the preserved failing checkpoint, including required-scope
-  PASS and all-root non-PASS; this is not labelled a final full-suite rerun.
-- Optimized Stage B binary: not yet frozen. Never use the app-opt1 correctness
-  or app-opt0 correctness executable for performance comparisons.
-- Matched controls: prepared, independently checked, not executed. Required
+  detection and all per-query checks. Final optimized CLI validation on the
+  preserved failing checkpoint now passes: required-scope cold PASS1/1,
+  all8 applicable natives reinspected, abandoned-helper AllRoots rejection,
+  remapped-query rejection, unchanged cold-read bytes, actual resume with
+  record/edge digest parity and altered-amendment refusal. This is targeted
+  final-code execution, not a final full-suite rerun.
+- Optimized Stage B binary: frozen from clean `e1bdb9e7`, campaign opt3/fat-LTO,
+  one codegen unit; build3,990.666s, excluded from solver timings. Executable:
+  `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-e1bdb9e7`, SHA256
+  `b5bd346cd9bfa925a4324031660cb3b2993e23c11f1e53765cb6758b87d9d95c`.
+  Never use the app-opt1/app-opt0 correctness executables for comparisons.
+- Final optimized-CLI lifecycle: M1–M4 all PASS, with no missing required
+  observations. These cover W1 unknown activity, W6 genuine pause/resume and
+  cold-All248/248, an explicit2/3/1 worker partition, and W6 multi-cut lockstep
+  with cold-All248/248. Cold reads do not mutate checkpoints; workers drain.
+  Shared formatter behavior is exercised through real non-TTY events; this
+  is not a claim that an interactive TTY was tested end to end.
+- Matched controls: prepared and independently checked; first FG pair running. Required
   scopes are FG, BMW, H, X, combined four-loop, finite five-loop and hot-sector.
   Both sides use the same future optimized binary and the same query bytes.
 - Adaptive comparisons: pending; no benefit claimed.
