@@ -53,7 +53,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
 | Independent math/code audit | combined source passed; measurement audit active | checkpoint_final_audit | Check native receipts and pilot equivalence before release |
 | Combined G2′ + rescue | source frozen; native execution active | joint_support_pruning + root + independent auditor | `7546c44c`; full suite, named controls, paired pilot and restart decision |
-| Coordinator latency / telemetry | registered; pending implementation | bounded_helpers_bmw | Typed snapshot/reused lean maps; preserve counters before checkpoint callbacks |
+| Coordinator latency / telemetry | isolated implementation active; no performance result | checkpoint_final_audit (author), joint_support_pruning (independent review) | Typed snapshot/reused lean maps; preserve counters before checkpoint callbacks |
 | Epoch S3–S6 | pending; preparatory review delivered | epoch_next_slice_review | Fresh-only CP6 first; account for rescue-authorized duplicate images before schema freeze |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
@@ -78,6 +78,76 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 02:07 UTC — pilot guard frozen; next narrow slice isolated
+
+- [M] Tooling-only commit `d45f325c01126641994dd83793d49eea4adc1906`
+  on the integration branch passed 16 focused tests (3.725 s), independently
+  repeated by the auditor (3.753 s). Root inspected the receipt at
+  `TMP/codex-g2-rescue.tzdFuj/runner-guard-tests-frozen.log`. Exact command:
+  `env TMPDIR=/common/dev/rustred/TMP PYTHONDONTWRITEBYTECODE=1 taskset -c
+  32-39 nice -n 5 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
+  -B -m unittest discover -s tools/research/w1_g2prod -p 'test_*.py' -v`.
+- The runner now owns locks/headroom/stop handling, excludes censored outcomes
+  from comparison gates and reports waited-child CPU separately from sampled
+  thread times. Audit also caught and fixed partial sampler-start cleanup
+  and unreadable-process uncertainty; no detached mock children remain.
+- [M] Direct cold-verifier guard/timeout mocks in
+  `TMP/codex-verifier-guard.7rBJCw/`: normal exit zero/no reason in 1.168 s;
+  signal-resistant timeout forced nonzero exit in 3.163 s, process group
+  drained. Private mock lock and CPUs 32–39 only, no native or heavy job.
+  Protocol now records separate safe launch forms for pilots and verifiers.
+- [M] The one skipped Python test is full skeleton enumeration, enabled by
+  `RUSTRED_SLOW_TESTS=1`, not an optional native executable test. Integrator
+  corrected the earlier rescue note in docs-only `83d260ab`; the exact
+  enumeration test is queued after the native suite. Existing PyO3 bindings
+  do not expose this owner-domain walker; affected Python integration here
+  is the CLI-steering/planner surface, not a claim of a rebuilt extension.
+- Rotated the independent auditor into authoring the distinct narrow telemetry
+  slice on `.claude/worktrees/codex-lean-telemetry`, branch
+  `codex/lean-telemetry-lc2` from `7546c44c`. G2 integrator will independently
+  review it. Five focused regressions are being formatted; no native test,
+  integration or speed claim yet. The G2/rescue build remains source-frozen
+  and live; no production action and no campaign performance pilots yet.
+
+### 2026-09-29 01:52 UTC — measurement preparation and ownership fix
+
+- [M] Audited integration log committed/pushed as `16868940` on `fable_5_1`.
+  Frozen implementation `7546c44c` remains on the integration branch while
+  optimized native tests compile. No campaign-profile candidate yet.
+- Independent runner review found that `run_arm.py` starts its solver in a
+  new process group. Wrapping it in the build guard would not stop that
+  solver on a memory/signal stop and could release the lock prematurely.
+  Integrator is adding runner-owned shared locks, headroom admission/stop,
+  signal forwarding and whole-owned-group draining, with mock-process tests.
+  This is tooling only; frozen Rust compilation is unaffected. Stop-censored
+  runs must fail comparison gates even if their child returns zero.
+- [M] All seven converted LC2 command templates and owner payloads exist;
+  queries are roleless in both matched arms. The auditor validated a new
+  explicit hot r1a12 template at
+  `TMP/codex-integration/hotsub-r1a12-v6-command.json` (SHA-256
+  `5c5c5241e06d9d60ef7bcad611923a366e6a9622e5ceb595a5bc8a6f0859279d`).
+  Compared with its historical command, only executable, converted input
+  base and output placeholders changed. R<=1/A<=12, unrestricted D,
+  Ready/W12/H256, and query bytes remain identical. The historical runner's
+  hot fallback still points to old inputs and must not be used.
+- Use the current native verifier directly with the generated command,
+  checkpoint and result: `--reinspect all --reference-levers off
+  --require-closure`, then current Python audit with `--verify-report`.
+  Do not use historical wrapper defaults or substitute request bindings.
+  LC2-versus-candidate and candidate-off-versus-union are separate comparisons;
+  summed record time is not the wall-time deployment gate.
+- [M] Read-only LC2 snapshot at 01:48:42 UTC: 24,593,537 discovered,
+  8,110,272 native completions, 9,632,029 pending, conservative 6/67 initial
+  obligations closed, zero frontiers, approximately 20.8 GB tree RSS and
+  13.8 observed cores. These are not counts of the 116 required queries or
+  a closure forecast. Production and pending-growth semantics are unchanged.
+- Next coordinator slice remains registered, not implemented: typed scalar
+  capture before JSON serialization, preserving fresh checkpoint counters.
+  Additional audit requires resume totals added once, detailed-to-lean key
+  cleanup, and physical failure tickets decoded only once. Do not throttle
+  snapshots or present the historical 2.5–5% coordinator sample share as a
+  whole-walk gain.
 
 ### 2026-09-29 01:48 UTC — combined source frozen; optimized tests launched
 
