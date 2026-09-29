@@ -36,6 +36,7 @@ fn binding(state: &EpochState<2>) -> Binding<'_> {
         k: state.k,
         p0: state.p0,
         lockstep_b: 16,
+        adaptive: None,
     }
 }
 
@@ -72,6 +73,30 @@ fn actual_writer_preserves_order_attempts_and_unfinished_batch_descriptors() {
     );
     assert_eq!(state.ledger.get(0).unwrap().counters().unwrap().attempts, 2);
     assert_eq!(state.ledger.get(1).unwrap().counters().unwrap().attempts, 1);
+}
+
+#[test]
+fn adaptive_pending_window_round_trips_without_changing_dispatch_section_shape() {
+    let directory = Directory::new();
+    let mut state = state(100);
+    let mut dispatch = Dispatch::new();
+    dispatch.enable_adaptive().unwrap();
+    assert!(matches!(dispatch.refill(&mut state, 3), Refill::Jobs(_)));
+    let window = dispatch.checkpoint_snapshot().adaptive.unwrap().clone();
+    assert_eq!(window.candidates.len(), 63);
+    let boundary = MergeBoundary::borrow(&state, &dispatch, 16).unwrap();
+    let file = boundary
+        .write_new_section(&directory.0, 1, Section::Dispatch)
+        .unwrap();
+    let mut request = binding(&state);
+    request.adaptive = Some(&window);
+    let saved = read::<2>(&directory.0, &file, 3, request).unwrap();
+    assert_eq!(saved.adaptive, Some(window));
+    assert!(
+        read::<2>(&directory.0, &file, 3, binding(&state)).is_err(),
+        "omitting authenticated candidates must not skip Pending IDs"
+    );
+    assert_eq!(file.digest.bytes, (28 + 72 + 3 * (4 + 16)) as u64);
 }
 
 #[test]

@@ -130,6 +130,9 @@ powers=[1]
         state.p0 = state.watermark();
         state.tracker = Tracker::new(admitted);
         let mut dispatch = Dispatch::new();
+        if self.request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive {
+            dispatch.enable_adaptive().unwrap();
+        }
         if reserved > 0 {
             assert!(matches!(
                 dispatch.refill(&mut state, reserved),
@@ -197,6 +200,79 @@ fn resave(fixture: &Fixture, restored: &mut Restored<1>) {
             &mut restored.records,
         )
         .unwrap();
+}
+
+#[test]
+fn adaptive_checkpoint_preserves_candidates_observations_and_replay_precedence() {
+    let mut fixture = Fixture::new();
+    fixture.request.epoch_dispatch = crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive;
+    fixture.request.epoch_rolling = true;
+    fixture.request.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
+        &fixture.directory.0,
+    ));
+    fixture.save(3, 1);
+    let mut restored = fixture.open().unwrap();
+    assert_eq!(
+        restored
+            .replay
+            .iter()
+            .map(|job| job.parent)
+            .collect::<Vec<_>>(),
+        [0]
+    );
+    assert_eq!(
+        restored
+            .dispatch
+            .checkpoint_snapshot()
+            .adaptive
+            .unwrap()
+            .candidates,
+        [1, 2]
+    );
+    restored
+        .dispatch
+        .observe_completed(&restored.state, &[(0, 1.25, 3)], 7);
+    let hints = restored
+        .dispatch
+        .checkpoint_snapshot()
+        .adaptive
+        .unwrap()
+        .clone();
+    assert!(matches!(
+        restored.dispatch.refill(&mut restored.state, 2),
+        Refill::Stalled
+    ));
+    resave(&fixture, &mut restored);
+    drop(restored);
+    let mut restored = fixture.open().unwrap();
+    assert_eq!(
+        restored.dispatch.checkpoint_snapshot().adaptive,
+        Some(&hints)
+    );
+    assert!(matches!(
+        restored.dispatch.refill(&mut restored.state, 2),
+        Refill::Stalled
+    ));
+    // Emulate a discarded replay result: its Reserved obligation remains ahead
+    // of fresh candidates, with no reset of the persisted observation state.
+    restored.state.in_flight.clear();
+    restored.dispatch.requeue(0, 0);
+    let Refill::Jobs(jobs) = restored.dispatch.refill(&mut restored.state, 2) else {
+        panic!("resumed candidates");
+    };
+    assert_eq!(
+        jobs.iter().map(|job| job.parent).collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(
+        restored
+            .dispatch
+            .checkpoint_snapshot()
+            .adaptive
+            .unwrap()
+            .candidates,
+        [2]
+    );
 }
 
 #[test]

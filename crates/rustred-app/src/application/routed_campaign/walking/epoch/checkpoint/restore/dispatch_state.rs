@@ -18,6 +18,7 @@ pub(super) struct Binding<'a> {
     pub k: u64,
     pub p0: u32,
     pub lockstep_b: usize,
+    pub adaptive: Option<&'a super::super::super::dispatch::adaptive::Saved>,
 }
 
 pub(super) struct SavedDispatch {
@@ -27,6 +28,7 @@ pub(super) struct SavedDispatch {
     pub requeue: VecDeque<u32>,
     pub deferred: VecDeque<u32>,
     pub in_flight: BTreeMap<u32, JobMeta>,
+    pub adaptive: Option<super::super::super::dispatch::adaptive::Saved>,
 }
 
 impl SavedDispatch {
@@ -37,6 +39,7 @@ impl SavedDispatch {
             cursor: self.cursor,
             requeue: &self.requeue,
             deferred: &self.deferred,
+            adaptive: self.adaptive.as_ref(),
         }
     }
 }
@@ -146,6 +149,7 @@ pub(super) fn read<const N: usize>(
         requeue,
         deferred,
         in_flight,
+        adaptive: binding.adaptive.cloned(),
     };
     Reservations {
         ledger: binding.ledger,

@@ -338,6 +338,10 @@ impl Reservations<'_> {
             || self.dispatch.counter >= SEQUENCE_COUNTER_LIMIT
             || !(1..=4096).contains(&self.lockstep_b)
             || self.in_flight.len() > self.lockstep_b
+            || self
+                .dispatch
+                .adaptive
+                .is_some_and(|saved| !saved.valid(self.dispatch.cursor))
         {
             return Err(invalid("epoch reservation view shape or range"));
         }
@@ -350,7 +354,13 @@ impl Reservations<'_> {
             if matches!(entry, Entry6::Reserved(_)) {
                 reserved += 1;
             }
-            if matches!(entry, Entry6::Pending(_)) && id < self.dispatch.cursor as usize {
+            if matches!(entry, Entry6::Pending(_))
+                && id < self.dispatch.cursor as usize
+                && !self
+                    .dispatch
+                    .adaptive
+                    .is_some_and(|saved| saved.candidates.binary_search(&(id as u32)).is_ok())
+            {
                 return Err(invalid("epoch pending ID behind dispatch cursor"));
             }
         }

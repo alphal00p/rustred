@@ -9,6 +9,8 @@ use super::ledger6::{Entry6, Transition};
 use super::state::{EpochState, JobMeta};
 use std::collections::VecDeque;
 
+pub(super) mod adaptive;
+
 pub(super) struct Dispatch {
     cursor: u32,
     requeue: VecDeque<u32>,
@@ -20,6 +22,7 @@ pub(super) struct Dispatch {
     replay_pending: bool,
     /// A restored input prefix is saveable, never a complete query set.
     admission_ready: bool,
+    adaptive: Option<adaptive::Saved>,
 }
 
 /// Borrowed execution order, not reconstructed from the ledger. Session and
@@ -31,6 +34,7 @@ pub(super) struct DispatchSnapshot<'a> {
     pub cursor: u32,
     pub requeue: &'a VecDeque<u32>,
     pub deferred: &'a VecDeque<u32>,
+    pub adaptive: Option<&'a adaptive::Saved>,
 }
 
 pub(super) enum Refill<const N: usize> {
@@ -76,6 +80,7 @@ impl Dispatch {
             || saved.counter != 0
             || !saved.requeue.is_empty()
             || !saved.deferred.is_empty()
+            || saved.adaptive.is_some_and(|saved| !saved.is_initial())
             || !state.in_flight.is_empty()
             || state.edges.runs() != 0
             || !state.edges.log().is_empty()
@@ -118,6 +123,53 @@ impl Dispatch {
             session: 1,
             replay_pending: false,
             admission_ready: true,
+            adaptive: None,
+        }
+    }
+
+    /// Fresh-only policy configuration. Restore carries its authenticated state
+    /// through `restored`; it must never reset observations or candidate order.
+    pub fn enable_adaptive(&mut self) -> Result<(), String> {
+        if self.cursor != 0
+            || self.counter != 0
+            || self.replay_pending
+            || !self.requeue.is_empty()
+            || !self.deferred.is_empty()
+            || self.adaptive.is_some()
+        {
+            return Err("adaptive dispatch must be configured once before fresh issuance".into());
+        }
+        self.adaptive = Some(adaptive::Saved::default());
+        Ok(())
+    }
+
+    /// Observe only verified entries whose P3 publication succeeded. New IDs
+    /// are the actual cut aggregate, distributed in deterministic sequence order
+    /// as a bucket estimate, not claimed parent-specific mathematical provenance.
+    pub fn observe_completed<const N: usize>(
+        &mut self,
+        state: &EpochState<N>,
+        observations: &[(u32, f64, u64)],
+        new_domains: u64,
+    ) {
+        let Some(adaptive) = self.adaptive.as_mut() else {
+            return;
+        };
+        if observations.is_empty() {
+            return;
+        }
+        let count = observations.len() as u64;
+        let share = new_domains / count;
+        let remainder = new_domains % count;
+        for (index, &(parent, seconds, reuse)) in observations.iter().enumerate() {
+            if let Some(image) = state.store.domains.get(parent as usize) {
+                adaptive.observe(
+                    image,
+                    seconds,
+                    share + u64::from((index as u64) < remainder),
+                    reuse,
+                );
+            }
         }
     }
 
@@ -129,6 +181,7 @@ impl Dispatch {
         cursor: u32,
         requeue: VecDeque<u32>,
         deferred: VecDeque<u32>,
+        adaptive: Option<adaptive::Saved>,
         admission_ready: bool,
         state: &mut EpochState<N>,
     ) -> Result<(Self, Vec<Job<N>>), String> {
@@ -170,6 +223,7 @@ impl Dispatch {
             session: number,
             replay_pending: !jobs.is_empty(),
             admission_ready,
+            adaptive,
         };
         for job in &mut jobs {
             dispatch.counter += 1; // Bounded by the preflighted job count above.
@@ -205,6 +259,7 @@ impl Dispatch {
             cursor: self.cursor,
             requeue: &self.requeue,
             deferred: &self.deferred,
+            adaptive: self.adaptive.as_ref(),
         }
     }
 
@@ -272,17 +327,43 @@ impl Dispatch {
             jobs.push(self.job(state, id));
         }
         let watermark = state.watermark();
-        while jobs.len() < want && self.cursor < watermark {
-            let id = self.cursor;
-            if matches!(state.ledger.get(id), Ok(Entry6::Pending(_))) {
+        while jobs.len() < want {
+            let next = if let Some(adaptive) = self.adaptive.as_mut() {
+                // Publication may have resolved a buffered obligation. Retire
+                // only its scheduling hint; the authoritative ledger is kept.
+                adaptive
+                    .candidates
+                    .retain(|&id| matches!(state.ledger.get(id), Ok(Entry6::Pending(_))));
+                while adaptive.candidates.len() < adaptive::WINDOW && self.cursor < watermark {
+                    let id = self.cursor;
+                    self.cursor += 1;
+                    if matches!(state.ledger.get(id), Ok(Entry6::Pending(_))) {
+                        adaptive.candidates.push(id);
+                    }
+                }
+                adaptive.choose(&state.store.domains)
+            } else {
+                let mut next = None;
+                while self.cursor < watermark {
+                    let id = self.cursor;
+                    self.cursor += 1;
+                    if matches!(state.ledger.get(id), Ok(Entry6::Pending(_))) {
+                        next = Some(id);
+                        break;
+                    }
+                }
+                next
+            };
+            if let Some(id) = next {
                 state
                     .ledger
                     .apply(id, Transition::T2Reserve)
                     .expect("T2 on a Pending ID");
                 state.counters.dispatched += 1;
                 jobs.push(self.job(state, id));
+            } else {
+                break;
             }
-            self.cursor += 1;
         }
         while jobs.len() < want {
             let Some(id) = self
@@ -308,6 +389,115 @@ impl Dispatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn adaptive_state(count: u64) -> EpochState<1> {
+        use super::super::super::queue::{Domain, Phase};
+        let mut state = EpochState::<1>::new(1000, 1000, 1000);
+        for point in 0..count {
+            super::super::admit_initial(
+                &mut state,
+                &Domain {
+                    phase: Phase::Apply,
+                    owner: [true],
+                    lower: vec![point],
+                    upper: vec![Some(point)],
+                    rank: None,
+                    powers: Default::default(),
+                },
+            )
+            .unwrap();
+        }
+        state
+    }
+
+    #[test]
+    fn adaptive_window_preserves_every_pending_id_and_bounds_buffer() {
+        let mut state = adaptive_state(200);
+        let mut dispatch = Dispatch::new();
+        dispatch.enable_adaptive().unwrap();
+        let mut issued = Vec::new();
+        while issued.len() < 200 {
+            let Refill::Jobs(jobs) = dispatch.refill(&mut state, 7) else {
+                panic!("pending work");
+            };
+            issued.extend(jobs.iter().map(|job| job.parent));
+            let saved = dispatch.checkpoint_snapshot();
+            assert!(saved.adaptive.unwrap().candidates.len() <= adaptive::WINDOW);
+            assert!(saved.adaptive.unwrap().valid(saved.cursor));
+        }
+        assert_eq!(issued, (0..200).collect::<Vec<_>>());
+        assert_eq!(
+            state
+                .ledger
+                .counts()
+                .get(super::super::ledger6::Tag::Pending),
+            0
+        );
+        assert_eq!(state.in_flight.len(), 200);
+    }
+
+    #[test]
+    fn adaptive_keeps_deferred_then_retry_priority_and_refuses_late_enable() {
+        let mut state = adaptive_state(70);
+        let mut dispatch = Dispatch::new();
+        dispatch.enable_adaptive().unwrap();
+        assert!(dispatch.enable_adaptive().is_err());
+        let Refill::Jobs(first) = dispatch.refill(&mut state, 2) else {
+            panic!("initial jobs");
+        };
+        assert_eq!(
+            first.iter().map(|job| job.parent).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        for (id, attempts) in [(0, 1), (1, 2)] {
+            state.in_flight.remove(&id);
+            state
+                .ledger
+                .apply(
+                    id,
+                    Transition::T7Requeue {
+                        d_attempts: attempts,
+                        d_guard: 1,
+                        last_err: 4,
+                    },
+                )
+                .unwrap();
+            dispatch.requeue(id, attempts);
+        }
+        let Refill::Jobs(next) = dispatch.refill(&mut state, 4) else {
+            panic!("refill");
+        };
+        assert_eq!(
+            next.iter().map(|job| job.parent).collect::<Vec<_>>(),
+            [1, 0, 2, 3]
+        );
+        let mut fifo = Dispatch::new();
+        let mut other = adaptive_state(1);
+        assert!(matches!(fifo.refill(&mut other, 1), Refill::Jobs(_)));
+        assert!(fifo.enable_adaptive().is_err());
+    }
+
+    #[test]
+    fn candidate_inventory_is_required_to_authorize_pending_below_cursor() {
+        let mut state = adaptive_state(70);
+        let mut dispatch = Dispatch::new();
+        dispatch.enable_adaptive().unwrap();
+        assert!(matches!(dispatch.refill(&mut state, 1), Refill::Jobs(_)));
+        let validate = |dispatch: &Dispatch| {
+            super::super::checkpoint::Reservations {
+                ledger: &state.ledger,
+                nodes: &state.nodes,
+                k: state.k,
+                in_flight: &state.in_flight,
+                dispatch: dispatch.checkpoint_snapshot(),
+                lockstep_b: 16,
+            }
+            .validate()
+        };
+        validate(&dispatch).unwrap();
+        dispatch.adaptive.as_mut().unwrap().candidates.remove(0);
+        assert!(validate(&dispatch).is_err());
+    }
 
     #[test]
     fn zero_budget_refill_rejects_before_consuming_deferred_work() {

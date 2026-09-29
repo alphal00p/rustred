@@ -122,6 +122,7 @@ pub(super) fn open<const N: usize>(
         requeue,
         deferred,
         in_flight,
+        adaptive,
     } = saved;
     let (max_domains, max_events, max_frontiers) = identity.limits();
     let mut state = EpochState {
@@ -159,6 +160,7 @@ pub(super) fn open<const N: usize>(
                 cursor,
                 requeue: &requeue,
                 deferred: &deferred,
+                adaptive: adaptive.as_ref(),
             },
         )
         .map_err(io::Error::other)?;
@@ -174,6 +176,7 @@ pub(super) fn open<const N: usize>(
         cursor,
         requeue,
         deferred,
+        adaptive,
         matches!(scalars.initial_admission, Admission::Complete),
         &mut state,
     )

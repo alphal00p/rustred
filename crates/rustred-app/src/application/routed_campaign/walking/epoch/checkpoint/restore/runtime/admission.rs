@@ -40,9 +40,13 @@ pub(super) fn fresh<const N: usize>(
     let publisher = publication::Store::fresh(directory.clone())?;
     let records = Sidecar::new(directory, publisher.next_generation());
     let (domains, events, frontiers) = identity.limits();
+    let mut dispatch = Dispatch::for_admission();
+    if identity.adaptive_dispatch() {
+        dispatch.enable_adaptive().map_err(io::Error::other)?;
+    }
     Ok(Restored {
         state: EpochState::new(domains, events, frontiers),
-        dispatch: Dispatch::for_admission(),
+        dispatch,
         replay: Vec::new(),
         roots: Roots {
             rows: Vec::new(),

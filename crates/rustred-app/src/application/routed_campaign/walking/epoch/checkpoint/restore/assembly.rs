@@ -233,6 +233,7 @@ pub(super) fn read_manifest<const N: usize>(
             k: scalars.k,
             p0: scalars.p0,
             lockstep_b: scalars.lockstep_b,
+            adaptive: scalars.adaptive_dispatch.as_ref(),
         },
     )?;
     let orthants = file(&manifest, "orthants")?;
