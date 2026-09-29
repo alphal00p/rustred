@@ -8,7 +8,7 @@ use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
 use super::{
     CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, cross_state, dispatch_state,
-    lookup, record_segments,
+    lookup, record_segments, roots,
 };
 use std::io::{self, Read};
 use std::path::Path;
@@ -27,6 +27,29 @@ pub(super) struct Provisional<const N: usize> {
     pub dispatch: dispatch_state::SavedDispatch,
     pub record_segments:
         Vec<crate::application::routed_campaign::walking::checkpoint::manifest::Segment>,
+}
+
+impl<const N: usize> Provisional<N> {
+    /// Owner preparation must have authenticated the same identity first.
+    /// This is still not runnable state: record bodies and final closure,
+    /// session reservation and unfinished-batch replay remain separate gates.
+    pub fn read_roots(
+        &self,
+        directory: &Path,
+        identity: &Identity<'_>,
+        reducer: &rustred::solver::RoutedCandidateReducer<N>,
+    ) -> io::Result<roots::Roots> {
+        identity.validate_saved(&self.scalars, self.scalars.lockstep_b)?;
+        roots::read(
+            directory,
+            file(&self.manifest, "inputs")?,
+            file(&self.manifest, "input-frontiers")?,
+            identity,
+            reducer,
+            &self.store,
+            self.scalars.p0,
+        )
+    }
 }
 
 fn file<'a>(manifest: &'a Manifest, key: &str) -> io::Result<&'a FileRef> {

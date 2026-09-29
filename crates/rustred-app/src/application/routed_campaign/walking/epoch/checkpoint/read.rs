@@ -2,9 +2,37 @@
 //! A successful decode is provisional until `finish` verifies the entire
 //! length/digest. No worker may observe a partially decoded section.
 use super::{BUFFER_BYTES, invalid};
+use std::cell::Cell;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Component, Path};
+
+/// A serde value budget, reset only at a caller-known schema boundary.
+/// Large diagnostic values may use an unlimited budget with IgnoredAny;
+/// known bounded fields cannot borrow another value's byte allowance.
+pub(super) struct Budget<'a> {
+    pub input: &'a mut CheckedRead,
+    pub remaining: &'a Cell<u64>,
+    pub reason: &'static str,
+}
+
+impl Read for Budget<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        let remaining = self.remaining.get();
+        if remaining == 0 {
+            return Err(invalid(self.reason));
+        }
+        let end = bytes
+            .len()
+            .min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        let read = self.input.read(&mut bytes[..end])?;
+        self.remaining.set(remaining - read as u64);
+        Ok(read)
+    }
+}
 
 pub(super) struct CheckedRead {
     file: File,

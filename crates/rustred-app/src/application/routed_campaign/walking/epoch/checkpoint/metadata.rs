@@ -22,6 +22,7 @@ pub(super) struct Identity<'a> {
     owners_digest: [u8; 32],
     queries: &'a [Query],
     domain_limit: usize,
+    route_domain_overcover: bool,
 }
 
 impl<'a> Identity<'a> {
@@ -54,6 +55,7 @@ impl<'a> Identity<'a> {
             owners_digest: owners_digest.blake3,
             queries,
             domain_limit: request.max_domains,
+            route_domain_overcover: request.route_domain_overcover,
         })
     }
 
@@ -148,6 +150,14 @@ impl<'a> Identity<'a> {
 
     pub(super) fn owners(&self) -> &[String] {
         self.owners
+    }
+
+    pub(super) fn queries(&self) -> &[Query] {
+        self.queries
+    }
+
+    pub(super) fn route_domain_overcover(&self) -> bool {
+        self.route_domain_overcover
     }
 }
 

@@ -414,6 +414,24 @@ body/hash mutations. Independent source review passed, including the pinned
 serde_json reader's one-byte lookahead contract; compilation and execution
 remain pending.
 
+The next root decoder is explicitly prepared-reducer-bound: expected Apply,
+Route or source-refusal is derived from installed owners, the bound overcover
+flag and source-condition capability, never a saved phase. Ordered rows must
+introduce exactly the protected initial prefix; first admission equals its
+canonical query, while an earlier reused root must contain the query through
+the existing verifier. This monotone admission census uses no additional root
+bitmap/map and supports partial admission without relabeling it complete.
+Exact roles/default-required semantics and complete initial source-obligation
+geometry are retained in the final input rows. A per-row serde budget is derived
+from the already loaded query ID length and arity, not an arbitrary global ID
+limit; long escaped/Unicode IDs are supported and forged long fields bounded.
+Both JSONL readers must finish their authenticated lengths/digests. The narrow
+reader budget is shared with the descriptor decoder without changing its limit.
+Independent source review passed; compilation/execution remain pending. Current
+root tests exercise the geometry reader and phase table; the actual authenticated
+reducer-to-Provisional root path and writer/reader integration remain required
+runtime gates, not implied by the source review.
+
 The current `RunBatch` performs an unconditional `recv` for every result;
 `with_pool` joins before the caller can save. Replacing only the final export
 does not fix cancellation latency. The next source slice needs separate

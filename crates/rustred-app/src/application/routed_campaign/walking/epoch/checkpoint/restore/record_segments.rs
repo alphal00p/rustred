@@ -3,6 +3,7 @@
 //! record visitor must validate bodies before a runnable state is possible.
 use super::super::invalid;
 use super::super::publication::FileRef;
+use super::super::read::Budget;
 use super::CheckedRead;
 use crate::application::routed_campaign::walking::checkpoint::manifest::{Section, Segment};
 use serde::de::{self, DeserializeSeed, Deserializer, SeqAccess, Visitor};
@@ -15,26 +16,6 @@ use std::path::Path;
 // filename and a64-hex digest.512 exceeds its largest canonical encoding;
 // it does NOT limit a record body or impose a topology/record-count cap.
 const DESCRIPTOR_BYTES: u64 = 512;
-
-struct Budget<'a> {
-    input: &'a mut CheckedRead,
-    remaining: &'a Cell<u64>,
-}
-impl Read for Budget<'_> {
-    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        if bytes.is_empty() {
-            return Ok(0);
-        }
-        let remaining = self.remaining.get();
-        if remaining == 0 {
-            return Err(invalid("epoch record descriptor exceeds fixed shape"));
-        }
-        let end = bytes.len().min(remaining as usize);
-        let read = self.input.read(&mut bytes[..end])?;
-        self.remaining.set(remaining - read as u64);
-        Ok(read)
-    }
-}
 
 struct Registry<'a> {
     budget: &'a Cell<u64>,
@@ -141,6 +122,7 @@ pub(super) fn read(
     let mut decoder = serde_json::Deserializer::from_reader(Budget {
         input: &mut reader,
         remaining: &budget,
+        reason: "epoch record descriptor exceeds fixed shape",
     });
     let segments = Registry {
         budget: &budget,
