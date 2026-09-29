@@ -1,0 +1,121 @@
+# Combined G2′ / explicit-role rescue on LC2
+
+Status: integration validation in progress; **not a production-switch recommendation**.
+Plan: `CODEX_PROGRESS_PLAN.md`. Measurement protocol:
+`codex_lc2_integration_protocol_2026-09-29.md`. Continuous record:
+`CODEX_PROGRESS.md`.
+
+## What changes
+
+G2′ borrows an earlier inspection only over its inspected scope, represents
+the exact union and residual, and records its dependencies. An undecidable
+residual plan falls back to ordinary inspection. Fresh planning excludes
+quarantined anchors. Accepted decisions survive replay with their original
+dependencies; subsequent frontier taint cannot silently turn them into valid
+coverage. G2′ remains opt-in (`--g2-residual-anchors union`); default `off`
+preserves the legacy path.
+
+Rescue uses a complete immutable partition of exact query IDs, not names or
+substrings. All 116 frozen physical/convenience queries remain required; the
+67 original helpers are auxiliary. The 183 original geometries and order are
+unchanged. Missing declarations mean every query is required, and ambiguous
+scope cannot authorize rescue. Amendments are append-only and cannot remove a
+required query. Required coverage needs exact containment in recursively
+closed input-root domains, independently of unrelated failed helpers.
+
+These changes reuse the saved owner rules and existing Symbolica operations.
+They do not introduce an algebra kernel, regenerate the rules, minimize
+terminals, or change pending-growth-per-completion.
+
+## Frozen identities
+
+| Component | Identity |
+|---|---|
+| Tested native source | `d12db6cfa23c09f7d9c2946416ea49763ece48f0` |
+| Tested Python steering | `cd52c90d5280125f42f6c348a14f89e862206798` |
+| Symbolica | `ef0db494533c87adb40356c996241680dc5a7bff`, patch-free, atom format 6 |
+| Optimized candidate SHA-256 | `8169221a8977ae261e777ddca5ac9e82fcb339377362d988472930595b1ea341` |
+| LC2 reference SHA-256 | `fd9b9ac96a50513d8119a43938313e8a729110d6a3815b0f949cec4acb1d9d60` |
+
+Candidate path:
+`TMP/codex-g2-rescue.tzdFuj/candidate-bin/rustred-d12-8169221a`.
+It is a read-only frozen copy. Both comparison executables use the campaign
+profile: release optimization, fat LTO and one codegen unit. Compilation is
+excluded from runtime measurements; the candidate build itself took
+3,446.419 seconds including its guarded launcher.
+
+## Completed validation
+
+| Check | Observed result |
+|---|---|
+| Combined native G2 focus | 20 passed, 8.30 s |
+| Full app suite | 861 passed, 12 ignored, 141.13 s |
+| Separate width-50 subset | 13 passed, no skips, 0.13 s; exercises previously omitted W50 subcases |
+| External CLI tests | 6 passed, no ignored tests, 0.16 s |
+| Full Python suite | 284 tests, one expected optional enumeration skip, 22.425 s |
+| Separate optional full input enumeration | Passed, 84.763 s |
+| Offline input checker | 7,424 membership probes, zero disagreements |
+
+The width-50 tests establish correctness coverage, not scaling or high CPU
+utilization. They overlap the full suite and must not be summed into a new
+unique-test count. Compilation and guarded process time are recorded
+separately in `TMP/codex-g2-rescue.tzdFuj/`.
+
+The actual Python/native FG composition test used unchanged roleless inputs
+(all 248 queries required), 124 owners, Ordered/W6 on CPUs64–69:
+
+- Fresh Union paused cleanly after real work, with a durable checkpoint.
+- Ordinary resume retained Union and completed. All owned processes drained.
+- Final output contained 98,867 closed domains, 98,843 native inspections,
+  305 G2 records and 314 anchor links.
+- Cold native verification reinspected every native record and verified all
+  248 roots, with zero frontiers/uncovered obligations. Guarded time11.156 s.
+- Independent Python audit passed in6.139 s and accounted for19 unfinished
+  attempts carried from the earlier session.
+
+The pause occurred before the first accepted G2 loan. Thus this process test
+does **not** prove durable accepted-plan replay; native seam tests cover that
+separate invariant. The first Python audit invocation incorrectly supplied a
+request object where an argv array was expected. Its failure is retained; the
+unchanged auditor passed using its existing automatic request handling.
+
+Evidence: `TMP/codex-g2-pilot-prep.n7Kd5q/python-union-smoke/`.
+
+## Representative controls and measurement caveats
+
+Seven Ordered controls are required: FG, BMW, H, X, combined four-loop,
+combined four-loop partial-initial control, and finite five-loop. Each Off
+result must match the valid LC2 record/counter reference exactly. Both modes
+also require full cold reinspection and a paired Python audit.
+
+At the first completed pair, FG passes all these gates: Off98,909 domains,
+Union98,867; both248/248 roots closed. Remaining controls are pending here;
+consult the progress log for later receipts. These Ordered correctness runs
+are not substitutes for the Ready deployment pairs.
+
+An independent review found that the historical benchmark extractor could
+read nested `successors`/`events` rather than root totals. The original FG Off
+receipt therefore contains1,242/1,498 instead of2,182,549/2,488,138. The native
+result, identity comparison, cold verification and wall timing are unaffected.
+Preserved original receipts are supplemented with root-aware
+`corrected-metrics.json` sidecars; incorrect fields must not enter comparisons.
+The tracked bounded extractor must be corrected and tested before release.
+
+No new speedup is claimed yet. The decision requires two interleaved matched
+Ready pairs with identical inputs, CPU placement and worker budgets, recorded
+contention and independently verified completion. Every pilot and cold check
+has its own <=30-minute ceiling. Censored results are not completion timings.
+
+## Compatibility and deployment boundary
+
+The native G2 activation seam is tested, but this does not establish that the
+production Python driver can change a frozen campaign's mode or query roles.
+The new explicit-role declaration changes the request binding. Combined
+G2/rescue deployment should therefore use a fresh campaign unless a cheap,
+specific continuation has separately passed its tests. No importer is planned
+solely to preserve LC2 progress.
+
+LC2 is untouched and remains owner-controlled. Only after the performance or
+actual-blocker gate passes will a release include exact build/staging/launch
+instructions and a rollback path. An optimized control is not evidence that
+the whole frozen five-loop request has closed or will finish by a given time.

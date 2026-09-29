@@ -55,7 +55,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Combined G2′ + rescue | optimized native/CLI suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; frozen campaign binary available; representative controls/reinspection next |
 | Python production G2′ steering | committed locally; real pause/resume, native cold verification and Python audit passed | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; representative controls, then integrate |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | provisional sections and structural cross-state checks source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `613e9c6f`; records/roots, native execution, full assembly/session/stop and S4–S6 remain open |
+| Epoch S3–S6 | provisional sections, cross-state, root/record metadata and resolver counters source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `c51839c1`; body semantics, native execution, full assembly/session/stop and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
 | N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
@@ -83,11 +83,24 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
-### 2026-09-29 05:14 UTC — full real-process composition gate independently accepted
+### 2026-09-29 05:25 UTC — read-only LC2 check; coordinator work still dominates
+
+- [M] LC2 is running without a stop reason:53,075,126 discovered,20,897,576 pending,19,005,615 local completions, zero reported frontiers, RSS30,650,232,832B and checkpoint generation3. The conservative initial-domain count is6/67; its closure snapshot is about21.5minutes old and is not the count of116 required queries.
+- [M] One-hour coordinator fractions: commit50.85%, preparation31.32%, progress JSON1.22%. Mean computing inspectors4.05; instantaneous aggregate busy cores11.84 of100 reserved. These observations continue to prioritize repeated-work reduction and inspector-side lookup/merge design over claims of a large telemetry-only gain. The unchanged pending-growth-per-completion is0.918; it is not a closure fraction or an ETA.
+- No production process, input, checkpoint or setting was changed. Representative pilot resources remain separate and comfortably above their headroom floor.
+
+### 2026-09-29 05:20 UTC — first representative pair passes; reporting defect retained
+
+- [M] Ordered FG, W6 on CPUs64–69, passes both modes. Off is exactly identical to the historical LC2 control (98,909 records; containment checks169,509,549). Union has98,867 records/98,843 native inspections,305 G2 records and314 anchor links. Both independently cold-reinspect all native records and close248/248 required queries with no frontiers or uncovered obligations; paired Python audits pass. Evidence: `TMP/codex-g2-pilot-prep.n7Kd5q/ordered-controls/{off,union}/fg/`. This single correctness pair is not a performance decision.
+- Independent receipt review caught a pre-existing benchmark extraction defect: unqualified head/tail field matching took `successors`/`events` from a nested record rather than the root totals. Example: Off FG reported1,242/1,498 instead of2,182,549/2,488,138. Solver output, strict identity, full verification and wall timing are unaffected.
+- A separately guarded root-aware streaming postprocessor now writes `corrected-metrics.json` sidecars, preserving original receipts and recording mismatches/parser identities. Two independent shadowing/truncation regressions pass. No comparison will use the incorrect counters. The author will also correct the tracked bounded extractor before release without adding an unbounded scan to pilot teardown; this tooling change does not require rebuilding or rerunning the solver.
+- Native/Python merge preview is conflict-free and preserves main authoritative documents; all native sources/dependencies match tested `d12db6cf`, frontend/tooling matches `cd52c90d`. Actual merge remains gated on the other six representative controls and preserves unrelated FeynKit/untracked work.
+
+### 2026-09-29 05:13 UTC — full real-process composition gate independently accepted
 
 - [M] Corrected Python audit passed in 6.139 s (guard7.163 s, exit0/no stop reason). It accounts for 19 carried unfinished attempts, all 305 G2 records/314 anchor links, and all 98,867 closed nodes without disagreements. Original invocation failure remains intact. Author and independent auditor checked all 124 owner payload hashes and all 248 staged query objects against the unchanged originals; all four owned process identities have drained.
 - This closes the real Python→native fresh-Union/pause/ordinary-resume/cold-verification composition gate. It does not close the seven representative controls, establish durable accepted-pin process replay, or measure a speedup.
-- Epoch typed-counter source `c772f9c6` is independently audited; consolidated validation `c51839c1` is running a warm metadata-only check with the earlier record/root slices. No native runtime test is implied. G2 control measurements wait for that small check to drain.
+- [M] Epoch typed-counter source `c772f9c6` is independently audited; consolidated validation `c51839c1` passed the warm metadata-only check with earlier record/root slices. Receipt `TMP/codex-epoch-s3.JjASCU/typecheck-roots-records-light/`: exit0/no stop reason,39.177 s, Cargo35.77 s, peak1,209,024KiB. Root independently checked it. No native runtime test is implied; build1 has drained before G2 control measurements.
 
 ### 2026-09-29 05:12 UTC — real Union pause/resume and cold reinspection pass
 
