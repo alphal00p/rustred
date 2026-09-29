@@ -66,3 +66,21 @@ and the checkpoint binding but does not alter algebraic pivots. Adaptive
 dispatch is different again: it changes which existing pending obligation runs
 next, and must preserve fairness and replayable decisions. None confers closure
 authority or licenses dropping a difficult obligation.
+
+## Runtime controls and rebuild boundary
+
+The public `family-candidates` and `family-close` commands already accept
+`--input` and `--permutation N,N,...`, a zero-based coordinate-priority
+permutation. `family-candidates` also selects its exact backend at runtime.
+Different families, coordinate permutations and supported backends therefore
+use the same compiled engine. Campaign worker budgets, query ordering and
+FIFO/adaptive pending-job dispatch likewise do not need a Rust rebuild.
+
+A different algebraic order does require generating and validating the affected
+owner programs, rather than relabelling an existing artifact or mutating its
+checkpoint binding. This is computation on new input, not compilation. A general
+arbitrary source-row/pivot-policy control is not asserted here. The isolated
+historical source-row harness is not evidence of such a public API. The upcoming
+matched campaign matrix deliberately fixes the saved programs and executable
+while varying the declared campaign policies; no generation is charged as a
+hidden prerequisite of those comparisons.

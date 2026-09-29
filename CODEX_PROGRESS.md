@@ -104,6 +104,23 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 17:54 UTC — keep ordering and family experiments input-driven
+
+- [D] User reiterates that different families and supported orderings should
+  use the same backend executable. The matched matrix already follows this;
+  added the instruction explicitly to `SHORTENED_PLAN.md` and the ordering
+  review. No engine change or additional generation experiment was introduced.
+- [M] Root checked the public CLI parsers and generator request: both
+  `family-candidates` and `family-close` accept runtime `--permutation`, with
+  topology-independent validation. Family input, workers and campaign dispatch
+  are runtime choices too. An arbitrary source-row/pivot-policy API was not
+  established and is not claimed. Changed algebraic priority entails new owner
+  programs and their validation, not Rust recompilation.
+- [M] Corrected full app native build remains active in the isolated validation
+  tree. Its rebuild is for the integrated engine/test corrections, not an input
+  family or ordering change. The optimized campaign build and measurements
+  remain subsequent gates; no new throughput result exists yet.
+
 ### 2026-09-29 16:53 UTC — build-profile failure and explicit four-loop gate
 
 - [M] Corrected `f3f707af` app-opt0 compilation failed at linking, not type

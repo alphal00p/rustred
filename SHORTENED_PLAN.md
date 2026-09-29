@@ -146,6 +146,20 @@ distinct from adaptive dispatch and does not silently regenerate artifacts or
 change frozen scope. First deliver a concrete recommendation; authorize only
 small relevant tests if warranted and they do not derail the core architecture.
 
+**Input-driven experiments, not rebuild-driven experiments:** freeze one
+optimized executable for the matched matrix. Family inputs, query order, worker
+count, FIFO/adaptive dispatch and the existing algebraic coordinate-priority
+`--permutation` are runtime inputs. Changing those does not require recompiling
+Rust. A changed algebraic order requires regenerating the affected owner programs
+with that executable and validating them; it cannot modify pivots inside an
+existing saved program. Keep input generation cost separate and explicit, retain
+the fixed baseline, and use fresh campaign bindings where inputs change. Do not
+claim that every arbitrary source-row or pivot-selection heuristic is exposed:
+the verified public generator option is coordinate priority. Rebuild only for
+actual engine/interface corrections, never just to select another family or
+already supported ordering. This clarification does not add an open-ended
+generation sweep to the shortened delivery.
+
 ### Delegation and time allocation
 
 Use up to three agents besides root, with short, concrete assignments:
