@@ -26,6 +26,8 @@ pub(super) struct Identity<'a> {
     frontier_limit: usize,
     route_domain_overcover: bool,
     g2: &'static str,
+    epoch_rolling: bool,
+    epoch_cut_size: usize,
 }
 
 impl<'a> Identity<'a> {
@@ -62,6 +64,9 @@ impl<'a> Identity<'a> {
             frontier_limit: request.max_frontiers,
             route_domain_overcover: request.route_domain_overcover,
             g2: request.g2_residual_anchors.name(),
+            epoch_rolling: request.epoch_rolling,
+            epoch_cut_size: super::super::lockstep_b()
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
         })
     }
 
@@ -84,6 +89,12 @@ impl<'a> Identity<'a> {
             || saved.owners_digest != self.owners_digest
             || saved.total_queries != self.queries.len()
             || saved.lockstep_b != lockstep_b
+            || saved.epoch_rolling != self.epoch_rolling
+            || (if saved.epoch_rolling {
+                saved.epoch_cut_size != self.epoch_cut_size
+            } else {
+                saved.epoch_cut_size != 0
+            })
             || saved.watermark as usize > self.domain_limit
             || saved.g2 != self.g2
         {
@@ -191,6 +202,14 @@ impl<'a> Identity<'a> {
 
     pub(super) fn route_domain_overcover(&self) -> bool {
         self.route_domain_overcover
+    }
+
+    pub(super) fn epoch_rolling(&self) -> bool {
+        self.epoch_rolling
+    }
+
+    pub(super) fn epoch_cut_size(&self) -> usize {
+        self.epoch_cut_size
     }
 
     pub(super) fn limits(&self) -> (usize, usize, usize) {
@@ -320,6 +339,12 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub owners_digest: [u8; 32],
     pub walk_semantics_version: u32,
     pub lockstep_b: usize,
+    // Omitted for legacy lockstep CP6 bytes. Rolling binds the original cut
+    // size independently of the persisted, worker-width-independent window.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub epoch_rolling: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub epoch_cut_size: usize,
     pub k: u64,
     pub watermark: u32,
     pub p0: u32,
@@ -353,6 +378,14 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
 }
 
 pub(super) type OwnedScalars = Scalars<WalkCounters, LookupCounters, VerifyCounters, String>;
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
 
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
@@ -470,6 +503,12 @@ impl Inputs<'_> {
             owners_digest: self.identity.owners_digest,
             walk_semantics_version: super::super::EPOCH_WALK_SEMANTICS_VERSION,
             lockstep_b: boundary.lockstep_b,
+            epoch_rolling: self.identity.epoch_rolling,
+            epoch_cut_size: if self.identity.epoch_rolling {
+                self.identity.epoch_cut_size
+            } else {
+                0
+            },
             k: state.k,
             watermark: state.watermark(),
             p0: state.p0,

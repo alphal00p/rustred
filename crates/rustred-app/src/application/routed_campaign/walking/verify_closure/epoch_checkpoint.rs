@@ -416,6 +416,17 @@ fn read_inner<const N: usize>(
     let p0 = count(&scalar, "p0")?;
     let processed = count(&scalar, "processed_queries")?;
     let query_total = count(&scalar, "total_queries")?;
+    let rolling = match scalar.get("epoch_rolling") {
+        None => false,
+        Some(value) => value.as_bool().ok_or("invalid rolling policy")?,
+    };
+    if rolling {
+        if !(1..=4096).contains(&count(&scalar, "epoch_cut_size")?) {
+            return Err("invalid rolling cut size".into());
+        }
+    } else if scalar.get("epoch_cut_size").is_some() {
+        return Err("lockstep scalar has rolling cut size".into());
+    }
     let admission = scalar["initial_admission"]
         .as_str()
         .ok_or("missing admission state")?;
