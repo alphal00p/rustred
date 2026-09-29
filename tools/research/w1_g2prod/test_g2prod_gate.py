@@ -56,6 +56,38 @@ class GateTests(unittest.TestCase):
         for widths in ((16, 24), (True, True), (None, None), (0, 0)):
             self.assertIsNone(gate.matched_workers([{"metrics": {"workers": width}} for width in widths]))
 
+    def test_wall_cpu_and_memory_keep_their_distinct_boundaries(self):
+        record = {"metrics": {"whole_command_seconds": 12.5,
+                              "recorder_shutdown_seconds": 1000,
+                              "child_user_seconds": 31.0, "child_system_seconds": 2.0,
+                              "peak_tree_rss_bytes": 512, "maximum_single_waited_child_rss_bytes": 256,
+                              "recorder": {"schedstat_run_seconds": 999}},
+                  "g2stats": {"record_seconds_by_phase": {"Apply": 900}}, "pending": {}}
+        result = gate.base(record)
+        self.assertEqual(result["wall_s"], 12.5)
+        self.assertEqual(result["child_cpu_s"], 33.0)
+        self.assertEqual(result["tree_rss_bytes"], 512)
+        self.assertEqual(result["single_child_rss_bytes"], 256)
+        self.assertEqual(result["run_s"], 999)
+        self.assertEqual(result["record_s"], 900)
+
+    def test_missing_or_invalid_measurements_are_not_replaced_by_proxies(self):
+        for value in (None, True, "10", -1, float("nan"), float("inf")):
+            record = {"metrics": {"whole_command_seconds": value, "child_user_seconds": value,
+                                  "child_system_seconds": 2, "peak_tree_rss_bytes": value,
+                                  "maximum_single_waited_child_rss_bytes": value,
+                                  "recorder": {"schedstat_run_seconds": 999}},
+                      "g2stats": {"record_seconds_by_phase": {"Apply": 900}}, "pending": {}}
+            result = gate.base(record)
+            for key in ("wall_s", "child_cpu_s", "tree_rss_bytes", "single_child_rss_bytes"):
+                with self.subTest(value=value, key=key):
+                    self.assertIsNone(result[key])
+                    self.assertEqual(gate.ratio([1], [result[key]]), (None, "-"))
+
+    def test_zero_measurement_remains_measured_zero(self):
+        self.assertEqual(gate.measurement(0), 0)
+        self.assertEqual(gate.measurement(0.0), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

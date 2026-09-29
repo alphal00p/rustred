@@ -6,6 +6,10 @@ usage: g2prod_gate.py SHA [RUNS_DIR] [--json OUT.json]
 Per control (C-5F Ordered W24, C-5F Ready W24, C-HOT-sub r1a12 Ready W12) and
 metric, the ratio of means union/off over the repeats, with the min-max of all
 cross ratios and the delta-method SE (n small: indicative):
+- wall_s: whole launcher-inclusive command through owned-group drain;
+- child_cpu_s: waited-child user plus system CPU, not sampled thread time;
+- tree_rss_bytes: sampled simultaneous process-tree RSS maximum;
+- single_child_rss_bytes: waited-child cumulative maximum, not aggregate RSS;
 - record_s: sum of native record wall seconds (G2' plan time included);
 - run_s: schedstat on-CPU seconds of the walk threads;
 - uw: useful-work units (handoff 0.1.2): native calls x per-class cost, the
@@ -28,7 +32,8 @@ CONTROLS = [("C-5F Ordered", "five-finite", "c5f-ord-{arm}-{r}-{sha}"),
             ("C-5F Ready", "five-finite", "c5f-rdy-{arm}-{r}-{sha}"),
             ("C-HOT-sub r1a12 Ready", "hot", "hotsub-{arm}-{r}-{sha}")]
 REPS = ("r1", "r2", "r3")
-KEYS = ("record_s", "run_s", "uw", "instr", "instr_per_native", "apply_calls", "route_natives", "natives",
+KEYS = ("wall_s", "child_cpu_s", "tree_rss_bytes", "single_child_rss_bytes",
+        "record_s", "run_s", "uw", "instr", "instr_per_native", "apply_calls", "route_natives", "natives",
         "scheduled", "peak_pending", "growth", "disc_per_native")
 
 
@@ -45,6 +50,11 @@ def load(d):
     return out if out["metrics"] and out["g2stats"] else None
 
 
+def measurement(value):
+    """Absent/invalid historical measurements remain unknown, never zero."""
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
 def base(r):
     m, g, p = r["metrics"], r["g2stats"], r["pending"]
     rec, perf = m.get("recorder") or {}, m.get("perf") or {}
@@ -53,7 +63,12 @@ def base(r):
     instr = perf.get("instructions:u") if isinstance(perf.get("instructions:u"), float) else None
     natives = apply_calls + route
     tele = m.get("g2_index_telemetry") or {}
-    return {"record_s": sum(g.get("record_seconds_by_phase", {}).values()),
+    child_user, child_system = measurement(m.get("child_user_seconds")), measurement(m.get("child_system_seconds"))
+    return {"wall_s": measurement(m.get("whole_command_seconds")),
+            "child_cpu_s": child_user + child_system if child_user is not None and child_system is not None else None,
+            "tree_rss_bytes": measurement(m.get("peak_tree_rss_bytes")),
+            "single_child_rss_bytes": measurement(m.get("maximum_single_waited_child_rss_bytes")),
+            "record_s": sum(g.get("record_seconds_by_phase", {}).values()),
             "route_s": g.get("record_seconds_by_phase", {}).get("Route", 0.0),
             "run_s": rec.get("schedstat_run_seconds"), "delay_s": rec.get("schedstat_run_delay_seconds"),
             "foreign": rec.get("foreign_busy_cpus_mean"), "instr": instr,
@@ -157,7 +172,9 @@ def main(argv=None):
         print(f"| {name} | {len(on)}/{len(off)} | {'yes' if good else 'NO'} | " + " | ".join(cells) + " |")
         for arm, bs in (("off", offb), ("union", onb)):
             for b in bs:
-                context.append(f"| {name} | {arm} | {b['record_s']:,.1f} | {b['run_s']} | {b['foreign']} | "
+                context.append(f"| {name} | {arm} | {b['wall_s']} | {b['child_cpu_s']} | "
+                               f"{b['tree_rss_bytes']} | {b['single_child_rss_bytes']} | "
+                               f"{b['record_s']:,.1f} | {b['run_s']} | {b['foreign']} | "
                                f"{b['delay_s']} | {b['apply_calls']:,} / {b['route_natives']:,} | {b['scheduled']:,} | "
                                f"{b['peak_pending']} | {b['plan_s']} | {b['g2'].get('residual', 0):,} / "
                                f"{b['g2'].get('full_cover', 0):,} / {b['g2'].get('anchor_links', 0):,} |")
@@ -165,9 +182,10 @@ def main(argv=None):
                      "off": [{k: v for k, v in b.items() if k != "owners"} for b in offb],
                      "union": [{k: v for k, v in b.items() if k != "owners"} for b in onb]})
     print()
-    print("| Control | Arm | record_s | run_s | foreign busy CPUs | run delay s | Apply calls / Route natives | "
+    print("| Control | Arm | wall_s | child_cpu_s | sampled tree RSS bytes | single-child RSS bytes | "
+          "record_s | run_s | foreign busy CPUs | run delay s | Apply calls / Route natives | "
           "scheduled | peak pending | plan_s | G2' residual / full cover / anchor links |")
-    print("|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|")
+    print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|")
     for line in context:
         print(line)
     if json_out:
