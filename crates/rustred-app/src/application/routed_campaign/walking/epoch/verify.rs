@@ -104,7 +104,8 @@ impl VerifiedId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct VerifyCounters {
     pub calls: u64,
     pub accepted: u64,

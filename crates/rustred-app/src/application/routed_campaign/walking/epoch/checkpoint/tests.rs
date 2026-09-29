@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const HEADER: usize = 28;
 
-fn state(count: usize) -> EpochState<2> {
+pub(super) fn state(count: usize) -> EpochState<2> {
     let mut state = EpochState::new(100_000, usize::MAX, usize::MAX);
     for id in 0..count {
         let point = id as u64;
@@ -333,9 +333,9 @@ fn write_and_flush_failures_never_produce_a_receipt_or_retry_the_buffer() {
     assert!(stream.finish().is_err());
 }
 
-struct Directory(std::path::PathBuf);
+pub(super) struct Directory(pub(super) std::path::PathBuf);
 impl Directory {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "rustred-epoch-section-{}-{}",

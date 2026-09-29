@@ -117,6 +117,56 @@ publication or durable restart is claimed. Request/roles/record-tail binding,
 remaining scalar/closure metadata, atomic manifest publication, full restore
 validators and asynchronous stop integration are the next reviewed slices.
 
+### Follow-on private metadata/publication source
+
+The follow-on worktree `codex-epoch-s3-publish` starts from the frozen writer
+commit `2cc3710d`; it does not change that tree's pending validation target.
+The next source slice passed independent source audit, pending compilation and
+execution. It streams
+scalar counters, root rows, input frontiers, owner fingerprints, sealed record
+segment descriptors and historical dominant-orthant slots. Scalars borrow the
+existing counters. The request binding and owner-inventory digest are computed
+once before the save path; owner fingerprints have their own streamed section,
+so a large valid owner inventory does not discover a hidden topology-count cap
+only at memory stop. A synthetic 20,000-owner source test covers that case.
+
+Input metadata records the complete parsed query inventory count independently
+of the admitted prefix, with an explicit admission status. Exact row order and
+roles, all protected initial roots and ordered input frontiers are checked;
+incomplete admission cannot be called complete or coexist with executed work.
+Input-root coverage uses reusable 8-KiB windows, not a full second root map.
+That census costs O(Q*ceil(P0/65536)) and currently runs twice per save (initial
+validation and scalar writing); include it in save-latency acceptance alongside
+the reservation checks, without claiming a measured overhead yet.
+
+The private publisher orchestrates all sections from one boundary; it does not
+accept external receipts that could mix state borrows. It reuses `Sidecar::seal`
+and the existing atomic-file helper, then fsyncs section entries before installing
+`epoch-internal-latest.json`. Only after that is durable does it advance
+`epoch-internal-previous.json`; failure to advance previous is a successful save
+with a warning, not a reclassification of the durable latest generation.
+An I/O failure before latest installation is sticky, retains the prior authority
+and leaves only unreferenced files. Rename success followed by directory-fsync
+failure is different: the shared atomic helper returns an error, but latest may
+already name the new generation. The store remains failed, makes no rollback or
+durability-success claim, and does not guess which generation survived a crash.
+This slice intentionally performs no cleanup.
+
+The 64-KiB bounded self-digested manifest names exactly 15 sections with exact
+generation-local paths. Its distinct format, `resumable:false` and
+`restore_validated:false` are never accepted by an existing checkpoint probe.
+The 1-MiB scalar cap does not include query rows or owner/record inventories.
+New fault tests cover latest/previous ordering, pre-publication orphans,
+post-publication warnings, manifest mutation, row-role/admission mutations and
+retired orthant-slot persistence. These are source tests, not passed native gates.
+
+Full streamed restore, the real cross-session counter protocol, preparation
+interruption, crash attribution and runtime pre-join saving remain unimplemented.
+The pinned Symbolica restricted permit has no public thread handoff API:
+unlicensed W1 remains inline with its responsiveness limit. A licensed async
+worker must validate authorization on the worker itself and account explicitly
+for control execution; W1 capability is still open, not silently promised.
+
 ## Proposed S3 state and writer contract
 
 Implementation is confined to epoch modules and the narrow request/CLI stop

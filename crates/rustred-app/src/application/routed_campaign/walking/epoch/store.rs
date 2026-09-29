@@ -150,7 +150,8 @@ pub(super) enum Hit {
     Contained,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct LookupCounters {
     pub exact_hits: u64,
     pub orthant_hits: u64,

@@ -16,6 +16,8 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
+mod metadata;
+mod publication;
 #[cfg(test)]
 mod tests;
 
@@ -226,16 +228,7 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
         out.write_all(&1u32.to_le_bytes())?;
         out.write_all(&(N as u32).to_le_bytes())?;
         out.write_all(&(section as u32).to_le_bytes())?;
-        let count = match section {
-            Section::Domains | Section::Nodes | Section::Ledger => state.store.len() as u64,
-            Section::Live => state.live.len() as u64,
-            Section::Edges => state.edges.runs(),
-            Section::Anchors => state.anchors.len() as u64,
-            Section::Dispatch => self.reserved_ids().count() as u64,
-            Section::ClosureFlags => state.tracker.node_flags().count() as u64,
-            Section::Frontiers => state.frontier_counts.len() as u64,
-        };
-        out.write_all(&count.to_le_bytes())?;
+        out.write_all(&self.section_count(section).to_le_bytes())?;
         match section {
             Section::Domains => {
                 // At most 165 bytes (N <= 32); reused for every image.
@@ -306,6 +299,19 @@ impl<'a, const N: usize> MergeBoundary<'a, N> {
         out.finish()
     }
 
+    fn section_count(&self, section: Section) -> u64 {
+        let state = self.state;
+        match section {
+            Section::Domains | Section::Nodes | Section::Ledger => state.store.len() as u64,
+            Section::Live => state.live.len() as u64,
+            Section::Edges => state.edges.runs(),
+            Section::Anchors => state.anchors.len() as u64,
+            Section::Dispatch => self.reserved_ids().count() as u64,
+            Section::ClosureFlags => state.tracker.node_flags().count() as u64,
+            Section::Frontiers => state.frontier_counts.len() as u64,
+        }
+    }
+
     fn write_anchors(&self, out: &mut impl Write) -> io::Result<()> {
         out.write_all(&ANCHORS_VERSION.to_le_bytes())?;
         out.write_all(&(self.state.anchors.len() as u64).to_le_bytes())?;
@@ -357,6 +363,17 @@ pub(super) enum Section {
 }
 
 impl Section {
+    const ALL: [Self; 9] = [
+        Self::Domains,
+        Self::Nodes,
+        Self::Live,
+        Self::Ledger,
+        Self::Edges,
+        Self::Anchors,
+        Self::Dispatch,
+        Self::ClosureFlags,
+        Self::Frontiers,
+    ];
     pub fn filename(self, generation: u64) -> String {
         format!("epoch-internal-{generation:020}-{}.part", self as u32)
     }
