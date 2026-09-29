@@ -49,10 +49,10 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | active | joint_support_pruning | Source on LC2; optimized native test build pending |
+| G2′ integration | standalone native gates delivered; combined integration active | joint_support_pruning | Combined optimized native suite and campaign controls |
 | Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
-| Independent math/code audit | active | checkpoint_final_audit | Review both lanes and combined quarantine/replay invariants |
-| Combined G2′ + rescue | pending | root + independent auditor | Integrate after separate slices; paired pilot and restart decision |
+| Independent math/code audit | combined source passed; measurement audit active | checkpoint_final_audit | Check native receipts and pilot equivalence before release |
+| Combined G2′ + rescue | source frozen; native execution active | joint_support_pruning + root + independent auditor | `7546c44c`; full suite, named controls, paired pilot and restart decision |
 | Coordinator latency / telemetry | registered; pending implementation | bounded_helpers_bmw | Typed snapshot/reused lean maps; preserve counters before checkpoint callbacks |
 | Epoch S3–S6 | pending; preparatory review delivered | epoch_next_slice_review | Fresh-only CP6 first; account for rescue-authorized duplicate images before schema freeze |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
@@ -78,6 +78,72 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 01:48 UTC — combined source frozen; optimized tests launched
+
+- [M] G2′/rescue source frozen clean as `7546c44c04ce17c8ed74c1ddc9bea88582c1b6da`
+  on `codex/g2-rescue-lc2-integration`, including rescue merge `007042f1`
+  and main documentation merge `38047b02`. Not yet merged/pushed as main
+  engine code; source audit is not a deployment gate.
+- [M] Independent combined mathematical/code source audit passed. The auditor
+  independently ran 42 focused Python tests, all passed in 5.876 s. Full
+  combined Python suite: 277 tests, one skipped, passed in 21.654 s.
+  Rust `cargo check --release --tests --locked --offline -j8 -p rustred-app`
+  passed in 67.176 s. New Rust tests are type-checked, not yet executed.
+- Preserve negative receipts: the first combined Python run had 13 failures
+  from the old anonymous query fixture. Correcting only its setup to exact
+  IDs and explicit roles fixed them without changing assertions; legacy-v1
+  no-rescue upgrade remains covered. One new audit fixture incorrectly
+  described a frontier-free native inspection as locally undischarged;
+  correcting that fixture preserved the validation, not a relaxation.
+- Durable Planned-pin edges are now fully validated and installed before
+  rescue reverse taint, including zero-callback loans. Historical plans and
+  cursors survive; new quarantined anchors are excluded. Shared activation
+  validation authenticates actual off/on request hashes and preserves only
+  the existing valid amendment-chain base. No arbitrary request migration.
+- Evidence: `TMP/codex-g2-rescue.tzdFuj/INTEGRATION.md`, `typecheck/`,
+  `python-suite.log`, `python-suite-fixed.log`. Integrator launched guarded
+  `nice -n 5 nix develop --command cargo test --release --locked --offline
+  -j8 -p rustred-app --lib g2 -- --test-threads=1 --nocapture`, CPUs 0–15,
+  heavy/build-0 locks, in `focused-release/`. Full app suite follows using
+  that executable. Compilation remains separate from performance claims.
+- Auditor is checking exact control paths, format-6 hot-sector input and
+  runner timing/resource ownership while this build proceeds. No campaign
+  pilot or production intervention; LC2 remains owner-controlled.
+
+### 2026-09-29 01:30 UTC — standalone G2′ native focus passed
+
+- [M] Optimized standalone G2′ focus passed all 11 tests, with zero failures
+  or ignored tests. All five injected mutations were actually applied and
+  correctly rejected: shrunken residual cover, late anchor, inadmissible
+  anchor, dropped dependency edge, and anchor cycle. Also passed worker-count
+  identity and existing checkpoint activation tests. Root independently read
+  `TMP/codex-g2-lc2.mi0ekz/focused-release/{stdout,result.json}`.
+- Native test time was 3.36 s. The guarded build-plus-test command took
+  2,827.03 s; compilation was 46m59s and is not solver timing. Exit code zero,
+  no stop reason; minimum host headroom 636.5 GiB.
+- [M] The same built binary then passed the full app suite: **833 passed,
+  zero failed, 12 ignored**, 124.55 s test time (125.20 s guarded command),
+  peak single-child RSS 85,580 KiB. Root independently read the full stdout
+  and result receipt in `TMP/codex-g2-lc2.mi0ekz/full-app-release/` (exit zero,
+  no stop reason). This avoids a second standalone compilation and clears
+  the integrator to merge rescue and install the combined regressions.
+- The regression lane prepared both seam/checkpoint tests and real public
+  amendment pipeline tests. Drafts:
+  `TMP/codex-integration/g2_rescue_tests.rs` and
+  `TMP/codex-integration/g2_rescue_pipeline_tests.rs`. They remain unexecuted
+  pending combined-source integration. Loan-specific fixtures are distinguished
+  from pipeline fixtures that do not assert a loan actually occurred.
+- A second integration issue was identified before merging: activating G2
+  changes the request digest, but an existing amendment chain retains its
+  original parent. Use one narrow shared base resolver, recomputing actual
+  off/on request hashes and validating the existing activation receipt.
+  Already-recorded chains may retain the validated old base; new chains after
+  activation bind the current base. Reject tampering/changed scope; do not
+  introduce a general migration layer or waive immutable role declarations.
+- No engine deployment or campaign switch is approved by the standalone
+  focused gate. Combined native checks, named controls, independent reinspection
+  and matched performance evidence remain pending.
 
 ### 2026-09-29 — pinned-dependency interaction found; census negative
 
