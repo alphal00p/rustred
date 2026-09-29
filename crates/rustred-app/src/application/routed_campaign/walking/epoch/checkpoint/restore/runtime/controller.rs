@@ -21,6 +21,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+mod periodic;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Outcome {
     Drained,
@@ -136,7 +138,36 @@ pub(super) fn run_authorized<const N: usize>(
     config: MergeConfig,
     authorize: &(dyn Fn() -> Result<(), String> + Sync),
     inspect: &(dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync),
+    stop_requested: impl FnMut() -> Option<stop::Stop>,
+    on_saved: impl FnMut(&publication::Receipt, &[Status]),
+) -> io::Result<Outcome> {
+    run_authorized_periodic(
+        restored,
+        identity,
+        b,
+        budget,
+        config,
+        authorize,
+        inspect,
+        stop_requested,
+        |_| false,
+        on_saved,
+    )
+}
+
+/// A due callback observes only a successful, nonfinal committed merge. It
+/// cannot change the cut, session or dispatch order; save remains synchronous.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_authorized_periodic<const N: usize>(
+    restored: &mut Restored<N>,
+    identity: &Identity<'_>,
+    b: usize,
+    budget: usize,
+    config: MergeConfig,
+    authorize: &(dyn Fn() -> Result<(), String> + Sync),
+    inspect: &(dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync),
     mut stop_requested: impl FnMut() -> Option<stop::Stop>,
+    mut periodic_due: impl FnMut(u64) -> bool,
     mut on_saved: impl FnMut(&publication::Receipt, &[Status]),
 ) -> io::Result<Outcome> {
     if budget < 2
@@ -159,6 +190,7 @@ pub(super) fn run_authorized<const N: usize>(
                 on_saved(&receipt, &[]);
                 return Ok(Outcome::Stopped(reason));
             }
+            let mut committed_boundary = false;
             loop {
                 if let Some(context) = stop_requested() {
                     pool.cancel().map_err(Failure::Engine)?;
@@ -168,6 +200,28 @@ pub(super) fn run_authorized<const N: usize>(
                     // observations must not masquerade as current in-flight.
                     on_saved(&receipt, &[]);
                     return Ok(Outcome::Stopped(reason));
+                }
+                if std::mem::take(&mut committed_boundary)
+                    && restored.state.pending_or_reserved() != 0
+                    && periodic_due(restored.state.k)
+                {
+                    if !restored.state.in_flight.is_empty() {
+                        return Err(Failure::Engine("periodic save has an active cut".into()));
+                    }
+                    // A newly requested stop wins even if it arrived while
+                    // checking the timer. There is no inspection to cancel.
+                    if let Some(context) = stop_requested() {
+                        pool.cancel().map_err(Failure::Engine)?;
+                        let reason = context.kind();
+                        let receipt = save(restored, identity, b, Some(reason), Some(context))?;
+                        on_saved(&receipt, &[]);
+                        return Ok(Outcome::Stopped(reason));
+                    }
+                    let receipt = save(restored, identity, b, None, None)?;
+                    on_saved(&receipt, &[]);
+                    // Stop can arrive during the synchronous write/callback.
+                    // Recheck before refill without repeating the periodic save.
+                    continue;
                 }
                 let jobs = if !restored.replay.is_empty() {
                     std::mem::take(&mut restored.replay)
@@ -291,6 +345,7 @@ pub(super) fn run_authorized<const N: usize>(
                     on_saved(&receipt, &[]);
                     return Ok(Outcome::Stopped(reason));
                 }
+                committed_boundary = true;
             }
         }));
         let result = match step {
@@ -322,8 +377,15 @@ pub(super) fn run_native<const N: usize>(
     identity: &Identity<'_>,
     b: usize,
     context: &Context<'_, N>,
-    on_saved: impl FnMut(&publication::Receipt, &[Status]),
+    mut on_saved: impl FnMut(&publication::Receipt, &[Status]),
 ) -> io::Result<Outcome> {
+    let schedule = periodic::Schedule::new(
+        context
+            .request
+            .checkpoint
+            .as_ref()
+            .map(|options| Duration::from_secs(options.interval_seconds)),
+    )?;
     if context.request.workers < 2 {
         return Err(invalid(
             "responsive epoch checkpointing cannot move unlicensed inline W1 CAS",
@@ -355,7 +417,7 @@ pub(super) fn run_native<const N: usize>(
     .map_err(invalid)?;
     let budget = WorkerBudget::for_request(context.request);
     // Reserved helper capacity is not silently converted into extra inspectors.
-    run_authorized(
+    run_authorized_periodic(
         restored,
         identity,
         b,
@@ -374,6 +436,10 @@ pub(super) fn run_native<const N: usize>(
                 context.request.epoch_stop_file.as_deref(),
             )
         },
-        on_saved,
+        |_| schedule.due(),
+        |receipt, status| {
+            schedule.saved();
+            on_saved(receipt, status);
+        },
     )
 }

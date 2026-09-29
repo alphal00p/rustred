@@ -77,13 +77,18 @@ pub(super) struct Store {
 
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum FailPoint {
+pub(super) enum FailPoint {
     AfterSections,
     BeforeLatest,
     BeforePrevious,
 }
 
 impl Store {
+    #[cfg(test)]
+    pub(super) fn fail_at(&mut self, point: FailPoint) {
+        self.fail = Some(point);
+    }
+
     /// Sticky C5 authority, including failure outside P3. Never publish another
     /// generation after this call; a failed fsync does not claim durability.
     pub(super) fn poison(&mut self, merge: u64, reason: &str) -> io::Result<()> {

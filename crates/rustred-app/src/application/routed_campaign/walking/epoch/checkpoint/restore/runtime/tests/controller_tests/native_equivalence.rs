@@ -10,7 +10,7 @@ use crate::application::routed_campaign::walking::{
     initial_overlap::InitialOverlapIndex,
 };
 
-fn finish_native(fixture: &Fixture, restored: &mut Restored<1>) {
+pub(super) fn finish_native(fixture: &Fixture, restored: &mut Restored<1>) {
     let overlap = InitialOverlapIndex::empty();
     let cancellation = AtomicBool::new(false);
     let context = Context {
@@ -28,7 +28,7 @@ fn finish_native(fixture: &Fixture, restored: &mut Restored<1>) {
 /// Compare actual sidecar bodies, not just records_digest (id/tag/outdegree).
 /// Only the native record's top-level elapsed `seconds` is nondeterministic;
 /// merge epochs, v0, resolver counters, errors, geometry and scope remain exact.
-fn completed_snapshot(restored: &mut Restored<1>) -> Value {
+pub(super) fn completed_snapshot(restored: &mut Restored<1>) -> Value {
     assert!(restored.warnings.is_empty());
     assert!(restored.replay.is_empty());
     assert!(restored.state.in_flight.is_empty());
@@ -95,18 +95,7 @@ fn completed_snapshot(restored: &mut Restored<1>) -> Value {
     })
 }
 
-#[test]
-fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
-    const TEST: &str = "real native epoch interrupted/resplit equivalence";
-    // A skip is explicitly not equivalence coverage. Strict license mode fails
-    // the existing gate; capability is also checked on every actual pool worker.
-    if !crate::test_gates::workers_or_skip(TEST, 3)
-        || !std::thread::spawn(|| crate::test_gates::licensed_or_skip(TEST))
-            .join()
-            .unwrap()
-    {
-        return;
-    }
+pub(super) fn closed_fixture() -> Fixture {
     let mut fixture = Fixture::new();
     // Reuse the closed one-axis S2 fixture's narrow/narrow/whole-ray queries,
     // retaining this fixture's explicit required/auxiliary roles and three IDs.
@@ -130,6 +119,22 @@ fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
     })
     .to_string();
     fixture.request.workers = 2;
+    fixture
+}
+
+#[test]
+fn real_native_interrupted_cut_resplits_to_identical_graph_and_records() {
+    const TEST: &str = "real native epoch interrupted/resplit equivalence";
+    // A skip is explicitly not equivalence coverage. Strict license mode fails
+    // the existing gate; capability is also checked on every actual pool worker.
+    if !crate::test_gates::workers_or_skip(TEST, 3)
+        || !std::thread::spawn(|| crate::test_gates::licensed_or_skip(TEST))
+            .join()
+            .unwrap()
+    {
+        return;
+    }
+    let mut fixture = closed_fixture();
     fixture.save(3, 3);
     let mut baseline = fixture.open().unwrap();
     finish_native(&fixture, &mut baseline);

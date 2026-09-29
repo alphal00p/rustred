@@ -7,6 +7,8 @@ use std::sync::{Condvar, Mutex, mpsc};
 use std::time::Duration;
 
 mod native_equivalence;
+mod native_periodic;
+mod periodic_tests;
 
 fn config() -> MergeConfig {
     MergeConfig {
