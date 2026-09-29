@@ -104,6 +104,39 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 15:04 UTC — Stage B implementation freeze and native build
+
+- [M] Combined rescue/rolling source `f083f254` passes release compiler/test-type
+  checks in 46.183 s. The actual core/app library test build is running in the
+  isolated validation worktree, CPU16–31/heavy/build-1; its source stays frozen.
+  Exact command and receipts:
+  `TMP/codex-parallel-validation.RPJKV5/{typecheck-f083f254,native-build-f083f254}/`.
+  No actual combined native test result is available yet.
+- [M] The final planned activity-monitor slice is integrated as `d7ecf3ee` and
+  `704fb8d9`. Independent audit by `stage_a_release` caught a CLI unknown-to-zero
+  rendering defect; it is fixed, with legacy rendering unchanged. W1/nonpollable
+  states remain unknown, live sampled computing callbacks are not described as
+  CPU utilization, and joined workers report zero. Pending-growth math and
+  rendering are unchanged. Pool harness passes in 2.254 s; this is only the
+  std-only pool component, not the complete engine.
+- [M] Source audit receipt:
+  `TMP/codex-stage-a.2RU3AX/stage-b-activity-source-audit.md`.
+  Activity census is lazy behind the existing five-second gate; bounded per-cut
+  receipt retirement remains separate lifecycle work. The implementation is now
+  frozen except for independently identified correctness/integration fixes.
+- [M] Optimized-build worktree prepared at `TMP/codex-parallel-campaign.oiPK29/repo`,
+  with a normal independent copy of Stage A's idle Cargo cache (distinct inodes,
+  no fingerprint/mtime manipulation). A lightweight metadata check runs there on
+  CPU0–3/build-0 while the heavy native test compilation continues. No optimized
+  Stage B executable or performance result has been produced yet.
+- [M] Stable `fable_5_1` and its remote tracking ref now both point to delivered
+  `931d006c`; root remains `fable_5_1_parallel`. Existing unrelated Cargo/feynkit
+  edits and untracked collaborator files remain untouched.
+- Next: execute the combined native suite with sufficient affinity for actual
+  W50 mechanics, rebuild/test the final monitor slice, freeze the optimized
+  candidate, then run the independently reviewed matched control matrix. No new
+  optimization investigation is being added to the shortened delivery.
+
 ### 2026-09-29 14:47 UTC — Stage A native delivery gates pass; rescue integrated
 
 - [M] Stage A optimized campaign build completed in3566.486s, source
