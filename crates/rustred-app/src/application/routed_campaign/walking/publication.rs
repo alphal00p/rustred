@@ -1,4 +1,28 @@
 //! Publication scheduling is not mathematical applicability authority.
+/// Pending-job selection within a rolling Epoch campaign. Observations may
+/// change priority, never whether an obligation must be discharged.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnerDomainWalkEpochDispatchPolicy {
+    #[default]
+    Fifo,
+    Adaptive,
+}
+impl OwnerDomainWalkEpochDispatchPolicy {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Fifo => "fifo",
+            Self::Adaptive => "adaptive",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "fifo" => Some(Self::Fifo),
+            "adaptive" => Some(Self::Adaptive),
+            _ => None,
+        }
+    }
+}
+
 /// Experimental placement of Epoch's exact merged-store lookup. This changes
 /// work accounting, not applicability authority; default behavior is unchanged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

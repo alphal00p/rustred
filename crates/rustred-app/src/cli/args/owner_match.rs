@@ -45,6 +45,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
     pub epoch_inspector_lookup: Option<crate::OwnerDomainWalkEpochInspectorLookup>,
     pub epoch_rolling: bool,
+    pub epoch_dispatch: Option<crate::OwnerDomainWalkEpochDispatchPolicy>,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
@@ -101,6 +102,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
         epoch_inspector_lookup: None,
         epoch_rolling: false,
+        epoch_dispatch: None,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
@@ -176,6 +178,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--publication-policy" => "--publication-policy",
             "--epoch-inspector-lookup" => "--epoch-inspector-lookup",
             "--epoch-rolling" => "--epoch-rolling",
+            "--epoch-dispatch" => "--epoch-dispatch",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
@@ -284,6 +287,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                             option: name,
                             value,
                             expected: "all-miss or snapshot",
+                        },
+                    )?,
+                );
+            }
+            "--epoch-dispatch" => {
+                result.epoch_dispatch = Some(
+                    crate::OwnerDomainWalkEpochDispatchPolicy::parse(&value).ok_or(
+                        ArgError::InvalidValue {
+                            option: name,
+                            value,
+                            expected: "fifo or adaptive",
                         },
                     )?,
                 );
@@ -445,6 +459,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    if result.epoch_dispatch.is_some()
+        && (!result.follow_successors
+            || !epoch
+            || result.checkpoint.is_none()
+            || (result.epoch_dispatch == Some(crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive)
+                && !result.epoch_rolling))
+    {
+        return Err(ArgError::InvalidCombination(
+            "--epoch-dispatch requires --follow-successors, --publication-policy epoch and --checkpoint or --resume; adaptive also requires --epoch-rolling",
+        ));
+    }
     if result.epoch_rolling && (!result.follow_successors || !epoch || result.checkpoint.is_none())
     {
         return Err(ArgError::InvalidCombination(
@@ -530,6 +555,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--publication-policy",
             "--epoch-inspector-lookup",
             "--epoch-rolling",
+            "--epoch-dispatch",
             "--max-domains",
             "--max-frontiers",
             "--frontier-policy",
@@ -618,6 +644,30 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn adaptive_dispatch_requires_rolling_durable_epoch_and_explicit_valid_policy() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let epoch = format!(
+            "{base} --publication-policy epoch --transfer-unreserved-lookahead 16 --checkpoint cp"
+        );
+        for mode in ["fifo", "adaptive"] {
+            let Command::OwnerDomainMatch(args) =
+                parse(&format!("{epoch} --epoch-rolling --epoch-dispatch {mode}")).unwrap()
+            else {
+                panic!("match")
+            };
+            assert_eq!(args.epoch_dispatch.unwrap().name(), mode);
+        }
+        for bad in [
+            format!("{base} --epoch-dispatch fifo"),
+            format!("{epoch} --epoch-dispatch adaptive"),
+            format!("{epoch} --epoch-rolling --epoch-dispatch unknown"),
+            format!("{epoch} --epoch-rolling --epoch-dispatch fifo --epoch-dispatch adaptive"),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

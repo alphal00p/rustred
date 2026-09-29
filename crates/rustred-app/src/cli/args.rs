@@ -727,6 +727,9 @@ The mode is bound to the checkpoint request and cannot change on resume.
 --epoch-rolling opts into bounded rolling publication/inspection overlap for a
 checkpoint-enabled Epoch walk. The choice is frozen on resume; omitted retains
 the lockstep control. It changes scheduling, not the required mathematical scope.
+--epoch-dispatch fifo|adaptive selects pending-job order (default fifo).
+Adaptive requires --epoch-rolling and persists its observations and fairness
+state on restart. It does not change algebraic pivots or discard obligations.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.

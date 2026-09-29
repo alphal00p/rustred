@@ -87,6 +87,36 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 14:06 UTC — G2 integration and concurrent adaptive dispatch
+
+- [M] Fresh Epoch Union integrated as `714970bc`. Root reviewed exact residual
+  coverage, prior-dispatch stamps, lender scope restrictions, publication
+  eligibility and the independent cold-record adapter. The binding merge
+  preserves both Union and rolling nondefault keys. Native tests are pending.
+- [M] Repeating the broader Python controls with eight permitted CPUs passed
+  all80 (`TMP/codex-epoch-rolling-frontend-regressions-1350-w8/`), confirming
+  the earlier resource-error precedence was harness affinity, not a regression.
+  The combined adaptive/rolling/lookup/checkpoint and legacy frontend run now
+  passes100 (`TMP/codex-epoch-adaptive-frontend-1404/`,12.663s test time).
+  These use fake executables and do not establish native engine correctness.
+- [M] The rolling lane's std-only pool check completed119 later jobs while
+  an older worker was held; duplicate submission, retirement and cancellation
+  checks passed (`TMP/codex-rolling-pool.E4ZDBn/`). This is a component
+  concurrency result, not a whole-campaign speedup.
+- Root's review of rolling primitives identified oversized single-cut delta
+  and quarantined equal-image replay edge cases. The implementation lane is
+  addressing both: the journal threshold is backpressure, not a mathematical
+  work cap; a large valid cut must make progress through a quiescent path.
+- `stage_a_release` now implements the separable bounded adaptive-dispatch
+  module while its isolated Stage A build runs. Root wires the public
+  `epoch_dispatch` policy; the rolling lane owns observation/controller hooks,
+  and the G2/rescue lane owns checkpoint integration. The policy remains
+  opt-in, must preserve retries and oldest-job fairness, and cannot change
+  algebraic pivots. Core implementation audit will be independent of its author.
+- [M] Stage A missed the13:55UTC target: compilation remained healthy at that
+  time, with actual pause/resume/cold checks still to follow. The user was
+  notified; no older binary was silently substituted. Stage B never waited.
+
 ### 2026-09-29 13:50 UTC — rolling interface and bounded ordering review
 
 - Root delivered opt-in `epoch_rolling` request/CLI/Python wiring and frozen

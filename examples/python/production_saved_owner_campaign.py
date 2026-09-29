@@ -63,7 +63,7 @@ FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_
                   "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
                   "apply_cell_refinement_max_cardinality", "publication_policy",
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
-                  "epoch_inspector_lookup", "epoch_rolling",
+                  "epoch_inspector_lookup", "epoch_rolling", "epoch_dispatch",
                   *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
 # A10: new campaigns save and stop at the first frontier; steering written
@@ -756,6 +756,18 @@ def frozen_options(policy):
         raise ValueError("frozen Epoch rolling mode and command disagree; use a new campaign directory")
     if options["publication_policy"] == "epoch":
         options.setdefault("epoch_rolling", False)
+    dispatch_flag = "--" + SUPERVISOR.DOMAIN.EPOCH_DISPATCH
+    dispatch = options.get("epoch_dispatch", "fifo")
+    dispatch_values = [command[index + 1] if index + 1 < len(command) else None
+                       for index, flag in enumerate(command) if flag == dispatch_flag]
+    if (dispatch not in SUPERVISOR.DOMAIN.EPOCH_DISPATCH_POLICIES
+            or dispatch_values != (["adaptive"] if dispatch == "adaptive" else [])
+            or any(isinstance(flag, str) and flag.startswith(dispatch_flag + "=") for flag in command)
+            or (dispatch == "adaptive" and not rolling)
+            or (options["publication_policy"] != "epoch" and ("epoch_dispatch" in options or dispatch_values))):
+        raise ValueError("frozen Epoch dispatch policy and command disagree; use a new campaign directory")
+    if options["publication_policy"] == "epoch":
+        options.setdefault("epoch_dispatch", "fifo")
     if "transfer_unreserved_lookahead" not in options:
         lookahead = flag_value("--transfer-unreserved-lookahead")
         options["transfer_unreserved_lookahead"] = 256 if lookahead is None else int(lookahead)
@@ -804,6 +816,8 @@ def native_command(options, executable, inputs, count, size):
         command += ["--epoch-inspector-lookup", "snapshot"]
     if options.get("epoch_rolling", False):
         command.append("--epoch-rolling")
+    if options.get("epoch_dispatch") == "adaptive":
+        command += ["--epoch-dispatch", "adaptive"]
     command += ["--frontier-policy", options["frontier_policy"]]
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if options[name] is not None:
@@ -868,6 +882,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
             options["epoch_inspector_lookup"] = "all-miss"
         if options["epoch_rolling"] is None:
             options["epoch_rolling"] = False
+        if options["epoch_dispatch"] is None:
+            options["epoch_dispatch"] = "fifo"
         if options["auto_rescue"]:
             raise ValueError("epoch CP6 does not support automatic rescue")
         if options["transfer_unreserved_lookahead"] is None:
@@ -876,9 +892,12 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         options["epoch_inspector_lookup"], True, options["publication_policy"], True)
     SUPERVISOR.DOMAIN.validate_epoch_rolling(
         options["epoch_rolling"], True, options["publication_policy"], True)
+    SUPERVISOR.DOMAIN.validate_epoch_dispatch(
+        options["epoch_dispatch"], options["epoch_rolling"], True, options["publication_policy"], True)
     if options["publication_policy"] != "epoch":
         del options["epoch_inspector_lookup"]  # Historical CP5 options/argv remain absent.
         del options["epoch_rolling"]
+        del options["epoch_dispatch"]
     if options["frontier_policy"] not in ("record", "stop"):
         raise ValueError("frontier policy must be record or stop")
     if options["auto_rescue"] and options["frontier_policy"] != "stop":
@@ -969,6 +988,9 @@ def main(argv=None):
                         help="explicit CP6 Epoch comparison control; initial default all-miss; frozen on resume")
     parser.add_argument("--epoch-rolling", action=SUPERVISOR.DOMAIN.StoreTrueOnce, nargs=0, default=None,
                         help="opt into bounded rolling CP6 execution; frozen on resume")
+    parser.add_argument("--epoch-dispatch", choices=SUPERVISOR.DOMAIN.EPOCH_DISPATCH_POLICIES,
+                        action=SUPERVISOR.DOMAIN.StoreOnce,
+                        help="pending-job dispatch; adaptive requires rolling; frozen on resume")
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
     parser.add_argument("--g2-residual-anchors", choices=SUPERVISOR.G2_RESIDUAL_MODES,
@@ -1065,7 +1087,8 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
     campaign = args.campaign_directory.resolve()
-    if args.epoch_inspector_lookup is not None or args.epoch_rolling:
+    if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None) \
+            and not (campaign / "bin" / "steering.json").is_file():
         # An existing policy supplies publication on an ordinary resume/plan.
         # Fresh explicit misuse is rejected before staging/freezing any input.
         selected_policy = args.publication_policy
@@ -1076,6 +1099,8 @@ def main(argv=None):
                 SUPERVISOR.DOMAIN.validate_epoch_inspector_lookup(
                     args.epoch_inspector_lookup, True, selected_policy, True)
                 SUPERVISOR.DOMAIN.validate_epoch_rolling(args.epoch_rolling, True, selected_policy, True)
+                SUPERVISOR.DOMAIN.validate_epoch_dispatch(
+                    args.epoch_dispatch, args.epoch_rolling, True, selected_policy, True)
             except ValueError as error:
                 parser.error(str(error))
     inputs = campaign / "inputs"
@@ -1173,9 +1198,11 @@ def main(argv=None):
     if options["publication_policy"] == "epoch":
         plan["epoch_inspector_lookup"] = options.get("epoch_inspector_lookup", "all-miss")
         plan["epoch_rolling"] = options.get("epoch_rolling", False)
+        plan["epoch_dispatch"] = options.get("epoch_dispatch", "fifo")
         plan["epoch_checkpoint"] = {
             "inspector_lookup_mode": options.get("epoch_inspector_lookup", "all-miss"),
             "rolling": options.get("epoch_rolling", False),
+            "dispatch": options.get("epoch_dispatch", "fifo"),
             "format": "RUSTRED-WALK-CP6", "schema": 1, "walk_semantics_version": 3,
             "resumable": True, "terminal_output": "checkpoint_only",
             "completion_report": "not_evaluated; raw cold reinspection required",

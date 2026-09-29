@@ -200,6 +200,7 @@ fn walk_request(
         .epoch_inspector_lookup
         .unwrap_or(crate::OwnerDomainWalkEpochInspectorLookup::AllMiss);
     walk.epoch_rolling = args.epoch_rolling;
+    walk.epoch_dispatch = args.epoch_dispatch.unwrap_or_default();
     walk.max_domains = args.max_domains;
     walk.max_frontiers = args.max_frontiers;
     walk.frontier_policy = args.frontier_policy;

@@ -71,7 +71,10 @@ pub const WALK_SEMANTICS_VERSION: u32 = 1;
 /// `per_policy {ordered: 1, ready: 1, epoch: 3}`.
 pub use epoch::EPOCH_WALK_SEMANTICS_VERSION;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
-pub use publication::{OwnerDomainWalkEpochInspectorLookup, OwnerDomainWalkPublicationPolicy};
+pub use publication::{
+    OwnerDomainWalkEpochDispatchPolicy, OwnerDomainWalkEpochInspectorLookup,
+    OwnerDomainWalkPublicationPolicy,
+};
 pub use rescue::{
     AMENDMENT_SCHEMA as OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
     MAX_AMENDMENT_BYTES as OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OwnerDomainWalkAmendment,
@@ -117,6 +120,9 @@ pub struct OwnerDomainWalkRequest {
     /// Opt-in bounded rolling CP6 execution. False retains lockstep as a
     /// differential control; the choice is frozen across checkpoint resume.
     pub epoch_rolling: bool,
+    /// Optional cost/work-growth-guided dispatch. Requires rolling CP6;
+    /// observations and unselected candidates survive checkpoint/resume.
+    pub epoch_dispatch: OwnerDomainWalkEpochDispatchPolicy,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -162,6 +168,7 @@ impl OwnerDomainWalkRequest {
             publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
             epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup::AllMiss,
             epoch_rolling: false,
+            epoch_dispatch: OwnerDomainWalkEpochDispatchPolicy::Fifo,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
@@ -179,6 +186,11 @@ impl OwnerDomainWalkRequest {
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        if self.epoch_dispatch == OwnerDomainWalkEpochDispatchPolicy::Adaptive
+            && !self.epoch_rolling
+        {
+            return Err("Adaptive dispatch requires rolling checkpoint-enabled epoch publication");
+        }
         if self.epoch_rolling
             && (self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
                 || self.checkpoint.is_none())
@@ -751,6 +763,7 @@ pub fn owner_domain_walk_with_progress(
         if request.checkpoint.is_some() {
             admitted["epoch_inspector_lookup"] = json!(request.epoch_inspector_lookup.name());
             admitted["epoch_rolling"] = json!(request.epoch_rolling);
+            admitted["epoch_dispatch"] = json!(request.epoch_dispatch.name());
         }
     }
     if let Some(pause) = diagnostic_pause {

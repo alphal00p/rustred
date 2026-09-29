@@ -18,6 +18,51 @@ FLAG = "--epoch-rolling"
 
 
 class EpochRollingSteeringTests(unittest.TestCase):
+    def test_adaptive_policy_is_explicit_frozen_and_requires_rolling(self):
+        for mode in (None, "fifo", "adaptive"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                executable = shared.production_fixture(directory)
+                extra = [] if mode is None else ["--epoch-dispatch", mode]
+                initial = shared.production_plan(directory, "--executable", str(executable),
+                                                 "--workers", "1", *EPOCH, FLAG, *extra)
+                self.assertEqual(initial["epoch_dispatch"], mode or "fifo")
+                self.assertEqual(initial["command"].count("--epoch-dispatch"), int(mode == "adaptive"))
+                before = snapshot(directory)
+                resumed = shared.production_plan(directory, "--resume", *extra)
+                self.assertEqual(resumed["steering_policy"], initial["steering_policy"])
+                self.assertEqual(snapshot(directory), before)
+                other = "fifo" if mode == "adaptive" else "adaptive"
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    shared.production_plan(directory, "--resume", "--epoch-dispatch", other)
+                self.assertEqual(snapshot(directory), before)
+        with patch.object(PRODUCTION, "verify_inputs") as verify, \
+                patch.object(PRODUCTION, "freeze_executable") as freeze, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                PRODUCTION.main([*EPOCH, "--epoch-dispatch", "adaptive"])
+            verify.assert_not_called()
+            freeze.assert_not_called()
+
+    def test_adaptive_argv_mismatch_refused_and_thin_launcher_propagates(self):
+        for policy, rolling, values in [("adaptive", True, []), ("fifo", True, ["adaptive"]),
+                ("adaptive", False, ["adaptive"]), ("invalid", True, ["invalid"])]:
+            command = [FLAG] if rolling else []
+            if values:
+                command += ["--epoch-dispatch", *values]
+            row = {"options": {"publication_policy": "epoch", "epoch_rolling": rolling,
+                               "epoch_dispatch": policy}, "command_arguments": command}
+            with self.subTest(policy=policy, rolling=rolling, values=values), \
+                    self.assertRaisesRegex(ValueError, "dispatch policy and command disagree"):
+                PRODUCTION.frozen_options(row)
+        argv = ["match", "--executable", "native", "--manifest", "m", "--queries", "q",
+                "--output", "o", "--follow-successors", *EPOCH, "--checkpoint", "cp",
+                FLAG, "--epoch-dispatch", "adaptive"]
+        with patch.object(sys, "argv", argv), patch.object(MATCH.os, "execve") as launch:
+            MATCH.main()
+        command = launch.call_args.args[1]
+        self.assertEqual(command.count("--epoch-dispatch"), 1)
+        self.assertEqual(command[command.index("--epoch-dispatch") + 1], "adaptive")
+
     def test_thin_launcher_forwards_only_explicit_opt_in_and_refuses_wrong_scope(self):
         base = ["match", "--executable", "native", "--manifest", "m", "--queries", "q",
                 "--output", "o", "--follow-successors"]

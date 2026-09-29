@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn adaptive_dispatch_requires_rolling_and_changes_only_nondefault_epoch_binding() {
+    let mut request =
+        OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    assert_eq!(
+        request.epoch_dispatch,
+        OwnerDomainWalkEpochDispatchPolicy::Fifo
+    );
+    for mode in [
+        OwnerDomainWalkEpochDispatchPolicy::Fifo,
+        OwnerDomainWalkEpochDispatchPolicy::Adaptive,
+    ] {
+        assert_eq!(
+            OwnerDomainWalkEpochDispatchPolicy::parse(mode.name()),
+            Some(mode)
+        );
+    }
+    assert_eq!(OwnerDomainWalkEpochDispatchPolicy::parse("Adaptive"), None);
+    let baseline = checkpoint::epoch_request_binding(&request);
+    request.epoch_dispatch = OwnerDomainWalkEpochDispatchPolicy::Adaptive;
+    assert!(request.validate_epoch_inspector_lookup().is_err());
+    assert_ne!(checkpoint::epoch_request_binding(&request), baseline);
+    request.epoch_rolling = true;
+    assert!(request.validate_epoch_inspector_lookup().is_err());
+    request.publication_policy = OwnerDomainWalkPublicationPolicy::Epoch;
+    request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new("unused"));
+    assert!(request.validate_epoch_inspector_lookup().is_ok());
+    request.epoch_dispatch = OwnerDomainWalkEpochDispatchPolicy::Fifo;
+    request.epoch_rolling = false;
+    assert_eq!(checkpoint::epoch_request_binding(&request), baseline);
+}
+
+#[test]
 fn rolling_execution_is_opt_in_checkpoint_bound_and_has_bounded_window() {
     let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
         "selection".into(),
