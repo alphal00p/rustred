@@ -642,6 +642,7 @@ pub(super) fn run_native_observed<const N: usize>(
                     request: context.request,
                     overlap: context.overlap,
                     cancellation: stop,
+                    g2: context.g2,
                 },
                 bytes,
             );
@@ -656,6 +657,7 @@ pub(super) fn run_native_observed<const N: usize>(
                 request: context.request,
                 overlap: context.overlap,
                 cancellation: stop,
+                g2: context.g2,
             },
             bytes,
             snapshot,
@@ -679,7 +681,7 @@ pub(super) fn run_native_observed<const N: usize>(
             frontier_stop: context.request.frontier_policy
                 == crate::OwnerDomainWalkFrontierPolicy::Stop,
             lockstep: true,
-            g2: false,
+            g2: context.g2.is_some(),
         },
         &authorize,
         &inspect,

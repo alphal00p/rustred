@@ -12,9 +12,7 @@
 //! with thread-owned Symbolica contexts; no per-CCX replica system is added.
 //! The scoped executor exposes polling/cancellation so S3 can save before join.
 use super::super::OwnerDomainWalkRequest;
-use super::super::initial_orthants::InitialOrthants;
 use super::super::initial_overlap::InitialOverlapIndex;
-use super::super::inspection;
 use super::job::{Job, JobResult};
 use super::resolve::Resolver;
 use rustred::solver::RoutedCandidateReducer;
@@ -32,6 +30,7 @@ pub(super) struct Context<'a, const N: usize> {
     pub request: &'a OwnerDomainWalkRequest,
     pub overlap: &'a InitialOverlapIndex<N>,
     pub cancellation: &'a AtomicBool,
+    pub g2: Option<&'a super::super::g2::Store<N>>,
 }
 
 /// A C3 result without stats for a panic outside the native call (result
@@ -82,25 +81,20 @@ fn inspect_job_inner<const N: usize>(
             return Vec::new(); // P1 C5; never inspect against a different view.
         }
     }
-    let domain = job.image.expand();
     let mut resolver = snapshot.map_or_else(Resolver::<N>::new, Resolver::with_snapshot);
     let started = Instant::now();
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        inspection::inspect(
-            context.reducer,
-            &domain,
-            context.request,
-            context.cancellation,
-            &InitialOrthants::empty(),
-            context.overlap,
-            &mut |event| resolver.emit(event),
-        )
+        super::g2::inspect(context, &job, &mut |event| resolver.emit(event))
     }));
     let prefix = resolver.prefix();
     let seconds = || started.elapsed().as_secs_f64();
     let encoded = match outcome {
-        Ok(finished) => catch_unwind(AssertUnwindSafe(|| {
-            let result: JobResult<N> = resolver.finish(&job, finished);
+        Ok((finished, part)) => catch_unwind(AssertUnwindSafe(|| {
+            let mut result: JobResult<N> = resolver.finish(&job, finished);
+            if let Some(part) = part {
+                result.kind = super::job::NativeKind::G2Residual;
+                result.g2 = Some(part);
+            }
             result.encode()
         })),
         Err(_) => catch_unwind(AssertUnwindSafe(|| {

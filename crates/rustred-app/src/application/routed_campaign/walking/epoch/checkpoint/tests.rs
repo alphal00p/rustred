@@ -1,10 +1,11 @@
 //! Pure geometry and writer tests; these do not run a native inspection.
 use super::super::super::descendant_closure::Tracker;
 use super::super::super::queue::{Domain, Phase};
-use super::super::anchors::{AnchorRecord, AnchorRef, Lent};
+use super::super::anchors::{AnchorKind, AnchorRecord, AnchorRef, AnchorScope, Lent};
 use super::super::dispatch::Refill;
 use super::super::job::{Reader, read_image};
 use super::super::ledger6::Transition;
+use super::super::state::NODE_RESIDUAL;
 use super::*;
 use rustred::solver::DomainPowerBounds;
 use std::fs;
@@ -170,7 +171,7 @@ fn initial_d_band_anchors_match_existing_layout_without_section_buffer() {
 }
 
 #[test]
-fn boundary_refuses_poison_shape_bad_b_and_unsupported_g2() {
+fn boundary_refuses_poison_shape_bad_b_and_inconsistent_g2_inventory() {
     let mut state = state(2);
     let dispatch = Dispatch::new();
     for b in [0, 4097] {
@@ -191,7 +192,7 @@ fn boundary_refuses_poison_shape_bad_b_and_unsupported_g2() {
 
 #[test]
 fn boundary_refuses_lost_duplicate_misclassified_and_future_reservations() {
-    for mutation in 0..8 {
+    for mutation in 0..7 {
         let mut state = state(2);
         let mut dispatch = Dispatch::new();
         assert!(matches!(dispatch.refill(&mut state, 2), Refill::Jobs(_)));
@@ -221,9 +222,6 @@ fn boundary_refuses_lost_duplicate_misclassified_and_future_reservations() {
                 state.in_flight.remove(&0);
                 dispatch.requeue(0, 2);
             }
-            7 => {
-                state.k = 1; // An old version is also invalid for lockstep.
-            }
             _ => unreachable!(),
         }
         assert!(
@@ -231,6 +229,15 @@ fn boundary_refuses_lost_duplicate_misclassified_and_future_reservations() {
             "mutation {mutation}"
         );
     }
+}
+
+#[test]
+fn boundary_accepts_older_unpublished_job_versions_for_fresh_reissue() {
+    let mut state = state(2);
+    let mut dispatch = Dispatch::new();
+    assert!(matches!(dispatch.refill(&mut state, 2), Refill::Jobs(_)));
+    state.k = 1;
+    MergeBoundary::borrow(&state, &dispatch, 16).unwrap();
 }
 
 #[test]

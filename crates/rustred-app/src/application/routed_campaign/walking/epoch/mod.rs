@@ -24,6 +24,7 @@ mod checkpoint;
 mod dispatch;
 mod edges;
 mod export;
+mod g2;
 mod inspector;
 mod job;
 mod ledger6;
@@ -120,11 +121,9 @@ pub(super) fn admit_extensions(request: &OwnerDomainWalkRequest) -> Result<(), A
     request
         .validate_epoch_inspector_lookup()
         .map_err(AppError::input)?;
-    if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off
-        || request.g2_activate_on_resume
-    {
+    if request.g2_activate_on_resume {
         return Err(AppError::input(
-            "epoch publication does not yet support G2' residual-anchor execution or activation",
+            "epoch publication does not support G2' activation; start a fresh Union campaign",
         ));
     }
     if !request.amendments.is_empty() {
@@ -405,6 +404,7 @@ fn anchor_self_check<const N: usize>(state: &EpochState<N>) -> Result<(), String
             .map(|(_, cut)| cut)
     };
     let edges_of = |id: u32| runs.get(&id).cloned();
+    let eligible = |id, _v0| g2::eligible(domains, &state.ledger, &state.anchors, id);
     for record in state.anchors.records() {
         let node = domains
             .get(record.node as usize)
@@ -418,7 +418,7 @@ fn anchor_self_check<const N: usize>(state: &EpochState<N>) -> Result<(), String
             same_bucket: &same_bucket,
             record_of: &record_of,
             edges_of: Some(&edges_of),
-            merged_view: None,
+            merged_view: Some(&eligible),
             cover: &cover,
         };
         let epoch = match state.ledger.get(record.node) {
@@ -563,8 +563,12 @@ pub(super) fn run<const N: usize>(
     let config = MergeConfig {
         frontier_stop: request.frontier_policy == OwnerDomainWalkFrontierPolicy::Stop,
         lockstep: true,
-        g2: false,
+        g2: request.g2_residual_anchors == super::OwnerDomainWalkG2ResidualAnchors::Union,
     };
+    if config.g2 {
+        g2::enable(&mut state);
+    }
+    let g2_store = state.g2_store.clone();
     let traversal_started = Instant::now();
     let mut dispatch = Dispatch::new();
     let context = inspector::Context {
@@ -572,6 +576,7 @@ pub(super) fn run<const N: usize>(
         request,
         overlap: &overlap,
         cancellation,
+        g2: g2_store.as_deref(),
     };
     let job = |bytes: &[u8]| inspector::inspect_job(&context, bytes);
     let mut heartbeat = Instant::now();

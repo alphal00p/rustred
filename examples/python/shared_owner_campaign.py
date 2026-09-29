@@ -197,8 +197,8 @@ def validate_g2_residual_anchors(mode, lookahead, publication, subdivision):
         raise ValueError("G2 residual anchors must be off or union")
     if lookahead is None or lookahead <= 0:
         raise ValueError("--g2-residual-anchors union requires --transfer-unreserved-lookahead")
-    if publication not in (None, "ordered", "ready"):
-        raise ValueError("--g2-residual-anchors union requires ordered or ready publication")
+    if publication not in (None, "ordered", "ready", "epoch"):
+        raise ValueError("--g2-residual-anchors union requires ordered, ready or epoch publication")
     if subdivision:
         raise ValueError("--g2-residual-anchors union does not support physical Apply subdivision")
 

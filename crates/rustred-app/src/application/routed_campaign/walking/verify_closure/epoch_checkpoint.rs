@@ -429,7 +429,8 @@ fn read_inner<const N: usize>(
         || number(&scalar, "k")? >= 1u64 << 48
         || !matches!(admission, "complete" | "in_progress")
         || admission == "complete" && processed != query_total
-        || scalar["g2"] != "off"
+        || !matches!(scalar["g2"].as_str(), Some("off" | "union"))
+        || scalar["g2"] == "off" && scalar["walk"]["g2_records"] != 0
         || scalar["imported_prefix"] != 0
         || scalar["engine_certification_void"] != false
         || ["amendments", "quarantined", "abandoned_obligations"]
@@ -479,7 +480,7 @@ fn read_inner<const N: usize>(
         flags.push(nodes_input.u8().map_err(io)?);
     }
     nodes_input.finish().map_err(io)?;
-    if flags.iter().any(|flag| flag & !11 != 0) {
+    if flags.iter().any(|flag| flag & !27 != 0) {
         return Err("unsupported CP6 node flag".into());
     }
     let (mut closure_input, n) = section(8)?;
@@ -547,21 +548,45 @@ fn read_inner<const N: usize>(
     for _ in 0..n {
         let node = anchor_input.u32().map_err(io)?;
         let kind = anchor_input.u8().map_err(io)?;
-        if anchor_input.read_array::<3>().map_err(io)? != [0; 3]
-            || anchor_input.u32().map_err(io)? != 1
-            || anchor_input.u32().map_err(io)? != 8
-        {
+        if anchor_input.read_array::<3>().map_err(io)? != [0; 3] {
             return Err("unsupported anchor shape".into());
         }
+        let count = anchor_input.u32().map_err(io)? as usize;
+        let scope_len = anchor_input.u32().map_err(io)? as usize;
         let dispatch = anchor_input.u64().map_err(io)?;
-        let target = anchor_input.u32().map_err(io)?;
-        let lent = anchor_input.u8().map_err(io)?;
-        if anchor_input.read_array::<3>().map_err(io)? != [0; 3] {
-            return Err("anchor padding".into());
+        if count == 0
+            || count > total
+            || count > 1 << 18
+            || kind > 2
+            || scope_len > 4 + (1 << 18) * (18 + 4 * N)
+            || (count as u64)
+                .checked_mul(16)
+                .and_then(|n| n.checked_add(scope_len as u64))
+                .is_none_or(|n| {
+                    n > anchor_input
+                        .reference
+                        .bytes
+                        .saturating_sub(anchor_input.read)
+                })
+            || kind == 0 && (count != 1 || scope_len != 8)
+            || kind != 0 && scalar["g2"] != "union"
+        {
+            return Err("anchor counts, mode or scope exceed bounds".into());
         }
-        let stamp = anchor_input.u64().map_err(io)?;
-        let scope = anchor_input.read_array::<8>().map_err(io)?.to_vec();
-        anchors.push((node, kind, dispatch, vec![(target, lent, stamp)], scope));
+        let mut list = reserve(count).map_err(io)?;
+        for _ in 0..count {
+            let target = anchor_input.u32().map_err(io)?;
+            let lent = anchor_input.u8().map_err(io)?;
+            if anchor_input.read_array::<3>().map_err(io)? != [0; 3] {
+                return Err("anchor padding".into());
+            }
+            list.push((target, lent, anchor_input.u64().map_err(io)?));
+        }
+        let mut scope = reserve(scope_len).map_err(io)?;
+        for _ in 0..scope_len {
+            scope.push(anchor_input.u8().map_err(io)?);
+        }
+        anchors.push((node, kind, dispatch, list, scope));
     }
     anchor_input.finish().map_err(io)?;
     // Resume-only auxiliary state is authenticated and framing checked, but is

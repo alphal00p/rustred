@@ -9,8 +9,8 @@ use crate::AppError;
 use crate::application::routed_campaign::{
     matching::input::Query,
     walking::{
-        OwnerDomainWalkEpochInspectorLookup, OwnerDomainWalkRecords, OwnerDomainWalkRequest,
-        OwnerDomainWalkResult,
+        OwnerDomainWalkEpochInspectorLookup, OwnerDomainWalkG2ResidualAnchors,
+        OwnerDomainWalkRecords, OwnerDomainWalkRequest, OwnerDomainWalkResult,
         epoch::{
             self,
             inspector::{Context, Status},
@@ -269,6 +269,9 @@ fn summary<const N: usize>(
         .expect("summary object")
         .extend(progress);
     doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
+    if let Some(report) = epoch::g2::report(state) {
+        doc["g2_residual_anchors"] = report;
+    }
     doc["epoch"]["inspector_lookup"] = json!(state.inspector_lookup);
     doc["epoch"]["inspector_lookup_scope"] = json!(
         "accepted P2 work in this invocation, including later P3 reservation refusal; excludes rejected or interrupted cuts; not checkpoint lifetime totals"
@@ -433,11 +436,18 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             }
             Err(error) => return Err(AppError::input(error.to_string())),
         };
+        if request.g2_residual_anchors == OwnerDomainWalkG2ResidualAnchors::Union
+            && restored.state.g2_store.is_none()
+        {
+            epoch::g2::enable(&mut restored.state);
+        }
+        let g2_store = restored.state.g2_store.clone();
         let context = Context {
             reducer,
             request,
             overlap: &overlap,
             cancellation,
+            g2: g2_store.as_deref(),
         };
         let outcome = controller::run_native_observed(
             &mut restored,

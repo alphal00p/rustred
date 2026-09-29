@@ -61,6 +61,7 @@ fn periodic_native_mode(mode: controller::LookupMode) {
             request: &fixture.request,
             overlap: &overlap,
             cancellation: cancel,
+            g2: None,
         };
         let native = match mode {
             controller::LookupMode::AllMiss => inspect_job(&context, bytes),

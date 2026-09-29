@@ -361,9 +361,25 @@ impl<const N: usize> Store<N> {
     }
 
     fn plan(&self, id: usize, q: &Domain<N>, cancellation: &AtomicBool) -> Outcome {
+        self.plan_bound(None, id, q, cancellation)
+    }
+
+    /// Epoch adapter: an explicit exclusive merge-stamp bound. This does not
+    /// consult publication timing or retain a callback plan in the CP5 tables.
+    pub fn plan_at(&self, snapshot: u64, q: &Domain<N>, cancellation: &AtomicBool) -> Outcome {
+        self.plan_bound(Some(snapshot), 0, q, cancellation)
+    }
+
+    fn plan_bound(
+        &self,
+        snapshot: Option<u64>,
+        id: usize,
+        q: &Domain<N>,
+        cancellation: &AtomicBool,
+    ) -> Outcome {
         let started = Instant::now();
         self.stats.plans.fetch_add(1, Ordering::Relaxed);
-        let result = self.plan_inner(id, q, cancellation);
+        let result = self.plan_inner(snapshot, id, q, cancellation);
         self.stats
             .plan_micros
             .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -390,6 +406,7 @@ impl<const N: usize> Store<N> {
 
     fn plan_inner(
         &self,
+        snapshot: Option<u64>,
         id: usize,
         q: &Domain<N>,
         cancellation: &AtomicBool,
@@ -409,7 +426,8 @@ impl<const N: usize> Store<N> {
         }
         let s = &self.stats;
         s.points.fetch_add(points.len() as u64, Ordering::Relaxed);
-        let snapshot = self.snapshot(id);
+        // Preserve the historical CP5 snapshot point after enumeration.
+        let snapshot = snapshot.unwrap_or_else(|| self.snapshot(id));
         // A bucket may exist only through anchors merged after the snapshot:
         // no bucket and no visible candidate are one outcome (deterministic).
         let bucket = self.bucket(&q.owner).ok_or(Whole::NoCandidates)?;

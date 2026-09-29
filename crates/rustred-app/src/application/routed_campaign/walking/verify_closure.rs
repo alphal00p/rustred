@@ -50,6 +50,7 @@
 mod e2e_tests;
 mod epoch_checkpoint;
 mod epoch_export;
+mod epoch_g2;
 #[cfg(test)]
 mod g2_e2e_tests;
 mod graph;
@@ -515,6 +516,10 @@ struct RecordRow {
     initial_overlap: Option<OverlapRow>,
     #[serde(default)]
     g2_residual_anchors: Option<G2RecordRow>,
+    #[serde(default)]
+    g2: Option<Value>,
+    #[serde(default)]
+    epoch: Option<Value>,
     /// Rescue: an obligation published without inspection (`rescue.rs`).
     #[serde(default)]
     rescue_abandoned: Option<bool>,
@@ -807,6 +812,7 @@ fn load_records<const N: usize>(
     let mut g2 = BTreeMap::new();
     let mut positions = vec![u64::MAX; total];
     let mut records = 0usize;
+    let epoch_records = epoch.as_ref().map(epoch_g2::View::new).transpose()?;
     for (segment, (path, count)) in raw.records.iter().enumerate() {
         let file: Box<dyn std::io::Read> = if let Some(references) = &cp6_records {
             Box::new(
@@ -828,7 +834,7 @@ fn load_records<const N: usize>(
             lines += 1;
             let parse_error =
                 |e: serde_json::Error| format!("{}: record line {lines}: {e}", path.display());
-            let row: RecordRow = if digests {
+            let mut row: RecordRow = if digests {
                 let mut value: Value = serde_json::from_str(&line).map_err(parse_error)?;
                 let digest = result_binding::record_digest(&mut value);
                 let row: RecordRow = serde_json::from_value(value).map_err(parse_error)?;
@@ -842,7 +848,12 @@ fn load_records<const N: usize>(
             if let Some(slot) = positions.get_mut(row.id)
                 && *slot == u64::MAX
             {
-                *slot = (records + lines - 1) as u64;
+                *slot = epoch_records
+                    .as_ref()
+                    .map_or((records + lines - 1) as u64, |view| view.position(row.id));
+            }
+            if let Some(view) = &epoch_records {
+                view.normalize(&mut row, &domains)?;
             }
             record_node(
                 &row,

@@ -297,6 +297,7 @@ fn private_native_controller_checks_actual_worker_license_and_saves_valid_state(
         request: &fixture.request,
         overlap: &overlap,
         cancellation: &cancellation,
+        g2: None,
     };
     let worker_authorized = std::thread::spawn(symbolica::license::LicenseManager::is_licensed)
         .join()

@@ -48,6 +48,8 @@ use super::ledger6::{Entry6, Ledger6};
 pub(super) const ANCHORS_VERSION: u16 = 2;
 /// Region budget of the exact union cover (as the closure verifier).
 pub(super) const COVER_REGIONS: u64 = 1 << 16;
+pub(super) const MAX_ANCHORS: usize = super::super::g2::POINT_CAP;
+pub(super) const MAX_RESIDUAL_PIECES: usize = 1 << 18;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum AnchorKind {
@@ -394,6 +396,9 @@ pub(super) fn union_cover<const N: usize>(
     match &record.scope {
         AnchorScope::DBandCut(cut) => targets.push(low_slice(q.clone(), *cut)?),
         AnchorScope::Residual(pieces) => {
+            if pieces.len() > MAX_RESIDUAL_PIECES {
+                return None;
+            }
             for piece in pieces {
                 targets.push(piece_cell(&q, piece)?);
             }
@@ -415,15 +420,18 @@ fn put_opt_i64(out: &mut Vec<u8>, value: Option<i64>) {
     out.extend_from_slice(&value.unwrap_or(0).to_le_bytes());
 }
 
-fn scope_bytes(scope: &AnchorScope) -> Result<Vec<u8>, String> {
+pub(super) fn scope_bytes(scope: &AnchorScope) -> Result<Vec<u8>, String> {
     Ok(match scope {
         AnchorScope::DBandCut(cut) => cut.to_le_bytes().to_vec(),
         AnchorScope::Residual(pieces) => {
+            if pieces.len() > MAX_RESIDUAL_PIECES {
+                return Err("anchor residual piece bound".into());
+            }
             let mut bytes = Vec::new();
             let n = u32::try_from(pieces.len()).map_err(|_| "anchor residual: too many pieces")?;
             bytes.extend_from_slice(&n.to_le_bytes());
             for piece in pieces {
-                if piece.lower.len() != piece.upper.len() {
+                if piece.lower.len() != piece.upper.len() || piece.lower.len() > 32 {
                     return Err("anchor residual piece arity".into());
                 }
                 put_opt_i64(&mut bytes, piece.d_lo);
@@ -521,6 +529,9 @@ impl AnchorMap {
             return Err("anchors version".into());
         }
         let count = r.u64().map_err(e)?;
+        if arity > 32 || count > bytes.len() as u64 / 24 {
+            return Err("anchor record count/arity exceeds bytes".into());
+        }
         let mut records = Vec::new();
         let mut last: Option<u32> = None;
         for _ in 0..count {
@@ -536,6 +547,16 @@ impl AnchorMap {
             let n = r.u32().map_err(e)?;
             let scope_len = r.u32().map_err(e)? as usize;
             let dispatch_version = r.u64().map_err(e)?;
+            if n == 0
+                || n as usize > MAX_ANCHORS
+                || scope_len > 4 + MAX_RESIDUAL_PIECES * (18 + 4 * arity)
+                || (n as usize)
+                    .checked_mul(16)
+                    .and_then(|n| n.checked_add(scope_len))
+                    .is_none_or(|n| n > bytes.len())
+            {
+                return Err("anchor counts exceed bounded record".into());
+            }
             let mut anchors = Vec::new();
             for _ in 0..n {
                 let anchor = r.u32().map_err(e)?;
@@ -559,7 +580,7 @@ impl AnchorMap {
                 }
                 AnchorKind::G2Native | AnchorKind::G2Residual => {
                     let pieces = r.u32().map_err(e)? as usize;
-                    if scope_len != 4 + pieces * (18 + 4 * arity) {
+                    if pieces > MAX_RESIDUAL_PIECES || scope_len != 4 + pieces * (18 + 4 * arity) {
                         return Err("G2' scope length".into());
                     }
                     let mut out = Vec::new();
@@ -606,11 +627,13 @@ impl AnchorMap {
 pub(super) struct MergedView {
     /// `(bucket, id, merge epoch, lent scope)` in merge order.
     entries: Vec<(u32, u32, u64, Lent)>,
+    by_id: std::collections::HashMap<u32, u64>,
 }
 
 impl MergedView {
     pub fn push(&mut self, bucket: u32, id: u32, epoch: u64, lent: Lent) {
         self.entries.push((bucket, id, epoch, lent));
+        self.by_id.insert(id, epoch);
     }
     /// Anchors a job dispatched at `v0` may use: merged at an epoch <= v0.
     #[cfg(test)]
@@ -622,9 +645,7 @@ impl MergedView {
     }
     /// P1's presence check: `id` is in the view at version `v0`.
     pub fn contains(&self, id: u32, v0: u64) -> bool {
-        self.entries
-            .iter()
-            .any(|entry| entry.1 == id && entry.2 <= v0)
+        self.by_id.get(&id).is_some_and(|&epoch| epoch <= v0)
     }
     pub fn len(&self) -> usize {
         self.entries.len()
