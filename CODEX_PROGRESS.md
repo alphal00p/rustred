@@ -49,12 +49,12 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | standalone gates delivered; combined native regressions found two defects | joint_support_pruning | Fix zero-work activation persistence and verifier phase validation; rerun before campaign controls |
-| Rescue and explicit query roles | source delivered; native gates pending | bounded_helpers_bmw | Audited `3dac8aef`; validate in combined native build |
-| Independent math/code audit | native defects diagnosed; corrective review active | checkpoint_final_audit | Re-audit activation durability, exact root phases and strengthened regressions before release |
+| G2′ integration | standalone gates delivered; corrected combined optimized build active | joint_support_pruning | Run corrected focus/full suite before campaign controls; retain first failed receipts |
+| Rescue and explicit query roles | source delivered; combined native gates pending | joint_support_pruning (integration; original author bounded_helpers_bmw) | Complete exact-role, activation and quarantine execution gates at `d12db6cf` |
+| Independent math/code audit | combined corrective source passed; epoch writer review active | checkpoint_final_audit | Audit bounded writer independently; verify execution receipts before release |
 | Combined G2′ + rescue | corrections source-audited/typechecked; native rerun pending | joint_support_pruning + root + independent auditor | `d12db6cf`; preserve failed first receipts, rerun corrected optimized suite then campaign gates |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | preparatory merge typecheck found two source seams; corrections active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Fail closed for G2 stats, update obsolete role fixture; internal S3 writer next, S4–S6 pending |
+| Epoch S3–S6 | internal bounded writer committed/source-audited; publication slice active | epoch_s3_delivery, checkpoint_final_audit (independent review) | Frozen `2cc3710d` awaits consolidated typecheck; atomic publication/restore/stop gates and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | pending | research/implementation | Audit Symbolica and exact decision semantics |
 | N4 coverage-first work | pending | research/implementation | Preserve denominator/guard/frontier obligations |
@@ -62,6 +62,8 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Memory / checkpoint / NUMA | pending | profiling lane | Measure process-local opportunity without host-wide changes |
 | New algorithms / literature | census delivered; narrow coalescing parked | work_reduction_research + checkpoint_final_audit | Reopen only with post-G2 miss-cohort evidence; backward covers deferred |
 | Closed-descendant query witnesses | parked after negative census; independently reproduced | checkpoint_final_audit; independent critique by joint_support_pruning | Reopen only on post-G2/rescue evidence of earlier exact closed-descendant coverage |
+| Required-scope versus broad-helper dependencies | source audit delivered; no optimization activated | checkpoint_final_audit + root | Whole-helper dependency granularity confirmed; net work benefit unmeasured; independent finite-query closure needed before reopening earlier negative approaches |
+| I1 L*-helper input variant | deferred, not rejected | root + independent research/measurement lane | Revisit only after in-run rescue passes combined gates and a fresh matched probe shows net runtime benefit; preserve all 116 required queries |
 | Earlier rejected levers | deferred | root | New evidence required; retain prior negative results |
 
 ## Decisions in force
@@ -79,6 +81,96 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 03:15 UTC — first S3 implementation slice committed locally
+
+- [M] Independently audited internal writer is committed as
+  `2cc3710d1e7a83e1df6ff1ce45eae8e77db6933a` on `codex/epoch-s3-lc2`.
+  Five explicit paths; worktree/vendor clean. Audit added independent refusal
+  of residual-G2 flags and exact equality of in-flight and saved lockstep
+  versions. Geometry, reservation and I/O fault regression sources are present.
+  No native/typecheck result for this slice and **no public CP6 resumability**.
+- Reservation validation costs O(N + R*U + B²): ledger length N, all queued/
+  in-flight descriptors R, occupied 65,536-ID windows U, in-flight bound B.
+  Deferred/requeue counts are not capped by B. Fixed scratch does not imply
+  bounded save latency; eventual tests must cover scattered large retry queues.
+- Preserve this validation checkout frozen. Author will continue the next
+  internal publication/metadata slice separately, with independent review;
+  resume stays refused until full restore and stop gates pass. The corrected
+  G2′ full native gate has priority, then a brief epoch typecheck, then the
+  matched-profile G2′ campaign executable and its unchanged CLI tests.
+- W1 interruption design is being audited against actual Symbolica licensing
+  APIs. Caller-thread fault injection is only a test seam, but unlicensed
+  Symbolica retains a real thread-local permit. Do not infer safe thread
+  handoff or introduce a second checkpoint authority without that audit.
+- The required-scope/helper finding and its prior negative evidence are now
+  recorded in `docs/research/codex_next_candidates_2026-09-29.md`; full local
+  source references remain in the scope-alignment audit note. No new helper
+  experiment, production change or campaign-switch recommendation.
+- Independent documentation review caught an important historical distinction:
+  I1 was provisional with its stated criteria met, whereas I1b was dropped.
+  Corrected the draft rather than treating both as rejected. Existing owner
+  decisions explicitly allow I1 reconsideration once in-run rescue exists and
+  a probe shows net runtime benefit. Combined rescue gates are not yet green;
+  retain I1 as a conditional follow-on, not an automatically enabled change.
+
+### 2026-09-29 03:07 UTC — scope mismatch understood; bounded writer under review
+
+- [M] Independent source audit confirms that admission can map a finite
+  required query directly to a wider helper. Recursive closure then requires
+  all of that helper's outgoing dependencies, not only a demand-restricted
+  slice. Initial-overlap and G2′ save local inspection work but retain whole
+  anchor dependencies. This is conservative extra work, **not false closure**.
+  One frozen example is `owner-anchor-r6-anone-000011001001011` versus its
+  required `conv-d10-a16-r6` query: the latter also bounds A and fixes D.
+- Do not reopen bounded-helper or piece-certification changes on that source
+  observation alone. Earlier all-A-bounded helpers cost 3.93–15.73x the traversal
+  time on four-loop controls, I1b was dropped after negative results, finer pieces cost about
+  1.57x, and the closed-descendant census found zero earlier witnesses. A future
+  small falsifier must close an unchanged finite query independently of the
+  open broad helper, with exact replay and the extra solve cost charged.
+- [M] `epoch_s3_delivery` has written the first internal section writer and
+  structural merge-boundary checks; `checkpoint_final_audit` is reviewing it.
+  It uses fixed-size scratch and incremental hashing, preserves dispatch
+  ordering and in-flight descriptors, and refuses poisoned state. These files
+  have no runtime caller or resumable manifest yet. Native execution remains
+  pending; publication/restore/save-before-join are still required.
+- Root review flagged the bounded-memory reservation check's potentially
+  superlinear time for large scattered retry queues. The author and auditor
+  will assess it before this becomes a production save path. Bounded memory
+  alone is not sufficient performance evidence. Restore must also preserve
+  historical orthant slots separately from the live lookup index; no CP5
+  full-edge-vector reconstruction should be silently reused.
+- [M] At 03:04:31 the corrected G2′ compiler was live (PID 2325595, about
+  804 s elapsed, 40 GiB RSS) with no reported errors. Compilation continues
+  as the sole owned heavy job; no candidate timing or deployment claim yet.
+  LC2 remains untouched, and pending-growth rendering/calculation is unchanged.
+
+### 2026-09-29 02:56 UTC — epoch source correction reviewed; S3 writer started
+
+- [M] Epoch's two failed typecheck seams are corrected locally in
+  `d5b05629`, following baseline `25f41db5`. Unsupported `ApplyG2` statistics
+  now produce an engine-fatal protocol error with `panic=false`, not a caught
+  panic that would become retryable C3. The regression covers error encoding,
+  decoding and classification, including an earlier retryable error. The
+  role fixture names its exact required/auxiliary IDs; geometry and prior
+  assertions are unchanged. Independent source audit passed; no new compile
+  or execution result yet. The original failed check is retained.
+- The auditor additionally caught private-method access in the new regression
+  before another compilation. Author corrected it using the existing persisted
+  error-tag convention. Do not equate this source review with a passing native
+  test or typecheck of the corrected code.
+- `epoch_s3_delivery` is implementing the first internal bounded checkpoint
+  writer and borrowed merge-boundary validation, with separate independent
+  audit. It will stream sections rather than clone/serialize a whole state.
+  Sequence/session identity, exact queued/reserved/in-flight accounting and
+  poison checks are explicit obligations. This first internal slice does not
+  advertise a public resumable checkpoint; atomic publication, restore and
+  save-before-join wiring remain subsequent required slices.
+- [M] Root revalidated the priority corrected G2′ release compiler as a live
+  process at 02:56:28 (PID 2325595, parent 2320260), with no reported errors.
+  It remains the only owned heavy job. Main docs are pushed at `9f13cccb`;
+  no production intervention and no fresh performance pilot.
 
 ### 2026-09-29 02:51 UTC — corrected native retry running; other lanes isolated
 

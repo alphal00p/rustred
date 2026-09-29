@@ -220,3 +220,63 @@ edges, making the prefix calculation exact for this no-rescue Ordered trace.
 This is not post-G2/rescue evidence or a universal negative theorem. Reopen
 only if such a later immutable control shows useful earlier witnesses. No
 additional scanner or scoped early-stop mechanism is justified by this test.
+
+### Scope-alignment source audit
+
+Independent audit at combined integration commit `d12db6cf` confirms a
+conservative granularity mismatch: initial containment may represent finite
+query Q by broader helper H's ID, and the closure graph then requires all of
+H's outgoing obligations. Exact G2 lending restricts local inspection, but
+its dependency edge still names the whole anchor. Declaring the 116/67 role
+partition does not by itself create a separate demand-restricted Q node.
+This delays some possible scoped proofs; it does not authorize false closure.
+
+The current first-owner example pairs rank-only
+`owner-anchor-r6-anone-000011001001011` with required
+`conv-d10-a16-r6-000011001001011` (A<=16, R<=6, D=10).
+Source: `walking/{queue,descendant_closure,execution,rescue,verify_closure}.rs`
+under `crates/rustred-app/src/application/routed_campaign/`. The full audit
+and precise line references are retained in
+`TMP/codex-integration/scope-alignment-audit-2026-09-29.md`.
+
+This finding does **not** reopen the earlier failed helper/piece changes:
+all-A-bounded helpers took 3.93–15.73x the traversal time on four-loop controls
+(`four_loop_helper_bounds_2026-09-25.md`), I1b increased matched five-loop
+pending work by 1.40–1.44x in censored runs
+(`fable51_w0_inputs_2026-09-27.md`), and finer piece certification cost
+1.57x the native seconds while missing two roots
+(`fable51_w0_wv_2026-09-27.md`). Nor does it overturn the negative H census.
+
+Reopening requires a representative unchanged finite Q to close independently
+of its still-open H, retaining all generated obligations and exact replay.
+Charge that additional solve and bookkeeping. A Q-only run that merely maps
+back to H or explores the same open cone fails the falsifier. No such new
+experiment has been run; no production input or campaign should be changed
+on the strength of this source observation alone.
+
+## 7. Conditional reopening: I1, distinct from rejected I1b
+
+I1's historical status is **provisional, not rejected**. It makes the selected
+L* helper owners A-unbounded, to improve absorption; it is not the failed I1b
+larger-finite-A experiment. `fable51_w0_inputs_2026-09-27.md` section 7 records
+its stated criteria met and independent verifier passes on the old baseline.
+The formal fresh L*-only gate and rank/mask escape guard remained open.
+`HANDOFF_FOR_ASTRA.md` and `TMP/progress/orchestrator_decisions.md` explicitly
+defer shipping until in-run rescue exists **and** a probe shows net runtime
+gain. The new rescue integration may eventually satisfy the first condition;
+its native gates are still pending and the second condition is unmeasured.
+
+Historical single 54-minute probes are not current deployment evidence:
+`fable51_w0_results_2026-09-27.md` reports noisy wall/native ratios, lower
+pending pressure, and higher edge counts. Do not multiply their effects by
+G2's gains or equate matched-native snapshots with whole-campaign improvement.
+
+Smallest follow-on after combined rescue validation: a fresh temporary input
+variant retaining all 116 required geometries exactly, explicitly declaring
+helper changes, with the necessary rank/mask escape guard and a tested bounded
+rescue. Start with BMW/four-loop controls and an appropriate finite five-loop
+case; assess the G2-enabled combination separately under the same <=30-minute
+pilot ceiling. Measure additional edges, helper/rescue overhead, total work,
+wall and memory. Unknown escapes stop explicitly; never truncate descendants.
+Absent net benefit, or with an unhandled escape/ambiguous rescue, keep I1 off.
+No input variant, guard, pilot or production change is implemented by this note.
