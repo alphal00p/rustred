@@ -44,7 +44,24 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Work ownership and backlog
+## Current shortened-delivery ownership — 2026-09-29 14:15 UTC
+
+This table supersedes the older lane assignments below; those remain historical
+evidence, not a claim that the new parallel implementation has passed its gates.
+
+| Work | Status | Responsible lane | Next executable step |
+|---|---|---|---|
+| Compatible Stage A executable | active | `stage_a_release`, root independent review | Isolated optimized build at final link; then actual copied FG248 pause/upgrade/resume/cold control, freeze and push |
+| Rolling Epoch controller and lookup replicas | active | `epoch_rolling_impl`, root review | Finish controller/oversized-cut/replay tests; integrate and run native checks |
+| Fresh CP6 G2 Union | delivered source; validation active | `epoch_g2_rescue_impl`, root review | Integrated `714970bc`; execute real save/restore/cold tests |
+| CP6 rescue and required scope | active | `epoch_g2_rescue_impl`, root/rolling critique | Explicit Abandoned tag, quarantine/new representatives, immutable roles, accepted dependency preservation |
+| Adaptive dispatch | delivered source; integration active | `stage_a_release`, root independent review | Integrated `6eceea28`; wire successful-publication observations and execute native/pilot tests |
+| CLI/Python policy surfaces | delivered source; native validation pending | root, independent review by other lanes | Rolling/adaptive steering has100 passing Python tests; native compilation and end-to-end checks remain |
+| Algebraic input/pivot ordering review | delivered | `stage_a_release`, root | Retain natural saved programs; no qualified replacement. Reopen only with the documented small prescreen |
+| Matched performance and deployment | pending | root, independent interpretation audit | Freeze integrated source; matched current-G2 legacy comparisons and cold controls; no speedup claim yet |
+| NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
+
+## Earlier work ownership and backlog (historical)
 
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
@@ -86,6 +103,24 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 14:15 UTC — adaptive review and integration
+
+- [M] Root independently reviewed the complete bounded adaptive implementation,
+  candidate conservation, retry precedence, oldest-job fairness, score arithmetic
+  and checkpoint/restore validation. Source review passed; its ten new focused
+  native tests have not run yet. `e499e531` is integrated as `6eceea28`, preserving
+  both rolling cut/window metadata and adaptive state. The public interface is
+  `53db3b35`; rolling-controller observations are still being connected.
+- [M] Stage A's application library compiled without errors; final executable
+  link/LTO remains active. The production campaign remains untouched. No ready
+  announcement or performance claim precedes actual compatibility checks.
+- [M] Root reviewed the rolling controller draft's bounded sequence cuts,
+  concurrent immutable lookup leases, partial replay handling and stop path.
+  Oversized publication cuts use a quiescent path rather than a mathematical
+  truncation; this and late quarantine require native regressions before release.
+- [M] New unrelated `CITATION.cff` is present at root and is preserved unstaged,
+  alongside previously recorded user changes.
 
 ### 2026-09-29 14:06 UTC — G2 integration and concurrent adaptive dispatch
 
