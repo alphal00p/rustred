@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 18:23 UTC
+## Current shortened-delivery ownership — 2026-09-29 20:24 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,13 +52,13 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | native tests passed; optimized CLI building | original `epoch_rolling_impl`; validation `stage_a_release`, root | Full core PASS; final app execution has1,116 passes and one separately corrected cold-reader failure; matched performance remains pending |
-| Fresh CP6 G2 Union | native cold/resume tests passed | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | Actual W1 lockstep Union and other G2 tests passed; final CLI lifecycle and timed controls remain |
-| CP6 rescue and required scope | final reader correction audited; optimized regression pending | root narrow fix; independent `stage_a_release` | `d40c1b76` corrects protected-prefix accounting after amendments; preserved failing checkpoint will exercise actual final CLI, without claiming a rerun of the complete suite |
-| Adaptive dispatch | integrated and reviewed; pilot pending | author `stage_a_release`, root independent review | Successful-publication observations wired; final native and matched adaptive pilots remain |
-| CLI/Python policy surfaces and monitoring | Python PASS; final native validation pending | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Full Python310 PASS/one optional slow skip; final CLI lifecycle checks await optimized binary |
-| Algebraic input/pivot ordering review and experiments | review delivered; bounded pilot preparation active | `bounded_ordering_pilots`, root; prior review `stage_a_release` | Same-binary helper-first four-loop comparisons and a small coordinate-priority prescreen; no broad generation sweep |
-| Matched performance and deployment | prepared, not executed | root, independent `stage_a_release` interpretation audit | 28 planned arms (including repeats/adaptive/optional W50); explicit combined4L parity and five-loop1.5x gates; no speedup claim |
+| Rolling Epoch controller and lookup replicas | compiled; lifecycle gates pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Frozen optimized `e1bdb9e7`; diagnose extra Route work before launch qualification |
+| Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
+| CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
+| Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
+| CLI/Python policy surfaces and monitoring | final lifecycle and Python checks pass | root/`epoch_rolling_impl`, independent `stage_a_release` audit | Python310 PASS/one optional slow skip; M1–M4 actual CLI checks pass |
+| Algebraic input/pivot ordering review and experiments | delivered | `bounded_ordering_pilots`, root; prior review `stage_a_release` | Natural/reverse both certify and cold-load; natural faster on tested sub-root. Helper-first combined experiment censored unfavorable; retain production inputs |
+| Matched performance and deployment | active; combined four-loop parity fails | root, `bounded_ordering_pilots`, independent `stage_a_release` | Cut1 runtime falsifier next; inspection-width tuning rejected. No production launch or claimed speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -103,6 +103,114 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 20:24 UTC — negative tuning result; ordering study completed
+
+- [M] The fixed-inspector8 combined-control probe passes full cold closure
+  but takes12.265+19.248647 =31.513647s, with31,555 Route inspections versus
+  default31,558. This falsifies the proposed flight-width remedy. Stop that
+  tuning avenue. Receipt: `TMP/codex-stage-a.2RU3AX/four-all-inspection8-result.json`.
+- [M] FIFO/adaptive combined pair passes both cold checks but favors FIFO:
+  26.876557s versus30.067674s; CPU126.284974 versus150.855744s. One pair,
+  not an optimal-policy claim. Adaptive remains opt-in.
+- [M] Public natural/reversed coordinate experiments both generate, certify
+  and cold-load the same64-sector four-loop sub-root and the same19 terminals.
+  Full guarded stage sums29.614053 versus42.617902s; reverse has fewer rules
+  but roughly4x larger candidate payload. Retain natural production owners;
+  no claim about an optimal five-loop permutation. Full measured report:
+  `TMP/codex-ordering-study.7nspU4/COORDINATE_RESULTS.md`.
+- [D] Authorized one fresh existing-binary cut1 diagnostic, planSHA256
+  `0f8500efd082a0dfaf4c7f9f8d9d3056e6a882f53a1cc72a1a4b32808bb57dad`,
+  in `TMP/codex-ordering-study.7nspU4/cut1-falsifier/`. It removes cross-job
+  antichain folding but also changes window31 to16; do not over-isolate the
+  interpretation. `RUSTRED_EPOCH_LOCKSTEP_B=1` is research-only, stripped by
+  production steering. No deployment advice follows directly from this probe.
+- [E] Independent source audit warns that simply grouping antichains per
+  origin would retain contained candidates that Ready can suppress/alias
+  incrementally. No source implementation is authorized before this diagnostic.
+- [M] Integrated and pushed colleague commit `87135a91` (Symbolica compatible
+  version/citation use) through merge `87fbf6ee`, preserving unrelated files.
+  This changes no measured engine source; frozen executable still identifies
+  its actual source `e1bdb9e7`, not the documentation/metadata merge.
+- [D] The tentative delivery reserve expires20:25. Performance qualification
+  is not complete. Continue the narrow correction/test path rather than stop
+  at a failed gate or quietly weaken the user's acceptance criterion. LC2 is
+  untouched; draft launch instructions are explicitly **not ready**.
+
+### 2026-09-29 20:02 UTC — repeated four-loop parity not met; bounded diagnosis
+
+- [M] Preserve P2 and ReadyA2 both pass complete cold checks on the unchanged
+  scope. P2 native12.067+cold18.221326 =30.288326s; ReadyA2 native9.227
+  +cold14.227097 =23.454097s. Together with pair1, this does **not** meet the
+  combined four-loop parity gate. CPU149.493892s versus113.112375s also favors
+  Ready. Retain the negative, not a claim that higher worker activity suffices.
+- [M] Work differs: Epoch consistently saves51,139 domains and31,724 ordinary
+  native records; Ready saves66,765/66,519 domains but only24,319/22,499 such
+  native records. Cold reinspection dominates the total gap. Fewer domains is
+  not synonymous with less expensive inspection work.
+- [M] H1 saved/stopped without a kill: native168.296s, CPU415.728836s,
+  tree RSS1,818,664,960B;1,670,241 admitted domains,1,659,458 committed,
+  10,783 pending. Its accepted-status adapter correctly refuses this censored
+  result. Checkpointgen1 remains resumable; H2 stays unexecuted. This rejects
+  the ordering candidate on unfavorable measured lower bounds, not on a false
+  mathematical-closure failure.
+- [D] Granted the preregistered fresh FIFO/adaptive combined pair22/23. A
+  separate ten-minute read-only implementation audit by `stage_a_release`
+  investigates the extra native work and any narrowly justified existing
+  runtime control. No new CAS, architectural expansion or source patch is
+  authorized by that audit. Final launch remains unqualified until the
+  requested performance gate is actually satisfied.
+
+### 2026-09-29 19:56 UTC — ordering falsifier reached; preserve the negative
+
+- [M] First combined58-row/W16 engine pair passes cold-All on both sides:
+  32 distinct roots covering all58 unchanged required rows. Ready10.536s
+  native+16.238391s cold =26.774391s; rolling FIFO11.514+18.206928
+  =29.720928s. The first short pair is about11% slower with Epoch; do not
+  label it parity or a performance-gate PASS. Repeats remain necessary.
+- [M] The fixed helper-first H1 candidate reaches approximately497,493
+  committed domains at47s, against preserve P1's final51,139 domains and
+  completed native11.514s. These are already unfavorable lower bounds, not
+  completed H1 timings or a closure claim.
+- [D] Root requested an ordinary cooperative save/stop of this owned H1 pilot,
+  preserving its incomplete output and censoring reason. Reject that input
+  ordering for this control; leave H2 unexecuted rather than spending another
+  run on the same falsified candidate. Continue original indices10/11 (P2,
+  ReadyA2) after drain to finish the independent engine comparison. No query
+  is removed and no acceptance threshold or runtime cap is relaxed. The
+  negative four-loop result does not by itself prove a better five-loop order.
+
+### 2026-09-29 19:49 UTC — first matched FG pair completes; combined control allocated
+
+- [M] FG W6, same frozen executable and query bytes: Ready native16.666s plus
+  cold12.208339s =28.874339s; rolling FIFO native17.714s plus cold9.212155s
+  =26.926155s. Both independently verify248/248 required roots with no
+  violations; Epoch's existing CP6 adapter accepts the unchanged checkpoint.
+  Saved domains: Ready98,842; Epoch98,800. The1.07235x ratio is descriptive
+  for this single noisy pair, not deployment-speed qualification. No censoring
+  or resource stops; read-only independent interpretation audit is assigned
+  to `stage_a_release` in addition to root's raw-receipt review.
+- [D] Granted combined4L block8,9,28,29,10,11 next, preserving the registered
+  engine-pair and PHHP query-order sequence, all58 original required rows and
+  W16/CPUs32–47. Each arm retains complete native/cold/audit verification and
+  its whole-pilot ceiling. Remaining individual and five-loop controls stay
+  pending; the first pair does not establish their behavior.
+
+### 2026-09-29 19:46 UTC — safety milestone pushed without overwriting colleague work
+
+- [M] First push of safety documentation `558f6f5e` was rejected because the
+  remote had colleague commit `87135a91` (Symbolica3.0.1 compatibility and
+  citation/FeynKit usage tracking). Integrated it with a clean two-parent
+  merge `87fbf6ee`, then pushed successfully to `origin/fable_5_1_parallel`.
+  No force push. Root verified the three affected working files retain their
+  exact pre-integration byte hashes; further uncommitted FeynKit documentation
+  remains uncommitted and preserved. Reference-only/untracked work untouched.
+- [M] The merged tree has zero change from frozen `e1bdb9e7` in Cargo.lock,
+  rustred-app, rustred-core and the Symbolica gitlink. The immutable optimized
+  binary and all measurement inputs/tools are unchanged; no recompile or
+  relabelling of its actual build revision is needed. FG measurement continues
+  on the previously bound binary. Push success is a safety milestone, not a
+  declaration that the performance/deployment gates have passed.
 
 ### 2026-09-29 19:43 UTC — final lifecycle gates passed; matched FG begins
 

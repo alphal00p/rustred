@@ -1,7 +1,8 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
-Status: **implementation and final-binary lifecycle gates passed; matched
-performance gates running**. This is not yet a production-launch recommendation. Follow
+Status: **implementation and final-binary lifecycle gates passed; combined
+four-loop performance gate not met**. A bounded merge-work diagnosis is in
+progress. This is not a production-launch recommendation. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
 `codex_astra`, using disjoint resources, not a replacement of the current run.
@@ -115,10 +116,12 @@ Python can automatically resume with a rescue amendment.
   with cold-All248/248. Cold reads do not mutate checkpoints; workers drain.
   Shared formatter behavior is exercised through real non-TTY events; this
   is not a claim that an interactive TTY was tested end to end.
-- Matched controls: prepared and independently checked; first FG pair running. Required
+- Matched controls: prepared and independently checked; FG and repeated combined
+  four-loop comparisons have completed, as detailed below. Required
   scopes are FG, BMW, H, X, combined four-loop, finite five-loop and hot-sector.
   Both sides use the same future optimized binary and the same query bytes.
-- Adaptive comparisons: pending; no benefit claimed.
+- Adaptive comparisons: one complete combined four-loop pair favors FIFO;
+  no adaptive benefit claimed. Finite/hot five-loop comparisons remain pending.
 - Combined four-family physics-capped performance is an explicit acceptance
   gate: repeated matched verified-closure runs must be faster or on par with
   current optimized Ready+Union. Inconclusive measurements are not a pass.
@@ -142,3 +145,35 @@ increased worker activity.
 Current evidence and exact commands live in `CODEX_PROGRESS.md`. This report
 will receive actual native results, optimized executable identity, matched
 measurements and tested fresh-launch instructions before final delivery.
+
+### Matched measurements and current blocker
+
+The same executable, query bytes, owner programs, CPU placement and worker
+budget are used on both sides. Times below include native command plus the
+same-scope independent cold reinspection, but not compilation.
+
+| Control | Ready + Union | Rolling FIFO + Union | Interpretation |
+| --- | ---: | ---: | --- |
+| FG, W6, first pair | 28.874 s | 26.926 s | One descriptive pair; not a deployment gate |
+| Combined four-loop, W16, pair 1 | 26.774 s | 29.721 s | Epoch slower |
+| Combined four-loop, W16, pair 2 | 23.454 s | 30.288 s | Epoch slower |
+
+All completed arms independently passed their full cold closure checks. Yet
+Epoch's fewer saved domains do not imply less work: the combined FIFO arms
+save 51,139 domains and perform 31,724 ordinary native inspections, versus
+66,765/66,519 domains and 24,319/22,499 ordinary inspections for Ready. The
+extra Route work also raises cold-verification cost. This is a failed parity
+gate, not a speedup justified by memory or worker activity.
+
+A preregistered runtime falsifier reduced Epoch's inspectors from 15 to 8
+within the same W16 budget. It completed correctly but took 31.514 seconds,
+with 31,555 Route inspections versus 31,558 at the default width. This does
+not support further flight-width tuning. The next narrowly scoped diagnostic
+tests publication-cut grouping without a rebuild; no source remedy or gain
+has yet been established.
+
+The final optimized executable's lifecycle evidence remains valid despite
+this negative performance result. Launch instructions remain explicitly
+unqualified until the requested combined four-loop gate passes. Individual
+BMW/H/X and finite/hot five-loop timed arms have not yet run; mechanical W50
+tests are not a substitute for a measured W50 campaign.

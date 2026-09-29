@@ -1,9 +1,10 @@
 # Ordering review for the first parallel delivery
 
-This bounded review uses existing local receipts and source, not a new ordering
-experiment. `stage_a_release` performed the independent review while its stable
-build ran; root checked the findings and their limitations. Full working note:
-`TMP/codex-stage-a.2RU3AX/algebraic-input-order-review.md`.
+The initial source review by `stage_a_release` has now been followed by actual
+optimized, input-driven experiments by `bounded_ordering_pilots`. Root reviewed
+the scope and interpretation. The original review is retained at
+`TMP/codex-stage-a.2RU3AX/algebraic-input-order-review.md`; measured evidence is
+under `TMP/codex-ordering-study.7nspU4/`.
 
 ## Recommendation
 
@@ -12,6 +13,58 @@ delivery. There is evidence that algebraic ordering changes both expression
 size and exceptional geometry, but no completed, validated alternate five-loop
 library qualifies a replacement. Test adaptive pending-job dispatch separately;
 it cannot change the algebraic pivots in already generated programs.
+
+## New optimized experiments — 2026-09-29
+
+All experiments used the same campaign-profile executable from `e1bdb9e7`,
+SHA256 `b5bd346cd9bfa925a4324031660cb3b2993e23c11f1e53765cb6758b87d9d95c`.
+Changing inputs, coordinate order or dispatch did not require recompilation.
+
+### Algebraic coordinate priority
+
+The public generator was run on the fixed common-four-loop sub-root
+`0111100110`, with nonpositive indices `0,5,6,9`, sparse backend and search
+depth two. Natural and reversed coordinate priorities both completed exact
+certification and cold loading. They cover the same 64 support sectors
+(19 nonzero and 45 zero) and exactly the same 19 terminal keys. Neither arm
+clips rank or adds terminals. This is a sub-root experiment, not proof about
+the full five-loop library.
+
+| Measurement | Natural | Reversed |
+| --- | ---: | ---: |
+| Solver core, seconds | 1.610 | 4.580 |
+| Generation + certification + cold process wall, seconds | 29.614 | 42.618 |
+| Generated rules | 1,746 | 1,315 |
+| Unique coefficients | 3,754 | 11,350 |
+| Candidate bytes | 1,821,243 | 7,365,398 |
+| Certified artifact bytes | 36,226,562 | 40,383,636 |
+
+One pair favors natural order: fewer reversed-order rules did **not** mean
+less algebra or faster completion. It establishes neither an optimum nor a
+general five-loop speedup. All six generation/certification/cold commands
+completed without timeouts. `COORDINATE_RESULTS.md` and
+`coordinate-results.json` retain exact commands, phase times, CPU, RSS and scope
+comparisons. No production owner program was replaced.
+
+### Initial query ordering and adaptive dispatch
+
+The combined four-loop control retains all 58 required rows and 16 owner
+programs. Reordering the same rows to put broad helpers first was unfavorable:
+the unchanged-order run completed with 51,139 saved domains in 11.514 native
+seconds; the helper-first experiment had already committed approximately
+497,493 domains after 47 seconds. A cooperative save/stop was therefore
+requested. It stopped after 168.296 native seconds with 1,670,241 admitted
+domains and 10,783 pending. That arm is **censored**, not a completed timing
+or a claim of failed mathematical closure. Its checkpoint is retained and the
+second planned helper-first arm was not run. The existing five-loop query
+layout is already helper-first; this result does not license rearranging it.
+
+On a separate complete combined-control pair, rolling FIFO took 26.877 seconds
+including independent cold verification, versus 30.068 seconds for adaptive
+dispatch. Both passed the same complete closure check. This single pair shows
+no adaptive benefit and leaves adaptive dispatch opt-in. It does not prove
+FIFO best for every workload. Exact receipts: `COMBINED_RESULTS.md` and
+`combined-results.json` in the same evidence directory.
 
 ## What is currently selected
 
