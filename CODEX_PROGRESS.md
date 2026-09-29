@@ -104,6 +104,67 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 ## Event log
 
+### 2026-09-29 20:35 UTC — minimal indexed-verifier slice audited and typechecked
+
+- [M] Integrated `89d90a3a` (author commit `6610454a`): the only production
+  change is the existing target-index threshold256→16 and its explanation.
+  Three focused differential tests cover boundary sizes, empty/different-owner
+  cells, phase isolation, corrupt/missing index hints, genuine containment,
+  alias-only coverage and missing/broken target edges. No walker, CAS, schema,
+  global counter or brute-force predicate change.
+- [M] Independent source/math audit by `parallel_gate_critique` and root passes.
+  The final alias fixture uses a valid subset-to-superset alias. Index hints
+  remain non-authoritative and every accepted cover passes the same exact
+  containment predicate. Candidate counters may fall; mathematical obligations
+  and admitted-event counts must not.
+- [M] Cached `cargo check --release --tests --locked --offline --config
+  profile.release.package.rustred-app.opt-level=1 -j1 -p rustred-app` passes
+  in46.181s (Cargo42.90s). Receipt:
+  `TMP/codex-parallel-validation.RPJKV5/typecheck-6610454a-index16/`.
+  The new tests are **typechecked, not executed**; no expensive full test-binary
+  code generation was run. Actual optimized CLI cold and mutation execution
+  is the next gate, not a claim that typechecking is testing.
+- [D] `bounded_ordering_pilots` owns the next optimized build using the same
+  absolute StageB source/cache path and campaign profile. Preserve the e1
+  source and frozen binary, update to89d90a3a and record actual Cargo freshness.
+  No dependency fingerprint override. The revision also includes the previously
+  disclosed package/citation merge, not merely the two verifier files.
+- [D] Reuse the established matched matrix and controls, new output paths
+  under `TMP/codex-verifier16-matrix.0xtHE0/`. First repeat combined Ready/FIFO
+  pairs. Hot remains its original W12, finite W16 and optional finite W50;
+  do not silently relabel resource widths. LC2 remains untouched.
+
+### 2026-09-29 20:32 UTC — batch hypothesis rejected; narrow verifier fix authorized
+
+- [M] Cut1 completed and passed cold-All on every58 required input,32roots
+  and54,676domains. Native14.244+cold17.225401 =31.469401s; Route count31,547
+  versus31,558 at cut16. It does not cure the extra Route work; stop this
+  tuning avenue and do not implement speculative per-origin antichains.
+  Receipt: `TMP/codex-ordering-study.7nspU4/cut1-falsifier/RESULT.md`.
+- [M] Newly available independent critic `parallel_gate_critique` identified
+  a separate measured cost: combined Epoch cold verification performs127.8M
+  exact containment calls and99.5M brute-force cross-checks, versus94.4M/71.2M
+  for ReadyA2. Its native-seconds counter includes coverage callbacks, not
+  pure physics. Preparation costs match; reinspection causes the wall gap.
+- [M] Existing TargetIndex is used only at256 targets. The saved Epoch
+  census finds28,738 Route records with16–255 distinct targets, emitting
+  875,348 routed admits. This is approximately83% of routed admits, all
+  currently below the index threshold. Each record's event count equals its
+  distinct target count, so last-target locality is poor in these records.
+- [D] Authorize one minimal generic correction: use the existing candidate
+  index at16 targets, with focused differential tests. `stage_a_release`
+  implements; `parallel_gate_critique` and root audit independently. Preserve
+  exact containment, eligible brute checks, complete reference reinspection,
+  full-scan/alias fallbacks and all mathematical authority. This changes
+  candidate ordering only, not the walker, input scope or artifact schema.
+- [D] No thread-local-counter redesign or additional CAS work. Retain all
+  negative receipts. Rebuild once after review and compare Ready/Epoch using
+  the **same** updated verifier; no speedup is claimed before measurements.
+  `bounded_ordering_pilots` prepares cache reuse and remaining existing
+  controls, without starting a competing build or production job.
+- [M] Documentation/ordering/explicitly-unqualified launch milestone pushed
+  as `1374eb85`. Production remains untouched.
+
 ### 2026-09-29 20:24 UTC — negative tuning result; ordering study completed
 
 - [M] The fixed-inspector8 combined-control probe passes full cold closure
