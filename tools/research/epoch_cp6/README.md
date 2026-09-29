@@ -21,12 +21,14 @@ directory. Paths are absolute. The plan fields are:
 | Fields | Meaning |
 | --- | --- |
 | `contract` | Exactly `rustred.epoch-cp6-control.v1`. |
-| `mode`, `b` | `all-miss` or `snapshot`; positive lockstep B at most4096. |
+| `mode`, `b` | `all-miss` or `snapshot`; positive saved flight bound at most4096. Historical plans use lockstep B. |
+| `schedule` (optional) | Exact current summary object: `kind`, `depth`, `b`, `window`, `cut_size`, `publication_order`, `dispatch`. Required for current extended reports; absent means the historical exact `{kind:lockstep,depth:1,b:B}` receipt, not an inferred rolling mode. |
+| `g2`, `checkpoint_schema` (optional) | Frozen run policy `off` (default) or `union`; expected CP6 manifest/summary schema1 (historical default) or2 (current build). The native cold reader authenticates scalar schema3; this adapter does not decode payloads. |
 | `run`, `checkpoint` | Fresh output directory and its `checkpoint` child, as produced by the historical runner's rewrite. |
 | `queries`, `queries_sha256`, `queries_blake3` | Frozen actual query file with explicit required/auxiliary roles; SHA256 and BLAKE3 of its exact bytes. Obtain BLAKE3 using an existing trusted tool/library, not a new hash implementation. The adapter derives role counts from the file. |
 | `binary`, `binary_sha256` | Frozen, already validated executable; no build/upgrade in this adapter. |
 | `native_argv`, `native_cwd` | Complete expected **post-rewrite** argv and cwd. Include explicit mode, Epoch, checkpoint, queries, output, events, stop-file and all original mathematical/resource options. |
-| `runner_argv` | Arguments to the unchanged `tools/research/w1_g2prod/run_arm.py`, without script name. Use `--command` with a frozen template containing explicit mode, `--policy epoch`, `--g2 off`, exact output/CPU/worker/lock/limit options. |
+| `runner_argv` | Arguments to the unchanged `tools/research/w1_g2prod/run_arm.py`, without script name. Use `--command` with a frozen template containing explicit mode, `--policy epoch`, `--g2 off` or the explicitly planned `--g2 union`, exact output/CPU/worker/lock/limit options. |
 | `runner_sha256`, `historical_helper`, `historical_helper_sha256` | Pins for the original runner and its imported `TMP/fable51-controls/run_control.py`. It currently resolves the main `/common/dev/rustred` root; do not assume the adapter's worktree changes that cwd. |
 | `launcher_argv` | Exact original `nice -n … nix develop /common/dev/rustred --command` plus `native_argv`; no command insertion. |
 | `cpus`, `locks`, `minimum_start_bytes`, `minimum_run_bytes`, `time_limit`, `grace` | Registered original guard policy; nonempty affinity excludes protected CPUs128–227. `locks` is ordered, heavy lock first. Limits are seconds. |
@@ -36,6 +38,15 @@ directory. Paths are absolute. The plan fields are:
 | `verification_resources` | `cold-verifier` and `python-audit`, each with exact `cpus` array and ordered `locks` array. The existing verification guard uses the registered start/run headroom. |
 
 The template must omit `--g2-residual-anchors` (the original runner requires this).
+For Union the original runner adds that flag, so the frozen post-rewrite
+`native_argv` must include it exactly once. Rolling similarly requires exactly
+one `--epoch-rolling`; adaptive requires `--epoch-dispatch adaptive`. A current
+example schedule is `{kind:rolling,depth:5,b:65,window:65,cut_size:16,
+publication_order:oldest_sequence_prefix,dispatch:adaptive}`. It records a
+bounded cohort count, not measured active concurrency. G2 Union never changes
+the verifier's `--reference-levers off` or full `--reinspect all` requirements.
+Rescue-specific scoped acceptance is separate: this gate still requires every
+domain and every declared helper root independently closed, with no frontiers.
 Freeze `native_argv` after applying that runner's existing rewrite; it adds output,
 events and stop-file paths and relocates the checkpoint. This adapter refuses any
 different actual launch before calling the original launch method. Keep the

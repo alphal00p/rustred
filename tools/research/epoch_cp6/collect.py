@@ -47,7 +47,8 @@ def collect(plan, runner):
     expected = validate_plan(plan)
     args = plan["runner_argv"]
     require("--perf" not in args and argv_value(args, "--policy") == "epoch"
-            and argv_value(args, "--g2") == "off", "CP6 timed collection is not profiling/G2")
+            and argv_value(args, "--g2") == plan.get("g2", "off"),
+            "CP6 timed collection profiling or G2 policy differs")
     require(plan["locks"] and argv_value(args, "--heavy-lock") == plan["locks"][0]
             and plan["minimum_start_bytes"] >= plan["minimum_run_bytes"] > 0
             and plan["time_limit"] > 0 and plan["grace"] > 0, "bounded guard policy required")

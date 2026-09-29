@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import collect
-from contract import CONTRACT, FORMAT, TIMING, accept
+from contract import CONTRACT, FORMAT, TIMING, accept, expected_schedule
 from gate import acceptance, freeze_receipt, prepare_verification
 from receipts import ROOT, commands, read, sha, validate_plan, write_new
 
@@ -55,6 +55,55 @@ def documents(checkpoint):
 
 
 class PredicateTests(unittest.TestCase):
+    def test_explicit_rolling_dispatch_union_and_current_schema_keep_cold_all_authority(self):
+        for dispatch in ("fifo", "adaptive"):
+            values = documents("/unused/checkpoint")
+            values[6].update(b=20, checkpoint_schema=2, g2="union", schedule={
+                "kind": "rolling", "depth": 2, "b": 20, "window": 20, "cut_size": 16,
+                "publication_order": "oldest_sequence_prefix", "dispatch": dispatch})
+            values[0]["g2"] = "union"
+            values[1]["epoch"]["schedule"] = copy.deepcopy(values[6]["schedule"])
+            values[1]["checkpoint"]["schema"] = 2
+            values[1]["g2_residual_anchors"] = {"mode": "union"}
+            result = accept(*values)
+            self.assertEqual(result["schedule"], values[6]["schedule"])
+            self.assertEqual(result["g2"], "union")
+            self.assertEqual(result["checkpoint_schema"], 2)
+            for index, path, bad in [
+                (0, ["g2"], "off"), (1, ["g2_residual_anchors"], None),
+                (1, ["epoch", "schedule", "dispatch"], "fifo" if dispatch == "adaptive" else "adaptive"),
+                (1, ["epoch", "schedule", "window"], 21),
+                (1, ["epoch", "schedule", "depth"], True),
+                (1, ["checkpoint", "schema"], 1),
+                (2, ["reference", "native_levers"], "AsRun"),
+                (2, ["reinspection", "mode"], "PhysicsQueries"),
+                (2, ["counts", "oracle_closed"], 2),
+            ]:
+                mutated = copy.deepcopy(values)
+                target = mutated[index]
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = bad
+                with self.subTest(dispatch=dispatch, path=path), self.assertRaises(ValueError):
+                    accept(*mutated)
+
+    def test_schedule_plan_is_bounded_consistent_and_legacy_shape_stays_exact(self):
+        plan = {"b": 20, "schedule": {"kind": "rolling", "depth": 2, "b": 20,
+                "window": 20, "cut_size": 16, "publication_order": "oldest_sequence_prefix",
+                "dispatch": "adaptive"}}
+        self.assertEqual(expected_schedule(plan), plan["schedule"])
+        for key, bad in [("depth", 1), ("b", True), ("window", 21), ("cut_size", 0),
+                         ("cut_size", 21), ("publication_order", "arrival"),
+                         ("kind", "lockstep"), ("dispatch", "random")]:
+            mutated = copy.deepcopy(plan)
+            mutated["schedule"][key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                expected_schedule(mutated)
+        values = documents("/unused/checkpoint")
+        values[1]["epoch"]["schedule"]["window"] = 16
+        with self.assertRaises(ValueError):
+            accept(*values)  # No implicit widening of old receipt semantics.
+
     def test_only_raw_cold_all_not_python_pass_is_authority(self):
         result = accept(*documents("/unused/checkpoint"))
         self.assertTrue(result["accepted"])
@@ -159,6 +208,33 @@ class FileReceiptTests(unittest.TestCase):
         self.assertIn("--no-result", frozen["commands"]["cold-verifier"])
         self.assertNotIn("--result", frozen["commands"]["cold-verifier"])
         self.assertTrue(acceptance(self.plan, frozen)["checkpoint_read_only"])
+
+    def test_plan_requires_exact_rolling_dispatch_and_union_flags(self):
+        plan = copy.deepcopy(self.plan)
+        plan.update(b=20, checkpoint_schema=2, g2="union", schedule={
+            "kind": "rolling", "depth": 2, "b": 20, "window": 20, "cut_size": 16,
+            "publication_order": "oldest_sequence_prefix", "dispatch": "adaptive"})
+        plan["native_argv"] += ["--epoch-rolling", "--epoch-dispatch", "adaptive",
+                                "--g2-residual-anchors", "union"]
+        self.assertEqual(validate_plan(plan)["g2"], "union")
+        for flag in ("--epoch-rolling", "--epoch-dispatch", "--g2-residual-anchors"):
+            for kind in ("missing", "duplicate", "equals"):
+                mutated = copy.deepcopy(plan)
+                argv = mutated["native_argv"]
+                position = argv.index(flag)
+                if kind == "missing":
+                    del argv[position]
+                elif kind == "duplicate":
+                    argv.append(flag)
+                else:
+                    argv[position] = flag + "=unexpected"
+                with self.subTest(flag=flag, kind=kind), self.assertRaises(ValueError):
+                    validate_plan(mutated)
+        for field, value in (("g2", "off"), ("checkpoint_schema", 3)):
+            mutated = copy.deepcopy(plan)
+            mutated[field] = value
+            with self.assertRaises(ValueError):
+                validate_plan(mutated)
 
     def test_pointer_session_lock_payload_or_new_file_change_refuses(self):
         for name in ("latest.json", "previous.json", "epoch-session.bin", "checkpoint.lock", "epoch-payload.part", "new.part"):

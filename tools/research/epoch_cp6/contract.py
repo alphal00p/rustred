@@ -15,6 +15,37 @@ def integer(value, minimum=0):
     return type(value) is int and value >= minimum
 
 
+def expected_schedule(plan):
+    """Old plans retain their exact three-field lockstep receipt contract."""
+    b = plan["b"]
+    require(integer(b, 1) and b <= 4096, "invalid saved flight bound")
+    if "schedule" not in plan:
+        return {"kind": "lockstep", "depth": 1, "b": b}
+    schedule = plan["schedule"]
+    require(isinstance(schedule, dict) and set(schedule) == {
+        "kind", "depth", "b", "window", "cut_size", "publication_order", "dispatch"
+    }, "explicit schedule shape")
+    require(schedule["kind"] in ("lockstep", "rolling")
+            and schedule["dispatch"] in ("fifo", "adaptive")
+            and schedule["publication_order"] == "oldest_sequence_prefix"
+            and all(integer(schedule[key], 1) for key in ("depth", "b", "window", "cut_size"))
+            and schedule["b"] == schedule["window"] == b
+            and schedule["cut_size"] <= b, "explicit schedule bounds/policy")
+    cut = schedule["cut_size"]
+    if schedule["kind"] == "rolling":
+        require(schedule["depth"] == (b + cut - 1) // cut, "rolling cohort bound")
+    else:
+        require(schedule["depth"] == 1 and cut == b and schedule["dispatch"] == "fifo",
+                "lockstep schedule differs")
+    return schedule
+
+
+def checkpoint_schema(plan):
+    schema = plan.get("checkpoint_schema", 1)
+    require(type(schema) is int and schema in (1, 2), "unknown CP6 manifest schema")
+    return schema
+
+
 def clean_collection(metrics, summary, expected):
     require(expected["contract"] == CONTRACT, "explicit CP6 contract required")
     require(metrics["exit_code"] == 4 and metrics["stop_reason"] is None
@@ -50,8 +81,16 @@ def clean_collection(metrics, summary, expected):
     require(type(epoch["schedule"]["depth"]) is int and type(epoch["schedule"]["b"]) is int
             and epoch["engine_certification_void"] is False
             and epoch["inspector_lookup_mode"] == expected["mode"]
-            and epoch["schedule"] == {"kind": "lockstep", "depth": 1, "b": expected["b"]},
+            and epoch["schedule"] == expected_schedule(expected),
             "mode, B or engine authority differs")
+    g2 = expected.get("g2", "off")
+    require(g2 in ("off", "union"), "unknown G2 control")
+    report = summary.get("g2_residual_anchors")
+    require((g2 == "off" and report is None)
+            or (g2 == "union" and isinstance(report, dict) and report.get("mode") == "union"),
+            "G2 mode differs")
+    if "g2" in expected:
+        require(metrics["g2"] == g2, "runner G2 receipt differs")
     roles = expected["roles"]
     admission = summary["query_admission"]
     for key, value in {"requested": roles["total"], "admitted": roles["total"], "unadmitted": 0,
@@ -59,7 +98,7 @@ def clean_collection(metrics, summary, expected):
                        "admitted_required": roles["required"], "admitted_auxiliary": roles["auxiliary"]}.items():
         require(type(admission[key]) is int and admission[key] == value, f"query census {key}")
     checkpoint = summary["checkpoint"]
-    require(checkpoint["format"] == FORMAT and checkpoint["schema"] == 1
+    require(checkpoint["format"] == FORMAT and checkpoint["schema"] == checkpoint_schema(expected)
             and checkpoint["state"] == "saved" and checkpoint["resumable"] is True
             and type(checkpoint["schema"]) is int and checkpoint["saved_this_invocation"] is True
             and checkpoint["paused"] is False and checkpoint["stop_reason"] is None
@@ -114,7 +153,11 @@ def accept(metrics, summary, cold, audit, cold_guard, audit_guard, expected):
             and audit["all_local_obligations_discharged"] is False
             and audit["incomplete_reason"].startswith("checkpoint-only output has no full record proof;")
             and "verifier_pairing" not in audit, "Python summary contract is not a full-result PASS")
-    return {"contract": CONTRACT, "accepted": True, "authority": "raw_cp6_cold_all",
+    result = {"contract": CONTRACT, "accepted": True, "authority": "raw_cp6_cold_all",
             "generation": cp["generation"], "mode": expected["mode"], "roles": expected["roles"],
             "native_exit_code": 4, "python_audit": "INCOMPLETE", "full_result_proof": False,
             "whole_command_seconds": metrics["whole_command_seconds"], "family_closure_claim": False}
+    for key in ("schedule", "g2", "checkpoint_schema"):
+        if key in expected:
+            result[key] = expected[key]
+    return result

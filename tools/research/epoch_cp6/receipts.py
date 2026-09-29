@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import stat
 
-from contract import CONTRACT, FORMAT, clean_collection, require
+from contract import CONTRACT, FORMAT, checkpoint_schema, clean_collection, expected_schedule, require
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -47,6 +47,10 @@ def argv_value(argv, name):
 def validate_plan(plan):
     require(plan["contract"] == CONTRACT and plan["mode"] in ("all-miss", "snapshot")
             and type(plan["b"]) is int and 1 <= plan["b"] <= 4096, "unknown plan/mode/B")
+    schedule = expected_schedule(plan)
+    checkpoint_schema(plan)
+    g2 = plan.get("g2", "off")
+    require(g2 in ("off", "union"), "unknown G2 control")
     for key in ("run", "checkpoint", "queries", "binary", "native_cwd", "verification_cwd"):
         require(Path(plan[key]).is_absolute(), f"absolute {key} required")
     for key in ("queries_sha256", "queries_blake3", "binary_sha256"):
@@ -65,6 +69,17 @@ def validate_plan(plan):
                           ("--publication-policy", "epoch"), ("--epoch-inspector-lookup", plan["mode"])):
         require(argv_value(argv, option) == value, f"native {option} mismatch")
     require("--resume" not in argv and "--follow-successors" in argv, "fresh symbolic arms only")
+    for option in ("--epoch-rolling", "--epoch-dispatch", "--g2-residual-anchors"):
+        require(not any(arg.startswith(option + "=") for arg in argv), f"use exact {option} argv")
+    rolling = schedule["kind"] == "rolling"
+    require(argv.count("--epoch-rolling") == int(rolling), "native rolling policy mismatch")
+    dispatch = schedule.get("dispatch", "fifo")
+    if dispatch == "adaptive" or "--epoch-dispatch" in argv:
+        require(argv_value(argv, "--epoch-dispatch") == dispatch, "native dispatch policy mismatch")
+    if g2 == "union":
+        require(argv_value(argv, "--g2-residual-anchors") == g2, "native G2 policy mismatch")
+    else:
+        require("--g2-residual-anchors" not in argv, "Off runner must omit native G2 flag")
     return expected
 
 
@@ -103,7 +118,8 @@ def freeze(plan):
     snapshot = checkpoint_snapshot(plan["checkpoint"])
     envelope = snapshot["latest"]
     manifest = envelope["manifest"]
-    require(manifest["format"] == FORMAT and type(manifest["schema"]) is int and manifest["schema"] == 1
+    require(manifest["format"] == FORMAT and type(manifest["schema"]) is int
+            and manifest["schema"] == checkpoint_schema(plan)
             and type(manifest["walk_semantics_version"]) is int and manifest["walk_semantics_version"] == 3
             and manifest["resumable"] is True and type(manifest["generation"]) is int
             and manifest["generation"] == summary["checkpoint"]["generation"], "manifest identity differs")
