@@ -714,8 +714,9 @@ stop (no checkpoint needed). With --checkpoint DIR it saves resumable CP6
 generations; --resume accepts only this CP6 format, not CP5 or old private
 snapshots. CP6 terminal output is checkpoint-only, even on a drained worklist:
 finalization is not evaluated and the summary does not claim scoped closure.
-Use walk-verify-closure on the checkpoint without --result for independent
-reinspection. G2 anchors, rescue amendments and executable upgrades are not
+Use walk-verify-closure --no-result on the checkpoint for independent
+reinspection; omitting --result alone still auto-selects a nearby result.json.
+G2 anchors, rescue amendments and executable upgrades are not
 supported by this staged CP6 workflow. Without a checkpoint the legacy
 memory-only epoch path still emits a full, non-resumable result.
 --route-joint-source-support-pruning enables a conservative shared-numerator

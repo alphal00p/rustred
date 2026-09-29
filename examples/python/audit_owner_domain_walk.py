@@ -944,7 +944,8 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             if item[1] == "full_result_in_output_document" and item[2] is False:
                 raise CheckpointOnlySummary(
                     "checkpoint-only output has no full record proof; run native walk-verify-closure "
-                    "on the checkpoint without --result; this audit has not validated the checkpoint")
+                    "on the checkpoint with --no-result (omitting --result still auto-selects a nearby "
+                    "result.json); this audit has not validated the checkpoint")
             continue
         row = item[1]
         identity = row.get("id")

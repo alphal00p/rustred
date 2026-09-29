@@ -1944,7 +1944,7 @@ fn bind_result<const N: usize>(
         return Ok(json!({"kind":"checkpoint_only_summary", "complete":false,
             "generation":generation, "generation_matches":generation_matches,
             "result":path,"bytes":top.bytes,"blake3":top.blake3,
-            "note":"summary metadata is not full record binding; verify raw checkpoint without --result",
+            "note":"summary metadata is not full record binding; verify raw checkpoint with --no-result (omitting --result still auto-selects a nearby result.json)",
             "seconds":started.elapsed().as_secs_f64()}));
     }
     problem(top.has_domains, "result has no domains array".into());
@@ -2698,7 +2698,7 @@ fn verify<const N: usize>(
     };
     let verdict_reason = match verdict {
         "FAIL" => "violations found".to_string(),
-        "INCOMPLETE" if summary_only => "checkpoint-only result has no full record proof; verify the checkpoint without --result".into(),
+        "INCOMPLETE" if summary_only => "checkpoint-only result has no full record proof; verify the checkpoint with --no-result (omitting --result still auto-selects a nearby result.json)".into(),
         "INCOMPLETE" if unadmitted > 0 => format!("{unadmitted} immutable input queries remain UNADMITTED; no closure certificate"),
         "INCOMPLETE" if unresolved_input_queries > 0 => format!("{unresolved_input_queries} input queries retain unresolved source validity; no closure certificate"),
         "INCOMPLETE" => format!(

@@ -485,6 +485,7 @@ fn cp6_summary_binding_is_explicitly_incomplete_and_generation_mismatch_is_not_w
         let bound = bind_result(&path, &loaded, &[false], &mut violations).unwrap();
         assert_eq!(bound["kind"], "checkpoint_only_summary");
         assert_eq!(bound["complete"], false);
+        assert!(bound["note"].as_str().unwrap().contains("--no-result"));
         assert_eq!(violations.is_empty(), generation == 1);
     }
 }

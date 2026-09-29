@@ -103,7 +103,8 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
             self.assertEqual(report["audit"], "INCOMPLETE")
             self.assertFalse(report["all_local_obligations_discharged"])
             self.assertNotIn("verifier_pairing", report)
-            self.assertIn("without --result", report["incomplete_reason"])
+            self.assertIn("with --no-result", report["incomplete_reason"])
+            self.assertIn("omitting --result still auto-selects", report["incomplete_reason"])
 
     def test_cp6_flat_native_event_survives_real_cli_progress_envelope(self):
         checkpoint = {"state": "saved", "format": "RUSTRED-WALK-CP6", "schema": 1,
