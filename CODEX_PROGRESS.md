@@ -87,6 +87,30 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Event log
 
+### 2026-09-29 14:41 UTC — Stage A optimized artifact and native upgrade gates pass
+
+- [M] Independent stable clone native source `986d046e` adds only the two
+  reviewed geometry-buffer/lean-telemetry cherry-picks to `e56b8cdb`; no
+  private Epoch code. Symbolica stays clean `ef0db494`.
+- [M] Real optimized campaign CLI build passed after 3,566.486 s, guarded
+  on CPUs 0–15 with heavy/build-0 locks and 250/150 GiB headroom floors.
+  The build exceeded the 30-minute target under the approved build/correctness
+  exception; Stage B continues in the root `fable_5_1_parallel` checkout.
+- [M] New frozen binary SHA-256
+  `0995f0fda2637eb4bf0bdc5b46249aba9c6f4ba513196143a2b07d3aaa739c21`.
+  Read-only LC2 input/options checks and CP5/schema5/semantics1 probe match.
+  No production write, launch or signal; the compatible upgrade keeps G2 Off.
+- [M] Ordered/W6 and Ready/W6 FG248 drills passed genuine old-binary durable
+  pause, candidate upgrade/resume, unchanged input/options, public history
+  rollback probe and full cold verification: 248/248 roots in each, all
+  98,869 / 98,841 native records reinspected respectively. Two earlier harness
+  setup failures remain recorded as incomplete, not passing gates.
+- [M] Evidence: `TMP/codex-stage-a.2RU3AX/`; delivery and owner commands:
+  `docs/research/fable51_stable_upgrade_2026-09-29.md`. Independent final
+  source/binary/receipt/delivery review passed; stable push follows the
+  documentation commit. No full-size
+  LC2 replay, actual post-upgrade old-binary rollback, or new speedup claimed.
+
 ### 2026-09-29 13:25 UTC — approval; concurrent Stage A build and Stage B implementation
 
 - User approved `SHORTENED_PLAN.md` and started the clock: T0=13:25UTC,
