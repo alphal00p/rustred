@@ -1,7 +1,10 @@
 # Epoch S2 integration and S3 checkpoint contract
 
-Status: preparatory source integration; S3 design under independent review.
-No compilation, native execution, campaign pilot or deployment claim is made.
+Status: preparatory integration and corrective source audit passed; release
+typecheck failed, corrective source awaits recheck. Internal S3 section-writer
+primitives passed independent source review, pending compilation/execution.
+No native execution, campaign pilot
+or deployment claim is made.
 The active authority is `CODEX_PROGRESS_PLAN.md` and the September 29 directive
 in `GOAL.md`. The earlier epoch protocol's importer, one-hour pilot windows
 and socket-1 launch instructions do not authorize those actions now.
@@ -66,6 +69,53 @@ validation. The affected Python audit/supervisor modules passed all 54 tests
 in 11.243 s on CPUs 32-39; receipt:
 `TMP/codex-epoch-s3.JjASCU/python-focused.log`. This is frontend validation,
 not execution of the new Rust regression sources.
+
+The isolated preparatory source was committed as `f81559a6`. Baseline fixes
+for no-work G2 activation durability and authenticated root phases were
+cherry-picked as `25f41db5` (same patch as `d12db6cf`). A guarded release
+`cargo check --tests` on CPUs 16-31 failed after 83.179 s, exit 101: the epoch
+resolver lacked an `ApplyG2` arm, and the A9 fixture used removed
+`helper_pattern`. The first-failure receipt remains unchanged at
+`TMP/codex-epoch-s3.JjASCU/typecheck`; minimum available RAM was 649.81 GiB.
+The separately audited corrective commit `d5b05629` emits an explicit
+Protocol/C5 receipt for unsupported legacy G2 stats (`panic=false`, no
+coverage or retry), and declares exact A9 query roles. Independent review
+also caught a private `Class::code()` call in the new test before compilation;
+the test now uses the existing documented persisted C3 code. Corrective
+format/diff checks pass; repeat Rust typecheck and execution remain pending.
+
+## Internal writer slice (not CP6 publication)
+
+`epoch/checkpoint.rs` now supplies a borrowed `MergeBoundary` and unpublished
+section writers; it has no runtime call, accepted manifest or resume probe.
+The constructor refuses poison, malformed array/bit shapes, unsupported G2,
+bad B/sequence ranges and incomplete or overlapping Reserved accounting.
+Requeue/deferred order and in-flight sequence/version descriptors are saved;
+the fresh-only session prerequisite is explicit (session 1 plus current
+counter). Restore must replace that prerequisite before issuing new sequences.
+Disjointness uses reusable 8-KiB ID-window bits, without cloning all domains.
+Boundary validation costs O(N + R*U + B^2), where U is the number of occupied
+64-Ki-ID windows. Large scattered retry queues must be included in later
+save-latency acceptance, not assumed cheap. Independent audit requested two
+additional defenses: reject both ledger and node residual-G2 bits independently
+of counters, and require every in-flight version to equal k for lockstep.
+Both are implemented with isolated mutation tests; source audit passed.
+
+The section stream has a fixed 32-KiB buffer, incremental byte/hash accounting,
+checked per-image scratch (at most 165 bytes), `create_new` immutable names,
+file fsync and sticky I/O failure. It writes images, exact ledger words, raw
+nodes, persisted live bits, edge runs, initial D-band anchors in node order,
+dispatch/in-flight state, stale closure flags and frontier counts. It never
+allocates a full encoded section or refreshes closure on save. Tests cover
+byte/hash fidelity, attempts/order/B preservation, anchor-layout agreement,
+poison/reservation mutations, partial/interrupted writes, write/flush failure,
+and immutable non-advertised files. These new tests are source-only pending
+the allocated consolidated build.
+
+These `.part` files are deliberately orphan-only infrastructure: no directory
+publication or durable restart is claimed. Request/roles/record-tail binding,
+remaining scalar/closure metadata, atomic manifest publication, full restore
+validators and asynchronous stop integration are the next reviewed slices.
 
 ## Proposed S3 state and writer contract
 
@@ -156,7 +206,15 @@ edges, native record/run correspondence and both digests, roots and roles,
 live-index membership, closure validity, and dispatch completeness. Validation
 must finish before any worker starts. Layer/index reconstruction uses the
 persisted live set; merely rebuilding a new maximal antichain is insufficient
-for byte identity. Open/orphan tails are never treated as committed state.
+for byte identity. Dominant orthant slots also retain historical choices,
+potentially pointing at retired full-orthant images: preserve and validate
+them, or reconstruct their all-image insertion history separately from the
+live-only index. Test a retired orthant plus a live subset explicitly.
+The existing tracker `from_parts` clones flags and builds/partitions full
+edge-pair arrays. Bounded restore instead needs a narrow owned-flags path and
+a two-pass iterator over authenticated runs to build its runtime CSR without
+those full temporary copies; test byte-equivalent closure restoration.
+Open/orphan tails are never treated as committed state.
 
 ## Required consolidated validation
 

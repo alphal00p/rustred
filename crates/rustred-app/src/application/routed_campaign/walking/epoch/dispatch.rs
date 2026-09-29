@@ -19,6 +19,17 @@ pub(super) struct Dispatch {
     counter: u64,
 }
 
+/// Borrowed execution order, not reconstructed from the ledger. The S2
+/// engine is fresh-only: SESSION is serialized explicitly; restore must
+/// replace that prerequisite before it can issue another job sequence.
+pub(super) struct DispatchSnapshot<'a> {
+    pub session: u64,
+    pub counter: u64,
+    pub cursor: u32,
+    pub requeue: &'a VecDeque<u32>,
+    pub deferred: &'a VecDeque<u32>,
+}
+
 pub(super) enum Refill<const N: usize> {
     Jobs(Vec<Job<N>>),
     /// Nothing Pending or Reserved, nothing in flight.
@@ -48,6 +59,16 @@ impl Dispatch {
 
     pub fn queued(&self) -> (usize, usize) {
         (self.requeue.len(), self.deferred.len())
+    }
+
+    pub fn checkpoint_snapshot(&self) -> DispatchSnapshot<'_> {
+        DispatchSnapshot {
+            session: SESSION,
+            counter: self.counter,
+            cursor: self.cursor,
+            requeue: &self.requeue,
+            deferred: &self.deferred,
+        }
     }
 
     fn job<const N: usize>(&mut self, state: &mut EpochState<N>, id: u32) -> Job<N> {

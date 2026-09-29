@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod anchors;
+mod checkpoint;
 mod dispatch;
 mod edges;
 mod export;
