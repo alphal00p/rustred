@@ -16,7 +16,7 @@ fn stopped<const N: usize>(
     results: &mut BTreeMap<u64, Vec<u8>>,
     reason: StopReason,
     context: Option<stop::Stop>,
-    progress: &mut impl FnMut(&EpochState<N>, &Dispatch, &'static str),
+    progress: &mut impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
     on_saved: &mut impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
 ) -> Result<Outcome, Failure> {
     // Queued and returned-but-unmerged bytes are released before streaming the
@@ -27,7 +27,14 @@ fn stopped<const N: usize>(
         snapshots.clear().map_err(|e| Failure::Engine(e.into()))?;
     }
     let status = pool.take_cancelled_status().map_err(Failure::Engine)?;
-    let receipt = save_observed(restored, identity, b, Some(reason), context, progress)?;
+    let receipt = save_observed(
+        restored,
+        identity,
+        b,
+        Some(reason),
+        context,
+        &mut |state, dispatch, phase| progress(state, dispatch, phase, &|| None),
+    )?;
     on_saved(restored, &receipt, &status);
     Ok(Outcome::Stopped(reason))
 }
@@ -64,7 +71,7 @@ pub(super) fn run<const N: usize>(
     mut periodic_due: impl FnMut(u64) -> bool,
     mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
     snapshots: Option<&Publication<N>>,
-    mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str),
+    mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
 ) -> io::Result<Outcome> {
     if budget == 0
         || !(1..=4096).contains(&b)
@@ -101,7 +108,9 @@ pub(super) fn run<const N: usize>(
             }
             let mut committed = false;
             loop {
-                progress(&restored.state, &restored.dispatch, "boundary");
+                progress(&restored.state, &restored.dispatch, "boundary", &|| {
+                    pool.activity().ok()
+                });
                 if let Some(context) = stop_requested() {
                     return stopped(
                         restored,
@@ -122,7 +131,16 @@ pub(super) fn run<const N: usize>(
                 {
                     // Workers may inspect during a synchronous save: only the
                     // canonical state is borrowed, and its merge is complete.
-                    let receipt = save_observed(restored, identity, b, None, None, &mut progress)?;
+                    let receipt = save_observed(
+                        restored,
+                        identity,
+                        b,
+                        None,
+                        None,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
+                    )?;
                     on_saved(restored, &receipt, &[]);
                     continue;
                 }
@@ -132,7 +150,13 @@ pub(super) fn run<const N: usize>(
                     .ok_or_else(|| Failure::Engine("rolling flight bound exceeded".into()))?;
                 if room != 0 || !restored.replay.is_empty() {
                     let snapshot = if snapshots.is_some() {
-                        match refresh_snapshot(restored, &mut stop_requested, &mut progress)? {
+                        match refresh_snapshot(
+                            restored,
+                            &mut stop_requested,
+                            &mut |state, dispatch, phase| {
+                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                            },
+                        )? {
                             Refresh::Ready(snapshot) => snapshot,
                             Refresh::Stopped(context) => {
                                 return stopped(
@@ -276,7 +300,9 @@ pub(super) fn run<const N: usize>(
                         b,
                         (!certified).then_some(StopReason::DrainedUncertified),
                         None,
-                        &mut progress,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
                     )?;
                     on_saved(restored, &receipt, &[]);
                     return Ok(Outcome::Drained);
@@ -295,7 +321,9 @@ pub(super) fn run<const N: usize>(
                         .take(count)
                         .all(|key| results.contains_key(key));
                 if !ready {
-                    progress(&restored.state, &restored.dispatch, "inspect");
+                    progress(&restored.state, &restored.dispatch, "inspect", &|| {
+                        pool.activity().ok()
+                    });
                     let drained = collect(
                         pool.poll(Duration::from_millis(50))
                             .map_err(Failure::Engine)?,
@@ -315,7 +343,9 @@ pub(super) fn run<const N: usize>(
                     .iter()
                     .map(|key| results.remove(key).expect("checked ready prefix"))
                     .collect();
-                progress(&restored.state, &restored.dispatch, "p1");
+                progress(&restored.state, &restored.dispatch, "p1", &|| {
+                    pool.activity().ok()
+                });
                 let checked = merge::p1_check(&mut restored.state, bytes, config)?;
                 let reason = if let Some(reason) = checked.stop {
                     merge::discard_cut(&mut restored.state, &checked, &mut |id, attempts| {
@@ -324,14 +354,22 @@ pub(super) fn run<const N: usize>(
                     Some(reason)
                 } else {
                     let observations = observations(identity, &checked);
-                    progress(&restored.state, &restored.dispatch, "p2");
+                    progress(&restored.state, &restored.dispatch, "p2", &|| {
+                        pool.activity().ok()
+                    });
                     let plan = merge::p2(&mut restored.state, &checked)?;
                     if snapshots.is_some() {
                         let retirees = plan.survivors.iter().map(|s| s.retire.len()).sum();
                         loop {
                             // A completed callback has released its lease even
                             // when its bytes are waiting for their sequence.
-                            match refresh_snapshot(restored, &mut stop_requested, &mut progress)? {
+                            match refresh_snapshot(
+                                restored,
+                                &mut stop_requested,
+                                &mut |state, dispatch, phase| {
+                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                },
+                            )? {
                                 Refresh::Ready(view) => drop(view),
                                 Refresh::Stopped(context) => {
                                     drop(plan);
@@ -391,7 +429,9 @@ pub(super) fn run<const N: usize>(
                                     &mut on_saved,
                                 );
                             }
-                            progress(&restored.state, &restored.dispatch, "inspect");
+                            progress(&restored.state, &restored.dispatch, "inspect", &|| {
+                                pool.activity().ok()
+                            });
                             // A drained pool releases the final readers; retry
                             // refresh before deciding whether publication fits.
                             collect(
@@ -402,7 +442,9 @@ pub(super) fn run<const N: usize>(
                             )?;
                         }
                     }
-                    progress(&restored.state, &restored.dispatch, "p3");
+                    progress(&restored.state, &restored.dispatch, "p3", &|| {
+                        pool.activity().ok()
+                    });
                     match merge::p3_preflight(
                         &mut restored.state,
                         &checked,
@@ -475,10 +517,14 @@ pub(super) fn run<const N: usize>(
                 ))));
             }
         }
-        progress(&restored.state, &restored.dispatch, "drain_wait");
+        progress(&restored.state, &restored.dispatch, "drain_wait", &|| {
+            pool.activity().ok()
+        });
         result
     });
-    progress(&restored.state, &restored.dispatch, "joined");
+    progress(&restored.state, &restored.dispatch, "joined", &|| {
+        Some(Activity::default())
+    });
     if let Some(snapshots) = snapshots {
         snapshots
             .clear()

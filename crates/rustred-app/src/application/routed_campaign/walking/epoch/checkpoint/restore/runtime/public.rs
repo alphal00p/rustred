@@ -13,7 +13,7 @@ use crate::application::routed_campaign::{
         OwnerDomainWalkRecords, OwnerDomainWalkRequest, OwnerDomainWalkResult,
         epoch::{
             self,
-            inspector::{Context, Status},
+            inspector::{Activity, Context, Status},
             ledger6::Tag,
         },
     },
@@ -198,6 +198,29 @@ fn lookup_mode(request: &OwnerDomainWalkRequest) -> controller::LookupMode {
     }
 }
 
+/// A fresh bounded pool observation. The outer CLI heartbeat supplies its
+/// progress age when repeating this event, so a stalled coordinator does not
+/// turn an old callback count into a live utilization claim.
+fn activity_json(activity: Option<Activity>, phase: &str) -> Value {
+    let inline_unobservable =
+        activity.is_some_and(|value| value.inline && phase == "inspect" && value.queued != 0);
+    let known = activity.filter(|_| !inline_unobservable);
+    json!({
+        "active_workers":known.map(|value| value.computing),
+        "computing_workers":known.map(|value| value.computing),
+        "queued_inspections":known.map(|value| value.queued),
+        "returned_inspections":activity.map(|value| value.returned),
+        "finished_uncommitted_domains":activity.map(|value| value.returned),
+        "cancelled_queued_inspections":activity.map(|value| value.cancelled_queued),
+        "occupied_native_slots":activity.map(|value| value.occupied),
+        "workers_joined":phase == "joined",
+        "activity_observation":if inline_unobservable {"inline_call_not_pollable"}
+            else if activity.is_some() {"coordinator_sample"} else {"unavailable"},
+        "activity_observation_age_seconds":activity.map(|_| 0.0),
+        "activity_scope":"accepted inspection callbacks, not thread CPU utilization; repeated heartbeat age applies"
+    })
+}
+
 /// Scalar subset of Tracker::json, with the same monitor-facing meanings but
 /// without its retained-storage census or any closure refresh.
 fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value {
@@ -259,7 +282,11 @@ fn summary<const N: usize>(
         "query_admission":roles.json(restored.roots.rows.len()),"admission_complete":matches!(restored.admission,Admission::Complete),
         "admission_failure":restored.admission_failure,"operational_stop":restored.operational_stop,
         "observer_failed":observer_failed,
-        "parallel":{"active_workers":0,"workers_joined":true,
+        "parallel":{"active_workers":0,"computing_workers":0,"workers_joined":true,
+            "queued_inspections":0,"returned_inspections":0,"finished_uncommitted_domains":0,
+            "occupied_native_slots":0,"cancelled_queued_inspections":0,
+            "activity_observation":"joined","activity_observation_age_seconds":0.0,
+            "activity_scope":"accepted inspection callbacks, not thread CPU utilization",
             "inspector_threads":if request.workers==1 {0} else {crate::application::routed_campaign::walking::worker_budget::WorkerBudget::for_request(request).inspection},
             "cancellation":"W1 cooperative caller-thread CAS; W>=2 durable save may precede join"},
         "descendant_closure":scalar_closure(state),
@@ -345,19 +372,22 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     };
     restored.window = b;
     let last = RefCell::new(None::<Value>);
-    let progress =
-        |state: &epoch::state::EpochState<N>, dispatch: &epoch::dispatch::Dispatch, phase| {
-            let mut time = telemetry.borrow_mut();
-            if time.change(phase) {
-                let mut event = scalar_progress(state, dispatch);
-                event["event"] = json!("epoch_heartbeat");
-                event["operation"] = json!("owner_domain_walk");
-                event["phase"] = json!(phase);
-                event["telemetry"] = time.json();
-                event["family_closure_claim"] = json!(false);
-                emit(observer, cancellation, &failed, event);
-            }
-        };
+    let progress = |state: &epoch::state::EpochState<N>,
+                    dispatch: &epoch::dispatch::Dispatch,
+                    phase,
+                    activity: &dyn Fn() -> Option<Activity>| {
+        let mut time = telemetry.borrow_mut();
+        if time.change(phase) {
+            let mut event = scalar_progress(state, dispatch);
+            event["event"] = json!("epoch_heartbeat");
+            event["operation"] = json!("owner_domain_walk");
+            event["phase"] = json!(phase);
+            event["telemetry"] = time.json();
+            event["parallel"] = activity_json(activity(), phase);
+            event["family_closure_claim"] = json!(false);
+            emit(observer, cancellation, &failed, event);
+        }
+    };
     let saved = |restored: &Restored<N>, receipt: &publication::Receipt, status: &[Status]| {
         let metadata = checkpoint(restored, receipt);
         *last.borrow_mut() = Some(metadata.clone());
@@ -371,7 +401,8 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         event["full_state_in_checkpoint"] = json!(true);
         event["query_admission"] = roles.json(restored.roots.rows.len());
         event["parallel"] = json!({"active_workers":null,"workers_joined":false,"observed_cut_started":started_count,
-            "observed_cut_returned":returned,"observed_cut_descriptors":status.len()});
+            "observed_cut_returned":returned,"observed_cut_descriptors":status.len(),
+            "activity_observation":"saved_cut_observation_not_live","activity_observation_age_seconds":null});
         event["family_closure_claim"] = json!(false);
         emit(observer, cancellation, &failed, event);
     };
@@ -385,7 +416,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                 || stop::requested(cancellation, request.epoch_stop_file.as_deref()),
                 |restored, receipt| saved(restored, receipt, &[]),
                 epoch::admission::one,
-                |state, dispatch| progress(state, dispatch, "admission")
+                |state, dispatch| progress(state, dispatch, "admission", &|| None)
             )
             .map_err(|error| execution_error(
                 &restored,
@@ -434,7 +465,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                     b,
                     Some(reason),
                     context,
-                    &mut |state, dispatch, phase| progress(state, dispatch, phase),
+                    &mut |state, dispatch, phase| progress(state, dispatch, phase, &|| None),
                 )
                 .map_err(|failure| {
                     let error = match failure {

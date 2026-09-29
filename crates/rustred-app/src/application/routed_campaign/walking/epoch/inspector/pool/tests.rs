@@ -52,7 +52,26 @@ fn cancel_stops_queued_work_and_body_finishes_before_held_worker_join() {
             started
                 .recv_timeout(Duration::from_secs(5))
                 .expect("job entered the held native stand-in");
+            assert_eq!(
+                pool.activity().unwrap(),
+                Activity {
+                    queued: 2,
+                    computing: 1,
+                    occupied: 3,
+                    ..Activity::default()
+                }
+            );
+            assert!(pool.retire_all_returned().is_err());
             pool.cancel().unwrap();
+            assert_eq!(
+                pool.activity().unwrap(),
+                Activity {
+                    cancelled_queued: 2,
+                    computing: 1,
+                    occupied: 3,
+                    ..Activity::default()
+                }
+            );
             let status = pool.snapshot().unwrap();
             assert_eq!(
                 status,
@@ -73,6 +92,11 @@ fn cancel_stops_queued_work_and_body_finishes_before_held_worker_join() {
                         returned: false
                     }
                 ]
+            );
+            assert_eq!(pool.take_cancelled_status().unwrap(), status);
+            assert!(
+                pool.activity().is_err(),
+                "moved stop inventory is not a live zero"
             );
             assert!(pool.submit(vec![work(44)]).is_err());
             saved.send(()).unwrap();
@@ -124,6 +148,16 @@ fn multiple_batches_have_exact_started_result_receipts_and_panic_is_not_lost() {
                     }
                 );
             }
+            assert_eq!(
+                pool.activity().unwrap(),
+                Activity {
+                    returned: 2,
+                    occupied: 2,
+                    ..Activity::default()
+                }
+            );
+            pool.retire_all_returned().unwrap();
+            assert_eq!(pool.activity().unwrap(), Activity::default());
         }
         assert!(pool.submit(vec![work(7), work(7)]).is_err());
     })
@@ -237,11 +271,28 @@ fn rolling_refill_and_slot_reuse_progress_while_an_older_worker_is_held() {
                 }
             }
             assert!(held.load(Ordering::Acquire));
+            assert_eq!(
+                pool.activity().unwrap(),
+                Activity {
+                    computing: 1,
+                    returned: 1,
+                    occupied: 2,
+                    ..Activity::default()
+                }
+            );
             assert!(
                 pool.submit_rolling(vec![work(expected)]).is_err(),
                 "returned but unmerged sequence stays reserved"
             );
             pool.retire(&[expected]).unwrap();
+            assert_eq!(
+                pool.activity().unwrap(),
+                Activity {
+                    computing: 1,
+                    occupied: 1,
+                    ..Activity::default()
+                }
+            );
             assert!(
                 pool.queue.lock().unwrap().status.len() <= 2,
                 "retired slots must be reused, never grow with publication count"
@@ -271,6 +322,7 @@ fn rolling_refill_and_slot_reuse_progress_while_an_older_worker_is_held() {
             }
         }
         assert!(pool.snapshot().unwrap().is_empty());
+        assert_eq!(pool.activity().unwrap(), Activity::default());
     })
     .unwrap();
 }

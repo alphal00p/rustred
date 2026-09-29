@@ -1,7 +1,8 @@
 //! `rustred walk-rescue-plan`: offline frontier classification and rescue
 //! amendment generation for a stopped (or finished) checkpointed walk.
 //!
-//! Reads one CP5 generation raw (no owner import, no restore validators),
+//! Reads one CP5 or CP6 generation through its independent raw reader (no
+//! owner import or runtime restore validators),
 //! classifies every frontier-bearing native, computes the frontier taint
 //! (reverse reachability over recorded edges) and decides, per physics query
 //! (an exact ID declared required in the bound query document), whether some input root

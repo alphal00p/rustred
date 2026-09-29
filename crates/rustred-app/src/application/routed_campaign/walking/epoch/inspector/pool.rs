@@ -63,6 +63,44 @@ pub(in super::super) struct Status {
     pub returned: bool,
 }
 
+/// Point-in-time callback states, not CPU utilization or mathematical progress.
+/// Queued work cancelled before acceptance is counted separately.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in super::super) struct Activity {
+    pub queued: usize,
+    pub computing: usize,
+    pub returned: usize,
+    pub cancelled_queued: usize,
+    pub occupied: usize,
+    pub inline: bool,
+}
+
+impl Activity {
+    pub fn from_status<'a>(
+        status: impl Iterator<Item = &'a Status>,
+        cancelled: bool,
+        inline: bool,
+    ) -> Self {
+        let mut value = Self {
+            inline,
+            ..Self::default()
+        };
+        for entry in status {
+            value.occupied += 1;
+            if entry.returned {
+                value.returned += 1;
+            } else if entry.started {
+                value.computing += 1;
+            } else if cancelled {
+                value.cancelled_queued += 1;
+            } else {
+                value.queued += 1;
+            }
+        }
+        value
+    }
+}
+
 struct Queue {
     jobs: VecDeque<(usize, Vec<u8>)>,
     status: Vec<Status>,
@@ -108,6 +146,29 @@ fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<
 }
 
 impl Pool<'_> {
+    /// No allocation and at most the fixed 4096 descriptor bound. Called lazily
+    /// only when a rate-limited heartbeat is actually emitted.
+    pub fn activity(&self) -> Result<Activity, String> {
+        let guard = self
+            .queue
+            .lock()
+            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+        if self.cancelled && guard.status.is_empty() {
+            // The stop inventory has moved to the save path; late workers no
+            // longer update it. Do not manufacture zero activity before join.
+            return Err("epoch activity inventory moved before worker join".into());
+        }
+        Ok(Activity::from_status(
+            guard
+                .status
+                .iter()
+                .zip(&guard.occupied)
+                .filter_map(|(status, &live)| live.then_some(status)),
+            self.cancelled,
+            false,
+        ))
+    }
+
     pub fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         if self.cancelled || self.remaining != 0 || jobs.len() > MAX_BATCH {
             return Err(SubmitError::Protocol(
@@ -251,6 +312,24 @@ impl Pool<'_> {
             }
             guard.occupied[index] = false;
         }
+        Ok(())
+    }
+
+    pub fn retire_all_returned(&mut self) -> Result<(), String> {
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+        if self.remaining != 0
+            || guard
+                .occupied
+                .iter()
+                .enumerate()
+                .any(|(index, &live)| live && self.receipts.get(index) != Some(&2))
+        {
+            return Err("epoch batch retirement before returned receipts (C5)".into());
+        }
+        guard.occupied.fill(false);
         Ok(())
     }
 

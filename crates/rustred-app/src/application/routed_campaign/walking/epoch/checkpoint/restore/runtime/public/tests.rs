@@ -2,6 +2,45 @@ use super::*;
 use std::time::Duration;
 
 #[test]
+fn activity_fields_separate_computing_from_returned_and_unknown_inline() {
+    let value = Activity {
+        queued: 3,
+        computing: 2,
+        returned: 4,
+        occupied: 9,
+        ..Activity::default()
+    };
+    let parallel = activity_json(Some(value), "p3");
+    assert_eq!(parallel["active_workers"], 2);
+    assert_eq!(parallel["computing_workers"], 2);
+    assert_eq!(parallel["queued_inspections"], 3);
+    assert_eq!(parallel["finished_uncommitted_domains"], 4);
+    assert_eq!(parallel["occupied_native_slots"], 9);
+    assert_eq!(parallel["activity_observation_age_seconds"], 0.0);
+    let inline = activity_json(
+        Some(Activity {
+            queued: 1,
+            occupied: 1,
+            inline: true,
+            ..Activity::default()
+        }),
+        "inspect",
+    );
+    assert_eq!(inline["computing_workers"], Value::Null);
+    assert_eq!(inline["active_workers"], Value::Null);
+    assert_eq!(inline["queued_inspections"], Value::Null);
+    assert_eq!(inline["activity_observation"], "inline_call_not_pollable");
+    let unknown = activity_json(None, "drain_wait");
+    assert_eq!(unknown["computing_workers"], Value::Null);
+    assert_eq!(unknown["finished_uncommitted_domains"], Value::Null);
+    assert_eq!(unknown["activity_observation_age_seconds"], Value::Null);
+    let joined = activity_json(Some(Activity::default()), "joined");
+    assert_eq!(joined["active_workers"], 0);
+    assert_eq!(joined["finished_uncommitted_domains"], 0);
+    assert_eq!(joined["workers_joined"], true);
+}
+
+#[test]
 fn scalar_closure_matches_monitor_fields_without_refreshing() {
     use crate::application::routed_campaign::walking::{
         descendant_closure::Tracker,

@@ -2,22 +2,27 @@
 //! Inline W1 never spawns, authorizes an off-thread CAS, or promises a poll
 //! while CAS is running. Each poll returns after one caller-thread inspection.
 use crate::application::routed_campaign::walking::epoch::inspector::{
-    Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
+    Activity, Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
 };
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub(super) trait Execution {
+    fn activity(&self) -> Result<Activity, String>;
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn retire(&mut self, keys: &[u64]) -> Result<(), String>;
+    fn retire_all_returned(&mut self) -> Result<(), String>;
     fn poll(&mut self, timeout: Duration) -> Result<Poll, String>;
     fn cancel(&mut self) -> Result<(), String>;
     fn take_cancelled_status(&mut self) -> Result<Vec<Status>, String>;
 }
 
 impl Execution for Pool<'_> {
+    fn activity(&self) -> Result<Activity, String> {
+        Pool::activity(self)
+    }
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         Pool::submit(self, jobs)
     }
@@ -26,6 +31,9 @@ impl Execution for Pool<'_> {
     }
     fn retire(&mut self, keys: &[u64]) -> Result<(), String> {
         Pool::retire(self, keys)
+    }
+    fn retire_all_returned(&mut self) -> Result<(), String> {
+        Pool::retire_all_returned(self)
     }
     fn poll(&mut self, timeout: Duration) -> Result<Poll, String> {
         Pool::poll(self, timeout)
@@ -47,6 +55,16 @@ struct Inline<'a> {
 }
 
 impl Execution for Inline<'_> {
+    fn activity(&self) -> Result<Activity, String> {
+        if self.stop.load(Ordering::Acquire) && self.status.is_empty() {
+            return Err("inline activity inventory moved before join".into());
+        }
+        Ok(Activity::from_status(
+            self.status.iter(),
+            self.stop.load(Ordering::Acquire),
+            true,
+        ))
+    }
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         if self.stop.load(Ordering::Acquire) || self.jobs.len() != 0 || jobs.len() > 4096 {
             return Err(SubmitError::Protocol(
@@ -142,6 +160,15 @@ impl Execution for Inline<'_> {
     fn cancel(&mut self) -> Result<(), String> {
         self.stop.store(true, Ordering::Release);
         self.jobs.clear();
+        Ok(())
+    }
+
+    fn retire_all_returned(&mut self) -> Result<(), String> {
+        if !self.jobs.is_empty() || self.status.iter().any(|status| !status.returned) {
+            return Err("inline batch retirement before returned receipts".into());
+        }
+        self.status.clear();
+        self.next = 0;
         Ok(())
     }
 

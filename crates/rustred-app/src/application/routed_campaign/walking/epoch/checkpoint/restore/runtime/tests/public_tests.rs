@@ -68,6 +68,9 @@ fn assert_summary(result: &crate::OwnerDomainWalkResult, drained: bool) {
     assert_eq!(doc["checkpoint"]["state"], "saved");
     assert_eq!(doc["parallel"]["workers_joined"], true);
     assert_eq!(doc["parallel"]["active_workers"], 0);
+    assert_eq!(doc["parallel"]["computing_workers"], 0);
+    assert_eq!(doc["parallel"]["finished_uncommitted_domains"], 0);
+    assert_eq!(doc["parallel"]["occupied_native_slots"], 0);
     let progress = crate::OwnerDomainWalkResult::completion_progress(doc);
     assert_eq!(progress["full_result_in_output_document"], false);
     assert_eq!(progress["full_state_in_checkpoint"], true);
@@ -475,7 +478,7 @@ fn interrupted_public_mode(
                         saved.store(true, Ordering::Release);
                     },
                     (mode == OwnerDomainWalkEpochInspectorLookup::Snapshot).then_some(&snapshots),
-                    |_, _, _| {}
+                    |_, _, _, _| {}
                 )
                 .unwrap(),
                 controller::Outcome::Stopped(StopReason::Paused)

@@ -50,6 +50,7 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
         let held = AtomicBool::new(false);
         let returned = AtomicBool::new(false);
         let cancel = AtomicBool::new(false);
+        let phase_activity = std::cell::Cell::new(0u8);
         let mut saves = 0;
         let inspect = |bytes: &[u8], _: &AtomicBool| {
             let job = Job::<1>::decode(bytes).unwrap();
@@ -118,12 +119,30 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
                     }
                 },
                 with_snapshot.then_some(&snapshots),
-                |_, _, _| {}
+                |state, _, phase, activity| {
+                    if matches!(phase, "p1" | "p3") {
+                        let value = activity().expect("live pool observation");
+                        assert_eq!(state.k, 0);
+                        assert!(value.computing >= 1, "held reader overlaps merge phase");
+                        assert!(value.returned >= 16);
+                        assert_eq!(value.occupied, 20);
+                        assert_eq!(
+                            value.occupied,
+                            value.queued + value.computing + value.returned
+                        );
+                        phase_activity
+                            .set(phase_activity.get() | if phase == "p1" { 1 } else { 2 });
+                    }
+                    if phase == "joined" {
+                        assert_eq!(activity().unwrap().occupied, 0);
+                    }
+                }
             )
             .unwrap(),
             Outcome::Stopped(merge::StopReason::Paused)
         );
         assert_eq!(saves, 2);
+        assert_eq!(phase_activity.get(), 3);
         assert!(returned.load(Ordering::Acquire));
         if !with_snapshot {
             assert_eq!(
@@ -165,7 +184,7 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
                 |_| false,
                 |_, _, _| {},
                 None,
-                |_, _, _| {}
+                |_, _, _, _| {}
             )
             .unwrap(),
             Outcome::Drained
@@ -199,7 +218,7 @@ fn rolling_partial_replay_retires_before_new_pending_dispatch() {
             |_| false,
             |_, _, _| {},
             None,
-            |_, _, _| {}
+            |_, _, _, _| {}
         )
         .unwrap(),
         Outcome::Drained

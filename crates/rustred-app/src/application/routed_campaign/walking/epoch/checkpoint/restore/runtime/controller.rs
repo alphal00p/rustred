@@ -9,7 +9,8 @@ use super::Restored;
 use crate::application::routed_campaign::walking::epoch::{
     dispatch::{Dispatch, Refill},
     inspector::{
-        Context, Poll, RunError, Status, SubmitError, Work, inspect_job, inspect_job_with_snapshot,
+        Activity, Context, Poll, RunError, Status, SubmitError, Work, inspect_job,
+        inspect_job_with_snapshot,
     },
     merge::{self, Fatal, MergeConfig, RecordOut, StopReason},
     records,
@@ -296,7 +297,7 @@ pub(super) fn run_authorized_lookup_periodic<const N: usize>(
         &mut periodic_due,
         |_, receipt, status| on_saved(receipt, status),
         snapshots,
-        |_, _, _| {},
+        |_, _, _, _| {},
     )
 }
 
@@ -313,7 +314,7 @@ pub(super) fn run_observed<const N: usize>(
     mut periodic_due: impl FnMut(u64) -> bool,
     mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
     snapshots: Option<&Publication<N>>,
-    mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str),
+    mut progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
 ) -> io::Result<Outcome> {
     if !config.lockstep {
         return rolling::run(
@@ -347,26 +348,42 @@ pub(super) fn run_observed<const N: usize>(
     let outcome = execution::with(budget, authorize, inspect, |pool| {
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<Outcome, Failure> {
             if let Some(reason) = initial_stop(config, restored.roots.frontiers.len()) {
-                progress(&restored.state, &restored.dispatch, "checkpoint");
-                let receipt =
-                    save_observed(restored, identity, b, Some(reason), None, &mut progress)?;
+                progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                    pool.activity().ok()
+                });
+                let receipt = save_observed(
+                    restored,
+                    identity,
+                    b,
+                    Some(reason),
+                    None,
+                    &mut |state, dispatch, phase| {
+                        progress(state, dispatch, phase, &|| pool.activity().ok())
+                    },
+                )?;
                 on_saved(restored, &receipt, &[]);
                 return Ok(Outcome::Stopped(reason));
             }
             let mut committed_boundary = false;
             loop {
-                progress(&restored.state, &restored.dispatch, "boundary");
+                progress(&restored.state, &restored.dispatch, "boundary", &|| {
+                    pool.activity().ok()
+                });
                 if let Some(context) = stop_requested() {
                     pool.cancel().map_err(Failure::Engine)?;
                     let reason = context.kind();
-                    progress(&restored.state, &restored.dispatch, "checkpoint");
+                    progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                        pool.activity().ok()
+                    });
                     let receipt = save_observed(
                         restored,
                         identity,
                         b,
                         Some(reason),
                         Some(context),
-                        &mut progress,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
                     )?;
                     // Any prior batch has already merged; its old worker
                     // observations must not masquerade as current in-flight.
@@ -385,20 +402,35 @@ pub(super) fn run_observed<const N: usize>(
                     if let Some(context) = stop_requested() {
                         pool.cancel().map_err(Failure::Engine)?;
                         let reason = context.kind();
-                        progress(&restored.state, &restored.dispatch, "checkpoint");
+                        progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                            pool.activity().ok()
+                        });
                         let receipt = save_observed(
                             restored,
                             identity,
                             b,
                             Some(reason),
                             Some(context),
-                            &mut progress,
+                            &mut |state, dispatch, phase| {
+                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                            },
                         )?;
                         on_saved(restored, &receipt, &[]);
                         return Ok(Outcome::Stopped(reason));
                     }
-                    progress(&restored.state, &restored.dispatch, "checkpoint");
-                    let receipt = save_observed(restored, identity, b, None, None, &mut progress)?;
+                    progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                        pool.activity().ok()
+                    });
+                    let receipt = save_observed(
+                        restored,
+                        identity,
+                        b,
+                        None,
+                        None,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
+                    )?;
                     on_saved(restored, &receipt, &[]);
                     // Stop can arrive during the synchronous write/callback.
                     // Recheck before refill without repeating the periodic save.
@@ -417,27 +449,35 @@ pub(super) fn run_observed<const N: usize>(
                                     false,
                                     restored.roots.frontiers.len(),
                                 );
-                            progress(&restored.state, &restored.dispatch, "checkpoint");
+                            progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                                pool.activity().ok()
+                            });
                             let receipt = save_observed(
                                 restored,
                                 identity,
                                 b,
                                 (!certified).then_some(StopReason::DrainedUncertified),
                                 None,
-                                &mut progress,
+                                &mut |state, dispatch, phase| {
+                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                },
                             )?;
                             on_saved(restored, &receipt, &[]);
                             return Ok(Outcome::Drained);
                         }
                         Refill::SequenceExhausted => {
-                            progress(&restored.state, &restored.dispatch, "checkpoint");
+                            progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                                pool.activity().ok()
+                            });
                             let receipt = save_observed(
                                 restored,
                                 identity,
                                 b,
                                 Some(StopReason::Capacity),
                                 None,
-                                &mut progress,
+                                &mut |state, dispatch, phase| {
+                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                },
                             )?;
                             on_saved(restored, &receipt, &[]);
                             return Ok(Outcome::Stopped(StopReason::Capacity));
@@ -455,42 +495,51 @@ pub(super) fn run_observed<const N: usize>(
                         .store
                         .ensure_unique()
                         .map_err(|e| Failure::Engine(e.into()))?;
-                    let snapshot =
-                        match refresh_snapshot(restored, &mut stop_requested, &mut progress)? {
-                            Refresh::Ready(Some(snapshot)) => snapshot,
-                            Refresh::Ready(None) => {
-                                return Err(Failure::Engine(
-                                    "drained lockstep lookup buffers remain leased".into(),
-                                ));
-                            }
-                            Refresh::Stopped(context) => {
-                                pool.cancel().map_err(Failure::Engine)?;
-                                let reason = context.kind();
-                                let receipt = save_observed(
-                                    restored,
-                                    identity,
-                                    b,
-                                    Some(reason),
-                                    Some(context),
-                                    &mut progress,
-                                )?;
-                                on_saved(restored, &receipt, &[]);
-                                return Ok(Outcome::Stopped(reason));
-                            }
-                            Refresh::RamGuard => {
-                                pool.cancel().map_err(Failure::Engine)?;
-                                let receipt = save_observed(
-                                    restored,
-                                    identity,
-                                    b,
-                                    Some(StopReason::RamGuard),
-                                    None,
-                                    &mut progress,
-                                )?;
-                                on_saved(restored, &receipt, &[]);
-                                return Ok(Outcome::Stopped(StopReason::RamGuard));
-                            }
-                        };
+                    let snapshot = match refresh_snapshot(
+                        restored,
+                        &mut stop_requested,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
+                    )? {
+                        Refresh::Ready(Some(snapshot)) => snapshot,
+                        Refresh::Ready(None) => {
+                            return Err(Failure::Engine(
+                                "drained lockstep lookup buffers remain leased".into(),
+                            ));
+                        }
+                        Refresh::Stopped(context) => {
+                            pool.cancel().map_err(Failure::Engine)?;
+                            let reason = context.kind();
+                            let receipt = save_observed(
+                                restored,
+                                identity,
+                                b,
+                                Some(reason),
+                                Some(context),
+                                &mut |state, dispatch, phase| {
+                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                },
+                            )?;
+                            on_saved(restored, &receipt, &[]);
+                            return Ok(Outcome::Stopped(reason));
+                        }
+                        Refresh::RamGuard => {
+                            pool.cancel().map_err(Failure::Engine)?;
+                            let receipt = save_observed(
+                                restored,
+                                identity,
+                                b,
+                                Some(StopReason::RamGuard),
+                                None,
+                                &mut |state, dispatch, phase| {
+                                    progress(state, dispatch, phase, &|| pool.activity().ok())
+                                },
+                            )?;
+                            on_saved(restored, &receipt, &[]);
+                            return Ok(Outcome::Stopped(StopReason::RamGuard));
+                        }
+                    };
                     snapshots
                         .publish(snapshot)
                         .map_err(|e| Failure::Engine(e.into()))?;
@@ -501,14 +550,18 @@ pub(super) fn run_observed<const N: usize>(
                 {
                     drop(jobs);
                     pool.cancel().map_err(Failure::Engine)?;
-                    progress(&restored.state, &restored.dispatch, "checkpoint");
+                    progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                        pool.activity().ok()
+                    });
                     let receipt = save_observed(
                         restored,
                         identity,
                         b,
                         Some(StopReason::RamGuard),
                         None,
-                        &mut progress,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
                     )?;
                     on_saved(restored, &receipt, &[]);
                     return Ok(Outcome::Stopped(StopReason::RamGuard));
@@ -524,21 +577,27 @@ pub(super) fn run_observed<const N: usize>(
                     Err(SubmitError::Protocol(error)) => return Err(Failure::Engine(error.into())),
                     Err(SubmitError::Allocation(_)) => {
                         pool.cancel().map_err(Failure::Engine)?;
-                        progress(&restored.state, &restored.dispatch, "checkpoint");
+                        progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                            pool.activity().ok()
+                        });
                         let receipt = save_observed(
                             restored,
                             identity,
                             b,
                             Some(StopReason::RamGuard),
                             None,
-                            &mut progress,
+                            &mut |state, dispatch, phase| {
+                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                            },
                         )?;
                         on_saved(restored, &receipt, &[]);
                         return Ok(Outcome::Stopped(StopReason::RamGuard));
                     }
                 }
                 loop {
-                    progress(&restored.state, &restored.dispatch, "inspect");
+                    progress(&restored.state, &restored.dispatch, "inspect", &|| {
+                        pool.activity().ok()
+                    });
                     if let Some(context) = stop_requested() {
                         // No partial cut reaches P1. Release both already-polled
                         // bytes and queued/late channel results BEFORE streaming save.
@@ -546,14 +605,18 @@ pub(super) fn run_observed<const N: usize>(
                         drop(results);
                         let status = pool.take_cancelled_status().map_err(Failure::Engine)?;
                         let reason = context.kind();
-                        progress(&restored.state, &restored.dispatch, "checkpoint");
+                        progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                            pool.activity().ok()
+                        });
                         let receipt = save_observed(
                             restored,
                             identity,
                             b,
                             Some(reason),
                             Some(context),
-                            &mut progress,
+                            &mut |state, dispatch, phase| {
+                                progress(state, dispatch, phase, &|| pool.activity().ok())
+                            },
                         )?;
                         on_saved(restored, &receipt, &status);
                         return Ok(Outcome::Stopped(reason));
@@ -577,7 +640,9 @@ pub(super) fn run_observed<const N: usize>(
                 }
                 // P1 sorts the complete cut; first-error handling is independent
                 // of worker completion order. Existing P1-P3 semantics unchanged.
-                progress(&restored.state, &restored.dispatch, "p1");
+                progress(&restored.state, &restored.dispatch, "p1", &|| {
+                    pool.activity().ok()
+                });
                 let checked = merge::p1_check(&mut restored.state, results, config)?;
                 let reason = if let Some(reason) = checked.stop {
                     merge::discard_cut(&mut restored.state, &checked, &mut |id, attempts| {
@@ -586,9 +651,13 @@ pub(super) fn run_observed<const N: usize>(
                     Some(reason)
                 } else {
                     let observations = observations(identity, &checked);
-                    progress(&restored.state, &restored.dispatch, "p2");
+                    progress(&restored.state, &restored.dispatch, "p2", &|| {
+                        pool.activity().ok()
+                    });
                     let plan = merge::p2(&mut restored.state, &checked)?;
-                    progress(&restored.state, &restored.dispatch, "p3");
+                    progress(&restored.state, &restored.dispatch, "p3", &|| {
+                        pool.activity().ok()
+                    });
                     if let Err(reason) = merge::p3_preflight(
                         &mut restored.state,
                         &checked,
@@ -623,10 +692,23 @@ pub(super) fn run_observed<const N: usize>(
                         applied.stop
                     }
                 };
+                // The complete cut was committed or explicitly discarded.
+                // Returned callbacks are no longer awaiting publication.
+                pool.retire_all_returned().map_err(Failure::Engine)?;
                 if let Some(reason) = reason {
-                    progress(&restored.state, &restored.dispatch, "checkpoint");
-                    let receipt =
-                        save_observed(restored, identity, b, Some(reason), None, &mut progress)?;
+                    progress(&restored.state, &restored.dispatch, "checkpoint", &|| {
+                        pool.activity().ok()
+                    });
+                    let receipt = save_observed(
+                        restored,
+                        identity,
+                        b,
+                        Some(reason),
+                        None,
+                        &mut |state, dispatch, phase| {
+                            progress(state, dispatch, phase, &|| pool.activity().ok())
+                        },
+                    )?;
                     on_saved(restored, &receipt, &[]);
                     return Ok(Outcome::Stopped(reason));
                 }
@@ -646,10 +728,14 @@ pub(super) fn run_observed<const N: usize>(
                 ))));
             }
         }
-        progress(&restored.state, &restored.dispatch, "drain_wait");
+        progress(&restored.state, &restored.dispatch, "drain_wait", &|| {
+            pool.activity().ok()
+        });
         result
     });
-    progress(&restored.state, &restored.dispatch, "joined");
+    progress(&restored.state, &restored.dispatch, "joined", &|| {
+        Some(Activity::default())
+    });
     // with_authorized_pool has joined every worker on all paths. Cancellation
     // therefore may release publication here, but never before its durable save.
     if let Some(snapshots) = snapshots {
@@ -712,7 +798,7 @@ pub(super) fn run_native_lookup<const N: usize>(
         context,
         mode,
         |_, receipt, status| on_saved(receipt, status),
-        |_, _, _| {},
+        |_, _, _, _| {},
     )
 }
 
@@ -724,7 +810,7 @@ pub(super) fn run_native_observed<const N: usize>(
     context: &Context<'_, N>,
     mode: LookupMode,
     mut on_saved: impl FnMut(&Restored<N>, &publication::Receipt, &[Status]),
-    progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str),
+    progress: impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
 ) -> io::Result<Outcome> {
     let schedule = periodic::Schedule::new(
         context
