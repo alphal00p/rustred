@@ -233,7 +233,9 @@ fn summary<const N: usize>(
         "record_inventory":"authenticated_checkpoint_segments_only","resume_supported":true,
         "checkpoint":checkpoint,"restore_warnings":restored.warnings,
         "publication_policy":"epoch_merge_stream","walk_semantics_version":epoch::EPOCH_WALK_SEMANTICS_VERSION,
-        "workers":request.workers,"worker_allocation":crate::application::routed_campaign::walking::worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers),
+        "workers":request.workers,"worker_allocation":crate::application::routed_campaign::walking::worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers)});
+    // Keep each macro expansion bounded without changing the summary object.
+    let Value::Object(progress) = json!({
         "scheduled_nodes":state.watermark(),"completed_nodes":state.counters.completed,
         "queued_nodes":state.pending_or_reserved(),"processed_nodes":native+counts.get(Tag::Alias),
         "committed_domains":native+counts.get(Tag::Alias),"native_processed_nodes":native,
@@ -251,7 +253,13 @@ fn summary<const N: usize>(
         "epoch":{"stage":"S3_checkpoint_lifecycle","k":state.k,"p0":state.p0,"watermark":state.watermark(),
             "schedule":{"kind":"lockstep","depth":1,"b":b},"resolution":"canonical_in_merge",
             "records_digest":state.edges.records_digest(),"edge_digest":state.edges.edge_digest(),
-            "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}});
+            "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}})
+    else {
+        unreachable!("summary progress object")
+    };
+    doc.as_object_mut()
+        .expect("summary object")
+        .extend(progress);
     crate::application::routed_campaign::walking::finish_timing(&mut doc, started, prepared);
     doc
 }
