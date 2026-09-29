@@ -6,6 +6,7 @@ use crate::application::routed_campaign::walking::epoch::{
 use crate::application::routed_campaign::walking::inspection::{
     Effect, Event, Finished, NativeStats,
 };
+use crate::application::routed_campaign::walking::queue::Query;
 use std::ops::ControlFlow;
 
 fn resolved(job: &Job<2>, queries: &[Domain<2>], view: Option<&Snapshot<2>>) -> JobResult<2> {
