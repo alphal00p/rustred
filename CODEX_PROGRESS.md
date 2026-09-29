@@ -49,13 +49,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Work | Status | Responsible lane | Next step / reopening condition |
 |---|---|---|---|
 | Plan, goal, progress bootstrap | delivered | root | Goal active; independently audited documentation milestone |
-| G2′ integration | corrected focus/full native suites delivered; campaign gates pending | joint_support_pruning | Build frozen matched-profile CLI and run all controls; retain first failed receipts |
+| G2′ integration | focus/full/W50 native suites and campaign CLI build delivered | joint_support_pruning | Six CLI tests running; then composition, identity and full-reinspection controls |
 | Rescue and explicit query roles | source and combined native suites delivered | joint_support_pruning (integration; original author bounded_helpers_bmw) | Campaign/CLI and independent full-reinspection gates remain at `d12db6cf` |
 | Independent math/code audit | combined corrections and private epoch writer/publisher source passed | checkpoint_final_audit | Independently review bounded restore next; verify execution receipts before release |
 | Combined G2′ + rescue | corrected optimized focus/full suites and independent receipt audit passed | joint_support_pruning + root + independent auditor | `d12db6cf`; matched campaign profile, CLI and independent control reinspection next |
 | Python production G2′ steering | committed locally and independently tested | joint_support_pruning (author), checkpoint_final_audit (independent review) | `cd52c90d`; real Python/native pause-resume composition smoke after CLI gates, then integrate |
 | Coordinator latency / telemetry | isolated source audit and typecheck passed; native execution pending | checkpoint_final_audit (author), joint_support_pruning (independent review) | `187854b4`; five regressions prepared, no native test or performance result yet |
-| Epoch S3–S6 | decoder/lookup/provisional assembly source-audited and typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `43253bfe`; native execution, full cross-state/session/stop and S4–S6 remain open |
+| Epoch S3–S6 | provisional arrays, anchors/frontiers and saved dispatch source-audited/typechecked | epoch_s3_delivery, checkpoint_final_audit (independent review) | Passing validation `97787259`; native execution, full cross-state/session/stop and S4–S6 remain open |
 | N2 allocation-free geometry | registered; pending implementation decision | checkpoint_final_audit | Redundant vector copies; profile after G2 before prioritizing |
 | N1 modular witnesses | source/API feasibility audit delivered; profile gate pending | checkpoint_final_audit | Generic RHS witness is too late/insufficient; measure fully fixed predicate support after G2 before implementing narrower shortcut |
 | N4 coverage-first work | source feasibility audit delivered; profiling gate pending | checkpoint_final_audit + root | Opt-in coverage-only visitor could avoid discarded exact payloads; count post-G2 eligible cost before implementation, preserving mathematical obligations |
@@ -82,6 +82,37 @@ Root orchestrator owns this log; agents report evidence for integration here.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-29 04:47 UTC — previously omitted 50-worker subcases exercised
+
+- [M] Root ran the existing frozen release test executable `227d2564…` on 50 available physical CPUs32–81. All 13 selected tests passed, with no failures, ignored cases or skip diagnostics: 0.13 s native test time; guard exit 0/no stop reason, 1.162 s, peak 15,420 KiB. Receipt: `TMP/codex-g2-rescue.tzdFuj/native-width50/`.
+- Exact executable filters: `application::routed_campaign::tests::owner_batches::`, `initial_overlap_actual_native_residual_and_alias_match_across_workers`, and `native_walk_transfer_runs_serial_two_six_fifty_and_default_keeps_every_job`, with `--test-threads=1 --nocapture`. These exercise the ten previously omitted W50 subcases plus three nearby tests. The original 16-core omissions remain recorded; this separate receipt supplies the missing width coverage, not a worker-utilization or speed benchmark.
+- Resource decision: these prebuilt tiny one-/two-loop correctness tests used build1/headroom guards while the CLI test target compiled on0–15 under the sole heavy lock. Their earlier full-suite peak was about83 MiB; this subset measured15 MiB. No performance pilot overlapped. The light slot is now released. The guard used a 300 s owned-test timeout, not a production/campaign limit.
+- Independent reviewer confirmed the ten source loops, the three additional tests, absence of skips, source `d12db6cf`, and unchanged test/candidate executable hashes. Physical-core identity for CPUs32–81 was separately checked by root with `lscpu`; this is a correctness allocation, not an exclusive-host reservation.
+
+### 2026-09-29 04:46 UTC — saved-dispatch check passes; no public resume yet
+
+- [M] Audited source `a21d76bc` adds bounded saved-dispatch decoding and shared reservation validation; it preserves exact retry/deferred order, attempt classes, in-flight descriptors, cursor and sequence checks. A zero requested refill budget now refuses before popping or mutating queues. The decoder returns provisional data, not a runnable dispatcher.
+- [M] Validation `977872595108c1788737305e4eb9941366ef9ef1` combines that slice with `7f31433f` and passes the same one-worker metadata-only check. Receipt `TMP/codex-epoch-s3.JjASCU/typecheck-dispatch-light/`: exit 0/no stop reason, 40.167 s (Cargo 37.34 s), peak 1,179,528 KiB. Root independently read the receipt. No native execution or broad dependency rebuild; cross-state WIP is excluded.
+- Upcoming session allocation must reject counter/session overflow before issuing a reused sequence. Restored closure flags remain non-authoritative until full graph reconstruction; mutation tests must not let a forged closed flag bypass an unresolved descendant. S3 remains incomplete until these cross-state, durable-session and stop-before-join gates work end to end.
+
+### 2026-09-29 04:44 UTC — optimized G2′/rescue executable built successfully
+
+- [M] Frozen native source `d12db6cfa23c09f7d9c2946416ea49763ece48f0` campaign build passes. Receipt `TMP/codex-g2-rescue.tzdFuj/campaign-build/`: exit 0/no stop reason, 3,446.419 s (Cargo 57m24s), peak single child 15,056,956 KiB, minimum host headroom 794,792,742,912 B. This is **compilation only**, not a solver performance measurement.
+- [M] Candidate `target/campaign/rustred` SHA-256: `8169221a8977ae261e777ddca5ac9e82fcb339377362d988472930595b1ea341`. It uses the matched campaign profile (fat LTO, one codegen unit, no incremental build or mimalloc override). The binary will be frozen separately before controls.
+- Same-source `cargo test --profile campaign --locked --offline -j8 -p rustred-app --test cli_routed_campaign -- --test-threads=1` is now running under CPU0–15/heavy/build0 guards with `CARGO_INCREMENTAL=0`. Receipt directory: `campaign-cli-tests/`. No CLI test outcome, real pause/resume or performance comparison is claimed yet.
+
+### 2026-09-29 04:37 UTC — real composition harness independently checked
+
+- [M] The TMP-only Python/native smoke controller passes independent source review and seven owned-process mock tests (10.384 s; guard exit 0/no stop reason, 11.157 s). Evidence: `TMP/codex-g2-pilot-prep.n7Kd5q/controller-mock-tests-independent/`. No actual campaign ran.
+- Retained negative finding: if the supervisor exited before first observation, its native child could already be reparented, fail the original parent check and escape tracking. The author corrected authenticated receipt recovery after verified supervisor exit and added a delayed-observation orphan test. Actual native CPU affinity is now checked too. Bad receipts/affinity and launch failures remain censored; PID reuse must not cause a signal to an unrelated process.
+- A successful process smoke will still require separate cold reinspection before acceptance. Campaign CLI build and six CLI tests remain prerequisites. A short, separately guarded 50-worker rerun of the existing test binary is queued to exercise the ten width subcases omitted under the earlier 16-core allocation; no new compilation or timing claim is involved.
+
+### 2026-09-29 04:27 UTC — anchor/frontier decode audit delivered
+
+- [M] Epoch private decoder slice `7f31433feea24e88abcd29f4d0499d792a029317` is committed in the isolated publisher branch after independent source review. It reuses the existing anchor codec with bounded per-record scratch, validates counts/provenance/order and digest, and decodes sparse frontier entries. Review caught a test-only visibility gate on the reused codec; the author removed that gate without duplicating or changing its algorithm. No native test/typecheck receipt is claimed for this new slice; the next metadata check will include a coherent dispatch/cross-state addition.
+- Preserve the semantic distinction during restore: sparse frontier counts describe C4/native-frontier records, while aggregate frontier counters can also include C2/error prefixes. Requiring equality between those differently scoped counters would reject legitimate checkpoints. Full-state validation must check each against its proper record source.
+- Main audited documentation milestone `fb3684e7` is pushed. G2′/rescue runtime code remains isolated pending representative CLI/campaign gates; LC2 and unrelated user changes remain untouched.
 
 ### 2026-09-29 04:23 UTC — provisional assembly typechecks
 
