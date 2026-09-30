@@ -1,8 +1,35 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-Authoritative plan: [CODEX_PROGRESS_PLAN.md](CODEX_PROGRESS_PLAN.md).
+Authoritative current plan:
+[ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md](ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md).
+Earlier plans and measurements below remain historical evidence, not a launch
+instruction. The user postponed production launch on September30.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
+
+## Final optimization push — 2026-09-30 05:49 UTC
+
+The previous audited milestone is committed and pushed as `297be07f` on
+`fable_5_1_parallel`. The user has **not** chosen to launch the Ready fallback;
+LC2 remains live and untouched. A new active tool-managed goal replaces the
+delivery-only objective and requires both tracks below. No production actions.
+The latest follow-up removes the delivery deadline and prioritizes clean durable
+implementations, runtime-driven experiments and dependency-aware build reuse.
+Framework builds remain necessary; selecting existing strategies must not
+rebuild the engine. Bounded pilots and resource isolation still apply.
+
+| Track | Owner | State | Next executable step |
+|---|---|---|---|
+| O: generated-rule selection and full persisted integral order | `stage_a_release` | active, bounded source/API review | Propose concrete/shift/order representation and exact file ownership; implement after independent invariant review |
+| S: original S5 merge architecture | `parallel_gate_critique` | active, bounded source review | Identify safe bucket parallelism, typed record, bulk tracker and P4 boundaries; preserve reference work selection |
+| Independent mathematical/code/performance audit | `active_goal_delivery_audit` | active, read-only | Challenge both designs and define adversarial correctness/performance gates; do not author the feature being audited |
+| Integration, resources, profiling and release | root | active | Persist new plan and goal; coordinate shared files/builds and combined acceptance |
+
+The `297be07f` and frozen1b33/62c delivery remains a rollback/reference, not proof
+that these newly authorized tracks are implemented. Source A's repeated gains
+are retained evidence; Source B and full S5 need their own implementation,
+tests and measured integrated results. No master, Vakint, terminal-minimization,
+NUMA or unrelated research lane is reopened.
 
 ## Audited starting state — 2026-09-29 00:30 UTC
 

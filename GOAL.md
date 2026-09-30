@@ -1,5 +1,33 @@
 # RustRed project goal
 
+## Authoritative directive — September30 final optimization push
+
+The user has explicitly postponed the campaign launch and authorized
+`ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md`. This supersedes the prior delivery
+finish line below. The current milestone was pushed as `297be07f`; keep its
+frozen build and all production state untouched.
+
+Focus only on two implementation tracks: fully exploit improved generated-rule
+selection, including the previously design-only persisted programmable integral
+order, and finish the original S5 architecture (parallel merge preparation,
+typed records, bulk dependency updates and immutable index publication).
+Preserve the complete116-required/67-helper scope and generic algorithms.
+Old RustRed API and checkpoint compatibility need not constrain this work.
+
+Deliver both tracks with independent audits, exact correctness tests, matched
+four-loop and relevant five-loop pilot gains, then a clean committed/pushed
+optimized build and future campaign instructions. Target useful twenty-plus
+physical cores without major redundant work; two-hundred-core saturation is not
+required. Do not launch, pause, resume or alter production. Full mathematical
+closure and terminal/master/Vakint work remain subsequent objectives.
+
+The tool-managed goal is assigned to `/root`; `CODEX_PROGRESS.md` records lane
+ownership, decisions and evidence. The plan contains the acceptance criteria.
+The user has removed the delivery deadline: prioritize clean durable design,
+runtime-configurable experiments and evidence-backed Cargo/module boundaries
+that improve incremental reuse. Retain bounded exploratory pilots and protect
+production; do not substitute a rushed partial architecture for either track.
+
 ## Latest delivery directive — September30
 
 The active tool-managed objective was replaced by the user at01:53 UTC:
