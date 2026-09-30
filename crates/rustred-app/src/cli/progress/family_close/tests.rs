@@ -221,6 +221,7 @@ fn coalesced_frames_preserve_dimensions_and_sequence_overflow_stays_unknown() {
             sequence: Some(usize::MAX),
             case: Some(1),
             frame: None,
+            ..ExactJob::default()
         },
     );
     for rows in [11, 17] {

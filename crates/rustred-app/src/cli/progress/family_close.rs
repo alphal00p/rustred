@@ -7,8 +7,10 @@ mod format;
 mod presenter;
 mod resources;
 mod state;
+pub(super) mod telemetry;
 
 pub(crate) use presenter::FamilyCloseProgressMonitor;
+pub(crate) use telemetry::FamilyGenerationTelemetry;
 
 #[cfg(test)]
 mod tests;

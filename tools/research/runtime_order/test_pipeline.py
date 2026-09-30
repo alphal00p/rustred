@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -253,6 +254,64 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(result["child_started"])
         self.assertTrue(result["owned_group_drained"])
         self.assertIn("synthetic proc registration failure", result["stop_reason"])
+
+    def test_parallel_generation_freezes_inner_budget_and_keeps_staging_scope(self):
+        self.resources.update(workers=4, cpus="64-67", generation_jobs=2)
+        with patch.object(pipeline.os, "sched_getaffinity", return_value={64,65,66,67}):
+            plan = self.prepare()
+            self.assertEqual(plan["generation_schedule"]["slots"], [[64,65],[66,67]])
+            for group in self.recipe["groups"]:
+                command = prep.read(self.directory / f"commands/parent-{group['parent']}.json")
+                self.assertEqual(command[command.index("--n-cores")+1], "2")
+                self.assertIn("--progress-json", command)
+            def generate(jobs, attempt, resources, completed, **unused):
+                # Deliberately reverse completion order; stage remains in the
+                # original frozen owner/query/routing order.
+                for job in reversed(jobs):
+                    self.generated(list(job.command), attempt / job.id, resources)
+                    completed(job)
+            with patch.object(pipeline.generation_scheduler, "run", side_effect=generate) as parallel, \
+                    patch.object(pipeline.subprocess, "run", return_value=types.SimpleNamespace(
+                        returncode=0, stdout="--progress-json PATH", stderr="")), \
+                    patch.object(pipeline, "guarded_run", side_effect=self.generated) as admit, \
+                    patch.object(pipeline.os, "execv"), redirect_stdout(io.StringIO()):
+                pipeline.execute(self.directory, plan)
+                self.assertEqual(parallel.call_count, 1)
+                self.assertEqual(admit.call_count, 1)
+                self.assertEqual(prep.read(self.directory / "inputs/selection.json")["initial_frontier_routes"],
+                                 self.selection["initial_frontier_routes"])
+                self.assertEqual((self.directory / "inputs/queries.json").read_bytes(),
+                                 (self.source / "queries.json").read_bytes())
+                pipeline.execute(self.directory, plan)
+                self.assertEqual(parallel.call_count, 1)
+                self.assertEqual(admit.call_count, 1)
+
+    def test_parallel_generation_requires_capability_and_never_stages_after_failure(self):
+        self.resources.update(workers=4, cpus="64-67", generation_jobs=2)
+        with patch.object(pipeline.os, "sched_getaffinity", return_value={64,65,66,67}):
+            plan = self.prepare()
+            with patch.object(pipeline.generation_scheduler, "run") as parallel, \
+                    patch.object(pipeline.subprocess, "run", return_value=types.SimpleNamespace(
+                        returncode=0, stdout="old engine", stderr="")), \
+                    patch.object(pipeline.candidate_stage, "stage") as stage, \
+                    self.assertRaisesRegex(ValueError, "advertising --progress-json"):
+                pipeline.execute(self.directory, plan)
+            parallel.assert_not_called()
+            stage.assert_not_called()
+            with patch.object(pipeline.generation_scheduler, "run", side_effect=RuntimeError("siblings drained")), \
+                    patch.object(pipeline.subprocess, "run", return_value=types.SimpleNamespace(
+                        returncode=0, stdout="--progress-json PATH", stderr="")), \
+                    patch.object(pipeline.candidate_stage, "stage") as stage, self.assertRaises(RuntimeError):
+                pipeline.execute(self.directory, plan)
+            stage.assert_not_called()
+
+    def test_parallel_generation_schedule_cannot_change_on_resume(self):
+        plan = self.prepare()
+        plan["resources"]["generation_jobs"] = 2
+        with self.assertRaises(ValueError):
+            pipeline.validate(self.directory, plan)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            pipeline.main(["--directory", str(self.directory), "--resume", "--generation-jobs", "2"])
 
 
 if __name__ == "__main__":

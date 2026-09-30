@@ -11,6 +11,15 @@ The frozen generation-first release is delivered at `d93e64ad` (source checkout
 The user subsequently authorized continued optimization in the development
 checkout; the frozen release and both production campaigns remain untouched.
 
+**Post-launch defect (20:41UTC):** all67 A1 owners generated/admitted, but the
+user's Epoch walk failed after403.143s at `P1 ... UnionUndecided`. Optional G2′
+planning and P1 use different bounded coverage procedures; an inconclusive P1
+recheck currently becomes fatal. Repairing and independently testing a safe
+ordinary-inspection fallback is now the immediate priority. The generated inputs
+are reusable; the poisoned walk checkpoint is not. The previously delivered
+launch is on hold pending a tested build and fresh-walk recovery instructions.
+No source-architecture-completion statement below overrides this new evidence.
+
 | Requirement | State and evidence |
 |---|---|
 | Persisted runtime integral order and interfaces | Implemented, tested and independently audited; non-default comparators tested, without a useful advantage over A1 source selection |

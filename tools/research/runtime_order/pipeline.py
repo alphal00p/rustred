@@ -15,10 +15,13 @@ import os
 from pathlib import Path
 import shutil
 import shlex
+import subprocess
 import sys
 
 from generation_guard import ROOT, SUPERVISOR, module, run as guarded_run
 from prepare_selected import SCHEMA, prepare, read, sha, write
+import generation_scheduler
+from generation_monitor import Dashboard
 import stage as candidate_stage
 
 PRODUCTION = module("selected_pipeline_production", ROOT / "examples/python/production_saved_owner_campaign.py")
@@ -44,6 +47,13 @@ def validate(directory, plan):
     for binary in plan["binaries"].values():
         if sha(binary["path"]) != binary["sha256"]:
             raise ValueError("bound native executable changed")
+    actual = generation_scheduler.schedule(plan["resources"])
+    if plan.get("generation_schedule", actual) != actual:
+        raise ValueError("frozen generation schedule differs from its resource budget")
+    for group in plan["recipe"]["groups"]:
+        command = read(directory / f"commands/parent-{group['parent']}.json")
+        if command[command.index("--n-cores")+1] != str(actual["workers_per_job"]):
+            raise ValueError("native generation command differs from frozen per-job worker budget")
 
 
 def attempt_path(directory, name):
@@ -118,29 +128,78 @@ def preflight_walk(directory, plan):
         (directory / "shared/queries.json").stat().st_size)
 
 
+def generation_jobs(directory, plan):
+    """Completed receipts alone skip work; checkpoint files only permit resume."""
+    jobs, retained = [], []
+    for group in plan["recipe"]["groups"]:
+        parent = str(group["parent"])
+        run = directory / f"generation/parent-{parent}"
+        if generation_complete(run):
+            print(f"Parent {parent}: completed native output retained", flush=True)
+            retained.append(dict(id=f"parent-{parent}", state="retained", metadata=group))
+            continue
+        command = read(directory / f"commands/parent-{parent}.json")
+        if (run / "sectors/checkpoint.toml").is_file():
+            # Only this pipeline's exact bound bundle/report destinations
+            # may be reassembled after an interrupted final write.
+            command += ["--resume", "--force"]
+            print(f"Parent {parent}: resume completed sectors; unfinished sector restarts", flush=True)
+        elif (run / "sectors").exists():
+            raise ValueError(f"checkpoint directory has no manifest: {run / 'sectors'}; inspect rather than overwrite")
+        print(f"Parent {parent}: {len(group['selected_sectors'])} selected owner jobs", flush=True)
+        jobs.append(generation_scheduler.Job(f"parent-{parent}", tuple(command), group,
+            native_progress=run / "native-progress.json", checkpoint=run / "sectors"))
+    return jobs, retained
+
+
+def complete_generation(job):
+    run = Path(job.command[job.command.index("--output")+1]).parent
+    outputs = ["candidates.rrbin", "generation.toml", "sectors/checkpoint.toml"]
+    # Receipt publication is atomic: an interrupted hash/write does not turn a
+    # restartable completed-sector checkpoint into an unusable partial marker.
+    temporary = run / ".completed.json.part"
+    payload = dict(outputs={name: sha(run / name) for name in outputs},
+        source="successful native invocation; strict selected scope validated during staging")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(temporary, run / "completed.json")
+
+
+def run_generations(directory, plan):
+    jobs, retained = generation_jobs(directory, plan)
+    if not jobs:
+        return
+    allocation = generation_scheduler.schedule(plan["resources"])
+    if allocation["jobs"] == 1:
+        # Retain the existing default lifecycle/command surface. The opt-in
+        # multi-parent path never runs these per-child RAM guards concurrently.
+        for job in jobs:
+            guarded_run(list(job.command), attempt_path(directory, "generate-"+job.id), plan["resources"])
+            complete_generation(job)
+        return
+    checked = subprocess.run([plan["binaries"]["cli"]["path"], "--help"], check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10,
+        env=generation_scheduler.native_environment())
+    if checked.returncode != 0 or "--progress-json" not in checked.stdout + checked.stderr:
+        raise ValueError("parallel generation requires a native build advertising --progress-json; no generation started")
+    attempt = attempt_path(directory, "generate-parallel")
+    print(f"Parallel generation: {allocation['jobs']} slots x {allocation['workers_per_job']} workers; "
+          f"one aggregate RAM guard; snapshots/events in {attempt}", flush=True)
+    enabled = plan.get("presentation", {}).get("generation_dashboard", True)
+    with Dashboard(plan["binaries"]["cli"]["path"], attempt, plan["resources"], enabled) as dashboard:
+        generation_scheduler.run(jobs, attempt, plan["resources"], complete_generation,
+                                 retained=retained, observer=dashboard.observe)
+
+
 def execute(directory, plan):
     validate(directory, plan)
     with exclusive(directory):
         preflight_walk(directory, plan)
-        for group in plan["recipe"]["groups"]:
-            parent = str(group["parent"])
-            run = directory / f"generation/parent-{parent}"
-            if generation_complete(run):
-                print(f"Parent {parent}: completed native output retained", flush=True)
-                continue
-            command = read(directory / f"commands/parent-{parent}.json")
-            if (run / "sectors/checkpoint.toml").is_file():
-                # Only this pipeline's exact bound bundle/report destinations
-                # may be reassembled after an interrupted final write.
-                command += ["--resume", "--force"]
-                print(f"Parent {parent}: resume completed sectors; unfinished sector restarts", flush=True)
-            elif (run / "sectors").exists():
-                raise ValueError(f"checkpoint directory has no manifest: {run / 'sectors'}; inspect rather than overwrite")
-            print(f"Parent {parent}: {len(group['selected_sectors'])} selected owner jobs", flush=True)
-            guarded_run(command, attempt_path(directory, f"generate-{parent}"), plan["resources"])
-            outputs = ["candidates.rrbin", "generation.toml", "sectors/checkpoint.toml"]
-            write(run / "completed.json", dict(outputs={name: sha(run / name) for name in outputs},
-                  source="successful native invocation; strict selected scope validated during staging"))
+        run_generations(directory, plan)
+        # Every original parent must be present; racing completions never alter
+        # input order, roles, routes or the deterministic staging barrier.
+        if any(not generation_complete(directory / f"generation/parent-{group['parent']}")
+               for group in plan["recipe"]["groups"]):
+            raise ValueError("generation barrier has a missing completed parent")
         staged = directory / "generated-inputs"
         if not staged.exists():
             temporary = attempt_path(directory, "partial-candidate-staging")
@@ -202,6 +261,10 @@ def main(argv=None):
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--inspector", type=Path)
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--generation-jobs", type=int,
+        help="opt-in independent parent slots; divides --workers exactly (default: 1)")
+    parser.add_argument("--no-generation-dashboard", action="store_true",
+        help="disable only the optional read-only viewer for parallel generation (also valid on resume)")
     parser.add_argument("--cpus")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--host-memory-reserve-bytes", type=int)
@@ -212,7 +275,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     directory = args.directory.resolve()
     try:
-        settings = ("recipe", "selection", "executable", "inspector", "workers", "cpus", "max_memory_bytes",
+        settings = ("recipe", "selection", "executable", "inspector", "workers", "generation_jobs", "cpus", "max_memory_bytes",
                     "host_memory_reserve_bytes", "checkpoint_max_bytes", "ram_guard_margin_percent")
         if args.resume:
             ram_names = {"max_memory_bytes", "host_memory_reserve_bytes", "ram_guard_margin_percent"}
@@ -228,7 +291,7 @@ def main(argv=None):
                     raise ValueError("RAM limits must be positive and margin strictly between zero and 100")
                 plan["resources"][name] = value
         else:
-            if any(getattr(args, key) is None for key in settings if key != "ram_guard_margin_percent"):
+            if any(getattr(args, key) is None for key in settings if key not in ("ram_guard_margin_percent", "generation_jobs")):
                 raise ValueError("fresh preparation requires recipe, selection, executables and all resource arguments")
             margin = 5.0 if args.ram_guard_margin_percent is None else args.ram_guard_margin_percent
             if not math.isfinite(margin) or not 0 < margin < 100:
@@ -242,8 +305,11 @@ def main(argv=None):
             resources = {key: getattr(args, key) for key in ("workers", "cpus", "max_memory_bytes",
                          "host_memory_reserve_bytes", "checkpoint_max_bytes")}
             resources["ram_guard_margin_percent"] = margin
+            resources["generation_jobs"] = 1 if args.generation_jobs is None else args.generation_jobs
             plan = prepare(args.recipe, args.selection, directory, args.executable, args.inspector, resources)
             preflight_walk(directory, plan)
+        # Presentation is per invocation, not native policy/checkpoint identity.
+        plan["presentation"] = dict(generation_dashboard=not args.no_generation_dashboard)
         if args.start:
             execute(directory, plan)
         else:

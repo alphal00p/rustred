@@ -82,6 +82,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::CampaignReduce(arguments) => reduce_campaign_target(arguments),
         Command::CampaignShards(arguments) => shards::run(arguments),
         Command::CampaignMonitor(arguments) => shards::monitor::run(arguments),
+        Command::PreparationMonitor(arguments) => progress::preparation::run(arguments),
         Command::WalkVerifyClosure(arguments) => walk_verify::run(arguments),
         Command::WalkRescuePlan(arguments) => walk_rescue::run(arguments),
     }

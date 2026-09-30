@@ -1,11 +1,85 @@
 # Structural candidate: retain verified numerator-incidence envelopes
 
 Date: 2026-09-30. Author: `/root/s5_fixed_work_pilots`.
-Status: **read-only proposal; no implementation, native run, or production mutation**.
+Status: **research-only shadow test prepared but not yet linked or run; no
+production cover change, native result, or production mutation**.
 Independent mathematical/source critique by `/root/final_requirements_audit` agrees
 with the conditional derivation; a measured shadow audit is still required. Root
 reviewed the cited route/support implementation independently.
 The separate allocation-removal implementation is not part of this proposal.
+
+## Follow-through at 20:25 UTC
+
+The bounded metadata-only extractor inspected16 ranges of at most2MiB from the
+completed, cold-All-accepted finite-five Ready control. It read39,383 records,
+found21,260 eligible nonliteral/nonzero completed Route records and153 source
+masks, then selected8 routes/15 boxes. Selection deliberately favors visible
+coordinate refinement: this is a biased feasibility sample, not an occurrence-
+weighted census. It includes reached rank3 descendants of rank2 starting input;
+the starting restriction is never incorrectly reapplied to successors.
+
+Independent review checked all16 range hashes, all15 record hashes/fields,
+the8 original witness records and the full67-owner mask list. The original
+selection and CP5 request/generation binding match the completed control's cold
+receipt. The research test retains the same source-condition checks and requires
+exact agreement with recorded visitor classification counts before measuring
+any tighter cover. Its synthetic empty-rule owner set must never be used to
+apply IBPs, publish an artifact or claim closure. There is no native shadow result
+yet. Source and receipts are described in `CODEX_PROGRESS.md`.
+
+### Exact elimination: native API audit and next falsifier
+
+The pinned Symbolica/Numerica public sparse API already provides
+`SparseMatrix::solve_parallel` and `SparseRowReducer::back_substitute_parallel`.
+Inspection of `vendor/symbolica/lib/numerica/src/tensors/sparse.rs` shows that
+the former still constructs its forward reducer serially and then parallelizes
+back-substitution. RustRed's observed tail is `SparseRowReducer::add_row` during
+**forward** elimination. These existing APIs therefore cannot be advertised as
+a direct switch that parallelizes the measured phase. No competing elimination
+or polynomial kernel is proposed.
+
+Before changing production search, a new input-driven diagnostic test will use
+the existing public `solve_case_with_source_order_and_observer` to compare A1
+and A0 on identical decoded saved cases. Start with two four-loop cases, then
+one substantial case from each of the already completed five-loop parents30527
+and30699. Read only their completed immutable shards, never unfinished3822 state.
+Current public bundle inspection does not expose full typed cases, so one native
+test build is necessary; subsequent choices use the same input-driven executable.
+
+This intentionally materializes both candidates for a small **quality
+experiment**, not as the proposed production design. Preserve saved-A1 exact
+candidate equality, the source basis/zero census/mathematical order, source
+provenance and exceptional geometry. Charge all discovery, exact lifting and
+exception extraction. A candidate result is not a completed sector or campaign.
+
+The earlier isolated five-loop case195 study is a concrete counterexample to
+ranking solely by selected-row count:
+
+| Source order | Selected rows | RHS terms | Search wall, including exact (s) | Exact portion (s) |
+|---|---:|---:|---:|---:|
+| Identity |496|781|36.934|36.019|
+| Reverse |418|653|37.418|36.460|
+| Half rotation |454|725|27.507|26.928|
+
+All three retained the same unsupported conic. These are historical single,
+shared-host observations, not a completed-sector speed qualification. They
+motivate measuring candidate quality and retaining negative evidence rather than
+assuming smaller support always wins.
+
+If the new panel supports it, the minimal production proposal is a private
+discovery/materialization split with default first-hit identity, one optional
+sequential alternative probe with an explicit extra-row budget, and exact lifting
+of only the selected frame. The baseline remains available on an alternative
+budget miss/unlucky sample; none of these events may suppress a case or declare
+a terminal. Record both probes' costs and any exact fallback. Bind the selection
+policy into generation checkpoint identity, not into stronger proof authority.
+
+Raw pivots can differ by shifts even for the same case. `canonicalize` translates
+coefficients and RHS by that pivot; successful canonical targets are checked
+against `case.integral()`. Any modular quality proxy must therefore use
+**target-relative** shifts and activation offsets. It cannot know exact guard
+complexity, cancellation or exceptional geometry before exact lifting. A smaller
+frame that produces worse domain fragmentation is a failed optimization.
 
 ## Recommendation and scope
 

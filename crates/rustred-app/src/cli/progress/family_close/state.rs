@@ -26,6 +26,10 @@ pub(super) struct ExactJob {
     pub(super) sequence: Option<usize>,
     pub(super) case: Option<usize>,
     pub(super) frame: Option<ExactFrame>,
+    pub(super) phase: Option<&'static str>,
+    pub(super) phase_since: Option<Instant>,
+    pub(super) at: Option<Instant>,
+    pub(super) stage: Option<FamilyCloseGenerationStage>,
 }
 
 impl Default for ExactJob {
@@ -34,6 +38,10 @@ impl Default for ExactJob {
             sequence: Some(0),
             case: Some(0),
             frame: None,
+            phase: None,
+            phase_since: None,
+            at: None,
+            stage: None,
         }
     }
 }
@@ -95,6 +103,7 @@ pub(super) struct Snapshot {
 pub(super) struct Tracker {
     pub(super) jobs: BTreeMap<(usize, u64), ExactJob>,
     pub(super) counts: Counts,
+    pub(super) details_truncated: bool,
     last_failure: Option<Failure>,
     phase: Option<(Option<(usize, u64)>, &'static str, Instant)>,
 }
@@ -102,6 +111,7 @@ pub(super) struct Tracker {
 impl Tracker {
     fn job(&mut self, key: (usize, u64)) -> Option<&mut ExactJob> {
         if !self.jobs.contains_key(&key) && self.jobs.len() >= MAX_TRACKED_JOBS {
+            self.details_truncated = true;
             return None;
         }
         Some(self.jobs.entry(key).or_default())
@@ -185,6 +195,14 @@ impl Tracker {
                 ..
             } => {
                 let key = (*ordinal, *sector);
+                if let Some(job) = self.job(key) {
+                    if job.phase != Some(phase) {
+                        job.phase = Some(phase);
+                        job.phase_since = Some(at);
+                    }
+                    job.at = Some(at);
+                    job.stage = Some(*stage);
+                }
                 if matches!(stage, RuleFound { .. }) {
                     Counts::add(
                         &mut self.counts.overflow,

@@ -24,6 +24,14 @@ def module(name, path):
 SUPERVISOR = module("selected_generation_resources", ROOT / "examples/python/shared_owner_campaign.py")
 
 
+def native_environment():
+    environment = os.environ.copy()
+    for name in SUPERVISOR.INNER_POOLS:
+        environment[name] = "1"
+    environment["SYMBOLICA_HIDE_BANNER"] = "1"
+    return environment
+
+
 def group_running(group):
     for entry in Path("/proc").iterdir():
         if not entry.name.isdecimal():
@@ -76,10 +84,7 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     for sig in previous:
         signal.signal(sig, lambda number, frame: stop(f"operator_signal_{number}"))
-    environment = os.environ.copy()
-    for name in SUPERVISOR.INNER_POOLS:
-        environment[name] = "1"
-    environment["SYMBOLICA_HIDE_BANNER"] = "1"
+    environment = native_environment()
     started, peak, last_print, cpu_previous, sample_previous = time.monotonic(), 0, 0, {}, None
     result, failure = None, None
     checkpoint = (Path(command[command.index("--checkpoint-dir")+1])

@@ -6,6 +6,25 @@ terms-first, then coefficient-monomial-count source visitation, with active
 sectors first. It does not change the mathematical integral comparator, which
 remains the native legacy order.
 
+## Current launch hold: Epoch reuse validation
+
+The September30 user trial successfully generated and admitted all67 owners
+(9,966 rules), then its Epoch walk stopped after403.143s with
+`P1: 2387377 anchors: UnionUndecided`. This was an internal reuse-validation
+failure, not a memory stop or failure to generate the rules. The finite-point
+reuse planner can accept a union whose separate region-decomposition proof
+exceeds its work budget; the current release incorrectly makes that inconclusive
+recheck fatal. A conservative preflight/fallback repair is under implementation
+and independent review. It must not weaken coverage checks.
+
+**Do not relaunch the affected frozen build with this recipe yet.** Retain the
+failed campaign, generated bundles and completed-sector receipts. Its CP6 walk
+checkpoint is marked poisoned and is not resumable; do not delete that marker.
+Recovery will use a fresh walk with the saved generated inputs and a tested
+replacement executable, not regenerate the rules. Exact recovery instructions
+will be added after validation. The historical release commands and measurements
+below are preserved as evidence, not a current recommendation to retry.
+
 ## Readiness and what the command will do
 
 The recipe and Python pipeline have passed independent review and a native
@@ -19,10 +38,10 @@ and full five-loop metadata preparation have been checked without launching
 native work. The final optimized controls below are complete. This is a ready
 fresh-campaign trial, not a demonstrated universal Epoch speed advantage.
 
-No new five-loop A1 payload set exists yet. Metadata preparation deliberately
-uses `UNGENERATED/...` owner paths. The pipeline has no fallback to old owner
-payloads and cannot start its walk until all selected generations and actual
-native admission succeed.
+At initial release no five-loop A1 payload set existed. The user trial has now
+generated and admitted it. For a fresh pipeline, metadata preparation deliberately
+uses `UNGENERATED/...` owner paths: there is no fallback to old owner payloads,
+and walking cannot start until selected generations and native admission succeed.
 
 The stages are:
 

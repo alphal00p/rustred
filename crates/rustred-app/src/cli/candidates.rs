@@ -7,11 +7,12 @@ use std::sync::Mutex;
 use super::args::{CertifyCandidatesArgs, FamilyCandidatesArgs, StreamPath};
 use super::error::CliError;
 use super::io::{preflight_output_destination, read_artifact, read_input, write_output};
-use super::progress::FamilyCloseProgressMonitor;
+use super::progress::{FamilyCloseProgressMonitor, FamilyGenerationTelemetry};
 use crate::{CandidateCertificationRequest, FamilyCandidatesRequest};
 
 pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> {
     preflight_checkpoint_paths(&arguments)?;
+    preflight_progress_path(&arguments)?;
     preflight_output_destination(&arguments.output, arguments.force)?;
     if let Some(report) = &arguments.report_output {
         preflight_output_destination(report, arguments.force)?;
@@ -45,16 +46,21 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.selected_sectors = arguments.selected_sectors;
     request.checkpoint = arguments.checkpoint;
     let terminal = std::io::stderr().is_terminal();
+    let export = arguments.progress_json.is_some();
+    let telemetry = Mutex::new(FamilyGenerationTelemetry::new(arguments.progress_json));
     let monitor = Mutex::new(FamilyCloseProgressMonitor::new(
         std::io::stderr(),
         terminal,
         arguments.progress,
         std::env::var_os("NO_COLOR").is_some(),
     ));
-    let generated = if terminal || arguments.progress {
+    let generated = if terminal || arguments.progress || export {
         crate::family_candidates_with_progress(request, |event| {
             if let Ok(mut monitor) = monitor.lock() {
-                monitor.observe(event);
+                monitor.observe(event.clone());
+            }
+            if let Ok(mut telemetry) = telemetry.lock() {
+                telemetry.observe(event);
             }
         })
     } else {
@@ -70,7 +76,57 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     if let Ok(mut monitor) = monitor.lock() {
         monitor.finish(result.is_ok());
     }
+    if let Ok(mut telemetry) = telemetry.lock() {
+        telemetry.finish(result.is_ok());
+    }
     result
+}
+
+/// Export owns only this explicitly selected latest-snapshot path. Refuse local
+/// aliases before work starts; no telemetry write may replace an input/output or
+/// enter the checkpoint directory managed by the native generator.
+fn preflight_progress_path(arguments: &FamilyCandidatesArgs) -> Result<(), CliError> {
+    let Some(path) = &arguments.progress_json else {
+        return Ok(());
+    };
+    preflight_output_destination(&StreamPath::File(path.clone()), true)?;
+    if path.is_dir() {
+        return Err(CliError::Input("--progress-json must name a file".into()));
+    }
+    let progress = resolved_location(path)?;
+    for stream in [&arguments.input, &arguments.output]
+        .into_iter()
+        .chain(arguments.report_output.iter())
+    {
+        if let StreamPath::File(path) = stream {
+            if resolved_location(path)?.starts_with(&progress) {
+                return Err(CliError::Input(
+                    "--progress-json must not alias or contain input, bundle or report paths"
+                        .into(),
+                ));
+            }
+        }
+    }
+    for path in arguments
+        .discovery_strategy
+        .iter()
+        .chain(arguments.integral_order.iter())
+    {
+        if resolved_location(path)?.starts_with(&progress) {
+            return Err(CliError::Input(
+                "--progress-json must not alias or contain strategy/order inputs".into(),
+            ));
+        }
+    }
+    if let Some(checkpoint) = &arguments.checkpoint {
+        let directory = resolved_location(&checkpoint.directory)?;
+        if progress.starts_with(&directory) || directory.starts_with(&progress) {
+            return Err(CliError::Input(
+                "--progress-json must be outside, and not contain, the dedicated checkpoint directory".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A checkpoint directory is dedicated to managed files. Reject collisions
@@ -187,3 +243,6 @@ pub(super) fn certify(arguments: CertifyCandidatesArgs) -> Result<(), CliError> 
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod telemetry_path_tests;

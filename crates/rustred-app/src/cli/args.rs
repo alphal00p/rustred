@@ -167,6 +167,7 @@ pub(crate) enum Command {
     CampaignReduce(CampaignReduceArgs),
     CampaignShards(Vec<OsString>),
     CampaignMonitor(Vec<OsString>),
+    PreparationMonitor(Vec<OsString>),
     WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
     WalkRescuePlan(super::walk_rescue::WalkRescuePlanArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
@@ -275,6 +276,7 @@ pub(crate) fn parse_args(
         "family-solve" => family_solve::parse(arguments),
         "family-close" => family_close::parse(arguments),
         "family-candidates" => candidates::parse_generation(arguments),
+        "preparation-monitor" => Ok(Command::PreparationMonitor(arguments.collect())),
         "certify-candidates" => candidates::parse_certification(arguments),
         "campaign" => campaign::parse(arguments),
         "routed-campaign" => routed::parse(arguments),
@@ -364,6 +366,7 @@ USAGE:
     rustred family-solve [OPTIONS]
     rustred family-close [OPTIONS]
     rustred family-candidates [OPTIONS]
+    rustred preparation-monitor --snapshot PATH [--once | --json]
     rustred certify-candidates [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
@@ -427,7 +430,15 @@ FAMILY-CANDIDATES OPTIONS:
     --resume                    Reuse a matching checkpoint; requires --checkpoint-dir
     --checkpoint-max-bytes <N>  Positive total checkpoint payload budget [default: 1073741824]
     --progress                  Also emit plain progress when stderr is redirected
+    --progress-json <PATH>      Atomically publish bounded JSON observations at 1 Hz, independent of TTY
     --force                      Atomically replace existing output files
+
+PREPARATION-MONITOR OPTIONS:
+    --snapshot <PATH>          Read a rustred.preparation-progress.v1 supervisor snapshot
+    --once                     Print every parent once, without terminal control codes
+    --json                     Print the validated snapshot once for another consumer
+                               Read-only; signals to the campaign still stop work
+                               Generation progress/checkpoints are not family closure
 
 CERTIFY-CANDIDATES OPTIONS:
     --input <PATH|->             Read saved uncertified candidate bundle [default: -]

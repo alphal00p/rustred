@@ -9,7 +9,7 @@ Historical discovery-only stagers, payloads and benchmark receipts stay intact.
 ## Fresh selected-owner pipeline
 
 `pipeline.py` packages the existing public steps: metadata preparation,
-sequential parent generation with one shared worker budget, strict selected
+parent generation with one shared worker budget, strict selected
 staging, native owner admission, and the production owner-walk supervisor.
 `prepare_selected.py` handles only immutable metadata; `generation_guard.py`
 reuses the campaign's process/RAM services without introducing another solver.
@@ -22,6 +22,91 @@ The pipeline has no runtime deadline and no fallback to old owner payloads.
 Resource limits are caller-configurable, while recipe options cannot silently
 replace the caller's CPU/RAM allocation. Interrupted staging remains in its
 attempt directory and is retried via an atomic publish into the final location.
+
+### Optional parallel parent preparation
+
+The default `--generation-jobs 1` preserves serial parent preparation and its
+existing progress output. A **new campaign** can opt into independent parents,
+each retaining its native within-parent worker pool. For example, add these
+options to the complete fresh preparation command in the runbook:
+
+```sh
+--workers 32 --cpus 64-95 --generation-jobs 4
+```
+
+This is four dynamically refilled parent slots with eight native workers each,
+not four copies of the 32-worker allowance. CPU IDs must be available and
+non-overlapping with other campaigns. The slot count must divide the worker
+count exactly; both settings and CPU assignment are frozen for resume. The
+later owner walk still receives the full 32-worker budget. These numbers are
+an example, not a topology-specific default or recommended CPU reservation on
+every host.
+
+Parallel preparation requires a future/current build whose `--help` advertises
+`--progress-json`; the launcher checks this before starting any generation.
+**The older frozen serial release must not be used for this option.** The
+pipeline never mutates an already running campaign or substitutes saved old
+owners when fresh generation fails.
+
+One aggregate process-tree RAM guard supervises all parent groups together.
+There is no production runtime deadline or per-parent copy of the RAM ceiling.
+On failure, Ctrl-C, or a RAM stop, pending jobs stop dispatching and every owned
+group is drained. Completed native sector checkpoints remain reusable; active
+sectors restart. Hashing and output validation run in the original parent order
+only after all native groups drain, so they cannot stall RAM sampling while
+sibling solves run. `native_finished` means exit-zero and drained, whereas
+`completed` means the parent's output receipt was validated too. If interrupted
+before that validation, resume may need to reassemble the parent bundle from
+its completed sectors. No missing parent can pass the staging barrier.
+
+Use the same resume command as serial preparation:
+
+```sh
+nix develop --command python -B tools/research/runtime_order/pipeline.py \
+  --directory campaigns/YOUR_NEW_CAMPAIGN --resume --start
+```
+
+RAM policy may still be overridden operationally on resume. Parent scheduling,
+native source/order policy, and input scope cannot silently change.
+
+### Preparation dashboard and reusable observations
+
+Parallel preparation starts an optional native read-only dashboard **after**
+the first snapshot exists. It uses coloured aligned terminal rendering on a
+TTY, or periodic plain summaries when output is redirected. The viewer runs in
+its own process group; closing/failing the viewer never stops the solvers.
+When automatically attached to the campaign's terminal, **terminal Ctrl-C still
+goes to the foreground pipeline and stops its jobs**; the dashboard does not
+change terminal signal ownership. In a separately launched viewer terminal,
+Ctrl-C stops that standalone viewer only.
+Pass `--no-generation-dashboard` to suppress only this viewer, including on
+resume. Generation telemetry remains available regardless.
+
+Each `attempts/*-generate-parallel/` directory contains:
+
+- `snapshot.json`: atomically replaced `rustred.preparation-progress.v1` state;
+- `events.jsonl`: compact transitions and counters, sampled at most every 30s;
+- per-parent commands, process identities, stdout/stderr, and exit receipts;
+- aggregate RAM/CPU samples and final owned-group drain receipt.
+
+The full snapshot is refreshed approximately every two seconds. Native phase
+snapshots are optional, bounded, and matched to PID/start identity. Missing,
+stale, malformed or mismatched telemetry is displayed as unknown, never parsed
+from human stderr and never treated as authority for successful generation.
+File heartbeat age and time since the last solver event are separate metrics.
+`checkpoint_files_observed` is only a filesystem observation, not checkpoint
+validation. `completed` refers to the generation phase, **not family closure**.
+
+Another terminal or future web consumer can read the same stream. The native
+viewer is independently launchable once the snapshot file exists:
+
+```sh
+PATH_TO_NEW_RUSTRED preparation-monitor \
+  --snapshot campaigns/YOUR_NEW_CAMPAIGN/attempts/ACTUAL_ATTEMPT/snapshot.json
+```
+
+Use `--once` for one readable snapshot or `--json` for normalized JSON. All
+these commands are read-only and do not resume, stop, or certify a campaign.
 
 The pure tests use synthetic bytes and mocked native generation/admission:
 

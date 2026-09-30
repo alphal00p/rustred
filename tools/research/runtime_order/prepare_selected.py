@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+from generation_scheduler import schedule
+
 SCHEMA = "rustred.selected-owner-pipeline.v1"
 GRAPH_FIELDS = ("mask", "native_sector", "published_sector", "representative", "owner_to_representative")
 
@@ -48,6 +50,7 @@ def prepare(recipe_path, selection_path, directory, cli, inspector, resources):
     if selection_path == directory or directory in selection_path.parents:
         raise ValueError("input selection cannot be inside the new output")
     recipe = read(recipe_path)
+    generation_schedule = schedule(resources)
     if recipe.get("schema") != SCHEMA:
         raise ValueError("unsupported selected-owner pipeline recipe")
     if recipe.get("integral_order") != "rustred.spired-uncut-sector-order.v1":
@@ -118,7 +121,7 @@ def prepare(recipe_path, selection_path, directory, cli, inspector, resources):
                      recursive_coverage_established=False)
     reserved = {"--input", "--input-format", "--nonpositive-indices", "--selected-sectors", "--n-cores",
                 "--exact-backend", "--discovery-strategy", "--checkpoint-dir", "--checkpoint-max-bytes",
-                "--output", "--report-output", "--resume", "--permutation", "--integral-order"}
+                "--output", "--report-output", "--resume", "--permutation", "--integral-order", "--progress-json"}
     if any(arg.split("=", 1)[0] in reserved for arg in recipe["generation_options"]):
         raise ValueError("recipe generation_options overrides a bound identity/output option")
     directory.mkdir(parents=True)
@@ -137,7 +140,7 @@ def prepare(recipe_path, selection_path, directory, cli, inspector, resources):
         run = directory / f"generation/parent-{parent}"
         run.mkdir(parents=True)
         command = [binary["cli"]["path"], "family-candidates", "--input", str(directory / "shared/family.toml"),
-                   "--input-format", "toml", "--n-cores", str(resources["workers"]),
+                   "--input-format", "toml", "--n-cores", str(generation_schedule["workers_per_job"]),
                    "--exact-backend", recipe["exact_backend"],
                    "--selected-sectors", ",".join(sorted(group["selected_sectors"])),
                    "--checkpoint-dir", str(run / "sectors"), "--checkpoint-max-bytes", str(resources["checkpoint_max_bytes"]),
@@ -147,12 +150,15 @@ def prepare(recipe_path, selection_path, directory, cli, inspector, resources):
             command += ["--nonpositive-indices", ",".join(inactive)]
         if recipe["discovery_strategy"] is not None:
             command += ["--discovery-strategy", str(directory / "shared/discovery.json")]
+        if generation_schedule["jobs"] > 1:
+            command += ["--progress-json", str(run / "native-progress.json")]
         command += recipe["generation_options"]
         write(directory / f"commands/parent-{parent}.json", command)
         stage["roots"].append(dict(parent=group["parent"], mask=group["root"], generation_scope="selected-sectors",
             checkpoint=f"generation/parent-{parent}/sectors/checkpoint.toml", report=f"generation/parent-{parent}/generation.toml"))
     write(directory / "stage-plan.json", stage)
     plan = dict(schema=SCHEMA, counts=counts, recipe=recipe, resources=resources, binaries=binary,
+                generation_schedule=generation_schedule,
                 source_selection=str(selection_path), source_selection_sha256=sha(selection_path),
                 query_sha256=sha(queries_path), original_inputs_modified=False, payloads_reused=False,
                 generation_checkpoint="completed sectors only; no in-sector resume", family_closure_claim=False)

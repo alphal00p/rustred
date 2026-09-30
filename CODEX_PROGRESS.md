@@ -35,8 +35,78 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ## Live-trial feedback and next structural work — 2026-09-30 19:40 UTC
 
+### Production failure and validation update — 20:41 UTC
+
+- [M] Follow-through at20:49UTC: independent review confirmed the planner's
+  262,144-point proof budget and P1's65,536-region budget can disagree without
+  indicating an actual uncovered point. Epoch-only preflight repair is source
+  ready, under final audit; ordinary fallback occurs before any residual events.
+  P1/restore/export remain strict. The auditor also required a conservative
+  optimization-only lender bound before moving the recursive verifier onto
+  inspector threads. No native validation of this repair has run yet.
+- [M] All three preparation controls (parallel, serial, parallel) passed fresh
+  native generation/admission/walk and full cold reinspection with identical
+  16-owner counts and final graph totals. App-opt1 native+cold phase sums were
+  29.291/30.283/29.290s; these are correctness receipts, not optimized performance
+  qualification. Every owned group drained. Evidence:
+  `TMP/aster-integration-20260930-resumed/order-pilot-plans/parallel-preparation-acceptance/ACCEPTANCE_RESULT.json`
+  and `RESULTS.md`. The complete wall boundaries including orchestration were
+  below the30-minute pilot ceiling.
+- [M] Root visually inspected native144-column exact-phase and90-column compact
+  dashboard replays from unchanged actual four-loop snapshots, including
+  frame69 (91 rows/343 integral columns), counts, CPU colours and stale marking.
+  PNGs/PTY captures are `TMP/postlaunch-20260930/dashboard-actual*`; source
+  observations are `parallel-preparation-acceptance/active-captures-v2/`.
+  These are explicitly replays, not images of a still-running solve. One initial
+  TMP-only capture helper stopped on null telemetry; fixed and repeated using
+  a fresh6-second generation-only run, all groups drained. No production changed.
+- [M] The independent recovery audit verified all67 payload paths/sizes and
+  their admission receipt binding, and all four generation manifest/report
+  hashes. It did not repeat full payload hashing/native replay. The existing
+  source campaign remains immutable; the future repaired walk must use a new
+  directory and saved inputs, not swap its frozen executable in place.
+- [M] The user reported the new A1 Epoch dashboard ending FAILED. Read-only
+  receipts confirm all four generation groups and native owner admission
+  completed successfully, admitting all67 generated owner bundles. Parent31740
+  completed in2563.821s (guarded wall); its slow sector3822 produced800 rules and
+  116 finite residual cases. Parent32745 completed in102.287s. Generated outputs
+  and completed-sector receipts remain intact; generation need not be repeated.
+- [M] The subsequent walk failed after403.143s with exit70:
+  `P1: 2387377 anchors: UnionUndecided`, classified `internal-invariant`.
+  It was not a memory, timeout, or user stop (sampled peak tree RSS9.925GB).
+  The final observed heartbeat had3,885,226 discovered domains,1,183,536 local
+  completions and4/67 closed initial roots; this is incomplete evidence, not
+  successful scoped closure. CP6 is explicitly poisoned and has no resumable
+  checkpoint generation. Do not remove that marker or suggest resuming it.
+- [D] Root reassigned `runtime_order_pilots` to the exact-union/P1 fallback
+  defect and `final_requirements_audit` to independent mathematical/control and
+  recovery review. Source shows a bounded union-cover check returns undecided
+  and P1 currently promotes it to fatal. The desired repair must retain exact
+  authority: decline optional reuse and inspect the whole obligation when a
+  safe proof cannot be obtained. Precise cause and implementation remain under
+  review; no coverage claim from undecided results is acceptable. Production
+  files/processes are unchanged; any new walk remains user-launched.
+- [M] The new preparation telemetry/dashboard correctness build completed in
+  1024.497s. Full native application suite:1,263 passed,0 failed,12 ignored,
+  118.54s. CLI candidate integration:19 passed,0 failed,0.72s. Evidence:
+  `TMP/postlaunch-20260930/preparation-ui-{native-build,native-tests,cli-tests}/`.
+  These remain release-dependencies/app-opt1 correctness measurements.
+- [M] `s5_fixed_work_pilots` completed the fresh parallel-parent four-loop
+  control:16 owners,523 rules/28 residuals,58 required queries,32 roots,
+  26,025 domains,17,957 inspections. Independent cold-All replay passed with
+  no mismatches/frontiers/uncovered obligations. Serial matched correctness
+  arm is active; a further short parallel capture is authorized solely to
+  obtain real active dashboard snapshots. No optimized speed claim yet.
+- [M] Root visually inspected native pseudo-terminal rendering at90 and120
+  columns on explicitly synthetic input; alignment, colours, stale and invalid
+  data handling passed. Actual parallel-run visual inspection remains pending.
+  Unreferenced routing-envelope and saved-case probes are source-ready only;
+  no unrun probe is being described as a successful experiment.
+
 ### Validation update — 20:10 UTC
 
+- [M] A/B milestone committed and pushed as `2de21662` on
+  `fable_5_1_parallel`. Frozen production still uses its earlier executable.
 - [M] A/B native correctness build passed on retry in827.434s. The complete
   application library suite then passed **1,243 tests, zero failures, 12 ignored**
   in119.11s (guard wall120.181s). This includes the new exact parallel-route
@@ -67,6 +137,13 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
   expensive exact materialization. Neither is a claimed speedup. The existing
   Symbolica SourceWeights backend is available for an isolated large-frame
   comparison; prior completed comparisons lost, so it is not a default switch.
+- [M] Native telemetry source independently approved after fixing a progress-path
+  ancestor collision, a renderer name shadow, medium-width table clipping and
+  misleading Ctrl-C wording for an attached viewer. Root started the consolidated
+  library/CLI-candidate correctness build at20:15UTC, evidence
+  `TMP/postlaunch-20260930/preparation-ui-native-build/`; result is pending.
+  `s5_fixed_work_pilots` is implementing only an unreferenced bounded routing
+  shadow test while that build runs. No production cover or solver change yet.
 
 - [M] The user has started `campaigns/five-loop-a1-epoch-20260930` from the
   frozen checkout, with 32 physical CPUs64–95. LC2 still owns CPUs128–227.
@@ -241,7 +318,7 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 | Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
 | Integration, resources, profiling and release | root | frozen code b21e4522 pushed; all pilot groups drained; independent launch audit PASS; production untouched | User launch with32 physical cores/600GB; observe read-only afterward |
 
-### Active decision register — refreshed 2026-09-30 19:20 UTC
+### Active decision register — refreshed 2026-09-30 20:20 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -262,7 +339,13 @@ the same experiment after a handoff.
 | CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
 | Ready bulk-edge-only optimization | deferred | Entire ordered commit is <8% of finite-control primary time; no profile of edge-only share and not a cure for80s Epoch waiting. |
 | Hot traversal-heavy saved-rule control | deferred until full-run feedback | Prepared/audited, no native grant; latest user prioritizes frozen release over more pilots. |
-| Production deployment | ready for user launch | Fresh A1→admission→Epoch pipeline tested at4L and frozen; all67 output remains ungenerated. W32/600GB selected by user; no20-core demonstration. |
+| Production deployment | user-launched, read-only observation | Frozen A1→admission→Epoch pipeline is generating its third parent group; no all67 output or20-core demonstration yet. W32/600GB, CPUs64–95 remain reserved. |
+| Parallel exact route preparation | delivered, performance pending | Pushed2de21662; W1/W2/W4 exact-transport, cancellation/ordered-error tests and full1243-test application suite PASS. Startup/cold cost opportunity, not a demonstrated traversal gain. |
+| Allocation-free compact Epoch images | delivered, performance pending | Same2de21662 and native suite; wire/mutation/summary equivalence tests PASS. No timing gain attributed yet. |
+| Parallel parent preparation + separate dashboard | active validation | Runtime-agent supervisor54 pure tests plus3 real lifecycle controls PASS; independent audit approved. Native telemetry/renderer source approved; consolidated build pending. Same-work4L jobs1-vs2 ABBA preregistered, not run. |
+| Verified inactive-incidence envelopes / homogeneous upper-D | active research-only shadow | S5 agent owns unreferenced test; independent audit pending. Existing verified Symbolica maps and exact domain projection only. Production integration requires actual post-projection tightening, then an end-to-end benefit. |
+| Bounded alternative modular source-trace portfolio | active design | Runtime agent reviews smallest same-case falsifier and persistence boundary; no solver edits. Prior A1 sensitivity motivates it, but smaller traces alone do not prove better rules or less branching. |
+| Source-weight reconstruction for the observed exact tail | deferred pending exact-case capture | Existing implementation, not a new CAS project. Earlier completed comparisons lost; new two-variable large frame is a distinct hypothesis. Need a precisely replayable completed-case/frame and matched full-cost comparison. |
 
 **Earlier engine implementation milestone:** `56176df5`, committed and pushed to
 `origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent

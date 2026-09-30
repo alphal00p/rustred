@@ -27,6 +27,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub bundle_limits: CandidateBundleLimits,
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
+    pub progress_json: Option<PathBuf>,
     pub permutation: Option<Vec<usize>>,
     pub discovery_strategy: Option<PathBuf>,
     pub integral_order: Option<PathBuf>,
@@ -85,6 +86,7 @@ fn parse(
     let mut checkpoint_max_bytes = None;
     let mut resume = false;
     let mut progress = false;
+    let mut progress_json = None;
     let mut permutation = None;
     let mut discovery_strategy = None;
     let mut integral_order = None;
@@ -167,6 +169,15 @@ fn parse(
                     return Err(ArgError::DuplicateOption("--progress"));
                 }
                 progress = true;
+            }
+            "--progress-json" if !certification => {
+                let path = next_value(&mut arguments, "--progress-json")?;
+                if path.is_empty() || path == "-" {
+                    return Err(ArgError::InvalidCombination(
+                        "--progress-json must name a file, not stdout",
+                    ));
+                }
+                set_once(&mut progress_json, "--progress-json", PathBuf::from(path))?;
             }
             "--help" | "-h" => {
                 if help {
@@ -467,6 +478,7 @@ fn parse(
             bundle_limits,
             checkpoint,
             progress,
+            progress_json,
             permutation,
             discovery_strategy,
             integral_order,
@@ -487,6 +499,29 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_progress_is_explicit_file_only_and_generation_only() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        let Command::FamilyCandidates(args) =
+            parse_args(&["--progress-json", "progress.json"]).unwrap()
+        else {
+            panic!("generation expected")
+        };
+        assert_eq!(args.progress_json, Some(PathBuf::from("progress.json")));
+        assert!(!args.progress);
+        for args in [
+            &["--progress-json", "-"][..],
+            &["--progress-json", ""],
+            &["--progress-json", "a", "--progress-json", "b"],
+        ] {
+            assert!(parse_args(args).is_err());
+        }
+        assert!(
+            parse_certification(["--progress-json", "x"].into_iter().map(OsString::from)).is_err()
+        );
+        assert!(super::super::HELP.contains("--progress-json"));
+    }
 
     #[test]
     fn selected_sectors_are_optional_binary_generation_jobs() {

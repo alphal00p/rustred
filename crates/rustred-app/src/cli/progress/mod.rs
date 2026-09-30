@@ -1,11 +1,12 @@
 mod family_close;
 mod model;
+pub(crate) mod preparation;
 mod render;
 mod routed;
 mod terminal;
 pub(crate) use routed::RoutedProgress;
 
-pub(crate) use family_close::FamilyCloseProgressMonitor;
+pub(crate) use family_close::{FamilyCloseProgressMonitor, FamilyGenerationTelemetry};
 
 #[cfg(test)]
 mod tests;
