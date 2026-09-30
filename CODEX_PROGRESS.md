@@ -37,6 +37,31 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] Read-only observation at00:13 October1 Europe/Zurich: LC2 remains running,
+  225,659,399 scheduled domains,100,154,036 local completions,65,781,605 pending,
+  zero frontiers. Its conservative6/67-root closure snapshot is stale by3,366s;
+  do not interpret it as a fresh closure computation. The new user's launcher
+  and automatic binary publisher remain alive, awaiting the same healthy
+  optimized compilation; no new native campaign has begun yet.
+- [M] S5 diagnostic mapping is recorded at
+  `TMP/postlaunch-20260930/S5_LIVE_OBSERVABILITY.md`: raw bounded heartbeat events
+  expose cumulative P1/P2/P3/inspect/boundary wall times, but normalized status
+  does not. The six detailed P2 timers and exact fallback/lookup counters are
+  final-summary-only. Reuse existing bounded readers; do not force production
+  stops or add a new monitor to obtain those details. After actual new traversal,
+  two approximately5min intervals will decide whether the pre-registered h0/h2
+  causal screen remains justified; it is not a launch gate.
+- [M] Independent source critique of cut-local repeated-query work found a
+  narrower hypothesis, not a measured gain. The repair pilot had116,211,553
+  stored-target rows of128,652,079 obligations (90.33%);12,440,526 target-less
+  rows split824,583 current-view and11,615,943 stale/full lookups. Same-job exact
+  duplicates are already removed. Existing totals cannot establish cross-entry
+  repetition, so do not implement a broad lookup cache speculatively. A bounded
+  geometry cache would still need every row's digest, target/range/quarantine
+  and exact verification, unchanged error order and cut-local lifetime.
+  Current-view exact-only and stale full lookups must never share an authority
+  result blindly. First measure exact cross-entry reuse and overhead if live
+  profiling continues to identify this path. No implementation or CAS was added.
 - [M] At00:06 October1 Europe/Zurich (22:06UTC), user recovery launcher
   PID3564028 is alive and waiting. The new campaign directory is absent:
   traversal has not started. Existing Cargo3441062/rustc3441196 are active;

@@ -7,9 +7,11 @@ The original frozen release was delivered for a **user-launched trial**, with
 honest CPU/work versus wall-time trade-offs; Epoch is not a universal speed
 winner. That trial generated all 67 owners but failed in an optional union-reuse
 check. Its conservative repair has passed native tests and bounded full-input
-validation; the optimized replacement is building. **Recovery launch is on
-hold** until the runbook supplies the tested replacement and fresh-walk commands.
-Saved generation outputs remain reusable. None of the historical timings below
+validation; the optimized replacement is building. The user subsequently waived
+further pre-launch checks and invoked the recovery launcher, which waits only
+for successful compilation and atomic binary publication. The runbook supplies
+those fresh-walk commands. Saved generation outputs remain reusable; deferred
+optimized checks are not claimed passed. None of the historical timings below
 is silently reassigned to the repaired build.
 See the [generation-first release runbook](../five_loop_optimized_generation_runbook.md)
 for the final optimized comparisons, exact frozen executable identities, and
