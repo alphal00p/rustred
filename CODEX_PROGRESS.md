@@ -16,8 +16,9 @@ a recommendation. The newly demonstrated gain compares Epoch E0 against E1024,
 not Ready against Epoch. Earlier1.5x statements below are historical, not the
 current threshold. The active tool-managed objective already asks for measured
 pilot gains without specifying that ratio, so its full scope remains unchanged.
-The final four-loop wall-time comparison is 5.16% slower for Epoch; it does not
-pass a strict non-regression gate. The latest user-requested release is therefore
+The earlier four-loop wall-time comparison was 5.16% slower for Epoch; the
+post-repair ABBA below is about10% slower in both pairs. Neither passes a strict
+non-regression gate. The latest user-requested release is therefore
 an explicitly qualified full-scale trial, not a declaration that every earlier
 performance preference gate passed.
 
@@ -37,6 +38,51 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Post-launch optimized ABBA complete, 22:54UTC (00:54 October1 Zurich).**
+  Runtime agent used the actual repaired frozen CLI `23d836d7…`, W16/CPU32–47,
+  unchanged selected-A1 payloads. All four arms independently cold-reinspect
+  every native record and pass all58 required queries/32 roots with zero
+  violations/frontiers/uncovered obligations. Native+cold totals in ABBA order:
+  Ready14.494s, Epoch15.890s, Epoch15.297s, Ready13.920s. Epoch is9.63%/9.89%
+  slower in the two pairs; its19–24% lower native CPU/about33% fewer domains
+  do not offset17–18% more native inspections or establish wall non-regression.
+  All12 owned process groups drained and locks were released. Secondary Python
+  INCOMPLETE for Epoch remains separate from native cold-All PASS. Short runs
+  supplied no foreign-CPU samples; production occupied disjoint reservations.
+  Evidence/commands: `TMP/postlaunch-20260930/optimized-repair-four-qualification/RESULTS.{md,json}`.
+  Independent `final_requirements_audit` review passed receipt fidelity and
+  correctness; confirmed wall non-regression NOT PASSED. Median primary totals
+  are Ready14.207122s/Epoch15.593741s (+9.7600%). No further native tests or
+  production action were requested by that review.
+- [M/D] S5 live triage now has two distinct steady approximately5min intervals:
+  P2=28.62%/25.87% of coordinator wall; sampled4.29/4.07cores, substantial
+  pending work and zero frontiers. Latest sample has2.333M local inspections,
+  6.531M scheduled domains and1.917M pending; this is neither closure nor an ETA.
+  `s5_fixed_work_pilots` may execute the already preregistered single h0→h2
+  screen after the completed ABBA: W32/CPU0–31, same optimized CLI/all183
+  original inputs,31+0+1 versus29+2+1 worker split. Separate `BOUND_PLAN.json`
+  preserves the original unbound protocol. Each arm has1200s cooperative native
+  stop/1800s inclusive ceiling and independent structural cold checking; evolving
+  graph prefixes mean causal-screen evidence, not fixed-work speedup. Production
+  remains unchanged. The h0 arm started at22:58UTC, adapterPID3828063,
+  nativePID3828196; its paired h2 is not yet run and no gain is claimed.
+  Evidence: `TMP/postlaunch-20260930/full-a1-preparation-h0-h2/`.
+- [D] Runtime agent next performs read-only feasibility assessment of measuring
+  exact cross-entry repeated query images within P2 cuts. Existing aggregate
+  dedup counts cannot establish this opportunity. No cache implementation, new
+  Rust build, native probe or large checkpoint decode is authorized by this
+  assessment; independent audit remains a separate lane.
+- [M] Runtime agent completed that feasibility assessment without native work.
+  Source resolves each miss before candidate dedup, and stored positives bypass
+  that map. No current receipt exposes the exact cross-entry duplicate rate.
+  The existing small fixture has8 misses/6 exact images/2 cross-entry repeats;
+  its large variant608/606/2 demonstrates why fixture rates do not predict
+  production. Candidate remains **deferred pending measurement**, not approved
+  as a cache optimization. A future bounded cut-local observer must separate
+  geometry construction from stored-target proof/current-view exact check/stale
+  lookup costs; unchanged target/prefix/quarantine authority is mandatory.
+  Falsifier: rare/cheap repeats or observation/cache overhead exceeds savings.
+  Evidence: `TMP/postlaunch-20260930/optimized-repair-four-qualification/P2_CROSS_ENTRY_DUPLICATES_ASSESSMENT.md`.
 - [M] **Repaired optimized build delivered and user campaign running at00:44
   October1 Europe/Zurich.** Build guard exited0 without stop in3,706.452s;
   maximum single-child RSS18,282,192KiB, minimum host headroom605.788GB.

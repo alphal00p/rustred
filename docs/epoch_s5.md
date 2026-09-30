@@ -26,10 +26,14 @@ exercised four such fallbacks, saved cleanly, and passed structural cold checks
 with zero violations. That latter check deliberately re-inspected no native
 records and does not prove all-query closure. The optimized replacement build
 has succeeded and the user's fresh walk is running. Additional optimized checks
-were deferred until after launch by explicit user direction. The old failed
-checkpoint must not be resumed.
+were deferred until after launch by explicit user direction. Those four-loop
+ABBA controls are now complete: every arm passes independent cold-All for all
+58 queries and 32 roots. On the repaired CLI (`23d836d7…`), Epoch is 9.63% and
+9.89% slower in the two native+cold pairs, despite lower CPU/domain counts.
+This remains a correctness pass, not four-loop wall-time non-regression.
+The old failed checkpoint must not be resumed.
 
-The final fully optimized CLI (`38e0e763…`) has now passed the repeated
+The earlier fully optimized CLI (`38e0e763…`) passed correctness in the repeated
 four-loop Ready/Epoch comparison with 1,024 extra completed-result slots.
 Median native-launch-through-drain plus cold-All time is 15.494 s for Ready
 and 16.293 s for Epoch: **Epoch is 5.16% slower**, not a demonstrated wall-time
@@ -48,8 +52,8 @@ cores/600 GB; all these final comparisons used 16 cores, so 32-core performance
 remains unmeasured. The user trial subsequently generated and admitted all 67
 owners (9,966 rules and 939 finite residual cases), then hit the reuse-check
 failure described above. Saved rules can be reused for recovery; full-scope
-completion remains unknown. See the runbook for the current launch hold rather
-than treating these earlier performance measurements as a recovery instruction.
+completion remains unknown. See the runbook for the running repaired release
+rather than treating these earlier performance measurements as a recovery instruction.
 
 Focused preparation, binary framing/sidecar, immutable snapshot, bulk dependency,
 record restoration, helper-repartition, and real native replay checks ran. The

@@ -29,6 +29,48 @@ lookahead result is an Epoch-only ablation, not evidence that Epoch now wins
 that comparison. Four-loop non-regression and independently checked coverage
 remain requirements.
 
+## Post-repair optimized controls — 30 September, 22:46–22:54 UTC
+
+The deferred ABBA check now uses the actual repaired production executable,
+SHA256 `23d836d7b05fac6b007cc1adea84f04548d5bf0e0a94a28ca877f98942da8045`
+(source `d55cfb1c`, opt3/fat-LTO/one codegen unit). All four arms use identical
+selected-A1 saved payloads: 16 owners, 508 routes, 58 required queries and
+32 roots; W16, CPU32–47. Generation and compilation are not included. Production
+was already running and was neither gated nor modified by these checks.
+
+| Arm | Native through drain, s | Independent cold-All, s | Primary total, s | Native CPU, s | Domains | Native inspections |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Ready 1 | 6.354 | 8.140 | 14.494 | 30.136 | 38,923 | 15,269 |
+| Epoch 1 | 6.754 | 9.136 | 15.890 | 22.965 | 26,025 | 17,957 |
+| Epoch 2 | 7.157 | 8.140 | 15.297 | 23.216 | 26,025 | 17,957 |
+| Ready 2 | 5.782 | 8.138 | 13.920 | 28.542 | 38,818 | 15,330 |
+
+Every arm passes native cold-All for all 58 queries and 32 roots, re-inspecting
+every recorded native with zero violations, frontiers or uncovered obligations.
+Independent audit confirms the receipts and interpretation; all twelve owned
+process groups drained. **Epoch is 9.63% and 9.89% slower in
+the paired primary totals**, so four-loop wall-time non-regression remains
+unpassed. It uses 19–24% less native CPU and retains about 33% fewer domains,
+but makes 17–18% more native inspections. Fewer domains does not mean less
+inspection work. Short arms produced no foreign-CPU samples; the two production
+campaigns ran on disjoint reservations, but other host effects are not excluded.
+
+Epoch's checkpoint-only native exit4 and secondary Python INCOMPLETE are retained
+and distinguished from its actual native cold-All PASS. Do not add the unequal
+secondary diagnostic workloads to manufacture a speed win. The small control
+exercises neither new union fallback; the prior full-input repair regression
+does. Evidence, exact commands, memory measures and acceptance receipts:
+`TMP/postlaunch-20260930/optimized-repair-four-qualification/RESULTS.{md,json}`.
+These measurements supersede the earlier pending repair controls, not the
+provenance of any historical timing below.
+
+The first two steady read-only intervals of the repaired full campaign attribute
+28.62% and 25.87% of coordinator wall to P2, at approximately 4.29 and 4.07
+observed cores. This justifies one separately preregistered h0/h2 preparation
+screen on CPU0–31 with the same executable and all183 inputs. It is not a
+result or a change to production: the arms' evolving graph prefixes can differ,
+so equal-duration throughput must not be represented as fixed-work speedup.
+
 ## Frozen implementation and measurement boundaries
 
 Implementation `711b18c5` on `fable_5_1_parallel`; subsequent `27b95768` changes

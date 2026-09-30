@@ -27,7 +27,10 @@ completed in3,706.452s; CLI SHA256 is
 `23d836d7b05fac6b007cc1adea84f04548d5bf0e0a94a28ca877f98942da8045`.
 The user waived further pre-launch verification and their waiting launcher
 started a fresh walk using all saved rules at00:44 October1 Europe/Zurich.
-Additional optimized controls are deferred, not marked passed.
+The deferred optimized four-loop ABBA controls have now completed: all58 queries
+and32 roots pass full native cold reinspection in every arm. Epoch is9.63% and
+9.89% slower on native+cold wall time in the two pairs; no performance pass is
+inferred from their correctness acceptance.
 Production lifecycle remains user-owned. Observe
 the repaired run to guide subsequent optimization rather than delaying it.
 
@@ -36,7 +39,7 @@ the repaired run to guide subsequent optimization rather than delaying it.
 | Persisted runtime integral order and interfaces | Implemented, tested and independently audited; non-default comparators tested, without a useful advantage over A1 source selection |
 | Deterministic parallel P2, typed records, bulk edges and shared immutable P4 | Implemented and independently audited; native failure/replay/helper-budget tests and cold controls pass |
 | Repeated source-selection benefit | Passed: two matched four-loop pairs and bounded 14-owner five-loop transfer evidence |
-| Combined final four-loop non-regression | Not passed: current Ready/Epoch medians 15.494/16.293 s, with Epoch slower in both pairs; CPU/work benefits do not erase this wall-time result |
+| Combined final four-loop non-regression | Not passed: repaired optimized ABBA totals Ready14.494/13.920 s versus Epoch15.890/15.297 s, about10% slower in both pairs; CPU/work benefits do not erase this wall-time result |
 | Repeated current five-loop Ready comparison | Incomplete: one finite pair is 319.826/311.466 s including cold checking, but Epoch traversal is slower; a repeated speed claim is unsupported |
 | Current optimized hot control | Prepared, not executed; remains a qualification task, not a result |
 | Twenty-plus useful cores | Unmet/unmeasured target; the user-selected 32-core reservation is not scaling evidence |
