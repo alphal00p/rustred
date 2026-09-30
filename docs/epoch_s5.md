@@ -32,9 +32,27 @@ Python wheel passes all 19 candidate API tests without skips, including cold
 subprocess loading and CLI parity; the focused four-test order gate also passes.
 Optimized matched performance pilots remain pending.
 
+The combined four-loop saved-rule control also passes independent full
+reinspection with zero and two preparation helpers: all 58 required queries and
+32 roots, 51,166 domains, 31,826 native inspections and 1,149,999 dependency
+edges. Both arms have identical durable mathematical state and lookup/verification
+diagnostics, with no frontiers or pending obligations. This opt-level-1 smoke
+overlapped compilation: it establishes scoped correctness, not a timing gain or
+unrestricted four-loop closure.
+
+The finite five-loop saved-rule control also passes with both helper counts:
+all 743,502 native inspections are independently repeated over 910,957 domains
+and 6,861,296 dependency edges, with zero uncovered obligations. Its single
+required query/root is covered, and both runs retain identical durable domain,
+dependency and anchor state plus lookup/verification diagnostics. This control
+loads 67 owners but covers only the declared R2/A11 query, not the 116-query
+production scope. Cached recursive-closure counts differ because maintenance is
+time-driven; both cold checks recompute closure over the entire same graph.
+These concurrent opt-level-1 runs are correctness evidence, not benchmarks.
+
 Independent source reviews covered preparation cancellation, helper
 repartition on restore, typed record authority, publication failures, and
-immutable snapshots. Runtime acceptance remains necessary. Current receipts,
+immutable snapshots. Optimized performance qualification remains open. Current receipts,
 commands, and outstanding decisions are maintained in [CODEX_PROGRESS.md](../CODEX_PROGRESS.md).
 
 ## The merge boundary

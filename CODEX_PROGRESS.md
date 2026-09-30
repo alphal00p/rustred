@@ -20,11 +20,17 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | `order_integration_resume` | kernel17/core2864 PASS; app/CLI PASS; installed Python19/19 plus focused4 PASS; source archive PASS | Optimized runtime descriptor portfolio |
-| S: original S5 merge architecture | `s5_typed_resume`; root bulk/config support | full native app1198 PASS/0 failures/12 ignored, including preparation/records/replay and22 controller tests | Matched reference/helper-budget pilots |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | kernel17/core2864 PASS; app/CLI PASS; installed Python19/19 plus focused4 PASS; source archive PASS | Optimized runtime descriptor portfolio |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | native app1198 PASS; real combined4L and finite5L h0/h2 cold-All and graph identity PASS | Optimized matched old/new and helper pilots, then current Ready comparison |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `native_failure_audit`; earlier P4 and lane reviewers | final full50-core harvest1198 PASS/0 failures/12 ignored; no W50 skips | Independent interpretation of installed API and pilot results |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | final full50-core, installed Python and combined4L smoke audited; no W50 skips | Independent interpretation of finite5L and optimized pilot results |
 | Integration, resources, profiling and release | root; `s5_pilot_preflight` prepares measurements | native/interface gates passed; campaign-profile build active; production untouched | Audited implementation push, frozen optimized executable and matched pilots |
+
+**Current implementation milestone:** `711b18c5`, committed and pushed to
+`origin/fable_5_1_parallel` at11:33 UTC on2026-09-30 after native, Python and
+independent receipt/scope audits. Only unrelated user work remains outside this
+commit. Optimized matched performance qualification and final campaign setup
+are still open; this is not a deployment recommendation or goal completion.
 
 First-slice design audit (05:55 UTC): both tracks received a preliminary GO,
 not approval of unimplemented code. Ordering uses a shared immutable validated
@@ -659,6 +665,83 @@ loading,4/19 zero-skip test inventories, original launcher failure retained,
 and all243 staged paths checked. No excluded reference/campaign/license/FeynKit
 content is staged. Root is committing this tested implementation milestone;
 the active goal still requires optimized matched gains and launch instructions.
+
+Long-build supervision (11:39 UTC): the historical comparable campaign-profile
+build receipt is3786.5s, so a build tied to a short execution session risks
+repeated interruption. Root deliberately stopped and drained only its own
+resumed build (430.314s, no compiler error), then launched the same cached
+command with `setsid --fork` and the unchanged resource/memory guard. This time
+guard PID3179647 and `optimized/campaign-build-detached/{request,child}.json`
+were confirmed live; its logs/exit receipt remain authoritative. The earlier
+plain-background attempt did not survive and is not represented as successful.
+
+To use that wait productively, root authorized a separate **correctness-only**
+combined-four-loop Epoch helper0/helper2 smoke on the already tested opt1 CLI,
+using fresh evidence, unchanged saved rules/58 queries, CPUs32–47 and the pilot
+lock. The optimized build stays on0–15/heavy/build-0. These low-memory checks may
+overlap compilation, so their timings are explicitly ineligible for performance
+claims. The existing optimized timing plans remain unmodified. Required results
+are actual cold-All success and equal canonical graphs, not busy-core counts.
+
+Representative S5 correctness (11:44–11:49 UTC): both four-loop helper0/helper2
+arms passed the existing strict CP6 acceptance gate and independent cold-All.
+Each verifies58/58 required queries,32/32 roots and31,826/31,826 actual native
+inspections over51,166 domains and1,149,999 dependency edges. Pending, reserved,
+frontier and uncovered counts are zero. Canonical durable graph, physical lookup
+and verification diagnostics agree exactly between15+0+1 and13+2+1 worker
+partitions. Independent `release_correctness_audit` confirmed inputs, commands,
+uncensored exits and actual receipts, not just the agent's summary.
+
+Evidence: `s5-correctness-smoke/README.md` and `h0-h2-state.json`. The native
+checkpoint-only exit4/summary-INCOMPLETE is not the closure evidence; cold-All
+recomputes all32 roots rather than trusting the stale18/32 cached telemetry.
+This establishes the frozen control's scoped saved-rule coverage, not unrestricted
+family/source certification, and **not speed** (opt1 plus concurrent compilation).
+The original optimized comparison plans remain unexecuted.
+
+Root authorized the same correctness-only boundary for the finite five-loop
+control, helper0 then helper2 only if the first succeeds. It loads67 owners but
+has one required R2/A11/D≥9 query (1324 integer inputs), not the full116-query
+production scope. Evidence: `s5-correctness-smoke-five/`; each arm retains its
+inclusive1800s budget and predeclared stop/drain limits. No production change.
+
+[M] Finite-five-loop helper0 passed the strict CP6 gate at11:58 UTC. Independent
+cold-All reinspection covered all743,502 native inspections,910,957 domains and
+6,861,296 dependency edges; the sole required query/root closes, with zero
+uncovered obligations, errors or frontiers. Native traversal drained naturally,
+and the cold verifier finished inside its predeclared240s phase allowance.
+Root checked the actual `cold-verify.json` and `cp6-accepted.json`, not just the
+cached recursive-closure counter. The helper2 arm is authorized next, retaining
+the same exact scope, worker total and inclusive budget. These opt1 checks
+overlap the optimized build and are correctness evidence only. No speed or
+all-five-loop closure claim follows. The performance comparator portfolio v5
+was independently revalidated (five arms,20 commands, no native invocation);
+its binaries remain unbound until the campaign-profile build finishes.
+
+[M] Finite-five-loop helper2 also passed at12:11 UTC, with the same910,957
+domains,743,502 native inspections and6,861,296 edges. All required scope (one
+query/root) cold-reinspects successfully, zero uncovered/frontier/pending/error
+counts. `s5-correctness-smoke-five/h0-h2-state.json` reports exact durable
+mathematical-state equality; same-layout lookup/verification objects and logical
+scratch allowances also match. Record/edge digests agree. The comparator does
+not decode full typed records: each native cold reader independently validates
+its own authority. The cached closed-domain count differs744,315 versus49,198
+because time-driven maintenance refreshed at different points; cold verification
+finds all910,957 closed in both. Neither cached count is a completion estimate.
+
+Responsible pilot agent: `s5_fixed_work_pilots`; independent receipt/scope audit:
+`release_correctness_audit`; root inspected the actual paired report and cold
+results. No performance claim from this opt1/concurrent-build test. The guarded
+optimized build remains live, with `runtime_order_pilots` assigned to monitor,
+validate and freeze both normal executables after successful completion.
+
+The same agent prepared and the auditor checked a runtime-only follow-through
+at `s5-pilot-plan/ready-followthrough/`: seven existing-input Ready controls,
+explicit frontier-stop/checkpoint settings aligned to Epoch, and fresh matched
+Ready/Epoch ABBA instructions. Both full-JSON/CP5 and summary/CP6 output costs
+remain charged to native+cold time, rather than labelled pure scheduler time.
+No additional harness, source edits or solver runs were introduced by that
+preparation. Timing pilots remain unexecuted pending the optimized freeze.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

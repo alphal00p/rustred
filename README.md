@@ -13,6 +13,15 @@ remains separate from the shipped candidate programs.
 The active generic solver treats loop count and topology as input data, not
 dispatch keys.
 
+The current optimization build adds [persisted runtime integral orders](docs/runtime_integral_order.md)
+and [parallel Epoch preparation/publication](docs/epoch_s5.md). Source-row
+visitation and mathematical integral ordering are separate runtime controls;
+changing a rule's mathematical order requires regenerating that owner, not
+recompiling the engine. Native and Python correctness gates pass, while matched
+optimized performance qualification is still pending. See
+[the current progress log](CODEX_PROGRESS.md) for deployment status; the dated
+development results below are not instructions to replace a running campaign.
+
 Uniform Symbolica-native binary I/O and the exact unit-weight terminal
 normalization gate are complete. Bounded five-loop candidate studies have
 resumed with the explicit goal of covering renormalizable starting inputs,
@@ -77,11 +86,12 @@ actual CPU use from reserved workers and completed entry obligations from the
 still-growing descendant worklist. See the
 [Nix/build/launch/resume instructions](docs/shared_owner_campaign_driver.md#running)
 and [launch-readiness record](docs/research/manual_five_loop_campaign_2026-09-24.md).
-The replacement 67-owner campaign is running in the user's Zellij session
-`rustred`, tab `five_loop_vacuum`; do not launch a duplicate. Its inputs retain
-the original starting queries and add ordinary auxiliary domains for reuse.
-Neither its completion nor a full-family ETA is claimed. See the
-[four-loop control and five-loop restart](docs/research/five_loop_coarse_cover_restart_2026-09-24.md).
+Do not launch a duplicate of the user's production campaign. Its current
+identity, protected resources and status are recorded in
+[CODEX_PROGRESS.md](CODEX_PROGRESS.md); historical restart commands are not
+current launch instructions. Neither completion nor a full-family ETA is
+claimed. The earlier [four-loop control and five-loop restart](docs/research/five_loop_coarse_cover_restart_2026-09-24.md)
+remain historical evidence.
 
 An experimental [ready-ticket publication policy](docs/research/five_loop_ready_publication_2026-09-24.md)
 is being validated to remove same-owner head-of-line waiting while preserving
