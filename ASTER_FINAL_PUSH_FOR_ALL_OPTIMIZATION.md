@@ -21,8 +21,11 @@ launch is on hold pending a tested build and fresh-walk recovery instructions.
 No source-architecture-completion statement below overrides this new evidence.
 At21:13UTC the conservative repair passed independent source audit,1,292 native
 application/CLI tests and the combined four-loop cold-All control. The saved
-five-loop inputs are undergoing a separate bounded recovery pilot; optimized
-replacement delivery remains pending. None of these checks launches production.
+five-loop inputs subsequently passed a separate bounded recovery pilot: four
+actual undecided-union fallbacks, a clean CP6 save and structural cold read with
+zero violations, completed in1,403.219s. This is neither full native reinspection
+nor scoped closure or actual resume execution. Optimized replacement compilation
+has started; delivery remains pending. None of these checks launches production.
 
 | Requirement | State and evidence |
 |---|---|

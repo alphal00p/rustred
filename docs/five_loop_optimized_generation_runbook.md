@@ -20,7 +20,11 @@ reuse and inspects the whole obligation when the persisted union proof cannot
 be obtained within its budget; it does not weaken coverage checks. The combined
 four-loop control has passed independent full reinspection (all58 required
 queries,32 roots and17,957 inspections). The bounded full-input five-loop
-recovery control and frozen optimized replacement build are still pending.
+control also passed: it exercised four conservative fallbacks, saved cleanly,
+and its structural cold reader found no violations across165,305 accepted G2
+unions. That deliberately stopped campaign remains incomplete; the cold check
+did not re-inspect native records or execute a resume. The optimized replacement
+build is running and still must be frozen and checked before launch.
 
 **Do not relaunch the affected frozen build with this recipe yet.** Retain the
 failed campaign, generated bundles and completed-sector receipts. Its CP6 walk
@@ -101,6 +105,23 @@ still a competitive alternative; no claim of 20+ busy cores has been established
 At the user's request the production command now reserves **32 physical cores
 and 600 GB RAM**, not the 16 cores used in those timings. This changes the
 reservation, not the evidence. There is no measured 32-core speedup yet.
+
+### Which parallel mechanisms the selected recipe enables
+
+The current recipe explicitly selects31 inspection workers, one coordinator,
+and **zero merge-preparation helpers** (`--epoch-preparation-workers 0`). Zero
+means serial P2 preparation, not automatic allocation. The implemented helper
+pool can parallelize immutable source resolution, owner/phase buckets and
+bounded reverse lookup, but it is not enabled by this recipe. Ordered folding,
+validation and mutable publication still impose serial work.
+
+Initial owner/routing verification separately uses the32-worker budget; its
+activity must not be presented as sustained traversal scaling. Historical W16
+four-loop helper comparisons did not establish a reliable whole-run gain.
+The larger full-input repair pilot shows P2 is substantial, motivating a matched
+runtime-only h0/h2 follow-up. That comparison is prepared, not yet run; retaining
+h0 in the recovery instructions preserves the original tested configuration,
+not a claim that it is optimal for all67 owners at W32.
 
 ## Exact frozen scope
 

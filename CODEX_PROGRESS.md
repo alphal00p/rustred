@@ -37,6 +37,117 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Full-input repair regression PASS, independently audited at21:44UTC.**
+  Receipt: `TMP/postlaunch-20260930/production-union-repro-retry/REGRESSION_RESULT.json`
+  SHA `f72841bbd1fc0ea47ad3e9a2af6d15a1356e5356ecf178f4ab40135e7e9df548`.
+  Four undecided-cover fallbacks, clean paused CP6 generation1, zero abandoned
+  obligations; all183 inputs retained. Structural cold read finished in193.330s,
+  raw exit9/verdict INCOMPLETE, with zero violations and matching request/owner
+  bindings. It geometrically covered all165,305 recorded G2 unions, with zero
+  undecided checks and132,039 finite-point crosschecks without disagreement.
+  It re-inspected **zero** native records (`--reinspect none`), so this is not
+  full cold-All, actual resume execution, all-query completion or family closure.
+  All owned processes drained; total1403.219s is within the1,800s pilot budget.
+  Original production poison/session controls are unchanged. Remaining pending
+  work is1,974,430 domains. The optimized build started automatically after this
+  gate, guard child3441062/session76831, CPUs0–15; no optimized result yet.
+- [M] Read-only LC2 observation at21:43UTC:224,674,461 discovered,
+  99,729,005 local completions,65,519,746 pending,6/67 closed roots,
+  94.31GB sampled tree RSS. Last-hour pending growth+0.8352/completion,
+  computing-inspector mean0.667. Production still runs unchanged; no ETA follows.
+- [M] Repair milestone committed/pushed as `d55cfb1c`. The first full-input
+  TMP pilot stopped after70.259s with an **input ENOENT during preparation**,
+  before any walking heartbeat or checkpoint. This does not test the original
+  union-budget failure and is not a passing regression. All owned groups
+  drained; raw `REGRESSION_RESULT.json` remains INCOMPLETE_OR_FAILED.
+  Root and S5 are checking the absent checkpoint parent directory against
+  native fresh-checkpoint setup; an independently reviewed harness-only retry
+  is required. Evidence is retained under
+  `TMP/postlaunch-20260930/production-union-repro/`. Production is unchanged.
+- [M] Root confirmed the setup mismatch: Epoch fresh checkpoint creation uses
+  `fs::create_dir(directory)` and requires its parent; the production launcher
+  creates that parent at `production_saved_owner_campaign.py:1294`, whereas
+  the isolated pilot directly invoked the lower-level supervisor without it.
+  No new native engine defect is inferred from this failed pilot. The retry
+  must create only its own checkpoint parent and preserve the first receipts.
+- [D] At21:19UTC root granted the independently audited harness-only retry
+  in `TMP/postlaunch-20260930/production-union-repro-retry/`. Its sole code
+  difference is creation of that fresh checkpoint parent; all78 copied input
+  hashes and all original solver/resource settings match. The original failed
+  test remains intact. The same1,800s inclusive pilot ceiling and independent
+  structural cold-check requirement apply; no production action is authorized.
+- [D] Optimized CLI build queued at21:20UTC behind the heavy-job lock; it runs
+  only if the retry reports exercised-undecided-fallback PASS with a clean
+  checkpoint structural cold read and the four repair-source hashes still
+  match. It cannot overlap the pilot. Exact command uses existing cached target,
+  `cargo build --profile campaign --locked --offline --message-format=json
+  -j8 -p rustred-app --bin rustred`, CPUs0–15/eight Cargo jobs, inherited license,
+  heavy+build-0 locks and host RAM protection. Evidence will be
+  `TMP/postlaunch-20260930/epoch-union-optimized-build/`. A queued build is not
+  a completed or recommended production executable.
+- [M] Independent profiling/configuration audit during the repaired pilot:
+  `--epoch-preparation-workers 0` means **serial P2**, not automatic helper
+  allocation. Selected W32 is31 inspectors+one coordinator. Parallel immutable
+  source/bucket/reverse preparation exists but is not selected; startup route
+  verification separately uses32 workers. At311.24s the coordinator reported
+  P2=104.568s, inspect/wait=85.717s, boundary=25.071s, P3=21.927s and P1=8.234s;
+  P2 is42.6% of summed traversal phase wall. Final-result subphase diagnostics
+  are needed to identify the parallelizable share. Historical W16 four-loop
+  h0/h2 medians27.693/28.875s did not establish a helper speedup; full-input
+  W32 h0 is the frozen control, not proven optimal. No settings changed during
+  the repair test. A matched helper test is a follow-up candidate, not a gain.
+- [M] Frozen recovery Python checkout is prepared at
+  `TMP/releases/20260930-epoch-union-repair`, detached clean commit `d55cfb1c`.
+  Actual Nix/import smoke and parser-only command comparison passed. Template
+  and receipt are `TMP/postlaunch-20260930/epoch-union-repair-delivery/`;
+  all original query order/steering retained. The optimized executable is
+  deliberately UNBOUND, and the proposed new production directory does not
+  exist. This is not a launch recommendation or native recovery run.
+- [M] Retry observation at21:28UTC: nativePID3244094 is live (elapsed531s),
+  1,171,616 local completions,3,856,595 discovered domains,1,142,993 pending,
+  four conservative closed roots, zero frontiers. This is close to the former
+  failure's work counters, but neither elapsed time nor nearby counts proves
+  that the same obligation or fallback was exercised. The final summary must
+  provide that fallback evidence, followed by clean-save/cold-read checks.
+  Do not compare app-opt1 wall time with the former optimized production build.
+- [M] Follow-up audits completed during the verified live wait: the frozen
+  recovery template/source identity independently passed (optimized CLI still
+  unbound). The unreferenced `candidate_bundle/tests/case_probe.rs` also passed
+  source-only audit at SHA `6d9fe859f781beed849d3e44460ecab5c985743b2a87713f8cd2f94ee95e1d9a`.
+  It uses existing SectorSolver/backends, preserves saved case/order/policy,
+  reconstructs the zero census and checks source replay/descent/guards;
+  shared numerical-tail cases fail closed. It has **not** compiled or run.
+  Same-process fixed-order timings cannot qualify a production speedup; use
+  `backend:saved` to isolate source visitation from backend changes. Neither
+  audit starts work or justifies a production launch.
+- [D] Runtime agent registered one data-only h0/h2 follow-up at
+  `TMP/postlaunch-20260930/full-a1-preparation-h0-h2/PLAN.json`. Same saved
+  full-A1 inputs and32-core budget:31 inspectors+0 helpers+coordinator versus
+  29+2+coordinator. Existing API has no exact stop-at-commit-prefix control;
+  domain/event capacity caps are not that control. Therefore the proposed
+  1,200s equal-window screen explicitly reports graph/work-mix differences,
+  final P2 subphase costs, pending/memory pressure and clean cold structure;
+  it cannot label more inspections an exact-work speedup or a closure result.
+  Falsifier is no useful throughput gain or savings offset by serial work /
+  fewer inspectors. No helper sweep, implementation or native run is authorized;
+  repair delivery retains priority and the optimized executable is unbound.
+- [M] At21:39UTC the full-input retry stopped cooperatively and saved CP6
+  generation1, resumable with no warnings and zero abandoned obligations.
+  Native result has no error, `workers_joined=true`, no certification-void
+  flag, and **four actual union-cover-undecided fallbacks**, lender fallback0.
+  This directly exercises the repair on the full saved production input.
+  2,393,440 native inspections completed;4,730,878 domains committed and
+  1,974,430 remain pending. Native guard1207.999s/inclusive1209.483s,
+  all native/supervisor groups drained. The independent structural cold reader
+  is still active; final regression PASS is not claimed before its receipt.
+- [M] Independently checked final correctness-run P2 attribution:409.293s,
+  35.98% of1137.666s traversal, not the earlier prefix's42.6%. Subphases:
+  source274.495s, reverse74.266s, antichain20.624s, dedup18.966s,
+  representatives10.012s, transfer5.267s. The5.664s difference is other /
+  uninstrumented P2 work, not safely all overhead.149,590 cuts and128,652,079
+  obligations were processed. Other phases: inspect/wait441.115s, P3=100.399s,
+  boundary93.618s and P1=90.435s. This prioritizes the registered helper screen
+  but does not demonstrate helper benefit or optimized performance.
 - [M] Fixed-build four-loop gate passed at21:13UTC: all58 required queries,
   32 roots,26,025 domains and495,898 edges; independent cold-All reinspection
   checked all17,957 natives with zero errors, uncovered obligations, frontiers
