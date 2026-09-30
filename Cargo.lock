@@ -1302,6 +1302,7 @@ dependencies = [
  "blake3",
  "rand 0.9.5",
  "rayon",
+ "rustred-order",
  "symbolica",
 ]
 
@@ -1333,6 +1334,10 @@ dependencies = [
  "rustred",
  "symbolica",
 ]
+
+[[package]]
+name = "rustred-order"
+version = "0.1.0"
 
 [[package]]
 name = "rustred-python"

@@ -139,6 +139,14 @@ executables and files so the owner retains control.
   it cannot bypass order admissibility or replace persisted mathematical meaning.
 - Version evolving schemas clearly. No legacy migration project. New artifacts
   must carry their actual order through generation, load, application and proof.
+- When reusing a rule and its order proof in another coordinate frame, transport
+  the complete descriptor and prove commutation; identical labels do not prove
+  equivariance. Do not impose this requirement on independently valid owners:
+  the existing reducer permits distinct local orders, keeps same-support Apply
+  steps within one owner and reroutes only after strict support-count decrease.
+  Preserve that well-founded composition and test mixed-order routing plus
+  refusal of illegal same-support rerouting. The end-to-end design must support
+  real routed controls, not only isolated unrouted generators.
 
 ### O2. Public controls and mechanics-informed strategies
 
@@ -226,6 +234,12 @@ executables and files so the owner retains control.
   backlog, phase time, queue/domain work, memory and checkpoint time. Keep the
   current dashboard's metrics and rendering semantics, extending its generic
   data stream only as needed for the new phase counters.
+- Independently audit exact plan/record/edge/counter equality under reversed
+  helper completion and helper budgets zero/one/two/seven. Include dominant
+  single-bucket skew, equivalent/nested images, canonical error order, every
+  preflight failure, duplicate/disabled/cyclic dependency updates and held-reader
+  compaction. Cooperative output/RAM limits discard the unpublished cut; they
+  never truncate its mathematical obligations or create partial authority.
 
 ## Integration, pilots and acceptance
 

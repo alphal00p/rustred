@@ -20,10 +20,48 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | `stage_a_release` | active, bounded source/API review | Propose concrete/shift/order representation and exact file ownership; implement after independent invariant review |
-| S: original S5 merge architecture | `parallel_gate_critique` | active, bounded source review | Identify safe bucket parallelism, typed record, bulk tracker and P4 boundaries; preserve reference work selection |
+| O: generated-rule selection and full persisted integral order | `stage_a_release` | pure kernel implemented,15 release tests PASS and independent source audit PASS; integration active | Carry complete descriptor through solver, descent, replay, artifacts and interfaces; preserve mixed-order routing |
+| S: original S5 merge architecture | `parallel_gate_critique`; root bulk support | first immutable P2 preparation and bulk Tracker source drafted; not wired or executed | Warm metadata check, focused execution and independent audit; then full source-resolution/typed-record/bulk/P4 integration |
 | Independent mathematical/code/performance audit | `active_goal_delivery_audit` | active, read-only | Challenge both designs and define adversarial correctness/performance gates; do not author the feature being audited |
 | Integration, resources, profiling and release | root | active | Persist new plan and goal; coordinate shared files/builds and combined acceptance |
+
+First-slice design audit (05:55 UTC): both tracks received a preliminary GO,
+not approval of unimplemented code. Ordering uses a shared immutable validated
+program; nonuniform routing/symmetry transport is an explicit proof gate.
+S5 starts with immutable bucket/reverse preparation and canonical folding;
+initial miss resolution, typed records, bulk dependencies and P4 remain required
+follow-through. Root authorized `parallel_gate_critique` edits in epoch merge/
+preparation and a narrow bounded Store lookup wrapper. Full controller/pool
+wiring and shared Cargo edits remain coordinated separately. No build or pilot
+has started; existing failed experiments are not repeated automatically.
+
+Follow-through (06:00 UTC): approved a small `rustred-order` crate containing
+only lawful order metadata, checked integer evaluation and transport. This lets
+its focused tests run without compiling/linking Symbolica; core adapters still
+require core/app rebuilds. Root owns manifests/lock; ordering author owns source
+and adapter changes. The auditor refined the transport boundary after reading
+the actual reducer: distinct per-owner orders are already legal because routing
+after entry strictly lowers support count. Equivariance is required when reusing
+a transported rule/proof, not as a blanket restriction on independent owners.
+Tests will preserve mixed-order routing and reject same-support owner hopping.
+
+Kernel checkpoint (06:09 UTC): all15 `rustred-order` release tests passed in
+0.01s; Cargo's standalone compilation took1.83s, guarded whole command5.160s,
+peak single-child RSS198756KiB. Command: `cargo test --release --locked --offline
+-j4 -p rustred-order -- --nocapture` inside Nix with the existing resource guard,
+CPUs0–7/build-0+heavy locks and local target. Evidence:
+`TMP/aster-order-kernel.fiY5ua/release-tests/{request,result}.json` and stdout/stderr.
+Only the new algebra-independent crate compiled. The auditor read all six source
+files and confirmed finite-fibre/sign coverage, signed accumulator bounds,
+allocation-checked canonical parsing and coordinate pullback. These checks do
+not yet establish integrated B-order generation or whole-engine speedup.
+
+The S5 author has drafted bounded immutable bucket/reverse preparation; root
+has drafted real source-wise Tracker/Edges batches with scalar differential
+tests, exact fold boundaries and failure injection. Neither is production-wired
+or execution-validated yet. Warm full metadata checking is now guarded in
+`TMP/aster-order-kernel.fiY5ua/integration-check`; source edits are briefly frozen
+during that check. No native pilot or new production campaign has started.
 
 The `297be07f` and frozen1b33/62c delivery remains a rollback/reference, not proof
 that these newly authorized tracks are implemented. Source A's repeated gains

@@ -1,0 +1,15 @@
+[package]
+name = "rustred-order"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Validated runtime integral-order programs for RustRed"
+license = "MIT"
+
+[lib]
+name = "rustred_order"
+path = "src/lib.rs"
+
+# Order metadata and checked integer comparisons are independent of Symbolica.
+# Coefficient algebra stays in rustred-core and uses Symbolica exclusively.

@@ -22,6 +22,7 @@ bincode.workspace = true
 blake3 = "1"
 rand = "0.9"
 rayon = "1"
+rustred-order = { path = "../rustred-order" }
 symbolica.workspace = true
 
 [[example]]
