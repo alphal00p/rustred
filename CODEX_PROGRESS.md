@@ -37,6 +37,45 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Repaired optimized build delivered and user campaign running at00:44
+  October1 Europe/Zurich.** Build guard exited0 without stop in3,706.452s;
+  maximum single-child RSS18,282,192KiB, minimum host headroom605.788GB.
+  Existing build/publisher sessions76831/83664 completed cleanly. Atomic binary:
+  `TMP/postlaunch-20260930/epoch-union-repair-optimized-bin/rustred`, SHA256
+  `23d836d7b05fac6b007cc1adea84f04548d5bf0e0a94a28ca877f98942da8045`, source
+  `d55cfb1c`, campaign opt3/fat-LTO/CGU1. Sibling `FROZEN_BUILD.json` explicitly
+  records that further optimized post-build checks were deferred by the user.
+  Root did not launch production: the user's waiting PID3564028 performed
+  preparation and exec'd the production wrapper after publication.
+- [M] New production is
+  `campaigns/five-loop-a1-epoch-repaired-20260930/runs/20260930T224435.637055Z`,
+  nativePID3741792, all183 original queries, W32/CPUs64–95,31 inspectors/h0,
+  original A1 saved rules and no hard runtime deadline. Admission preview was
+  approximately473.393GB hard/449.723GB soft under requested600GB/host reserve
+  150GB; supervisor live admission remains authoritative. The original poisoned
+  campaign and LC2 remain untouched. Startup map verification briefly observed
+  31.09cores/~5.03GB; subsequent traversal snapshot had205,616 local inspections,
+  877,433 scheduled domains,418,555 pending, zero frontiers and3.10cores/~7.17GB
+  peak. Startup CPU is not sustained traversal scaling, and1/67 conservative
+  closed roots is not full required-query closure.
+- [D] With user production already running, regranted the prepared short
+  optimized four-loop ABBA comparison to runtime agent on CPUs32–47, using
+  existing heavy/pilot locks, unchanged inputs and cold-All. This is deferred
+  validation, not a launch gate. S5 agent owns bounded raw-heartbeat phase
+  samples over two approximately5min traversal intervals before deciding
+  whether the separate h0/h2 experiment is justified. Heavy jobs serialize;
+  production state, CPU reservation and parameters are not modified.
+- [M] Original optimized A1 read-only phase diagnosis (00:31 October1,
+  Europe/Zurich): before the fatal reuse check, P2 accounted for31.33% of
+  cumulative coordinator wall, inspect/wait46.52%, P1=4.15%, P3=6.05% and
+  boundary11.94%. Last distinct progress sample was395.374s and1,183,536
+  native completions; the error came at403.143s. Thus substantial P2 work
+  predates the repair. Its small fatal result did not retain six-subphase,
+  task-wave, lookup or detailed waiting totals, so no source-specific cost
+  attribution is justified for that run. The app-opt1 repaired pilot is not
+  a matched timing control. Evidence:
+  `TMP/postlaunch-20260930/ORIGINAL_A1_PHASE_FRACTIONS.md`; only bounded existing
+  heartbeat data were read. No production mutation or native test occurred.
 - [M] Read-only observation at00:13 October1 Europe/Zurich: LC2 remains running,
   225,659,399 scheduled domains,100,154,036 local completions,65,781,605 pending,
   zero frontiers. Its conservative6/67-root closure snapshot is stale by3,366s;

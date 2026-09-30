@@ -25,7 +25,9 @@ independent full reinspection. A separate bounded full-input five-loop pilot
 exercised four such fallbacks, saved cleanly, and passed structural cold checks
 with zero violations. That latter check deliberately re-inspected no native
 records and does not prove all-query closure. The optimized replacement build
-is pending; the old failed checkpoint must not be resumed.
+has succeeded and the user's fresh walk is running. Additional optimized checks
+were deferred until after launch by explicit user direction. The old failed
+checkpoint must not be resumed.
 
 The final fully optimized CLI (`38e0e763…`) has now passed the repeated
 four-loop Ready/Epoch comparison with 1,024 extra completed-result slots.

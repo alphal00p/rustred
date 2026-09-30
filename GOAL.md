@@ -13,6 +13,12 @@ bottlenecks to guide the remaining two optimization tracks below; subsequent
 isolated tests must not alter or block the live campaign. Prior correctness
 evidence and outstanding performance qualifications remain distinct.
 
+Delivery update: the optimized build succeeded, its binary was published, and
+the user's launcher started the new walk at00:44 October1 Europe/Zurich.
+Continue with read-only live observation and separate profile-guided experiments;
+the build wait is finished. Exact executable identity and run path are recorded
+in the runbook and progress log.
+
 ## Authoritative directive — September30 final optimization push
 
 The user has explicitly postponed the campaign launch and authorized

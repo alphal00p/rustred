@@ -13,11 +13,9 @@ checkout; the frozen release and both production campaigns remain untouched.
 
 **Post-launch defect (20:41UTC):** all67 A1 owners generated/admitted, but the
 user's Epoch walk failed after403.143s at `P1 ... UnionUndecided`. Optional G2′
-planning and P1 use different bounded coverage procedures; an inconclusive P1
-recheck currently becomes fatal. Repairing and independently testing a safe
-ordinary-inspection fallback is now the immediate priority. The generated inputs
-are reusable; the poisoned walk checkpoint is not. The previously delivered
-launch is on hold pending a tested build and fresh-walk recovery instructions.
+planning and P1 used different bounded coverage procedures; an inconclusive P1
+recheck became fatal. The safe ordinary-inspection fallback is implemented and
+tested. The generated inputs are reusable; the poisoned walk checkpoint is not.
 No source-architecture-completion statement below overrides this new evidence.
 At21:13UTC the conservative repair passed independent source audit,1,292 native
 application/CLI tests and the combined four-loop cold-All control. The saved
@@ -25,10 +23,12 @@ five-loop inputs subsequently passed a separate bounded recovery pilot: four
 actual undecided-union fallbacks, a clean CP6 save and structural cold read with
 zero violations, completed in1,403.219s. This is neither full native reinspection
 nor scoped closure or actual resume execution. Optimized replacement compilation
-has started. The user subsequently waived further pre-launch verification and
-started the recovery launcher: it waits only for compilation/atomic publication,
-then reuses all saved rules in a fresh walk. Additional optimized controls are
-deferred, not marked passed. Production lifecycle remains user-owned. Observe
+completed in3,706.452s; CLI SHA256 is
+`23d836d7b05fac6b007cc1adea84f04548d5bf0e0a94a28ca877f98942da8045`.
+The user waived further pre-launch verification and their waiting launcher
+started a fresh walk using all saved rules at00:44 October1 Europe/Zurich.
+Additional optimized controls are deferred, not marked passed.
+Production lifecycle remains user-owned. Observe
 the repaired run to guide subsequent optimization rather than delaying it.
 
 | Requirement | State and evidence |

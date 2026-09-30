@@ -13,7 +13,7 @@ The September30 user trial successfully generated and admitted all67 owners
 `P1: 2387377 anchors: UnionUndecided`. This was an internal reuse-validation
 failure, not a memory stop or failure to generate the rules. The finite-point
 reuse planner can accept a union whose separate region-decomposition proof
-exceeds its work budget; the current release incorrectly makes that inconclusive
+exceeds its work budget; the original release incorrectly made that inconclusive
 recheck fatal. A conservative Epoch-only preflight/fallback repair has passed
 independent source review and1,292 native application/CLI tests. It declines
 reuse and inspects the whole obligation when the persisted union proof cannot
@@ -24,10 +24,18 @@ control also passed: it exercised four conservative fallbacks, saved cleanly,
 and its structural cold reader found no violations across165,305 accepted G2
 unions. That deliberately stopped campaign remains incomplete; the cold check
 did not re-inspect native records or execute a resume. The optimized replacement
-build is running. On October1 (Europe/Zurich), the user explicitly deferred
-additional optimized post-build controls until after their launch. Publication
-therefore waits only for successful compilation and atomic binary installation,
-not another verification gate. Those deferred controls are not claimed passed.
+completed successfully and was atomically published at00:44 October1
+(Europe/Zurich). The user's waiting launcher then started the fresh campaign.
+Additional optimized controls were explicitly deferred until after launch;
+they were not a release gate and are not claimed passed here.
+
+The delivered CLI is
+`/common/dev/rustred/TMP/postlaunch-20260930/epoch-union-repair-optimized-bin/rustred`,
+SHA256 `23d836d7b05fac6b007cc1adea84f04548d5bf0e0a94a28ca877f98942da8045`.
+Its source is `d55cfb1c`, built with the optimized campaign profile (opt-level3,
+fat LTO, one codegen unit). Guarded compilation took3,706.452s; that is build
+time, not solver time. The immutable sibling `FROZEN_BUILD.json` records the
+successful build and deferred post-build checks.
 
 **Do not relaunch the old affected executable.** Retain the
 failed campaign, generated bundles and completed-sector receipts. Its CP6 walk
@@ -49,12 +57,15 @@ then invokes the public `production_saved_owner_campaign.py` preparation and
 start commands. It copies/verifies the existing inputs, preserves their query
 order and all183 queries, and starts a fresh campaign at
 `/common/dev/rustred/campaigns/five-loop-a1-epoch-repaired-20260930`.
-The old campaign remains untouched. Do not invoke it twice: a pre-existing
+This launch has now occurred. The old campaign remains untouched. Do not invoke
+the initial command again: a pre-existing
 destination is not permission to overwrite campaign state.
 
 The resource settings remain32 workers on CPUs64–95,600GB requested ceiling,
 150GB host headroom and hourly checkpoints. The actual RAM ceiling can be lower
-after shared-host admission. Once this new campaign has saved a clean checkpoint,
+after shared-host admission. At this launch the preview admitted approximately
+473GB hard/450GB soft, rather than the full600GB, to preserve host headroom.
+The supervisor's live admission is authoritative. Once this new campaign has saved a clean checkpoint,
 its subsequent user-initiated resume is:
 
 ```sh
