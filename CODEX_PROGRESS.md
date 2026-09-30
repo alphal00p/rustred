@@ -24,7 +24,7 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 | S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | native and four-/finite-five lookahead gates PASS; finite traversal32.25% lower at essentially flat CPU, whole charged13.61% lower in one app-opt1 pair | Commit audited opt-in milestone and build fully optimized candidate; qualify against contemporaneous Ready before deployment |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
 | Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
-| Integration, resources, profiling and release | root | published milestone9cc1acca; lookahead source and evidence ready for audited commit; all pilot groups drained; production untouched | Explicit task-only commit/push, guarded optimized build, then qualified campaign setup |
+| Integration, resources, profiling and release | root | audited lookahead milestone56176df5 committed/pushed; all pilot groups drained; guarded optimized build active; production untouched | Freeze and verify optimized executables, then matched qualification and final campaign setup |
 
 ### Active decision register — refreshed 2026-09-30 17:22 UTC
 
@@ -49,13 +49,14 @@ the same experiment after a handoff.
 | Hot traversal-heavy saved-rule control | prepared, not launched | Data-only plan validated; native grant depends on diagnostic results and a concrete remedy. |
 | Production deployment | pending | No LC2 mutation. Source work gain is real, but no qualified new Epoch launch recipe or20-core demonstration. |
 
-**Current implementation milestone:** `9cc1acca`, committed and pushed to
-`origin/fable_5_1_parallel` on2026-09-30 after native, installed-Python and
-selected four-loop cold verification audits. It adds selected-sector generation
-and private bounded Epoch observations to the earlier711b18c5 architecture.
-Unrelated user work remains outside the commit. Optimized matched performance
-qualification and final campaign setup are still open; this is not a deployment
-recommendation or goal completion.
+**Current implementation milestone:** `56176df5`, committed and pushed to
+`origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent
+source audit, and completed four-/finite-five cold-verified lookahead screens.
+It adds opt-in bounded whole-result lookahead to the earlier9cc1acca selected-
+sector/profiling and711b18c5 ordering/S5 milestones. All39 task-owned changed
+files were staged explicitly; unrelated user work remains outside the commit.
+Optimized matched qualification and final campaign setup are still open. This
+is not a deployment recommendation or completion of the goal.
 
 ### Historical resource handoff — 2026-09-30 16:49 UTC
 
@@ -196,6 +197,33 @@ running, not an accepted closure or speed result. Source remains frozen.
   root freezes the build. The agent also plans an actual freshly built public
   Python escrow smoke; existing steering tests are not claimed as that run.
   No further solver run or build has been authorized to an agent.
+
+### Audited milestone and optimized build — 2026-09-30 17:28 UTC
+
+- [M] Implementation/evidence commit
+  `56176df50385b5583b6c06a689e571953b977cf3` pushed successfully to
+  `origin/fable_5_1_parallel`. Author and committer are the requested
+  ValentinHirschi identity, with the existing Codex coauthor trailer. Remote
+  was still9cc1acca before the fast-forward. No reference material, campaign
+  output, license or unrelated FeynKit/user work was staged.
+- [M] Root started `escrow-optimized-build` with the existing shared build
+  guard, CPUs0–15,8 Cargo workers, heavy/build locks and memory headroom guard.
+  Cargo target is the reusable `optimized/target`; profile `campaign` is
+  opt-level3/fat-LTO/one codegen unit, **without** an app override. Targets are
+  CLI `rustred` and `inspect_candidate_orders`. Exact command, nonsecret
+  environment policy and child identity are in its `request.json`/`child.json`.
+  Exec session32267 owns child group329576. At17:28UTC it is actively compiling
+  rustred-app, no compiler error. Compilation is separate from pilot timings.
+- Source is frozen. Earlier frozen binaries and checkpoints are preserved.
+  No agent has a native launch grant during this build; the ordering/pilot
+  agent prepares unbound data-only plans on the side. Qualification will use
+  one newly frozen optimized executable for both schedulers, not compare the
+  app-opt1 screen to an older optimized Ready timing.
+- Python surface clarification from code inspection: owner-domain walking is
+  currently available through the existing Python CLI-steering scripts, not
+  a direct `import rustred` PyO3 walk method. Do not claim native escrow kwargs
+  exist there. Final delivery will check a fresh installed native candidate/
+  ordering API and an actual Python-steered native escrow control separately.
 
 ### Integration and live observation — 2026-09-30 16:07 UTC
 
