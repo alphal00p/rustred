@@ -7,6 +7,15 @@ instruction. The user postponed production launch on September30.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
+**Latest user direction (2026-09-30 17:29UTC):** the mandatory1.5x deployment
+gate is relaxed. A smaller reproducible useful advantage is acceptable, with
+work/memory tradeoffs reported. Matched same-build Ready controls, repeated
+measurements, cold coverage and four-loop non-regression remain necessary for
+a recommendation. The newly demonstrated gain compares Epoch E0 against E1024,
+not Ready against Epoch. Earlier1.5x statements below are historical, not the
+current threshold. The active tool-managed objective already asks for measured
+pilot gains without specifying that ratio, so its full scope remains unchanged.
+
 ## Final optimization push — 2026-09-30 05:49 UTC
 
 The previous audited milestone is committed and pushed as `297be07f` on
@@ -224,6 +233,17 @@ running, not an accepted closure or speed result. Source remains frozen.
   a direct `import rustred` PyO3 walk method. Do not claim native escrow kwargs
   exist there. Final delivery will check a fresh installed native candidate/
   ordering API and an actual Python-steered native escrow control separately.
+- Current head `3c41a5f7` is the pushed documentation-only follow-up to compiled
+  source milestone56176df5. Root verified the optimized compiler process330248
+  live under group329576 at17:29UTC, no errors; the user's gate relaxation
+  changes only plan/measurement interpretation, not that running build.
+- [E] Remaining candidates: the finite screen still spends about38s waiting,
+  30s in P1 and33s in P2. Existing h2 preparation is a small runtime-testable
+  opportunity, not an expected saturation breakthrough because source tasks
+  average roughly17µs. Better generated rules remain a separate stronger work-
+  reduction route (repeated four-loop evidence, not full-five validation).
+  The already-prepared hot control is the next scheduler discriminator; larger
+  core counts follow useful-work evidence rather than occupancy alone.
 
 ### Integration and live observation — 2026-09-30 16:07 UTC
 

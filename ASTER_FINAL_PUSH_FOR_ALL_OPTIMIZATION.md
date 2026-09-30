@@ -29,6 +29,15 @@ setup. Useful activity around twenty or more physical cores is a performance
 target, not a reason to manufacture work or an unsupported utilization promise.
 Saturating two hundred cores is not required.
 
+Deployment-gate clarification (2026-09-30): the user has relaxed the mandatory
+1.5x speedup threshold. A smaller reproducible useful advantage can justify
+preferring Epoch, with its work/memory tradeoffs stated explicitly. This does
+not make an Epoch-versus-older-Epoch improvement a comparison against Ready.
+Retain matched current-build Ready controls, repeated measurements, independent
+coverage checks and combined four-loop non-regression. Historical references
+to the1.5x requirement in earlier reports describe the gate at that time; it is
+no longer a necessary condition for deployment recommendation.
+
 The user explicitly postpones launching a campaign. **Do not stop, restart,
 resume or mutate LC2 or launch another production campaign.** A prepared future
 command is a deliverable, not permission to execute it. Existing campaigns need
@@ -290,8 +299,8 @@ qualify Epoch performance or reopen blind ordering/window sweeps.
   existing pending-growth metric unchanged.
 - Test the finite control as a work-inflation/causal falsifier and the selected
   A1 four-loop owner programs as joint integration. Only a promising result
-  proceeds to optimized matched hot-control qualification. Preserve the1.5x
-  gate and combined four-loop non-regression; allow one evidence-backed
+  proceeds to optimized matched hot-control qualification. Preserve matched
+  Ready comparisons and combined four-loop non-regression; allow one evidence-backed
   correction before parking an unsuccessful remedy.
 
 Root coordinates integration and profiling; the S5 agent owns pool/controller
@@ -318,11 +327,13 @@ No new CAS primitive is needed for this scheduling work.
    required-query closure, frontiers, rules/terminals, bytes and phase costs.
    Busy cores alone are not success. Check whether a speedup is purchased with
    enough redundant work or memory to undermine the full campaign.
-7. Reproduce deployment claims in two matched pairs. The existing 1.5x gate
-   remains required to call Epoch a qualified faster replacement. The ordering
-   gain already has evidence, but a new comparator or integrated binary needs
-   its own checks. Require combined four-loop non-regression and useful five-loop
-   transfer before recommending the final setup.
+7. Reproduce deployment claims in two matched pairs. The user has relaxed the
+   former1.5x requirement: prefer a demonstrably useful improvement with honest
+   resource/work tradeoffs, not an arbitrary minimum ratio. The ordering gain
+   already has evidence, but a new comparator or integrated binary needs its
+   own checks. Require combined four-loop non-regression and useful five-loop
+   transfer against a contemporaneous Ready baseline before recommending the
+   final setup. Do not infer preference from an Epoch-only ablation.
 8. Profile representative widths targeting twenty-plus useful physical cores
    once low-width correctness/work identity pass. No speculative two-hundred-
    core launch. If work changes dramatically, diagnose that before increasing

@@ -7,6 +7,14 @@ source-selection qualification complete.
 See [the active plan](../../ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md) and
 [progress log](../../CODEX_PROGRESS.md). Production LC2 was not modified.
 
+Current decision policy, updated after the user's17:29UTC clarification:
+the former mandatory1.5x gate is relaxed. Historical measurements and their
+then-applicable thresholds are preserved below. A smaller reproducible useful
+gain is acceptable, but a same-build Ready comparison is still needed; the new
+lookahead result is an Epoch-only ablation, not evidence that Epoch now wins
+that comparison. Four-loop non-regression and independently checked coverage
+remain requirements.
+
 ## Frozen implementation and measurement boundaries
 
 Implementation `711b18c5` on `fable_5_1_parallel`; subsequent `27b95768` changes
