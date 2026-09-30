@@ -190,6 +190,7 @@ def family_candidates(
     checkpoint_max_bytes: int | None = None,
     discovery_strategy: str | None = None,
     integral_order: str | None = None,
+    selected_sectors: list[str] | None = None,
 ) -> CandidateBundleResult: ...
 
 def certify_candidates(

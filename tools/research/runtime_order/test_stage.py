@@ -66,7 +66,7 @@ class StageTests(unittest.TestCase):
                                            (2, "10", ["10"])):
             directory = self.base / f"root{parent}"
             directory.mkdir()
-            manifest = {"version": 3, "recipe": stage.CHECKPOINT_RECIPE,
+            manifest = {"version": stage.CHECKPOINT_VERSION, "recipe": stage.CHECKPOINT_RECIPE,
                         "family_source": (self.base / "family.toml").read_text(),
                         "input_format": "toml", "family_fingerprint": "synthetic-family-only",
                         "root_sector": bits(root_mask),
@@ -76,7 +76,8 @@ class StageTests(unittest.TestCase):
             report = {"schema": "rustred.family-candidates-output.toml.v1",
                       "status": "uncertified-candidates", "integral_order": self.plan["integral_order"],
                       "exact_backend": "sparse", "family_fingerprint": "synthetic-family-only",
-                      "arity": 2, "root_sector": bits(root_mask), "solved_sectors": len(sectors)}
+                      "arity": 2, "root_sector": bits(root_mask), "solved_sectors": len(sectors),
+                      "generation_scope": "root-downset"}
             self.manifests[parent] = manifest
             self.reports[parent] = report
             for ordinal, sector in enumerate(sectors):
@@ -137,10 +138,101 @@ class StageTests(unittest.TestCase):
             stage.stage(self.base / "plan.json", self.output)
         self.assertEqual(stage.sha(self.output / "selection.json"), before)
 
-    def test_checkpoint_v2_rejected(self):
-        self.manifests[3]["version"] = 2
+    def test_previous_checkpoint_version_rejected(self):
+        self.manifests[3]["version"] = 3
         self.save()
-        self.reject("native v3")
+        self.reject("native v4")
+
+    def select_owner_jobs(self, parent=3):
+        selected = sorted(owner["mask"] for owner in self.selection["owners"]
+                          if owner["parent"] == parent)
+        old_sectors = self.manifests[parent]["sectors"]
+        payloads = [(self.base / f"root{parent}/sector-{old_sectors.index(bits(mask))}.rrbin").read_bytes()
+                    for mask in selected]
+        for path in (self.base / f"root{parent}").glob("sector-*.rrbin"):
+            path.unlink()
+        for ordinal, payload in enumerate(payloads):
+            (self.base / f"root{parent}/sector-{ordinal}.rrbin").write_bytes(payload)
+        native_selected = [bits(mask) for mask in selected]
+        self.manifests[parent].update(selected_sectors=native_selected, sectors=native_selected)
+        self.reports[parent].update(generation_scope="selected-sectors",
+                                    selected_sectors=native_selected, solved_sectors=len(selected))
+        next(root for root in self.plan["roots"] if root["parent"] == parent)["generation_scope"] = "selected-sectors"
+        self.save()
+
+    def test_selected_jobs_preserve_full_routes_queries_and_new_ordinals(self):
+        self.select_owner_jobs()
+        receipt = stage.stage(self.base / "plan.json", self.output)
+        selected = stage.read_json(self.output / "selection.json")
+        self.assertEqual([owner["native_ordinal"] for owner in selected["owners"]], [0, 0])
+        self.assertEqual(selected["initial_frontier_routes"], self.selection["initial_frontier_routes"])
+        self.assertEqual(receipt["routes"], 3)
+        self.assertEqual(receipt["required"], 2)
+        self.assertEqual([root["generation_scope"] for root in receipt["roots"]],
+                         ["selected-sectors", "root-downset"])
+        self.assertEqual((self.output / "queries.json").read_bytes(),
+                         (self.base / "queries.json").read_bytes())
+        self.assertFalse(receipt["closure_claim"])
+        self.assertFalse(selected["recursive_coverage_established"])
+        self.assertIn(b"sector=11", (self.output / selected["owners"][1]["path"]).read_bytes())
+
+    def test_selected_mode_does_not_weaken_default_full_downset_check(self):
+        self.select_owner_jobs()
+        self.plan["roots"][0].pop("generation_scope")
+        self.save()
+        self.reject("full root mode")
+
+    def test_selected_mode_preserves_auxiliary_roles_without_dropping_queries(self):
+        self.select_owner_jobs()
+        self.queries["query_roles"] = {"required": ["a"], "auxiliary": ["b"]}
+        self.replace_frozen("queries", self.queries)
+        receipt = stage.stage(self.base / "plan.json", self.output)
+        self.assertEqual((receipt["queries"], receipt["required"], receipt["auxiliary"]), (2, 1, 1))
+        self.assertEqual((self.output / "queries.json").read_bytes(),
+                         (self.base / "queries.json").read_bytes())
+
+    def test_selected_jobs_require_exact_native_inventory(self):
+        self.select_owner_jobs()
+        original = copy.deepcopy(self.manifests[3])
+        for field, value in (("selected_sectors", []), ("sectors", []),
+                             ("selected_sectors", [bits("10"), bits("11")])):
+            with self.subTest(field=field, value=value):
+                self.manifests[3] = dict(original, **{field: value})
+                self.save()
+                self.reject("frozen owner jobs")
+
+    def test_selected_scope_and_report_inventory_are_explicit(self):
+        self.select_owner_jobs()
+        original = copy.deepcopy(self.reports[3])
+        for field, value in (("generation_scope", "root-downset"),
+                             ("selected_sectors", [bits("10")])):
+            with self.subTest(field=field):
+                self.reports[3] = dict(original, **{field: value})
+                self.save()
+                self.reject("report (scope|selected sectors) differs?")
+
+    def test_selected_mode_rejects_missing_shard_without_old_owner_fallback(self):
+        self.select_owner_jobs()
+        (self.base / "root3/sector-0.rrbin").unlink()
+        (self.base / "old-11.rrbin").write_bytes(b"OLD PAYLOAD MUST NOT BE USED")
+        self.reject("missing/empty generated shard")
+
+    def test_missing_owner_parent_is_not_inferred(self):
+        self.selection["owners"][1].pop("parent")
+        self.replace_frozen("selection", self.selection)
+        self.reject("explicit generation parent")
+
+    def test_unknown_generation_scope_rejected(self):
+        self.plan["roots"][0]["generation_scope"] = "whatever-is-available"
+        self.save()
+        self.reject("unsupported generation scope")
+
+    def test_selected_owner_outside_its_root_rejected(self):
+        self.select_owner_jobs()
+        self.plan["roots"][0]["mask"] = "10"
+        self.manifests[3]["root_sector"] = bits("10")
+        self.save()
+        self.reject("outside its generation root")
 
     def test_duplicate_json_keys_rejected(self):
         original_plan = (self.base / "plan.json").read_bytes()

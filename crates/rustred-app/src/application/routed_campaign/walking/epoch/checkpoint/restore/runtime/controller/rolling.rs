@@ -180,20 +180,38 @@ fn collect_available(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn wait_for_receipt(
     pool: &mut dyn execution::Execution,
     order: &VecDeque<u64>,
     results: &mut BTreeMap<u64, Vec<u8>>,
     diagnostics: &mut RollingDiagnostics,
     publication_wait: bool,
+    cut_size: usize,
+    window: usize,
+    pending: usize,
+    inspector_capacity: usize,
 ) -> Result<bool, Failure> {
+    let sample = diagnostics.wait_profile.as_ref().map(|_| {
+        let missing = profile::earliest_missing(order, results, cut_size);
+        profile::WaitSample::capture(
+            publication_wait,
+            !order.is_empty(),
+            missing,
+            window,
+            inspector_capacity,
+            pending,
+            pool.profiled_activity(missing),
+        )
+    });
     let started = Instant::now();
-    let message = pool
-        .poll(Duration::from_millis(50))
-        .map_err(Failure::Engine)?;
+    let message = pool.poll(Duration::from_millis(50));
     let seconds = started.elapsed().as_secs_f64();
     diagnostics.blocking_poll_calls += 1;
     diagnostics.blocking_poll_seconds += seconds;
+    if let (Some(profile), Some(sample)) = (&mut diagnostics.wait_profile, sample) {
+        profile.record(sample, started, seconds);
+    }
     if publication_wait {
         diagnostics.publication_wait_calls += 1;
         diagnostics.publication_wait_seconds += seconds;
@@ -201,7 +219,12 @@ fn wait_for_receipt(
         diagnostics.prefix_wait_calls += 1;
         diagnostics.prefix_wait_seconds += seconds;
     }
-    collect(message, order, results, diagnostics)
+    collect(
+        message.map_err(Failure::Engine)?,
+        order,
+        results,
+        diagnostics,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -505,6 +528,10 @@ pub(super) fn run<const N: usize>(
                         &mut results,
                         &mut restored.rolling_diagnostics,
                         false,
+                        cut_size,
+                        b,
+                        restored.state.ledger.counts().get(Tag::Pending) as usize,
+                        budget.saturating_sub(1),
                     )?;
                     if drained && order.is_empty() {
                         return Err(Failure::Engine(
@@ -658,6 +685,10 @@ pub(super) fn run<const N: usize>(
                                 &mut results,
                                 &mut restored.rolling_diagnostics,
                                 true,
+                                cut_size,
+                                b,
+                                restored.state.ledger.counts().get(Tag::Pending) as usize,
+                                budget.saturating_sub(1),
                             )?;
                         }
                     }

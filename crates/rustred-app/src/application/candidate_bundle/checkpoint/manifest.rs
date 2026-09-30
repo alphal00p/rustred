@@ -22,14 +22,17 @@ pub(in crate::application::candidate_bundle) struct CheckpointManifest {
     exact_backend: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     discovery_strategy: Option<super::super::CandidateDiscoveryStrategy>,
+    /// None requests the full root downset; Some binds an explicit exact set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selected_sectors: Option<Vec<Vec<bool>>>,
     /// Original prepared order, independent of worker/completion order.
     sectors: Vec<Vec<bool>>,
 }
 
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 // Bump when source construction, preconditioning, random seed or backend
 // defaults change in a way incompatible with resuming this generation recipe.
-const RECIPE: &str = "ordinary-family-candidates-checkpoint-order-v3";
+const RECIPE: &str = "ordinary-family-candidates-checkpoint-selection-v4";
 
 impl CheckpointManifest {
     pub(in crate::application::candidate_bundle) fn for_request(
@@ -41,6 +44,11 @@ impl CheckpointManifest {
         if preparation::root(root_sector.len(), &request.nonpositive_indices)? != root_sector {
             return Err(AppError::input("checkpoint root differs from the request"));
         }
+        let selected_sectors = super::super::selection::canonical_masks(
+            root_sector,
+            request.selected_sectors.as_deref(),
+            request.bundle_limits.max_collection_entries,
+        )?;
         let manifest = Self {
             version: VERSION,
             recipe: RECIPE.into(),
@@ -55,6 +63,7 @@ impl CheckpointManifest {
             solver_policy: policy::encode_request(request),
             exact_backend: request.exact_backend.as_str().into(),
             discovery_strategy: request.discovery_strategy.clone(),
+            selected_sectors,
             sectors,
         };
         manifest.validate(request.bundle_limits)?;
@@ -99,6 +108,14 @@ impl CheckpointManifest {
             .checked_mul(arity)
             .and_then(|n| n.checked_add(self.sectors.len()))
             .and_then(|n| n.checked_add(arity))
+            .and_then(|n| {
+                self.selected_sectors.as_ref().map_or(Some(n), |selected| {
+                    selected
+                        .len()
+                        .checked_mul(arity + 1)
+                        .and_then(|extra| n.checked_add(extra))
+                })
+            })
             .ok_or_else(|| AppError::limit("checkpoint manifest collection count overflow"))?;
         if entries > limits.max_collection_entries {
             return Err(AppError::limit(
@@ -117,6 +134,13 @@ impl CheckpointManifest {
             return Err(AppError::input(
                 "checkpoint sectors must be strictly ordered, distinct, correct-arity subsets of the root",
             ));
+        }
+        if let Some(selected) = &self.selected_sectors {
+            if selected.is_empty() || selected != &self.sectors {
+                return Err(AppError::input(
+                    "checkpoint selected_sectors must equal its nonempty canonical sector list",
+                ));
+            }
         }
         Ok(())
     }

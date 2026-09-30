@@ -334,6 +334,8 @@ mod tests {
             status: "uncertified-candidates".into(),
             family_fingerprint: "family".into(),
             arity: 2,
+            root_sector: vec![true, true],
+            sectors: vec![vec![true, true]],
             integral_order: "expected".into(),
             numerical_depth: 2,
             max_numerator_rank: None,

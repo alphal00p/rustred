@@ -31,6 +31,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub discovery_strategy: Option<PathBuf>,
     pub integral_order: Option<PathBuf>,
     pub nonpositive_indices: Vec<usize>,
+    pub selected_sectors: Option<Vec<Vec<bool>>>,
     pub force: bool,
 }
 
@@ -88,6 +89,7 @@ fn parse(
     let mut discovery_strategy = None;
     let mut integral_order = None;
     let mut nonpositive_indices = None;
+    let mut selected_sectors = None;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
     let mut max_total_excess_degree = None;
@@ -309,6 +311,17 @@ fn parse(
                     parse_indices("--nonpositive-indices", value)?,
                 )?;
             }
+            "--selected-sectors" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--selected-sectors")?;
+                let masks: Vec<_> = value.split(',').map(str::to_owned).collect();
+                let parsed = crate::FamilyCandidatesRequest::parse_selected_sectors(&masks)
+                    .map_err(|_| ArgError::InvalidValue {
+                        option: "--selected-sectors",
+                        value,
+                        expected: "a nonempty comma-separated list of 1..16-digit binary masks",
+                    })?;
+                set_once(&mut selected_sectors, "--selected-sectors", parsed)?;
+            }
             _ if certification && resources.parse_option(&option, &mut arguments)? => {}
             "--max-negative-index-degree" if certification => set_once(
                 &mut max_negative_index_degree,
@@ -458,6 +471,7 @@ fn parse(
             discovery_strategy,
             integral_order,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
+            selected_sectors,
             force,
         }))
     }
@@ -473,6 +487,43 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_sectors_are_optional_binary_generation_jobs() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        let Command::FamilyCandidates(defaults) = parse_args(&[]).unwrap() else {
+            panic!("generation expected")
+        };
+        assert!(defaults.selected_sectors.is_none());
+        let Command::FamilyCandidates(selected) =
+            parse_args(&["--selected-sectors", "011,111"]).unwrap()
+        else {
+            panic!("generation expected")
+        };
+        assert_eq!(
+            selected.selected_sectors,
+            Some(vec![vec![false, true, true], vec![true; 3]])
+        );
+        for value in [
+            "",
+            "011,",
+            ",111",
+            "011,,111",
+            "01a",
+            " 011",
+            "11111111111111111",
+        ] {
+            assert!(
+                parse_args(&["--selected-sectors", value]).is_err(),
+                "{value}"
+            );
+        }
+        assert!(parse_args(&["--selected-sectors", "1", "--selected-sectors", "1"]).is_err());
+        assert!(
+            parse_certification(["--selected-sectors", "1"].into_iter().map(OsString::from))
+                .is_err()
+        );
+    }
 
     #[test]
     fn discovery_strategy_is_an_optional_generation_only_file() {

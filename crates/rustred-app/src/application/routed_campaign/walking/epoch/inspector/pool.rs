@@ -147,6 +147,31 @@ fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<
 }
 
 impl Pool<'_> {
+    /// Optional profiler snapshot: the requested prefix job and aggregate pool
+    /// state come from one bounded scan under one lock, without allocation.
+    pub fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
+        let guard = self.queue.lock().ok()?;
+        if self.cancelled && guard.status.is_empty() {
+            return None;
+        }
+        let mut selected = None;
+        let activity = Activity::from_status(
+            guard
+                .status
+                .iter()
+                .zip(&guard.occupied)
+                .filter_map(|(status, &live)| live.then_some(status))
+                .inspect(|status| {
+                    if Some(status.key) == key {
+                        selected = Some(**status);
+                    }
+                }),
+            self.cancelled,
+            false,
+        );
+        Some((activity, selected))
+    }
+
     /// No allocation and at most the fixed 4096 descriptor bound. Called lazily
     /// only when a rate-limited heartbeat is actually emitted.
     pub fn activity(&self) -> Option<Activity> {

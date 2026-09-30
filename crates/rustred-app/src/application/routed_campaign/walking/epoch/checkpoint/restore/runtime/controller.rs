@@ -11,7 +11,7 @@ use crate::application::routed_campaign::walking::epoch::{
     dispatch::{Dispatch, Refill},
     inspector::{
         Activity, Context, Poll, RunError, Status, SubmitError, Work, inspect_job,
-        inspect_job_with_snapshot,
+        inspect_job_profiled, inspect_job_with_snapshot, profile,
     },
     merge::{self, Fatal, MergeConfig, RecordOut, StopReason},
     records,
@@ -910,23 +910,28 @@ pub(super) fn run_native_observed<const N: usize>(
         Ok(())
     };
     let snapshots = Publication::new();
+    let profiling = profile::Collector::from_environment();
+    restored.rolling_diagnostics.wait_profile = profiling
+        .as_ref()
+        .map(|profile| profile::Waits::new(profile.origin()));
     let inspect = |bytes: &[u8], stop: &AtomicBool| {
         let stop = if context.request.workers == 1 {
             context.cancellation
         } else {
             stop
         };
+        let context = Context {
+            reducer: context.reducer,
+            request: context.request,
+            overlap: context.overlap,
+            cancellation: stop,
+            g2: context.g2,
+        };
         if mode == LookupMode::AllMiss {
-            return inspect_job(
-                &Context {
-                    reducer: context.reducer,
-                    request: context.request,
-                    overlap: context.overlap,
-                    cancellation: stop,
-                    g2: context.g2,
-                },
-                bytes,
-            );
+            return match &profiling {
+                Some(profile) => inspect_job_profiled(&context, bytes, None, profile),
+                None => inspect_job(&context, bytes),
+            };
         }
         let snapshot = match if context.request.epoch_rolling {
             crate::application::routed_campaign::walking::epoch::job::Job::<N>::decode(bytes)
@@ -938,17 +943,10 @@ pub(super) fn run_native_observed<const N: usize>(
             Ok(snapshot) => snapshot,
             Err(_) => return Vec::new(),
         };
-        inspect_job_with_snapshot(
-            &Context {
-                reducer: context.reducer,
-                request: context.request,
-                overlap: context.overlap,
-                cancellation: stop,
-                g2: context.g2,
-            },
-            bytes,
-            snapshot,
-        )
+        match &profiling {
+            Some(profile) => inspect_job_profiled(&context, bytes, Some(&snapshot), profile),
+            None => inspect_job_with_snapshot(&context, bytes, snapshot),
+        }
     };
     use crate::application::routed_campaign::walking::worker_budget::{self, WorkerBudget};
     worker_budget::validate(
@@ -959,7 +957,7 @@ pub(super) fn run_native_observed<const N: usize>(
     .map_err(invalid)?;
     let budget = WorkerBudget::for_request(context.request);
     // Reserved helper capacity is not silently converted into extra inspectors.
-    run_observed(
+    let outcome = run_observed(
         restored,
         identity,
         b,
@@ -986,5 +984,12 @@ pub(super) fn run_native_observed<const N: usize>(
         (mode == LookupMode::Snapshot).then_some(&snapshots),
         progress,
         |state| state.tracker.refresh_periodic_monitor(context.cancellation),
-    )
+    );
+    // All scoped inspectors have joined, including error/cancel returns.
+    // Observations never enter JobResult, merge decisions or checkpoint bytes.
+    if let Some(waits) = &mut restored.rolling_diagnostics.wait_profile {
+        waits.finish();
+    }
+    restored.rolling_diagnostics.inspection_profile = profiling.map(|profile| profile.snapshot());
+    outcome
 }

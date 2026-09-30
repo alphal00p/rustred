@@ -20,6 +20,7 @@ mod finite;
 mod order;
 mod owners;
 mod rank;
+mod selection;
 
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"

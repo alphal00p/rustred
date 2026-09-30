@@ -50,6 +50,83 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn selected_sectors_cli_preserves_partial_scope_and_checkpoint_identity() {
+    let directory = Directory::new();
+    let report_path = directory.0.join("selected.toml");
+    let checkpoint = directory.0.join("selected-checkpoint");
+    let args = [
+        "family-candidates",
+        "--selected-sectors",
+        "111",
+        "--checkpoint-dir",
+        checkpoint.to_str().unwrap(),
+        "--report-output",
+        report_path.to_str().unwrap(),
+    ];
+    let selected = success(&args, K3_INPUT.as_bytes());
+    let info =
+        rustred_app::inspect_generated_candidate_bundle(&selected, Default::default()).unwrap();
+    assert_eq!(info.root_sector, vec![true; 3]);
+    assert_eq!(info.sectors, vec![vec![true; 3]]);
+    let report: toml::Value =
+        toml::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    assert_eq!(
+        report["generation_scope"].as_str(),
+        Some("selected-sectors")
+    );
+    let (_, mut reducer) = rustred_app::load_generated_candidate_bundle::<3>(
+        &selected,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let missing = rustred::family::IntegralKey::try_new([0, 1, 1]).unwrap();
+    assert!(matches!(
+        reducer.reduce_unit_mass(&missing),
+        Err(rustred::solver::CandidateReductionError::Uncovered { .. })
+    ));
+    let resumed = success(
+        &[
+            "family-candidates",
+            "--selected-sectors",
+            "111",
+            "--checkpoint-dir",
+            checkpoint.to_str().unwrap(),
+            "--resume",
+        ],
+        K3_INPUT.as_bytes(),
+    );
+    assert_eq!(
+        rustred_app::inspect_generated_candidate_bundle(&resumed, Default::default())
+            .unwrap()
+            .sectors,
+        info.sectors
+    );
+    let refused = run(
+        &[
+            "family-candidates",
+            "--checkpoint-dir",
+            checkpoint.to_str().unwrap(),
+            "--resume",
+        ],
+        K3_INPUT.as_bytes(),
+    );
+    assert!(!refused.status.success());
+    assert!(refused.stdout.is_empty());
+    let uncertified = run(&["certify-candidates"], &selected);
+    assert!(!uncertified.status.success());
+    assert!(uncertified.stdout.is_empty());
+    for masks in ["", "0x1", "111,111", "11", "001"] {
+        let invalid = run(
+            &["family-candidates", "--selected-sectors", masks],
+            K3_INPUT.as_bytes(),
+        );
+        assert!(!invalid.status.success(), "{masks}");
+        assert!(invalid.stdout.is_empty());
+    }
+}
+
+#[test]
 fn programmed_integral_order_survives_cli_reload_certification_and_application() {
     let directory = Directory::new();
     let descriptor = directory.0.join("order.json");

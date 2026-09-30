@@ -267,6 +267,33 @@ proof budgets. Increasing a budget never certifies an invalid formula.
 Generation supports the generic source solver; certification retains the
 current unit-mass vacuum publication admission.
 
+To generate only specific nonzero sectors, pass `--selected-sectors` as a
+comma-separated list of binary masks, in the **original input-family coordinate
+order**. This is independent of `--permutation` and of the mathematical integral
+ordering descriptor. For example, generate only the full sector of the supplied
+six-coordinate three-loop family:
+
+```console
+rustred family-candidates --input examples/input/three_loop_k6.toml \
+  --selected-sectors 111111 --n-cores 2 \
+  --output selected.rrcandidate --report-output selected.report.toml
+```
+
+Without this option, generation still schedules the complete nonzero root
+downset. With it, every listed sector must be nonzero and contained in the root
+chosen by `--nonpositive-indices`. Empty, repeated, wrong-arity, zero-sector and
+out-of-root masks are rejected. The canonical selection is bound into the
+checkpoint identity and appears in the generation report as
+`generation_scope = "selected-sectors"` and `selected_sectors`.
+
+**Selected generation is intentionally partial.** Completing these jobs neither
+certifies family closure nor supplies rules for omitted sectors. Missing nonzero
+sectors remain uncovered; the native family-wide zero analysis is retained.
+Changing or omitting an explicit selection when resuming a checkpoint is an
+error, even if that selection previously listed every nonzero sector. Inspection
+returns the root and the actual saved sector inventory. No extra solver or
+topology-specific generation path is used.
+
 `--numerical-depth N` controls the signed-L1 search around fully fixed cases
 (default `2`). Zero still searches each unresolved initial seed; it can retain
 more finite residuals without changing symbolic search, guards or exact rule
@@ -298,7 +325,7 @@ applies only to final outputs, never checkpoint replacement. One process owns
 the directory at a time. No checkpoint is removed automatically.
 
 Completed sectors use the existing native candidate format. Resume checks the
-same source, family, root, ordering, backend and numerical depth, then solves
+same source, family, root, explicit sector selection, ordering, backend and numerical depth, then solves
 only missing sectors. Final assembly imports one shard at a time and preserves
 original sector/coefficient order; fully saved work resumes without any search.
 Malformed committed files cause an error, not silent replacement. Native data

@@ -451,6 +451,60 @@ the next architectural test.
 
 ## Next discriminating measurements
 
+The selected-sector generation and observational instrumentation now pass the
+native correctness gate:1,215 application tests,32 CLI/API/inspector tests and
+23 installed-Python tests. The installed-Python harness first omitted the wheel
+path from its child environment; that failed receipt is preserved alongside the
+passing rerun. Repository test assertions were unchanged. A separate25-test
+stager suite checks metadata, not mathematical admission.
+
+Actual selected-owner integration also passed:4+12 fresh sector jobs (no reused
+shards), all16 owners natively admitted, all508 routes retained and the original
+58 required queries unchanged. The Ready walk drained39,178domains with
+14,878native inspections and472,625edges. Independent cold-All reinspection
+accepted all14,878 inspections,58 queries and32 starting roots without uncovered
+obligations, frontiers or violations. All six guarded process groups drained.
+Their phase times sum to25.704s in the correctness profile; this is **not** a
+speed comparison with the optimized full-downset measurements. Evidence:
+`order-pilot-plans/selected-runtime-next/four-selected/`.
+
+The new diagnostic executable is frozen at
+`859698b6c40da017009cb9e2454a5b008dd49dd595d5d9411e455daed9c42778`
+(`selected-profile-bin/rustred` in the current evidence directory). Its app crate
+uses opt-level1 with the existing optimized core cache. It is suitable for
+correctness checks and causal localization, **not** for qualifying speed against
+the fully optimized binaries reported above. Generation checkpoint schema is
+now v4; unchanged candidate program payloads still use their existing binary
+schema. Old generation checkpoints are rejected rather than migrated.
+
+### Observational Epoch diagnostic
+
+For bounded developer pilots, setting `RUSTRED_EPOCH_PROFILE=1` before invocation
+adds `epoch.rolling_diagnostics.wait_profile` and `inspection_profile` to the
+final report. This private diagnostic is off by default. It changes no job
+protocol, persisted checkpoint authority, scheduling policy or rule semantics.
+Cold restoration starts new observations; it does not restore old wall timings.
+
+- Wait classes distinguish publication retention, queued/computing prefix work,
+  returned-receipt drainage and full-window credit blockage. The credit-blocked
+  classification requires an actual missing computing prefix, returned tails,
+  pending work, a full window, no queued jobs and unused inspector capacity.
+- Exclusive poll-duration buckets reconcile with existing blocking-poll time.
+  Occupancy-weighted values sample each poll's start state; they are wall-time
+  estimates, not measured CPU time or proof of useful work forgone.
+- The collector retains only32 slow jobs and32 coalesced prefix-blocker windows
+  plus the current window. Shared invocation-relative timestamps permit bounded
+  correlation. Aggregated worker durations are not a critical-path duration.
+- First event and first `Admit` timestamps distinguish late emission from
+  possible early emission; an `Admit` may still be redundant. Neither grants
+  permission to publish a partial source or discard remaining obligations.
+- Off mode introduces no per-event clock or profile lock. On-mode poisoning or
+  unavailable activity is explicitly reported, never promoted to authority.
+
+Both fresh execution and restored-checkpoint tests compare mathematical state
+and durable graph sections with profiling on/off. Native pilot graph comparison
+and independent cold-All reinspection remain required after this unit gate.
+
 1. Both limited five-loop source transfers are positive and audited; prepare
    full67-owner integration without claiming it complete. B1's degree-row
    ablation is now completed and parked for lack of gain. B2 stays parked

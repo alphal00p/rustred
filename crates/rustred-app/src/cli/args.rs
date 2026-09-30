@@ -406,6 +406,7 @@ FAMILY-CANDIDATES OPTIONS:
     --discovery-strategy <PATH>  JSON file selecting finite source/sector discovery scheduling
     --integral-order <PATH>      JSON file selecting a persisted uncut mathematical order
                                 Incompatible with --permutation; separate from source scheduling
+    --selected-sectors <MASKS>   Generate only comma-separated nonzero binary masks, not their downsets
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
@@ -536,6 +537,8 @@ independently reconstructs and replays that bundle through the existing complete
 publication pipeline without running search again; incomplete inputs fail.
 Finite row/job discovery can be selected with `--discovery-strategy <JSON_FILE>`;
 that scheduling option does not change the mathematical integral order.
+`--selected-sectors 011,111` selects exact generation jobs in the original family
+axes. The full zero census is retained; omitted nonzero sectors remain uncovered.
 `--integral-order <JSON_FILE>` selects a persisted uncut mathematical order
 (support priorities, nonnegative weighted excess rows and coordinate ties).
 It is distinct from discovery scheduling and cannot be combined with --permutation.
@@ -543,7 +546,7 @@ Neither option grants closure authority.
 Optional --report-output records phase timings separately from bundle/artifact
 bytes. Data is written before its report; destinations must differ.
 Optional --checkpoint-dir stores completed sectors without certifying them.
-Use --resume with the same source/root/order/backend/depth/rank; worker count may
+Use --resume with the same source/root/selection/order/backend/depth/rank; worker count may
 change. Input, final bundle and report paths must be outside that dedicated
 directory. Its byte budget includes retained/staging payloads and pending writes,
 not peak RAM or filesystem overhead; final bundle limits remain unchanged.

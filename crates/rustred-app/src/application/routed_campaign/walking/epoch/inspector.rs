@@ -21,6 +21,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 mod pool;
+pub(super) mod profile;
 pub(super) use pool::{
     Activity, Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
     with_polling_pool,
@@ -49,7 +50,7 @@ fn assembly_panic<const N: usize>(job: &Job<N>, seconds: f64, prefix: (u64, u64)
 
 /// One job, bytes in, bytes out.
 pub(super) fn inspect_job<const N: usize>(context: &Context<'_, N>, bytes: &[u8]) -> Vec<u8> {
-    inspect_job_inner(context, bytes, None)
+    inspect_job_inner(context, bytes, None, None)
 }
 
 /// The owned lease cannot escape into result bytes. It is dropped before this
@@ -59,13 +60,23 @@ pub(super) fn inspect_job_with_snapshot<const N: usize>(
     bytes: &[u8],
     snapshot: super::snapshot::Snapshot<N>,
 ) -> Vec<u8> {
-    inspect_job_inner(context, bytes, Some(&snapshot))
+    inspect_job_inner(context, bytes, Some(&snapshot), None)
+}
+
+pub(super) fn inspect_job_profiled<const N: usize>(
+    context: &Context<'_, N>,
+    bytes: &[u8],
+    snapshot: Option<&super::snapshot::Snapshot<N>>,
+    profile: &profile::Collector,
+) -> Vec<u8> {
+    inspect_job_inner(context, bytes, snapshot, Some(profile))
 }
 
 fn inspect_job_inner<const N: usize>(
     context: &Context<'_, N>,
     bytes: &[u8],
     snapshot: Option<&super::snapshot::Snapshot<N>>,
+    profile: Option<&profile::Collector>,
 ) -> Vec<u8> {
     let job = match Job::<N>::decode(bytes) {
         Ok(job) => job,
@@ -84,18 +95,34 @@ fn inspect_job_inner<const N: usize>(
     }
     let mut resolver = snapshot.map_or_else(Resolver::<N>::new, Resolver::with_snapshot);
     let started = Instant::now();
+    let mut observation = profile.map(|_| profile::Observation::new(started));
     let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let mut emit = |event| {
+            if let Some(observation) = &mut observation {
+                observation.event(&event);
+            }
+            resolver.emit(event)
+        };
         if job.flags & super::job::JOB_RESCUE_ABANDONED != 0 {
             (
-                super::super::inspection::abandoned(&job.image.expand(), &mut |event| {
-                    resolver.emit(event)
-                }),
+                super::super::inspection::abandoned(&job.image.expand(), &mut emit),
                 None,
             )
         } else {
-            super::g2::inspect(context, &job, &mut |event| resolver.emit(event))
+            super::g2::inspect(context, &job, &mut emit)
         }
     }));
+    let mut observed_outcome = profile::Outcome::default();
+    if let Some(observation) = &mut observation {
+        observation.visitor_finished();
+        observed_outcome.panic = outcome.is_err();
+        observed_outcome.error = outcome
+            .as_ref()
+            .is_ok_and(|(finished, _)| finished.error.is_some());
+        observed_outcome.cancel_requested = context
+            .cancellation
+            .load(std::sync::atomic::Ordering::Relaxed);
+    }
     let prefix = resolver.prefix();
     let seconds = || started.elapsed().as_secs_f64();
     let encoded = match outcome {
@@ -108,13 +135,23 @@ fn inspect_job_inner<const N: usize>(
                 result.kind = super::job::NativeKind::G2Residual;
                 result.g2 = Some(part);
             }
+            if profile.is_some() {
+                observed_outcome.error |=
+                    result.error.is_some() || result.break_reason != super::job::BreakReason::None;
+            }
             result.encode()
         })),
         Err(_) => catch_unwind(AssertUnwindSafe(|| {
             resolver.finish_panic(&job, seconds()).encode()
         })),
     };
-    encoded.unwrap_or_else(|_| assembly_panic(&job, seconds(), prefix))
+    let assembly_failed = encoded.is_err();
+    let bytes = encoded.unwrap_or_else(|_| assembly_panic(&job, seconds(), prefix));
+    if let (Some(profile), Some(observation)) = (profile, observation) {
+        observed_outcome.panic |= assembly_failed;
+        profile.record(&job, observation, observed_outcome);
+    }
+    bytes
 }
 
 /// The batch executor handed to the merge loop: one result per job, in

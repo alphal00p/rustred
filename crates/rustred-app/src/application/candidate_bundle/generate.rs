@@ -67,7 +67,12 @@ fn generate<const N: usize>(
     started: Instant,
     observe: Observer<'_>,
 ) -> Result<CandidateBundleResult, AppError> {
-    let prepared = preparation::prepare::<N>(family, root, request.permutation.as_deref())?;
+    let mut prepared = preparation::prepare::<N>(family, root, request.permutation.as_deref())?;
+    let selected_sectors = super::selection::apply(
+        &mut prepared,
+        request.selected_sectors.as_deref(),
+        request.bundle_limits.max_collection_entries,
+    )?;
     if let Some(strategy) = &request.discovery_strategy {
         strategy.validate(
             N,
@@ -295,6 +300,9 @@ fn generate<const N: usize>(
         family_fingerprint: &'a str,
         arity: usize,
         root_sector: &'a [bool],
+        generation_scope: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        selected_sectors: Option<&'a [Vec<bool>]>,
         solved_sectors: usize,
         zero_sectors: usize,
         generated_rules: usize,
@@ -333,6 +341,12 @@ fn generate<const N: usize>(
         family_fingerprint: prepared.family.fingerprint(),
         arity: N,
         root_sector: root,
+        generation_scope: if selected_sectors.is_some() {
+            "selected-sectors"
+        } else {
+            "root-downset"
+        },
+        selected_sectors: selected_sectors.as_deref(),
         solved_sectors,
         zero_sectors: prepared.zeros.len(),
         generated_rules,

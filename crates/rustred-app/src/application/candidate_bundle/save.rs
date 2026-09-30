@@ -37,6 +37,17 @@ pub fn encode_generated_candidate_sector<const N: usize>(
     policy::validate_request_scope(request)?;
     let root = preparation::root(N, &request.nonpositive_indices)?;
     preparation::validate_permutation(N, request.permutation.as_deref())?;
+    if super::selection::canonical_masks(
+        &root,
+        request.selected_sectors.as_deref(),
+        request.bundle_limits.max_collection_entries,
+    )?
+    .is_some_and(|selected| selected.binary_search(&sector.to_vec()).is_err())
+    {
+        return Err(AppError::input(
+            "candidate export sector was not explicitly selected",
+        ));
+    }
     if sector
         .iter()
         .zip(&root)

@@ -17,6 +17,8 @@ use super::ingress::IngressBudget;
 /// Load every expected sector of an existing trusted-local generation campaign
 /// into one experimental concrete reducer, without solving or re-encoding.
 ///
+/// Every requested sector must be saved: explicit selected-sector completion
+/// does not mean completion of the entire root downset.
 /// Requires `request.checkpoint` with explicit `resume = true`, an installed
 /// manifest and cooperative lock file, and the complete expected set of stored
 /// sector records.
@@ -59,7 +61,12 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         return Err(AppError::input("checkpoint/reducer arity mismatch"));
     }
     let root = preparation::root(N, &request.nonpositive_indices)?;
-    let prepared = preparation::prepare::<N>(family, &root, request.permutation.as_deref())?;
+    let mut prepared = preparation::prepare::<N>(family, &root, request.permutation.as_deref())?;
+    super::super::selection::apply(
+        &mut prepared,
+        request.selected_sectors.as_deref(),
+        request.bundle_limits.max_collection_entries,
+    )?;
     let manifest = CheckpointManifest::for_request(
         request,
         prepared.family.fingerprint(),

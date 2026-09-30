@@ -11,6 +11,7 @@ mod native_periodic;
 mod native_prefix;
 mod periodic_tests;
 mod preparation_tests;
+mod profiling_tests;
 mod rolling_tests;
 
 fn config() -> MergeConfig {

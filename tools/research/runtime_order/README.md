@@ -55,11 +55,42 @@ Every input must be frozen and generation must have finished. The helper checks:
 - Byte hashes for family source, selected-owner/routes manifest and query file.
 - Unambiguous JSON (duplicate object keys are rejected).
 - Complete explicit query roles, selected-owner references and route census.
-- Native checkpoint version 3 and the order-v3 recipe; exact order, family,
+- Native checkpoint version 4 and the selection-v4 recipe; exact order, family,
   backend, discovery recipe, solver policy and root bindings.
 - Every sector in each root's complete route-census downset, in native ordinal
   order, and a nonempty generated shard for every sector, not just selected ones.
 - A matching normally completed generation report and all selected owners.
+
+### Generate only the selected owner jobs
+
+The default per-root `generation_scope` is `"root-downset"`: it still requires
+every nonzero sector in that root's full route census. For a new native
+`family-candidates --selected-sectors ...` run, explicitly set that root's
+`generation_scope` to `"selected-sectors"` in the stage plan. The checkpoint and
+generation report must then declare exactly the canonical selected-owner masks
+assigned to that parent in the frozen selection, not whatever shards happen to
+exist. Every one of those shards must have been saved. For example:
+
+```json
+{"parent": 1, "mask": "111", "generation_scope": "selected-sectors",
+ "checkpoint": "generation/checkpoint.toml", "report": "generation/report.toml"}
+```
+
+Use the actual owner masks from the frozen selection to construct the CLI's
+comma-separated list; these three-coordinate values only illustrate the schema.
+Selection concerns generation jobs, **not the routing or requested physics
+scope**: the complete frozen route list and all required/auxiliary queries are
+copied unchanged. Sector ordinals are looked up in the new selected checkpoint.
+Owners must name an explicit parent; missing standalone overrides or shards are
+errors, with no fallback to old payloads. A selected root may coexist with a
+full-downset root, but their exact common solver policy must still match.
+
+Finishing all selected jobs is not a closed family. The retained global zero
+analysis is native authority; omitted nonzero sectors are not reclassified as
+zero or accepted as terminals. Native owner admission and subsequent independent
+coverage checks remain necessary. These tools accept only the current v4
+checkpoint recipe; preserve historical v3 study tools beside their receipts
+rather than converting old checkpoints or weakening this check.
 
 The staged selection retains exactly the frozen routes and selected-owner order.
 Shard ordinals are looked up from sector masks rather than copied from an old

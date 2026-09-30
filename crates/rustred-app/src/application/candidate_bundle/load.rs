@@ -42,6 +42,12 @@ pub fn inspect_generated_candidate_bundle(
         status: record.status,
         family_fingerprint: record.family_fingerprint,
         arity: record.root_sector.len(),
+        root_sector: record.root_sector,
+        sectors: record
+            .sectors
+            .iter()
+            .map(|sector| sector.sector.clone())
+            .collect(),
         integral_order: record.integral_order,
         numerical_depth: policy.numerical_depth,
         max_numerator_rank: policy.max_numerator_rank,

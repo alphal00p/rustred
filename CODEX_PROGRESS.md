@@ -20,13 +20,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; positive limited5L transfers; B1 ablation no gain; selected-sector API typechecked | Selected-sector staging/native tests and production-owner input preparation |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; positive limited5L transfers; B1 ablation no gain; selected-sector native/Python tests PASS | Selected-sector four-loop cold verification and production-owner input preparation |
 | S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | controls cold-PASS; rolling4L median8.04% slower and finite5L first pair13.43% slower than Ready; checkpoints56–61% smaller | Bounded observational prefix-wait/dispatch-credit attribution; no new publication authority |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface, source-selection ABBA, rolling controls, both limited5L transfers and B1 ablation audited | Selected-sector and diagnostic implementation audits |
-| Integration, resources, profiling and release | root | implementation711b18c5 and measured report80ff0b91 pushed; optimized executable frozen; production untouched | Consolidated native tests, evidence-led performance follow-through and qualified campaign setup |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current native/interface/Python/source audits PASS; source-selection ABBA, rolling controls, both limited5L transfers and B1 ablation audited | Selected-sector actual four-loop and profile-diagnostic receipt audits |
+| Integration, resources, profiling and release | root | implementation711b18c5 and measured report7e9a7341 pushed; new selected/profile correctness binaries frozen; production untouched | Evidence-led performance follow-through, audited code commit and qualified campaign setup |
 
-### Active decision register — refreshed 2026-09-30 14:40 UTC
+### Active decision register — refreshed 2026-09-30 15:20 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -37,7 +37,7 @@ the same experiment after a handoff.
 | A1 structural source visitation | delivered, integration active | Two four-loop pairs:40–44% fewer domains; limited5L depth2 and production-policy transfers positive. Full67-owner input regeneration and116-query outcome remain unmeasured. |
 | Persisted programmable integral order | delivered | Native/interface authority tests pass; B1 full comparator is not faster overall than A1. Degree-row ablation cold-PASS but no useful gain; parked. |
 | B2 support-density order | deferred | Diagnosed coupled-affine classification obstruction; missing IBPs not demonstrated. Reopen only with a separately justified exact geometry change. |
-| Selected-sector public generation | active | Shared validation/checkpoint identity, missing sectors fail closure, Rust/CLI/Python metadata PASS; native tests and staging integration pending. |
+| Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS. Full production preparation remains unmeasured. |
 | S5 typed merge/shared lookup/rolling prefix | delivered, performance unqualified | Cold controls pass, smaller checkpoints; contemporaneous Ready comparisons fail speed gate. |
 | Prefix wait / dispatch-credit diagnosis | active | Observational-only patch authorized after independent review. Phase-biased returned-tail samples support measurement, not an escrow/partial-source redesign. |
 | cut1 cross-job-coalescing remedy | rejected | September29 cold-PASS control barely changed Route count and slowed down; September30 proposed repeat canceled before launch. |
@@ -1178,6 +1178,98 @@ diagnostic equivalence, **not** establish optimized dominance or speedup.
 Even with unchanged optimized core/Symbolica, application optimization changes
 arrival, lookup and publication timing. Any actual architectural remedy still
 needs a fresh fully optimized build and matched performance qualification.
+
+[M] Measured-results/docs milestone committed and pushed as `7e9a7341`.
+Independent review confirmed both limited5L transfers and the negative B1
+ablation; it corrected stale next steps and avoided claiming missing IBPs were
+disproved by a bounded affine-guard diagnostic. Only task documentation was
+staged; unrelated FeynKit and untracked reference work remains untouched.
+
+[M/D] Both source slices are frozen for native acceptance. The combined
+app/Python release test-target metadata gate passed at14:52UTC in29.163s
+(no compiler errors,1,445,480KiB maximum single-child RSS), evidence
+`TMP/aster-integration-20260930-resumed/selected-profile-check/`.
+The warm native app/CLI/API/inspector test build is running separately at
+`selected-profile-native-build/`, with app opt1 correctness configuration,
+unchanged optimized core cache, CPUs0–15 and heavy/build locks. Generation
+selection is exposed through all three APIs; the private Epoch profile stays
+invocation-local and changes no authority/schema. New stager-v4 synthetic
+tests report25/25PASS; independent audit and actual native gates remain pending.
+No extra fully optimized build or native diagnostic pilot has started yet.
+
+[M] Independent review now accepts both new source slices with no outstanding
+correction. The data-only future production recipe also passes: original parent
+groups30527:17,30699:18,31740:10 plus the recovered standalone owner,32745:21.
+All67 masks,8,246 routes and183 query geometries match the frozen inputs; roles
+remain116required/67auxiliary. The standalone assignment to31740 follows the
+original manifest hash, saved root, ordinal1116 and exporter—not containment
+guessing. `order-pilot-plans/production-a1-selected/` intentionally leaves the
+new sanitized selection, tested executable and caller resources unbound. It is
+not a generated input set or a production launch grant. No hard500GB RAM ceiling
+is introduced. An additional selected16-owner four-loop correctness recipe is
+being prepared because the14-owner full/selected check alone would select its
+entire downset and fail to exercise omitted jobs with a retained full route
+census. Existing K3 tests compare decoded exact programs, not just counts.
+
+[M] Native build completed successfully:988.655s guarded,16m26s Cargo,
+19,587,952KiB maximum single-child RSS, no stop reason. Actual application
+execution then passed **1,215 tests,0failed,12ignored** in116.32s (119.182s
+guarded) on CPUs32–81. All seven new selection tests and nine profile/controller
+tests passed; no license/worker-availability skips were emitted. Separate CLI
+and interface execution passed19 candidate,6 routed,3 application API and4
+inspector tests (7.143s guarded); the binary unit target has zero tests. Receipts:
+`selected-profile-native-build/`, `selected-profile-app-w50/`,
+`selected-profile-cli-api/` under the current evidence directory. These are
+correctness-profile results, not optimized performance measurements. The
+matching normal inspector and Python wheel are building in
+`selected-profile-wheel-build/`; no source edits occurred during compilation.
+
+[M] The matching inspector/wheel build passed in30.151s and isolated wheel
+installation in1.139s. Installed-Python acceptance initially failed two cold
+subprocess imports: the ignored harness added the wheel to parent `sys.path`
+but omitted inherited `PYTHONPATH`. Root corrected only that harness, preserving
+all test assertions and repository source. The retry passed **23 tests,0failures,
+0errors,0skips**, including fresh-process CLI/Python artifact loading, in1.151s
+guarded. Both receipts are retained as `selected-profile-python-tests/` and
+`selected-profile-python-tests-retry/`; the independent auditor is reviewing
+them. The executable and wheel are opt1-app correctness/diagnostic builds, not
+optimized performance comparators. Frozen executable identities:
+
+- `selected-profile-bin/rustred`:
+  `859698b6c40da017009cb9e2454a5b008dd49dd595d5d9411e455daed9c42778`.
+- `selected-profile-bin/inspect_candidate_orders`:
+  `b29ef23df8a1c950fa1f6b4dc400b5ae96cbf4516a4a2c53b9bfa5df763064db`.
+
+[D] Root grants `runtime_order_pilots` the prepared selected four-loop
+integration:4+12 owner jobs instead314+328, unchanged508routes/58required queries,
+qualified A1 depth2/unranked/SearchFinite/sparse policy, CPUs64–79 and existing
+heavy/pilot locks. The grant includes native admission, Ready walk and independent
+cold-All verification within the1800s arm boundary, not full67-owner generation.
+Independent input audit passed; the bound cold command must reference the actual
+walk JSON. `s5_fixed_work_pilots` prepares the finite five-loop profile off/on
+diagnostic against the same frozen binary, but cannot launch until the selected
+control drains. LC2 and its reserved cores remain untouched.
+
+[M] Installed-Python receipt/source audit passed. The actual selected four-loop
+control then passed every gate: fresh4+12 generation jobs,0reused shards,
+16 natively admitted owners, unchanged508routes and58required query bytes.
+The Ready walk produced39,178domains,14,878native inspections and472,625edges;
+no pending work, frontiers or errors remained. Independent cold-All reinspected
+14,878/14,878 native nodes and accepted58/58queries and32/32starting roots, with
+zero uncovered obligations or violations. The six guarded phase times sum to
+25.704s; this is an opt1 correctness receipt, **not** a speed comparison with
+previous optimized runs. All six owned process groups drained and locks were
+released, independently confirmed. Evidence:
+`order-pilot-plans/selected-runtime-next/four-selected/`.
+
+[D] Root now grants the finite-five profile off/on pair to
+`s5_fixed_work_pilots`: frozen859698b6 diagnostic binary, W16/CPUs32–47,
+Prefix76/cut16/h0, unchanged67owner/8,246route inventory and sole1,324-point
+query. Both arms must cold-reinspect and compare durable mathematical state;
+each remains bounded by1800s including preparation and drainage. Results are
+causal observations in the correctness profile, not production speed evidence.
+No new scheduler or partial-source publication change is authorized by the
+earlier phase-biased samples alone.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

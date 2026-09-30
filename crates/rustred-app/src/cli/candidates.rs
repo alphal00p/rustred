@@ -42,6 +42,7 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
         })
         .transpose()?;
     request.nonpositive_indices = arguments.nonpositive_indices;
+    request.selected_sectors = arguments.selected_sectors;
     request.checkpoint = arguments.checkpoint;
     let terminal = std::io::stderr().is_terminal();
     let monitor = Mutex::new(FamilyCloseProgressMonitor::new(

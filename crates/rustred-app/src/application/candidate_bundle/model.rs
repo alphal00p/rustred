@@ -28,6 +28,10 @@ pub struct CandidateBundleInspection {
     pub status: String,
     pub family_fingerprint: String,
     pub arity: usize,
+    /// Original family coordinates; neither the root nor this inventory claims closure.
+    pub root_sector: Vec<bool>,
+    /// Exactly the nonzero sector programs present in this payload.
+    pub sectors: Vec<Vec<bool>>,
     /// Canonical complete mathematical-order identity, not a strategy label.
     pub integral_order: String,
     /// Saved finite-case search depth; this does not establish coverage.
@@ -195,6 +199,10 @@ pub struct FamilyCandidatesRequest {
     /// Finite discovery schedule, separate from persisted mathematical order.
     pub discovery_strategy: Option<super::CandidateDiscoveryStrategy>,
     pub nonpositive_indices: Vec<usize>,
+    /// Generate exactly these nonzero sectors in original family coordinates,
+    /// not their downsets. `None` generates the full nonzero root downset.
+    /// Missing sectors remain uncovered; an explicit empty selection is invalid.
+    pub selected_sectors: Option<Vec<Vec<bool>>>,
     pub bundle_limits: CandidateBundleLimits,
     /// Optional trusted-local persistence of completed sectors. Missing work
     /// can resume without repeating completed solves; this grants no authority.
@@ -217,9 +225,16 @@ impl FamilyCandidatesRequest {
             integral_order: None,
             discovery_strategy: None,
             nonpositive_indices: Vec::new(),
+            selected_sectors: None,
             bundle_limits: CandidateBundleLimits::default(),
             checkpoint: None,
         }
+    }
+
+    /// Parse binary masks for adapters. Family/root/zero checks happen during
+    /// preparation; mask position always denotes the original denominator axis.
+    pub fn parse_selected_sectors(masks: &[String]) -> Result<Vec<Vec<bool>>, crate::AppError> {
+        super::selection::parse_masks(masks)
     }
 }
 

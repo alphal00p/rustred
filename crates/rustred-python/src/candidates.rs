@@ -86,10 +86,14 @@ impl PyCandidateBundleResult {
 /// integral_order is optional version-1 JSON for the mathematical integral
 /// comparison, distinct from discovery scheduling. It requires an uncut family,
 /// is incompatible with permutation, and is persisted in every saved shard.
+/// selected_sectors optionally lists exact nonzero binary sector masks in the
+/// original family coordinates. No descendants are added. None generates the
+/// full root downset; an empty list is invalid. Missing sectors stay uncovered,
+/// and completing a selected checkpoint does not establish family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None, selected_sectors=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None, selected_sectors=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -117,6 +121,7 @@ fn family_candidates(
     checkpoint_max_bytes: Option<PythonInteger>,
     discovery_strategy: Option<&str>,
     integral_order: Option<&str>,
+    selected_sectors: Option<Vec<String>>,
 ) -> PyResult<PyCandidateBundleResult> {
     let finite_case_policy: FiniteCasePolicy = finite_case_policy
         .parse()
@@ -161,6 +166,11 @@ fn family_candidates(
         .transpose()?;
     let mut request =
         FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
+    request.selected_sectors = selected_sectors
+        .as_deref()
+        .map(FamilyCandidatesRequest::parse_selected_sectors)
+        .transpose()
+        .map_err(map_app_error)?;
     request.discovery_strategy = discovery_strategy
         .map(rustred_app::CandidateDiscoveryStrategy::from_json)
         .transpose()

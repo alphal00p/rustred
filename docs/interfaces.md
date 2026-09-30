@@ -363,3 +363,30 @@ ordering/backend/depth is not. Assembly admits cumulative limits, checks native
 family/coefficient contexts and interns sectors before the final family so the
 logical output is unchanged. Checkpoint files remain uncertified and require
 trusted generated provenance. See the [workflow and resource contract](CLI.md#save-candidates-certify-independently).
+
+Candidate generation can select explicit native jobs without generating unused
+nonzero sectors. Rust's `FamilyCandidatesRequest::selected_sectors` is
+`Option<Vec<Vec<bool>>>`; `None` retains the full root downset. The public Python
+API accepts original-family-axis binary strings:
+
+```python
+from pathlib import Path
+import rustred
+
+source = Path("examples/input/three_loop_k6.toml").read_text()
+result = rustred.family_candidates(
+    source, input_format="toml", n_cores=2,
+    selected_sectors=["111111"],
+)
+Path("selected.rrcandidate").write_bytes(result.bundle)
+print(result.to_toml())
+```
+
+The selection is separate from permutation, source visitation and lawful integral
+ordering. It is canonicalized, validated against the prepared nonzero sectors,
+and included in checkpoint/resume identity. Inspection exposes `root_sector`
+and `sectors`; reports explicitly label selected generation. **This output is
+partial and uncertified**, not a closing artifact: omitted nonzero sectors stay
+uncovered, while the existing full native zero-sector analysis is retained.
+Checkpoint resume must repeat the same selection; no omitted jobs are silently
+filled from an old bundle. Existing full generation remains the default.

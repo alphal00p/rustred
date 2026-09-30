@@ -41,6 +41,10 @@ pub(super) struct RollingDiagnostics {
     pub selected_cuts: u64,
     pub selected_partial_cuts: u64,
     pub selected_nonprefix_cuts: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wait_profile: Option<super::super::super::inspector::profile::Waits>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inspection_profile: Option<super::super::super::inspector::profile::Jobs>,
 }
 
 pub(super) struct Restored<const N: usize> {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage fresh v3 generation shards without interpreting native algebra.
+"""Stage fresh v4 generation shards without interpreting native algebra.
 
 Checks frozen study inputs and generation metadata; native loading and exact
 reinspection remain mandatory. This is not a binary parser or a certificate.
@@ -16,7 +16,8 @@ import tomllib
 
 PLAN_SCHEMA = "rustred.runtime-order-stage-plan.v1"
 RECEIPT_SCHEMA = "rustred.runtime-order-stage-receipt.v1"
-CHECKPOINT_RECIPE = "ordinary-family-candidates-checkpoint-order-v3"
+CHECKPOINT_VERSION = 4
+CHECKPOINT_RECIPE = "ordinary-family-candidates-checkpoint-selection-v4"
 
 
 def require(condition: bool, message: str) -> None:
@@ -87,6 +88,8 @@ def stage(plan_path: Path, output: Path) -> dict:
     require(arity > 0, "empty coordinate set")
     owner_masks = [mask(owner["mask"], arity) for owner in owners]
     require(len(set(owner_masks)) == len(owners), "duplicate selected owner")
+    require(all(type(owner.get("parent")) in (str, int) for owner in owners),
+            "every selected owner requires an explicit generation parent")
     require(selection["owner_count"] == len(owners), "selected owner count differs")
     route_masks = [mask(route["source_mask"], arity) for route in routes]
     require(len(set(route_masks)) == len(routes), "duplicate route source")
@@ -118,12 +121,15 @@ def stage(plan_path: Path, output: Path) -> dict:
         key = str(root["parent"])
         require(key not in checkpoints, "duplicate generation root")
         root_mask = mask(root["mask"], arity)
+        generation_scope = root.get("generation_scope", "root-downset")
+        require(generation_scope in ("root-downset", "selected-sectors"),
+                "unsupported generation scope")
         manifest_path = resolve(base, root["checkpoint"])
         report_path = resolve(base, root["report"])
         manifest = tomllib.loads(manifest_path.read_text())
         report = tomllib.loads(report_path.read_text())
-        require(type(manifest.get("version")) is int and manifest["version"] == 3
-                and manifest.get("recipe") == CHECKPOINT_RECIPE, "requires native v3 checkpoint")
+        require(type(manifest.get("version")) is int and manifest["version"] == CHECKPOINT_VERSION
+                and manifest.get("recipe") == CHECKPOINT_RECIPE, "requires native v4 checkpoint")
         require(manifest.get("integral_order") == expected_order, "mixed/missing checkpoint integral_order")
         require(manifest.get("permutation") is None, "legacy permutation is not part of this experiment")
         require(manifest.get("family_source") == family_source
@@ -137,8 +143,21 @@ def stage(plan_path: Path, output: Path) -> dict:
                 "checkpoint generation recipe differs")
         sectors = [bit_mask(sector, arity) for sector in manifest["sectors"]]
         require(sectors == sorted(set(sectors)), "unordered/duplicate checkpoint sectors")
-        expected = {support for support in route_masks if subset(support, root_mask)}
-        require(bool(expected) and set(sectors) == expected, "checkpoint does not cover full root route census")
+        if generation_scope == "selected-sectors":
+            # This changes only which native solver jobs must have completed.
+            # Routes and required/auxiliary queries remain the full frozen set.
+            expected = {owner["mask"] for owner in owners if str(owner["parent"]) == key}
+            require(bool(expected) and all(subset(support, root_mask) for support in expected),
+                    "selected owner is outside its generation root")
+            declared = [bit_mask(sector, arity) for sector in manifest.get("selected_sectors", [])]
+            require(declared == sectors and set(sectors) == expected,
+                    "checkpoint selected sectors differ from frozen owner jobs")
+        else:
+            require(manifest.get("selected_sectors") is None,
+                    "full root mode cannot admit a selected-sector checkpoint")
+            expected = {support for support in route_masks if subset(support, root_mask)}
+            require(bool(expected) and set(sectors) == expected,
+                    "checkpoint does not cover full root route census")
         for ordinal in range(len(sectors)):
             shard = manifest_path.parent / f"sector-{ordinal}.rrbin"
             require(shard.is_file() and shard.stat().st_size > 0, f"missing/empty generated shard {shard}")
@@ -151,13 +170,22 @@ def stage(plan_path: Path, output: Path) -> dict:
                 and report.get("arity") == arity
                 and bit_mask(report["root_sector"], arity) == root_mask
                 and report.get("solved_sectors") == len(sectors), "generation report binding differs")
+        require(report.get("generation_scope") == generation_scope,
+                "generation report scope differs")
+        if generation_scope == "selected-sectors":
+            reported = [bit_mask(sector, arity) for sector in report.get("selected_sectors", [])]
+            require(reported == sectors, "generation report selected sectors differ")
+        else:
+            require(report.get("selected_sectors") is None,
+                    "full root report cannot declare selected sectors")
         relative = f"provenance/root-{root_number:04d}.toml"
         report_relative = f"provenance/root-{root_number:04d}-report.toml"
         checkpoints[key] = (manifest_path, {support: n for n, support in enumerate(sectors)}, relative)
         manifest_receipts.append({"parent": root["parent"], "mask": root_mask,
                                   "checkpoint": relative, "report": report_relative,
                                   "checkpoint_sha256": sha(manifest_path),
-                                  "report_sha256": sha(report_path), "sectors": len(sectors)})
+                                  "report_sha256": sha(report_path), "sectors": len(sectors),
+                                  "generation_scope": generation_scope})
     require(set(checkpoints) == {str(owner["parent"]) for owner in owners},
             "generation roots differ from selected-owner parents")
     jobs = []
@@ -191,7 +219,7 @@ def stage(plan_path: Path, output: Path) -> dict:
     require(sha(output / "queries.json") == plan["queries"]["sha256"], "query changed during copy")
     staged = copy.deepcopy(selection)
     staged.update(owners=staged_owners, total_bundle_bytes=sum(owner["bytes"] for owner in staged_owners),
-                  authority="Fresh v3 generation metadata staged; native admission and cold verification required",
+                  authority="Fresh v4 generation metadata staged; native admission and cold verification required",
                   recursive_coverage_established=False,
                   receipts={"stage_plan_sha256": plan_digest,
                             "source_selection_sha256": plan["selection"]["sha256"]})

@@ -22,6 +22,41 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_selected_sectors_match_cli_and_keep_partial_checkpoint_scope(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertIsNone(signature.parameters["selected_sectors"].default)
+        self.assertEqual(signature.parameters["selected_sectors"].kind, inspect.Parameter.KEYWORD_ONLY)
+        default = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
+        self.assertProgramEqual(default.bundle, rustred.family_candidates(
+            UNIT_MASS_PROJECT_K1, selected_sectors=None).bundle)
+        self.assertProgramEqual(default.bundle, rustred.family_candidates(
+            UNIT_MASS_PROJECT_K1, selected_sectors=["1"]).bundle)
+        selected = rustred.family_candidates(UNIT_MASS_PROJECT_K3, selected_sectors=["111"])
+        report = tomllib.loads(selected.to_toml())
+        self.assertEqual(report["generation_scope"], "selected-sectors")
+        self.assertEqual(report["selected_sectors"], [[True, True, True]])
+        self.assertEqual(report["solved_sectors"], 1)
+        self.assertProgramEqual(selected.bundle, cli_bytes(
+            ["family-candidates", "--selected-sectors", "111"], UNIT_MASS_PROJECT_K3.encode()))
+        with self.assertRaises(rustred.RustRedError):
+            rustred.certify_candidates(selected.bundle)
+        for masks in [[], [""], ["11"], ["001"], ["111", "111"], ["x11"], ["１"], ["1" * 17]]:
+            with self.subTest(masks=masks), self.assertRaises(rustred.RustRedError):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K3, selected_sectors=masks)
+        for masks in [[True], [7]]:
+            with self.subTest(masks=masks), self.assertRaises(TypeError):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K3, selected_sectors=masks)
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-selected-sectors-") as tmp:
+            checkpoint = Path(tmp) / "sectors"
+            initial = rustred.family_candidates(UNIT_MASS_PROJECT_K3, selected_sectors=["111", "011"], checkpoint_dir=checkpoint)
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K3, selected_sectors=["011", "111"], checkpoint_dir=checkpoint, resume=True)
+            self.assertProgramEqual(initial.bundle, resumed.bundle)
+            self.assertEqual(tomllib.loads(resumed.to_toml())["checkpoint"]["newly_solved_sectors"], 0)
+            with self.assertRaises(rustred.RustRedError):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K3, checkpoint_dir=checkpoint, resume=True)
+
     def test_integral_order_native_cli_replay_and_checkpoint_identity(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertIsNone(signature.parameters["integral_order"].default)

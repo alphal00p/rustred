@@ -10,6 +10,7 @@ use std::time::Duration;
 
 pub(super) trait Execution {
     fn activity(&self) -> Option<Activity>;
+    fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)>;
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
     fn retire(&mut self, keys: &[u64]) -> Result<(), String>;
@@ -20,6 +21,9 @@ pub(super) trait Execution {
 }
 
 impl Execution for Pool<'_> {
+    fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
+        Pool::profiled_activity(self, key)
+    }
     fn activity(&self) -> Option<Activity> {
         Pool::activity(self)
     }
@@ -55,6 +59,16 @@ struct Inline<'a> {
 }
 
 impl Execution for Inline<'_> {
+    fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
+        let activity = self.activity()?;
+        Some((
+            activity,
+            self.status
+                .iter()
+                .find(|status| Some(status.key) == key)
+                .copied(),
+        ))
+    }
     fn activity(&self) -> Option<Activity> {
         if self.stop.load(Ordering::Acquire) && self.status.is_empty() {
             return None;
