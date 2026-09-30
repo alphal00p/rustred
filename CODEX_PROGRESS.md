@@ -78,10 +78,10 @@ the three agents own experiments end-to-end. No new engine build per recipe.
 | B0 | root | Frozenb95 full native core/app correctness | delivered: core2853/0/32; app1129/0/12 | `TMP/codex-runtime-discovery.280crc/root-{core,app}-suite-b95e1465`; strict licensed execution; W50 affinity skips excluded, not performance timing |
 | D1 | `bounded_ordering_pilots` | Genuine4L shallow→larger→full checkpoint amendments versus identical90-row one-shot; preserve original58 geometric scope | delivered; all barriers pass, performance negative | Guarded native+cold30.038/16.330s (+83.95%);36,894/19,529 natives. Exact final90 rows/roles and original58 coverage verified independently |
 | D2 | `bounded_ordering_pilots` | Bounded5L true staging ifD1 justifies it | deferred, not executed | D1 increases both work and wall time; reopen only for a materially different justified curriculum, not a blind depth sweep |
-| B1 | root | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | paired compilation running on frozen `1b33ad29` | `TMP/codex-combined-build.iirdmE/source-1b33ad29-full`; full app plus CLI lifecycle controls remain pending |
-| E1 | `parallel_gate_critique` | Original58-query4L: Ready, prefix31, prefix76, oldest-ready31; same optimized executable | prepared, not executed | B1; cold-All, work/CPU/RSS, P1/P2/P3 and new waits; four-cell total≤1800s |
+| B1 | root, validation `bounded_ordering_pilots` | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | builds pass;1139 native tests pass, one stale diagnostic assertion under focused follow-up | Full suite233.39s/12ignored; no production-code failure observed. Preserve failed receipt; do not describe the raw full suite as green |
+| E1 | `parallel_gate_critique` | Original58-query4L: Ready, prefix31, prefix76, oldest-ready31; same optimized executable | execution granted after focused CLI regression PASS | Cold-All, work/CPU/RSS, P1/P2/P3 and new waits; four-cell total≤1800s; concurrent with P1 on disjoint CPUs |
 | E2 | `parallel_gate_critique` | Repeat promisingE1 against contemporaneousReady, then finite/hot5L if justified | pendingE1, not executed | Counterbalanced matched scope; retain all censors/regressions; decide deploy or reject |
-| P1 | `stage_a_release` |4L exact-default generation plus at least two generic runtime source/pivot-discovery recipes | preparation active, not executed | B1; fixed family/order/scope, source replay, equivalent final58-query cold checks where feasible; separate generation and traversal timing |
+| P1 | `stage_a_release` |4L exact-default generation plus at least two generic runtime source/pivot-discovery recipes | execution granted after Ready/SourceA gates | Fixed family/order/scope; default, sparse-coefficient and shift-cost recipes on one frozen binary. Known certification-limit failures remain explicit; separate generation and scoped traversal timing |
 | P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | delivered; scoped cold checks pass, heuristic not selected | Both artifact certifications hit8220>8192 lowering cap; guarded generation+walk+cold25.763/42.861s. Fewer inspections do not compensate for slower generation/larger coefficients |
 | S1 | root with agents | Capacity/scaling follow-up for selected engine; exact200-physical-core setup | pending decision | W200 synthetic lifecycle is capacity only; smaller physical pilots whileLC2 runs; user pausesLC2 before launch |
 | L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | pending all dispositions | Every row completed or explicitly rejected/deferred from evidence; no untested engine recommendation |
@@ -146,6 +146,96 @@ changes different priorities. Native API tests alone do not complete P1.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 04:38 UTC — public regression passes; both experiment lanes released
+
+- [M] Frozen1b33 public-CLI equivalent passed all10 phases in4.159s guarded:
+  fresh/reopened All/all-root cold PASS (3/3 roots), generation1→2, paired
+  summary INCOMPLETE, wrong Union request FAIL with exactly one binding
+  violation, unsupported activation and nonempty fresh writes refused.
+  Checkpoints remain unchanged across cold/rejection phases. Root and
+  `bounded_ordering_pilots` independently reviewed script and actual receipts.
+  Evidence: `TMP/codex-epoch-cold-wording.MzOlZL/`.
+- [M] Full native suite also confirms all11 added tests, W50-capable checks
+  without internal affinity skips, and W200 pool lifecycle capacity. The latter
+  is not a200-physical-core performance measurement. The raw full-suite result
+  remains1139/1/12; the corrected Rust unit body was not rebuilt/re-executed.
+- [D] E1 released onCPU32–47 alongside P1 on64–79. No further Rust rebuild.
+  P1's two default parent generations passed (44.169s/34.187s guarded); its
+  first stronger certification failed after54.170s on native affine-literal
+  consistency proof budget. Preserve the failure and continue the authorized
+  scoped diagnostic; do not call it a certified artifact or successful replay.
+- [M] Read-only LC2 snapshot around04:34 remains running with6/67 conservative
+  closed initial roots,167.95M discovered domains and70.72M local inspections;
+  closure snapshot was621s stale. Last-hour measured coordinator preparation
+  and ordered commit shares were37.5% and53.3%; these do not establish that a
+ 200-worker replacement will saturate CPUs. No production state changed.
+
+### 2026-09-30 04:31 UTC — full test outcome and independent lane release
+
+- [M] Full app suite on64 permitted physical CPUs finished233.39s:
+  1,139 passed, one failed,12 ignored. The failure is the old expected
+  `binding: checkpoint request digest differs` substring; actual rejection
+  correctly reports the expanded digest-or-persisted-schedule diagnostic,
+  verdict FAIL, request binding false, and exactly one binding violation.
+  Root isolated the test (same binary,0.62s body); independent critic confirmed
+  the mismatch. Raw failed receipts remain intact.
+- [D] Correct only that test's expected text. Do not change the verifier,
+  assertions about rejection, or native executable. A full public-CLI equivalent
+  will exercise the later resume/cold checks too. The fresh campaign rlibs are
+  bitcode-only, so a supposed cheap no-LTO Rust driver would require another
+  native compilation; do not link a stale app library or mislabel CLI coverage
+  as execution of the corrected monolithic Rust test binary.
+- [D] P1 uses Ready, whose tests and SourceA tests passed: release that lane on
+  CPU64–79 now instead of blocking it on an unrelated Epoch diagnostic check.
+  E1 remains gated on that focused check and independent review. Root retains
+  the shared heavy reservation; no compiler or production CPU overlap.
+
+### 2026-09-30 04:25 UTC — both builds pass; native suite released
+
+- [M] App correctness executable built successfully in5016.043s; no stop
+  reason, peak single-child RSS96,133,032KiB. The paired guard reports both
+  children exit0 and all owned process groups drained. No compilation time
+  is counted in solver measurements.
+- [D] Released the prepared full app suite to `bounded_ordering_pilots` on
+  CPU32–95 under its local validation lock. Root holds the outer heavy
+  reservation through that suite and the following concurrent E1/P1 pilots;
+  production CPU128–227 remains excluded. No experiment deadline started early.
+
+### 2026-09-30 04:08 UTC — optimized executable frozen; tests still pending
+
+- [M] Consolidated CLI build succeeded: guarded3920.618s, no stop reason,
+  build group drained. Frozen executable:
+  `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-1b33ad29`,
+  SHA256 `73253922552ef341e3e97522d9481a4e369d388e9f8612c4ac92468c3c584a14`,
+  126,521,824 bytes, mode0555. Native source remains `1b33ad29`; compilation
+  is not included in solver timing. The semantics probe succeeds (ReadyCP5,
+  EpochCP6/schema2/semantics3); this alone is not runtime correctness acceptance.
+- [M] Clean detached Python/tooling tree frozen at `62c763cd` under
+  `TMP/codex-parallel-campaign.oiPK29/python-delivery-62c763cd`.
+  There is no Rust/Cargo diff from the native source commit. P1 independently
+  checked the executable and its24 static command bindings. Both E1 and P1
+  remain unstarted pending the full app correctness gate and resource release.
+- [D] If P1's stronger artifact certification encounters the known lowering
+  limit, preserve that failure and continue the identical58-query walk as an
+  explicitly uncertified trusted-generation diagnostic. Do not equate cold
+  graph reinspection with successful original-source artifact certification.
+
+### 2026-09-30 04:07 UTC — parallel lanes and the remaining build dependency
+
+- [M] D1 and P2 ran concurrently on disjoint physical CPU sets and are complete;
+  they were not serialized by a mathematical dependency. Their negative results
+  and independent audits remain recorded above. LC2 was not touched.
+- [D] E1 and P1 will likewise overlap on CPU32–47 and64–79 under a root-owned
+  resource reservation. Only decisive confirmation timings are isolated. Their
+  present dependency is the consolidated optimized executable and its native
+  correctness gate, not a single experiment queue.
+- [M] Both frozen1b33 builds remain active after approximately64 minutes, with
+  no failure receipt. The CLI has progressed to final optimized binary codegen.
+  `bounded_ordering_pilots` now owns execution of the new full app suite on
+  CPU32–95 once its binary is ready; this correctness run may overlap the CLI
+  compiler on16–31. The wider affinity is deliberate so W50 tests are exercised
+  rather than skipped for lack of permitted CPUs. No new engine edits planned.
 
 ### 2026-09-30 03:25 UTC — final experiment command preflight
 

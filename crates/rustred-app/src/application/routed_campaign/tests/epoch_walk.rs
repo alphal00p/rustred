@@ -157,7 +157,9 @@ fn epoch_cp6_raw_is_cold_certified_and_public_w1_resume_is_supported() {
             .any(|value| {
                 value
                     .as_str()
-                    .is_some_and(|text| text.contains("binding: checkpoint request digest differs"))
+                    .is_some_and(|text| {
+                        text.contains("binding: checkpoint request digest or persisted schedule differs from the command's binding")
+                    })
             }),
         "{mismatched}"
     );
