@@ -129,6 +129,10 @@ The check used the pinned Python executable and explicitly spelled the unchanged
 `owner-anchor-` helper-ID prefix; the commands below obtain Python from the frozen
 Nix environment and use that default. The disposable destination is the only
 campaign-location difference. Both plans preserve the original ordered inputs.
+The final read-only receipt census was repeated successfully, and the frozen
+tree's actual `nix develop --command python -B
+examples/python/production_saved_owner_campaign.py --help` exited successfully.
+These operational checks do not start production or certify its eventual result.
 
 First, if choosing to switch, gracefully pause LC2 in its existing terminal and
 wait for its durable checkpoint message and all native workers to exit. Preserve

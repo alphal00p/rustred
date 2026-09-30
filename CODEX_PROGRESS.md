@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 05:30 UTC
+## Current shortened-delivery ownership — 2026-09-30 05:45 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -64,7 +64,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Epoch matched profiling/decision | E1 delivered negative; E2 not triggered | `parallel_gate_critique` end-to-end; independent root | All completed E1 cells cold-All pass; best accepted Epoch fails the speed gate. Bounded trace shows changed early cut composition/graph edges but not the full expansion's cause |
 | Runtime discovery-strategy API and builds | frozen optimizedCLI and native gates delivered with explicit stale-test caveat | root builds/integration; author `stage_a_release`, independent `parallel_gate_critique`/root | Frozen1b33 native; tools62c. Consolidated app1139PASS/1stale-diagnosticFAIL/12ignored; exact public-CLI equivalent10phasesPASS. Corrected Rust test not rebuilt. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
-| Matched performance and deployment | reopened for definitive build and200-core setup | root; independent author/auditor separation | User will pauseLC2 before production launch. Only156 disjoint physical cores remain meanwhile; do not claim200-core measurement usingSMT or LC2 overlap. Previous50-core handoff superseded |
+| Matched performance and deployment | delivered Ready16/Union recommendation; Epoch and200-core speed unqualified | root; independent author/auditor separation | Final runbook preserves all116 required queries/67 helpers and original owners. Only the owner switches production. No claim that the incomplete original S5 architecture cannot improve |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Delivery experiment board — authoritative current execution queue
@@ -86,14 +86,15 @@ the three agents own experiments end-to-end. No new engine build per recipe.
 | P3 | `stage_a_release` | Small5L natural-coordinate default/sparse/shift source-order transfer | delivered; concurrent scout only |24.911/17.670/17.767s generation+walk+cold; all cold-All PASS. Same784-point single required query,14literal programs. No full67-input closure claim |
 | P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | delivered; scoped cold checks pass, heuristic not selected | Both artifact certifications hit8220>8192 lowering cap; guarded generation+walk+cold25.763/42.861s. Fewer inspections do not compensate for slower generation/larger coefficients |
 | S1 | `bounded_ordering_pilots`, root | Ready physical scaling and final200-core decision | delivered; W50 negative, finiteW50 deferred | W16 native+cold24.742s4L/328.069s finite5L, cold-All PASS. W50 saved/drained at250.373s with1,284,105 native inspections and13,974 pending; no cold-completion claim.200-core capacity is not measured speed |
-| L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | exact-input no-start preparation PASS; final report/push pending | All67 original payloads/8246routes/183unchanged rows checked;116Required67Aux,Ready16Union,rescue32. No production launch. Current Epoch rejection does not mean the unimplemented S5 roadmap was tested |
+| L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | final reports pushed atc676f1fe; owner handoff ready | All67 original payloads/8246routes/183unchanged rows checked;116Required67Aux,Ready16Union,rescue32. Final read-only census and frozen Nix launcher check repeated. No production launch. Current Epoch rejection does not mean the unimplemented S5 roadmap was tested |
 
 Resource calendar: all builds and D1/P2/E1/P1/P3/S1 native pilot groups have
 finished and drained. P3 scouts overlapped only S1's disjoint-core cold phase;
 the two subsequent counterbalanced P1 pairs had no authorized compiler/pilot
 overlap. Root then performed preparation-only input copying in TMP, under the
-existing heavy lock. LC2's128–227 reservation remains untouched. Agents now audit
-the milestone map and final reports; no additional native experiment is running.
+existing heavy lock. LC2's128–227 reservation remains untouched. The milestone
+map and final reports have separate implementation and audit passes; no additional
+native experiment is running.
 Recorded host contention is never removed through guessed corrections. Every
 pilot retained its≤1800s all-in deadline.
 
@@ -144,6 +145,44 @@ changes different priorities. Native API tests alone do not complete P1.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 05:45 UTC — final delivery audit and owner launch handoff
+
+- [M] Root rechecked current state rather than relying on the prior summary:
+  remote `fable_5_1_parallel` and local HEAD both `c676f1fe`; frozen CLI SHA256
+  `73253922552ef341e3e97522d9481a4e369d388e9f8612c4ac92468c3c584a14`,
+  executable mode0555, clean Python delivery tree at62c763cd. The final
+  destination `campaigns/five-loop-qcd-feynman-d9d10-ready-union-1b33-w16`
+  remains absent. LC2 PID360092 is live and untouched; no pilot remains live.
+- [M] Repeated the existing read-only `check_prepared.py` against both real
+  preparation stdout receipts: PASS,183 unchanged ordered queries,116Required,
+  67Auxiliary,67 original owner payload receipts and8246 routes. No native
+  launch, checkpoint, run directory or mathematical closure claim. The actual
+  earlier guard results remain exit0/null,10.167s and2.157s. The first attempt
+  to invoke this checker used bare `python` outside Nix and failed before any
+  work; rerunning with the already pinned Python executable passed.
+- [M] Verified the owner environment directly, without compiling or starting:
+  `nix develop --command python -B examples/python/production_saved_owner_campaign.py --help`
+  in `TMP/codex-parallel-campaign.oiPK29/python-delivery-62c763cd` exits0 and
+  exposes every option in the final command. The full67 preparation itself
+  remains the earlier actual executed receipt, not inferred from this help check.
+- [M] Independent reviewer `active_goal_delivery_audit` rechecked the frozen
+  identities, full input inventory, final finite5L raw cold reinspection and
+  the distinction between delivery and mathematical closure. This audit does
+  not replace the earlier independent implementation/measurement reviews.
+- [E] Delivery decision is **Ready16 + G2Union**, existing natural-coordinate
+  saved programs and preserved query order, explicit roles and bounded rescue.
+  Current Epoch settings fail performance gates; original S5 parallel merge,
+  typed records and bulk tracker work remain incomplete. No200-core saturation
+  claim, no inferred impossibility theorem for Epoch, no full183-query closure,
+  and no recommendation to import LC2's checkpoint into the new binding.
+  The accepted source-order API remains available for later regeneration, not
+  falsely advertised as changing the existing67 programs at launch.
+- Final owner commands and rollback are in
+  `docs/research/consolidated_campaign_launch_2026-09-30.md`. Completing this
+  tool-managed **delivery** objective leaves full scoped closure, unimplemented
+  S5 and the explicitly conditional/deferred studies open; it does not mark the
+  broader five-loop mathematical objective complete. Only the user launches.
 
 ### 2026-09-30 05:30 UTC — confirmations complete; original Epoch S5 remains partial
 
