@@ -187,6 +187,8 @@ pub struct FamilyCandidatesRequest {
     /// Changes may affect conservative coverage checks and search chronology.
     pub case_intersection_limits: CaseIntersectionLimits,
     pub permutation: Option<Vec<usize>>,
+    /// Finite discovery schedule, separate from persisted mathematical order.
+    pub discovery_strategy: Option<super::CandidateDiscoveryStrategy>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
     /// Optional trusted-local persistence of completed sectors. Missing work
@@ -207,6 +209,7 @@ impl FamilyCandidatesRequest {
             finite_case_limits: FiniteCaseLimits::default(),
             case_intersection_limits: CaseIntersectionLimits::default(),
             permutation: None,
+            discovery_strategy: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),
             checkpoint: None,

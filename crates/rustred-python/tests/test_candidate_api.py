@@ -22,6 +22,16 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_discovery_descriptor_uses_native_api_and_checkpoint_binding(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertIsNone(signature.parameters["discovery_strategy"].default)
+        descriptor = rustred.discovery_strategy(rows="terms", sectors="input-order")
+        result = rustred.family_candidates(UNIT_MASS_PROJECT_K1, discovery_strategy=descriptor)
+        report = tomllib.loads(result.to_toml())
+        self.assertEqual(report["discovery_strategy"]["rows"]["kind"], "features")
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_candidates(UNIT_MASS_PROJECT_K1, discovery_strategy="{not-json}")
+
     def test_case_intersection_limits_are_strict_optional_and_match_cli(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         resources = {"case_max_work_items": 16384, "case_max_terms_per_conjunction": 400000,

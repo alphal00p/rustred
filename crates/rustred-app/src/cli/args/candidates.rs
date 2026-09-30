@@ -28,6 +28,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
+    pub discovery_strategy: Option<PathBuf>,
     pub nonpositive_indices: Vec<usize>,
     pub force: bool,
 }
@@ -83,6 +84,7 @@ fn parse(
     let mut resume = false;
     let mut progress = false;
     let mut permutation = None;
+    let mut discovery_strategy = None;
     let mut nonpositive_indices = None;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
@@ -271,6 +273,19 @@ fn parse(
                     parse_indices("--permutation", value)?,
                 )?;
             }
+            "--discovery-strategy" if !certification => {
+                let value = next_value(&mut arguments, "--discovery-strategy")?;
+                if value.is_empty() || value == "-" {
+                    return Err(ArgError::InvalidCombination(
+                        "--discovery-strategy requires a JSON file path, not stdin",
+                    ));
+                }
+                set_once(
+                    &mut discovery_strategy,
+                    "--discovery-strategy",
+                    PathBuf::from(value),
+                )?;
+            }
             "--nonpositive-indices" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--nonpositive-indices")?;
                 set_once(
@@ -420,6 +435,7 @@ fn parse(
             checkpoint,
             progress,
             permutation,
+            discovery_strategy,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
             force,
         }))
@@ -436,6 +452,39 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_strategy_is_an_optional_generation_only_file() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        let Command::FamilyCandidates(defaults) = parse_args(&[]).unwrap() else {
+            panic!("generation expected")
+        };
+        assert!(defaults.discovery_strategy.is_none());
+        let Command::FamilyCandidates(parsed) =
+            parse_args(&["--discovery-strategy", "recipe.json"]).unwrap()
+        else {
+            panic!("generation expected")
+        };
+        assert_eq!(
+            parsed.discovery_strategy,
+            Some(PathBuf::from("recipe.json"))
+        );
+        for args in [
+            vec!["--discovery-strategy", ""],
+            vec!["--discovery-strategy", "-"],
+            vec!["--discovery-strategy", "a", "--discovery-strategy", "b"],
+        ] {
+            assert!(parse_args(&args).is_err());
+        }
+        assert!(
+            parse_certification(
+                ["--discovery-strategy", "recipe.json"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn case_intersection_resources_are_positive_optional_and_generation_only() {

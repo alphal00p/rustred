@@ -19,14 +19,16 @@ pub(in crate::application::candidate_bundle) struct CheckpointManifest {
     permutation: Option<Vec<usize>>,
     solver_policy: String,
     exact_backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    discovery_strategy: Option<super::super::CandidateDiscoveryStrategy>,
     /// Original prepared order, independent of worker/completion order.
     sectors: Vec<Vec<bool>>,
 }
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 // Bump when source construction, preconditioning, random seed or backend
 // defaults change in a way incompatible with resuming this generation recipe.
-const RECIPE: &str = "ordinary-family-candidates-checkpoint-v1";
+const RECIPE: &str = "ordinary-family-candidates-checkpoint-discovery-v2";
 
 impl CheckpointManifest {
     pub(in crate::application::candidate_bundle) fn for_request(
@@ -48,6 +50,7 @@ impl CheckpointManifest {
             permutation: request.permutation.clone(),
             solver_policy: policy::encode_request(request),
             exact_backend: request.exact_backend.as_str().into(),
+            discovery_strategy: request.discovery_strategy.clone(),
             sectors,
         };
         manifest.validate(request.bundle_limits)?;
@@ -78,6 +81,9 @@ impl CheckpointManifest {
             ));
         }
         preparation::validate_permutation(arity, self.permutation.as_deref())?;
+        if let Some(strategy) = &self.discovery_strategy {
+            strategy.validate(arity, &self.sectors, limits.max_collection_entries)?;
+        }
         let entries = self
             .sectors
             .len()

@@ -216,3 +216,64 @@ then decide whether B's broader implementation fits the user's next work slice.
 One framework build per implemented capability is legitimate. Recompiling the
 engine for each named strategy, weight vector or coordinate priority is not.
 No speed, termination, closure or optimal-order claim follows from this design.
+
+## Isolated A source draft
+
+The `codex/runtime-discovery-strategy` branch implements an unmerged A draft;
+it is not present in frozen `3428b519`. Initial metadata check failed on one
+test-module import (corrected and retained); the corrected core/app/Python test-
+target metadata check passed in 28.170 seconds. Native execution remains pending.
+Only the pure Python descriptor helper has executed its three tests. B remains
+design-only: this source does **not** implement new persisted integral priorities.
+
+The public Rust `SourceVisitOrder::by_key` and `SectorVisitOrder::by_key` evaluate
+finite callbacks once. The solver and Rayon executor receive common concrete
+plans, so new closure types do not monomorphize the GPLU/sector engine. A prepared
+`SectorSolver` accepts a plan through `with_source_visit_order`; ordinary sector
+search and the shared numerical tail use the same original basis ordinals.
+
+An optional `CandidateDiscoveryStrategy` is interpreted by candidate generation,
+and `--discovery-strategy <JSON_FILE>` is the CLI surface in this draft. The
+Python extension accepts that JSON as `discovery_strategy`; a pure helper creates
+named recipes, for example:
+
+```python
+recipe = rustred.discovery_strategy(
+    rows="absolute-shifts", sectors="weighted-support", weights=[1, 2, 1],
+    descending=False,
+)
+result = rustred.family_candidates(source, discovery_strategy=recipe)
+```
+
+The descriptor also accepts multiple lexicographic row features or fully
+materialized per-sector callback permutations. Ties are original ordinals.
+`descending` ranks a finite inventory only, not an unbounded integral order.
+
+Persistence reuses the existing exact source text, native family fingerprint,
+root, permutation, canonical sectors, mathematical policy, backend and explicit
+generation-recipe version. The new manifest stores the typed semantic descriptor
+and opaque callback results before solving; JSON whitespace/key order is not
+identity. Materialized row count is checked before the corresponding sector's
+solve, not in a whole-campaign preflight; other independent sectors may already
+be completed/checkpointed. There is no existing portable prepared-
+basis digest, and this patch deliberately adds none: deterministic preparation
+under that recipe and complete row-count/bijection validation are the schedule
+binding. This is not algebra authentication. Cold exact source replay continues
+to reconstruct and verify original row IDs independently. Materialized plans
+are not trusted to prove descent, coverage, or coefficient identities.
+
+Generation manifests move to version 2 with an explicit discovery recipe;
+incompatible generation resumes fail closed. Existing frozen executables and
+saved walker campaigns remain unchanged. Ordinary candidate bundle mathematical
+policy stays unchanged, so row schedules do not make compatible owner programs
+artificially incompatible. Full optimized build, actual native tests and public
+generation/replay gates require a separate resource grant before availability
+or performance claims.
+
+Evidence: `TMP/codex-runtime-discovery.280crc/typecheck-a-initial` (preserved
+import-error FAIL), `typecheck-a-corrected` (exit 0; no test execution). The
+independent source audit includes the partial K3 checkpoint regression: distinct
+per-sector plans, reverse pending scheduling, unchanged completed shards,
+canonical output comparison, and valid same-shape plan-change refusal before
+search. A full core/app native correctness build and execution are queued
+separately from the existing frozen-candidate measurement program.

@@ -13,7 +13,8 @@ use super::precondition::{
 };
 use super::{
     Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds,
-    SolverError, SourceSystem, SymbolicExactBackend, Term,
+    SolverError, SourceDiscoveryStrategy, SourceSystem, SourceVisitOrder, SymbolicExactBackend,
+    Term,
 };
 
 mod observation;
@@ -36,6 +37,8 @@ pub struct SectorConfig<const N: usize> {
     /// Native polynomial representation during single-target exact lifting;
     /// independent of the physical integral permutation and modular discovery.
     pub coefficient_variable_order: CoefficientVariableOrder,
+    /// Finite row visiting only; original basis IDs and proof order stay fixed.
+    pub source_discovery: SourceDiscoveryStrategy,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -48,6 +51,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             symbolic_exact_backend: SymbolicExactBackend::Sparse,
             numerical_exact_backend: super::NumericalExactBackend::Sparse,
             coefficient_variable_order: CoefficientVariableOrder::Original,
+            source_discovery: SourceDiscoveryStrategy::default(),
         }
     }
 }
@@ -118,10 +122,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     pub fn new(
         system: &'a SourceSystem<N>,
         sector: [bool; N],
-        config: SectorConfig<N>,
+        mut config: SectorConfig<N>,
     ) -> Result<Self, SolverError> {
         let (order, rows) = Self::prepare(system, sector, &config)?;
         let basis = precondition_with_variable_order(rows, &order, system.coefficient_order());
+        if let Some(plan) = config.source_discovery.materialize(&basis)? {
+            config.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
+        }
         Ok(Self {
             system,
             basis,
@@ -135,10 +142,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     pub(crate) fn new_with_provenance(
         system: &'a SourceSystem<N>,
         sector: [bool; N],
-        config: SectorConfig<N>,
+        mut config: SectorConfig<N>,
     ) -> Result<(Self, PreconditionProvenance), SolverError> {
         let (order, rows) = Self::prepare(system, sector, &config)?;
         let (basis, trace) = precondition_with_provenance(rows, &order, system.coefficient_order());
+        if let Some(plan) = config.source_discovery.materialize(&basis)? {
+            config.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
+        }
         Ok((
             Self {
                 system,
@@ -155,6 +165,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         sector: [bool; N],
         config: &SectorConfig<N>,
     ) -> Result<(IntegralOrder<N>, Vec<PolynomialRow<N>>), SolverError> {
+        config.source_discovery.validate(N)?;
         for i in 0..N {
             if config.deltas[i] && !sector[i] || config.removed_deltas[i] && !config.deltas[i] {
                 return Err(SolverError::InvalidInput(
@@ -199,6 +210,24 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         &self.order
     }
 
+    /// The once-prepared plan, when explicitly requested. Default traversal
+    /// retains no plan allocation. This is schedule metadata, not authority.
+    pub fn source_visit_order(&self) -> Option<&SourceVisitOrder> {
+        match &self.config.source_discovery {
+            SourceDiscoveryStrategy::Materialized(plan) => Some(plan),
+            _ => None,
+        }
+    }
+
+    /// Install an already materialized callback result without preparing the
+    /// basis twice. This validates before any subsequent solve; it does not
+    /// change the basis or confer a portable identity on it.
+    pub fn with_source_visit_order(mut self, plan: SourceVisitOrder) -> Result<Self, SolverError> {
+        super::discovery_strategy::validate_visit_order(plan.ordinals(), self.basis.len())?;
+        self.config.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
+        Ok(self)
+    }
+
     pub fn solve_case(
         &self,
         case: impl Into<Case<N>>,
@@ -215,7 +244,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         options: SearchOptions,
         observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
-        self.solve_case_with_visit_order(case.into(), options, None, observe)
+        self.solve_case_with_visit_order(
+            case.into(),
+            options,
+            self.source_visit_order().map(SourceVisitOrder::ordinals),
+            observe,
+        )
     }
 
     /// Diagnose a different first-hit search by visiting the stored
@@ -237,25 +271,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         source_order: &[usize],
         observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
-        if source_order.len() != self.basis.len() {
-            return Err(SolverError::InvalidInput(
-                "source visit order must contain every stored basis row exactly once".into(),
-            ));
-        }
-        let mut seen = vec![false; self.basis.len()];
-        for &ordinal in source_order {
-            let Some(visited) = seen.get_mut(ordinal) else {
-                return Err(SolverError::InvalidInput(
-                    "source visit order contains an out-of-range basis row".into(),
-                ));
-            };
-            if std::mem::replace(visited, true) {
-                return Err(SolverError::InvalidInput(
-                    "source visit order contains a repeated basis row".into(),
-                ));
-            }
-        }
-        drop(seen);
+        super::discovery_strategy::validate_visit_order(source_order, self.basis.len())?;
         self.solve_case_with_visit_order(case.into(), options, Some(source_order), observe)
     }
 

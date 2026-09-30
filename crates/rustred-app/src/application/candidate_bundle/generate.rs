@@ -67,6 +67,17 @@ fn generate<const N: usize>(
     observe: Observer<'_>,
 ) -> Result<CandidateBundleResult, AppError> {
     let prepared = preparation::prepare::<N>(family, root, request.permutation.as_deref())?;
+    if let Some(strategy) = &request.discovery_strategy {
+        strategy.validate(
+            N,
+            &prepared
+                .sectors
+                .iter()
+                .map(|s| s.to_vec())
+                .collect::<Vec<_>>(),
+            request.bundle_limits.max_collection_entries,
+        )?;
+    }
     // Preserve the existing default timing boundary (pool construction belongs
     // to preparation). Checkpoint-only resume must never construct a pool.
     let default_executor = request
@@ -138,20 +149,40 @@ fn generate<const N: usize>(
     let solved = if jobs.is_empty() {
         Vec::new()
     } else {
-        let executor = match default_executor {
+        let mut executor = match default_executor {
             Some(executor) => executor,
             None => SectorExecutor::new(request.n_cores)
                 .map_err(|e| AppError::execution(e.to_string()))?,
         };
+        if let Some(plan) = request
+            .discovery_strategy
+            .as_ref()
+            .and_then(|strategy| strategy.pending_order(&pending))
+        {
+            executor = executor.with_sector_visit_order(plan);
+        }
+        let source_plans = request
+            .discovery_strategy
+            .as_ref()
+            .map(|strategy| {
+                jobs.iter()
+                    .map(|s| strategy.source_for(s))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
         executor
             .map_configured_with_error_observer(
                 &prepared.sources,
                 &jobs,
-                |_, _| SectorConfig {
+                |ordinal, _| SectorConfig {
                     zero_sectors: prepared.zeros.clone(),
                     permutation: prepared.permutation,
                     symbolic_exact_backend: request.exact_backend.solver_backend(),
                     numerical_exact_backend: request.exact_backend.numerical_backend(),
+                    source_discovery: source_plans
+                        .as_ref()
+                        .map(|plans| plans[ordinal].clone())
+                        .unwrap_or_default(),
                     ..Default::default()
                 },
                 SectorSolveOptions {
@@ -268,6 +299,8 @@ fn generate<const N: usize>(
         finite_residuals: usize,
         workers: usize,
         exact_backend: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        discovery_strategy: Option<&'a super::CandidateDiscoveryStrategy>,
         numerical_depth: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         max_numerator_rank: Option<u32>,
@@ -303,6 +336,7 @@ fn generate<const N: usize>(
         finite_residuals,
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
+        discovery_strategy: request.discovery_strategy.as_ref(),
         numerical_depth: request.numerical_depth,
         max_numerator_rank: request.max_numerator_rank,
         finite_case_policy: request.finite_case_policy.as_str(),

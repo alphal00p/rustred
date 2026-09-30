@@ -225,6 +225,42 @@ fn structural_scheduling_does_not_change_manifest_result_order() {
 }
 
 #[test]
+fn materialized_sector_schedule_preserves_outputs_and_rejects_missing_jobs() {
+    let sources = trivial_sources();
+    let sectors = [[false; 3], [true; 3], [true, false, true]];
+    let plan = SectorVisitOrder::new(vec![2, 0, 1], 3).unwrap();
+    let executor = SectorExecutor::new(1)
+        .unwrap()
+        .with_sector_visit_order(plan);
+    let arrivals = Mutex::new(Vec::new());
+    let results = executor
+        .map(
+            &sources,
+            &sectors,
+            &SectorConfig::default(),
+            SectorSolveOptions::default(),
+            |done| {
+                arrivals.lock().unwrap().push(done.ordinal);
+                Ok::<_, Infallible>(done.ordinal)
+            },
+        )
+        .unwrap();
+    assert_eq!(*arrivals.lock().unwrap(), [2, 0, 1]);
+    assert_eq!(results, [0, 1, 2]);
+    assert!(
+        executor
+            .map(
+                &sources,
+                &sectors[..2],
+                &SectorConfig::default(),
+                SectorSolveOptions::default(),
+                |_| -> Result<(), Infallible> { panic!("invalid plan reached a worker") }
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn manifest_first_failure_wins_even_when_later_jobs_finish_first() {
     let sources = trivial_sources();
     let sectors = [[false; 3], [true; 3], [false, true, true]];
