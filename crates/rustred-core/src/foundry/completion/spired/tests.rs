@@ -239,7 +239,7 @@ fn custom_ordering_is_retained_and_owner_ordering_mismatch_is_rejected() {
     let execution = SpiredExecutionCase::try_new(
         SpiredCase::CoordinateFace(SpiredCoordinateFace::new(stratum.clone())),
         target(&[0, 0, 0]),
-        ordering,
+        ordering.clone(),
         empty_owners(
             stratum.family_fingerprint(),
             stratum.context_fingerprint(),

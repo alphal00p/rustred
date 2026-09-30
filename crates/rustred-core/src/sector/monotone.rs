@@ -338,7 +338,7 @@ pub struct SectorMonotoneShiftDescentWitness {
 
 impl SectorMonotoneShiftDescentWitness {
     pub fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub fn domain(&self) -> &SectorMonotoneDomain {
@@ -394,10 +394,10 @@ impl SectorMonotoneShiftDescentWitness {
     pub fn verify(&self) -> bool {
         if !self
             .pivot
-            .verifies_for_sector(self.policy, self.domain.sector())
+            .verifies_for_sector(&self.policy, self.domain.sector())
             || !self
                 .target
-                .verifies_for_sector(self.policy, self.domain.sector())
+                .verifies_for_sector(&self.policy, self.domain.sector())
             || !key_is_representable(&self.domain, &self.pivot)
             || !key_is_representable(&self.domain, &self.target)
             || !key_preserves_parent_sector(&self.domain, &self.pivot)
@@ -476,7 +476,7 @@ impl OrderingPolicy {
     /// Prove one shift lower than a pivot over a maximal parent-sector box,
     /// splitting same-sector and pinched regions without enumerating masks.
     pub fn prove_sector_monotone_shift_descent(
-        self,
+        &self,
         domain: &SectorMonotoneDomain,
         pivot_shift: &[i64],
         target_shift: &[i64],
@@ -570,7 +570,7 @@ impl OrderingPolicy {
             )
         };
         let witness = SectorMonotoneShiftDescentWitness {
-            policy: self,
+            policy: self.clone(),
             domain: domain.clone(),
             pivot,
             target,

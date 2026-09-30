@@ -11,6 +11,7 @@ FORBIDDEN_DOCUMENTS = {"GOAL.md", "HANDOFF.md"}
 REQUIRED_SDIST_SUFFIXES = (
     "Cargo.toml",
     "crates/rustred-core/Cargo.toml",
+    "crates/rustred-order/Cargo.toml",
     "crates/rustred-app/Cargo.toml",
     "crates/rustred-python/Cargo.toml",
     "vendor/symbolica/Cargo.toml",

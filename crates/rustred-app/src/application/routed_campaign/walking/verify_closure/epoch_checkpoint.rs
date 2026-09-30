@@ -416,10 +416,10 @@ fn read_inner<const N: usize>(
     let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     let manifest = envelope.manifest;
     if manifest.format != FORMAT
-        || manifest.schema != 2
+        || manifest.schema != 3
         || manifest.generation == 0
         || manifest.arity != N
-        || manifest.walk_semantics_version != 3
+        || manifest.walk_semantics_version != 4
         || !manifest.resumable
         || manifest.files.len()
             != 15 + usize::from(manifest.files.iter().any(|file| file.key == "rescue"))
@@ -516,8 +516,18 @@ fn read_inner<const N: usize>(
     let admission = scalar["initial_admission"]
         .as_str()
         .ok_or("missing admission state")?;
-    if scalar["schema"] != 3
-        || scalar["walk_semantics_version"] != 3
+    if scalar["schema"] != 4
+        || scalar["walk_semantics_version"] != 4
+        || scalar["record_schema"] != 1
+        || scalar["preparation"]
+            .as_object()
+            .is_none_or(|p| p.len() != 3)
+        || scalar["preparation"]["helpers"].as_u64().is_none()
+        || ["obligations", "retirements"].iter().any(|key| {
+            scalar["preparation"][key]
+                .as_u64()
+                .is_none_or(|n| n == 0 || n > u64::from(u32::MAX))
+        })
         || p0 > total
         || total >= u32::MAX as usize
         || processed > query_total
@@ -786,7 +796,7 @@ fn read_inner<const N: usize>(
         let name = segment["file"].as_str().ok_or("record segment file")?;
         let generation = name
             .strip_prefix("records-")
-            .and_then(|s| s.strip_suffix(".jsonl"))
+            .and_then(|s| s.strip_suffix(".bin"))
             .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()))
             .and_then(|s| s.parse::<u64>().ok())
             .ok_or("noncanonical record segment name")?;
@@ -817,7 +827,7 @@ fn read_inner<const N: usize>(
         .as_array()
         .filter(|a| a.len() == 8)
         .ok_or("ledger counts")?;
-    let mut normalized = json!({"format":FORMAT,"schema":2,"generation":manifest.generation,
+    let mut normalized = json!({"format":FORMAT,"schema":3,"generation":manifest.generation,
         "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
         "epoch_rolling":rolling,"epoch_cut_size":scalar["epoch_cut_size"],
         "epoch_publication_order":scalar.get("epoch_publication_order").cloned().unwrap_or(json!("oldest-prefix")),
@@ -867,7 +877,7 @@ fn read_inner<const N: usize>(
             .ok_or("request digest")?
             .to_owned(),
         publication_policy: "epoch".into(),
-        walk_semantics_version: 3,
+        walk_semantics_version: 4,
         // CP6 binds request/owner identities, not executable bytes. Launchers pin
         // the executable independently; do not invent a native binary binding.
         executable: String::new(),

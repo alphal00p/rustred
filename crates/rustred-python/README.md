@@ -130,6 +130,18 @@ print(certified.to_toml())  # reconstruction and exact certification timings
 print(rustred.reduce_with_closing_artifact(certified.artifact, [3]).to_toml())
 ```
 
+The generation API also accepts `integral_order=rustred.integral_order(arity,
+...)`, a declarative mathematical comparator persisted with the formulas.
+Support priorities, sign-specific nonnegative weighted degree rows and final
+coordinate ties are configurable without rebuilding RustRed. This is distinct
+from `discovery_strategy=rustred.discovery_strategy(...)`, which changes finite
+row/sector visitation. A changed mathematical order requires generating new
+rules, not changing a flag when loading existing ones. See
+[`docs/runtime_integral_order.md`](../../docs/runtime_integral_order.md) for the
+descriptor, Rust/CLI equivalents and proof/cut restrictions. Both new source
+and order controls remain subject to the implementation's validation status in
+that document; their presence alone is not a performance or closure claim.
+
 Load only generated bundles from a trusted source: Symbolica's native state
 and Atom readers are not hardened parsers for hostile bytes. RustRed checks
 framing, structural limits and coefficient contexts; independent certification

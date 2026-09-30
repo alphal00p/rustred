@@ -309,12 +309,7 @@ pub(crate) fn prove_wide_descent_with_limits<'a, T: 'a>(
                 let comparison = if actual == sector {
                     child_key.cmp(&parent_key)
                 } else {
-                    actual
-                        .iter()
-                        .filter(|active| **active)
-                        .count()
-                        .cmp(&parent_mask.active_count())
-                        .then_with(|| actual.as_slice().cmp(sector))
+                    ordering.compare_support(&actual, sector).map_err(error)?
                 };
                 if comparison == Ordering::Less || vanishes(coefficient, &piece)? {
                     continue;

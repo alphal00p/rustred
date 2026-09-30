@@ -17,6 +17,7 @@ pub(in crate::application::candidate_bundle) struct CheckpointManifest {
     family_fingerprint: String,
     root_sector: Vec<bool>,
     permutation: Option<Vec<usize>>,
+    integral_order: String,
     solver_policy: String,
     exact_backend: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,10 +26,10 @@ pub(in crate::application::candidate_bundle) struct CheckpointManifest {
     sectors: Vec<Vec<bool>>,
 }
 
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 // Bump when source construction, preconditioning, random seed or backend
 // defaults change in a way incompatible with resuming this generation recipe.
-const RECIPE: &str = "ordinary-family-candidates-checkpoint-discovery-v2";
+const RECIPE: &str = "ordinary-family-candidates-checkpoint-order-v3";
 
 impl CheckpointManifest {
     pub(in crate::application::candidate_bundle) fn for_request(
@@ -48,6 +49,9 @@ impl CheckpointManifest {
             family_fingerprint: family_fingerprint.into(),
             root_sector: root_sector.to_vec(),
             permutation: request.permutation.clone(),
+            integral_order: super::super::order::request_policy(request, root_sector.len())?
+                .stable_id()
+                .to_string(),
             solver_policy: policy::encode_request(request),
             exact_backend: request.exact_backend.as_str().into(),
             discovery_strategy: request.discovery_strategy.clone(),
@@ -81,6 +85,11 @@ impl CheckpointManifest {
             ));
         }
         preparation::validate_permutation(arity, self.permutation.as_deref())?;
+        super::super::order::bound_policy(
+            &self.integral_order,
+            arity,
+            self.permutation.as_deref(),
+        )?;
         if let Some(strategy) = &self.discovery_strategy {
             strategy.validate(arity, &self.sectors, limits.max_collection_entries)?;
         }
@@ -160,6 +169,7 @@ impl CheckpointManifest {
             || record.family_fingerprint != self.family_fingerprint
             || record.root_sector != self.root_sector
             || record.permutation != self.permutation
+            || record.integral_order != self.integral_order
             || record.solver_policy != self.solver_policy
             || record.sectors.len() != 1
             || record.sectors[0].sector != *expected

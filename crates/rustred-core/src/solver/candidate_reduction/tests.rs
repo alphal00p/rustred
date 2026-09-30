@@ -380,6 +380,7 @@ fn affine_test_owner(block: bool) -> CandidateReducer<3> {
         },
     };
     let solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([true; 3], [false; 3]),
         finite_case_policy: Default::default(),
         max_numerator_rank: None,
         rules: vec![rule],

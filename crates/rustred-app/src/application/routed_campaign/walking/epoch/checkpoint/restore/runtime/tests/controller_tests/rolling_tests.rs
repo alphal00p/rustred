@@ -136,7 +136,15 @@ fn oldest_ready_publishes_refills_and_saves_around_held_sequence_zero_then_repla
         );
         assert_eq!(saved, 1);
         assert!(returned.load(Ordering::Acquire));
-        assert_eq!(restored.rolling_diagnostics.selected_nonprefix_cuts, 1);
+        // Selection is counted before P2, not at publication. Once job32
+        // requests the stop, a second full cut may already have been selected
+        // and then cancelled by responsive preparation. It cannot publish:
+        // the callback above still requires exactly k=1 and sixteen records.
+        assert!((1..=2).contains(&restored.rolling_diagnostics.selected_nonprefix_cuts));
+        assert_eq!(
+            restored.rolling_diagnostics.selected_cuts,
+            restored.rolling_diagnostics.selected_nonprefix_cuts
+        );
         assert_eq!(restored.rolling_diagnostics.selected_partial_cuts, 0);
         drop(restored);
         let mut restored = fixture.open().unwrap();

@@ -528,17 +528,19 @@ fn artifact_snapshot_exposes_only_proof_backed_terminal_regions() {
     .unwrap();
     let parent = Mask::try_new([true]).unwrap();
     let ordering = OrderingPolicy::default();
-    let zero_owner = snapshot.owner_for(&parent, ordering, &zero_domain).unwrap();
+    let zero_owner = snapshot
+        .owner_for(&parent, ordering.clone(), &zero_domain)
+        .unwrap();
     assert_eq!(zero_owner.kind(), ImmutableOwnerKind::ZeroSector);
     assert!(zero_owner.owner_ordinal() < snapshot.owner_count());
-    assert!(snapshot.verifies_witness(&parent, ordering, &zero_domain, zero_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering.clone(), &zero_domain, zero_owner));
 
     let master_domain =
         SectorInteriorDomain::try_new(Mask::try_new([true]).unwrap(), [InteriorBounds::new(1, 1)])
             .unwrap();
     assert!(
         snapshot
-            .owner_for(&parent, ordering, &master_domain)
+            .owner_for(&parent, ordering.clone(), &master_domain)
             .is_none()
     );
 
@@ -580,9 +582,11 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
     .unwrap();
     let parent = Mask::try_new([true; 6]).unwrap();
     let ordering = OrderingPolicy::default();
-    let zero_owner = snapshot.owner_for(&parent, ordering, &zero).unwrap();
+    let zero_owner = snapshot
+        .owner_for(&parent, ordering.clone(), &zero)
+        .unwrap();
     assert_eq!(zero_owner.kind(), ImmutableOwnerKind::ZeroSector);
-    assert!(snapshot.verifies_witness(&parent, ordering, &zero, zero_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering.clone(), &zero, zero_owner));
 
     let factorized = SectorInteriorDomain::try_new(
         Mask::try_new([false, false, true, false, true, true]).unwrap(),
@@ -596,12 +600,14 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         ],
     )
     .unwrap();
-    let factorization_owner = snapshot.owner_for(&parent, ordering, &factorized).unwrap();
+    let factorization_owner = snapshot
+        .owner_for(&parent, ordering.clone(), &factorized)
+        .unwrap();
     assert_eq!(
         factorization_owner.kind(),
         ImmutableOwnerKind::Factorization
     );
-    assert!(snapshot.verifies_witness(&parent, ordering, &factorized, factorization_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering.clone(), &factorized, factorization_owner));
 
     let embedded_corner = SectorInteriorDomain::try_new(
         Mask::try_new([false, false, true, false, true, true]).unwrap(),
@@ -617,7 +623,7 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
     .unwrap();
     assert_eq!(
         snapshot
-            .owner_for(&parent, ordering, &embedded_corner)
+            .owner_for(&parent, ordering.clone(), &embedded_corner)
             .unwrap()
             .kind(),
         ImmutableOwnerKind::Factorization,
@@ -673,7 +679,9 @@ fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
 
         for raw in raw_domains {
             assert!(
-                snapshot.owner_for(&parent, ordering, &raw).is_none(),
+                snapshot
+                    .owner_for(&parent, ordering.clone(), &raw)
+                    .is_none(),
                 "the rectangular i64 hull must not widen coupled product authority",
             );
 
@@ -688,7 +696,9 @@ fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
                 }),
             )
             .unwrap();
-            let corner_owner = snapshot.owner_for(&parent, ordering, &corner).unwrap();
+            let corner_owner = snapshot
+                .owner_for(&parent, ordering.clone(), &corner)
+                .unwrap();
             assert_eq!(corner_owner.owner_ordinal(), expected_owner);
             assert_eq!(corner_owner.kind(), ImmutableOwnerKind::Factorization);
 
@@ -715,10 +725,12 @@ fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
                     }),
             )
             .unwrap();
-            let widened_owner = snapshot.owner_for(&parent, ordering, &widened).unwrap();
+            let widened_owner = snapshot
+                .owner_for(&parent, ordering.clone(), &widened)
+                .unwrap();
             assert_eq!(widened_owner.owner_ordinal(), expected_owner);
             assert_eq!(widened_owner.kind(), ImmutableOwnerKind::Factorization);
-            assert!(snapshot.verifies_witness(&parent, ordering, &widened, widened_owner));
+            assert!(snapshot.verifies_witness(&parent, ordering.clone(), &widened, widened_owner));
         }
     }
 
@@ -879,7 +891,7 @@ fn frame_independent_prospective_classifier_matches_partition_semantics() {
             target,
             stratum.clone(),
             owners.clone(),
-            ordering,
+            ordering.clone(),
             limits,
         )
         .unwrap();
@@ -887,7 +899,7 @@ fn frame_independent_prospective_classifier_matches_partition_semantics() {
             stratum,
             frame.columns()[target].clone(),
             owners.verified_clone(),
-            ordering,
+            ordering.clone(),
             limits,
         )
         .unwrap();
@@ -934,7 +946,7 @@ fn multidimensional_classifier_matches_materialized_roles_with_owner_and_orderin
                 target,
                 stratum.clone(),
                 owners.clone(),
-                ordering,
+                ordering.clone(),
                 limits,
             )
             .unwrap();
@@ -942,7 +954,7 @@ fn multidimensional_classifier_matches_materialized_roles_with_owner_and_orderin
                 stratum,
                 frame.columns()[target].clone(),
                 owners.verified_clone(),
-                ordering,
+                ordering.clone(),
                 limits,
             )
             .unwrap();

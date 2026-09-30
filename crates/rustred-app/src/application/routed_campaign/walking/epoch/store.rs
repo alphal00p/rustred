@@ -57,33 +57,6 @@ fn shard_of(digest: u64) -> usize {
 }
 
 impl ExactIndex {
-    fn try_lookup_clone(
-        &self,
-        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
-    ) -> Result<Self, &'static str> {
-        let mut copy = Self::new();
-        for (source, target) in self.shards.iter().zip(&mut copy.shards) {
-            checkpoint()?;
-            target
-                .try_reserve(source.len())
-                .map_err(|_| "lookup replica exact allocation")?;
-            target.extend(source.iter().map(|(&key, &id)| (key, id)));
-        }
-        copy.overflow
-            .try_reserve(self.overflow.len())
-            .map_err(|_| "lookup replica collision allocation")?;
-        for (&key, ids) in &self.overflow {
-            let mut values = Vec::new();
-            values
-                .try_reserve_exact(ids.len())
-                .map_err(|_| "lookup replica collision allocation")?;
-            values.extend_from_slice(ids);
-            copy.overflow.insert(key, values);
-        }
-        copy.entries = self.entries;
-        Ok(copy)
-    }
-
     pub fn new() -> Self {
         Self {
             shards: (0..EXACT_SHARDS).map(|_| DigestMap::default()).collect(),
@@ -333,62 +306,6 @@ pub(super) fn bucket_key<const N: usize>(image: &CompactDomain<N>) -> (u8, u32) 
 }
 
 impl<const N: usize> Store<N> {
-    /// Copy lookup-only state once when initializing the fixed replica pool.
-    /// Store contains no prepared program, CAS value, ledger, edge or record.
-    /// Epoch publication must use the delta replay in `snapshot`, never this
-    /// method, after the pool has been initialized.
-    pub fn try_lookup_clone(&self) -> Result<Self, &'static str> {
-        self.try_lookup_clone_with(&mut || Ok(()))
-    }
-
-    pub fn try_lookup_clone_with(
-        &self,
-        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
-    ) -> Result<Self, &'static str> {
-        checkpoint()?;
-        let mut copy = Self::new();
-        copy.domains
-            .try_reserve_exact(self.domains.len())
-            .map_err(|_| "lookup replica arena allocation")?;
-        copy.summaries
-            .try_reserve_exact(self.summaries.len())
-            .map_err(|_| "lookup replica summary allocation")?;
-        copy.buckets
-            .try_reserve_exact(self.buckets.len())
-            .map_err(|_| "lookup replica buckets allocation")?;
-        copy.bucket_of
-            .try_reserve(self.bucket_of.len())
-            .map_err(|_| "lookup replica buckets allocation")?;
-        copy.quarantine
-            .try_reserve_exact(self.quarantine.len())
-            .map_err(|_| "lookup replica quarantine allocation")?;
-        for chunk in self.quarantine.chunks(32 * 1024) {
-            checkpoint()?;
-            copy.quarantine.extend_from_slice(chunk);
-        }
-        copy.rescue_duplicates = self.rescue_duplicates;
-        for chunk in self.domains.chunks(32 * 1024) {
-            checkpoint()?;
-            copy.domains.extend_from_slice(chunk);
-        }
-        for chunk in self.summaries.chunks(32 * 1024) {
-            checkpoint()?;
-            copy.summaries.extend_from_slice(chunk);
-        }
-        copy.exact = self.exact.try_lookup_clone(checkpoint)?;
-        copy.bucket_of
-            .extend(self.bucket_of.iter().map(|(&key, &value)| (key, value)));
-        for bucket in &self.buckets {
-            copy.buckets.push(Bucket {
-                index: bucket.index.try_lookup_clone_with(checkpoint)?,
-                orthant: bucket.orthant,
-            });
-        }
-        copy.max_finite_rank = self.max_finite_rank;
-        copy.unbounded_rank_domains = self.unbounded_rank_domains;
-        Ok(copy)
-    }
-
     pub fn new() -> Self {
         Self {
             domains: Vec::new(),
@@ -476,6 +393,28 @@ impl<const N: usize> Store<N> {
         counters: &mut LookupCounters,
         verify_counters: &mut VerifyCounters,
     ) -> Result<Option<(u32, Verified, Hit)>, String> {
+        self.lookup_controlled(
+            q,
+            query,
+            published_len,
+            counters,
+            verify_counters,
+            || Ok(()),
+        )
+    }
+
+    /// The identical canonical lookup with cooperative preparation checkpoints.
+    /// The checkpoint neither charges counters nor changes winner selection.
+    pub fn lookup_controlled(
+        &self,
+        q: &QueryImage<N>,
+        query: &Query<N>,
+        published_len: usize,
+        counters: &mut LookupCounters,
+        verify_counters: &mut VerifyCounters,
+        mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Option<(u32, Verified, Hit)>, String> {
+        checkpoint().map_err(str::to_owned)?;
         let container = |id: u32| Container::Stored {
             id,
             domains: &self.domains,
@@ -507,10 +446,11 @@ impl<const N: usize> Store<N> {
         let probe = Probe::new(Coordinates::of(&q.core), query.word, query.lanes, true);
         let found = bucket
             .index
-            .find_from(
+            .find_controlled(
                 Signature::of(&q.core),
                 &probe,
                 0,
+                checkpoint,
                 &mut Forward {
                     stored: self.stored(),
                     query,
@@ -543,6 +483,20 @@ impl<const N: usize> Store<N> {
         query: &Query<N>,
         counters: &mut LookupCounters,
     ) -> Result<Vec<u32>, String> {
+        self.contained_live_bounded(q, query, counters, usize::MAX, || Ok(()))
+    }
+
+    /// Bounded read-only retirement preparation. An exceeded allowance or
+    /// checkpoint refusal returns no partial set; the caller must discard the
+    /// unpublished plan. Limits affect resource admission, never containment.
+    pub fn contained_live_bounded(
+        &self,
+        q: &QueryImage<N>,
+        query: &Query<N>,
+        counters: &mut LookupCounters,
+        limit: usize,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Vec<u32>, String> {
         let Some(&bucket) = self.bucket_of.get(&bucket_key(&q.image)) else {
             return Ok(Vec::new());
         };
@@ -552,8 +506,8 @@ impl<const N: usize> Store<N> {
             .collect_contained(
                 Signature::of(&q.core),
                 &probe,
-                usize::MAX,
-                || Ok(()),
+                limit,
+                checkpoint,
                 &mut Reverse {
                     stored: self.stored(),
                     query,

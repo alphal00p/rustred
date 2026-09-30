@@ -49,6 +49,9 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub epoch_publication_order: Option<crate::OwnerDomainWalkEpochPublicationOrder>,
     pub epoch_cut_size: Option<usize>,
     pub epoch_window: Option<usize>,
+    pub epoch_preparation_workers: Option<usize>,
+    pub epoch_preparation_max_obligations: Option<usize>,
+    pub epoch_preparation_max_retirements: Option<usize>,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
@@ -109,6 +112,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         epoch_publication_order: None,
         epoch_cut_size: None,
         epoch_window: None,
+        epoch_preparation_workers: None,
+        epoch_preparation_max_obligations: None,
+        epoch_preparation_max_retirements: None,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
@@ -188,6 +194,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-publication-order" => "--epoch-publication-order",
             "--epoch-cut-size" => "--epoch-cut-size",
             "--epoch-window" => "--epoch-window",
+            "--epoch-preparation-workers" => "--epoch-preparation-workers",
+            "--epoch-preparation-max-obligations" => "--epoch-preparation-max-obligations",
+            "--epoch-preparation-max-retirements" => "--epoch-preparation-max-retirements",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
@@ -327,6 +336,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--epoch-window" => {
                 result.epoch_window = Some(parse_positive_integer(name, value)?);
+            }
+            "--epoch-preparation-workers" => {
+                result.epoch_preparation_workers = Some(parse_nonnegative_integer(name, value)?);
+            }
+            "--epoch-preparation-max-obligations" => {
+                result.epoch_preparation_max_obligations =
+                    Some(parse_positive_integer(name, value)?);
+            }
+            "--epoch-preparation-max-retirements" => {
+                result.epoch_preparation_max_retirements =
+                    Some(parse_positive_integer(name, value)?);
             }
             "--frontier-policy" => {
                 result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::parse(&value)
@@ -485,6 +505,33 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    if (result.epoch_preparation_workers.is_some()
+        || result.epoch_preparation_max_obligations.is_some()
+        || result.epoch_preparation_max_retirements.is_some())
+        && (!result.follow_successors || !epoch)
+    {
+        return Err(ArgError::InvalidCombination(
+            "Epoch preparation options require --follow-successors and --publication-policy epoch",
+        ));
+    }
+    if result
+        .epoch_preparation_max_obligations
+        .is_some_and(|n| n > u32::MAX as usize)
+        || result
+            .epoch_preparation_max_retirements
+            .is_some_and(|n| n > u32::MAX as usize)
+    {
+        return Err(ArgError::InvalidCombination(
+            "Epoch preparation counts must be in 1..=u32::MAX",
+        ));
+    }
+    crate::OwnerDomainWalkRequest::validate_epoch_worker_partition(
+        result.workers,
+        result.inspection_workers,
+        result.max_containment_checks,
+        result.epoch_preparation_workers,
+    )
+    .map_err(ArgError::InvalidCombination)?;
     if (result.epoch_publication_order.is_some()
         || result.epoch_cut_size.is_some()
         || result.epoch_window.is_some())
@@ -521,7 +568,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-rolling requires --follow-successors, --publication-policy epoch and --checkpoint or --resume",
         ));
     }
-    // Epoch (walk semantics 3): frontier stop is the default (A10) and needs
+    // Epoch: frontier stop is the default (A10) and needs
     // no checkpoint; explicit checkpoint/resume uses CP6.
     if result.epoch_inspector_lookup.is_some()
         && (!result.follow_successors || !epoch || result.checkpoint.is_none())
@@ -557,7 +604,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     }
     if epoch && result.transfer_unreserved_lookahead.is_none() {
         return Err(ArgError::InvalidCombination(
-            "epoch publication requires --transfer-unreserved-lookahead (transfers are part of walk semantics 3; the value is not used)",
+            "epoch publication requires --transfer-unreserved-lookahead (transfers are part of Epoch semantics; the value is not used)",
         ));
     }
     if result.apply_subdivision.is_some()
@@ -604,6 +651,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-publication-order",
             "--epoch-cut-size",
             "--epoch-window",
+            "--epoch-preparation-workers",
+            "--epoch-preparation-max-obligations",
+            "--epoch-preparation-max-retirements",
             "--max-domains",
             "--max-frontiers",
             "--frontier-policy",

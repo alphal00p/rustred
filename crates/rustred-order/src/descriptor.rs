@@ -80,6 +80,9 @@ pub enum Error {
     },
     Allocation,
     InvalidEncoding,
+    ExcessOutOfRange {
+        axis: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -109,6 +112,10 @@ impl fmt::Display for Error {
             } => write!(f, "order {resource} requires {actual}, limit {limit}"),
             Self::Allocation => f.write_str("order allocation failed"),
             Self::InvalidEncoding => f.write_str("invalid or unsupported integral-order encoding"),
+            Self::ExcessOutOfRange { axis } => write!(
+                f,
+                "order excess at coordinate {axis} is not derived from an i64 power or shift"
+            ),
         }
     }
 }

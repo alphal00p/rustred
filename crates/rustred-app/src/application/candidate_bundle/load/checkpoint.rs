@@ -132,7 +132,7 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         }
         solutions.push(decoded.pop().expect("checked single sector"));
     }
-    let ordering = super::candidate_ordering(N, request.permutation.as_deref())?;
+    let ordering = super::super::order::request_policy(request, N)?;
     super::finish_reducer(
         prepared,
         solutions,

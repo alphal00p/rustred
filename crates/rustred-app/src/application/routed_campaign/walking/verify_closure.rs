@@ -742,6 +742,18 @@ pub fn owner_domain_walk_verify_closure(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
+    verify_closure_with_progress(request, options, cancellation, &observer)
+}
+
+// One callback type reaches the sixteen native arities, independently of the
+// public caller's captures. No callback is moved to a worker or required to be
+// thread-safe; the existing coordinator invocation sites remain unchanged.
+fn verify_closure_with_progress(
+    request: &OwnerDomainWalkRequest,
+    options: &OwnerDomainWalkVerifyOptions,
+    cancellation: &AtomicBool,
+    observer: &dyn Fn(Value),
+) -> Result<Value, AppError> {
     request
         .validate_epoch_inspector_lookup()
         .map_err(AppError::input)?;
@@ -794,7 +806,10 @@ impl<const N: usize> RescueCheckpoint<N> {
     pub fn record_reader(&self, index: usize) -> std::io::Result<Box<dyn std::io::Read>> {
         let (path, count) = &self.raw.records[index];
         if let Some(records) = &self.records {
-            Ok(Box::new(records[index].open(path, *count)?))
+            Ok(Box::new(super::epoch::record_store::JsonLines::new(
+                records[index].open(path, *count)?,
+                *count,
+            )))
         } else {
             Ok(Box::new(std::fs::File::open(path)?))
         }
@@ -860,6 +875,11 @@ fn load_records<const N: usize>(
             )
         } else {
             Box::new(std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?)
+        };
+        let file: Box<dyn std::io::Read> = if epoch.is_some() {
+            Box::new(super::epoch::record_store::JsonLines::new(file, *count))
+        } else {
+            file
         };
         let mut lines = 0usize;
         for line in BufReader::with_capacity(1 << 20, file).lines() {

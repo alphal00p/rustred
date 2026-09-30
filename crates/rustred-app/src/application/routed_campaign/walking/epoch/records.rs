@@ -1,27 +1,43 @@
-//! Records of semantics 3, JSON view (typed binary records remain S5 work).
-//! The keys the audit, the verifier and the legacy tooling read are kept
-//! (§11.8 audit key mapping); the epoch keys (merge epoch, v0, distinct edge
-//! count, class, break reason, panic) ride in a nested `epoch` object.
+//! Typed records of Epoch semantics4 and their diagnostic JSON projection.
+//! Binary authority is separated from optional diagnostic payloads; existing
+//! audit/oracle row names remain available at the explicit projection boundary.
 //! Records are appended in merge order; the finalization annotations
 //! (`final_representative_id`, `responsibility_status`,
 //! `local_classification_discharged` of partial records,
 //! `descendant_closed`) are applied when the report is written, exactly as
 //! for the legacy lanes.
 use super::super::delegation::{Resolution, ResolutionStatus};
-use super::super::queue::{CompactDomain, Phase};
-use super::super::{mask, power_bounds_json};
+use super::super::queue::CompactDomain;
+#[cfg(test)]
+use super::super::{mask, power_bounds_json, queue::Phase};
+#[cfg(test)]
 use super::anchors::{AnchorScope, Lent};
 use super::ledger6::Entry6;
-use super::merge::{CheckedResult, Class, RecordBuilder};
+#[cfg(test)]
+use super::merge::Class;
+use super::merge::{CheckedResult, RecordBuilder};
 use super::state::EpochState;
 use serde_json::{Value, json};
+
+pub(in super::super) mod typed;
+pub(in super::super) mod wire;
 
 /// The exact resolver-side counters P3 adds, not native stats that may have
 /// already charged a breaking event which the resolver did not accept.
 /// Shared by newly written epoch records and the fresh-only CP6 reader.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ResolverCounters {
+pub(in crate::application::routed_campaign::walking) struct ResolverCounters {
     pub version: u32,
     pub successors: u64,
     pub conditional: u64,
@@ -96,6 +112,7 @@ impl ResolverCounters {
 
 pub(super) const CONTAINMENT_AUTHORITY: &str = "same_snapshot_phase_owner_native_summary";
 
+#[cfg(test)]
 fn geometry<const N: usize>(image: &CompactDomain<N>) -> Value {
     let domain = image.expand();
     json!({"phase":format!("{:?}", domain.phase),"owner":mask(&domain.owner),
@@ -103,6 +120,7 @@ fn geometry<const N: usize>(image: &CompactDomain<N>) -> Value {
         "power_bounds":power_bounds_json(domain.powers)})
 }
 
+#[cfg(test)]
 fn parse(bytes: &[u8]) -> Result<Value, String> {
     serde_json::from_slice(bytes).map_err(|e| format!("result part is not JSON: {e}"))
 }
@@ -111,6 +129,35 @@ pub(super) struct Builder;
 
 impl<const N: usize> RecordBuilder<N> for Builder {
     fn native(
+        &self,
+        id: u32,
+        image: &CompactDomain<N>,
+        entry: &CheckedResult<N>,
+        merge_epoch: u64,
+        distinct_edges: u32,
+        self_edge: bool,
+    ) -> Result<typed::Record, String> {
+        typed::Record::native(id, image, entry, merge_epoch, distinct_edges, self_edge)
+    }
+    fn alias(
+        &self,
+        id: u32,
+        image: &CompactDomain<N>,
+        to: u32,
+        merge_epoch: u64,
+        exhausted: bool,
+    ) -> typed::Record {
+        typed::Record::alias(id, image, to, merge_epoch, exhausted)
+    }
+}
+
+/// Frozen pre-S5 JSON projection, retained only as an independent test oracle.
+#[cfg(test)]
+pub(super) struct JsonReference;
+
+#[cfg(test)]
+impl JsonReference {
+    pub fn native<const N: usize>(
         &self,
         id: u32,
         image: &CompactDomain<N>,
@@ -214,7 +261,7 @@ impl<const N: usize> RecordBuilder<N> for Builder {
         Ok(record)
     }
 
-    fn alias(
+    pub fn alias<const N: usize>(
         &self,
         id: u32,
         image: &CompactDomain<N>,

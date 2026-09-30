@@ -403,6 +403,9 @@ FAMILY-CANDIDATES OPTIONS:
     --report-output <PATH|->     Optional separate phase-timing TOML report
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
+    --discovery-strategy <PATH>  JSON file selecting finite source/sector discovery scheduling
+    --integral-order <PATH>      JSON file selecting a persisted uncut mathematical order
+                                Incompatible with --permutation; separate from source scheduling
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
@@ -532,7 +535,11 @@ prove global coverage, or emit a closing artifact. `certify-candidates`
 independently reconstructs and replays that bundle through the existing complete
 publication pipeline without running search again; incomplete inputs fail.
 Finite row/job discovery can be selected with `--discovery-strategy <JSON_FILE>`;
-this does not change the persisted integral order or grant closure authority.
+that scheduling option does not change the mathematical integral order.
+`--integral-order <JSON_FILE>` selects a persisted uncut mathematical order
+(support priorities, nonnegative weighted excess rows and coordinate ties).
+It is distinct from discovery scheduling and cannot be combined with --permutation.
+Neither option grants closure authority.
 Optional --report-output records phase timings separately from bundle/artifact
 bytes. Data is written before its report; destinations must differ.
 Optional --checkpoint-dir stores completed sectors without certifying them.
@@ -703,7 +710,7 @@ It supports checkpoint/resume but cannot be combined with physical subdivision.
 Its IDs, covers and work counts may depend on scheduling; saved rules and
 obligation requirements are unchanged. Use a new campaign for a changed policy;
 never attach an ordered checkpoint to a ready run.
-The opt-in epoch policy (walk semantics 3) commits whole native
+The opt-in epoch policy (walk semantics 4) commits whole native
 inspections in bulk merges by one coordinator: Lockstep epochs of the 16 lowest
 pending IDs (B = 16, independent of the worker count), every successor resolved
 in the merge (canonical minimum-ID index semantics, verified containment), IDs
@@ -718,13 +725,14 @@ snapshots. CP6 terminal output is checkpoint-only, even on a drained worklist:
 finalization is not evaluated and the summary does not claim scoped closure.
 Use walk-verify-closure --no-result on the checkpoint for independent
 reinspection; omitting --result alone still auto-selects a nearby result.json.
-G2 anchors, rescue amendments and executable upgrades are not
-supported by this staged CP6 workflow. Without a checkpoint the legacy
+CP6 supports G2 union anchors and rescue amendments on resume. G2 activation
+on resume is refused; start a fresh Union campaign. Resume validates the current
+CP6 schema, walk semantics and request binding. Without a checkpoint the legacy
 memory-only epoch path still emits a full, non-resumable result.
 --epoch-inspector-lookup all-miss|snapshot is an explicit CP6 Epoch comparison
 control (default all-miss). It requires --follow-successors, --publication-policy
 epoch and --checkpoint or --resume. Snapshot performs inspector-side lookup
-against the same immutable lockstep view; it does not grant closure authority.
+against a pinned immutable committed view; it does not grant closure authority.
 The mode is bound to the checkpoint request and cannot change on resume.
 --epoch-rolling opts into bounded rolling publication/inspection overlap for a
 checkpoint-enabled Epoch walk. The choice is frozen on resume; omitted retains
@@ -737,13 +745,22 @@ Resume must retain saved publication order and cut; an omitted window inherits
 the saved window. They do not change exact inspection or publication checks.
 Adaptive requires --epoch-rolling and persists its observations and fairness
 state on restart. It does not change algebraic pivots or discard obligations.
+--epoch-preparation-workers N reserves P2 helpers within --workers (zero runs
+serially). If --inspection-workers is also supplied, both must exactly fill
+the non-coordinator budget. Omitted retains the existing helper complement.
+--epoch-preparation-max-obligations N and --epoch-preparation-max-retirements N
+bound retained per-cut logical scratch counts (default u32::MAX), not RAM bytes,
+rank or cumulative work. Exhaustion stops before publication, never truncates.
+These options require Epoch successor walking. Logical scratch limits are frozen
+on resume; the helper count may change within a valid worker partition.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.
 
 `walk-semantics-version` prints one JSON line with this executable's
 walk_semantics_version, checkpoint_format and checkpoint_schema (the legacy
-lanes' CP5 identity), plus per_policy walk semantics and checkpoint_formats,
+lanes' CP5 identity), plus per_policy walk semantics, checkpoint_formats and
+the resumable epoch_checkpoint identity,
 then exits 0.
 It reads no file and runs no algebra. A paused walk checkpoint resumes on a
 different executable digest only when the saved manifest carries the same

@@ -185,28 +185,38 @@ fn epoch_lookup_policy_defaults_parses_and_refuses_unsupported_native_paths() {
 }
 
 #[test]
-fn all_miss_preserves_historical_binding_and_snapshot_is_epoch_only_bound() {
+fn all_miss_binds_current_semantics_and_snapshot_is_epoch_only_bound() {
     let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
         "selection".into(),
         "queries with exact order and roles".into(),
     ));
-    let historical = json!({"selection":request.matching.selection_json,
+    let current = json!({"selection":request.matching.selection_json,
         "queries":request.matching.queries_json,"limits":limits_json(&request),
         "reduction":format!("{:?}",request.matching.reduction_limits),
-        "publication":"epoch","walk_semantics_version":3,
+        "publication":"epoch","walk_semantics_version":EPOCH_WALK_SEMANTICS_VERSION,
         "reuse_initial_d_bands":request.reuse_initial_d_bands,
         "route_domain_overcover":request.route_domain_overcover,
         "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes,
         "frontier_policy":request.frontier_policy.name()});
-    let old_digest = blake3::hash(historical.to_string().as_bytes())
+    let current_digest = blake3::hash(current.to_string().as_bytes())
         .to_hex()
         .to_string();
-    assert_eq!(checkpoint::epoch_request_binding(&request), old_digest);
+    assert_eq!(checkpoint::epoch_request_binding(&request), current_digest);
+    // An older native format is not a compatibility target. It must not share
+    // the current mathematical request identity, even with identical queries.
+    let mut previous = current.clone();
+    previous["walk_semantics_version"] = json!(3);
+    assert_ne!(
+        current_digest,
+        blake3::hash(previous.to_string().as_bytes())
+            .to_hex()
+            .to_string()
+    );
     request.epoch_inspector_lookup = OwnerDomainWalkEpochInspectorLookup::Snapshot;
-    assert_ne!(checkpoint::epoch_request_binding(&request), old_digest);
-    let mut snapshot = historical;
+    assert_ne!(checkpoint::epoch_request_binding(&request), current_digest);
+    let mut snapshot = current;
     snapshot["epoch_inspector_lookup"] = json!("snapshot");
     assert_eq!(
         checkpoint::epoch_request_binding(&request),
@@ -215,5 +225,5 @@ fn all_miss_preserves_historical_binding_and_snapshot_is_epoch_only_bound() {
             .to_string()
     );
     request.epoch_inspector_lookup = OwnerDomainWalkEpochInspectorLookup::AllMiss;
-    assert_eq!(checkpoint::epoch_request_binding(&request), old_digest);
+    assert_eq!(checkpoint::epoch_request_binding(&request), current_digest);
 }

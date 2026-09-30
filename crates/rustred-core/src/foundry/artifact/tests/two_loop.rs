@@ -168,7 +168,7 @@ fn installer_checks_every_rule_cell_against_the_explicit_ordering_authority() {
 fn installer_rejects_a_canonicalizer_with_a_different_ordering_authority() {
     let custom = nondefault_three_axis_ordering();
     let mut artifact = derive_two_loop_unit_mass_sunset().unwrap();
-    artifact.replace_all_cell_rule_orderings_for_test(custom);
+    artifact.replace_all_cell_rule_orderings_for_test(custom.clone());
     assert!(matches!(
         reinstall_with_ordering(artifact, Some(custom)),
         Err(ArtifactError::InvalidCanonicalizer)

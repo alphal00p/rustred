@@ -190,7 +190,7 @@ impl AnchoredRule {
     }
 
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
 
     pub fn pivot(&self) -> &IntegralKey {

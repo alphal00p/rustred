@@ -48,7 +48,7 @@ impl TerminalAliasPlan {
         raw: &BTreeSet<IntegralKey>,
         ordering: OrderingPolicy,
     ) -> Result<Self, Error> {
-        let mut plan = Self::independent_tadpole_products(family, raw, ordering)?;
+        let mut plan = Self::independent_tadpole_products(family, raw, ordering.clone())?;
         if family.external_count() != 0 || family.power_shifts().iter().any(|s| !s.is_zero()) {
             return Ok(plan);
         }
@@ -98,7 +98,7 @@ impl TerminalAliasPlan {
             match supports.get(&slots).expect("support initialized") {
                 Ok(support) => {
                     let (signature, candidate) =
-                        proposal::candidate(family, key, support, ordering)?;
+                        proposal::candidate(family, key, support, &ordering)?;
                     plan.statistics.eligible_corank_one += 1;
                     groups.entry(signature).or_default().push(candidate);
                 }

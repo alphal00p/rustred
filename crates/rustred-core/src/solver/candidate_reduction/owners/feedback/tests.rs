@@ -169,10 +169,11 @@ fn synthetic<const N: usize>(
         lineage: programs.lineage.clone(),
         sector,
         root: owner.root,
-        ordering: owner.ordering,
+        ordering: owner.ordering.clone(),
         policy: Default::default(),
         attempt_limits: Default::default(),
         solution: SectorDomainSolution {
+            order: IntegralOrder::from_persisted_policy(sector, &owner.ordering).unwrap(),
             requested_cases: vec![Case::generic()],
             max_numerator_rank: Some(10),
             finite_case_policy: FiniteCasePolicy::SearchFinite,
@@ -371,15 +372,43 @@ fn wrong_lineage_or_order_cannot_install_even_with_the_same_family() {
 }
 
 #[test]
+fn overlay_solution_order_is_bound_independently_of_its_outer_metadata() {
+    let base = tadpole(vec![], &[], Default::default());
+    for order in [
+        IntegralOrder::new([false], [false]),
+        IntegralOrder::new([true], [true]),
+    ] {
+        let mut wrong = synthetic(&base, [true], vec![], &[[1]]);
+        wrong.solution.order = order;
+        assert!(
+            base.append_domain_overlays(vec![wrong], Default::default())
+                .is_err()
+        );
+    }
+    assert_eq!(base.overlays(&[true]).count(), 0);
+}
+
+#[test]
 fn unsupported_order_and_missing_owner_are_rejected_before_search() {
     let family = Arc::new(crate::solver::tests::tadpole());
+    let mut wrong = input([true], Some(10), vec![], &[]);
+    wrong.ordering = OrderingPolicy::RustRedUnshiftedV1;
+    // A source solution cannot be installed under an unrelated order even
+    // before a follow-up source search is requested.
+    assert!(
+        CandidateOwnerPrograms::try_new(
+            context(family.clone(), Some(10), Default::default()),
+            [wrong],
+        )
+        .is_err()
+    );
     let base = programs(
         family,
         Some(10),
         vec![input([true], Some(10), vec![], &[])],
         Default::default(),
     );
-    assert!(base.bind_owner_search([true], Default::default()).is_err());
+    assert!(base.bind_owner_search([true], Default::default()).is_ok());
     assert!(base.bind_owner_search([false], Default::default()).is_err());
 }
 
@@ -389,13 +418,12 @@ fn noninvolutive_priority_is_inverted_for_the_native_solver() {
     let priority = CoordinatePriority::try_new(3, &[2, 0, 1], Default::default()).unwrap();
     let ordering = OrderingPolicy::try_spired_with_coordinate_priority(&priority).unwrap();
     let mut owner = input([true; 3], Some(10), vec![], &[]);
-    owner.ordering = ordering;
+    owner.ordering = ordering.clone();
+    owner.solution.order = IntegralOrder::from_persisted_policy([true; 3], &ordering).unwrap();
     let base = programs(family, Some(10), vec![owner], Default::default());
     let bound = search(&base, [true; 3]);
-    assert_eq!(bound.permutation, Some([1, 2, 0]));
-    let native = IntegralOrder::new([true; 3], [false; 3])
-        .with_permutation(bound.permutation.unwrap())
-        .unwrap();
+    assert_eq!(bound.order.permutation(), Some(&[1, 2, 0]));
+    let native = &bound.order;
     for a in [[1, 2, 3], [2, 1, 3], [3, 2, 1]] {
         for b in [[1, 2, 3], [2, 1, 3], [3, 2, 1]] {
             assert_eq!(

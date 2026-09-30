@@ -769,28 +769,6 @@ impl<const N: usize> Block<N> {
 }
 
 impl<const N: usize> Meta<N> {
-    /// Initialize a bounded global immutable lookup replica. This is never
-    /// called by insertion, retirement, or an individual publication.
-    pub(super) fn try_clone_pair(
-        &self,
-        block: &BlockBox<N>,
-    ) -> Result<(Self, BlockBox<N>), &'static str> {
-        let envelope = match &self.envelope {
-            Envelope::Absent => Envelope::Absent,
-            Envelope::Narrow(value) => Envelope::Narrow(*value),
-            Envelope::Wide(axes) => Envelope::Wide(wide_storage(axes.iter().copied())?),
-        };
-        Ok((
-            Self {
-                first: self.first,
-                last: self.last,
-                len: self.len,
-                envelope,
-            },
-            try_box(block[0].clone())?,
-        ))
-    }
-
     /// A new empty block row and its storage (`checkpoint` precedes the one
     /// allocation, as the historical envelope reservation did).
     pub(super) fn prepare(

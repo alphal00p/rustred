@@ -497,7 +497,8 @@ fn try_build_planner_scope_key(
     ledger: &CanonicalExactOwnerLedger,
 ) -> Result<Box<str>, ProbeCoordinatorFailure> {
     let predecessor = ledger.predecessor_snapshot().id().as_str();
-    let ordering = ledger.ordering().stable_id();
+    let retained_order = ledger.ordering();
+    let ordering = retained_order.stable_id();
     let predecessor_length = predecessor.len().to_string();
     let ordering_length = ordering.len().to_string();
     let pieces = [

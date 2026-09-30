@@ -275,7 +275,7 @@ pub struct ReachabilityPlanner<'foundry> {
 
 impl ReachabilityPlanner<'_> {
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
 
     pub fn arity(&self) -> usize {

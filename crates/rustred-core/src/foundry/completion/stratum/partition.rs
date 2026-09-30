@@ -168,7 +168,7 @@ impl<'frame> TargetColumnPartition<'frame> {
             return Err(StratumRegistryError::WrongOwnerRouteCanonicalizer);
         }
         let pivot = frame.columns()[target_column].values();
-        try_validate_pivot(ordering, stratum.domain(), pivot)?;
+        try_validate_pivot(ordering.clone(), stratum.domain(), pivot)?;
 
         let non_target_columns =
             frame
@@ -289,7 +289,8 @@ impl<'frame> TargetColumnPartition<'frame> {
                     admitted_owner_probes,
                     limits.max_owner_probes,
                 )?;
-                let Some(owner) = owners.owner_for(frame.sector(), ordering, cell.target_domain())
+                let Some(owner) =
+                    owners.owner_for(frame.sector(), ordering.clone(), cell.target_domain())
                 else {
                     first_unowned = Some(cell_ordinal);
                     break;
@@ -358,8 +359,8 @@ impl<'frame> TargetColumnPartition<'frame> {
         self.owners.snapshot().id()
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) fn allowed_columns(&self) -> &[AllowedColumnDescriptor] {
@@ -409,7 +410,7 @@ impl<'frame> TargetColumnPartition<'frame> {
             &self.stratum,
             &self.owners,
             pivot,
-            self.ordering,
+            self.ordering.clone(),
             self.limits,
             shift,
         )?
@@ -430,7 +431,7 @@ impl<'frame> TargetColumnPartition<'frame> {
             self.target_column,
             self.stratum.clone(),
             self.owners.snapshot().clone(),
-            self.ordering,
+            self.ordering.clone(),
             self.limits,
         )?;
         Ok(self.equivalent_to(&rebuilt))
@@ -456,7 +457,7 @@ impl<'frame> TargetColumnPartition<'frame> {
                 if cell.kind() != SectorMonotoneTargetCellKind::ProperSubsector
                     || !self.owners.verifies_witness(
                         self.frame.sector(),
-                        self.ordering,
+                        self.ordering.clone(),
                         cell.target_domain(),
                         retained.owner(),
                     )

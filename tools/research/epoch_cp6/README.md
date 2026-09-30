@@ -23,7 +23,7 @@ directory. Paths are absolute. The plan fields are:
 | `contract` | Exactly `rustred.epoch-cp6-control.v1`. |
 | `mode`, `b` | `all-miss` or `snapshot`; positive saved flight bound at most4096. Historical plans use lockstep B. |
 | `schedule` (optional) | Exact current summary object: `kind`, `depth`, `b`, `window`, `cut_size`, `publication_order`, `dispatch`. Required for current extended reports; absent means the historical exact `{kind:lockstep,depth:1,b:B}` receipt, not an inferred rolling mode. |
-| `g2`, `checkpoint_schema` (optional) | Frozen run policy `off` (default) or `union`; expected CP6 manifest/summary schema1 (historical default) or2 (current build). The native cold reader authenticates scalar schema3; this adapter does not decode payloads. |
+| `g2`, `checkpoint_schema` (optional) | Frozen run policy `off` (default) or `union`. New typed-record plans explicitly select manifest/summary schema3, walk semantics4 and native scalar schema4. Historical baseline plans retain schema1 (the old default) or2 and semantics3. Receipt pairs must match exactly; this adapter does not decode or migrate payloads. |
 | `run`, `checkpoint` | Fresh output directory and its `checkpoint` child, as produced by the historical runner's rewrite. |
 | `queries`, `queries_sha256`, `queries_blake3` | Frozen actual query file with explicit required/auxiliary roles; SHA256 and BLAKE3 of its exact bytes. Obtain BLAKE3 using an existing trusted tool/library, not a new hash implementation. The adapter derives role counts from the file. |
 | `binary`, `binary_sha256` | Frozen, already validated executable; no build/upgrade in this adapter. |

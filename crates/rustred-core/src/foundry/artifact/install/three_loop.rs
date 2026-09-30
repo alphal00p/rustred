@@ -448,10 +448,10 @@ pub(super) fn prepare(
                 // Re-authenticate the exact published domain against the
                 // strongly retained predecessor whose compiled product
                 // programs supplied the zero-uncovered proof.
-                if !wave
-                    .predecessor()
-                    .authenticates_same_sector_domain(candidate.ordering, layer.proven_domain())
-                {
+                if !wave.predecessor().authenticates_same_sector_domain(
+                    candidate.ordering.clone(),
+                    layer.proven_domain(),
+                ) {
                     return Err(invalid(
                         "a zero-cell K6 layer is not completely owned by its retained predecessor",
                     ));
@@ -635,7 +635,9 @@ fn validate_wave_chain_root(
         ));
     }
     let authority = Arc::new(
-        super::super::three_loop::derive_k6_terminal_authority_with_ordering(candidate.ordering)?,
+        super::super::three_loop::derive_k6_terminal_authority_with_ordering(
+            candidate.ordering.clone(),
+        )?,
     );
     let expected =
         ImmutableOwnerSnapshot::try_from_terminal_authority(authority, Default::default())
@@ -648,7 +650,7 @@ fn validate_wave_chain_root(
         || actual.closed_layer_count() != 0
         || actual.family_fingerprint() != candidate.family.fingerprint()
         || actual.context_fingerprint() != candidate.context.fingerprint()
-        || actual.canonicalizer_ordering() != Some(candidate.ordering)
+        || actual.canonicalizer_ordering() != Some(candidate.ordering.clone())
     {
         return Err(invalid(
             "published K6 waves do not descend from the registered terminal root",
@@ -890,7 +892,8 @@ mod tests {
     fn derived_root_bounds_precede_generic_validation_without_false_publication() {
         let ordering = OrderingPolicy::default();
         let authority =
-            crate::foundry::artifact::derive_k6_terminal_authority_with_ordering(ordering).unwrap();
+            crate::foundry::artifact::derive_k6_terminal_authority_with_ordering(ordering.clone())
+                .unwrap();
         let parts = authority.into_artifact_parts();
         let generator = ParametricIbpGenerator::try_new_with_config(
             &parts.family,

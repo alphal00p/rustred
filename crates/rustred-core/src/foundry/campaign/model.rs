@@ -437,8 +437,8 @@ impl FoundryCampaignReport {
     pub const fn preset(&self) -> FoundryCampaignPreset {
         self.preset
     }
-    pub const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint

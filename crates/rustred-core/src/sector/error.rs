@@ -58,12 +58,18 @@ pub enum Error {
         actual: usize,
         limit: usize,
     },
+    OrderProgram(rustred_order::Error),
+    OrderProgramNotCoordinatePriority,
     NotStrictDescent,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::OrderProgram(error) => error.fmt(formatter),
+            Self::OrderProgramNotCoordinatePriority => formatter.write_str(
+                "a programmable integral order cannot be reduced to a coordinate tie priority",
+            ),
             Self::EmptyIndexSpace => formatter.write_str("a sector needs at least one index"),
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "sector arity is {actual}, expected {expected}")

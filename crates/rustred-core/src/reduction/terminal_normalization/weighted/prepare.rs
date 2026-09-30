@@ -29,7 +29,7 @@ pub(super) fn prepare(
     let aliases = TerminalAliasPlan::vacuum_parametric_equivalences(
         family,
         raw,
-        ordering,
+        ordering.clone(),
         limits.parametric,
     )?;
     let context = family.coefficient_context();
@@ -151,7 +151,7 @@ pub(super) fn prepare(
         TerminalAliasPlan::vacuum_parametric_equivalences(
             family,
             &union,
-            ordering,
+            ordering.clone(),
             limits.parametric,
         )?
     };

@@ -709,7 +709,7 @@ fn try_drive_k6_wave_with_progress(
                         predecessor,
                         resource_profile,
                         campaign_limits,
-                        ordering,
+                        ordering.clone(),
                         coordinator_config,
                         campaign_config,
                         &latest,

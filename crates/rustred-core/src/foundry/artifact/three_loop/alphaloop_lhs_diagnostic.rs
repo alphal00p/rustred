@@ -350,7 +350,7 @@ fn custom_priority_selects_and_certifies_its_own_s4_representatives() {
     let custom = OrderingPolicy::try_from_stable_id(WINNER).unwrap();
     let family = canonical_family().unwrap();
     let natural_canonicalizer = canonical_s4(&family).unwrap();
-    let custom_canonicalizer = canonical_s4_with_ordering(&family, custom).unwrap();
+    let custom_canonicalizer = canonical_s4_with_ordering(&family, custom.clone()).unwrap();
     assert_eq!(natural_canonicalizer.ordering(), OrderingPolicy::default());
     assert_eq!(custom_canonicalizer.ordering(), custom);
 
@@ -363,7 +363,7 @@ fn custom_priority_selects_and_certifies_its_own_s4_representatives() {
     assert_eq!(selected.no_harder().policy(), custom);
     assert!(selected.verify());
 
-    let materialized = materialize_alpha_loop_lhs_anchors_with_ordering(custom);
+    let materialized = materialize_alpha_loop_lhs_anchors_with_ordering(custom.clone());
     assert_eq!(materialized.len(), 55);
     for entry in &materialized {
         let replayed = custom_canonicalizer

@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct CandidateEvaluator<'a, const N: usize> {
     pub context: &'a IndexedCoefficientContext,
     pub root_sector: [bool; N],
-    pub ordering: OrderingPolicy,
+    pub ordering: &'a OrderingPolicy,
     pub rules: &'a [PreparedRule<N>],
     pub source_conditions: &'a [IndexedPolynomial],
     pub zero_sectors: &'a BTreeSet<[bool; N]>,

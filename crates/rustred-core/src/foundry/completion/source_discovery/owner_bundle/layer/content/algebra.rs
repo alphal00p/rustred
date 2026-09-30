@@ -243,6 +243,11 @@ pub(super) fn append_complexity_component(
             output.tag(6)?;
             output.usize(position)
         }
+        ComplexityComponent::SupportWeight => output.tag(7),
+        ComplexityComponent::DegreeRow { ordinal } => {
+            output.tag(8)?;
+            output.usize(ordinal)
+        }
     }
 }
 
@@ -343,8 +348,8 @@ mod tests {
         )
         .unwrap();
         let custom = OrderingPolicy::try_with_coordinate_priority(&priority).unwrap();
-        let first = encoded_shift_key(custom);
-        let second = encoded_shift_key(custom);
+        let first = encoded_shift_key(custom.clone());
+        let second = encoded_shift_key(custom.clone());
         let natural = encoded_shift_key(OrderingPolicy::RustRedUnshiftedV1);
         assert_eq!(first, second);
         assert_ne!(first, natural);

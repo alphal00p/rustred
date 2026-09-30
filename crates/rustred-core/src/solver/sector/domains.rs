@@ -12,6 +12,7 @@ use crate::solver::{Case, FiniteCasePolicy, Integral, SectorEvent, SectorSolver}
 /// particular, this type cannot be passed to the complete-sector encoder.
 #[derive(Debug)]
 pub struct SectorDomainSolution<const N: usize> {
+    pub order: crate::solver::IntegralOrder<N>,
     pub requested_cases: Vec<Case<N>>,
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
@@ -81,6 +82,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         // subsumed initial nominations cannot change finite-seed chronology.
         admitted.sort_unstable_by(Case::queue_cmp);
         let SectorSolution {
+            order,
             max_numerator_rank,
             finite_case_policy,
             rules,
@@ -88,6 +90,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             stats,
         } = self.solve_case_queue(admitted, options, observe)?;
         Ok(SectorDomainSolution {
+            order,
             requested_cases: cases,
             max_numerator_rank,
             finite_case_policy,

@@ -12,7 +12,7 @@
 //! - `ledger6-1.bin`: count x u64 ledger6 words (§4.1);
 //! - `edges-1.seg`: count = runs; runs `(source u32, n u32, targets u32 x n)`;
 //! - `anchors-1.bin`: the anchor layout v2 (§11.7 as amended, note D19);
-//! - `records-1.jsonl`: the records in merge order (JSON view);
+//! - `records-<generation>.bin`: typed binary records in merge order;
 //! - `epoch-export.json`: the manifest (blake3 and length of every file).
 use super::job::{Writer, write_image};
 use super::state::EpochState;
@@ -148,8 +148,9 @@ pub(super) fn write<const N: usize>(
         json!({"file":"anchors-1.bin",
             "meta":write_file(directory, "anchors-1.bin", &state.anchors.encode()?)?}),
     );
-    let manifest = json!({"format":FORMAT,"schema":1,"stage":"S2","kind":"final_state_export",
+    let manifest = json!({"format":FORMAT,"schema":2,"stage":"S5","kind":"final_state_export",
         "resumable":false,"generation":GENERATION,"publication_policy":"epoch",
+        "record_schema":super::records::wire::RECORD_SCHEMA,
         "walk_semantics_version":super::EPOCH_WALK_SEMANTICS_VERSION,"arity":N,
         "request":parts.binding,"owners":parts.owners,
         "executable":std::env::current_exe().ok().and_then(|p| file_blake3(&p).ok()).map(|d| d.1),

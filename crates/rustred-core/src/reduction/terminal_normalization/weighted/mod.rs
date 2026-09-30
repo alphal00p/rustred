@@ -142,7 +142,7 @@ impl TerminalNormalizationPlan {
         &self.family
     }
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
     pub fn raw_terminals(&self) -> &BTreeSet<IntegralKey> {
         &self.raw

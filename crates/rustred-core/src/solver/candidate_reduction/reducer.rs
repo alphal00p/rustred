@@ -54,7 +54,7 @@ impl<const N: usize> CandidateReducer<N> {
         &self.terminals
     }
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
     /// Optional entry-domain bound on `sum(max(-n_i, 0))`. This is not a
     /// successor bound: valid reductions may visit integrals above this rank.

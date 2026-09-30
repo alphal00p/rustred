@@ -1,6 +1,6 @@
 use super::super::super::tests::Directory;
 use super::*;
-use crate::application::routed_campaign::walking::execution::records::Sidecar;
+use crate::application::routed_campaign::walking::epoch::record_store::Sidecar;
 use serde_json::{Value, json};
 use std::fs;
 
@@ -15,12 +15,34 @@ fn receipt(directory: &Path, bytes: &[u8], count: u64) -> FileRef {
     }
 }
 
+fn sample(id: u32) -> crate::application::routed_campaign::walking::epoch::records::typed::Record {
+    let image =
+        crate::application::routed_campaign::walking::queue::CompactDomain::<1>::try_from_domain(
+            &crate::application::routed_campaign::walking::queue::Domain {
+                phase: crate::application::routed_campaign::walking::queue::Phase::Apply,
+                owner: [true],
+                lower: vec![0],
+                upper: vec![Some(1)],
+                rank: Some(2),
+                powers: Default::default(),
+            },
+        )
+        .unwrap();
+    crate::application::routed_campaign::walking::epoch::records::typed::Record::alias(
+        id,
+        &image,
+        id + 1,
+        1,
+        false,
+    )
+}
+
 fn fixture() -> (Directory, Vec<Segment>) {
     let directory = Directory::new();
     let mut sidecar = Sidecar::new(directory.0.clone(), 1);
-    sidecar.push(&json!({"id":0,"frontiers":[]})).unwrap();
+    sidecar.push(&sample(0)).unwrap();
     sidecar.seal(1, 2).unwrap();
-    sidecar.push(&json!({"id":1,"frontiers":[]})).unwrap();
+    sidecar.push(&sample(1)).unwrap();
     sidecar.seal(2, 4).unwrap();
     (directory, sidecar.closed().to_vec())
 }
@@ -30,7 +52,7 @@ fn actual_sidecar_registry_roundtrips_in_final_owned_form() {
     let (directory, segments) = fixture();
     let file = receipt(&directory.0, &serde_json::to_vec(&segments).unwrap(), 2);
     // Unreferenced tails are not accepted as an additional committed record.
-    fs::write(directory.0.join(Section::Records.file_name(3)), b"orphan").unwrap();
+    fs::write(directory.0.join(record_store::file_name(3)), b"orphan").unwrap();
     assert_eq!(read(&directory.0, &file, 3, 2).unwrap(), segments);
     let file = receipt(&directory.0, b"[]", 0);
     assert!(read(&directory.0, &file, 3, 0).unwrap().is_empty());
@@ -41,7 +63,7 @@ fn actual_sidecar_registry_roundtrips_in_final_owned_form() {
 fn descriptor_bound_is_fixed_shape_not_a_record_line_limit() {
     let largest = Segment {
         generation: u64::MAX,
-        file: Section::Records.file_name(u64::MAX),
+        file: record_store::file_name(u64::MAX),
         first: u64::MAX,
         count: u64::MAX,
         bytes: u64::MAX,
@@ -49,21 +71,21 @@ fn descriptor_bound_is_fixed_shape_not_a_record_line_limit() {
     };
     assert!((serde_json::to_vec(&largest).unwrap().len() as u64) < DESCRIPTOR_BYTES);
     let directory = Directory::new();
-    let mut sidecar = Sidecar::new(directory.0.clone(), 1);
-    // A body much larger than any descriptor is streamed with fixed scratch.
-    sidecar
-        .push(&json!({"id":0,"error":"x".repeat(1024 * 1024)}))
-        .unwrap();
-    sidecar.seal(1, 2).unwrap();
-    let file = receipt(
-        &directory.0,
-        &serde_json::to_vec(sidecar.closed()).unwrap(),
-        1,
-    );
-    assert_eq!(
-        read(&directory.0, &file, 1, 1).unwrap().as_slice(),
-        sidecar.closed()
-    );
+    // This registry layer authenticates arbitrary binary bodies; the authority
+    // decoder is separately tested. A large body must not borrow descriptor RAM.
+    let bytes = vec![b'x'; 1024 * 1024];
+    let segment = Segment {
+        generation: 1,
+        file: record_store::file_name(1),
+        first: 0,
+        count: 1,
+        bytes: bytes.len() as u64,
+        blake3: blake3::hash(&bytes).to_hex().to_string(),
+    };
+    fs::write(directory.0.join(&segment.file), bytes).unwrap();
+    let expected = vec![segment];
+    let file = receipt(&directory.0, &serde_json::to_vec(&expected).unwrap(), 1);
+    assert_eq!(read(&directory.0, &file, 1, 1).unwrap(), expected);
 }
 
 #[test]
@@ -71,7 +93,7 @@ fn descriptor_counts_ranges_paths_and_tiling_mutations_fail() {
     let (directory, segments) = fixture();
     for (row, key, replacement) in [
         (0, "generation", json!(0)),
-        (0, "file", json!("../records-00000000000000000001.jsonl")),
+        (0, "file", json!("../records-00000000000000000001.bin")),
         (0, "file", json!("domains-00000000000000000001.bin")),
         (0, "first", json!(1)),
         (0, "count", json!(0)),

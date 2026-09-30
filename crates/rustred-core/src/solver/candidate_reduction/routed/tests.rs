@@ -12,6 +12,60 @@ use std::sync::Arc;
 
 mod entry;
 
+#[test]
+fn independently_programmed_owners_compose_after_a_strict_pinch() {
+    use crate::order::{CompiledOrder, CoordinateGroups, DegreeRow, Direction, OrderDescriptor};
+    let order = |weights: Vec<u64>| {
+        OrderingPolicy::try_programmed(
+            CompiledOrder::compile(
+                OrderDescriptor {
+                    support_weights: weights.clone(),
+                    support_priority: vec![2, 0, 1],
+                    degree_rows: vec![DegreeRow {
+                        active: weights,
+                        inactive: vec![1; 3],
+                    }],
+                    coordinate_priority: vec![1, 2, 0],
+                    coordinate_groups: CoordinateGroups::ActiveFirst,
+                    active_direction: Direction::Descending,
+                    inactive_direction: Direction::Ascending,
+                },
+                Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let family = Arc::new(crate::solver::tests::sunset());
+    let mut root = input(
+        [true; 3],
+        Some(0),
+        vec![rule(&family, [2, 1, 1], &[([0, 3, 1], 1)])],
+        &[],
+    );
+    root.ordering = order(vec![1, 2, 4]);
+    root.solution.order =
+        crate::solver::IntegralOrder::from_persisted_policy(root.sector, &root.ordering).unwrap();
+    let mut lower = input(
+        [false, true, true],
+        Some(0),
+        vec![rule(&family, [0, 3, 1], &[([-1, 1, 1], 1)])],
+        &[[-1, 1, 1]],
+    );
+    lower.ordering = order(vec![3, 1, 1]);
+    lower.solution.order =
+        crate::solver::IntegralOrder::from_persisted_policy(lower.sector, &lower.ordering).unwrap();
+    assert_ne!(root.ordering, lower.ordering);
+    let owner = routed(family, Some(0), vec![root, lower]);
+    let trace = owner.trace_targets([key([2, 1, 1])]).unwrap();
+    assert!(trace.frontier().is_empty());
+    assert_eq!(trace.rule_applications(), 2);
+    assert_eq!(
+        trace.declared_terminals(),
+        &BTreeSet::from([key([-1, 1, 1])])
+    );
+}
+
 fn routed<const N: usize>(
     family: Arc<IntegralFamily>,
     rank: Option<u32>,
@@ -75,7 +129,7 @@ fn one_owner_matches_existing_trace_and_never_touches_a_cache() {
     let mut old = CandidateReducer::try_new_with_numerator_rank(
         &family,
         [true],
-        OrderingPolicy::default(),
+        OrderingPolicy::SpiredUncutV1,
         [([true], make().solution)],
         vec![],
         Default::default(),
@@ -212,7 +266,11 @@ fn support_changing_same_count_edge_fails_instead_of_trying_a_later_rule() {
     let family = Arc::new(crate::solver::tests::sunset());
     let a = [3, 1, 0];
     let b = [0, 1, 1];
-    let (target, child) = if OrderingPolicy::default().compare(&a, &b).unwrap().is_gt() {
+    let (target, child) = if OrderingPolicy::SpiredUncutV1
+        .compare(&a, &b)
+        .unwrap()
+        .is_gt()
+    {
         (a, b)
     } else {
         (b, a)

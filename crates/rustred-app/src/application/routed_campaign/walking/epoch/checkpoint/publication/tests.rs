@@ -74,7 +74,7 @@ fn metadata_records_full_inventory_even_before_initial_admission_finishes() {
     assert_eq!(meta["processed_queries"], 1);
     assert_eq!(meta["initial_admission"], "in_progress");
     assert_eq!(meta["lockstep_b"], 8);
-    assert_eq!(meta["walk_semantics_version"], 3);
+    assert_eq!(meta["walk_semantics_version"], 4);
     assert_eq!(meta["g2"], "off");
     assert_eq!(meta["quarantined"], json!(0));
     inputs.admission = Admission::Complete;
@@ -145,7 +145,7 @@ fn internal_publication_is_bound_and_latest_precedes_previous() {
     let manifest = read_manifest(&first.manifest).unwrap();
     assert!(manifest.resumable);
     assert_eq!(manifest.format, FORMAT);
-    assert_eq!(manifest.schema, 2);
+    assert_eq!(manifest.schema, 3);
     assert_eq!(first.manifest_blake3, manifest_digest(&manifest).unwrap());
     assert!(
         serde_json::to_value(&manifest)
@@ -221,10 +221,10 @@ fn public_store_refuses_old_private_names_and_foreign_identity() {
     ] {
         let manifest = Manifest {
             format: format.into(),
-            schema: 2,
+            schema: 3,
             generation: 1,
             arity: 1,
-            walk_semantics_version: 3,
+            walk_semantics_version: 4,
             resumable: true,
             files: Vec::new(),
         };

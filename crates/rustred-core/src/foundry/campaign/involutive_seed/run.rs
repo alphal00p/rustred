@@ -162,7 +162,8 @@ fn try_convert_basis_leaders(
     InvolutiveSeedError,
 > {
     let arity = epoch.arity();
-    let ordering_key = ordering.policy().stable_id();
+    let retained_order = ordering.policy();
+    let ordering_key = retained_order.stable_id();
     let basis_revision = epoch.epoch().revision();
     // This is the first operation in conversion and is allocation-free. The
     // final Janet epoch has distinct canonical leaders, canonical unique row

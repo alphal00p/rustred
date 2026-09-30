@@ -65,6 +65,7 @@ FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
                   "epoch_inspector_lookup", "epoch_rolling", "epoch_dispatch",
                   "epoch_publication_order", "epoch_cut_size", "epoch_window",
+                  "epoch_preparation_workers", "epoch_preparation_max_obligations", "epoch_preparation_max_retirements",
                   *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
 # A10: new campaigns save and stop at the first frontier; steering written
@@ -769,7 +770,7 @@ def frozen_options(policy):
         raise ValueError("frozen Epoch dispatch policy and command disagree; use a new campaign directory")
     if options["publication_policy"] == "epoch":
         options.setdefault("epoch_dispatch", "fifo")
-    for option in SUPERVISOR.DOMAIN.EPOCH_BATCH_OPTIONS:
+    for option in SUPERVISOR.DOMAIN.EPOCH_DATA_OPTIONS:
         key = option.replace("-", "_")
         value = options.get(key)
         flag = "--" + option
@@ -787,6 +788,8 @@ def frozen_options(policy):
     if "inspection_workers" not in options:
         inspectors = flag_value("--inspection-workers")
         options["inspection_workers"] = None if inspectors is None else int(inspectors)
+    SUPERVISOR.DOMAIN.validate_epoch_preparation(
+        options, True, options["publication_policy"], options.get("workers", 1), options["inspection_workers"])
     # Older frozen policies omitted this opt-in and therefore mean Off.
     options.setdefault("apply_cell_refinement_max_cardinality", None)
     if "frontier_policy" not in options:
@@ -831,7 +834,7 @@ def native_command(options, executable, inputs, count, size):
         command.append("--epoch-rolling")
     if options.get("epoch_dispatch") == "adaptive":
         command += ["--epoch-dispatch", "adaptive"]
-    for option in SUPERVISOR.DOMAIN.EPOCH_BATCH_OPTIONS:
+    for option in SUPERVISOR.DOMAIN.EPOCH_DATA_OPTIONS:
         if (value := options.get(option.replace("-", "_"))) is not None:
             command += ["--" + option, str(value)]
     command += ["--frontier-policy", options["frontier_policy"]]
@@ -911,8 +914,10 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     SUPERVISOR.DOMAIN.validate_epoch_batch(
         options["epoch_publication_order"], options["epoch_cut_size"], options["epoch_window"],
         options["epoch_rolling"], True, options["publication_policy"], True)
+    SUPERVISOR.DOMAIN.validate_epoch_preparation(
+        options, True, options["publication_policy"], options["workers"], options["inspection_workers"])
     # Keep default and historical steering/argv free of new optional fields.
-    for option in SUPERVISOR.DOMAIN.EPOCH_BATCH_OPTIONS:
+    for option in SUPERVISOR.DOMAIN.EPOCH_DATA_OPTIONS:
         key = option.replace("-", "_")
         if options[key] is None:
             del options[key]
@@ -1014,6 +1019,7 @@ def main(argv=None):
                         action=SUPERVISOR.DOMAIN.StoreOnce,
                         help="pending-job dispatch; adaptive requires rolling; frozen on resume")
     SUPERVISOR.DOMAIN.add_epoch_batch_arguments(parser)
+    SUPERVISOR.DOMAIN.add_epoch_preparation_arguments(parser)
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
     parser.add_argument("--g2-residual-anchors", choices=SUPERVISOR.G2_RESIDUAL_MODES,
@@ -1112,7 +1118,7 @@ def main(argv=None):
     campaign = args.campaign_directory.resolve()
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None
             or any(getattr(args, name.replace("-", "_")) is not None
-                   for name in SUPERVISOR.DOMAIN.EPOCH_BATCH_OPTIONS)) \
+                   for name in SUPERVISOR.DOMAIN.EPOCH_DATA_OPTIONS)) \
             and not (campaign / "bin" / "steering.json").is_file():
         # An existing policy supplies publication on an ordinary resume/plan.
         # Fresh explicit misuse is rejected before staging/freezing any input.
@@ -1129,6 +1135,9 @@ def main(argv=None):
                 SUPERVISOR.DOMAIN.validate_epoch_batch(
                     args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
                     args.epoch_rolling, True, selected_policy, True)
+                SUPERVISOR.DOMAIN.validate_epoch_preparation(
+                    vars(args), True, selected_policy, args.workers or min(50, len(os.sched_getaffinity(0))),
+                    args.inspection_workers)
             except ValueError as error:
                 parser.error(str(error))
     inputs = campaign / "inputs"
@@ -1230,6 +1239,9 @@ def main(argv=None):
         plan["epoch_publication_order"] = options.get("epoch_publication_order", "oldest-prefix")
         plan["epoch_cut_size"] = options.get("epoch_cut_size", 16)
         plan["epoch_window"] = options.get("epoch_window")
+        plan.update({name.replace("-", "_"): options[name.replace("-", "_")]
+                     for name in SUPERVISOR.DOMAIN.EPOCH_PREPARATION_OPTIONS
+                     if name.replace("-", "_") in options})
         plan["epoch_checkpoint"] = {
             "inspector_lookup_mode": options.get("epoch_inspector_lookup", "all-miss"),
             "rolling": options.get("epoch_rolling", False),
@@ -1237,7 +1249,7 @@ def main(argv=None):
             "publication_order": options.get("epoch_publication_order", "oldest-prefix"),
             "cut_size": options.get("epoch_cut_size", 16),
             "requested_window": options.get("epoch_window"),
-            "format": "RUSTRED-WALK-CP6", "schema": 2, "walk_semantics_version": 3,
+            "format": "RUSTRED-WALK-CP6", "schema": 3, "walk_semantics_version": 4,
             "resumable": True, "terminal_output": "checkpoint_only",
             "completion_report": "not_evaluated; raw cold reinspection required",
             "executable_policy": "launcher_frozen_binary; native_metadata_does_not_hash_executable",

@@ -4,19 +4,19 @@ use super::*;
 fn permutation_requires_a_bijection_and_normalizes_identity() {
     let order = IntegralOrder::new([true, false, true], [false; 3]);
     assert!(matches!(
-        order.with_permutation([0, 1, 1]),
+        order.clone().with_permutation([0, 1, 1]),
         Err(SolverError::InvalidInput(_))
     ));
     assert!(matches!(
-        order.with_permutation([0, 1, 3]),
+        order.clone().with_permutation([0, 1, 3]),
         Err(SolverError::InvalidInput(_))
     ));
     assert!(matches!(
-        order.with_permutation([usize::MAX, 1, 2]),
+        order.clone().with_permutation([usize::MAX, 1, 2]),
         Err(SolverError::InvalidInput(_))
     ));
-    assert_eq!(order.with_permutation([0, 1, 2]).unwrap(), order);
-    let permuted = order.with_permutation([2, 0, 1]).unwrap();
+    assert_eq!(order.clone().with_permutation([0, 1, 2]).unwrap(), order);
+    let permuted = order.clone().with_permutation([2, 0, 1]).unwrap();
     assert_eq!(permuted.permutation(), Some(&[2, 0, 1]));
     assert_eq!(permuted.sector(), order.sector());
     assert_eq!(permuted.deltas(), order.deltas());
@@ -69,7 +69,7 @@ fn permutation_changes_only_final_denominator_and_numerator_ties() {
 #[test]
 fn permutation_preserves_sector_degree_and_numerator_total_priorities() {
     let order = IntegralOrder::new([true, true, false], [false; 3]);
-    let permuted = order.with_permutation([2, 1, 0]).unwrap();
+    let permuted = order.clone().with_permutation([2, 1, 0]).unwrap();
     for (hard, easy) in [
         ([1, 1, 0], [8, 0, -8]),  // denominator count
         ([1, 0, 0], [0, 9, -9]),  // original-coordinate sector lexicographic order
@@ -98,7 +98,7 @@ fn permutation_preserves_sector_degree_and_numerator_total_priorities() {
 #[test]
 fn permutation_keeps_cut_priority_in_original_coordinate_order() {
     let order = IntegralOrder::new([true, true, false], [true, true, false]);
-    let permuted = order.with_permutation([1, 0, 2]).unwrap();
+    let permuted = order.clone().with_permutation([1, 0, 2]).unwrap();
     for symbolic in [false, true] {
         let integral = |values| {
             if symbolic {
@@ -195,7 +195,7 @@ fn dynamic_orders_match_all_six_compiled_cpp_permutations() {
             }
             let (left, right) = (Integral::new(left), Integral::new(right));
             let original = IntegralOrder::new(sector, deltas);
-            let permuted = original.with_permutation(permutation).unwrap();
+            let permuted = original.clone().with_permutation(permutation).unwrap();
             let actual = byte(permuted.compare(&left, &right));
             changed += usize::from(actual != byte(original.compare(&left, &right)));
             hash = (hash ^ actual).wrapping_mul(1_099_511_628_211);

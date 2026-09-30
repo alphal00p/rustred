@@ -19,6 +19,8 @@ pub mod reduction;
 pub mod scalar_numerator;
 pub mod sector;
 pub mod solver;
+/// Runtime, Symbolica-independent integral-order descriptors and compiler.
+pub use rustred_order as order;
 pub mod tensor;
 #[cfg(test)]
 mod test_gates;

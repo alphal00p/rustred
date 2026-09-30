@@ -24,7 +24,7 @@ use super::program::{CheckedRule, CheckedSector, SectorCheck};
 use super::scope::{EntryDegreeBound, EntryScope};
 use super::{
     AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent,
-    SourcePortSectorAudit, error, geometry, sector_ordering,
+    SourcePortSectorAudit, error, geometry,
 };
 
 /// A successful exact diagnostic over a complete root-sector census. Entry
@@ -64,7 +64,7 @@ impl<const N: usize> SourcePortTotalExcessAudit<N> {
     }
 
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
 
     /// Nonzero-sector successor budgets in deterministic mask order. Zero
@@ -173,8 +173,8 @@ impl<const N: usize> SourcePortAudit<N> {
             if inputs.len() >= census_size || inputs.contains_key(&sector) {
                 return Err(error("duplicate or excessive sector in total-excess audit"));
             }
-            let incoming = sector_ordering(sector, permutation)?;
-            if ordering.is_some_and(|value| value != incoming) {
+            let incoming = super::solution_ordering(sector, permutation, &solution)?;
+            if ordering.as_ref().is_some_and(|value| value != &incoming) {
                 return Err(error(
                     "total-excess sectors have incompatible coordinate priorities",
                 ));
@@ -185,9 +185,9 @@ impl<const N: usize> SourcePortAudit<N> {
         self.validate_sector_masks(inputs.keys().copied())?;
         let ordering =
             ordering.ok_or_else(|| error("zero-only total-excess roots are unsupported"))?;
-        if !ordering.is_spired() {
+        if !ordering.is_source_port_uncut() || !ordering.has_total_excess_primary() {
             return Err(error(
-                "total-excess envelope requires the checked Spired ordering",
+                "total-excess envelope requires an uncut source order with a proved total-excess-primary degree row",
             ));
         }
         // Sector order comes from the persisted integral comparator on sector
@@ -243,7 +243,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 budget.set_rule(rule_ordinal);
                 if let Err(issue) = propagate_rule(
                     &entry,
-                    ordering,
+                    ordering.clone(),
                     sector,
                     degree,
                     rule,
@@ -326,7 +326,7 @@ fn propagate_rule<const N: usize>(
         budget.set_rhs(ordinal);
         visit_successor_degrees(
             entry,
-            ordering,
+            ordering.clone(),
             &sector,
             degree,
             &rule.application,
@@ -372,7 +372,11 @@ pub(in crate::foundry::artifact) fn visit_successor_degrees(
     mut require_destination: impl FnMut(&[bool], u64) -> Result<(), SourcePortAuditError>,
 ) -> Result<(), SourcePortAuditError> {
     let arity = sector.len();
-    if !ordering.is_spired() || shift.len() != arity || indices.len() != arity {
+    if !ordering.is_source_port_uncut()
+        || !ordering.has_total_excess_primary()
+        || shift.len() != arity
+        || indices.len() != arity
+    {
         return Err(error(
             "successor obligation requires matching arity and Spired ordering",
         ));

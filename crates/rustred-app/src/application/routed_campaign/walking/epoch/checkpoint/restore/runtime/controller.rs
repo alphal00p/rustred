@@ -6,6 +6,7 @@ use super::super::super::{
     publication, stop,
 };
 use super::Restored;
+use crate::application::routed_campaign::walking::epoch::record_store::Sidecar;
 use crate::application::routed_campaign::walking::epoch::{
     dispatch::{Dispatch, Refill},
     inspector::{
@@ -17,8 +18,6 @@ use crate::application::routed_campaign::walking::epoch::{
     snapshot::{Publication, Snapshot},
     state::EpochState,
 };
-use crate::application::routed_campaign::walking::execution::records::Sidecar;
-use serde_json::Value;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::AtomicBool;
@@ -32,6 +31,52 @@ enum Refresh<const N: usize> {
     Ready(Option<Snapshot<N>>),
     Stopped(stop::Stop),
     RamGuard,
+}
+
+enum PreparationResult<const N: usize> {
+    Ready(merge::preparation::Prepared<N>),
+    Stopped(StopReason, Option<stop::Stop>),
+}
+
+fn prepare_cut<const N: usize>(
+    engine: &merge::preparation::Engine,
+    state: &EpochState<N>,
+    checked: &merge::Checked<N>,
+    mut tick: impl FnMut() -> Option<stop::Stop>,
+) -> Result<PreparationResult<N>, Failure> {
+    let mut context = None;
+    let result = engine.prepare_observed(state, checked, || {
+        let next = tick();
+        if context.is_none() {
+            context = next;
+        }
+        context.is_some()
+    });
+    if let Err(merge::preparation::Error::Fatal(error)) = result {
+        return Err(error.into());
+    }
+    // Even if the result races cancellation, no cut is published after the
+    // coordinator has accepted an operational stop.
+    if let Some(context) = context {
+        return Ok(PreparationResult::Stopped(context.kind(), Some(context)));
+    }
+    match result {
+        Ok(prepared) => Ok(PreparationResult::Ready(prepared)),
+        Err(merge::preparation::Error::Stopped) => {
+            Ok(PreparationResult::Stopped(StopReason::Paused, None))
+        }
+        Err(merge::preparation::Error::RamGuard(_)) => {
+            Ok(PreparationResult::Stopped(StopReason::RamGuard, None))
+        }
+        Err(merge::preparation::Error::Fatal(error)) => Err(error.into()),
+    }
+}
+
+fn preparation_engine(identity: &Identity<'_>) -> io::Result<merge::preparation::Engine> {
+    identity
+        .preparation()
+        .engine()
+        .map_err(|error| io::Error::other(format!("epoch preparation startup: {error:?}")))
 }
 
 fn refresh_snapshot<const N: usize>(
@@ -104,7 +149,7 @@ impl RecordOut for Output<'_> {
     fn reserve(&mut self) -> Result<(), String> {
         Ok(())
     }
-    fn push(&mut self, record: Value) -> Result<(), String> {
+    fn push(&mut self, record: records::typed::Record) -> Result<(), String> {
         self.0.push(&record)
     }
 }
@@ -347,6 +392,7 @@ pub(super) fn run_observed<const N: usize>(
     }
     // Shape validation occurs before workers exist or any replay payload moves.
     MergeBoundary::borrow(&restored.state, &restored.dispatch, b)?;
+    let preparation = preparation_engine(identity)?;
     let outcome = execution::with(budget, authorize, inspect, |pool| {
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<Outcome, Failure> {
             if let Some(reason) = initial_stop(config, restored.roots.frontiers.len()) {
@@ -661,7 +707,38 @@ pub(super) fn run_observed<const N: usize>(
                     progress(&restored.state, &restored.dispatch, "p2", &|| {
                         pool.activity()
                     });
-                    let plan = merge::p2(&mut restored.state, &checked)?;
+                    let prepared =
+                        match prepare_cut(&preparation, &restored.state, &checked, || {
+                            progress(&restored.state, &restored.dispatch, "p2", &|| {
+                                pool.activity()
+                            });
+                            stop_requested()
+                        })? {
+                            PreparationResult::Ready(prepared) => prepared,
+                            PreparationResult::Stopped(reason, context) => {
+                                merge::discard_cut(
+                                    &mut restored.state,
+                                    &checked,
+                                    &mut |id, attempts| restored.dispatch.requeue(id, attempts),
+                                )?;
+                                pool.retire_all_returned().map_err(Failure::Engine)?;
+                                let receipt = save_observed(
+                                    restored,
+                                    identity,
+                                    b,
+                                    Some(reason),
+                                    context,
+                                    &mut |state, dispatch, phase| {
+                                        progress(state, dispatch, phase, &|| pool.activity())
+                                    },
+                                )?;
+                                on_saved(restored, &receipt, &[]);
+                                return Ok(Outcome::Stopped(reason));
+                            }
+                        };
+                    restored.state.preparation.add(&prepared.metrics);
+                    let plan = prepared.plan;
+                    plan.counters.apply_to(&mut restored.state);
                     progress(&restored.state, &restored.dispatch, "p3", &|| {
                         pool.activity()
                     });

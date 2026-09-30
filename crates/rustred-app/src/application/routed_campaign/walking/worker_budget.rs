@@ -41,11 +41,50 @@ pub(super) fn validate(
     Ok(())
 }
 
+/// Resolve the Epoch helper request as a partition of the existing budget.
+/// `None` retains the historical policy; zero is an explicit serial P2 control.
+pub(super) fn epoch_inspection(
+    workers: usize,
+    inspection: Option<usize>,
+    finite_comparison_cap: Option<usize>,
+    preparation: Option<usize>,
+) -> Result<Option<usize>, &'static str> {
+    validate(workers, inspection, finite_comparison_cap)?;
+    let Some(helpers) = preparation else {
+        return Ok(inspection);
+    };
+    let available = if workers == 1 { 1 } else { workers - 1 };
+    if helpers >= available {
+        return Err(
+            "Epoch preparation workers must leave at least one inspector within the total worker budget",
+        );
+    }
+    let inspectors = available - helpers;
+    if inspection.is_some_and(|requested| requested != inspectors) {
+        return Err(
+            "Epoch preparation and inspection workers must exactly partition the non-coordinator budget",
+        );
+    }
+    validate(workers, Some(inspectors), finite_comparison_cap)?;
+    Ok(Some(inspectors))
+}
+
 impl WorkerBudget {
     pub fn for_request(request: &OwnerDomainWalkRequest) -> Self {
+        let inspection = if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
+            epoch_inspection(
+                request.workers,
+                request.inspection_workers,
+                request.max_containment_checks,
+                request.epoch_preparation_workers,
+            )
+            .expect("validated Epoch worker partition")
+        } else {
+            request.inspection_workers
+        };
         Self::new(
             request.workers,
-            request.inspection_workers,
+            inspection,
             request.max_containment_checks,
             request.publication_policy,
         )
@@ -76,8 +115,8 @@ impl WorkerBudget {
         };
         let helpers = match inspection {
             Some(inspection) => available - inspection,
-            // Epoch S2: the coordinator runs the serial merge; every other
-            // worker inspects (merge helpers arrive with the parallel P2, S5).
+            // Epoch defaults to serial P2; helpers require an explicit
+            // preparation request or inspector partition within this budget.
             None if policy == OwnerDomainWalkPublicationPolicy::Epoch => 0,
             None if requested >= helper_threshold && finite_comparison_cap.is_none() => {
                 let half = available / 2;

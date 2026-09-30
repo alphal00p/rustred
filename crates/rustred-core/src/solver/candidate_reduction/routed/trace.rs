@@ -116,7 +116,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         let base = CandidateEvaluator {
             context: &shared.context,
             root_sector: [true; N],
-            ordering: Default::default(),
+            ordering: &Default::default(),
             rules: &[],
             source_conditions: &shared.source_conditions,
             zero_sectors: &shared.zero_sectors,
@@ -324,7 +324,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         let evaluator = CandidateEvaluator {
                             context: &shared.context,
                             root_sector: owner.root,
-                            ordering: owner.ordering,
+                            ordering: &owner.ordering,
                             rules: &batch.rules,
                             source_conditions: &shared.source_conditions,
                             zero_sectors: &shared.zero_sectors,

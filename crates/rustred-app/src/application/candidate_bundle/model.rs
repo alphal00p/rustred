@@ -5,7 +5,8 @@ pub use rustred::solver::{CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePo
 
 use crate::application::InputFormat;
 
-pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
+pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v2";
+pub(super) const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
 /// Hard ceiling for explicitly enlarged candidate ingress/output policies.
@@ -27,6 +28,8 @@ pub struct CandidateBundleInspection {
     pub status: String,
     pub family_fingerprint: String,
     pub arity: usize,
+    /// Canonical complete mathematical-order identity, not a strategy label.
+    pub integral_order: String,
     /// Saved finite-case search depth; this does not establish coverage.
     pub numerical_depth: u32,
     /// Declared generation entry scope, `sum(max(-n_i, 0)) <= R`.
@@ -187,6 +190,8 @@ pub struct FamilyCandidatesRequest {
     /// Changes may affect conservative coverage checks and search chronology.
     pub case_intersection_limits: CaseIntersectionLimits,
     pub permutation: Option<Vec<usize>>,
+    /// Shared runtime mathematical order, independent of source visitation.
+    pub integral_order: Option<rustred::order::CompiledOrder>,
     /// Finite discovery schedule, separate from persisted mathematical order.
     pub discovery_strategy: Option<super::CandidateDiscoveryStrategy>,
     pub nonpositive_indices: Vec<usize>,
@@ -209,6 +214,7 @@ impl FamilyCandidatesRequest {
             finite_case_limits: FiniteCaseLimits::default(),
             case_intersection_limits: CaseIntersectionLimits::default(),
             permutation: None,
+            integral_order: None,
             discovery_strategy: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),
@@ -335,6 +341,22 @@ impl std::ops::DerefMut for Bundle {
 
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct ProgramRecord {
+    pub schema: String,
+    pub status: String,
+    pub solver_policy: String,
+    pub family_source: String,
+    pub input_format: String,
+    pub family_fingerprint: String,
+    pub root_sector: Vec<bool>,
+    pub permutation: Option<Vec<usize>>,
+    pub integral_order: String,
+    pub sectors: Vec<SectorRecord>,
+}
+
+/// Read-only adapter for existing control-owner inputs. No missing custom
+/// order is inferred: v1 had exactly the named Spired/permutation semantics.
+#[derive(bincode::Decode)]
+pub(super) struct LegacyProgramRecord {
     pub schema: String,
     pub status: String,
     pub solver_policy: String,

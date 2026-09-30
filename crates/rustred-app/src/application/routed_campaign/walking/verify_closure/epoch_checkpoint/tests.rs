@@ -23,10 +23,10 @@ impl Fixture {
             permissions: Vec::new(),
             manifest: Manifest {
                 format: FORMAT.into(),
-                schema: 2,
+                schema: 3,
                 generation: 1,
                 arity: 1,
-                walk_semantics_version: 3,
+                walk_semantics_version: 4,
                 resumable: true,
                 files: Vec::new(),
             },
@@ -54,8 +54,10 @@ impl Fixture {
         value.section(8, 1, vec![0]);
         value.section(9, 0, vec![]);
         let empty_digest = blake3::hash(b"").to_hex().to_string();
-        let scalar = json!({"schema":3,"request":"bound-request","owner_count":0,
-            "owners_digest":blake3::hash(b"[]").as_bytes(),"walk_semantics_version":3,
+        let scalar = json!({"schema":4,"record_schema":1,
+            "preparation":{"helpers":0,"obligations":4294967295u64,"retirements":4294967295u64},
+            "request":"bound-request","owner_count":0,
+            "owners_digest":blake3::hash(b"[]").as_bytes(),"walk_semantics_version":4,
             "lockstep_b":16,"max_domains":100,"k":0,"watermark":1,"p0":1,
             "ledger_counts":[1,0,0,0,0,0,0,0],
             "walk":{"events":0,"successors":0,"conditional":0,"known_reuse":0,"job_duplicates":0,"frontiers":0,
@@ -136,14 +138,48 @@ impl Fixture {
         serde_json::from_slice(&fs::read(self.directory.join(&reference.file)).unwrap()).unwrap()
     }
     fn record(&mut self) -> PathBuf {
-        let mut bytes = serde_json::to_vec(&json!({"id":0,"record_kind":"native_inspection",
-            "phase":"apply","owner":"1","lower":[1],"upper":[1],"rank":0,
-            "power_bounds":{"max_positive_power":null,"min_power_difference":null,
-                "max_power_difference":null},"frontiers":[],"local_inspection_finished":true,
-            "seconds":0}))
-        .unwrap();
-        bytes.push(b'\n');
-        let name = "records-00000000000000000001.jsonl";
+        use crate::application::routed_campaign::walking::epoch::records::{typed::*, wire};
+        let record = Record {
+            authority: Authority {
+                id: 0,
+                merge_epoch: 1,
+                image: Image {
+                    route: false,
+                    owner: vec![true],
+                    lower: vec![1],
+                    upper: vec![1],
+                    rank: Some(0),
+                    powers: Default::default(),
+                },
+                body: Body::Native(Native {
+                    class: 0,
+                    kind: 0,
+                    v0: 0,
+                    distinct_edges: 0,
+                    self_edge: false,
+                    break_reason: 0,
+                    error_kind: 0,
+                    err_class: None,
+                    panic: false,
+                    emitted: 0,
+                    accepted: 0,
+                    stats_events: 0,
+                    has_error: false,
+                    frontiers: 0,
+                    job_duplicates: 0,
+                    known_reuse: 0,
+                    resolver: Default::default(),
+                    scope: Scope::Whole,
+                }),
+            },
+            diagnostics: Diagnostics {
+                stats_json: br#"{"events":0}"#.to_vec(),
+                ..Default::default()
+            },
+        };
+        let mut bytes = Vec::new();
+        wire::append(&record, &mut bytes).unwrap();
+        let name = "records-00000000000000000001.bin";
         let path = self.directory.join(name);
         fs::write(&path, &bytes).unwrap();
         self.replace(
@@ -392,13 +428,15 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
     let (raw, epoch, records) = read_raw::<1>(&fixture.directory).unwrap();
     // Same length, same id/tag/outdegree; only the authenticated full sidecar
     // digest can reject this otherwise benign record-field mutation.
-    let changed = String::from_utf8(original.clone())
-        .unwrap()
-        .replace("\"seconds\":0", "\"seconds\":1");
-    assert_ne!(changed.as_bytes(), original);
+    use crate::application::routed_campaign::walking::epoch::records::wire;
+    let mut record = wire::read(&mut original.as_slice()).unwrap();
+    record.diagnostics.seconds = 1.0;
+    let mut changed = Vec::new();
+    wire::append(&record, &mut changed).unwrap();
+    assert_ne!(changed, original);
     assert_eq!(changed.len(), original.len());
-    let replacement = fixture.directory.join("replacement.jsonl");
-    fs::write(&replacement, changed.as_bytes()).unwrap();
+    let replacement = fixture.directory.join("replacement.bin");
+    fs::write(&replacement, &changed).unwrap();
     fs::rename(&replacement, &path).unwrap();
     assert!(
         load_records(raw, Some(epoch), Some(records), false, &mut violations)
@@ -411,23 +449,16 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
     let (_, _, records) = read_raw::<1>(&fixture.directory).unwrap();
     let input = records[0].open(&path, 1).unwrap();
     // A path replacement after opening preserves the selected original inode.
-    fs::write(&replacement, changed.as_bytes()).unwrap();
+    fs::write(&replacement, &changed).unwrap();
     fs::rename(&replacement, &path).unwrap();
-    let lines: Vec<String> = BufReader::new(input)
-        .lines()
-        .collect::<io::Result<_>>()
-        .unwrap();
-    assert_eq!(lines.concat().as_bytes(), &original[..original.len() - 1]);
+    let mut selected = Vec::new();
+    BufReader::new(input).read_to_end(&mut selected).unwrap();
+    assert_eq!(selected, original);
 
     fs::write(&path, &original).unwrap();
     let input = records[0].open(&path, 1).unwrap();
-    fs::write(&path, changed.as_bytes()).unwrap();
-    assert!(
-        BufReader::new(input)
-            .lines()
-            .collect::<io::Result<Vec<_>>>()
-            .is_err()
-    );
+    fs::write(&path, &changed).unwrap();
+    assert!(BufReader::new(input).read_to_end(&mut Vec::new()).is_err());
     // An empty stream must also reach an authenticated EOF.
     fs::write(&path, b"").unwrap();
     let reference = RecordRef(FileRef {

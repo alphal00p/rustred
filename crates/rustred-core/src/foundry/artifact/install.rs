@@ -166,7 +166,7 @@ fn validate_generic_bindings_for(
         parent_terminals: &candidate.masters,
         zero_sectors: &candidate.zero_sectors,
         require_parent_terminals: true,
-        expected_ordering: candidate.ordering,
+        expected_ordering: candidate.ordering.clone(),
     })?;
     candidate.ordering.require_arity(candidate.arity)?;
     if candidate.supported_root_power_bounds.len() != candidate.arity

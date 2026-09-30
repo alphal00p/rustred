@@ -5,8 +5,8 @@ use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::artifact::SourcePortAudit;
 use crate::identity::ParametricIbpGenerator;
 use crate::reduction::ReductionLimits;
-use crate::sector::zero;
-use crate::solver::{Integral, SectorRule, SectorSolution, SourceSystem};
+use crate::sector::{OrderingPolicy, zero};
+use crate::solver::{Integral, IntegralOrder, SectorRule, SectorSolution, SourceSystem};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -86,15 +86,42 @@ pub(in crate::solver::candidate_reduction) struct PreparedRecords<const N: usize
     pub rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
     pub terminals: BTreeSet<IntegralKey>,
 }
+
+/// Bind solved metadata before discarding the source-port record. Concrete
+/// descent checks during application are not a substitute for preserving the
+/// mathematical order selected during generation.
+pub(in crate::solver::candidate_reduction) fn validate_solution_order<const N: usize>(
+    sector: &[bool; N],
+    ordering: &OrderingPolicy,
+    actual: &IntegralOrder<N>,
+) -> Result<(), CandidateReductionError> {
+    if actual.sector() != sector {
+        return Err(CandidateReductionError::InvalidInput(
+            "candidate solution sector differs from its declared record sector".into(),
+        ));
+    }
+    let actual = actual
+        .persisted_policy()
+        .map_err(|error| CandidateReductionError::InvalidInput(error.to_string()))?;
+    if &actual != ordering {
+        return Err(CandidateReductionError::InvalidInput(
+            "candidate solution mathematical order differs from its declared owner order".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(in crate::solver::candidate_reduction) fn prepare_records<const N: usize>(
     shared: &PreparedFamily<N>,
     records: BTreeMap<[bool; N], SectorSolution<N>>,
+    ordering: &OrderingPolicy,
     limits: ReductionLimits,
 ) -> Result<PreparedRecords<N>, CandidateReductionError> {
     let mut rules = BTreeMap::new();
     let mut terminals = BTreeSet::new();
     let mut ordinal = 0_usize;
     for (sector, solution) in records {
+        validate_solution_order(&sector, ordering, &solution.order)?;
         let (prepared, finite) = prepare_batch(
             shared,
             sector,

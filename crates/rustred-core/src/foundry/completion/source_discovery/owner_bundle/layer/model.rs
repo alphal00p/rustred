@@ -84,7 +84,7 @@ impl ClosedSectorLayer {
         self.cover.executable_cover().proof_cover().sector()
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
         self.cover.executable_cover().proof_cover().ordering()
     }
 

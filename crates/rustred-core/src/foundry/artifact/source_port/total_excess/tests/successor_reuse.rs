@@ -1,4 +1,5 @@
 use super::*;
+use crate::foundry::artifact::source_port::sector_ordering;
 
 fn compare_partition<const N: usize>(
     lower: [u64; N],
@@ -425,7 +426,7 @@ fn successor_obligations_match_old_owned_geometry_and_comparison() {
                 let mut actual = Vec::new();
                 let result = visit_successor_degrees(
                     &entry,
-                    ordering,
+                    ordering.clone(),
                     &sector,
                     3,
                     &applications,

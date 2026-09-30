@@ -194,7 +194,13 @@ fn bounded_retention_rejects_census_and_order_before_check_events() {
         [false, true, false],
         [false, false, true],
     ]);
-    let empty = || SectorSolution {
+    let empty = |sector, permutation| SectorSolution {
+        order: match permutation {
+            Some(slots) => crate::solver::IntegralOrder::new(sector, [false; 3])
+                .with_permutation(slots)
+                .unwrap(),
+            None => crate::solver::IntegralOrder::new(sector, [false; 3]),
+        },
         finite_case_policy: Default::default(),
         max_numerator_rank: None,
         rules: Vec::new(),
@@ -202,16 +208,29 @@ fn bounded_retention_rejects_census_and_order_before_check_events() {
         stats: Default::default(),
     };
     for (sectors, expected) in [
-        (vec![([true; 3], None, empty())], "does not exhaust"),
         (
-            vec![([true; 3], None, empty()), ([true; 3], None, empty())],
-            "duplicate",
+            vec![([true; 3], None, empty([true; 3], None))],
+            "does not exhaust",
         ),
-        (vec![([false; 3], None, empty())], "zero solved sector"),
         (
             vec![
-                ([true; 3], None, empty()),
-                ([true, true, false], Some([2, 1, 0]), empty()),
+                ([true; 3], None, empty([true; 3], None)),
+                ([true; 3], None, empty([true; 3], None)),
+            ],
+            "duplicate",
+        ),
+        (
+            vec![([false; 3], None, empty([false; 3], None))],
+            "zero solved sector",
+        ),
+        (
+            vec![
+                ([true; 3], None, empty([true; 3], None)),
+                (
+                    [true, true, false],
+                    Some([2, 1, 0]),
+                    empty([true, true, false], Some([2, 1, 0])),
+                ),
             ],
             "incompatible coordinate priorities",
         ),
@@ -231,7 +250,12 @@ fn bounded_retention_rejects_census_and_order_before_check_events() {
     }
     let audit =
         SourcePortAudit::try_new_with_root_sector(&family, zeros, [true, true, false]).unwrap();
-    let Err(error) = retain(audit, family, [([true; 3], None, empty())], 2) else {
+    let Err(error) = retain(
+        audit,
+        family,
+        [([true; 3], None, empty([true; 3], None))],
+        2,
+    ) else {
         panic!("out-of-root sector was retained");
     };
     assert!(error.to_string().contains("outside the entry root"));

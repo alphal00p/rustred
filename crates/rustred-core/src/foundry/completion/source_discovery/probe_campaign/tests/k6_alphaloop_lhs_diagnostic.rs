@@ -152,10 +152,10 @@ fn k6_alphaloop_lhs_domains_replay_through_regenerated_ordinary_ibps() {
         limits,
     )
     .unwrap();
-    let anchors = materialize_alpha_loop_lhs_anchors_with_ordering(ordering);
+    let anchors = materialize_alpha_loop_lhs_anchors_with_ordering(ordering.clone());
     assert_eq!(anchors.len(), RAW_DOMAIN_COUNT);
     let domains = semantic_domain_groups(&anchors);
-    let predecessor = fixture.predecessor_for_ordering(ordering);
+    let predecessor = fixture.predecessor_for_ordering(ordering.clone());
     let selected_domain = parse_optional_usize("RUSTRED_ALPHA_LHS_DOMAIN");
     let requested_start = parse_optional_usize("RUSTRED_ALPHA_LHS_START");
     let requested_limit = parse_optional_usize("RUSTRED_ALPHA_LHS_LIMIT");
@@ -189,7 +189,7 @@ fn k6_alphaloop_lhs_domains_replay_through_regenerated_ordinary_ibps() {
         let ledger = ledgers.entry(sector.clone()).or_insert_with(|| {
             fixture.new_ledger_for_sector_with_ordering_and_predecessor(
                 &sector,
-                ordering,
+                ordering.clone(),
                 &predecessor,
             )
         });

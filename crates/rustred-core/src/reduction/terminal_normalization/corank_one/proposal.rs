@@ -144,7 +144,7 @@ pub(super) fn candidate(
     family: &IntegralFamily,
     key: &IntegralKey,
     support: &Support,
-    ordering: OrderingPolicy,
+    ordering: &OrderingPolicy,
 ) -> Result<(Signature, Candidate), Error> {
     let context = family.coefficient_context();
     let mut indices: Vec<_> = (0..support.slots.len()).collect();

@@ -22,7 +22,10 @@ mod producer;
 mod resource_policy;
 mod routed_campaign;
 
-pub(crate) use routed_campaign::{DIAGNOSTIC_PAUSE_VARIABLE, guarded_limits_from_json};
+pub(crate) use routed_campaign::{
+    DIAGNOSTIC_PAUSE_VARIABLE, EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA,
+    guarded_limits_from_json,
+};
 pub use routed_campaign::{
     MAX_WALK_WORKERS, OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
     OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
@@ -51,8 +54,9 @@ pub use routed_campaign::{
 pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,
     CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
-    CandidateCertificationResult, CandidateCheckpointOptions, CandidateDiscoveryStrategy,
-    CandidateExactBackend, CandidateOwnerBundle, CandidateOwnerLoadLimits, CandidateRowFeature,
+    CandidateCertificationResult, CandidateCheckpointOptions, CandidateCoordinateGroups,
+    CandidateDegreeRow, CandidateDiscoveryStrategy, CandidateExactBackend, CandidateIntegralOrder,
+    CandidateOrderDirection, CandidateOwnerBundle, CandidateOwnerLoadLimits, CandidateRowFeature,
     CandidateRowPriority, CandidateSectorPriority, CandidateSourcePriority,
     CandidateSourceVisitPlan, CaseIntersectionLimits, FAMILY_CANDIDATES_SCHEMA,
     FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES,

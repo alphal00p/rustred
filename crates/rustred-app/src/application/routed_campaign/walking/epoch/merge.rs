@@ -1,20 +1,23 @@
-//! The serial merge of one cut (W2.0 protocol §6): P1 checks and classifies
+//! Controlled merge of one cut (W2.0 protocol §6): P1 checks and classifies
 //! every result, P2 plans (canonical in-merge resolution of every miss,
 //! the cut's antichain, reverse retirement sets with transfer tokens), P3
 //! preflights every reservation and then applies the plan without a
-//! containment decision. S2 runs P2 serially on the coordinator and has no
-//! P4 (the lookup index is maintained inside P3, IMP-13).
+//! containment decision. S5 prepares P2 against immutable state on a bounded
+//! private pool, preserves canonical folding, and publishes typed records and
+//! bulk dependency edges. `p2_plan` remains the scalar differential reference.
 use super::super::queue::{CompactDomain, CompactSummary, Domain, Query};
 use super::anchors::{
     AnchorKind, AnchorRecord, AnchorRef, AnchorScope, AnchorView, Lent, union_cover,
 };
 use super::job::{BreakReason, ErrorKind, JobResult, NativeKind, Writer, write_image};
 use super::ledger6::{EPOCH_LIMIT, Entry6, MAX_ATTEMPTS, MAX_GUARD, Transition, err_class};
+use super::records::typed::Record;
 use super::state::{EpochState, NODE_ANCHORED, NODE_INSPECTED, NODE_RESIDUAL, NODE_SEALED};
 use super::store::{LookupCounters, bucket_key};
 use super::verify::{Container, QueryImage, Verified, VerifyCounters, verify, verify_cover};
-use serde_json::Value;
 use std::collections::HashMap;
+
+pub(super) mod preparation;
 
 /// Result classes (§9.1). `C4` is a C0 result with frontiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -697,9 +700,17 @@ impl<F: FnMut(usize) -> bool> super::super::queue::Visit for Predicate<F> {
 
 impl<const N: usize> TempIndex<N> {
     fn build(members: &[u32], candidates: &[Candidate<N>]) -> Result<Self, &'static str> {
+        Self::build_controlled(members, candidates, || Ok(()))
+    }
+    fn build_controlled(
+        members: &[u32],
+        candidates: &[Candidate<N>],
+        mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Self, &'static str> {
         use super::super::queue::{Coordinates, Entry, Signature};
         let mut index = super::super::queue::AggregateIndex::default();
         for (local, &slot) in members.iter().enumerate() {
+            checkpoint()?;
             let query = &candidates[slot as usize].query;
             let coordinates = Coordinates::of(&query.core);
             let insertion = index.prepare(Signature::of(&query.core), coordinates)?;
@@ -721,6 +732,14 @@ impl<const N: usize> TempIndex<N> {
         query: &Candidate<N>,
         predicate: impl FnMut(usize) -> bool,
     ) -> Result<Option<usize>, &'static str> {
+        self.first_controlled(query, predicate, || Ok(()))
+    }
+    fn first_controlled(
+        &self,
+        query: &Candidate<N>,
+        predicate: impl FnMut(usize) -> bool,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
         use super::super::queue::{Coordinates, Probe, Signature};
         let probe = Probe::new(
             Coordinates::of(&query.q.core),
@@ -728,10 +747,11 @@ impl<const N: usize> TempIndex<N> {
             query.query.lanes,
             true,
         );
-        self.index.find_from(
+        self.index.find_controlled(
             Signature::of(&query.q.core),
             &probe,
             0,
+            checkpoint,
             &mut Predicate(predicate),
         )
     }
@@ -785,140 +805,169 @@ pub(super) fn antichain_both_ways<const N: usize>(
     )
 }
 
-/// P2 (serial in S2): canonical resolution of every miss against S_k, the
-/// order-independent antichain of the remaining misses per bucket,
-/// provisional survivor order (first parent position, ordinal), reverse sets
-/// and transfer tokens. Reads the state only (a shared borrow); its counters
-/// travel in the plan.
-pub(super) fn p2_plan<const N: usize>(
+struct CandidateBatch<const N: usize> {
+    slots_of: Vec<Vec<Result<Verified, u32>>>,
+    candidates: Vec<Candidate<N>>,
+    counters: P2Counters,
+}
+
+/// Initial resolution has no mutation or publication authority. Both the
+/// serial reference and prepared merge use this exact validation/lookup path.
+fn lookup_accounting<const N: usize>(
+    result: &JobResult<N>,
+    published_len: usize,
+    counters: &mut P2Counters,
+    mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+) -> Result<(), Fatal> {
+    if let Some(work) = &result.lookup {
+        let mut stored_hits = 0u64;
+        for chunk in result.misses.chunks(256) {
+            checkpoint().map_err(|e| fatal(format!("P2: {e}")))?;
+            stored_hits += chunk.iter().filter(|miss| miss.target.is_some()).count() as u64;
+        }
+        let hits = work
+            .lookup
+            .exact_hits
+            .checked_add(work.lookup.orthant_hits)
+            .and_then(|n| n.checked_add(work.lookup.contained_hits))
+            .ok_or_else(|| fatal("P2: inspector lookup count overflow"))?;
+        if hits.checked_add(work.lookup.misses) != Some(result.misses.len() as u64)
+            || hits != stored_hits
+            || work.lookup.reverse_candidates != 0
+            || work.lookup.reverse_tests != 0
+            || work.verify.calls != hits
+            || work.verify.accepted != hits
+            || work.verify.refused_range != 0
+            || work.verify.refused_bucket != 0
+            || work.verify.union_covers != 0
+            || work
+                .verify
+                .raw_inclusions
+                .checked_add(work.verify.recomputes)
+                != Some(hits)
+            || work.lookup.forward_tests > work.lookup.forward_candidates
+            || u128::from(work.lookup.forward_candidates)
+                > (published_len as u128) * (result.misses.len() as u128)
+        {
+            return Err(fatal("P2: inspector lookup accounting mismatch"));
+        }
+        counters.lookup.add(&work.lookup);
+        counters.verify.add(&work.verify);
+        counters.inspector.queries += result.misses.len() as u64;
+        counters.inspector.stored_hits += hits;
+        counters.inspector.seconds += work.seconds;
+    }
+    Ok(())
+}
+
+enum MissResolution<const N: usize> {
+    Stored(Verified),
+    Candidate { q: QueryImage<N>, query: Query<N> },
+}
+
+/// No authority is gained from a negative. Stored positives are independently
+/// reverified; current-view misses still check exact uniqueness, stale misses
+/// use the canonical current store. The controlled and reference paths share
+/// these checks and differ only by cooperative stop callbacks.
+fn resolve_miss<const N: usize>(
+    store: &super::store::Store<N>,
+    version: u64,
+    result: &JobResult<N>,
+    miss: &super::job::Miss<N>,
+    counters: &mut P2Counters,
+    mut checkpoint: impl FnMut() -> Result<(), &'static str>,
+) -> Result<MissResolution<N>, Fatal> {
+    checkpoint().map_err(|e| fatal(format!("P2: {e}")))?;
+    let published_len = store.len();
+    if miss.image.digest().0 != miss.digest {
+        return Err(fatal(format!(
+            "P2: {} miss {}: shipped digest differs from its image",
+            result.parent, miss.ordinal
+        )));
+    }
+    let q = QueryImage::new(miss.image).map_err(|e| fatal(format!("P2: {e}")))?;
+    if let Some(id) = miss.target {
+        if store.is_quarantined(id) {
+            return Err(fatal("P2: stored target is quarantined"));
+        }
+        let token = verify(
+            Container::Stored {
+                id,
+                domains: &store.domains,
+                published_len: result
+                    .lookup
+                    .as_ref()
+                    .map_or(published_len, |work| work.published_len as usize),
+            },
+            &q,
+            &mut counters.verify,
+        )
+        .ok_or_else(|| fatal(format!("P2: stored target {id} failed verify")))?;
+        return Ok(MissResolution::Stored(token));
+    }
+    counters.miss_requests += 1;
+    let query = Query::new(q.core.clone(), miss.image.phase());
+    if result
+        .lookup
+        .as_ref()
+        .is_some_and(|work| work.version == version && work.published_len as usize == published_len)
+    {
+        if store
+            .lookup_exact(
+                &q,
+                published_len,
+                &mut counters.lookup,
+                &mut counters.verify,
+            )
+            .map_err(|e| fatal(format!("P2: {e}")))?
+            .is_some()
+        {
+            return Err(fatal("P2: inspector miss contradicts exact image"));
+        }
+        counters.inspector.coordinator_miss_rechecks_skipped += 1;
+    } else if let Some((_, token, _)) = store
+        .lookup_controlled(
+            &q,
+            &query,
+            published_len,
+            &mut counters.lookup,
+            &mut counters.verify,
+            checkpoint,
+        )
+        .map_err(|e| fatal(format!("P2: {e}")))?
+    {
+        return Ok(MissResolution::Stored(token));
+    }
+    Ok(MissResolution::Candidate { q, query })
+}
+
+fn resolve_misses<const N: usize>(
     state: &EpochState<N>,
     checked: &Checked<N>,
-) -> Result<MergePlan<N>, Fatal> {
+) -> Result<CandidateBatch<N>, Fatal> {
     let mut counters = P2Counters::default();
-    let published_len = state.store.len();
-    // Per entry, in miss order: a resolved token, or a candidate of the cut.
-    let mut slots_of: Vec<Vec<Result<Verified, u32>>> = Vec::with_capacity(checked.entries.len());
+    let mut slots_of = Vec::with_capacity(checked.entries.len());
     let mut candidates: Vec<Candidate<N>> = Vec::new();
     let mut by_digest: HashMap<u64, Vec<u32>> = HashMap::new();
     for (position, entry) in checked.entries.iter().enumerate() {
         let mut entry_slots = Vec::new();
         if entry.class.merges() && !entry.recurring_panic {
-            if let Some(work) = &entry.result.lookup {
-                let hits = work
-                    .lookup
-                    .exact_hits
-                    .checked_add(work.lookup.orthant_hits)
-                    .and_then(|n| n.checked_add(work.lookup.contained_hits))
-                    .ok_or_else(|| fatal("P2: inspector lookup count overflow"))?;
-                if hits.checked_add(work.lookup.misses) != Some(entry.result.misses.len() as u64)
-                    || hits
-                        != entry
-                            .result
-                            .misses
-                            .iter()
-                            .filter(|miss| miss.target.is_some())
-                            .count() as u64
-                    || work.lookup.reverse_candidates != 0
-                    || work.lookup.reverse_tests != 0
-                    || work.verify.calls != hits
-                    || work.verify.accepted != hits
-                    || work.verify.refused_range != 0
-                    || work.verify.refused_bucket != 0
-                    || work.verify.union_covers != 0
-                    || work
-                        .verify
-                        .raw_inclusions
-                        .checked_add(work.verify.recomputes)
-                        != Some(hits)
-                    || work.lookup.forward_tests > work.lookup.forward_candidates
-                    || u128::from(work.lookup.forward_candidates)
-                        > (published_len as u128) * (entry.result.misses.len() as u128)
-                {
-                    return Err(fatal("P2: inspector lookup accounting mismatch"));
-                }
-                counters.lookup.add(&work.lookup);
-                counters.verify.add(&work.verify);
-                counters.inspector.queries += entry.result.misses.len() as u64;
-                counters.inspector.stored_hits += hits;
-                counters.inspector.seconds += work.seconds;
-            }
+            lookup_accounting(&entry.result, state.store.len(), &mut counters, || Ok(()))?;
             for miss in &entry.result.misses {
-                // F1 (SND-7): the digest recomputed from the shipped image.
-                if miss.image.digest().0 != miss.digest {
-                    return Err(fatal(format!(
-                        "P2: {} miss {}: shipped digest differs from its image",
-                        entry.result.parent, miss.ordinal
-                    )));
-                }
-                let q = QueryImage::new(miss.image).map_err(|e| fatal(format!("P2: {e}")))?;
-                if let Some(id) = miss.target {
-                    if state.store.is_quarantined(id) {
-                        return Err(fatal("P2: stored target is quarantined"));
+                let (q, query) = match resolve_miss(
+                    &state.store,
+                    state.k,
+                    &entry.result,
+                    miss,
+                    &mut counters,
+                    || Ok(()),
+                )? {
+                    MissResolution::Stored(token) => {
+                        entry_slots.push(Ok(token));
+                        continue;
                     }
-                    // F1 is independently re-established above, even for raw
-                    // inclusion or EMPTY queries. Only the kernel Query/index
-                    // search is skipped; a shipped summary is never trusted.
-                    // This proves containment, not canonical winner selection:
-                    // determinism comes from the unchanged worker Store::lookup
-                    // over this exact frozen view, tested against all-miss P2.
-                    let token = verify(
-                        Container::Stored {
-                            id,
-                            domains: &state.store.domains,
-                            published_len: entry
-                                .result
-                                .lookup
-                                .as_ref()
-                                .map_or(published_len, |work| work.published_len as usize),
-                        },
-                        &q,
-                        &mut counters.verify,
-                    )
-                    .ok_or_else(|| fatal(format!("P2: stored target {id} failed verify")))?;
-                    entry_slots.push(Ok(token));
-                    continue;
-                }
-                counters.miss_requests += 1;
-                let query = Query::new(q.core.clone(), miss.image.phase());
-                if entry.result.lookup.as_ref().is_some_and(|work| {
-                    work.version == state.k && work.published_len as usize == published_len
-                }) {
-                    // P1 admitted this report only for the identical lockstep
-                    // view. No store publication/retirement occurs before P3.
-                    // Keep exact uniqueness independently checked (also retired
-                    // IDs); an exact hit contradicts the shipped miss.
-                    if state
-                        .store
-                        .lookup_exact(
-                            &q,
-                            published_len,
-                            &mut counters.lookup,
-                            &mut counters.verify,
-                        )
-                        .map_err(|e| fatal(format!("P2: {e}")))?
-                        .is_some()
-                    {
-                        return Err(fatal("P2: inspector miss contradicts exact image"));
-                    }
-                    counters.inspector.coordinator_miss_rechecks_skipped += 1;
-                    // A negative is not coverage authority. It goes through the
-                    // unchanged cut antichain, reverse checks and Planned tokens.
-                    // A fabricated nonexact miss may add work/change IDs, never
-                    // discharge an obligation merely because lookup was skipped.
-                } else if let Some((_, token, _hit)) = state
-                    .store
-                    .lookup(
-                        &q,
-                        &query,
-                        published_len,
-                        &mut counters.lookup,
-                        &mut counters.verify,
-                    )
-                    .map_err(|e| fatal(format!("P2: {e}")))?
-                {
-                    entry_slots.push(Ok(token));
-                    continue;
-                }
+                    MissResolution::Candidate { q, query } => (q, query),
+                };
                 let slots = by_digest.entry(miss.digest).or_default();
                 let known = slots
                     .iter()
@@ -948,6 +997,25 @@ pub(super) fn p2_plan<const N: usize>(
         }
         slots_of.push(entry_slots);
     }
+    Ok(CandidateBatch {
+        slots_of,
+        candidates,
+        counters,
+    })
+}
+
+/// Serial P2 reference: canonical resolution, the per-bucket antichain,
+/// first-occurrence survivor order and minimum-position reverse transfers.
+/// Reads the state only; counters travel in the returned plan.
+pub(super) fn p2_plan<const N: usize>(
+    state: &EpochState<N>,
+    checked: &Checked<N>,
+) -> Result<MergePlan<N>, Fatal> {
+    let CandidateBatch {
+        slots_of,
+        candidates,
+        mut counters,
+    } = resolve_misses(state, checked)?;
     // Antichain per bucket (§6.3 step 4): a candidate survives iff no other
     // candidate contains it strictly or equivalently with a smaller key.
     let mut buckets: HashMap<(u8, u32), Vec<u32>> = HashMap::new();
@@ -1095,7 +1163,7 @@ pub(super) struct Applied {
 /// Records produced by P3 (merge order).
 pub(super) trait RecordOut {
     fn reserve(&mut self) -> Result<(), String>;
-    fn push(&mut self, record: Value) -> Result<(), String>;
+    fn push(&mut self, record: Record) -> Result<(), String>;
 }
 
 /// The record builder P3 calls (records.rs), kept behind a trait object so
@@ -1109,7 +1177,7 @@ pub(super) trait RecordBuilder<const N: usize> {
         merge_epoch: u64,
         distinct_edges: u32,
         self_edge: bool,
-    ) -> Result<Value, String>;
+    ) -> Result<Record, String>;
     fn alias(
         &self,
         id: u32,
@@ -1117,7 +1185,7 @@ pub(super) trait RecordBuilder<const N: usize> {
         to: u32,
         merge_epoch: u64,
         exhausted: bool,
-    ) -> Value;
+    ) -> Record;
 }
 
 /// The preflight's reservation steps, in order (the test seam fails one).
@@ -1268,6 +1336,17 @@ pub(super) fn p3_apply<const N: usize>(
         }
     }
     state.tracker.discovered(watermark as usize);
+    // Optional observation graph: reserve the cut's upper-bound edge payload
+    // once. Allocation failure disables monitoring, never discharges work.
+    let tracker_edges = plan.targets.iter().map(Vec::len).sum::<usize>()
+        + checked
+            .entries
+            .iter()
+            .filter_map(|e| e.anchors.as_ref())
+            .map(|a| a.tokens.len())
+            .sum::<usize>()
+        + plan.transfers.len();
+    state.tracker.reserve_edge_batch(tracker_edges);
     // Step 2: transfers (ascending old ID).
     for (old, token) in &plan.transfers {
         let old = *old;
@@ -1306,8 +1385,9 @@ pub(super) fn p3_apply<const N: usize>(
             .ledger
             .apply(old, transition)
             .map_err(|e| fatal(format!("P3: {e}")))?;
-        state.tracker.edge(old as usize, to as usize);
-        state.tracker.finish(old as usize, false, true);
+        state
+            .tracker
+            .finish_with_sorted_targets(old as usize, &[to], false, true);
         state.nodes[old as usize] |= NODE_SEALED;
         let image = state.store.domains[old as usize];
         records
@@ -1372,11 +1452,10 @@ pub(super) fn p3_apply<const N: usize>(
             .edges
             .append_run(parent, &targets, state.is_sealed(parent))
             .map_err(|e| fatal(format!("P3: {e}")))?;
-        for &target in &targets {
-            state.tracker.edge(parent as usize, target as usize);
-        }
         let inspected = matches!(entry.class, Class::C0 | Class::C4) && !abandoned;
-        state.tracker.finish(parent as usize, inspected, sealed);
+        state
+            .tracker
+            .finish_with_sorted_targets(parent as usize, &targets, inspected, sealed);
         let anchor_kind = entry.anchor_kind();
         let transition = if abandoned {
             Transition::T13Abandon { epoch: merge_epoch }

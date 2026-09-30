@@ -1,4 +1,4 @@
-//! Publication policy `epoch`: walk semantics 3 (W2.0 protocol, stage S2).
+//! Publication policy `epoch`: walk semantics4 (W2.0 protocol plus S5).
 //!
 //! Inspectors run whole native inspections with the unchanged visitor; one
 //! coordinator merges finished inspections in bulk and stays the only
@@ -7,9 +7,10 @@
 //! worker count; all results merged in one cut in ascending parent ID;
 //! diagnostic seam `RUSTRED_EPOCH_LOCKSTEP_B`), every successor resolved in
 //! the merge through the
-//! kernel lane's ID-ordered index (canonical min-ID semantics), serial P1-P3,
+//! kernel lane's ID-ordered index (canonical min-ID semantics), serial P1/P3,
 //! closure through the legacy Tracker with forced refreshes only, typed
-//! records in their JSON view. Checkpointed public runs use the S3 durable
+//! records in binary with an explicit diagnostic JSON view. P2 prepares
+//! immutable buckets on reserved helpers. Checkpointed public runs use durable
 //! lifecycle; checkpoint-free Memory runs retain the S2 full-result path.
 //! Snapshot lookup is an explicit checkpoint-only comparison mode pending gates.
 //! Soundness rests on the invariants S1-S7 of the protocol:
@@ -29,7 +30,8 @@ mod inspector;
 mod job;
 mod ledger6;
 mod merge;
-mod records;
+pub(super) mod record_store;
+pub(super) mod records;
 mod rescue;
 mod resolve;
 mod snapshot;
@@ -40,7 +42,7 @@ mod tests;
 mod verify;
 
 use super::super::{RoutedCampaignRequest, input, matching, prepare};
-use super::execution::records::{Annotations, RecordSink, Sidecar, Streamed};
+use super::execution::records::Annotations;
 use super::initial_overlap::InitialOverlapIndex;
 use super::queue::{CompactDomain, Domain, Query};
 use super::worker_budget::WorkerBudget;
@@ -52,6 +54,7 @@ use crate::AppError;
 use dispatch::{Dispatch, Refill};
 use ledger6::Tag;
 use merge::{Fatal, MergeConfig, RecordOut, StopReason};
+use record_store::{RecordSink, Sidecar, Streamed};
 use serde_json::{Value, json};
 use state::EpochState;
 use std::sync::Arc;
@@ -59,8 +62,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use verify::QueryImage;
 
+pub(crate) use checkpoint::{EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA};
 /// Walk semantics of the epoch policy (the legacy policies stay at 1).
-pub const EPOCH_WALK_SEMANTICS_VERSION: u32 = 3;
+pub const EPOCH_WALK_SEMANTICS_VERSION: u32 = 4;
 /// Lockstep epoch size B: a constant, independent of the worker count, so
 /// that results are byte-identical across widths (IMP-11). The protocol
 /// proposed 64; S2 uses 16 [M, fable51_w2_s2_2026-09-28.md §4]: the combined
@@ -164,7 +168,7 @@ pub(super) fn admit(request: &OwnerDomainWalkRequest) -> Result<(), AppError> {
         OwnerDomainWalkSchedulingPolicy::TransferUnreserved { .. }
     ) {
         return Err(AppError::input(
-            "epoch publication requires TransferUnreserved scheduling (transfers are part of semantics 3; the lookahead is unused)",
+            "epoch publication requires TransferUnreserved scheduling (transfers are part of Epoch semantics; the lookahead is unused)",
         ));
     }
     if request
@@ -223,7 +227,7 @@ impl RecordOut for Sink<'_> {
     fn reserve(&mut self) -> Result<(), String> {
         self.0.reserve_one()
     }
-    fn push(&mut self, record: Value) -> Result<(), String> {
+    fn push(&mut self, record: records::typed::Record) -> Result<(), String> {
         self.0.push(record)
     }
 }
@@ -595,6 +599,17 @@ pub(super) fn run<const N: usize>(
     let mut heartbeat = Instant::now();
     // Wall seconds per phase (indications only; never an input).
     let mut timing = [0f64; 5];
+    let (obligations, retirements) = request
+        .epoch_preparation_limits()
+        .map_err(AppError::input)?;
+    let preparation = merge::preparation::Engine::new(
+        budget.helpers,
+        merge::preparation::Limits {
+            obligations,
+            retirements,
+        },
+    )
+    .map_err(|e| AppError::input(format!("epoch preparation startup: {e:?}")))?;
     let outcome: Result<End, Fatal> = if let Some(stop) = admission_stop {
         // A failed initial admission never becomes a walk over its prefix.
         stop.map(End::Stopped)
@@ -638,7 +653,22 @@ pub(super) fn run<const N: usize>(
                             return Ok(Some(End::Stopped(stop)));
                         }
                         let clock = Instant::now();
-                        let plan = merge::p2(&mut state, &checked)?;
+                        let prepared = match preparation.prepare_observed(&state, &checked,
+                            || cancellation.load(Ordering::Acquire)) {
+                            Ok(prepared) => prepared,
+                            Err(error) => {
+                                let stop = match error {
+                                    merge::preparation::Error::Fatal(error) => return Err(error),
+                                    merge::preparation::Error::Stopped => StopReason::Paused,
+                                    merge::preparation::Error::RamGuard(_) => StopReason::RamGuard,
+                                };
+                                merge::discard_cut(&mut state, &checked, &mut |id, a| dispatch.requeue(id, a))?;
+                                return Ok(Some(End::Stopped(stop)));
+                            }
+                        };
+                        state.preparation.add(&prepared.metrics);
+                        let plan = prepared.plan;
+                        plan.counters.apply_to(&mut state);
                         timing[2] += clock.elapsed().as_secs_f64();
                         let clock = Instant::now();
                         if let Err(stop) =
@@ -918,7 +948,12 @@ fn finish<const N: usize>(
         document["partial_inspection_policy"] =
             json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
     }
-    document["epoch"] = json!({"stage":"S2","schedule":{"kind":"lockstep","depth":1,"b":parts.lockstep,
+    document["epoch"] = json!({"stage":"S5","preparation":state.preparation,
+        "preparation_configuration":{"helpers":parts.budget.helpers,
+            "obligations":request.epoch_preparation_limits().expect("validated").0,
+            "retirements":request.epoch_preparation_limits().expect("validated").1},
+        "preparation_scope":"invocation-local accepted P2 plans; includes later P3 capacity refusal",
+        "schedule":{"kind":"lockstep","depth":1,"b":parts.lockstep,
             "b_default":LOCKSTEP_B,"b_override":parts.lockstep != LOCKSTEP_B,
             "b_semantics":"identity holds for a fixed B; B changes the walk (identity key = request and B)"},
         "resolution":"canonical_in_merge","k":state.k,"watermark":state.watermark(),"p0":state.p0,
@@ -944,7 +979,12 @@ fn finish<const N: usize>(
             "p2_seconds":parts.timing[2],"p3_seconds":parts.timing[3],
             "scope":"coordinator wall per phase, summed over merges (indication only)"}});
     let records = match sink {
-        RecordSink::Memory(mut rows) => {
+        RecordSink::Memory(rows) => {
+            let mut rows = rows
+                .iter()
+                .map(records::typed::Record::project)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(AppError::input)?;
             let annotations = Annotations::new(Some(resolutions), &state.tracker);
             for row in &mut rows {
                 annotations.apply(row);
@@ -988,7 +1028,10 @@ fn finish<const N: usize>(
             .map_err(AppError::input)?;
             document["domains"] = Value::Null;
             let annotations = Annotations::new(Some(resolutions), &state.tracker);
-            OwnerDomainWalkRecords(Some(Streamed::new(sidecar, annotations)))
+            OwnerDomainWalkRecords(Some(super::RecordSource::Epoch(Streamed::new(
+                sidecar,
+                annotations,
+            ))))
         }
     };
     if let Some(metadata) = checkpoint_meta {

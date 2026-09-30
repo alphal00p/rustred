@@ -252,13 +252,23 @@ class SyntheticWalkAuditTests(unittest.TestCase):
             run = build_run(Path(temporary), "epoch", mutate=mutate, order=order)
             result = json.loads((run / "result.json").read_text())
             (Path(temporary) / "checkpoint" / "epoch-export.json").write_text(json.dumps({
-                "format": "RUSTRED-EPOCH-EXPORT", "resumable": False, "walk_semantics_version": 3,
+                "format": "RUSTRED-EPOCH-EXPORT", "schema": 1, "resumable": False, "walk_semantics_version": 3,
                 "metadata": result["checkpoint"]}))
             return run
         with tempfile.TemporaryDirectory() as temporary:
             report = AUDIT.audit_walk(epoch_run(temporary, order=[1, 0, 3, 2, 5, 4]))
             self.assertEqual(report["violations"], [])
             self.assertEqual(report["publication_policy"], "epoch")
+        for schema, semantics, valid in ((2, 4, True), (2, 3, False), (1, 4, False),
+                                         (True, 3, False), (2, True, False), (9, 4, False)):
+            with self.subTest(schema=schema, semantics=semantics), tempfile.TemporaryDirectory() as temporary:
+                run = epoch_run(temporary)
+                path = Path(temporary) / "checkpoint" / "epoch-export.json"
+                manifest = json.loads(path.read_text())
+                manifest.update(schema=schema, walk_semantics_version=semantics)
+                path.write_text(json.dumps(manifest))
+                report = AUDIT.audit_walk(run)
+                self.assertEqual(report["violations"] == [], valid, report)
         for fragment, edit in (
             ("epoch pool merged_inspections", lambda top: top["parallel"].update(merged_inspections=4)),
             ("lacks accepted_events", lambda top: top["domains"][0].pop("accepted_events")),

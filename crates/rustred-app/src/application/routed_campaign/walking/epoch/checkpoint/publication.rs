@@ -1,7 +1,7 @@
 //! Atomic CP6 publication. Resumable denotes the supported validated restore
 //! format, never independent cold verification of this freshly saved state.
-use super::super::super::execution::records::Sidecar;
 use super::super::ledger6::Tag;
+use super::super::record_store::Sidecar;
 use super::metadata::Inputs;
 use super::{Digest, MergeBoundary, Observed, Section, Stream, invalid};
 use crate::application::atomic_file::write_file_atomically_with;
@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
-pub(super) const FORMAT: &str = "RUSTRED-WALK-CP6";
-pub(super) const SCHEMA: u32 = 2;
+pub(crate) const FORMAT: &str = "RUSTRED-WALK-CP6";
+pub(crate) const SCHEMA: u32 = 3;
 pub(super) const LATEST: &str = "latest.json";
 pub(super) const PREVIOUS: &str = "previous.json";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -189,7 +189,7 @@ impl Store {
                 .filter(|rest| rest.as_bytes().get(20) == Some(&b'-'))
                 .or_else(|| {
                     name.strip_prefix("records-")
-                        .filter(|rest| rest.get(20..) == Some(".jsonl"))
+                        .filter(|rest| rest.get(20..) == Some(".bin"))
                 })
                 .and_then(|rest| rest.get(..20));
             if let Some(digits) = digits.filter(|text| text.bytes().all(|b| b.is_ascii_digit())) {

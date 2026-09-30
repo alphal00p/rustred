@@ -17,6 +17,8 @@ impl<const N: usize> CandidateReducer<N> {
     /// admission is the same unit-mass vacuum shape check as publication, but
     /// this constructor does NOT perform original-source replay or cover proof.
     /// `finite_residuals` must contain only concrete fixed integral keys.
+    /// Every solution must carry the supplied sector and exact persisted order;
+    /// applying rules under an unrelated comparator is rejected at admission.
     pub fn try_new(
         family: &IntegralFamily,
         root_sector: [bool; N],
@@ -116,7 +118,7 @@ impl<const N: usize> CandidateReducer<N> {
             }
         }
         let shared::PreparedRecords { rules, terminals } =
-            shared::prepare_records(&shared, records, limits)?;
+            shared::prepare_records(&shared, records, &ordering, limits)?;
         let shared::PreparedFamily {
             context,
             source_conditions,

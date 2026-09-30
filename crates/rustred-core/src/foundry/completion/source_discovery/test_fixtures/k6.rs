@@ -134,7 +134,7 @@ impl OracleDisabledK6Fixture {
     /// it makes no claim that the surrounding positive-dimensional sector is
     /// closed.
     pub(crate) fn new_ledger_for_sector(&self, sector: &Mask) -> CanonicalExactOwnerLedger {
-        self.new_ledger_for_sector_with_ordering(sector, self.ordering)
+        self.new_ledger_for_sector_with_ordering(sector, self.ordering.clone())
     }
 
     pub(crate) fn new_ledger_for_sector_with_ordering(
@@ -288,7 +288,7 @@ impl OracleDisabledK6Fixture {
             task.target_shift().clone(),
             anchor,
             self.predecessor.clone(),
-            self.ordering,
+            self.ordering.clone(),
             [probe],
             limits,
         )

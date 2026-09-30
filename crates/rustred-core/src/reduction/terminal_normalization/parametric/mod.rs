@@ -61,7 +61,7 @@ impl TerminalAliasPlan {
         let mut plan = Self {
             family_fingerprint: family.fingerprint_owner(),
             arity: family.denominator_count(),
-            ordering,
+            ordering: ordering.clone(),
             raw: raw.clone(),
             canonical: raw.clone(),
             aliases: BTreeMap::new(),

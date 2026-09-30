@@ -209,8 +209,8 @@ pub(super) struct AutonomousK6SearchProgram {
 }
 
 impl AutonomousK6SearchProgram {
-    pub(super) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(super) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(super) const fn priority(&self) -> &CoordinatePriority {
@@ -579,7 +579,7 @@ fn try_select_uncached(
                 })
         })?;
     for candidate in &mut candidates {
-        let predecessor = k6_root_predecessor_for_ordering(candidate.ordering)?;
+        let predecessor = k6_root_predecessor_for_ordering(candidate.ordering.clone())?;
         require_authenticated_k6_symmetry(&predecessor)?;
         let mut geometries = Vec::new();
         geometries
@@ -590,7 +590,7 @@ fn try_select_uncached(
                 inputs,
                 screen.representative,
                 predecessor.clone(),
-                candidate.ordering,
+                candidate.ordering.clone(),
             )?;
             if ledger.snapshot().status().is_compiler_closed() {
                 return Err(invariant(
@@ -604,7 +604,7 @@ fn try_select_uncached(
             )?);
         }
         let (target_orders, sector_structural, structural) =
-            try_structural_program(&screens, &geometries, candidate.ordering)?;
+            try_structural_program(&screens, &geometries, candidate.ordering.clone())?;
         let replacement_cells = target_orders.iter().try_fold(0usize, |count, targets| {
             count
                 .checked_add(targets.len())
@@ -786,7 +786,7 @@ fn enumerate_all_priorities(
         let ordering =
             OrderingPolicy::try_with_coordinate_priority(&priority).map_err(selection_setup)?;
         let (target_orders, sector_structural, structural) =
-            try_structural_program_natural(screens, ordering)?;
+            try_structural_program_natural(screens, ordering.clone())?;
         candidates.push(PriorityCandidate {
             priority,
             ordering,
@@ -989,7 +989,8 @@ fn try_structural_program_iter<'a>(
         .map_err(|_| allocation("structural sector scores", screens.len()))?;
     let mut aggregate = StructuralScore::default();
     for (screen, geometry) in screens.iter().zip(geometries) {
-        let (target_order, score) = try_structural_score(&screen.frame, geometry, ordering)?;
+        let (target_order, score) =
+            try_structural_score(&screen.frame, geometry, ordering.clone())?;
         aggregate.distinct_leading_targets = aggregate
             .distinct_leading_targets
             .checked_add(score.distinct_leading_targets)
@@ -1166,7 +1167,7 @@ fn try_new_screen_ledger(
     representative: [i64; K6_ARITY],
     ordering: OrderingPolicy,
 ) -> Result<CanonicalExactOwnerLedger, FoundryCampaignError> {
-    let predecessor = k6_root_predecessor_for_ordering(ordering)?;
+    let predecessor = k6_root_predecessor_for_ordering(ordering.clone())?;
     try_new_screen_ledger_against_predecessor(inputs, representative, predecessor, ordering)
 }
 

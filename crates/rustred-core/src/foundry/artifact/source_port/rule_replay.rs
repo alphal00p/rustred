@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy};
+use crate::sector::{Mask, OrderingPolicy};
 use crate::solver::{SectorConfig, SectorSolution, SectorSolver};
 
 use super::{SourcePortAudit, SourcePortAuditError, error, geometry, replay};
@@ -111,33 +111,16 @@ impl<const N: usize> SourcePortAudit<N> {
             return Err(error("a rule-replay sector was also declared zero"));
         }
 
-        let ordering = match permutation {
-            None => OrderingPolicy::SpiredUncutV1,
-            Some(slots) => {
-                crate::solver::IntegralOrder::new(sector, [false; N])
-                    .with_permutation(slots)
-                    .map_err(error)?;
-                let mut ranks = [0; N];
-                for (rank, slot) in slots.into_iter().enumerate() {
-                    ranks[slot] = rank;
-                }
-                let priority =
-                    CoordinatePriority::try_new(N, &ranks, CoordinatePriorityLimits::default())
-                        .map_err(error)?;
-                OrderingPolicy::try_spired_with_coordinate_priority(&priority).map_err(error)?
-            }
-        };
+        let ordering = super::solution_ordering(sector, permutation, solution)?;
         let config = SectorConfig {
             permutation,
+            integral_order: solution.order.program().cloned(),
             zero_sectors: self.zero_sectors.clone(),
             ..SectorConfig::default()
         };
         let (solver, preconditioner) =
             SectorSolver::new_with_provenance(&self.sources, sector, config).map_err(error)?;
-        let mut order = crate::solver::IntegralOrder::new(sector, [false; N]);
-        if let Some(slots) = permutation {
-            order = order.with_permutation(slots).map_err(error)?;
-        }
+        let order = &solution.order;
 
         let mut rules = Vec::new();
         rules

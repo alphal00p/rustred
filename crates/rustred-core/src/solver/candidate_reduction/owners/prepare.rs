@@ -75,6 +75,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             let mut prepared = prepare_records(
                 &context.shared,
                 BTreeMap::from([(input.sector, input.solution)]),
+                &input.ordering,
                 context.limits,
             )?;
             let rules = prepared

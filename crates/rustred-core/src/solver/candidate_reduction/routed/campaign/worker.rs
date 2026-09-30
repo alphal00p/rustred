@@ -8,11 +8,13 @@ use crate::solver::candidate_reduction::owners::OwnerStep;
 pub(super) fn base<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
 ) -> CandidateEvaluator<'_, N> {
+    static ENTRY_ORDER: crate::sector::OrderingPolicy =
+        crate::sector::OrderingPolicy::RustRedUnshiftedV1;
     let shared = &reducer.programs.context.shared;
     CandidateEvaluator {
         context: &shared.context,
         root_sector: [true; N],
-        ordering: Default::default(),
+        ordering: &ENTRY_ORDER,
         rules: &[],
         source_conditions: &shared.source_conditions,
         zero_sectors: &shared.zero_sectors,
@@ -173,7 +175,7 @@ fn process<const N: usize>(
                 let evaluator = CandidateEvaluator {
                     context: &context.context,
                     root_sector: owner.root,
-                    ordering: owner.ordering,
+                    ordering: &owner.ordering,
                     rules: &batch.rules,
                     source_conditions: &context.source_conditions,
                     zero_sectors: &context.zero_sectors,

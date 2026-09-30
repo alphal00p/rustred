@@ -7,6 +7,7 @@ mod frontier_policy;
 mod g2_rescue;
 mod guarded_apply;
 mod index_admission;
+mod observer_boundary;
 mod owner_batches;
 mod power_domains;
 mod record_sidecar;
@@ -399,6 +400,7 @@ powers=[1,1,0]
     let mut generation = FamilyCandidatesRequest::new(source);
     generation.max_numerator_rank = Some(2);
     let solution = SectorSolution::<3> {
+        order: rustred::solver::IntegralOrder::new([true, true, false], [false; 3]),
         max_numerator_rank: Some(2),
         finite_case_policy: generation.finite_case_policy,
         rules,
@@ -801,6 +803,7 @@ powers=[1,1,0]
             });
         }
         let solution = SectorSolution::<3> {
+            order: rustred::solver::IntegralOrder::new(sector, [false; 3]),
             max_numerator_rank: Some(4),
             finite_case_policy: generation.finite_case_policy,
             rules,

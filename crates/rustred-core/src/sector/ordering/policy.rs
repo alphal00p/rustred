@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::sector::error::{Error, try_copy_string};
 
@@ -10,20 +11,23 @@ pub(crate) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector
 const COORDINATE_PRIORITY_ORDER_V1_PREFIX: &str = "rustred.unshifted-sector-order.v1;priority=";
 const SPIRED_UNCUT_ORDER_V1_ID: &str = "rustred.spired-uncut-sector-order.v1";
 const SPIRED_PRIORITY_ORDER_V1_PREFIX: &str = "rustred.spired-uncut-sector-order.v1;priority=";
+const PROGRAMMED_UNCUT_ORDER_V1_PREFIX: &str = "rustred.programmed-uncut-sector-order.v1;data=";
 #[cfg(test)]
 const TEST_ONLY_DISTINCT_ORDER_ID: &str = "rustred.test-only-distinct-sector-order";
 
 /// The largest permutation that has an injective factorial-rank encoding in
 /// one `u128`. Since `34! < 2^128 < 35!`, this covers every family through
 /// the anticipated six-loop `K=21` pressure target without putting a heap
-/// allocation inside the pervasive, copyable ordering policy.
+/// allocation for these legacy coordinate-priority variants. Programmed
+/// orders instead share an immutable descriptor and have no packed-arity cap.
 pub const MAX_PACKED_ORDERING_PRIORITY_ARITY: usize = 34;
 
-/// Fixed upper bound for the canonical identity of a packed ordering policy.
+/// Fixed upper bound for the canonical identity of a legacy packed policy.
 ///
 /// The longest supported identity is the coordinate-priority identity at
 /// arity 34 and occupies fewer than 256 bytes. Keeping the representation on
-/// the stack makes identity rendering infallible and allocation-free.
+/// the stack makes its identity rendering infallible and allocation-free.
+/// Programmed policies borrow their cached, separately bounded identity.
 const ORDERING_POLICY_STABLE_ID_CAPACITY: usize = 256;
 
 /// Persisted choice of integral-ordering semantics.
@@ -32,7 +36,7 @@ const ORDERING_POLICY_STABLE_ID_CAPACITY: usize = 256;
 /// priority, not its aggregate ordering. `rank_by_slot[slot] == 0` means
 /// that slot is compared first. Its permutation is retained injectively as a
 /// factorial rank and rendered back into a full-vector semantic identity.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OrderingPolicy {
     #[default]
     RustRedUnshiftedV1,
@@ -44,11 +48,44 @@ pub enum OrderingPolicy {
     /// well-founded. This variant does not encode cut-index priorities.
     SpiredUncutV1,
     SpiredUncutCoordinatePriorityV1(CoordinatePriorityOrderingV1),
+    /// One immutable validated runtime program. Concrete, symbolic and shift
+    /// comparisons all consume this payload; it is not a discovery-only hint.
+    ProgrammedUncutV1(Arc<ProgrammedOrdering>),
     /// Test-only distinct identity with the same arithmetic order. It exists
     /// solely to exercise exact owner-ordering rejection and cannot enter a
     /// production build or persisted artifact.
     #[cfg(test)]
     TestOnlyDistinct,
+}
+
+/// Cached canonical metadata belongs to the same shared payload as its order.
+/// Identity is content-based; no process-local interning handle is persisted.
+#[derive(Debug)]
+pub struct ProgrammedOrdering {
+    compiled: rustred_order::CompiledOrder,
+    stable_id: Box<str>,
+}
+
+impl PartialEq for ProgrammedOrdering {
+    fn eq(&self, other: &Self) -> bool {
+        self.compiled == other.compiled
+    }
+}
+impl Eq for ProgrammedOrdering {}
+impl PartialOrd for ProgrammedOrdering {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ProgrammedOrdering {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.compiled.cmp(&other.compiled)
+    }
+}
+impl std::hash::Hash for ProgrammedOrdering {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.compiled, state);
+    }
 }
 
 /// Validated packed payload of the coordinate-priority v1 ordering.
@@ -63,14 +100,57 @@ pub struct CoordinatePriorityOrderingV1 {
 }
 
 impl OrderingPolicy {
+    pub fn try_programmed(compiled: rustred_order::CompiledOrder) -> Result<Self, Error> {
+        let length = compiled
+            .canonical_bytes()
+            .len()
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(PROGRAMMED_UNCUT_ORDER_V1_PREFIX.len()))
+            .ok_or(Error::OrderProgram(rustred_order::Error::DimensionOverflow))?;
+        let mut id = String::new();
+        id.try_reserve_exact(length)
+            .map_err(|_| Error::AllocationFailure {
+                resource: "programmable order identity",
+                requested: length,
+            })?;
+        id.push_str(PROGRAMMED_UNCUT_ORDER_V1_PREFIX);
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for &byte in compiled.canonical_bytes() {
+            id.push(char::from(HEX[usize::from(byte >> 4)]));
+            id.push(char::from(HEX[usize::from(byte & 15)]));
+        }
+        Ok(Self::ProgrammedUncutV1(Arc::new(ProgrammedOrdering {
+            compiled,
+            stable_id: id.into_boxed_str(),
+        })))
+    }
+
+    pub fn program(&self) -> Option<&rustred_order::CompiledOrder> {
+        match self {
+            Self::ProgrammedUncutV1(payload) => Some(&payload.compiled),
+            _ => None,
+        }
+    }
+
+    /// Solver/source-port capability is distinct from a total-excess envelope.
+    pub fn is_source_port_uncut(&self) -> bool {
+        self.is_spired() || self.program().is_some()
+    }
+
+    pub fn has_total_excess_primary(&self) -> bool {
+        self.program()
+            .map_or(true, |program| program.has_total_excess_primary())
+    }
+
     /// Static identity for policies whose schema contains no payload.
     /// Payload-bearing policies use [`Self::stable_id`] instead.
-    pub const fn static_stable_id(self) -> Option<&'static str> {
+    pub const fn static_stable_id(&self) -> Option<&'static str> {
         match self {
             Self::RustRedUnshiftedV1 => Some(RUSTRED_UNSHIFTED_ORDER_V1_ID),
             Self::SpiredUncutV1 => Some(SPIRED_UNCUT_ORDER_V1_ID),
             Self::RustRedUnshiftedCoordinatePriorityV1(_)
-            | Self::SpiredUncutCoordinatePriorityV1(_) => None,
+            | Self::SpiredUncutCoordinatePriorityV1(_)
+            | Self::ProgrammedUncutV1(_) => None,
             #[cfg(test)]
             Self::TestOnlyDistinct => Some(TEST_ONLY_DISTINCT_ORDER_ID),
         }
@@ -115,7 +195,7 @@ impl OrderingPolicy {
         }
     }
 
-    pub(crate) const fn is_spired(self) -> bool {
+    pub(crate) const fn is_spired(&self) -> bool {
         matches!(
             self,
             Self::SpiredUncutV1 | Self::SpiredUncutCoordinatePriorityV1(_)
@@ -123,6 +203,35 @@ impl OrderingPolicy {
     }
 
     pub fn try_from_stable_id(id: &str) -> Result<Self, Error> {
+        if let Some(hex) = id.strip_prefix(PROGRAMMED_UNCUT_ORDER_V1_PREFIX) {
+            let limits = rustred_order::Limits::default();
+            if hex.len() % 2 != 0 || hex.len() / 2 > limits.max_encoded_bytes {
+                return Err(Error::OrderProgram(rustred_order::Error::InvalidEncoding));
+            }
+            let mut bytes = Vec::new();
+            bytes
+                .try_reserve_exact(hex.len() / 2)
+                .map_err(|_| Error::AllocationFailure {
+                    resource: "programmable order identity",
+                    requested: hex.len() / 2,
+                })?;
+            let digit = |value| match value {
+                b'0'..=b'9' => Some(value - b'0'),
+                b'a'..=b'f' => Some(value - b'a' + 10),
+                _ => None,
+            };
+            for pair in hex.as_bytes().chunks_exact(2) {
+                let a = digit(pair[0])
+                    .ok_or(Error::OrderProgram(rustred_order::Error::InvalidEncoding))?;
+                let b = digit(pair[1])
+                    .ok_or(Error::OrderProgram(rustred_order::Error::InvalidEncoding))?;
+                bytes.push((a << 4) | b);
+            }
+            return Self::try_programmed(
+                rustred_order::CompiledOrder::from_canonical_bytes(&bytes, limits)
+                    .map_err(Error::OrderProgram)?,
+            );
+        }
         if id == RUSTRED_UNSHIFTED_ORDER_V1_ID {
             return Ok(Self::RustRedUnshiftedV1);
         }
@@ -161,11 +270,19 @@ impl OrderingPolicy {
     }
 
     /// Render the exact canonical semantic identity without allocating.
-    pub fn stable_id(self) -> OrderingPolicyStableId {
+    pub fn stable_id(&self) -> OrderingPolicyStableId<'_> {
+        if let Self::ProgrammedUncutV1(payload) = self {
+            return OrderingPolicyStableId {
+                bytes: [0; ORDERING_POLICY_STABLE_ID_CAPACITY],
+                len: 0,
+                borrowed: Some(&payload.stable_id),
+            };
+        }
         let mut id = OrderingPolicyStableId::new();
         match self {
             Self::RustRedUnshiftedV1 => id.push_str(RUSTRED_UNSHIFTED_ORDER_V1_ID),
             Self::SpiredUncutV1 => id.push_str(SPIRED_UNCUT_ORDER_V1_ID),
+            Self::ProgrammedUncutV1(_) => unreachable!("handled shared program identity"),
             Self::RustRedUnshiftedCoordinatePriorityV1(_)
             | Self::SpiredUncutCoordinatePriorityV1(_) => {
                 id.push_str(if self.is_spired() {
@@ -192,7 +309,10 @@ impl OrderingPolicy {
 
     /// Return the exact coordinate priority when this policy has a custom
     /// final tie-break. Policies with natural priority return `None`.
-    pub fn try_coordinate_priority(self) -> Result<Option<CoordinatePriority>, Error> {
+    pub fn try_coordinate_priority(&self) -> Result<Option<CoordinatePriority>, Error> {
+        if self.program().is_some() {
+            return Err(Error::OrderProgramNotCoordinatePriority);
+        }
         if self.coordinate_priority_arity().is_none() {
             return Ok(None);
         }
@@ -211,18 +331,22 @@ impl OrderingPolicy {
     }
 
     /// Arity fixed by a coordinate-priority payload, if present.
-    pub const fn coordinate_priority_arity(self) -> Option<usize> {
+    pub const fn coordinate_priority_arity(&self) -> Option<usize> {
         match self {
             Self::RustRedUnshiftedCoordinatePriorityV1(payload)
             | Self::SpiredUncutCoordinatePriorityV1(payload) => Some(payload.arity as usize),
-            Self::RustRedUnshiftedV1 | Self::SpiredUncutV1 => None,
+            Self::RustRedUnshiftedV1 | Self::SpiredUncutV1 | Self::ProgrammedUncutV1(_) => None,
             #[cfg(test)]
             Self::TestOnlyDistinct => None,
         }
     }
 
-    pub(crate) fn require_arity(self, actual: usize) -> Result<(), Error> {
-        if let Some(expected) = self.coordinate_priority_arity() {
+    pub(crate) fn require_arity(&self, actual: usize) -> Result<(), Error> {
+        if let Some(expected) = self
+            .program()
+            .map(|program| program.arity())
+            .or(self.coordinate_priority_arity())
+        {
             if actual != expected {
                 return Err(Error::WrongArity { expected, actual });
             }
@@ -231,10 +355,13 @@ impl OrderingPolicy {
     }
 
     /// Decode rank-by-slot into a fixed stack buffer. Unused entries are zero.
-    pub(crate) fn decoded_rank_by_slot(self) -> ([u8; MAX_PACKED_ORDERING_PRIORITY_ARITY], usize) {
+    pub(crate) fn decoded_rank_by_slot(&self) -> ([u8; MAX_PACKED_ORDERING_PRIORITY_ARITY], usize) {
         match self {
             Self::RustRedUnshiftedV1 | Self::SpiredUncutV1 => {
                 ([0; MAX_PACKED_ORDERING_PRIORITY_ARITY], 0)
+            }
+            Self::ProgrammedUncutV1(_) => {
+                unreachable!("a full program is not a legacy coordinate priority")
             }
             Self::RustRedUnshiftedCoordinatePriorityV1(payload)
             | Self::SpiredUncutCoordinatePriorityV1(payload) => {
@@ -248,20 +375,25 @@ impl OrderingPolicy {
 
 /// Stack-backed canonical identity returned by [`OrderingPolicy::stable_id`].
 #[derive(Clone, Copy)]
-pub struct OrderingPolicyStableId {
+pub struct OrderingPolicyStableId<'a> {
     bytes: [u8; ORDERING_POLICY_STABLE_ID_CAPACITY],
     len: u16,
+    borrowed: Option<&'a str>,
 }
 
-impl OrderingPolicyStableId {
+impl OrderingPolicyStableId<'_> {
     fn new() -> Self {
         Self {
             bytes: [0; ORDERING_POLICY_STABLE_ID_CAPACITY],
             len: 0,
+            borrowed: None,
         }
     }
 
     pub fn as_str(&self) -> &str {
+        if let Some(value) = self.borrowed {
+            return value;
+        }
         std::str::from_utf8(&self.bytes[..usize::from(self.len)])
             .expect("ordering-policy identities contain ASCII only")
     }
@@ -303,13 +435,13 @@ impl OrderingPolicyStableId {
     }
 }
 
-impl AsRef<str> for OrderingPolicyStableId {
+impl AsRef<str> for OrderingPolicyStableId<'_> {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl Deref for OrderingPolicyStableId {
+impl Deref for OrderingPolicyStableId<'_> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -317,27 +449,27 @@ impl Deref for OrderingPolicyStableId {
     }
 }
 
-impl fmt::Display for OrderingPolicyStableId {
+impl fmt::Display for OrderingPolicyStableId<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
 }
 
-impl fmt::Debug for OrderingPolicyStableId {
+impl fmt::Debug for OrderingPolicyStableId<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_str(), formatter)
     }
 }
 
-impl PartialEq for OrderingPolicyStableId {
+impl PartialEq for OrderingPolicyStableId<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-impl Eq for OrderingPolicyStableId {}
+impl Eq for OrderingPolicyStableId<'_> {}
 
-impl PartialEq<&str> for OrderingPolicyStableId {
+impl PartialEq<&str> for OrderingPolicyStableId<'_> {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
     }

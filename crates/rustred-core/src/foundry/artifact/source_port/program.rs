@@ -234,7 +234,7 @@ impl<const N: usize> CheckedProgram<N> {
                     &self.original_sources,
                     &generator,
                     sector.sector,
-                    self.ordering,
+                    self.ordering.clone(),
                     &self.zero_sectors,
                     &self.inherited_source_conditions,
                     rule,
@@ -447,7 +447,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 report: &checked.report,
                 elapsed: started.elapsed(),
             });
-            retain_common_order(&mut ordering, checked.report.ordering)?;
+            retain_common_order(&mut ordering, checked.report.ordering.clone())?;
             let report = &checked.report;
             if report.max_total_excess_degree.is_some()
                 || !report.issues.is_empty()
@@ -535,7 +535,10 @@ fn retain_common_order(
     retained: &mut Option<OrderingPolicy>,
     incoming: OrderingPolicy,
 ) -> Result<(), SourcePortAuditError> {
-    if retained.is_some_and(|ordering| ordering != incoming) {
+    if retained
+        .as_ref()
+        .is_some_and(|ordering| ordering != &incoming)
+    {
         return Err(error(
             "checked program sectors have incompatible coordinate priorities",
         ));
@@ -571,7 +574,7 @@ pub(super) fn lower_sector_for_test<const N: usize>(
             &audit.original_sources,
             &generator,
             sector,
-            checked.report.ordering,
+            checked.report.ordering.clone(),
             &audit.zero_sectors,
             audit.sources.conditions(),
             rule,

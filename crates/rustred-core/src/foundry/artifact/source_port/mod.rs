@@ -47,7 +47,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::family::IntegralFamily;
-use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
+#[cfg(test)]
+use crate::sector::{CoordinatePriority, CoordinatePriorityLimits};
+use crate::sector::{Mask, OrderingPolicy, zero};
 use crate::solver::{SectorConfig, SectorSolution, SectorSolver, SourceSystem};
 
 pub use affine::AffineApplicationDomain;
@@ -165,6 +167,7 @@ fn error(value: impl fmt::Display) -> SourcePortAuditError {
     SourcePortAuditError::message(value.to_string())
 }
 
+#[cfg(test)]
 fn sector_ordering<const N: usize>(
     sector: [bool; N],
     permutation: Option<[usize; N]>,
@@ -182,6 +185,33 @@ fn sector_ordering<const N: usize>(
     let priority = CoordinatePriority::try_new(N, &ranks, CoordinatePriorityLimits::default())
         .map_err(error)?;
     OrderingPolicy::try_spired_with_coordinate_priority(&priority).map_err(error)
+}
+
+fn solution_ordering<const N: usize>(
+    sector: [bool; N],
+    permutation: Option<[usize; N]>,
+    solution: &SectorSolution<N>,
+) -> Result<OrderingPolicy, SourcePortAuditError> {
+    if solution.order.program().is_some() && permutation.is_some() {
+        return Err(error(
+            "programmed integral order cannot also declare a legacy tie priority",
+        ));
+    }
+    // The native comparator canonicalizes an explicitly supplied identity
+    // permutation to None. Compare canonical meanings, not optional syntax.
+    let declared = match permutation {
+        Some(priority) => crate::solver::IntegralOrder::new(sector, [false; N])
+            .with_permutation(priority)
+            .map_err(error)?,
+        None => crate::solver::IntegralOrder::new(sector, [false; N]),
+    };
+    if solution.order.sector() != &sector || solution.order.permutation() != declared.permutation()
+    {
+        return Err(error(
+            "declared sector/tie priority differs from the solved mathematical order",
+        ));
+    }
+    solution.order.persisted_policy().map_err(error)
 }
 
 /// One non-authoritative exact rule/coverage report. The optional degree
@@ -420,22 +450,20 @@ impl<const N: usize> SourcePortAudit<N> {
         if self.zero_sectors.contains(&sector) {
             return Err(error("a solved sector was also declared zero"));
         }
-        let ordering = sector_ordering(sector, permutation)?;
+        let ordering = solution_ordering(sector, permutation, solution)?;
         let config = SectorConfig {
             permutation,
+            integral_order: solution.order.program().cloned(),
             zero_sectors: self.zero_sectors.clone(),
             ..SectorConfig::default()
         };
         let (solver, preconditioner) =
             SectorSolver::new_with_provenance(&self.sources, sector, config).map_err(error)?;
-        let mut order = crate::solver::IntegralOrder::new(sector, [false; N]);
-        if let Some(slots) = permutation {
-            order = order.with_permutation(slots).map_err(error)?;
-        }
+        let order = &solution.order;
         let mut report = SourcePortSectorAudit {
             sector,
             max_total_excess_degree,
-            ordering,
+            ordering: ordering.clone(),
             rules: solution.rules.len(),
             exact_replayed_rules: 0,
             uniformly_descending_rules: 0,
@@ -572,7 +600,7 @@ impl<const N: usize> SourcePortAudit<N> {
                         &checked.boxes,
                         &checked.affine_exclusions,
                         &sector,
-                        ordering,
+                        ordering.clone(),
                         self.sources.index_variables(),
                     ) {
                         Ok(()) => {

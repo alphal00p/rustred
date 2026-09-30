@@ -68,8 +68,9 @@ pub use g2::G2ResidualAnchors as OwnerDomainWalkG2ResidualAnchors;
 pub const WALK_SEMANTICS_VERSION: u32 = 1;
 /// Walk semantics of publication policy `epoch` (the legacy policies Ordered,
 /// Ready and OwnerBatched stay at `WALK_SEMANTICS_VERSION`). Probe:
-/// `per_policy {ordered: 1, ready: 1, epoch: 3}`.
+/// `per_policy {ordered: 1, ready: 1, epoch: 4}`.
 pub use epoch::EPOCH_WALK_SEMANTICS_VERSION;
+pub(crate) use epoch::{EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA};
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::{
     OwnerDomainWalkEpochDispatchPolicy, OwnerDomainWalkEpochInspectorLookup,
@@ -132,6 +133,15 @@ pub struct OwnerDomainWalkRequest {
     /// None selects the automatic fresh bound and inherits a saved window on
     /// resume; an explicit resumed bound must equal the persisted window.
     pub epoch_window: Option<usize>,
+    /// Epoch P2 helpers inside `workers`, not additional threads. Zero selects
+    /// serial preparation; None retains the helper complement of an explicit
+    /// inspection partition, or zero helpers when both are omitted.
+    pub epoch_preparation_workers: Option<usize>,
+    /// Maximum retained P2 obligations/retirements per cut. These are logical
+    /// scratch counts, not bytes or cumulative-work/rank limits. Exceeding one
+    /// stops before publication; nothing is truncated. None uses u32::MAX.
+    pub epoch_preparation_max_obligations: Option<usize>,
+    pub epoch_preparation_max_retirements: Option<usize>,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -181,6 +191,9 @@ impl OwnerDomainWalkRequest {
             epoch_publication_order: OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
             epoch_cut_size: None,
             epoch_window: None,
+            epoch_preparation_workers: None,
+            epoch_preparation_max_obligations: None,
+            epoch_preparation_max_retirements: None,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
@@ -198,6 +211,21 @@ impl OwnerDomainWalkRequest {
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        let preparation = self.epoch_preparation_workers.is_some()
+            || self.epoch_preparation_max_obligations.is_some()
+            || self.epoch_preparation_max_retirements.is_some();
+        if preparation && self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch {
+            return Err("Epoch preparation options require epoch publication");
+        }
+        self.epoch_preparation_limits()?;
+        if self.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
+            Self::validate_epoch_worker_partition(
+                self.workers,
+                self.inspection_workers,
+                self.max_containment_checks,
+                self.epoch_preparation_workers,
+            )?;
+        }
         if (self.epoch_publication_order != OwnerDomainWalkEpochPublicationOrder::OldestPrefix
             || self.epoch_cut_size.is_some()
             || self.epoch_window.is_some())
@@ -293,6 +321,31 @@ impl OwnerDomainWalkRequest {
     ) -> Result<(), &'static str> {
         worker_budget::validate(workers, inspection_workers, max_containment_checks)
     }
+
+    pub(crate) fn validate_epoch_worker_partition(
+        workers: usize,
+        inspection: Option<usize>,
+        containment_cap: Option<usize>,
+        preparation: Option<usize>,
+    ) -> Result<(), &'static str> {
+        worker_budget::epoch_inspection(workers, inspection, containment_cap, preparation)
+            .map(|_| ())
+    }
+
+    pub(crate) fn epoch_preparation_limits(&self) -> Result<(usize, usize), &'static str> {
+        let resolve = |value: Option<usize>| {
+            let value = value.unwrap_or(u32::MAX as usize);
+            if value == 0 || value > u32::MAX as usize {
+                Err("Epoch preparation counts must be in 1..=u32::MAX")
+            } else {
+                Ok(value)
+            }
+        };
+        Ok((
+            resolve(self.epoch_preparation_max_obligations)?,
+            resolve(self.epoch_preparation_max_retirements)?,
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -312,7 +365,38 @@ pub struct OwnerDomainWalkResult {
 /// or in the checkpoint's record sidecar, read back one record at a time
 /// with the finalization annotations applied when the report is written.
 #[derive(Clone, Default)]
-pub struct OwnerDomainWalkRecords(Option<execution::records::Streamed>);
+pub struct OwnerDomainWalkRecords(Option<RecordSource>);
+#[derive(Clone)]
+enum RecordSource {
+    Legacy(execution::records::Streamed),
+    Epoch(epoch::record_store::Streamed),
+}
+impl RecordSource {
+    fn write_json(&self, document: &Value, out: impl std::io::Write) -> Result<(), String> {
+        match self {
+            Self::Legacy(s) => s.write_json(document, out),
+            Self::Epoch(s) => s.write_json(document, out),
+        }
+    }
+    fn collect(&self) -> Result<Vec<Value>, String> {
+        match self {
+            Self::Legacy(s) => s.collect(),
+            Self::Epoch(s) => s.collect(),
+        }
+    }
+    fn total(&self) -> usize {
+        match self {
+            Self::Legacy(s) => s.total(),
+            Self::Epoch(s) => s.total(),
+        }
+    }
+    fn segments(&self) -> usize {
+        match self {
+            Self::Legacy(s) => s.segments(),
+            Self::Epoch(s) => s.segments(),
+        }
+    }
+}
 impl OwnerDomainWalkRecords {
     pub fn is_streamed(&self) -> bool {
         self.0.is_some()
@@ -779,7 +863,19 @@ pub fn owner_domain_walk_with_progress(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<OwnerDomainWalkResult, AppError> {
-    let diagnostic_pause = admit_request(&request)?;
+    walk_with_progress(&request, cancellation, &observer)
+}
+
+// Keep the public callback ergonomic without multiplying both arity-dispatch
+// trees by every caller's closure type. Progress is delivered by the calling
+// coordinator, so neither the borrowed callback nor its captures need Send,
+// Sync or 'static. The public wrapper retains the request's ownership scope.
+fn walk_with_progress(
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    observer: &dyn Fn(Value),
+) -> Result<OwnerDomainWalkResult, AppError> {
+    let diagnostic_pause = admit_request(request)?;
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
@@ -796,12 +892,12 @@ pub fn owner_domain_walk_with_progress(
         "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
         "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
         "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
-        "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
+        "applied_limits":limits_json(request), "publication_policy":"stable_domain_id_stream",
         "bounded_refinement_axes":matching::refinement_axes_name(request.matching.match_limits.refinement_axes),
         "max_bounded_refinement_cells":request.matching.match_limits.max_bounded_refinement_cells,
         "family_closure_claim":false, "ibp_generation":false});
     admitted["worker_allocation"] =
-        worker_budget::WorkerBudget::for_request(&request).json(request.inspection_workers);
+        worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
     if request.scheduling_policy != OwnerDomainWalkSchedulingPolicy::InspectAll {
         admitted["scheduling_policy"] =
             execution::scheduling_policy_json(request.scheduling_policy);
@@ -845,7 +941,7 @@ pub fn owner_domain_walk_with_progress(
     with_allowances(admitted);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
         macro_rules! dispatch_epoch { ($($n:literal),*) => { match arity {
-            $($n => epoch::run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
+            $($n => epoch::run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances),)*
             _ => unreachable!("admitted arity"),
         }} }
         let mut result = dispatch_epoch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
@@ -854,7 +950,7 @@ pub fn owner_domain_walk_with_progress(
         return Ok(result);
     }
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
+        $($n => run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
         _ => unreachable!("admitted arity"),
     }} }
     let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
@@ -1401,9 +1497,8 @@ fn run<const N: usize>(
         }
         execution::records::RecordSink::Sidecar(sidecar) => {
             document["domains"] = Value::Null;
-            OwnerDomainWalkRecords(Some(execution::records::Streamed::new(
-                sidecar,
-                annotations,
+            OwnerDomainWalkRecords(Some(RecordSource::Legacy(
+                execution::records::Streamed::new(sidecar, annotations),
             )))
         }
     };

@@ -156,6 +156,9 @@ pub struct SectorStats {
 /// and parameter poles of RHS coefficients remain separate obligations.
 #[derive(Debug)]
 pub struct SectorSolution<const N: usize> {
+    /// Actual mathematical order used by preconditioning and all searches.
+    /// A permutation alone is no longer sufficient replay metadata.
+    pub order: super::IntegralOrder<N>,
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
     pub rules: Vec<SectorRule<N>>,
@@ -443,6 +446,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             stats.retained_finite_terminals = retained.len();
             stats.elapsed = start.elapsed();
             return Ok(SectorSolution {
+                order: self.order.clone(),
                 max_numerator_rank: options.max_numerator_rank,
                 finite_case_policy: options.finite_case_policy,
                 rules,
@@ -480,6 +484,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         }
         stats.elapsed = start.elapsed();
         Ok(SectorSolution {
+            order: self.order.clone(),
             max_numerator_rank: options.max_numerator_rank,
             finite_case_policy: options.finite_case_policy,
             rules,

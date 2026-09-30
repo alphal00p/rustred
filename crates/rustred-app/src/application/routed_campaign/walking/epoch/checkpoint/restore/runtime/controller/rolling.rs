@@ -231,6 +231,7 @@ pub(super) fn run<const N: usize>(
         ));
     }
     MergeBoundary::borrow(&restored.state, &restored.dispatch, b)?;
+    let preparation = preparation_engine(identity)?;
     let cut_size = identity.epoch_cut_size().min(b);
     let publication_order = identity.epoch_publication_order();
     let outcome = execution::with(budget, authorize, inspect, |pool| {
@@ -351,8 +352,9 @@ pub(super) fn run<const N: usize>(
                     if snapshots.is_some() && snapshot.is_none() {
                         restored.rolling_diagnostics.refill_without_current_snapshot += 1;
                     }
-                    // Both buffers can be leased by queued/running jobs. No
-                    // third replica and no unbounded historical view is made.
+                    // Queued/running jobs pin immutable roots. Publication
+                    // respects bounded historical retention and delta charge;
+                    // it never clones an unbounded series of whole stores.
                     if snapshots.is_none() || snapshot.is_some() {
                         let jobs = if !restored.replay.is_empty() {
                             std::mem::take(&mut restored.replay)
@@ -540,7 +542,35 @@ pub(super) fn run<const N: usize>(
                     progress(&restored.state, &restored.dispatch, "p2", &|| {
                         pool.activity()
                     });
-                    let plan = merge::p2(&mut restored.state, &checked)?;
+                    let prepared =
+                        match prepare_cut(&preparation, &restored.state, &checked, || {
+                            progress(&restored.state, &restored.dispatch, "p2", &|| {
+                                pool.activity()
+                            });
+                            stop_requested()
+                        })? {
+                            PreparationResult::Ready(prepared) => prepared,
+                            PreparationResult::Stopped(reason, context) => {
+                                // Keep the original Reserved cut in the saved
+                                // ledger so restore replays every discarded byte.
+                                drop(checked);
+                                return stopped(
+                                    restored,
+                                    identity,
+                                    b,
+                                    pool,
+                                    snapshots,
+                                    &mut results,
+                                    reason,
+                                    context,
+                                    &mut progress,
+                                    &mut on_saved,
+                                );
+                            }
+                        };
+                    restored.state.preparation.add(&prepared.metrics);
+                    let plan = prepared.plan;
+                    plan.counters.apply_to(&mut restored.state);
                     if snapshots.is_some() {
                         let retirees = plan.survivors.iter().map(|s| s.retire.len()).sum();
                         loop {

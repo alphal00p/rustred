@@ -334,7 +334,7 @@ fn k6_spired_serial_driver_attempt() {
             continue;
         }
         let started = Instant::now();
-        let predecessor = k6_root_predecessor_for_ordering(config.ordering)
+        let predecessor = k6_root_predecessor_for_ordering(config.ordering.clone())
             .expect("K6 root predecessor must build");
         let profile = K6CampaignResourceProfile::try_for_task_report_ceiling(config.case_limit)
             .expect("coherent K6 resource profile must build");
@@ -342,7 +342,7 @@ fn k6_spired_serial_driver_attempt() {
             inputs,
             orbit.representative,
             predecessor,
-            config.ordering,
+            config.ordering.clone(),
             profile,
             ProbeCampaignLimits::default(),
         )

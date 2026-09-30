@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import stat
 
-from contract import CONTRACT, FORMAT, checkpoint_schema, clean_collection, expected_schedule, require
+from contract import CONTRACT, FORMAT, checkpoint_schema, clean_collection, expected_schedule, require, walk_semantics
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -137,7 +137,8 @@ def freeze(plan):
     manifest = envelope["manifest"]
     require(manifest["format"] == FORMAT and type(manifest["schema"]) is int
             and manifest["schema"] == checkpoint_schema(plan)
-            and type(manifest["walk_semantics_version"]) is int and manifest["walk_semantics_version"] == 3
+            and type(manifest["walk_semantics_version"]) is int
+            and manifest["walk_semantics_version"] == walk_semantics(plan)
             and manifest["resumable"] is True and type(manifest["generation"]) is int
             and manifest["generation"] == summary["checkpoint"]["generation"], "manifest identity differs")
     require(summary["checkpoint"]["manifest"] == str(Path(plan["checkpoint"]) / "latest.json"),

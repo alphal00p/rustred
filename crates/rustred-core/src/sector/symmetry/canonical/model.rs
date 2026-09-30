@@ -121,8 +121,8 @@ impl NoHarderWitness {
         })
     }
 
-    pub const fn policy(&self) -> OrderingPolicy {
-        self.policy
+    pub fn policy(&self) -> OrderingPolicy {
+        self.policy.clone()
     }
 
     pub fn source(&self) -> &ComplexityKey {

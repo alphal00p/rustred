@@ -202,7 +202,7 @@ pub(super) fn decode<'input>(
             parent
                 .verify_cell(
                     generator.context(),
-                    ordering,
+                    ordering.clone(),
                     &plan.sector,
                     &zeros,
                     plan.application,

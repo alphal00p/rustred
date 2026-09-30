@@ -179,7 +179,7 @@ fn public_wave_runner_uses_the_configured_persisted_order_for_every_sibling() {
         [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
         2,
         0,
-        ordering,
+        ordering.clone(),
         None,
     )
     .unwrap();

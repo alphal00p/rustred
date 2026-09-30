@@ -72,7 +72,123 @@ impl Coordinates<'_> {
     }
 }
 
+enum View<'a> {
+    Powers {
+        coordinates: &'a Coordinates<'a>,
+        values: &'a [i64],
+    },
+    Unsigned {
+        support: &'a [bool],
+        values: &'a [u64],
+    },
+    Signed {
+        support: &'a [bool],
+        values: &'a [i128],
+    },
+}
+
+impl View<'_> {
+    fn active(&self, axis: usize) -> bool {
+        match self {
+            Self::Powers {
+                coordinates,
+                values,
+            } => coordinates.active(axis, values[axis]),
+            Self::Unsigned { support, .. } | Self::Signed { support, .. } => support[axis],
+        }
+    }
+    fn excess(&self, axis: usize) -> i128 {
+        match self {
+            Self::Powers {
+                coordinates,
+                values,
+            } => coordinates.excess(axis, values[axis]),
+            Self::Unsigned { values, .. } => i128::from(values[axis]),
+            Self::Signed { values, .. } => values[axis],
+        }
+    }
+}
+
 impl CompiledOrder {
+    /// Compare already retained concrete-key excess without allocating a
+    /// second raw-power vector. Arity and representability are still checked.
+    pub fn compare_excess(
+        &self,
+        left_support: &[bool],
+        left: &[u64],
+        right_support: &[bool],
+        right: &[u64],
+    ) -> Result<Comparison, Error> {
+        for (support, values) in [(left_support, left), (right_support, right)] {
+            arity(self.arity(), support.len())?;
+            arity(self.arity(), values.len())?;
+            for (axis, (&active, &value)) in support.iter().zip(values).enumerate() {
+                let maximum = if active {
+                    i64::MAX as u64 - 1
+                } else {
+                    1u64 << 63
+                };
+                if value > maximum {
+                    return Err(Error::ExcessOutOfRange { axis });
+                }
+            }
+        }
+        self.compare_views(
+            View::Unsigned {
+                support: left_support,
+                values: left,
+            },
+            View::Unsigned {
+                support: right_support,
+                values: right,
+            },
+            true,
+        )
+    }
+
+    /// Compare retained signed excess offsets on one fixed support. These
+    /// offsets must come from physical i64 shifts; applicability is separate.
+    pub fn compare_shift_excess(
+        &self,
+        support: &[bool],
+        left: &[i128],
+        right: &[i128],
+    ) -> Result<Comparison, Error> {
+        arity(self.arity(), support.len())?;
+        for values in [left, right] {
+            arity(self.arity(), values.len())?;
+            for (axis, (&active, &value)) in support.iter().zip(values).enumerate() {
+                let physical = if active {
+                    Some(value)
+                } else {
+                    value.checked_neg()
+                };
+                if physical.and_then(|n| i64::try_from(n).ok()).is_none() {
+                    return Err(Error::ExcessOutOfRange { axis });
+                }
+            }
+        }
+        self.compare_views(
+            View::Signed {
+                support,
+                values: left,
+            },
+            View::Signed {
+                support,
+                values: right,
+            },
+            false,
+        )
+    }
+
+    /// Complete support prefix, including weights and the declared bit priority.
+    /// No degree or coordinate comparison is performed.
+    pub fn compare_support(&self, left: &[bool], right: &[bool]) -> Result<Comparison, Error> {
+        arity(self.arity(), left.len())?;
+        arity(self.arity(), right.len())?;
+        Ok(self.support_comparison(&|axis| left[axis], &|axis| right[axis]))
+    }
+
     pub fn compare(&self, left: &[i64], right: &[i64]) -> Result<Comparison, Error> {
         self.compare_with(left, right, Coordinates::Concrete)
     }
@@ -115,37 +231,67 @@ impl CompiledOrder {
         let size = self.arity();
         arity(size, left.len())?;
         arity(size, right.len())?;
+        self.compare_views(
+            View::Powers {
+                coordinates: &coordinates,
+                values: left,
+            },
+            View::Powers {
+                coordinates: &coordinates,
+                values: right,
+            },
+            !matches!(coordinates, Coordinates::Shifts { .. }),
+        )
+    }
+
+    fn support_comparison(
+        &self,
+        left: &impl Fn(usize) -> bool,
+        right: &impl Fn(usize) -> bool,
+    ) -> Comparison {
         let descriptor = self.descriptor();
-        if !matches!(coordinates, Coordinates::Shifts { .. }) {
-            let mut left_count = 0usize;
-            let mut right_count = 0usize;
-            let mut left_weight = 0u64;
-            let mut right_weight = 0u64;
-            for axis in 0..size {
-                if coordinates.active(axis, left[axis]) {
-                    left_count += 1;
-                    left_weight += descriptor.support_weights[axis];
-                }
-                if coordinates.active(axis, right[axis]) {
-                    right_count += 1;
-                    right_weight += descriptor.support_weights[axis];
-                }
+        let (mut left_count, mut right_count) = (0usize, 0usize);
+        let (mut left_weight, mut right_weight) = (0u64, 0u64);
+        for axis in 0..self.arity() {
+            if left(axis) {
+                left_count += 1;
+                left_weight += descriptor.support_weights[axis];
             }
-            let cmp = left_count.cmp(&right_count);
+            if right(axis) {
+                right_count += 1;
+                right_weight += descriptor.support_weights[axis];
+            }
+        }
+        let cmp = left_count.cmp(&right_count);
+        if cmp != Ordering::Equal {
+            return Comparison::at(cmp, Component::SupportCount);
+        }
+        let cmp = left_weight.cmp(&right_weight);
+        if cmp != Ordering::Equal {
+            return Comparison::at(cmp, Component::SupportWeight);
+        }
+        for &axis in &descriptor.support_priority {
+            let cmp = left(axis).cmp(&right(axis));
             if cmp != Ordering::Equal {
-                return Ok(Comparison::at(cmp, Component::SupportCount));
+                return Comparison::at(cmp, Component::SupportAxis(axis));
             }
-            let cmp = left_weight.cmp(&right_weight);
-            if cmp != Ordering::Equal {
-                return Ok(Comparison::at(cmp, Component::SupportWeight));
-            }
-            for &axis in &descriptor.support_priority {
-                let cmp = coordinates
-                    .active(axis, left[axis])
-                    .cmp(&coordinates.active(axis, right[axis]));
-                if cmp != Ordering::Equal {
-                    return Ok(Comparison::at(cmp, Component::SupportAxis(axis)));
-                }
+        }
+        Comparison::EQUAL
+    }
+
+    fn compare_views(
+        &self,
+        left: View<'_>,
+        right: View<'_>,
+        compare_support: bool,
+    ) -> Result<Comparison, Error> {
+        let size = self.arity();
+        let descriptor = self.descriptor();
+        if compare_support {
+            let result =
+                self.support_comparison(&|axis| left.active(axis), &|axis| right.active(axis));
+            if result.ordering != Ordering::Equal {
+                return Ok(result);
             }
         }
         // The preceding full support tie makes these sign choices identical.
@@ -155,13 +301,13 @@ impl CompiledOrder {
             let mut l = 0i128;
             let mut r = 0i128;
             for axis in 0..size {
-                let weight = if coordinates.active(axis, left[axis]) {
+                let weight = if left.active(axis) {
                     row.active[axis]
                 } else {
                     row.inactive[axis]
                 };
-                l += i128::from(weight) * coordinates.excess(axis, left[axis]);
-                r += i128::from(weight) * coordinates.excess(axis, right[axis]);
+                l += i128::from(weight) * left.excess(axis);
+                r += i128::from(weight) * right.excess(axis);
             }
             let cmp = l.cmp(&r);
             if cmp != Ordering::Equal {
@@ -175,7 +321,7 @@ impl CompiledOrder {
         };
         for pass in 0..passes {
             for &axis in &descriptor.coordinate_priority {
-                let active = coordinates.active(axis, left[axis]);
+                let active = left.active(axis);
                 if descriptor.coordinate_groups != CoordinateGroups::Interleaved {
                     let active_pass = (descriptor.coordinate_groups
                         == CoordinateGroups::ActiveFirst)
@@ -184,9 +330,7 @@ impl CompiledOrder {
                         continue;
                     }
                 }
-                let mut cmp = coordinates
-                    .excess(axis, left[axis])
-                    .cmp(&coordinates.excess(axis, right[axis]));
+                let mut cmp = left.excess(axis).cmp(&right.excess(axis));
                 let direction = if active {
                     descriptor.active_direction
                 } else {

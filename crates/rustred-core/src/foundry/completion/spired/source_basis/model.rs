@@ -162,8 +162,8 @@ impl SpiredSourceBasis {
         &self.sector
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) fn columns(&self) -> &[IndexShift] {

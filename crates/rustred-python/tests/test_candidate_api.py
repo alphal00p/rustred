@@ -22,6 +22,46 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_integral_order_native_cli_replay_and_checkpoint_identity(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertIsNone(signature.parameters["integral_order"].default)
+        descriptor = rustred.integral_order(1)
+        generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1, integral_order=descriptor)
+        report = tomllib.loads(generated.to_toml())
+        self.assertTrue(report["integral_order"].startswith(
+            "rustred.programmed-uncut-sector-order.v1;data="))
+        # Resource/lawfulness validation belongs to the native compiled order,
+        # not an independent Python implementation of the order proof.
+        zero_degree = rustred.integral_order(1, degree_rows=[{"active": [0], "inactive": [0]}])
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_candidates(UNIT_MASS_PROJECT_K1, integral_order=zero_degree)
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_candidates(UNIT_MASS_PROJECT_K1, integral_order=descriptor, permutation=[0])
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-integral-order-") as tmp:
+            order_file = Path(tmp) / "order.json"
+            order_file.write_text(descriptor)
+            self.assertProgramEqual(generated.bundle, cli_bytes(
+                ["family-candidates", "--integral-order", str(order_file)],
+                UNIT_MASS_PROJECT_K1.encode()))
+            checkpoint = Path(tmp) / "sectors"
+            initial = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                integral_order=descriptor, checkpoint_dir=checkpoint)
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                integral_order=descriptor, checkpoint_dir=checkpoint, resume=True)
+            self.assertProgramEqual(initial.bundle, resumed.bundle)
+            self.assertEqual(tomllib.loads(resumed.to_toml())["checkpoint"]["newly_solved_sectors"], 0)
+            with self.assertRaises(rustred.RustRedError):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                    integral_order=rustred.integral_order(1, active_direction="ascending"),
+                    checkpoint_dir=checkpoint, resume=True)
+        certified = rustred.certify_candidates(generated.bundle)
+        self.assertProgramEqual(certified.artifact,
+            cli_bytes(["certify-candidates"], generated.bundle))
+        reduced = rustred.reduce_with_closing_artifact(certified.artifact, [3])
+        self.assertEqual(reduced.status, "reduced")
+
     def test_discovery_descriptor_uses_native_api_and_checkpoint_binding(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertIsNone(signature.parameters["discovery_strategy"].default)

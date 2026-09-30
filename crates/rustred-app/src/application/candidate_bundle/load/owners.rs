@@ -161,7 +161,7 @@ pub fn load_generated_candidate_owners<const N: usize>(
         descriptors.push(OwnerDescriptor {
             sector,
             root,
-            ordering: super::candidate_ordering(N, record.permutation.as_deref())?,
+            ordering: super::super::order::saved_policy(&record)?,
         });
     }
     let saved_policy = policy::parse(solver_policy.as_deref().expect("nonempty input"))?;

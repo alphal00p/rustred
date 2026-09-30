@@ -1,4 +1,7 @@
 use super::*;
+use crate::application::routed_campaign::walking::epoch::records::typed::{
+    Body, Native, Record, Scope as TypedScope,
+};
 use crate::application::routed_campaign::walking::epoch::{
     checkpoint::tests::{Directory, state},
     dispatch::{Dispatch, Refill},
@@ -8,15 +11,15 @@ use crate::application::routed_campaign::walking::epoch::{
     records::Builder,
     state::EpochState,
 };
-use crate::application::routed_campaign::walking::execution::records::Sidecar;
+use serde_json::{Value, json};
 use std::fs;
 
-struct Rows(Vec<Value>);
+struct Rows(Vec<Record>);
 impl RecordOut for Rows {
     fn reserve(&mut self) -> Result<(), String> {
         Ok(())
     }
-    fn push(&mut self, row: Value) -> Result<(), String> {
+    fn push(&mut self, row: Record) -> Result<(), String> {
         self.0.push(row);
         Ok(())
     }
@@ -58,7 +61,7 @@ fn merge_rows(
     state: &mut EpochState<2>,
     dispatch: &mut Dispatch,
     results: Vec<JobResult<2>>,
-) -> Vec<Value> {
+) -> Vec<Record> {
     let config = MergeConfig {
         frontier_stop: true,
         lockstep: true,
@@ -87,7 +90,7 @@ fn merge_rows(
     rows.0
 }
 
-fn fixture() -> (EpochState<2>, Vec<Value>) {
+fn fixture() -> (EpochState<2>, Vec<Record>) {
     let mut state = state(3);
     state.counters.frontiers = 1; // A distinct initial source-refusal obligation.
     let mut dispatch = Dispatch::new();
@@ -139,14 +142,30 @@ fn view(state: &EpochState<2>, input_frontiers: usize) -> View<'_, 2> {
     }
 }
 
-fn files(rows: &[Value]) -> (Directory, FileRef, Vec<Segment>) {
+fn files(rows: &[Record]) -> (Directory, FileRef, Vec<Segment>) {
     let directory = Directory::new();
-    let mut sidecar = Sidecar::new(directory.0.clone(), 1);
+    // Deliberately bypass the trusted writer's validation: these tests model
+    // an untrusted producer that can recompute every outer digest.
+    let mut body = Vec::new();
     for row in rows {
-        sidecar.push(row).unwrap();
+        let a = bincode::encode_to_vec(&row.authority, bincode::config::standard()).unwrap();
+        let d = bincode::encode_to_vec(&row.diagnostics, bincode::config::standard()).unwrap();
+        body.extend_from_slice(b"ERB1");
+        body.extend_from_slice(&(a.len() as u32).to_le_bytes());
+        body.extend_from_slice(&(d.len() as u32).to_le_bytes());
+        body.extend_from_slice(&a);
+        body.extend_from_slice(&d);
     }
-    sidecar.seal(1, 2).unwrap();
-    let segments = sidecar.closed().to_vec();
+    let name = crate::application::routed_campaign::walking::epoch::record_store::file_name(1);
+    fs::write(directory.0.join(&name), &body).unwrap();
+    let segments = vec![Segment {
+        generation: 1,
+        file: name,
+        first: 0,
+        count: rows.len() as u64,
+        bytes: body.len() as u64,
+        blake3: blake3::hash(&body).to_hex().to_string(),
+    }];
     let bytes = serde_json::to_vec(&segments).unwrap();
     fs::write(directory.0.join("registry"), &bytes).unwrap();
     let file = FileRef {
@@ -159,7 +178,14 @@ fn files(rows: &[Value]) -> (Directory, FileRef, Vec<Segment>) {
     (directory, file, segments)
 }
 
-fn check(state: &EpochState<2>, rows: &[Value], initial: usize) -> io::Result<Vec<Segment>> {
+fn native_body(row: &mut Record) -> &mut Native {
+    let Body::Native(native) = &mut row.authority.body else {
+        panic!("native");
+    };
+    native
+}
+
+fn check(state: &EpochState<2>, rows: &[Record], initial: usize) -> io::Result<Vec<Segment>> {
     let (directory, file, _) = files(rows);
     read(&directory.0, &file, 1, view(state, initial))
 }
@@ -170,7 +196,7 @@ fn actual_merge_and_sidecar_preserve_c2_prefix_and_accepted_counters() {
     assert_eq!(state.counters.frontiers, 3);
     assert_eq!(state.frontier_counts.values().copied().sum::<u32>(), 1);
     assert_eq!(state.counters.successors, 1);
-    assert_eq!(rows[2]["stats"]["successors"], 2);
+    assert_eq!(rows[2].project().unwrap()["stats"]["successors"], 2);
     let (directory, file, segments) = files(&rows);
     assert_eq!(
         read(&directory.0, &file, 1, view(&state, 1)).unwrap(),
@@ -186,26 +212,32 @@ fn rehashed_record_mutations_cannot_change_restore_authority() {
     for mutation in 0..20 {
         let mut rows = original.clone();
         match mutation {
-            0 => rows[0]["id"] = 2.into(),
-            1 => rows[0]["lower"][0] = 9.into(),
-            2 => rows[0]["phase"] = "Route".into(),
-            3 => rows[0]["local_inspection_finished"] = false.into(),
-            4 => rows[0]["local_classification_discharged"] = false.into(),
-            5 => rows[0]["epoch"]["v0"] = 1.into(),
-            6 => rows[0]["epoch"]["merge_epoch"] = 0.into(),
-            7 => rows[0]["epoch"]["distinct_edge_count"] = 1.into(),
-            8 => rows[0]["epoch"]["self_edge"] = true.into(),
-            9 => rows[0]["epoch"]["class"] = "C2".into(),
-            10 => rows[1]["frontiers"] = json!([]),
-            11 => rows[2]["frontiers"] = json!([]),
-            12 => rows[2]["error"] = Value::Null,
-            13 => rows[2]["accepted_events"] = 3.into(),
-            14 => rows[2]["epoch"]["err_class"] = "conversion".into(),
-            15 => rows[2]["epoch"]["resolver_counters"]["successors"] = 2.into(),
-            16 => rows[2]["epoch"]["resolver_counters"]["version"] = 2.into(),
-            17 => rows[2]["epoch"]["resolver_counters"]["route_masks"] = 1.into(),
-            18 => rows[0]["epoch"]["break_reason"] = "protocol".into(),
-            19 => rows[0]["initial_overlap"] = json!({}),
+            0 => rows[0].authority.id = 2,
+            1 => rows[0].authority.image.lower[0] = 9,
+            2 => rows[0].authority.image.route = true,
+            3 => native_body(&mut rows[0]).kind = NativeKind::Route as u8,
+            4 => {
+                native_body(&mut rows[0]).scope = TypedScope::Initial {
+                    anchor: 0,
+                    cut: 1,
+                    residual: Default::default(),
+                }
+            }
+            5 => native_body(&mut rows[0]).v0 = 1,
+            6 => rows[0].authority.merge_epoch = 0,
+            7 => native_body(&mut rows[0]).distinct_edges = 1,
+            8 => native_body(&mut rows[0]).self_edge = true,
+            9 => native_body(&mut rows[0]).class = Class::C2 as u8,
+            10 => native_body(&mut rows[1]).frontiers = 0,
+            11 => native_body(&mut rows[2]).frontiers = 0,
+            12 => native_body(&mut rows[2]).has_error = false,
+            13 => native_body(&mut rows[2]).accepted = 3,
+            14 => native_body(&mut rows[2]).err_class = Some(err_class::CONVERSION),
+            15 => native_body(&mut rows[2]).resolver.successors = 2,
+            16 => native_body(&mut rows[2]).resolver.version = 2,
+            17 => native_body(&mut rows[2]).resolver.route_masks = 1,
+            18 => native_body(&mut rows[0]).break_reason = BreakReason::Protocol as u8,
+            19 => native_body(&mut rows[0]).kind = NativeKind::ApplyPartial as u8,
             _ => unreachable!(),
         }
         assert!(check(&state, &rows, 1).is_err(), "mutation {mutation}");
@@ -215,10 +247,11 @@ fn rehashed_record_mutations_cannot_change_restore_authority() {
 #[test]
 fn diagnostics_are_not_subject_to_a_record_line_cap_but_authority_is_bounded() {
     let (state, mut rows) = fixture();
-    rows[2]["error"] = "diagnostic".repeat(128 * 1024).into();
-    rows[2]["optional_refusals"] = json!([{"detail":"x".repeat(1024 * 1024)}]);
+    rows[2].diagnostics.error = Some("diagnostic".repeat(128 * 1024));
+    rows[2].diagnostics.refusals =
+        vec![serde_json::to_vec(&json!({"detail":"x".repeat(1024 * 1024)})).unwrap()];
     check(&state, &rows, 1).unwrap();
-    rows[2]["epoch"]["error_kind"] = "x".repeat(8192).into();
+    native_body(&mut rows[2]).error_kind = u8::MAX;
     assert!(check(&state, &rows, 1).is_err());
 }
 
@@ -228,8 +261,7 @@ fn semantic_success_still_requires_the_same_readers_digest() {
     let (directory, file, segments) = files(&rows);
     let path = directory.0.join(&segments[0].file);
     let mut bytes = fs::read(&path).unwrap();
-    assert_eq!(bytes.last(), Some(&b'\n'));
-    *bytes.last_mut().unwrap() = b' '; // Semantically identical, different hash.
+    *bytes.last_mut().unwrap() ^= 1; // Skipped diagnostic bytes still require the same hash.
     fs::write(path, bytes).unwrap();
     assert!(read(&directory.0, &file, 1, view(&state, 1)).is_err());
 }
@@ -269,7 +301,7 @@ fn recurring_panic_record_remains_terminal_without_native_stats() {
         }
     ));
     let mut changed = rows;
-    changed[0]["stats"] = json!({"events":0});
+    native_body(&mut changed[0]).stats_events = 0;
     assert!(check(&state, &changed, 0).is_err());
 }
 
@@ -291,15 +323,15 @@ fn alias_body_uses_canonical_geometry_and_no_native_aggregate() {
     state.edges.append_run(0, &[1], false).unwrap();
     let row = Builder.alias(0, &state.store.domains[0], 1, 1, false);
     check(&state, &[row.clone()], 0).unwrap();
-    for key in [
-        "representative_id",
-        "containment_authority",
-        "local_inspection_finished",
-    ] {
-        let mut changed = row.clone();
-        changed[key] = Value::Null;
-        assert!(check(&state, &[changed], 0).is_err(), "{key}");
-    }
+    let mut changed = row.clone();
+    changed.authority.body = Body::Alias {
+        to: 0,
+        exhausted: false,
+    };
+    assert!(check(&state, &[changed], 0).is_err());
+    let mut changed = row;
+    changed.authority.image.lower[0] = 12;
+    assert!(check(&state, &[changed], 0).is_err());
 }
 
 #[test]
@@ -331,10 +363,10 @@ fn route_records_require_route_scope_and_zero_apply_counters() {
     let rows = merge_rows(&mut state, &mut dispatch, vec![result]);
     check(&state, &rows, 0).unwrap();
     let mut changed = rows.clone();
-    changed[0]["epoch"]["resolver_counters"]["optional"][0] = 1.into();
+    native_body(&mut changed[0]).resolver.optional[0] = 1;
     assert!(check(&state, &changed, 0).is_err());
     let mut changed = rows;
-    changed[0]["conservative_route_overcover"] = false.into();
+    native_body(&mut changed[0]).kind = NativeKind::Apply as u8;
     assert!(check(&state, &changed, 0).is_err());
 }
 
@@ -342,8 +374,8 @@ fn route_records_require_route_scope_and_zero_apply_counters() {
 fn aggregate_overflow_and_record_inventory_mismatches_refuse() {
     let (state, rows) = fixture();
     let mut changed = rows.clone();
-    changed[0]["epoch"]["known_reuse"] = u64::MAX.into();
-    changed[1]["epoch"]["known_reuse"] = 1.into();
+    native_body(&mut changed[0]).known_reuse = u64::MAX;
+    native_body(&mut changed[1]).known_reuse = 1;
     assert!(check(&state, &changed, 1).is_err());
     assert!(check(&state, &rows[..2], 1).is_err());
     let mut changed = rows.clone();
@@ -417,20 +449,44 @@ fn real_initial_d_band_c0_and_c2_records_bind_anchor_and_residual_scope() {
             result.error = Some("residual native failure".into());
         }
         rows.extend(merge_rows(&mut state, &mut dispatch, vec![result]));
-        assert_eq!(rows[2]["record_kind"], "partial_initial_overlap_inspection");
-        assert_eq!(rows[2]["epoch"]["class"], if failed { "C2" } else { "C0" });
+        assert_eq!(
+            rows[2].project().unwrap()["record_kind"],
+            "partial_initial_overlap_inspection"
+        );
+        assert_eq!(
+            rows[2].project().unwrap()["epoch"]["class"],
+            if failed { "C2" } else { "C0" }
+        );
         check(&state, &rows, 0).unwrap();
         for mutation in 0..7 {
             let mut changed = rows.clone();
-            let row = &mut changed[2];
+            let native = native_body(&mut changed[2]);
             match mutation {
-                0 => row["initial_overlap"]["anchor_id"] = 1.into(),
-                1 => row["initial_overlap"]["cut"] = 5.into(),
-                2 => row["initial_overlap"]["residual_power_bounds"] = json!({}),
-                3 => row["local_inspection_finished"] = true.into(),
-                4 => row["residual_inspection_finished"] = failed.into(),
-                5 => row["local_classification_discharged"] = true.into(),
-                6 => row["native_inspection_scope"] = "full".into(),
+                0 => {
+                    if let TypedScope::Initial { anchor, .. } = &mut native.scope {
+                        *anchor = 1;
+                    }
+                }
+                1 => {
+                    if let TypedScope::Initial { cut, .. } = &mut native.scope {
+                        *cut = 5;
+                    }
+                }
+                2 => {
+                    if let TypedScope::Initial { residual, .. } = &mut native.scope {
+                        residual.max_difference = None;
+                    }
+                }
+                3 => native.scope = TypedScope::Whole,
+                4 => {
+                    native.class = if failed {
+                        Class::C0 as u8
+                    } else {
+                        Class::C2 as u8
+                    }
+                }
+                5 => native.kind = NativeKind::Apply as u8,
+                6 => native.v0 += 1,
                 _ => unreachable!(),
             }
             assert!(

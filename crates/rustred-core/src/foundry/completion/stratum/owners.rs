@@ -865,7 +865,7 @@ impl ImmutableOwnerSnapshot {
             let route = self.routes.get(route_ordinal)?;
             let owner_ordinal = route.owner_ordinal();
             let owner = self.owners.get(owner_ordinal)?;
-            if route.covers(owner, ordering, target) {
+            if route.covers(owner, ordering.clone(), target) {
                 return Some(ImmutableOwnerWitness {
                     owner_ordinal,
                     route_ordinal,
@@ -908,7 +908,7 @@ impl ImmutableOwnerSnapshot {
             let Some(owner) = self.owners.get(route.owner_ordinal()) else {
                 return false;
             };
-            route.covers(owner, ordering, target)
+            route.covers(owner, ordering.clone(), target)
         })
     }
 
@@ -985,7 +985,7 @@ impl ImmutableOwnerSnapshot {
         };
         owner.kind() == witness.kind
             && route.owner_ordinal() == witness.owner_ordinal
-            && route.covers(owner, ordering, target)
+            && route.covers(owner, ordering.clone(), target)
             // Re-resolve through the sorted index so a witness cannot bypass
             // an earlier overlapping owner.
             && self.owner_for(parent_sector, ordering, target) == Some(witness)
@@ -1861,7 +1861,7 @@ mod tests {
         }
 
         fn ordering(&self) -> OrderingPolicy {
-            self.ordering
+            self.ordering.clone()
         }
     }
 
@@ -2083,9 +2083,11 @@ mod tests {
                             .map(|&power| InteriorBounds::new(power, power)),
                     )
                     .unwrap();
-                    let witness = snapshot.owner_for(&parent, ordering, &point).unwrap();
+                    let witness = snapshot
+                        .owner_for(&parent, ordering.clone(), &point)
+                        .unwrap();
                     assert_eq!(witness.kind(), super::ImmutableOwnerKind::Master);
-                    assert!(snapshot.verifies_witness(&parent, ordering, &point, witness));
+                    assert!(snapshot.verifies_witness(&parent, ordering.clone(), &point, witness));
                 }
             }
         }

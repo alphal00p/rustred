@@ -619,7 +619,7 @@ mod tests {
         for ordering in [OrderingPolicy::default(), winner_ordering()] {
             let domain =
                 FoundryCampaignDomainHint::try_new(anchor.clone(), [0]).expect("valid domain");
-            let config = external_config(ordering, [domain.clone(), domain]);
+            let config = external_config(ordering.clone(), [domain.clone(), domain]);
             let predecessor = k6_root_predecessor_for_ordering(ordering).unwrap();
             let resolved = try_resolve_external_k6_domains(&config, &predecessor, &sector).unwrap();
 
@@ -674,7 +674,7 @@ mod tests {
     fn saturated_lhs_rectangles(
         ordering: OrderingPolicy,
     ) -> BTreeMap<Mask, Vec<K6RequestedDomainSpec>> {
-        let domains = materialize_alpha_loop_lhs_anchors_with_ordering(ordering)
+        let domains = materialize_alpha_loop_lhs_anchors_with_ordering(ordering.clone())
             .into_iter()
             .map(|entry| {
                 let symbolic_axes = entry
@@ -687,7 +687,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(domains.len(), 55);
-        let config = external_config(ordering, domains);
+        let config = external_config(ordering.clone(), domains);
         let predecessor = k6_root_predecessor_for_ordering(ordering).unwrap();
         let mut per_sector = BTreeMap::new();
         for orbit in FULL_RANK_ORBITS {

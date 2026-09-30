@@ -64,3 +64,50 @@ fn inspection_partition_rejects_invalid_scope_counts_and_duplicates() {
         assert!(parse_suffix(&format!("--follow-successors --workers {workers} --inspection-workers {inspectors} --max-containment-checks 7")).is_ok());
     }
 }
+
+#[test]
+fn epoch_preparation_options_are_explicit_bounded_and_partitioned() {
+    let prefix = "--follow-successors --publication-policy epoch --transfer-unreserved-lookahead 256 --workers 50";
+    let defaults = parse_suffix(prefix).unwrap();
+    assert_eq!(defaults.epoch_preparation_workers, None);
+    assert_eq!(defaults.epoch_preparation_max_obligations, None);
+    for helpers in [0, 1, 2, 7, 48] {
+        let flags = format!(
+            "--epoch-preparation-workers {helpers} --epoch-preparation-max-obligations 123 --epoch-preparation-max-retirements 321"
+        );
+        let parsed = parse_suffix(&format!("{prefix} {flags}")).unwrap();
+        assert_eq!(parsed.epoch_preparation_workers, Some(helpers));
+        assert_eq!(parsed.epoch_preparation_max_obligations, Some(123));
+        assert_eq!(parsed.epoch_preparation_max_retirements, Some(321));
+        assert_eq!(parse_suffix(&format!("{flags} {prefix}")).unwrap(), parsed);
+        assert!(
+            parse_suffix(&format!(
+                "{prefix} {flags} --inspection-workers {}",
+                49 - helpers
+            ))
+            .is_ok()
+        );
+    }
+    for flags in [
+        "--epoch-preparation-workers 49",
+        "--epoch-preparation-workers -1",
+        "--epoch-preparation-workers 7 --inspection-workers 49",
+        "--epoch-preparation-max-obligations 0",
+        "--epoch-preparation-max-retirements 4294967296",
+        "--epoch-preparation-workers 0 --epoch-preparation-workers 0",
+        "--epoch-preparation-max-obligations 1 --epoch-preparation-max-obligations 2",
+    ] {
+        assert!(
+            parse_suffix(&format!("{prefix} {flags}")).is_err(),
+            "{flags}"
+        );
+    }
+    for flags in [
+        "--epoch-preparation-workers 0",
+        "--epoch-preparation-max-obligations 12",
+        "--epoch-preparation-max-retirements 12",
+    ] {
+        assert!(parse_suffix(&format!("--follow-successors --workers 50 {flags}")).is_err());
+    }
+    assert!(parse_suffix("--follow-successors --publication-policy epoch --transfer-unreserved-lookahead 256 --workers 1 --epoch-preparation-workers 0").is_ok());
+}

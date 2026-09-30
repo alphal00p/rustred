@@ -209,8 +209,8 @@ impl ExactCircuitOwnerCover {
         &self.sector
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn owner_snapshot_id(&self) -> &ImmutableOwnerSnapshotId {

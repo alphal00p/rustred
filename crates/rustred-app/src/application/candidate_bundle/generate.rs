@@ -46,6 +46,7 @@ fn generate_request(
     let n = family.denominator_count();
     let root = preparation::root(n, &request.nonpositive_indices)?;
     preparation::validate_permutation(n, request.permutation.as_deref())?;
+    super::order::request_policy(&request, n)?;
     emit(observe, || FamilyCloseProgress::Preparing {
         arity: n,
         elapsed: started.elapsed(),
@@ -177,6 +178,7 @@ fn generate<const N: usize>(
                 |ordinal, _| SectorConfig {
                     zero_sectors: prepared.zeros.clone(),
                     permutation: prepared.permutation,
+                    integral_order: request.integral_order.clone(),
                     symbolic_exact_backend: request.exact_backend.solver_backend(),
                     numerical_exact_backend: request.exact_backend.numerical_backend(),
                     source_discovery: source_plans
@@ -269,7 +271,7 @@ fn generate<const N: usize>(
     let solved_sectors = sectors.len();
     let generated_rules = sectors.iter().map(|s| s.rules.len()).sum();
     let finite_residuals = sectors.iter().map(|s| s.finite_residuals.len()).sum();
-    let bundle = save::program_record(&request, &prepared.family, root, sectors);
+    let bundle = save::program_record(&request, &prepared.family, root, sectors)?;
     let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
         .map_err(codec::binary_error)?;
     let coefficient_count = coefficients.len();
@@ -299,6 +301,7 @@ fn generate<const N: usize>(
         finite_residuals: usize,
         workers: usize,
         exact_backend: &'static str,
+        integral_order: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         discovery_strategy: Option<&'a super::CandidateDiscoveryStrategy>,
         numerical_depth: u32,
@@ -336,6 +339,9 @@ fn generate<const N: usize>(
         finite_residuals,
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
+        integral_order: super::order::request_policy(&request, N)?
+            .stable_id()
+            .to_string(),
         discovery_strategy: request.discovery_strategy.as_ref(),
         numerical_depth: request.numerical_depth,
         max_numerator_rank: request.max_numerator_rank,

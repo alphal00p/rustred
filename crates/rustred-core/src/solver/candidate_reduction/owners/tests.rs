@@ -5,6 +5,62 @@ use crate::solver::{CandidateReductionError, FiniteCasePolicy};
 use std::sync::Arc;
 
 #[test]
+fn direct_reducer_and_owner_admission_bind_solution_order_and_sector() {
+    use crate::order::{CompiledOrder, CoordinateGroups, DegreeRow, Direction, OrderDescriptor};
+    use crate::sector::OrderingPolicy;
+    use crate::solver::{CandidateReducer, IntegralOrder};
+    let family = Arc::new(crate::solver::tests::tadpole());
+    let ctx = context(family.clone(), None, Default::default());
+    let mut variants = vec![];
+    let mut wrong = input([true], None, vec![], &[]);
+    wrong.ordering = OrderingPolicy::RustRedUnshiftedV1;
+    variants.push((wrong, "mathematical order"));
+    let mut wrong = input([true], None, vec![], &[]);
+    wrong.solution.order = IntegralOrder::new([false], [false]);
+    variants.push((wrong, "sector"));
+    let mut wrong = input([true], None, vec![], &[]);
+    wrong.solution.order = IntegralOrder::new([true], [true]);
+    variants.push((wrong, "cut integral order"));
+    let program = CompiledOrder::compile(
+        OrderDescriptor {
+            support_weights: vec![0],
+            support_priority: vec![0],
+            degree_rows: vec![DegreeRow {
+                active: vec![2],
+                inactive: vec![1],
+            }],
+            coordinate_priority: vec![0],
+            coordinate_groups: CoordinateGroups::ActiveFirst,
+            active_direction: Direction::Descending,
+            inactive_direction: Direction::Ascending,
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let mut wrong = input([true], None, vec![], &[]);
+    wrong.solution.order = wrong.solution.order.with_program(program).unwrap();
+    variants.push((wrong, "mathematical order"));
+    for (wrong, expected) in variants {
+        let mut scalar_solution = input([true], None, vec![], &[]).solution;
+        scalar_solution.order = wrong.solution.order.clone();
+        let scalar = CandidateReducer::try_new(
+            &family,
+            [true],
+            wrong.ordering.clone(),
+            [(wrong.sector, scalar_solution)],
+            vec![],
+            Default::default(),
+        )
+        .unwrap_err();
+        let owner = CandidateOwnerPrograms::try_new(ctx.clone(), [wrong]).unwrap_err();
+        for failure in [scalar, owner] {
+            assert!(matches!(failure, CandidateReductionError::InvalidInput(_)));
+            assert!(failure.to_string().contains(expected), "{failure}");
+        }
+    }
+}
+
+#[test]
 fn common_context_prepares_sources_once_for_multiple_owners_and_keeps_above_rank_terminals() {
     let family = Arc::new(crate::solver::tests::sunset());
     let before = PREPARATION_COUNT.with(|count| count.get());

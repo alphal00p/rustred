@@ -126,12 +126,12 @@ impl CanonicalExactOwnerLedger {
         let mut coordinator = StagedSectorClosureCoordinator::try_new(
             context,
             predecessor.clone(),
-            [(sector.clone(), ordering)],
+            [(sector.clone(), ordering.clone())],
             limits.staged,
         )?;
         let mut terminals = Vec::new();
         for terminal in explicit_terminals {
-            if coordinator.try_insert_terminal(&sector, ordering, terminal.clone())? {
+            if coordinator.try_insert_terminal(&sector, ordering.clone(), terminal.clone())? {
                 let point = SectorChart::new(sector.clone()).to_lattice(&terminal)?;
                 if !closure_carrier.contains(&point) {
                     return Err(ExactOwnerCoverDeltaError::TerminalOutsideClosureCarrier);
@@ -155,7 +155,7 @@ impl CanonicalExactOwnerLedger {
             context,
             &predecessor,
             &sector,
-            ordering,
+            ordering.clone(),
             &closure_carrier,
         )
         .map_err(crate::foundry::completion::source_discovery::StagedSectorClosureError::from)?;
@@ -185,8 +185,8 @@ impl CanonicalExactOwnerLedger {
         &self.sector
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn closure_carrier(&self) -> &LatticeBox {
@@ -417,12 +417,15 @@ impl CanonicalExactOwnerLedger {
         let mut coordinator = StagedSectorClosureCoordinator::try_new(
             &self.context,
             self.predecessor.clone(),
-            [(self.sector.clone(), self.ordering)],
+            [(self.sector.clone(), self.ordering.clone())],
             self.limits.staged,
         )?;
         for terminal in self.terminals() {
-            let inserted =
-                coordinator.try_insert_terminal(&self.sector, self.ordering, terminal.clone())?;
+            let inserted = coordinator.try_insert_terminal(
+                &self.sector,
+                self.ordering.clone(),
+                terminal.clone(),
+            )?;
             debug_assert!(
                 inserted,
                 "the retained terminal set is canonical and unique"
@@ -564,12 +567,15 @@ impl CanonicalExactOwnerLedger {
         let mut coordinator = StagedSectorClosureCoordinator::try_new(
             &self.context,
             self.predecessor.clone(),
-            [(self.sector.clone(), self.ordering)],
+            [(self.sector.clone(), self.ordering.clone())],
             self.limits.staged,
         )?;
         for retained in self.terminals() {
-            let inserted =
-                coordinator.try_insert_terminal(&self.sector, self.ordering, retained.clone())?;
+            let inserted = coordinator.try_insert_terminal(
+                &self.sector,
+                self.ordering.clone(),
+                retained.clone(),
+            )?;
             debug_assert!(
                 inserted,
                 "the retained terminal set is canonical and unique"
@@ -579,7 +585,11 @@ impl CanonicalExactOwnerLedger {
             let inserted = coordinator.try_insert_owner(owner.clone())?;
             debug_assert!(inserted, "the retained owner set is canonical and unique");
         }
-        if !coordinator.try_insert_terminal(&self.sector, self.ordering, terminal.clone())? {
+        if !coordinator.try_insert_terminal(
+            &self.sector,
+            self.ordering.clone(),
+            terminal.clone(),
+        )? {
             return Ok(ExactTerminalCoverDelta::new(
                 ExactTerminalCoverDeltaKind::Duplicate,
                 baseline,

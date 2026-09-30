@@ -1,20 +1,21 @@
-//! Bounded immutable lookup leases, independent of the coordinator's Store.
+//! Shared immutable lookup roots, independent of coordinator mutation.
 //!
-//! Two lookup-only buffers are initialized once. A buffer is advanced only
-//! while uniquely owned, by replaying append/index-retirement deltas. Readers
-//! of the other buffer remain active during canonical publication and replay.
-//! No program, CAS value, edge, ledger, tracker or record is replicated.
-//! This module is the replacement seam for a future shared persistent index.
+//! Geometry uses copy-on-write pages; indexes use bounded geometric cohorts.
+//! Canonical P3 remains the only owner of the mutable Store. Readers pin an
+//! exact root; publication prepares a complete replacement off to the side.
+//! No CAS value, edge, ledger, tracker or record is replicated.
 use super::super::queue::{CompactDomain, CompactSummary, Query};
 use super::store::{InitialInsertion, Store};
-use super::verify::QueryImage;
 use std::collections::{BTreeMap, VecDeque};
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
-pub(super) const LOOKUP_BUFFERS: usize = 2;
+mod image;
+pub(super) mod shared;
+
 pub(super) const MAX_LOOKUP_DELTA_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const MAX_LOOKUP_LAG: u64 = 64;
+pub(super) const MAX_LOOKUP_ROOTS: usize = 64;
 
 struct Update {
     id: u32,
@@ -34,123 +35,89 @@ impl Update {
     }
 }
 
-struct Replica<const N: usize> {
-    store: Arc<Box<Store<N>>>,
+struct Root<const N: usize> {
     version: u64,
-    applied: u64,
+    image: Arc<image::Image<N>>,
+    charge: u64,
+}
+struct Historical<const N: usize> {
+    version: u64,
+    image: Weak<image::Image<N>>,
+    charge: u64,
 }
 struct Views<const N: usize> {
-    replicas: Vec<Replica<N>>,
+    current: Option<Root<N>>,
+    historical: VecDeque<Historical<N>>,
     updates: VecDeque<Update>,
     prepared: VecDeque<Update>,
-    first: u64,
     bytes: usize,
-    /// Remaining insertions of a quiescent oversized cut. Such a cut is
-    /// mirrored directly instead of allocating a journal above the bound.
-    direct: usize,
 }
 impl<const N: usize> Views<N> {
     fn new() -> Self {
         Self {
-            replicas: Vec::new(),
+            current: None,
+            historical: VecDeque::new(),
             updates: VecDeque::new(),
             prepared: VecDeque::new(),
-            first: 0,
             bytes: 0,
-            direct: 0,
         }
     }
-
-    fn advance_idle(
-        &mut self,
-        source: &Store<N>,
-        version: u64,
-        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
-    ) -> Result<(), &'static str> {
-        checkpoint()?;
-        for replica in &mut self.replicas {
-            let Some(target) = Arc::get_mut(&mut replica.store) else {
-                continue;
-            };
-            if replica.version > version || replica.applied < self.first {
-                return Err("lookup replica version/delta range");
-            }
-            let count = source
-                .len()
-                .checked_sub(target.len())
-                .ok_or("lookup replica watermark ahead")?;
-            target.try_reserve(count)?;
-            // P3 appends the entire survivor cohort before its index updates.
-            // Replay in the same order, with collision-confirmed exact entries.
-            for id in target.len()..source.len() {
-                if id % 4096 == 0 {
-                    checkpoint()?;
-                }
-                let image = source.domains[id];
-                let key = image.digest().0;
-                target.exact.try_reserve_one(key)?;
-                if target
-                    .push(image, source.summaries[id], key)
-                    .map_err(|_| "lookup replica append differs")?
-                    != id as u32
-                {
-                    return Err("lookup replica ID differs");
-                }
-            }
-            for update in self
-                .updates
+    fn prune(&mut self) {
+        self.historical
+            .retain(|root| root.image.strong_count() != 0);
+    }
+    fn readers(&self) -> bool {
+        self.current
+            .as_ref()
+            .is_some_and(|root| Arc::strong_count(&root.image) > 1)
+            || self
+                .historical
                 .iter()
-                .skip((replica.applied - self.first) as usize)
-            {
-                if replica.applied % 256 == 0 {
-                    checkpoint()?;
-                }
-                let image = target.domains[update.id as usize];
-                let q = QueryImage::new(image)?;
-                let query = Query::new(q.core, image.phase());
-                target.index_survivor(update.id, &query, &update.retire)?;
-                replica.applied += 1;
-            }
-            replica.version = version;
-        }
-        // Exactly two cursors: pruning is proportional to discarded deltas,
-        // never to campaign size, bucket count, or a full geometry traversal.
-        let first = self
-            .replicas
-            .iter()
-            .map(|r| r.applied)
-            .min()
-            .unwrap_or(self.first);
-        while self.first < first {
-            let update = self
-                .updates
-                .pop_front()
-                .ok_or("lookup delta cursor outside journal")?;
-            self.bytes -= update.bytes();
-            self.first += 1;
-        }
-        Ok(())
+                .any(|root| root.image.strong_count() != 0)
     }
-
-    fn record(
-        &mut self,
-        id: u32,
-        query: &Query<N>,
-        retire: &[u32],
-        expected: u64,
-    ) -> Result<(), &'static str> {
-        if self.replicas.is_empty() {
-            return Ok(());
+    fn room(&self, version: u64, canonical_len: usize, ids: usize, retirements: usize) -> bool {
+        let Some(current) = &self.current else {
+            return true;
+        };
+        if !self.readers() {
+            return true;
         }
-        if self.direct != 0 {
-            for replica in &mut self.replicas {
-                let target = Arc::get_mut(&mut replica.store)
-                    .ok_or("direct lookup update acquired a reader")?;
-                if target.index_survivor(id, query, retire)? != expected {
-                    return Err("direct lookup retirement differs");
-                }
+        let historical = self
+            .historical
+            .iter()
+            .filter(|r| r.image.strong_count() != 0);
+        let mut count = 0;
+        let mut oldest_charge = current.charge;
+        for root in historical {
+            count += 1;
+            oldest_charge = oldest_charge.min(root.charge);
+            if version.saturating_sub(root.version) >= MAX_LOOKUP_LAG {
+                return false;
             }
-            self.direct -= 1;
+        }
+        if Arc::strong_count(&current.image) > 1 {
+            count += 1;
+            if version.saturating_sub(current.version) >= MAX_LOOKUP_LAG {
+                return false;
+            }
+        }
+        let additions = canonical_len
+            .saturating_sub(current.image.len())
+            .saturating_add(ids);
+        let retirements = self
+            .updates
+            .iter()
+            .fold(retirements, |n, r| n.saturating_add(r.retire.len()));
+        let charge = current.image.refresh_charge(additions, retirements) as u64;
+        count < MAX_LOOKUP_ROOTS
+            && current
+                .charge
+                .saturating_sub(oldest_charge)
+                .saturating_add(charge)
+                <= MAX_LOOKUP_DELTA_BYTES as u64
+    }
+    fn record(&mut self, id: u32, retire: &[u32]) -> Result<(), &'static str> {
+        if self.current.is_none() {
             return Ok(());
         }
         let update = if let Some(update) = self.prepared.pop_front() {
@@ -159,17 +126,17 @@ impl<const N: usize> Views<N> {
             }
             update
         } else {
-            // Only synthetic initial-admission tests mutate after views exist;
-            // native admission finishes before the first lease is constructed.
+            // Initial-admission synthetic tests can append after bootstrap.
+            // Native P3 always reserves all updates in its preflight.
             self.updates
                 .try_reserve(1)
                 .map_err(|_| "lookup delta allocation")?;
             Update::prepare(id, retire)?
         };
-        if self.bytes.saturating_add(update.bytes()) > MAX_LOOKUP_DELTA_BYTES {
-            return Err("lookup delta byte bound");
-        }
-        self.bytes += update.bytes();
+        self.bytes = self
+            .bytes
+            .checked_add(update.bytes())
+            .ok_or("lookup delta size overflow")?;
         self.updates.push_back(update);
         Ok(())
     }
@@ -197,8 +164,6 @@ impl<const N: usize> StoreOwner<N> {
     pub fn new() -> Self {
         Store::new().into()
     }
-
-    /// The canonical Store is coordinator-owned even while lookup leases live.
     pub fn ensure_unique(&self) -> Result<(), &'static str> {
         Ok(())
     }
@@ -206,51 +171,37 @@ impl<const N: usize> StoreOwner<N> {
         Ok(&mut self.store)
     }
 
-    /// Rescue changes lookup admissibility only at an invocation boundary.
-    /// No outstanding worker or registry lease can cross that boundary.
     pub fn enable_rescue_duplicates(&mut self) -> Result<(), &'static str> {
         let views = self
             .views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?;
-        if views
-            .replicas
-            .iter()
-            .any(|r| Arc::strong_count(&r.store) != 1)
-        {
+        if views.readers() {
             return Err("rescue lookup change while readers are active");
         }
         *views = Views::new();
         self.store.rescue_duplicates = true;
         Ok(())
     }
-
     pub fn install_quarantine(&mut self, bits: Vec<u64>) -> Result<(), &'static str> {
         let views = self
             .views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?;
-        if views
-            .replicas
-            .iter()
-            .any(|r| Arc::strong_count(&r.store) != 1)
-        {
+        if views.readers() {
             return Err("rescue lookup change while readers are active");
         }
         self.store.install_quarantine(bits)?;
         *views = Views::new();
         Ok(())
     }
-
     pub fn snapshot(&self, version: u64) -> Result<Snapshot<N>, &'static str> {
         self.try_snapshot(version)?
-            .ok_or("all lookup buffers still leased")
+            .ok_or("lookup retained-root bound requires reader drain")
     }
-
     pub fn try_snapshot(&self, version: u64) -> Result<Option<Snapshot<N>>, &'static str> {
         self.try_snapshot_with(version, &mut || Ok(()))
     }
-
     pub fn try_snapshot_with(
         &self,
         version: u64,
@@ -261,60 +212,85 @@ impl<const N: usize> StoreOwner<N> {
             .views
             .lock()
             .map_err(|_| "lookup views lock poisoned")?;
-        if views.replicas.is_empty() {
-            let mut replicas = Vec::new();
-            replicas
-                .try_reserve_exact(LOOKUP_BUFFERS)
-                .map_err(|_| "lookup replica inventory allocation")?;
-            for _ in 0..LOOKUP_BUFFERS {
-                replicas.push(Replica {
-                    store: Arc::new(Box::new(self.store.try_lookup_clone_with(checkpoint)?)),
+        views.prune();
+        checkpoint()?;
+        if let Some(current) = &views.current {
+            if current.version > version || current.image.len() > self.len() {
+                return Err("lookup snapshot version/watermark ahead");
+            }
+            if current.image.len() == self.len() {
+                if !views.updates.is_empty() {
+                    return Err("lookup unchanged root has pending deltas");
+                }
+                let image = Arc::clone(&current.image);
+                // Same geometry, not a stale lookup root. Historical leases
+                // retain their own reported version; no data is overwritten.
+                views.current.as_mut().expect("current root").version = version;
+                return Ok(Some(Snapshot {
                     version,
-                    applied: 0,
+                    published_len: self.len(),
+                    image,
+                }));
+            }
+        }
+        if !views.room(version, self.len(), 0, 0) {
+            return Ok(None);
+        }
+        views
+            .historical
+            .try_reserve(1)
+            .map_err(|_| "lookup root inventory allocation")?;
+        let mut copies = shared::Copies::default();
+        let (candidate, charge) = if let Some(current) = &views.current {
+            let added = self.len() - current.image.len();
+            let retired = views.updates.iter().map(|u| u.retire.len()).sum();
+            let charge = current
+                .charge
+                .checked_add(current.image.refresh_charge(added, retired) as u64)
+                .ok_or("lookup retention charge overflow")?;
+            let candidate = current.image.advance(
+                &self.store,
+                views.updates.iter().map(|u| (u.id, u.retire.as_slice())),
+                &mut copies,
+                checkpoint,
+            )?;
+            (candidate, charge)
+        } else {
+            (
+                image::Image::bootstrap(&self.store, &mut copies, checkpoint)?,
+                0,
+            )
+        };
+        checkpoint()?;
+        let image = Arc::new(candidate);
+        let old = views.current.replace(Root {
+            version,
+            image: Arc::clone(&image),
+            charge,
+        });
+        if let Some(old) = old {
+            if Arc::strong_count(&old.image) > 1 {
+                views.historical.push_back(Historical {
+                    version: old.version,
+                    image: Arc::downgrade(&old.image),
+                    charge: old.charge,
                 });
             }
-            views.replicas = replicas;
         }
-        views.advance_idle(&self.store, version, checkpoint)?;
-        Ok(views
-            .replicas
-            .iter()
-            .find(|r| r.version == version && r.store.len() == self.len())
-            .map(|r| Snapshot {
-                version,
-                published_len: self.len(),
-                store: Arc::clone(&r.store),
-            }))
+        views.updates.clear();
+        views.bytes = 0;
+        Ok(Some(Snapshot {
+            version,
+            published_len: self.len(),
+            image,
+        }))
     }
 
-    /// A slow lease never permits an unbounded retirement backlog. The
-    /// controller drains results and retries before publishing another cut.
     pub fn publication_room(&self, version: u64, ids: usize, retirements: usize) -> bool {
-        let Ok(views) = self.views.lock() else {
-            return false;
-        };
-        if views.replicas.is_empty() {
-            return true;
-        }
-        let added = ids
-            .saturating_mul(std::mem::size_of::<Update>())
-            .saturating_add(retirements.saturating_mul(std::mem::size_of::<u32>()));
-        if added > MAX_LOOKUP_DELTA_BYTES {
-            return views.updates.is_empty()
-                && views
-                    .replicas
-                    .iter()
-                    .all(|r| Arc::strong_count(&r.store) == 1);
-        }
-        views.bytes.saturating_add(added) <= MAX_LOOKUP_DELTA_BYTES
-            && views
-                .replicas
-                .iter()
-                .all(|r| version.saturating_sub(r.version) < MAX_LOOKUP_LAG)
+        self.views
+            .lock()
+            .is_ok_and(|views| views.room(version, self.len(), ids, retirements))
     }
-
-    /// All journal allocations precede canonical P3 mutation. A failed or
-    /// abandoned preflight leaves only replaceable scratch behind.
     pub fn prepare_snapshot_updates<'a>(
         &mut self,
         first: u32,
@@ -323,7 +299,6 @@ impl<const N: usize> StoreOwner<N> {
     ) -> Result<(), &'static str> {
         self.prepare_updates_with_bound(first, digests, retirements, MAX_LOOKUP_DELTA_BYTES)
     }
-
     fn prepare_updates_with_bound<'a>(
         &mut self,
         first: u32,
@@ -336,13 +311,12 @@ impl<const N: usize> StoreOwner<N> {
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?;
         views.prepared.clear();
-        views.direct = 0;
-        if views.replicas.is_empty() {
+        if views.current.is_none() {
             return Ok(());
         }
         let count = retirements.len();
-        if count != digests.len() {
-            return Err("lookup preflight digest/retirement cardinality");
+        if count != digests.len() || first as usize != self.store.len() {
+            return Err("lookup preflight digest/retirement cardinality or watermark");
         }
         let bytes = retirements
             .clone()
@@ -353,21 +327,10 @@ impl<const N: usize> StoreOwner<N> {
                 },
             )
             .ok_or("lookup delta size overflow")?;
-        if bytes > limit {
-            if !views.updates.is_empty() {
-                return Err("direct lookup publication before delta drain");
-            }
-            for replica in &mut views.replicas {
-                let target = Arc::get_mut(&mut replica.store)
-                    .ok_or("direct lookup publication before reader drain")?;
-                if target.len() != first as usize {
-                    return Err("direct lookup watermark differs");
-                }
-                target.try_reserve(count)?;
-                target.exact.try_reserve(digests)?;
-            }
-            views.direct = count;
-            return Ok(());
+        // Oversized legal cuts may run at a quiescent boundary. They are not
+        // silently truncated and cannot accumulate behind historical readers.
+        if views.bytes.saturating_add(bytes) > limit && views.readers() {
+            return Err("lookup publication requires reader drain");
         }
         views
             .prepared
@@ -377,23 +340,15 @@ impl<const N: usize> StoreOwner<N> {
             .updates
             .try_reserve(count)
             .map_err(|_| "lookup delta allocation")?;
-        let mut added = 0usize;
         for (position, retire) in retirements.enumerate() {
+            let position = u32::try_from(position).map_err(|_| "lookup delta ID range")?;
             let id = first
-                .checked_add(position as u32)
+                .checked_add(position)
                 .ok_or("lookup delta ID overflow")?;
-            let update = Update::prepare(id, retire)?;
-            added = added
-                .checked_add(update.bytes())
-                .ok_or("lookup delta size overflow")?;
-            if views.bytes.saturating_add(added) > limit {
-                return Err("lookup delta byte bound");
-            }
-            views.prepared.push_back(update);
+            views.prepared.push_back(Update::prepare(id, retire)?);
         }
         Ok(())
     }
-
     pub fn try_reserve(&mut self, n: usize) -> Result<(), &'static str> {
         self.store.try_reserve(n)
     }
@@ -406,21 +361,7 @@ impl<const N: usize> StoreOwner<N> {
         summary: CompactSummary<N>,
         key: u64,
     ) -> Result<u32, String> {
-        let id = self.store.push(image, summary, key)?;
-        let views = self
-            .views
-            .get_mut()
-            .map_err(|_| "lookup views lock poisoned")?;
-        if views.direct != 0 {
-            for replica in &mut views.replicas {
-                let target = Arc::get_mut(&mut replica.store)
-                    .ok_or("direct lookup append acquired a reader")?;
-                if target.push(image, summary, key)? != id {
-                    return Err("direct lookup append ID differs".into());
-                }
-            }
-        }
-        Ok(id)
+        self.store.push(image, summary, key)
     }
     pub fn prepare_initial(
         &mut self,
@@ -441,7 +382,7 @@ impl<const N: usize> StoreOwner<N> {
         self.views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?
-            .record(id, query, retire, removed)?;
+            .record(id, retire)?;
         Ok(removed)
     }
     pub fn index_survivor(
@@ -454,10 +395,9 @@ impl<const N: usize> StoreOwner<N> {
         self.views
             .get_mut()
             .map_err(|_| "lookup views lock poisoned")?
-            .record(id, query, retire, removed)?;
+            .record(id, retire)?;
         Ok(removed)
     }
-
     #[cfg(test)]
     pub fn prepare_direct_for_test<'a>(
         &mut self,
@@ -467,14 +407,18 @@ impl<const N: usize> StoreOwner<N> {
     ) -> Result<(), &'static str> {
         self.prepare_updates_with_bound(first, digests, retirements, 0)
     }
-
     #[cfg(test)]
     pub fn retained(&self) -> (usize, usize, u64) {
         let views = self.views.lock().unwrap();
         (
-            views.replicas.len(),
+            usize::from(views.current.is_some())
+                + views
+                    .historical
+                    .iter()
+                    .filter(|r| r.image.strong_count() != 0)
+                    .count(),
             views.bytes,
-            views.first + views.updates.len() as u64,
+            views.current.as_ref().map_or(0, |r| r.version),
         )
     }
 }
@@ -483,12 +427,18 @@ impl<const N: usize> StoreOwner<N> {
 pub(super) struct Snapshot<const N: usize> {
     pub version: u64,
     pub published_len: usize,
-    store: Arc<Box<Store<N>>>,
+    image: Arc<image::Image<N>>,
 }
 impl<const N: usize> Deref for Snapshot<N> {
-    type Target = Store<N>;
+    type Target = image::Image<N>;
     fn deref(&self) -> &Self::Target {
-        &self.store
+        &self.image
+    }
+}
+#[cfg(test)]
+impl<const N: usize> Snapshot<N> {
+    pub fn same_root(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.image, &other.image)
     }
 }
 

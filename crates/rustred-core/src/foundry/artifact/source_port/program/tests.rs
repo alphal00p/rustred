@@ -483,8 +483,8 @@ fn incompatible_sector_priorities_cannot_be_flattened_into_one_order() {
         CoordinatePriority::try_new(3, &[2, 1, 0], CoordinatePriorityLimits::default()).unwrap();
     let reversed = OrderingPolicy::try_spired_with_coordinate_priority(&priority).unwrap();
     let mut order = None;
-    retain_common_order(&mut order, natural).unwrap();
-    retain_common_order(&mut order, natural).unwrap();
+    retain_common_order(&mut order, natural.clone()).unwrap();
+    retain_common_order(&mut order, natural.clone()).unwrap();
     assert!(retain_common_order(&mut order, reversed).is_err());
     assert_eq!(order, Some(natural));
 }

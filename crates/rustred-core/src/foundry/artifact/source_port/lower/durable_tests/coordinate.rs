@@ -172,7 +172,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
     let middle = safe_parent
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             slice(local_b, Some(local_b)),
@@ -211,7 +211,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
     let widened = safe_parent
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             LatticeBox::try_new(piece.lower().to_vec(), piece.upper().to_vec()).unwrap(),
@@ -223,7 +223,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
     let genuine_zero = regenerate_parent(&original, cell, Some(guard(0)))
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             slice(local_b, Some(local_b)),
@@ -236,7 +236,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
     let below = parent
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             slice(piece.lower()[1], Some(local_b - 1)),
@@ -246,7 +246,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
     let above = parent
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             slice(local_b + 1, None),
@@ -262,7 +262,7 @@ fn coordinate_singleton_guard_seal_roundtrips_and_rejects_genuine_zeros() {
         schema: original.schema,
         algorithm_id: original.algorithm_id,
         arity: original.arity,
-        ordering: original.ordering,
+        ordering: original.ordering.clone(),
         supported_root_power_bounds: original.supported_root_power_bounds,
         family: original.family,
         context: original.context,

@@ -48,6 +48,7 @@ fn partial(specification: &[(i16, &[(i16, i64)])]) -> CandidateReducer<1> {
     from_one_rule(
         &family,
         SectorSolution {
+            order: crate::solver::IntegralOrder::new([true], [false]),
             finite_case_policy: Default::default(),
             rules,
             finite_residuals: Vec::new(),
@@ -398,6 +399,7 @@ fn pending_application_and_coalescing_caps_span_the_whole_batch() {
 fn descending_pinch_can_increase_numerator_degree() {
     let family = crate::solver::tests::sunset();
     let solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([true; 3], [false; 3]),
         finite_case_policy: Default::default(),
         rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
         finite_residuals: Vec::new(),
@@ -426,6 +428,7 @@ fn entry_rank_admission_precedes_cache_mutation_but_does_not_clip_descendants() 
     let root = key([1, 1, 1]);
     let child = key([-3, 1, 1]);
     let parent_solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([true; 3], [false; 3]),
         finite_case_policy: Default::default(),
         rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
         finite_residuals: Vec::new(),
@@ -433,6 +436,7 @@ fn entry_rank_admission_precedes_cache_mutation_but_does_not_clip_descendants() 
         max_numerator_rank: Some(0),
     };
     let child_solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([false, true, true], [false; 3]),
         finite_case_policy: Default::default(),
         rules: Vec::new(),
         finite_residuals: vec![Integral::numeric([-3, 1, 1]).unwrap()],
@@ -512,6 +516,7 @@ fn entry_rank_admission_precedes_cache_mutation_but_does_not_clip_descendants() 
 fn constructor_infers_consistent_scope_and_explicit_scope_survives_empty_records() {
     let family = crate::solver::tests::tadpole();
     let solution = |rank| SectorSolution::<1> {
+        order: crate::solver::IntegralOrder::new([true], [false]),
         finite_case_policy: Default::default(),
         rules: Vec::new(),
         finite_residuals: Vec::new(),
@@ -598,6 +603,7 @@ fn constructor_rejects_missing_retention_rank_and_mixed_finite_policies() {
     use crate::solver::FiniteCasePolicy;
     let family = crate::solver::tests::tadpole();
     let solution = |policy, rank| SectorSolution::<1> {
+        order: crate::solver::IntegralOrder::new([true], [false]),
         finite_case_policy: policy,
         max_numerator_rank: rank,
         rules: vec![],
@@ -636,6 +642,7 @@ fn retention_provenance_does_not_clip_or_promote_above_entry_rank_successors() {
     use crate::solver::FiniteCasePolicy;
     let family = crate::solver::tests::sunset();
     let solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([true; 3], [false; 3]),
         finite_case_policy: FiniteCasePolicy::RetainRankFinite,
         max_numerator_rank: Some(0),
         rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
@@ -665,6 +672,7 @@ fn retention_provenance_does_not_clip_or_promote_above_entry_rank_successors() {
 fn retained_terminal_still_checks_source_conditions_before_a_warm_cache_hit() {
     let family = crate::solver::tests::tadpole();
     let solution = SectorSolution {
+        order: crate::solver::IntegralOrder::new([true], [false]),
         finite_case_policy: crate::solver::FiniteCasePolicy::RetainRankFinite,
         max_numerator_rank: Some(0),
         rules: vec![],

@@ -193,7 +193,7 @@ impl<'inputs, 'family> ProbeLocalObstructionScheduler<'inputs, 'family> {
                     &self.target_shift,
                     &self.stratum,
                     &self.owners,
-                    self.ordering,
+                    self.ordering.clone(),
                     self.limits,
                     &mut budget,
                 )?;

@@ -86,6 +86,7 @@ fn session<const N: usize>(
             saved_root: [true; N],
             ordering: OrderingPolicy::SpiredUncutV1,
             solution: SectorSolution {
+                order: rustred::solver::IntegralOrder::new(sector, [false; N]),
                 max_numerator_rank: Some(10),
                 finite_case_policy: FiniteCasePolicy::SearchFinite,
                 rules,

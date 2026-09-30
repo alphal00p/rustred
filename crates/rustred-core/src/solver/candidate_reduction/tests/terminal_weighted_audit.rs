@@ -80,6 +80,7 @@ fn owner(
             (
                 sector,
                 SectorSolution {
+                    order: crate::solver::IntegralOrder::new(sector, [false; 6]),
                     finite_case_policy: Default::default(),
                     max_numerator_rank: None,
                     rules: vec![],

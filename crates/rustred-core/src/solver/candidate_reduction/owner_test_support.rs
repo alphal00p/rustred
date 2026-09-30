@@ -48,8 +48,9 @@ pub(super) fn input<const N: usize>(
     CandidateOwnerInput {
         sector,
         saved_root: [true; N],
-        ordering: OrderingPolicy::default(),
+        ordering: OrderingPolicy::SpiredUncutV1,
         solution: SectorSolution {
+            order: crate::solver::IntegralOrder::new(sector, [false; N]),
             max_numerator_rank: rank,
             finite_case_policy: Default::default(),
             rules,

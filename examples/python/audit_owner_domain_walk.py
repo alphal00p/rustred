@@ -1462,8 +1462,12 @@ def _audit(run, located, audit, expect_schema, require_closure=False, containmen
             export = located["checkpoint"] / "epoch-export.json"
             if check(export.is_file(), "epoch export directory has no epoch-export.json"):
                 manifest = read_json(export)
+                export_schema = manifest.get("schema")
+                export_semantics = {1: 3, 2: 4}.get(export_schema) if type(export_schema) is int else None
                 check(manifest.get("format") == "RUSTRED-EPOCH-EXPORT" and manifest.get("resumable") is False
-                      and manifest.get("walk_semantics_version") == 3,
+                      and export_semantics is not None
+                      and type(manifest.get("walk_semantics_version")) is int
+                      and manifest["walk_semantics_version"] == export_semantics,
                       "epoch export manifest format/semantics")
                 check(manifest.get("metadata") == checkpoint,
                       "epoch export manifest differs from the result's checkpoint bookkeeping")

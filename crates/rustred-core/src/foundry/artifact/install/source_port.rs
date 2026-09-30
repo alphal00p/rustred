@@ -283,7 +283,8 @@ fn install_source_port_impl(
     let proposed = proposal
         .map(|proposal| {
             proposal.entry.validate_binding(&candidate.family, &root)?;
-            if !candidate.ordering.is_spired()
+            if !candidate.ordering.is_source_port_uncut()
+                || !candidate.ordering.has_total_excess_primary()
                 || !matches!(
                     proposal.entry.bound(),
                     scope::EntryDegreeBound::MaxTotalExcessDegree(_)
@@ -495,7 +496,7 @@ fn install_source_port_impl(
                     budget.set_rhs(rhs_ordinal);
                     visit_successor_degrees(
                         &entry,
-                        candidate.ordering,
+                        candidate.ordering.clone(),
                         sector.active_bits(),
                         degree,
                         std::slice::from_ref(application),

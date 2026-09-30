@@ -190,7 +190,7 @@ impl<'inputs, 'family> InteriorSimplexProbeExecutor<'inputs, 'family> {
                 task.target_shift().clone(),
                 stratum,
                 self.owners.clone(),
-                self.ordering,
+                self.ordering.clone(),
                 self.probes.iter().cloned(),
                 self.limits.scheduler,
             )

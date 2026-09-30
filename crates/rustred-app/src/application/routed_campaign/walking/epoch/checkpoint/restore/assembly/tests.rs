@@ -4,7 +4,7 @@ use super::super::super::{MergeBoundary, publication};
 use super::*;
 use crate::application::routed_campaign::matching::input::Query;
 use crate::application::routed_campaign::walking::epoch::dispatch::Dispatch;
-use crate::application::routed_campaign::walking::execution::records::Sidecar;
+use crate::application::routed_campaign::walking::epoch::record_store::Sidecar;
 use crate::{OwnerDomainMatchRequest, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest};
 use rustred::solver::DomainPowerBounds;
 use serde_json::{Value, json};

@@ -225,7 +225,7 @@ impl ClosedArtifact {
     /// Single persisted ordering authority shared by every rule, rule cell,
     /// and canonicalizer in this artifact.
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+        self.ordering.clone()
     }
 
     /// Rectangular machine-index prefilter at the public reduction boundary.
@@ -466,7 +466,7 @@ impl ClosedArtifact {
         for cell in &mut self.rule_cells {
             Arc::get_mut(cell)
                 .expect("test-only RuleCell mutation requires unique artifact ownership")
-                .replace_rule_ordering_for_artifact_test(ordering);
+                .replace_rule_ordering_for_artifact_test(ordering.clone());
         }
     }
 

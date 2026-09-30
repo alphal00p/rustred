@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import collect
-from contract import CONTRACT, FORMAT, TIMING, accept, expected_schedule
+from contract import CONTRACT, FORMAT, TIMING, accept, expected_schedule, walk_semantics
 from gate import acceptance, freeze_receipt, prepare_verification
 from receipts import ROOT, commands, read, sha, validate_plan, write_new
 
@@ -55,6 +55,24 @@ def documents(checkpoint):
 
 
 class PredicateTests(unittest.TestCase):
+    def test_typed_record_generation_requires_its_own_semantics(self):
+        for schema, semantics in ((1, 3), (2, 3), (3, 4)):
+            values = documents("/unused/checkpoint")
+            values[6]["checkpoint_schema"] = schema
+            values[1]["checkpoint"]["schema"] = schema
+            values[2]["checkpoint"]["walk_semantics_version"] = semantics
+            with self.subTest(schema=schema):
+                self.assertTrue(accept(*values)["accepted"])
+                self.assertEqual(walk_semantics(values[6]), semantics)
+                for wrong in (True, 0, 3 if semantics == 4 else 4, 999):
+                    values[2]["checkpoint"]["walk_semantics_version"] = wrong
+                    with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                        accept(*values)
+                values[2]["checkpoint"]["walk_semantics_version"] = semantics
+        for invalid in (True, 0, 4, "3"):
+            with self.subTest(schema=invalid), self.assertRaises(ValueError):
+                walk_semantics({"checkpoint_schema": invalid})
+
     def test_explicit_rolling_dispatch_union_and_current_schema_keep_cold_all_authority(self):
         for dispatch in ("fifo", "adaptive"):
             values = documents("/unused/checkpoint")
@@ -220,6 +238,23 @@ class FileReceiptTests(unittest.TestCase):
         self.assertNotIn("--result", frozen["commands"]["cold-verifier"])
         self.assertTrue(acceptance(self.plan, frozen)["checkpoint_read_only"])
 
+    def test_typed_record_manifest_semantics_cannot_be_mixed_with_baseline(self):
+        plan = copy.deepcopy(self.plan)
+        plan["checkpoint_schema"] = 3
+        run, checkpoint = Path(plan["run"]), Path(plan["checkpoint"])
+        summary = read(run / "result.json")
+        summary["checkpoint"]["schema"] = 3
+        (run / "result.json").write_text(__import__("json").dumps(summary))
+        manifest = read(checkpoint / "latest.json")
+        manifest["manifest"].update(schema=3, walk_semantics_version=4)
+        (checkpoint / "latest.json").write_text(__import__("json").dumps(manifest))
+        frozen = freeze_receipt(plan)
+        self.assertEqual(frozen["expected"]["checkpoint_schema"], 3)
+        manifest["manifest"]["walk_semantics_version"] = 3
+        (checkpoint / "latest.json").write_text(__import__("json").dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "manifest identity"):
+            freeze_receipt(plan)
+
     def test_cold_command_explicitly_requires_all_roots_with_unchanged_timeout_and_audit(self):
         run = Path(self.plan["run"])
         prefix = ["timeout", "--signal=INT", "--kill-after=60", "60"]
@@ -255,7 +290,7 @@ class FileReceiptTests(unittest.TestCase):
                     argv[position] = flag + "=unexpected"
                 with self.subTest(flag=flag, kind=kind), self.assertRaises(ValueError):
                     validate_plan(mutated)
-        for field, value in (("g2", "off"), ("checkpoint_schema", 3)):
+        for field, value in (("g2", "off"), ("checkpoint_schema", 4)):
             mutated = copy.deepcopy(plan)
             mutated[field] = value
             with self.assertRaises(ValueError):

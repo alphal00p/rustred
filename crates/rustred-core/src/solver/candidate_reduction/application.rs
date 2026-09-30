@@ -21,7 +21,7 @@ impl<const N: usize> CandidateReducer<N> {
         CandidateEvaluator {
             context: &self.context,
             root_sector: self.root_sector,
-            ordering: self.ordering,
+            ordering: &self.ordering,
             rules: &[],
             source_conditions: &self.source_conditions,
             zero_sectors: &self.zero_sectors,
@@ -47,7 +47,7 @@ impl<const N: usize> CandidateReducer<N> {
         CandidateEvaluator {
             context: &self.context,
             root_sector: self.root_sector,
-            ordering: self.ordering,
+            ordering: &self.ordering,
             rules,
             source_conditions: &self.source_conditions,
             zero_sectors: &self.zero_sectors,

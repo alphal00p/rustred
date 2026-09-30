@@ -79,11 +79,39 @@ pub(super) fn read_structure(
     let program = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
-    let (records, consumed): (ProgramRecord, usize) = bincode::decode_from_slice(
-        program,
-        bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>(),
-    )
-    .map_err(|e| AppError::schema(format!("invalid candidate structural record: {e}")))?;
+    let config = bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>();
+    let (schema, _): (String, usize) = bincode::decode_from_slice(program, config)
+        .map_err(|e| AppError::schema(format!("invalid candidate structural schema: {e}")))?;
+    let (records, consumed): (ProgramRecord, usize) = match schema.as_str() {
+        CANDIDATE_BUNDLE_SCHEMA => bincode::decode_from_slice(program, config)
+            .map_err(|e| AppError::schema(format!("invalid candidate structural record: {e}")))?,
+        LEGACY_CANDIDATE_BUNDLE_SCHEMA => {
+            let (old, consumed): (LegacyProgramRecord, usize) =
+                bincode::decode_from_slice(program, config).map_err(|e| {
+                    AppError::schema(format!("invalid legacy candidate record: {e}"))
+                })?;
+            let integral_order =
+                super::load::candidate_ordering(old.root_sector.len(), old.permutation.as_deref())?
+                    .stable_id()
+                    .to_string();
+            (
+                ProgramRecord {
+                    schema: old.schema,
+                    status: old.status,
+                    solver_policy: old.solver_policy,
+                    family_source: old.family_source,
+                    input_format: old.input_format,
+                    family_fingerprint: old.family_fingerprint,
+                    root_sector: old.root_sector,
+                    permutation: old.permutation,
+                    integral_order,
+                    sectors: old.sectors,
+                },
+                consumed,
+            )
+        }
+        _ => return Err(AppError::schema("unsupported candidate structural schema")),
+    };
     if consumed != program.len() {
         return Err(AppError::schema("trailing candidate structural bytes"));
     }
@@ -141,6 +169,11 @@ pub(super) fn write_records(
     limits: CandidateBundleLimits,
 ) -> Result<Vec<u8>, AppError> {
     validate(records, limits)?;
+    if records.schema != CANDIDATE_BUNDLE_SCHEMA {
+        return Err(AppError::schema(
+            "legacy candidate structural records are read-only; new output requires explicit order metadata",
+        ));
+    }
     let program = bincode::encode_to_vec(records, bincode::config::standard())
         .map_err(|e| AppError::serialization(e.to_string()))?;
     family
@@ -203,7 +236,11 @@ fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
 }
 
 fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(), AppError> {
-    if bundle.schema != CANDIDATE_BUNDLE_SCHEMA || bundle.status != STATUS {
+    if !matches!(
+        bundle.schema.as_str(),
+        CANDIDATE_BUNDLE_SCHEMA | LEGACY_CANDIDATE_BUNDLE_SCHEMA
+    ) || bundle.status != STATUS
+    {
         return Err(AppError::schema(
             "unsupported candidate bundle schema/status/solver policy",
         ));
@@ -219,6 +256,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
         return Err(AppError::input("candidate root arity must be 1 through 16"));
     }
     super::preparation::validate_permutation(n, bundle.permutation.as_deref())?;
+    super::order::saved_policy(bundle)?;
     let mut budget = CollectionBudget::new(limits, bundle.sectors.len())?;
     let mut seen = BTreeSet::new();
     for sector in &bundle.sectors {
@@ -398,6 +436,9 @@ mod collection_budget_tests {
             family_fingerprint: "structural-budget-fixture".into(),
             root_sector: vec![true],
             permutation: None,
+            integral_order: rustred::sector::OrderingPolicy::SpiredUncutV1
+                .stable_id()
+                .to_string(),
             sectors,
         };
         assert_eq!(
@@ -553,6 +594,7 @@ pub(super) fn solutions<const N: usize>(
 ) -> Result<Vec<([bool; N], SectorSolution<N>)>, AppError> {
     validate(bundle, limits)?;
     let generation_policy = super::policy::parse(&bundle.solver_policy)?;
+    let mathematical_order = super::order::saved_policy(bundle)?;
     let max_numerator_rank = generation_policy.max_numerator_rank;
     let finite_case_policy = generation_policy.finite_case_policy;
     if bundle.root_sector.len() != N {
@@ -600,7 +642,8 @@ pub(super) fn solutions<const N: usize>(
             })
         }).collect::<Result<Vec<_>, AppError>>()?;
         let finite_residuals = record.finite_residuals.iter().map(integral).collect::<Result<Vec<_>, _>>()?;
-        Ok((sector, SectorSolution { rules, finite_residuals, stats: SectorStats::default(), max_numerator_rank, finite_case_policy }))
+        let order = rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order).map_err(|error| AppError::input(error.to_string()))?;
+        Ok((sector, SectorSolution { order, rules, finite_residuals, stats: SectorStats::default(), max_numerator_rank, finite_case_policy }))
     }).collect()
 }
 

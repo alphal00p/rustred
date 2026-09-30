@@ -33,6 +33,7 @@ pub(super) struct Identity<'a> {
     epoch_publication_order: OwnerDomainWalkEpochPublicationOrder,
     requested_window: Option<usize>,
     adaptive: bool,
+    preparation: Preparation,
     amendments: Vec<super::super::super::rescue::Parsed>,
 }
 
@@ -91,6 +92,7 @@ impl<'a> Identity<'a> {
             epoch_publication_order: request.epoch_publication_order,
             requested_window: request.epoch_window,
             adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
+            preparation: Preparation::from_request(request),
             amendments,
         })
     }
@@ -99,10 +101,23 @@ impl<'a> Identity<'a> {
     /// arrays. Aggregate allowances may change between sessions, but the
     /// saved arena must fit both its saved and the requested domain limits.
     pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
-        if saved.schema != 3 {
+        if saved.schema != 4 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported private epoch scalar version; fresh state required",
+            ));
+        }
+        if saved.record_schema != super::super::records::wire::RECORD_SCHEMA {
+            return Err(invalid("epoch binary record schema differs"));
+        }
+        // Helper count is an execution receipt, not P2 semantics. The ordered
+        // fold is identical with zero or many helpers, so a checkpoint can be
+        // resumed with another valid worker partition (including W=1).
+        if saved.preparation.obligations != self.preparation.obligations
+            || saved.preparation.retirements != self.preparation.retirements
+        {
+            return Err(invalid(
+                "epoch preparation logical allowances differ from checkpoint",
             ));
         }
         super::super::super::rescue::check_chain(
@@ -303,6 +318,44 @@ impl<'a> Identity<'a> {
     pub(super) fn adaptive_dispatch(&self) -> bool {
         self.adaptive
     }
+
+    pub(super) fn preparation(&self) -> Preparation {
+        self.preparation
+    }
+}
+
+/// Resolved helper reservation and complete logical scratch allowances.
+/// Neither count is a cumulative-work or mathematical coverage limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Preparation {
+    pub helpers: usize,
+    pub obligations: usize,
+    pub retirements: usize,
+}
+impl Preparation {
+    pub fn from_request(request: &OwnerDomainWalkRequest) -> Self {
+        let (obligations, retirements) = request
+            .epoch_preparation_limits()
+            .expect("validated preparation limits");
+        Self {
+            helpers: super::super::super::worker_budget::WorkerBudget::for_request(request).helpers,
+            obligations,
+            retirements,
+        }
+    }
+    pub fn engine(
+        self,
+    ) -> Result<super::super::merge::preparation::Engine, super::super::merge::preparation::Error>
+    {
+        super::super::merge::preparation::Engine::new(
+            self.helpers,
+            super::super::merge::preparation::Limits {
+                obligations: self.obligations,
+                retirements: self.retirements,
+            },
+        )
+    }
 }
 
 #[derive(Clone, Copy, Serialize, serde::Deserialize)]
@@ -426,6 +479,8 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub owner_count: usize,
     pub owners_digest: [u8; 32],
     pub walk_semantics_version: u32,
+    pub preparation: Preparation,
+    pub record_schema: u32,
     pub lockstep_b: usize,
     // Omitted for legacy lockstep CP6 bytes. Rolling binds the original cut
     // size independently of the persisted, worker-width-independent window.
@@ -629,11 +684,13 @@ impl Inputs<'_> {
         self.validate(boundary)?;
         let state = boundary.state;
         let scalars = Scalars {
-            schema: 3,
+            schema: 4,
             request: self.identity.request.as_str(),
             owner_count: self.identity.owners.len(),
             owners_digest: self.identity.owners_digest,
             walk_semantics_version: super::super::EPOCH_WALK_SEMANTICS_VERSION,
+            preparation: self.identity.preparation,
+            record_schema: super::super::records::wire::RECORD_SCHEMA,
             lockstep_b: boundary.lockstep_b,
             epoch_rolling: self.identity.epoch_rolling,
             epoch_cut_size: if self.identity.epoch_rolling {

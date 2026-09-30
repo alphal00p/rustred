@@ -29,6 +29,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
     pub discovery_strategy: Option<PathBuf>,
+    pub integral_order: Option<PathBuf>,
     pub nonpositive_indices: Vec<usize>,
     pub force: bool,
 }
@@ -85,6 +86,7 @@ fn parse(
     let mut progress = false;
     let mut permutation = None;
     let mut discovery_strategy = None;
+    let mut integral_order = None;
     let mut nonpositive_indices = None;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
@@ -286,6 +288,19 @@ fn parse(
                     PathBuf::from(value),
                 )?;
             }
+            "--integral-order" if !certification => {
+                let value = next_value(&mut arguments, "--integral-order")?;
+                if value.is_empty() || value == "-" {
+                    return Err(ArgError::InvalidCombination(
+                        "--integral-order requires a JSON file path, not stdin",
+                    ));
+                }
+                set_once(
+                    &mut integral_order,
+                    "--integral-order",
+                    PathBuf::from(value),
+                )?;
+            }
             "--nonpositive-indices" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--nonpositive-indices")?;
                 set_once(
@@ -418,6 +433,11 @@ fn parse(
             force,
         }))
     } else {
+        if integral_order.is_some() && permutation.is_some() {
+            return Err(ArgError::InvalidCombination(
+                "--integral-order cannot be combined with --permutation",
+            ));
+        }
         Ok(Command::FamilyCandidates(FamilyCandidatesArgs {
             input,
             output,
@@ -436,6 +456,7 @@ fn parse(
             progress,
             permutation,
             discovery_strategy,
+            integral_order,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
             force,
         }))

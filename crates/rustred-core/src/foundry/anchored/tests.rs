@@ -59,7 +59,7 @@ fn elimination_retains_recursive_pivots_and_chronological_source_weights() {
     let problem = PreparedProblem {
         family_fingerprint: Arc::new("pivot-chain-family".to_owned()),
         anchor: IntegralKey::try_new([1]).unwrap(),
-        ordering,
+        ordering: ordering.clone(),
         columns: vec![integral(3), integral(2), integral(1)],
         sources: vec![
             PreparedSourceRow {

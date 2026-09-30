@@ -68,15 +68,12 @@ fn snapshot_lookup_matches_all_miss_records_edges_and_canonical_targets() {
     let on_job = jobs(&mut on, &mut on_dispatch, 1).remove(0);
     let old = resolved(&off_job, &queries, None);
     let snapshot = on.store.snapshot(on.k).unwrap();
-    assert!(!std::ptr::eq::<Store<2>>(&*off.store, &*snapshot));
-    assert!(
-        !std::ptr::eq::<Store<2>>(&*on.store, &*snapshot),
-        "immutable lookup data has independent lifetime from canonical mutation"
-    );
+    assert_eq!(snapshot.domains, off.store.domains);
+    assert_eq!(snapshot.domains, on.store.domains);
     let shared = on.store.snapshot(on.k).unwrap();
     assert!(
-        std::ptr::eq::<Store<2>>(&*shared, &*snapshot),
-        "readers share one lookup buffer"
+        shared.same_root(&snapshot),
+        "readers share one immutable root"
     );
     drop(shared);
     let new = resolved(&on_job, &queries, Some(&snapshot));
@@ -531,16 +528,15 @@ fn stale_snapshot_miss_rechecks_exact_and_containing_new_publications() {
 }
 
 #[test]
-fn two_leased_lookup_buffers_bound_versions_and_refresh_only_the_returned_one() {
+fn shared_lookup_roots_allow_overlap_and_bound_retained_versions() {
     use super::super::snapshot::{MAX_LOOKUP_DELTA_BYTES, MAX_LOOKUP_LAG};
     let mut state = state_with(&[boxed([0, 0], [0, 0])]);
     let old = state.store.snapshot(0).unwrap();
     admit_initial(&mut state, &boxed([10, 0], [10, 0])).unwrap();
     let second = state.store.snapshot(1).unwrap();
-    let second_address: *const Store<2> = &*second;
     admit_initial(&mut state, &boxed([20, 0], [20, 0])).unwrap();
-    assert!(state.store.try_snapshot(2).unwrap().is_none());
-    assert_eq!(state.store.retained().0, 2);
+    let refreshed = state.store.snapshot(2).unwrap();
+    assert_eq!(state.store.retained().0, 3);
     assert!(state.store.retained().1 <= MAX_LOOKUP_DELTA_BYTES);
     assert!(!state.store.publication_room(MAX_LOOKUP_LAG, 0, 0));
     assert!(
@@ -548,15 +544,12 @@ fn two_leased_lookup_buffers_bound_versions_and_refresh_only_the_returned_one() 
             .store
             .publication_room(2, 1, MAX_LOOKUP_DELTA_BYTES / 4 + 1)
     );
-    drop(second);
-    let refreshed = state.store.snapshot(2).unwrap();
-    assert_eq!(
-        &*refreshed as *const Store<2>, second_address,
-        "an existing buffer is incrementally advanced, not replaced by a Store clone"
-    );
+    assert!(!refreshed.same_root(&second));
+    assert_eq!(second.len(), 2, "older readers are not mutated by refresh");
     assert_eq!(refreshed.domains, state.store.domains);
     assert_eq!(old.len(), 1);
     drop(old);
+    drop(second);
     drop(refreshed);
     drop(state.store.snapshot(2).unwrap());
     assert_eq!(
@@ -570,6 +563,20 @@ fn two_leased_lookup_buffers_bound_versions_and_refresh_only_the_returned_one() 
             .publication_room(2, 1, MAX_LOOKUP_DELTA_BYTES / 4 + 1),
         "a large legal cut has a quiescent direct-publication path"
     );
+}
+
+#[test]
+fn unchanged_geometry_does_not_force_a_drain_after_many_empty_cuts() {
+    use super::super::snapshot::MAX_LOOKUP_LAG;
+    let state = state_with(&[boxed([0, 0], [0, 0])]);
+    let old = state.store.snapshot(0).unwrap();
+    for version in 1..MAX_LOOKUP_LAG * 3 {
+        let current = state.store.snapshot(version).unwrap();
+        assert!(old.same_root(&current));
+        assert_eq!(old.version, 0, "an issued lease is not relabeled");
+        assert_eq!(current.version, version);
+        assert!(state.store.publication_room(version, 1, 0));
+    }
 }
 
 #[test]
@@ -630,7 +637,7 @@ fn interrupted_lookup_bootstrap_and_delta_replay_leave_canonical_state_saveable(
 }
 
 #[test]
-fn quiescent_oversized_cut_directly_mirrors_both_views_without_a_delta_copy() {
+fn quiescent_oversized_cut_rebuilds_one_shared_root_after_publication() {
     let mut state = state_with(&[boxed([0, 0], [0, 0])]);
     let mut dispatch = Dispatch::new();
     let job = jobs(&mut state, &mut dispatch, 1).remove(0);
@@ -642,8 +649,8 @@ fn quiescent_oversized_cut_directly_mirrors_both_views_without_a_delta_copy() {
     assert_eq!(plan.survivors[0].retire, [0]);
     let mut rows = Rows(Vec::new());
     merge::p3_preflight(&mut state, &checked, &plan, &mut rows).unwrap();
-    // Exercise the exact production oversized-cut branch with a zero-byte
-    // test threshold rather than constructing eight million retirement IDs.
+    // Exercise the quiescent oversized-journal preflight with a zero-byte
+    // threshold rather than constructing eight million retirement IDs.
     state
         .store
         .prepare_direct_for_test(
@@ -662,8 +669,8 @@ fn quiescent_oversized_cut_directly_mirrors_both_views_without_a_delta_copy() {
         &mut |id, attempts| dispatch.requeue(id, attempts),
     )
     .unwrap();
-    assert_eq!(state.store.retained().1, 0);
     let first = state.store.snapshot(1).unwrap();
+    assert_eq!(state.store.retained().1, 0);
     assert_eq!(first.domains, state.store.domains);
     admit_initial(&mut state, &boxed([10, 0], [10, 0])).unwrap();
     let second = state.store.snapshot(2).unwrap();

@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::super::CandidateReductionError;
-use super::super::preparation::shared::prepare_batch;
+use super::super::preparation::shared::{prepare_batch, validate_solution_order};
 use super::model::*;
 use crate::sector::OrderingPolicy;
 use crate::solver::{
@@ -118,7 +118,7 @@ pub struct BoundOwnerSearch<const N: usize> {
     owner: Arc<PreparedOwner<N>>,
     sector: [bool; N],
     policy: OwnerFeedbackPolicy,
-    permutation: Option<[usize; N]>,
+    order: crate::solver::IntegralOrder<N>,
 }
 
 /// Produced only by a bound source search, never from an arbitrary partial result.
@@ -187,31 +187,20 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         let owner = self.owners.get(&sector).ok_or_else(|| {
             OwnerFeedbackError::InvalidInput("source search requires an installed owner".into())
         })?;
-        if !owner.ordering.is_spired() {
+        if !owner.ordering.is_source_port_uncut() {
             return Err(OwnerFeedbackError::InvalidInput(
-                "source feedback currently requires an uncut SpIReD owner ordering".into(),
+                "source feedback requires a supported persisted uncut owner ordering".into(),
             ));
         }
-        let permutation = owner
-            .ordering
-            .try_coordinate_priority()
-            .map_err(|error| OwnerFeedbackError::InvalidInput(error.to_string()))?
-            .map(|priority| {
-                let mut slots = [0; N];
-                // Native ordering metadata is rank-by-slot; solver input is
-                // slot-by-priority. Admission already checked its arity.
-                for (slot, &rank) in priority.rank_by_slot().iter().enumerate() {
-                    slots[rank] = slot;
-                }
-                slots
-            });
+        let order = crate::solver::IntegralOrder::from_persisted_policy(sector, &owner.ordering)
+            .map_err(OwnerFeedbackError::Source)?;
         Ok(BoundOwnerSearch {
             lineage: self.lineage.clone(),
             context: self.context.clone(),
             owner: owner.clone(),
             sector,
             policy,
-            permutation,
+            order,
         })
     }
 
@@ -239,6 +228,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                     "overlay belongs to another program lineage or owner order".into(),
                 ));
             }
+            validate_solution_order(&overlay.sector, &owner.ordering, &overlay.solution.order)?;
             usage.admit_solution(&overlay.solution, limits)?;
         }
         let mut owners = self.owners.clone(); // Arc handles only.
@@ -285,7 +275,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 overlay.sector,
                 Arc::new(PreparedOwner {
                     root: owner.root,
-                    ordering: owner.ordering,
+                    ordering: owner.ordering.clone(),
                     batches,
                 }),
             );
@@ -345,7 +335,8 @@ impl<const N: usize> BoundOwnerSearch<N> {
             &self.context.shared.sources,
             self.sector,
             SectorConfig {
-                permutation: self.permutation,
+                permutation: self.order.permutation().copied(),
+                integral_order: self.order.program().cloned(),
                 zero_sectors: self
                     .context
                     .shared
@@ -380,7 +371,7 @@ impl<const N: usize> BoundOwnerSearch<N> {
             lineage: self.lineage.clone(),
             sector: self.sector,
             root: self.owner.root,
-            ordering: self.owner.ordering,
+            ordering: self.owner.ordering.clone(),
             policy: self.policy,
             attempt_limits: limits,
             solution,

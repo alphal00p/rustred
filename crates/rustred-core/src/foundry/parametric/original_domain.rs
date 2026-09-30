@@ -64,7 +64,7 @@ impl ParametricRule {
             parts.application.clone(),
             &pivot,
             &rhs,
-            parts.ordering,
+            parts.ordering.clone(),
             parts.limits.rule,
         )
         .map_err(|e| error(e.to_string()))?;

@@ -27,6 +27,9 @@ pub struct SectorConfig<const N: usize> {
     /// Coordinate priority for the final lexicographic tie-breaks only.
     /// Sector and cut priority and aggregate degrees remain unchanged.
     pub permutation: Option<[usize; N]>,
+    /// Full persisted uncut integral order; mutually exclusive with legacy
+    /// permutation/cut controls. Independent of source-row discovery priority.
+    pub integral_order: Option<rustred_order::CompiledOrder>,
     /// Immutable family-wide zero-sector census, shared by sector workers.
     pub zero_sectors: Arc<[[bool; N]]>,
     /// Single-target symbolic exact lifting. The independent numerical policy
@@ -47,6 +50,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             deltas: [false; N],
             removed_deltas: [false; N],
             permutation: None,
+            integral_order: None,
             zero_sectors: Arc::from([]),
             symbolic_exact_backend: SymbolicExactBackend::Sparse,
             numerical_exact_backend: super::NumericalExactBackend::Sparse,
@@ -166,6 +170,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         config: &SectorConfig<N>,
     ) -> Result<(IntegralOrder<N>, Vec<PolynomialRow<N>>), SolverError> {
         config.source_discovery.validate(N)?;
+        if config.integral_order.is_some()
+            && (config.deltas.iter().any(|&cut| cut)
+                || config.removed_deltas.iter().any(|&cut| cut)
+                || config.permutation.is_some())
+        {
+            return Err(SolverError::InvalidInput("programmable integral order does not support cuts, removed cuts, or a legacy tie permutation".into()));
+        }
         for i in 0..N {
             if config.deltas[i] && !sector[i] || config.removed_deltas[i] && !config.deltas[i] {
                 return Err(SolverError::InvalidInput(
@@ -181,6 +192,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut order = IntegralOrder::new(sector, config.deltas);
         if let Some(permutation) = config.permutation {
             order = order.with_permutation(permutation)?;
+        }
+        if let Some(program) = &config.integral_order {
+            order = order.with_program(program.clone())?;
         }
         let mut rows = system.rows.clone();
         for row in &mut rows {
@@ -414,7 +428,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     continue;
                 }
                 let active_probe = probe.get_or_insert_with(|| {
-                    Probe::new(self.order, self.system.variable_count, options)
+                    Probe::new(self.order.clone(), self.system.variable_count, options)
                 });
                 let modular_row = active_probe.evaluate(&row)?;
                 if let Some(pivot) = active_probe.discovery.add_row(&modular_row) {

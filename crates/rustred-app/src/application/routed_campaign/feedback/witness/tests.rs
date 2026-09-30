@@ -69,6 +69,7 @@ fn session_with(
                 saved_root: [true],
                 ordering: OrderingPolicy::SpiredUncutV1,
                 solution: SectorSolution {
+                    order: rustred::solver::IntegralOrder::new([true], [false]),
                     max_numerator_rank: Some(10),
                     finite_case_policy: FiniteCasePolicy::SearchFinite,
                     rules,

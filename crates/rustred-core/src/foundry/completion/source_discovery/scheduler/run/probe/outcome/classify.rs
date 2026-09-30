@@ -343,6 +343,8 @@ fn sector_budget_cause(error: &sector::Error) -> Option<ProbeLocalBudgetCause> {
         | sector::Error::TargetSectorCellOutOfRange { .. }
         | sector::Error::UnknownOrderingPolicy { .. }
         | sector::Error::OrderingPriorityArityLimit { .. }
+        | sector::Error::OrderProgram(_)
+        | sector::Error::OrderProgramNotCoordinatePriority
         | sector::Error::NotStrictDescent => None,
     }
 }

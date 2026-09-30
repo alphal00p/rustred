@@ -27,6 +27,13 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.case_intersection_limits = arguments.case_intersection_limits;
     request.bundle_limits = arguments.bundle_limits;
     request.permutation = arguments.permutation;
+    request.integral_order = arguments
+        .integral_order
+        .map(|path| {
+            let text = read_input(&StreamPath::File(path))?;
+            crate::CandidateIntegralOrder::from_json(&text).map_err(CliError::from)
+        })
+        .transpose()?;
     request.discovery_strategy = arguments
         .discovery_strategy
         .map(|path| {
@@ -69,13 +76,17 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
 /// before parsing input or starting work, including existing symlink aliases.
 /// This is ordinary local-path policy, not hostile-filesystem authentication.
 fn preflight_checkpoint_paths(arguments: &FamilyCandidatesArgs) -> Result<(), CliError> {
-    if let Some(strategy) = &arguments.discovery_strategy {
+    for strategy in arguments
+        .discovery_strategy
+        .iter()
+        .chain(arguments.integral_order.iter())
+    {
         let strategy = resolved_location(strategy)?;
         for stream in std::iter::once(&arguments.output).chain(arguments.report_output.iter()) {
             if let StreamPath::File(path) = stream {
                 if resolved_location(path)? == strategy {
                     return Err(CliError::Input(
-                        "discovery strategy must differ from bundle/report destinations".into(),
+                        "strategy/order input must differ from bundle/report destinations".into(),
                     ));
                 }
             }
@@ -85,10 +96,14 @@ fn preflight_checkpoint_paths(arguments: &FamilyCandidatesArgs) -> Result<(), Cl
         return Ok(());
     };
     let directory = resolved_location(&checkpoint.directory)?;
-    if let Some(path) = &arguments.discovery_strategy {
+    for path in arguments
+        .discovery_strategy
+        .iter()
+        .chain(arguments.integral_order.iter())
+    {
         if resolved_location(path)?.starts_with(&directory) {
             return Err(CliError::Input(
-                "discovery strategy must be outside the dedicated checkpoint directory".into(),
+                "strategy/order input must be outside the dedicated checkpoint directory".into(),
             ));
         }
     }

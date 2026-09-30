@@ -1,7 +1,11 @@
 # Runtime discovery strategies and persisted integral orders
 
 Design date: 2026-09-29. Updated status, 2026-09-30: **A is implemented and
-included in the optimized `1b33ad29` executable; B remains design-only.**
+included in the optimized `1b33ad29` executable; B is now implemented in source
+and undergoing integrated compilation, audit and native validation.**
+Its small independent order kernel passed17 release tests. This is not yet a
+tested campaign build or a measured comparator speedup; see
+[runtime integral ordering](../runtime_integral_order.md) and the current log.
 The earlier `3428b519` executable does not contain A. LC2 and existing saved
 owner programs are not changed by making the new generation API available.
 

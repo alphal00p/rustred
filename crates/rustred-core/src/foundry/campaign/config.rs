@@ -625,8 +625,8 @@ impl FoundryCampaignConfig {
     /// terminal authority, owner ledgers, replay descent, and any artifact
     /// produced from this campaign. This is semantic, unlike the optional
     /// proposal-only discovery chronology below.
-    pub const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub const fn discovery_coordinate_priority(&self) -> &CoordinatePriority {

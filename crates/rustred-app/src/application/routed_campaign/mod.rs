@@ -21,7 +21,9 @@ pub use guarded::{
 pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
-pub(crate) use walking::DIAGNOSTIC_PAUSE_VARIABLE;
+pub(crate) use walking::{
+    DIAGNOSTIC_PAUSE_VARIABLE, EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA,
+};
 pub use walking::{
     EPOCH_WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION, MAX_WALK_WORKERS,
     OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,

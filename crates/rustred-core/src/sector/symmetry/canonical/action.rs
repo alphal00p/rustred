@@ -88,8 +88,8 @@ impl Canonicalizer {
         })
     }
 
-    pub const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) fn family_fingerprint(&self) -> &str {

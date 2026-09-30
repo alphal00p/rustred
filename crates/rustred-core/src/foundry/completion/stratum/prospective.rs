@@ -110,7 +110,7 @@ impl ProspectiveColumnClassifier {
             });
         }
         owners.try_preflight_limits(limits)?;
-        validate_fixed_scope(&stratum, &target_shift, &owners, ordering)?;
+        validate_fixed_scope(&stratum, &target_shift, &owners, ordering.clone())?;
         Ok(Self {
             stratum,
             owners,
@@ -128,8 +128,8 @@ impl ProspectiveColumnClassifier {
         &self.target_shift
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn limits(&self) -> StratumRegistryLimits {
@@ -151,7 +151,7 @@ impl ProspectiveColumnClassifier {
             &self.stratum,
             &self.owners,
             self.target_shift.values(),
-            self.ordering,
+            self.ordering.clone(),
             self.limits,
             shift,
         )
@@ -289,7 +289,11 @@ pub(super) fn try_classify_prospective_shift(
             limits.max_owner_probes,
         )?;
         if owners
-            .owner_for(stratum.domain().sector(), ordering, cell.target_domain())
+            .owner_for(
+                stratum.domain().sector(),
+                ordering.clone(),
+                cell.target_domain(),
+            )
             .is_none()
         {
             return Ok(ProspectiveColumnClassification {

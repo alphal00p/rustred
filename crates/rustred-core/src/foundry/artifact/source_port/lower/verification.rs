@@ -431,7 +431,7 @@ impl PreparedOriginalDomain {
                 .map(|(shift, coefficient)| (shift.values(), coefficient)),
             std::slice::from_ref(&piece),
             sector,
-            ordering,
+            ordering.clone(),
             self.limits.geometry,
             vanishes,
         )?;

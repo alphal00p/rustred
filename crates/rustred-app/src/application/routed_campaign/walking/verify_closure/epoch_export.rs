@@ -154,6 +154,9 @@ pub(super) fn read_raw<const N: usize>(
     let text = fs::read(directory.join(MANIFEST)).map_err(|e| format!("{MANIFEST}: {e}"))?;
     let manifest: Value = serde_json::from_slice(&text).map_err(|e| format!("{MANIFEST}: {e}"))?;
     if manifest["format"] != "RUSTRED-EPOCH-EXPORT"
+        || manifest["schema"] != 2
+        || manifest["walk_semantics_version"] != 4
+        || manifest["record_schema"] != 1
         || manifest["publication_policy"] != "epoch"
         || manifest["arity"].as_u64() != Some(N as u64)
     {

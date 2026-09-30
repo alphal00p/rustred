@@ -125,7 +125,7 @@ fn k6_candidate_with_ordering_and_limits(
     let canonicalizer = if ordering == OrderingPolicy::default() {
         canonical_s4(&family)?
     } else {
-        canonical_s4_with_ordering(&family, ordering)?
+        canonical_s4_with_ordering(&family, ordering.clone())?
     };
     let generator = ParametricIbpGenerator::try_new_with_config(&family, source_limits)?;
     let context = generator.context().clone();

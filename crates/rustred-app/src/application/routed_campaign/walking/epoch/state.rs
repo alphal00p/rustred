@@ -89,6 +89,7 @@ pub(super) struct EpochState<const N: usize> {
     /// P3 capacity refusal). Rejected/interrupted cuts are excluded. Not persisted:
     /// restored totals above retain counted operations; this timing is session-only.
     pub inspector_lookup: InspectorLookup,
+    pub preparation: super::merge::preparation::Totals,
     pub max_domains: usize,
     pub max_events: u64,
     pub max_frontiers: u64,
@@ -119,6 +120,7 @@ impl<const N: usize> EpochState<N> {
             verify: VerifyCounters::default(),
             lookup: Default::default(),
             inspector_lookup: InspectorLookup::default(),
+            preparation: Default::default(),
             max_domains,
             max_events: max_events as u64,
             max_frontiers: max_frontiers as u64,

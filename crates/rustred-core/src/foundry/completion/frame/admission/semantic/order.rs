@@ -295,6 +295,8 @@ fn component_key(component: ComplexityComponent) -> (u8, usize) {
         ComplexityComponent::DotPower => (4, 0),
         ComplexityComponent::NumeratorPower => (5, 0),
         ComplexityComponent::IndexExcess { position } => (6, position),
+        ComplexityComponent::SupportWeight => (7, 0),
+        ComplexityComponent::DegreeRow { ordinal } => (8, ordinal),
     }
 }
 

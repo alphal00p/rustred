@@ -43,6 +43,14 @@ pub(super) enum Container<'a, const N: usize> {
         domains: &'a [CompactDomain<N>],
         published_len: usize,
     },
+    /// Same global ID binding as Stored, backed by immutable shared pages.
+    /// The verifier itself obtains the image at ID; callers cannot provide an
+    /// unrelated image alongside an otherwise plausible stored ID.
+    Snapshot {
+        id: u32,
+        domains: &'a super::snapshot::shared::Pages<CompactDomain<N>>,
+        published_len: usize,
+    },
     #[allow(dead_code)] // inspector-side Local resolution lands in S4
     JobMiss {
         ordinal: u32,
@@ -156,6 +164,21 @@ pub(super) fn verify<const N: usize>(
                 return None;
             }
             (ContainerRef::Stored(id), &domains[id as usize])
+        }
+        Container::Snapshot {
+            id,
+            domains,
+            published_len,
+        } => {
+            if (id as usize) >= published_len {
+                counters.refused_range += 1;
+                return None;
+            }
+            let Some(image) = domains.get(id as usize) else {
+                counters.refused_range += 1;
+                return None;
+            };
+            (ContainerRef::Stored(id), image)
         }
         Container::JobMiss {
             ordinal,

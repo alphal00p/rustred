@@ -210,7 +210,7 @@ pub(super) fn lower_rule<const N: usize>(
             // true-unbounded descent are rechecked by the same cold entry.
             result.push(parent.verify_cell(
                 context,
-                ordering,
+                ordering.clone(),
                 &sector,
                 zero_sectors,
                 piece,

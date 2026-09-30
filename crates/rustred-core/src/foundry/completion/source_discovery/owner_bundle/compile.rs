@@ -258,7 +258,7 @@ impl ExactExecutableOwnerCover {
         }
         let domain = super::layer::try_carrier_domain_from_lattice(sector, carrier)
             .map_err(ExactExecutableOwnerError::ContentOrder)?;
-        if !predecessor.authenticates_same_sector_domain(ordering, &domain) {
+        if !predecessor.authenticates_same_sector_domain(ordering.clone(), &domain) {
             return Ok(None);
         }
         let retained_carrier = LatticeBox::try_new(

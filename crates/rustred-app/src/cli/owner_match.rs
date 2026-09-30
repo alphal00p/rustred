@@ -204,6 +204,9 @@ fn walk_request(
     walk.epoch_publication_order = args.epoch_publication_order.unwrap_or_default();
     walk.epoch_cut_size = args.epoch_cut_size;
     walk.epoch_window = args.epoch_window;
+    walk.epoch_preparation_workers = args.epoch_preparation_workers;
+    walk.epoch_preparation_max_obligations = args.epoch_preparation_max_obligations;
+    walk.epoch_preparation_max_retirements = args.epoch_preparation_max_retirements;
     walk.max_domains = args.max_domains;
     walk.max_frontiers = args.max_frontiers;
     walk.frontier_policy = args.frontier_policy;

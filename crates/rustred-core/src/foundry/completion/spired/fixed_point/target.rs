@@ -22,7 +22,8 @@ pub(super) fn try_scope_key(
     let context = ledger.predecessor_snapshot().context_fingerprint();
     let sector = ledger.sector().active_bits();
     let predecessor = ledger.predecessor_snapshot().id().as_str();
-    let ordering = ledger.ordering().stable_id();
+    let retained_order = ledger.ordering();
+    let ordering = retained_order.stable_id();
     let ordering = ordering.as_str();
     let revision = ledger.revision().get();
     let requested = SCOPE_PREFIX

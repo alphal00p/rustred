@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 from .discovery import discovery_strategy
+from .ordering import integral_order
 
 from ._rustred import (
     CandidateBundleResult,
@@ -67,6 +68,7 @@ class ClosingFamily(StrEnum):
 
 __all__ = [
     "discovery_strategy",
+    "integral_order",
     "CandidateBundleResult",
     "CampaignPlanResult",
     "CampaignPreflightResult",

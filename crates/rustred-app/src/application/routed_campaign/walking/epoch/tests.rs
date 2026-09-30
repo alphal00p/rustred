@@ -108,8 +108,8 @@ impl RecordOut for Rows {
     fn reserve(&mut self) -> Result<(), String> {
         Ok(())
     }
-    fn push(&mut self, record: Value) -> Result<(), String> {
-        self.0.push(record);
+    fn push(&mut self, record: records::typed::Record) -> Result<(), String> {
+        self.0.push(record.project()?);
         Ok(())
     }
 }

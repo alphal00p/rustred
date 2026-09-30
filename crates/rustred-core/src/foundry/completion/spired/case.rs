@@ -148,8 +148,8 @@ impl SpiredExecutionCase {
         &self.target_shift
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn owner_snapshot(&self) -> &ImmutableOwnerSnapshot {

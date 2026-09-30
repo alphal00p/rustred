@@ -241,6 +241,55 @@ impl Edges {
         self.push_within(source, target, LOG_CAP)
     }
 
+    /// Reserve the immediately appendable portion of a batch without changing
+    /// any logical edges. A later log-cap fold may need a separate allocation.
+    pub fn reserve_append(&mut self, additional: usize) -> Result<(), ()> {
+        let immediate = additional.min(LOG_CAP.saturating_sub(self.log.pairs.len()));
+        self.log.pairs.try_reserve(immediate).map_err(|_| ())?;
+        self.log.next.try_reserve(immediate).map_err(|_| ())
+    }
+
+    /// Append one source's already validated targets in order. Reserve once
+    /// per log segment, not once per edge. Fold at the same boundaries as the
+    /// scalar path so checkpoint-tail ordering is unchanged.
+    pub fn push_source(&mut self, source: u32, targets: &[u32]) -> Result<(), ()> {
+        self.push_source_within(source, targets, LOG_CAP)
+    }
+
+    fn push_source_within(&mut self, source: u32, targets: &[u32], cap: usize) -> Result<(), ()> {
+        self.push_source_with_checkpoint(source, targets, cap, || Ok(()))
+    }
+
+    fn push_source_with_checkpoint(
+        &mut self,
+        source: u32,
+        mut targets: &[u32],
+        cap: usize,
+        mut checkpoint: impl FnMut() -> Result<(), ()>,
+    ) -> Result<(), ()> {
+        if cap == 0 || cap > LOG_CAP {
+            return Err(());
+        }
+        while !targets.is_empty() {
+            checkpoint()?;
+            if self.log.pairs.len() >= cap {
+                self.fold(self.log.heads.len())?;
+            }
+            let take = targets.len().min(cap - self.log.pairs.len());
+            self.log.pairs.try_reserve(take).map_err(|_| ())?;
+            self.log.next.try_reserve(take).map_err(|_| ())?;
+            for &target in &targets[..take] {
+                let index = self.log.pairs.len();
+                let head = &mut self.log.heads[target as usize];
+                self.log.next.push(*head);
+                *head = index as u32;
+                self.log.pairs.push((source, target));
+            }
+            targets = &targets[take..];
+        }
+        Ok(())
+    }
+
     /// `push` with a log of at most `cap` edges. A full log folds first
     /// instead of refusing the edge: without a checkpoint store nothing else
     /// folds, and with one the next save re-tiles the edges from zero (its
@@ -442,5 +491,85 @@ mod tests {
                 .collect();
             assert_eq!(edges.csr.incoming(target), expected.as_slice(), "{target}");
         }
+    }
+
+    #[test]
+    fn source_batches_preserve_scalar_fold_and_checkpoint_boundaries() {
+        let nodes = 7;
+        for cap in [1, 2, 5, 8] {
+            let mut scalar = Edges::default();
+            let mut batch = Edges::default();
+            scalar.grow(nodes).unwrap();
+            batch.grow(nodes).unwrap();
+            for source in 0..nodes as u32 {
+                for count in [0, 1, cap, cap + 1, 3 * cap + 2] {
+                    let targets: Vec<_> = (0..count)
+                        .map(|i| ((i + source as usize) % nodes) as u32)
+                        .collect();
+                    for &target in &targets {
+                        scalar.push_within(source, target, cap).unwrap();
+                    }
+                    batch.push_source_within(source, &targets, cap).unwrap();
+                    assert_eq!(scalar.len(), batch.len());
+                    assert_eq!(scalar.folded(), batch.folded());
+                    assert_eq!(scalar.log.pairs, batch.log.pairs);
+                    assert_eq!(scalar.log.next, batch.log.next);
+                    assert_eq!(scalar.log.heads, batch.log.heads);
+                    assert_eq!(
+                        scalar.iter().collect::<Vec<_>>(),
+                        batch.iter().collect::<Vec<_>>()
+                    );
+                    for target in 0..nodes {
+                        assert_eq!(
+                            scalar.incoming(target).collect::<Vec<_>>(),
+                            batch.incoming(target).collect::<Vec<_>>()
+                        );
+                    }
+                    for first in [0, scalar.folded(), scalar.len()] {
+                        let count = scalar.len() - first;
+                        assert_eq!(
+                            scalar.segment(first, count).unwrap().collect::<Vec<_>>(),
+                            batch.segment(first, count).unwrap().collect::<Vec<_>>()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn batch_reservation_changes_capacity_not_logical_state() {
+        let mut edges = Edges::default();
+        edges.grow(3).unwrap();
+        edges.push(0, 1).unwrap();
+        let before: Vec<_> = edges.iter().collect();
+        edges.reserve_append(100).unwrap();
+        assert_eq!(edges.iter().collect::<Vec<_>>(), before);
+        assert!(edges.log.pairs.capacity() >= 101);
+        assert!(edges.log.next.capacity() >= 101);
+        assert_eq!(edges.folded(), 0);
+        assert_eq!(edges.log_len(), 1);
+        assert!(edges.push_source_within(0, &[2], 0).is_err());
+        assert_eq!(edges.iter().collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn failed_later_batch_chunk_retains_exact_successful_prefix() {
+        let mut edges = Edges::default();
+        edges.grow(4).unwrap();
+        let mut checkpoints = 0;
+        let result = edges.push_source_with_checkpoint(0, &[1, 2, 3], 2, || {
+            checkpoints += 1;
+            if checkpoints == 2 { Err(()) } else { Ok(()) }
+        });
+        assert!(result.is_err());
+        assert_eq!(checkpoints, 2);
+        assert_eq!(edges.iter().collect::<Vec<_>>(), [(0, 1), (0, 2)]);
+        assert_eq!(edges.folded(), 0);
+        assert_eq!(edges.log_len(), 2);
+        // A retry starting after the committed prefix can still fold/append.
+        edges.push_source_within(0, &[3], 2).unwrap();
+        assert_eq!(edges.iter().collect::<Vec<_>>(), [(0, 1), (0, 2), (0, 3)]);
+        assert_eq!(edges.folded(), 2);
     }
 }

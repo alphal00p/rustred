@@ -1,4 +1,4 @@
-//! Publication policy `epoch` (walk semantics 3, W2 stage S2) end to end on
+//! Current publication policy `epoch` end to end on
 //! the one-axis fixture: drained and resolved, identical across widths, and
 //! its final export certified by the closure verifier.
 use super::*;
@@ -56,11 +56,14 @@ fn epoch_walk_drains_resolved_and_is_identical_across_widths() {
         .unwrap();
         let document = result.into_document().unwrap();
         assert_eq!(document["status"], "locally_resolved", "{document}");
-        assert_eq!(document["walk_semantics_version"], 3);
+        assert_eq!(
+            document["walk_semantics_version"],
+            crate::OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION
+        );
         assert_eq!(document["family_closure_claim"], false);
         assert_eq!(document["epoch"]["ledger6"]["pending"], 0);
         assert_eq!(document["epoch"]["certified"], true);
-        // S2 closure: one forced refresh at drain, none during merges.
+        // Uncheckpointed control: one forced refresh at drain, none during merges.
         assert_eq!(document["descendant_closure"]["refresh_count"], 1);
         // The duplicate query shares the first narrow domain's root.
         assert_eq!(

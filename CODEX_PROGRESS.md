@@ -20,11 +20,11 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | `stage_a_release` | pure kernel implemented,17 release tests PASS; core integration active, diagnostic intentionally not compile-complete | Resolve non-Copy ownership, then complete artifact/interface propagation and mixed-order routing tests |
-| S: original S5 merge architecture | `parallel_gate_critique`; root bulk/config support | second immutable P2 source stage audited; typed records partly wired; bulk source audited but not executed | Complete controller/typed-record/bulk integration and native tests |
-| P4 shared immutable lookup publication | `active_goal_delivery_audit`, rotated to implementation; root reviews | approved narrow layered design; shared-page primitive/tests drafted | Finish exact/orthant/live-layer adapters, atomic publication, bounded retention and failure tests |
-| Independent mathematical/code/performance audit | root; rotate separate lane authors when available | P2/bulk/pure-order source audits completed before P4 role change | P4 author must not audit their own new implementation; finish independent integrated audit before pilots |
-| Integration, resources, profiling and release | root | active | Persist new plan and goal; coordinate shared files/builds and combined acceptance |
+| O: generated-rule selection and full persisted integral order | `order_integration_resume` | kernel17/core2864 PASS; app/CLI PASS; installed Python19/19 plus focused4 PASS; source archive PASS | Optimized runtime descriptor portfolio |
+| S: original S5 merge architecture | `s5_typed_resume`; root bulk/config support | full native app1198 PASS/0 failures/12 ignored, including preparation/records/replay and22 controller tests | Matched reference/helper-budget pilots |
+| P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
+| Independent mathematical/code/performance audit | `native_failure_audit`; earlier P4 and lane reviewers | final full50-core harvest1198 PASS/0 failures/12 ignored; no W50 skips | Independent interpretation of installed API and pilot results |
+| Integration, resources, profiling and release | root; `s5_pilot_preflight` prepares measurements | native/interface gates passed; campaign-profile build active; production untouched | Audited implementation push, frozen optimized executable and matched pilots |
 
 First-slice design audit (05:55 UTC): both tracks received a preliminary GO,
 not approval of unimplemented code. Ordering uses a shared immutable validated
@@ -91,6 +91,574 @@ No CAS code generation or campaign run was involved. Root authorized the broad
 ownership propagation because actual order identity must reach every replay and
 descent consumer; preserving Copy through process-local handles would weaken
 that contract. Current source remains an in-progress integration tree.
+
+### Resumed integration — 2026-09-30 08:00 UTC
+
+Delegation became available again: `order_integration_resume` owns O,
+`s5_typed_resume` owns P2/typed records/controller integration, root owns P4,
+and `p4_shared_snapshot_audit` independently reviews P4. The docs-only interrupted
+checkpoint was committed/pushed as `931bcd1d`; unfinished source is still local.
+No production action or new performance claim.
+
+- [M] The next core test metadata harvest (`TMP/aster-integration-20260930-resumed/core-check`)
+  failed with remaining test ownership errors:49.183s,2425632KiB peak single-child
+  RSS. Compiler-directed repairs preserved assertions. The following full
+  core/app/Python metadata check (`full-check`) compiled all three libraries,
+  but failed test targets with4 core and11 app diagnostics:58.194s,
+  2440404KiB peak. Both process groups drained. These are diagnostic builds,
+  not native execution or acceptance.
+- Ordering now carries full program metadata through candidate generation,
+  inspection, save/load, checkpoints and CLI/Python. Tests for source replay,
+  mixed-order strict-pinch composition, cut refusal, cold load and descriptor
+  mismatch have been added; they remain unexecuted. The Python descriptor
+  builder's3 pure tests passed (agent receipt;0.001s).
+- S5 now uses concrete typed records in P3 and CP6 restore. Cold audit retains
+  its independent proof logic through a one-row projection from the same
+  authenticated binary stream. Reserved preparation helpers execute through
+  one private pool while the coordinator polls stop/progress; no extra
+  nested/global compute pool is introduced. This integration is under test,
+  not yet a demonstrated throughput improvement.
+- Root replaced the two full lookup replicas in source with shared immutable
+  geometry/live pages and geometric aggregate-index cohorts. Lookup preserves
+  retired exact positives, dominant-orthant ordering and the minimum current
+  live containing ID across cohorts, with ID-bound independent verification.
+  New roots are prepared off to the side; failed refresh leaves the old root
+  and committed canonical state intact. Retained-root count/lag and logical
+  changed-data charges bound overlap; these charges are not an RSS promise.
+  Differential, quarantine, compaction and cancellation tests were added.
+- [M] The isolated shared-page primitive compiled with optimized rustc and
+  all4 tests passed, including every injected fallible path checkpoint and
+  held-root immutability. Evidence: `pages-compile2` (3.238s guarded,
+  199848KiB peak) and `pages-run` (1.209s guarded; tests0.00s) under the same
+  evidence directory. The first wrapper compile failed because its absolute
+  module path misplaced the test submodule; corrected only the ignored harness.
+  This test does not exercise native geometry or the whole snapshot engine.
+
+All builds/tests use the existing environment license, guarded local TMP,
+heavy/build-0 locks and CPUs0–15 (isolated page test0–7), never LC2's128–227.
+Warm checks use `cargo check --release --tests --locked --offline
+--message-format=json --config profile.release.package.rustred-app.opt-level=1
+-j8 -p rustred -p rustred-app -p rustred-python`; compilation is not a pilot.
+Next: full metadata gate after P4 integration, fix audit findings, then a
+coherent native test build. Only after these gates come matched optimized pilots.
+
+Integration follow-through (08:15 UTC): `full-check2` had4 test errors,
+`full-check3` one typed-counter visibility error, and **`full-check4` passed**
+all core/app/Python `--tests` metadata:32.170s guarded,29.59s Cargo,
+1427592KiB peak. The standalone runtime-order suite passed again17/0
+(`order-kernel-tests`:2.157s guarded,199380KiB peak). Native integrated tests
+have not run. Source remains uncommitted pending them, not a launch build.
+
+Independent audit results and current corrections:
+
+- P4 source review found no remaining false-containment/publication-atomicity
+  defect after corrections for sparse-live cancellation polling, unchanged-root
+  retention age, and responsive exact-key compaction. Root also fixed overlapping
+  retirement sets across different survivors of one cut: clearing the same old
+  ID twice is legal, while a repeated ID within one sorted row is not. Added
+  forced hash-collision tests local to the new index, phase/owner/correlated and
+  wide-summary comparisons, and exact-merge4095/4096/4097/8193/mixed15000-row
+  boundary/interruption tests. These compile, but have not executed yet.
+  Old full-replica lookup cloning is being removed; no default Ready change.
+- The new exact-key layer compacts already sorted prior runs, hashes/sorts only
+  new tails in4096-row std-library chunks, then uses checkpointed BinaryHeap
+  merging. Logical retention charges are explicitly **not** physical RSS
+  bounds. Full native-summary rebuilding on carries and binary-search lookup
+  costs remain performance risks to measure, not claimed gains.
+- Independent ordering review found descriptor/replay/descent/mixed-owner
+  design coherent. Direct Rust reducer/owner constructors still need an
+  explicit check against each solution's retained order; the ordering author
+  is fixing that API consistency gap, not adding a compatibility exception.
+- Independent S5 review found two operational gaps before native acceptance:
+  helper0 preparation cannot poll an arriving stop/RAM request through its
+  local AtomicBool, and metadata currently prevents changing helper allocation
+  on checkpoint resume. The S5 author is adding a coordinator-only callback
+  through the serial path (parallel tasks retain atomic polling) and permitting
+  validated worker repartition independently of logical scratch limits.
+  Mid-preparation interruption and helper-enabled→W1 resume tests are required.
+- Typed-record authority, deterministic preparation and poisoned publication
+  failure paths passed source inspection otherwise. The critic is rotating
+  into a separate sidecar-test slice for buffered tails, write/seal failures
+  and projection parity; root will review those tests independently.
+
+No pilot, speedup or production deployment claim follows from metadata PASS.
+All running campaign state is untouched. The long native codegen is held until
+these audit fixes stabilize, avoiding a knowingly obsolete expensive build.
+
+Native-validation freeze (08:20:21 UTC): the audit fixes stabilized and
+`full-check5` passed all core/app/Python test metadata, including helper0 polling,
+helper-enabled→W1 restoration, direct Rust order binding, nontrivial K3 replay
+fixtures and eight binary-sidecar failure/projection tests. Guard55.178s,
+Cargo52.35s, peak2450756KiB. Both independent reviewers conditionally approved
+the corrected source for native testing; this is **not** runtime acceptance.
+Root independently reviewed the sidecar tests authored by the rotated critic.
+Python builder3/3 and the steering/audit group70/70 also passed again
+(0.001s and9.496s respectively), using mocks where previously documented.
+
+The native build has **actually started** at
+`TMP/aster-integration-20260930-resumed/native-tests-build`, session61380,
+with the established guard, CPUs0–15, heavy/build-0 locks and warm
+`TMP/codex-runtime-discovery.280crc/target-native`:
+`cargo test --release --no-run --locked --offline --message-format=json
+--config profile.release.package.rustred-app.opt-level=1 -j8
+-p rustred -p rustred-app --lib`.
+Core is optimized normally, app opt1 is the existing correctness-only build;
+neither this compilation nor these executables establish production timing.
+All implementation authors have frozen edits while Cargo reads the source.
+The SHA256 of the sorted per-file SHA256 listing for `.rs` under core/app/order/
+Python `src` is
+`019d8f094263ecfec0f6a209a4ec3213539d35d7df227aa9c0db0116702decbf`.
+HEAD is still docs checkpoint931bcd1d plus the preserved uncommitted task tree;
+unrelated FeynKit and reference material are not part of this build scope.
+The guarded result and executable paths/hashes must be recorded on completion
+before any focused tests. Then run full applicable gates and matched optimized
+pilots; do not infer a speed gain or campaign readiness from compilation.
+
+Continuation (08:26 UTC): the final independent S5 re-review found no blocker
+in the serial cancellation and helper-repartition corrections. Native build
+continues on the frozen source; no code was edited or production state touched.
+While it compiles, the ordering and S5 authors are preparing exact executable
+acceptance inventories and runtime-only pilot inputs. The separate auditor is
+checking the matched timing/scope boundaries. Compilation/test-profile timings
+will not be compared to the optimized production baseline. Source approval is
+conditional on runtime evidence, not a recommendation to switch campaigns.
+
+[M] Core test code generation completed before the application test executable.
+At08:34 the12 focused native programmed-order/admission/replay tests all passed
+(test body0.02s; guard1.150s; peak12316KiB). This includes exact generated K3
+replay, transported comparisons, lawful weighted descent, mixed-owner strict
+pinches and rejection of mismatched order/sector admission. A broader regression
+group then passed727 tests with5 ignored (test body1.18s; guard2.157s).
+Evidence: `core-order-native` and `core-order-regressions` under the resumed
+integration directory. Executable `target-native/release/deps/rustred-135112256e6c039b`
+SHA256 `775eaa598252a5c68b603eb932b86710b8b10239afd7c9c5d49e9907366eac45`.
+These lightweight correctness runs used one test thread, separate CPUs16–17
+and `aster-light-test.lock`, while the application compiler retained CPUs0–15
+and the heavy/build locks. This explicit resource amendment does not authorize
+concurrent heavy pilots or any performance comparison. Full core tests are next;
+the S5 author owns focused app execution after its build drains. Production is
+untouched.
+
+[M] Full core native execution completed at08:37: **2864 passed,32 ignored,
+zero failed**,137.10s test body,138.221s guarded,191328KiB peak single-child RSS,
+exit0/no stop reason. Evidence: `core-full-native/{request,result}.json` and
+stdout/stderr. The12/727 focused groups above are subsets, not additional unique
+coverage. This is a correctness result, not a campaign performance measurement.
+The app test compiler is still running; production readiness remains unclaimed.
+
+The independent measurement auditor implemented a narrow diagnostic comparator
+in `tools/research/epoch_cp6/{compare_state.py,test_compare_state.py,STATE_COMPARISON.md}`.
+Root independently reviewed it and reran the combined26 Python tests, all PASS
+in0.212s. A real historical drained four-loop checkpoint self-comparison passed
+(agent receipt). It compares unchanged durable geometry, ledger, chosen edge
+targets, anchors, query roles and logical work across versions. It explicitly
+does not decode typed records or replace native authentication/cold-All gates;
+full record equality is `NOT_COMPARED`, and physical counters/cache/timing are
+reported separately. The ordering author is preparing a separate v3 staging
+helper so descriptor experiments do not reuse or overwrite the historical v2
+stager. S5 comparisons will retain the actual old owner payload bytes.
+
+At08:45 the separate staging helper in `tools/research/runtime_order/` passed16
+synthetic tests and independent review. Its README records executable native
+acceptance, the actual historical-payload smoke and a small structurally motivated
+order portfolio. These proposed orders have no new performance result yet.
+Staging explicitly cannot establish a payload's actual order: a small Rust study
+inspector will reuse the existing native inspection API before any comparison.
+Root also reviewed `docs/epoch_s5.md`, correcting the description of exact,
+dominant-orthant and minimum-live lookup precedence. Documentation-only work
+does not alter the frozen engine. The full core receipt/binary/source binding
+was independently rechecked and passed; the application test build continues.
+
+The native study example `crates/rustred-app/examples/inspect_candidate_orders.rs`
+now checks actual saved order identities and then passes the same immutable
+payload buffers through the existing shared owner loader for sector/family
+admission. Its source received independent conditional approval. The warm
+example metadata check passed (`inspector-check`:3.154s guarded,0.43s Cargo,
+199528KiB peak; CPUs16–17). Four decision tests and actual payload admission
+are still unexecuted. It adds no CAS parser and does not claim replay/closure.
+Existing engine source/manifests remain frozen; the auto-discovered example
+does not change the in-flight library build.
+
+Next source-window cleanup, explicitly pending rather than silently fixed:
+the S5 author's read-only review found `epoch_lookup_tests.rs` still comparing
+the default binding with literal semantics3, while the new binding correctly
+uses4. A separate foreign-manifest test labels4 as a future version but rejects
+because of an unknown field; make future-version rejection independent there.
+Also refresh the stale S2 comment in `worker_budget.rs`. Gather actual native
+failures before one consolidated correction/build, preserving every semantic
+assertion. These findings do not authorize weakening identity or restore checks.
+
+Continuation (09:18 UTC): the native app test compiler is still processing the
+same frozen source; the complete core suite already passed. No restart, new
+engine edit, production action or performance claim. The separate ordering
+author delivered three runtime JSON recipes under
+`examples/input/four_loop_combined/order_programs/`: explicit reference order,
+shared-interface priority, and momentum-support-density ties. Independent audit
+verified exact public Python-builder equality, E-primary admissibility, the
+actual pinch-routing census and density-weight arithmetic. These are unmeasured
+input hypotheses, not selected production settings. The public builder tests
+passed3/3 again. Existing Source-A discovery policy will remain fixed when
+comparing these B-orders.
+
+To keep the next phase coordinated, `order_integration_resume` now owns exact
+runtime-only order-study command preparation; `p4_shared_snapshot_audit` owns
+the independent fixed-work S5 measurement-plan audit; `s5_typed_resume` will run
+focused and full app native tests immediately after the guarded build completes.
+All performance runs remain behind native correctness and the optimized binary
+gate. Resource-intensive measurements stay serialized; lightweight metadata and
+input validation do not justify racing heavy campaigns with the compiler.
+
+[M] Runtime-only pilot preparation is ready (09:27 UTC), with no solver launches.
+Root independently reran the order planner's validation: five arms, twenty native
+argv files, unchanged16 owners/508 routes/58 required queries; both root downsets
+remain314/328 sectors. Evidence/runbook:
+`TMP/aster-integration-20260930-resumed/order-pilot-plans/` (`prepared-v2` is current).
+The matrix separates the default/source-winner comparison from all B-order
+comparisons and uses one future optimized binary. The independent S5 protocol
+audit prepared six templates/twenty plans under sibling `s5-pilot-plan/` and
+verified exact historical-runner rewrites, fixed B16, explicit worker partitions,
+query bytes, resource masks and cold gates. Its `VALIDATION.md` is preparation
+evidence, not a completed measurement. New binary identities remain deliberately
+unbound; no fresh arm or repeated pair has run.
+
+Build-cost caution: historical `native-build-f3f707af-opt0` exited101 after1178.6s
+with oversized-text/GOTPCREL linker failures, while opt1 completed in4565.9s.
+Do not repeat opt0 as an assumed shortcut. The current unchanged opt1 build has
+passed its last long optimization thread and is still finalizing; no native app
+PASS is inferred from that. A bounded read-only compilation-structure audit is
+assigned to the ordering lane, without delaying or expanding the two workstreams.
+
+The order-plan audit then requested two narrow safeguards: freeze all emitted
+command bytes and distinguish a successful wrapper from an actually completed
+Ready run. These are implemented in `prepared-v3`, which supersedes v2 without
+overwriting it. The independent critic reran all4 synthetic receipt/mutation
+tests (PASS), validated40 pinned command/helper/template files, and checked the
+completion predicate against an existing real A1 result (read-only PASS).
+No new solver call occurred. New Ready acceptance requires native exit0, no
+censor, a complete result and fresh cold-All PASS, rather than launcher exit alone.
+
+The bounded compilation audit found a concrete caller-type multiplier at the
+public walk and cold-verifier entries: each `impl Fn(Value)` type currently
+propagates into16-arity dispatches. Two API-preserving thin wrappers delegating
+to non-generic borrowed-observer bodies received independent design approval.
+They require no Box, Send/Sync bound, CAS change or internal callback rewrite.
+The walk body will borrow its request to retain the public ownership/drop scope.
+A cheap existing fixture can exercise non-Send borrowed state, callback thread
+identity, Ready/Epoch and cold verification. Implementation remains pending the
+native test harvest; this source evidence is **not** measured attribution of the
+LLVM tail or proof of faster builds. Runtime descriptor changes themselves already
+need only regeneration, not Rust compilation; new primitive capabilities still
+legitimately require a rebuild.
+
+[M] Frozen native build completed successfully at10:08 UTC: guard exit0/no stop,
+6490.656s wall,31787.621s child user CPU,1691.890s system CPU,
+99527096KiB peak single-child RSS and584314572800bytes minimum host availability.
+Cargo reports108m07s; this is compilation, **not solver timing**. The source
+fingerprint still equals the08:20 freeze. App test executable
+`target-native/release/deps/rustred_app-38597ba0e64b4e2a` SHA256
+`b8c853fa323c265d4102e9d914832839f812788102b2e350bf8bddc2eaf2b4a5` is about1.8GiB.
+Receipt: `native-tests-build/result.json` under the resumed integration evidence.
+`s5_typed_resume` now owns focused and full application execution; no app PASS
+is inferred from linking. Root keeps the source freeze through failure harvest.
+The very large native-test image strengthens the reason to measure the two
+reviewed monomorphization boundaries at the next necessary rebuild; it does not
+prove a cause or a compile-speed gain by itself.
+
+Native application harvest (10:15 UTC): seven focused groups passed:
+preparation10, wire3, record-store8, snapshot14, bulk7, edges5 and restored record
+body9. Controller tests passed21/22; the failure counts selected nonprefix
+attempts as if they were committed cuts. The exact single save, committed k=1,
+16 records and32 outstanding identities all passed. Responsive P2 may now stop
+a second selected proposal before publication. Independent audit confirms this
+counter is invocation-local telemetry; retain the exact state/replay assertions
+and allow the justified1–2 selection attempts. It passed in the later full run,
+so its timing-sensitive expectation must be fixed rather than hidden.
+
+[M] Full app error harvest: **1189 passed,6 failed,12 ignored**,248.02s test body,
+250.237s guarded,196564KiB peak, exit101/no operational stop. Evidence:
+`s5-native-full-harvest/{stdout,stderr,result.json}`. This is **not** a passed
+application milestone. The six failures concern two candidate fixtures that
+change coordinate priorities without binding their actual saved order, stale
+semantics expectations in epoch walk/request-binding tests, an allegedly future
+version now equal to current4, and CLI capability metadata. Twelve W50 portions
+(ten across owner-batch cases and two native delegation cases) explicitly skipped
+under the16-core affinity; W1/W2/W6 parts ran. A separate50-physical-core rerun is
+required, not a claim that every width passed.
+
+The source window is now open for one consolidated correction: the ordering
+author repairs fixtures by generating/binding the intended order, keeps strict
+admission and all application assertions, and implements the two reviewed
+observer entry boundaries with focused regressions. The S5 author owns version
+and selected-attempt expectations, unknown-field versus future-version handling,
+and the stale worker-allocation comment. Follow-up found an **actual API metadata
+bug**: `walk_semantics_probe` still emits nested CP6 schema2/semantics3 although
+the writer is3/4. Root authorized correcting the probe from native constants and
+testing both fields; changing only the assertion would conceal this issue.
+The production Python plan already advertises3/4. Fresh independent auditor
+`native_failure_audit` replaces the earlier critic after a per-agent thread limit,
+and is reviewing the correction diffs. No matched pilot or production action yet.
+
+Correction checkpoint (10:27 UTC): both implementation authors delivered their
+slices and independent `native_failure_audit` found no source blocker. The CLI
+probe now derives CP6 format/schema from the writer through crate-private
+reexports. Version fixtures distinguish unsupported future versions from
+same-version unknown fields with validated previous-generation fallback. The
+rolling assertion retains exact committed/replayed state and bounds only the
+invocation-local selected-attempt telemetry. The two non-generic observer
+boundaries preserve borrowed, non-Send public callbacks, with W2 Ready/Epoch,
+cold verification, resume and cancellation tests. No build-speed claim yet.
+
+[M] The first correction metadata gate nevertheless failed one fixture ownership
+error: `SectorSolution` is not Clone, so the newly written `.clone()` cloned a
+reference. Ordering author owns the narrow fix and independent re-review.
+Evidence: `TMP/aster-integration-20260930-resumed/corrections-metadata/`,
+guard28.165s, exit101/no stop,1450640KiB peak single-child RSS. No costly native
+rebuild started with the invalid fixture. Pure-Python surface checks continue
+independently; the source hash before this correction was
+`a9ed5da739d5dc6384143a42694df29f01b121ed210403fc79c99f004424a6e0`.
+Root keeps production untouched. Corrected native, actual W50 subcases,
+CLI/Python and optimized matched pilots remain mandatory gates.
+
+[M] Correction metadata retry passed: guard29.168s, exit0/no stop,
+1436352KiB peak; fixture now consumes owned solutions instead of cloning a
+reference. Independent reviewer approved that repair. Source was formatted for
+the four task packages only; unrelated FeynKit work was not changed. Native
+rebuild started with frozen Rust-source fingerprint
+`f7488be2fd8464b18095f93b825b36adc2967294065dac35eaea9befc5ff73ca`.
+Exact command and resource receipt are under `corrected-native-build/`: app
+lib/bin tests, CLI candidate/routed/application integration tests and native
+order inspector example, release with app opt1 for correctness only, CPUs0–15.
+
+[M] Root separately ran83 pure-Python epoch preparation/batch/checkpoint/lookup/
+rolling, saved-walk audit and CP6 receipt/comparison tests: PASS in7.420s
+(guard8.158s,110680KiB peak), evidence `s5-python-corrections/`. These exercise
+steering and synthetic contracts, not the native solver or performance gate.
+
+W50 count clarification from the independent auditor: the12 stderr skip markers
+include two preflight calls in tests that intentionally exercise only W<=6.
+There are **ten intended W50 subcases**: eight owner-batch cases and two native
+delegation cases. Run the whole owner-batches group plus the two exact delegation
+tests with no skip markers. Read-only topology audit confirms CPU32–81 contains
+50 distinct physical cores and does not share cores with protected128–227;
+actual launch affinity and locks still need enforcement. No new pilot result.
+
+[M] Ordering surface lane independently passed26 lightweight tests (3 integral
+order,3 source discovery,16 staging,4 command/receipt mutation). It revalidated
+all prepared-v3 input/argv pins and three recipe/public-builder equivalences.
+Evidence and future native commands:
+`order-python-corrections/README.md`. Static distribution inspection is not an
+archive test; separate source-archive preparation is assigned next without a
+Rust build. The independent native audit receipt is
+`native-audit/acceptance-audit.json`; its expected next full app inventory is
+1198 active tests plus12 ignored, to be checked against the actual rebuilt list.
+
+[M] Read-only LC2 observation around10:30 UTC: process360092 remains live with
+its unchanged frozen executable,100-worker requested budget and protected
+CPUs128–227. Latest sampled heartbeat had about189.247M discovered domains,
+80.584M native inspections,60.069M pending and zero reported frontiers. The
+recursive-closure snapshot still records6/67 original roots and is about590s
+stale; it is not a fresh closure calculation or an ETA. Resident memory was
+about81.6GB. No campaign files or execution controls were modified. These
+figures do not justify either an eventual-completion claim or a switch before
+the new implementation's correctness and matched-performance gates.
+
+[M] Actual source archive now passes the existing distribution checker:
+5,444,879 compressed bytes,1967 files,28,602,396 uncompressed bytes; SHA256
+`34a6582799d88525cbed4e3be8e8a86e7aa5b12119ab8255305d0553ca9e0399`.
+The first offline attempt lacked `is-macro` in the default Cargo cache; the
+retry used its already-existing workspace cache (`TMP/cargo-home`) and completed
+in4.00s without downloads or Rust compilation. Manifest/lock hashes unchanged.
+Receipts: `order-python-corrections/`; native wheel/API tests still pending.
+An exhaustive source-module inclusion check follows the sampled archive audit.
+
+Preparation maintenance only: root's rustfmt changed the candidate parser's
+byte identity, correctly invalidating `prepared-v3`. Root regenerated identical
+study settings as **`order-pilot-plans/prepared-v4`**, now authoritative for the
+future order portfolio. It preserves all five arms,16 owners/508 routes/58
+required queries and the same roots/policies. Data validation and all4 mutation
+tests pass. No native command was executed; no scope or strategy was changed.
+The earlier failing-test executable was also preserved by reflink under
+`native-tests-build/rustred-app-before-corrections`, with its original SHA256
+confirmed, so the correction rebuild cannot erase that diagnostic evidence.
+
+[M] Exhaustive source-archive check passed: all1795 actual Rust files in app393,
+core1393,order6 and Python3 are present and byte-equal, including untracked S5
+modules; no missing or stale source members. Independent v4 review confirms all
+40 command/template objects equal v3 after directory renaming only, and all7
+frozen input files are unchanged. V4 validation and4 mutation tests pass; v3
+refuses stale parser hashes as intended. Receipts remain in
+`order-python-corrections/`. Ordering lane next owns the matching native wheel
+and API checks, but awaits root's build-slot grant after native failure harvest.
+
+Native CLI harvest (10:43 UTC): Cargo reported the corrected normal library,
+CLI and integration binaries before the application unit binary finished.
+Root ran their low-memory correctness tests on32–47 under the pilot lock while
+compilation stayed on0–15; these timings are not performance measurements.
+Candidate CLI18/18 PASS (including programmed-order cold certification/application),
+application API3/3 PASS, native inspector4/4 PASS. Evidence:
+`corrected-cli-candidates/`, `corrected-application-api/`, `corrected-order-inspector/`.
+Actual CLI probe consistently reports CP6 schema3/semantics4. CLI SHA256:
+`041bf2bfd0ad685f53ebe44341d8cf4d1e260d59f00a56fb072c3d2cae2ad9ad`.
+
+`corrected-cli-routed/` reports5 passed/1 failed: its old probe assertion expects
+five top-level fields rather than six including `epoch_checkpoint`. Root proposes
+a test-only correction asserting both exact CP6 objects as well as six fields,
+retaining all legacy/per-policy/single-line/argument-refusal checks. Independent
+review requested; the integration target will be rebuilt separately without
+changing the engine or invalidating the long application compilation. No failed
+test is counted as passing, and the application native gate remains pending.
+
+[M] Corrected consolidated native build finished in1034.540s guarded (Cargo
+17m11s), exit0/no stop,6752.447 userCPU seconds,161.211 systemCPU seconds,
+20126080KiB peak single-child RSS. It built app unit/bin tests, three integration
+targets and inspector tests. The new app test executable is about311MiB, SHA256
+`40880233174f88e7caf54c4c20585d76612518a60a2f6cade2f88a3ffc919f9a`.
+The earlier unit image was about1.8GiB and its build108m07s. These are observed
+compile receipts with different target sets, not a controlled compiler benchmark
+or a solver-speed comparison; the callback-boundary reduction removed concrete
+duplication but its isolated timing contribution has not been measured.
+
+The independently approved routed-CLI assertion repair rebuild took19.160s and
+its rerun passed6/6 (0.13s test body,1.153s guarded). Existing native app/engine
+artifacts were reused. Separate native loading of the unchanged historical
+four-loop selection passed for all16 saved owners and their16 corner targets:
+zero missing owners/rules,16 declared terminals, no regeneration. Evidence:
+`historical-owner-load/` and `historical-corners-four-result.json`. It applies
+zero rules, so this is a native old-payload/load smoke, **not** a closure or
+whole-campaign reduction test.
+
+Corrected app focused tests: order5, declared-affine1, namespace1, probe1 and
+controllers22 all PASS. Two new observer tests fail because they expect the
+sequential `domain_started` event in the parallel Ready observer stream. The
+ordering author is diagnosing exact event semantics before changing those
+fixtures; non-Send/thread/envelope/cold/resume/cancellation guarantees remain
+required. Independent full50-core harvest continues in `corrected-app-full-w50/`.
+The public help also contains stale descriptions of implemented order/CP6
+controls; an audit is determining the minimal truthful help correction for the
+same next batch. No mathematical engine change has been requested by these
+test failures. No campaign performance or deployment claim yet.
+
+[M] Full corrected app harvest on50 distinct physical CPUs completed:
+**1196 passed,2 failed,12 ignored**,118.38s test body,120.217s guarded,
+199680KiB peak, exit101/no stop. There are **no SKIPPED markers**. All intended
+W50 cases executed successfully; the only failures are the two new observer
+fixtures. The independent auditor confirmed this inventory and released both
+resource locks. The Ready implementation intentionally emits `domain_started`
+only when `!ready`; short runs also need not emit timed heartbeats. The author
+is replacing the fixture's invented event assumption with a genuine initial
+delegation event after native dispatch, with independent review of deterministic
+ordering before accepting it. The mathematical/runtime callback implementation
+is unchanged. Cold/resume portions of that new fixture still need execution.
+
+Root applied independently specified public-help corrections: document separate
+source-discovery and persisted integral-order JSON flags, current semantics4,
+supported CP6 G2/rescue versus refused resume-time activation, pinned rolling
+snapshots, and execution-only helper repartition versus frozen logical limits.
+Only help/comments/error wording and help assertions change; existing admission
+behavior remains intact. These join the observer fixture in one next native
+batch. Historical explicit semantics3 export fixtures remain unchanged.
+
+Final correction freeze (11:03 UTC): the proposed delegation-event fixture was
+rejected before implementation because initial reservations can prevent the
+assumed delegation. The accepted repair checks Ready's actual post-work
+`checkpoint_saved` event, while an Ordered-policy test checks cancellation after
+an actual dispatched `domain_started` event. Both exercise the same public
+borrowed, non-Send callback boundary; coordinator-thread, drain, cold-reinspection
+and resume assertions remain. No walker event or mathematical algorithm changed.
+Independent source approval is recorded in
+`native-audit/final-correction-source-review.json`.
+
+[M] Final core/app/Python test metadata passed in28.167s guarded,1438388KiB peak;
+app/Python formatting checks passed. The corrected-source fingerprint is
+`28a0aad51be811bd8f193fe1876401e136573355135cb31e971bbd086aac7fe2`.
+Root launched `final-native-build/` with the same reusable native Cargo target,
+app correctness optimization1, CPUs0–15 and heavy/build-0 locks. The independent
+auditor owns the next observer/full50-core gate; root owns CLI/API integration
+harvest. These are correctness builds, not performance comparison binaries.
+
+[M] The packaging lane's PATH-dispatch proof passed: Maturin issued two metadata
+and four package-list calls through the existing workspace Cargo cache, no
+compile calls,4.162s guarded. Its refreshed private source archive passes the
+exclusion checker and contains all1795 Rust source files byte-identically at
+creation. Archive SHA256:
+`e3033751a893720adde6fbb56d9a5776f82356471526c2b2c3ce67847a257d0b`.
+This resolves the missing optional metadata-dependency cache without downloads,
+outside-workspace cache writes or changing compilation's cached source paths.
+A native wheel and public Python API execution remain required, not passed.
+
+Current delegation: `native_failure_audit` independently checks final native
+results; `order_integration_resume` prepares the native wheel/API lane and
+refreshes runtime pilot inputs; `s5_pilot_preflight` checks the existing matched
+S5 execution plan without running a solver. Root integrates, coordinates build
+resources and verifies results. No production campaign is modified or launched;
+the mathematical goal and both measured-performance gates remain open.
+
+Final frontend checks (11:15 UTC): the final build's completed CLI/integration
+artifacts passed candidate CLI18/18, routed CLI6/6 and application API3/3. These
+low-memory correctness checks ran on32–47 while the app unit target compiled
+on0–15; the independent auditor confirmed the fresh artifact paths, zero skips
+and normal exits. Final CLI SHA256:
+`288a89034a0e63574ce969e2541591c315b96b2061db706b5b97aef5b4bb7ac2`.
+Evidence: `final-cli-candidates/`, `final-cli-routed/`, `final-application-api/`.
+They are not performance measurements.
+
+[M] Final consolidated native build succeeded:1004.537s guarded (Cargo16m42s),
+6655.995 userCPU seconds,153.539 systemCPU seconds,19721980KiB peak single-child
+RSS, no stop reason. Final app unit SHA256:
+`34e7d1c7f76abdffb8d43331780e0d0c68e8beeb9a99f6843f2a294e4357d0cd`.
+The independent auditor verified the new executable and owns the observer/full
+50-core rerun. Inspector4/4 also passed and was independently checked. Packaging
+has a conditional build/test grant only after the complete app gate passes;
+its native wheel/API checks will not overlap another heavy job. Evidence:
+`final-native-build/`, `final-order-inspector/`.
+
+[M] Final complete application suite is green (11:22 UTC): **1198 passed,
+zero failed,12 ignored**,118.84s test body on50 distinct physical cores, with
+no worker-availability skip markers. The focused observer2 gate also passed,
+exercising Ready/Epoch cold verification and resume plus Ordered cancellation.
+Evidence: `final-app-observers/`, `final-app-full-w50/`. The conditional native
+wheel/API lane can now proceed. No solver throughput claim follows from this
+correctness gate; matched optimized pilots still decide the deployment choice.
+
+Installed Python gate (11:26 UTC): the actual Maturin wheel built in34.170s
+guarded (Cargo27.93s), reusing core/app libraries. The archive checker and fresh
+offline installation passed. Focus4/4 passed. The first full19-method run failed
+only its two cold-subprocess invocations because the ignored launcher modified
+`sys.path` without inheritable `PYTHONPATH`; no engine/test assertion changed.
+The explicit installed-wheel `PYTHONPATH` retry passed **19/19, zero skips**
+(0.553s test body,1.157s guarded). Both failed and successful receipts remain in
+`order-python-corrections/`. The extension SHA256 is
+`2dc59909afdc80a77159b89a146ea60655f5ee7c4d508a26a58fb59c42567618`;
+the matching CLI retains `288a8903…`. The local Linux-tag wheel is not a claim
+of PyPI-portable distribution.
+
+Root started the matched-profile build at11:26 UTC, after all correctness groups
+drained: `cargo build --profile campaign --locked --offline --message-format=json
+-j8 -p rustred-app --bin rustred --example inspect_candidate_orders`, guarded on
+0–15 with heavy/build-0 locks. Its target was copied from the old optimized cache
+without modifying the old checkout or frozen executable. This build has full
+optimization, fat LTO and one codegen unit, **no app opt-level1 override**.
+Evidence: `optimized/campaign-build/`. New benchmark executables are not yet
+frozen; no performance pilot or production action has run.
+
+Build interruption (11:28 UTC): the first optimized build guard received SIGTERM
+and recorded exit-15/`operator_signal_15` after108.198s, with no compiler error.
+Root verified its process group had exited. A detached launch attempt returned
+PID3053461 but produced no guard receipt and was absent on inspection; it was
+not counted as a running build. Root then resumed the same cached build through
+the ordinary supervised execution session82017, evidence
+`optimized/campaign-build-resume/`. This is an interrupted build, not a failed
+mathematical/performance gate. The automatic goal continuation also replaced the
+agent roster: `release_correctness_audit` finishes the Python receipt review;
+`s5_fixed_work_pilots` and `runtime_order_pilots` take over the already prepared
+measurement lanes. No scope, source code or production state changed.
+
+Independent installed-Python and staged-scope audit passed: wheel/native payload
+identity, current source-builder identity, actual public import and cold child
+loading,4/19 zero-skip test inventories, original launcher failure retained,
+and all243 staged paths checked. No excluded reference/campaign/license/FeynKit
+content is staged. Root is committing this tested implementation milestone;
+the active goal still requires optimized matched gains and launch instructions.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

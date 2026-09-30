@@ -9,7 +9,7 @@ use super::super::{
 };
 use super::{assembly, dispatch_state::SavedDispatch, roots::Roots};
 use crate::application::routed_campaign::walking::{
-    descendant_closure::Tracker, execution::records::Sidecar,
+    descendant_closure::Tracker, epoch::record_store::Sidecar,
 };
 use rustred::solver::RoutedCandidateReducer;
 use std::io;
@@ -172,6 +172,7 @@ pub(super) fn open<const N: usize>(
         verify: scalars.verify,
         lookup: scalars.lookup,
         inspector_lookup: Default::default(),
+        preparation: Default::default(),
         max_domains,
         max_events: max_events as u64,
         max_frontiers: max_frontiers as u64,

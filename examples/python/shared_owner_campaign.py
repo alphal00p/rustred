@@ -60,7 +60,7 @@ SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       "max-route-masks-per-query")
 SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
                     DOMAIN.PUBLICATION_POLICY, DOMAIN.EPOCH_INSPECTOR_LOOKUP,
-                    *DOMAIN.EPOCH_BATCH_OPTIONS,
+                    *DOMAIN.EPOCH_DATA_OPTIONS,
                     DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT,
                     DOMAIN.FRONTIER_POLICY)
 G2_RESIDUAL_ANCHORS = "g2-residual-anchors"
@@ -981,6 +981,7 @@ def main() -> int:
     parser.add_argument("--" + DOMAIN.EPOCH_DISPATCH, choices=DOMAIN.EPOCH_DISPATCH_POLICIES,
                         action=DOMAIN.StoreOnce, help="pending-job dispatch; adaptive requires rolling CP6")
     DOMAIN.add_epoch_batch_arguments(parser)
+    DOMAIN.add_epoch_preparation_arguments(parser)
     parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
                         help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
                              "ordered/ready publication and no physical subdivision; resume must retain its original mode")
@@ -1055,6 +1056,8 @@ def main() -> int:
         DOMAIN.validate_epoch_batch(args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
                                     args.epoch_rolling, symbolic, args.publication_policy,
                                     args.checkpoint is not None or args.resume is not None)
+        DOMAIN.validate_epoch_preparation(vars(args), symbolic, args.publication_policy,
+                                          args.workers, args.inspection_workers, args.max_containment_checks)
         validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,
                                      args.publication_policy, args.apply_subdivision_axis is not None)
     except ValueError as error:
@@ -1201,7 +1204,7 @@ def main() -> int:
     epoch_policy = ({"epoch_inspector_lookup": args.epoch_inspector_lookup or "all-miss",
                      "epoch_rolling": args.epoch_rolling, "epoch_dispatch": args.epoch_dispatch or "fifo",
                      **{name.replace("-", "_"): getattr(args, name.replace("-", "_"))
-                        for name in DOMAIN.EPOCH_BATCH_OPTIONS
+                        for name in DOMAIN.EPOCH_DATA_OPTIONS
                         if getattr(args, name.replace("-", "_")) is not None}}
                     if symbolic and args.publication_policy == "epoch" else {})
     checkpoint_directory = str(checkpoint_directory.resolve()) if checkpoint_directory is not None else None

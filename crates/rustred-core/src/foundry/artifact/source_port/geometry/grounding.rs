@@ -94,7 +94,7 @@ fn four_loop_affine_sector_grounding() {
                     &checked.boxes,
                     &checked.affine_exclusions,
                     &sector,
-                    ordering,
+                    ordering.clone(),
                     audit.sources.index_variables(),
                 ) {
                     problems.push(format!("rule {ordinal} descent: {error}"));

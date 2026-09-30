@@ -212,7 +212,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 }
 
                 let probe = probe.get_or_insert_with(|| {
-                    Probe::new(self.order, self.system.variable_count, options)
+                    Probe::new(self.order.clone(), self.system.variable_count, options)
                 });
                 let modular_row = probe.evaluate(&row)?;
                 if let Some(pivot) = probe.discovery.add_row(&modular_row) {

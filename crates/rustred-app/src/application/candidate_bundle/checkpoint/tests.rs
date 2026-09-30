@@ -102,6 +102,12 @@ fn fixture() -> (FamilyCandidatesRequest, CheckpointManifest, Vec<Vec<u8>>) {
                 family_fingerprint: family.fingerprint().into(),
                 root_sector: vec![true; 3],
                 permutation: request.permutation.clone(),
+                integral_order: crate::application::candidate_bundle::order::request_policy(
+                    &request, 3,
+                )
+                .unwrap()
+                .stable_id()
+                .to_string(),
                 sectors: vec![SectorRecord {
                     finite_residuals: vec![IntegralRecord {
                         symbolic: vec![false; 3],

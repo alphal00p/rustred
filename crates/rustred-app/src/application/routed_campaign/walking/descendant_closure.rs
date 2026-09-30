@@ -3,6 +3,7 @@
 //! Reverse reachability from unsealed nodes blocks all their ancestors. The
 //! complement includes sealed cycles with no unresolved outgoing dependency;
 //! this is scoped finite worklist coverage, NOT a descent/family certificate.
+mod bulk;
 mod edges;
 
 use serde::{Deserialize, Serialize};

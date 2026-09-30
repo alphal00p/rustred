@@ -188,6 +188,8 @@ def family_candidates(
     checkpoint_dir: str | os.PathLike[str] | None = None,
     resume: bool = False,
     checkpoint_max_bytes: int | None = None,
+    discovery_strategy: str | None = None,
+    integral_order: str | None = None,
 ) -> CandidateBundleResult: ...
 
 def certify_candidates(

@@ -190,8 +190,8 @@ impl GrowingTaskEpochState {
         &self.owners
     }
 
-    pub(super) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(super) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(super) const fn previous_requests(&self) -> Option<&AccumulatedSourceRequests> {
@@ -374,16 +374,16 @@ impl FreshTaskEpoch {
         &self.owners
     }
 
-    pub(crate) const fn fixed_ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn fixed_ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(super) const fn owners(&self) -> &ImmutableOwnerSnapshot {
         &self.owners
     }
 
-    pub(super) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(super) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn telemetry(&self) -> FreshTaskBuildTelemetry {

@@ -72,9 +72,21 @@ pub(super) fn encode_sector<const N: usize>(
             "candidate sector finite-case policy differs from its request",
         ));
     }
+    let mathematical_order = super::order::request_policy(request, N)?;
+    if solution.order.sector() != &sector
+        || solution
+            .order
+            .persisted_policy()
+            .map_err(|error| AppError::input(error.to_string()))?
+            != mathematical_order
+    {
+        return Err(AppError::input(
+            "candidate sector mathematical order differs from its request",
+        ));
+    }
     let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
     let sector = codec::sector_record(sector, solution, &mut coefficients)?;
-    let program = program_record(request, family, root, vec![sector]);
+    let program = program_record(request, family, root, vec![sector])?;
     let family =
         NativeFamilyRecord::from_family(family, &mut coefficients).map_err(codec::binary_error)?;
     codec::write_records(
@@ -90,8 +102,8 @@ pub(super) fn program_record(
     family: &IntegralFamily,
     root: &[bool],
     sectors: Vec<SectorRecord>,
-) -> ProgramRecord {
-    ProgramRecord {
+) -> Result<ProgramRecord, AppError> {
+    Ok(ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
         solver_policy: policy::encode_request(request),
@@ -100,6 +112,9 @@ pub(super) fn program_record(
         family_fingerprint: family.fingerprint().to_owned(),
         root_sector: root.to_vec(),
         permutation: request.permutation.clone(),
+        integral_order: super::order::request_policy(request, root.len())?
+            .stable_id()
+            .to_string(),
         sectors,
-    }
+    })
 }

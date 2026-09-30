@@ -287,7 +287,7 @@ fn build_rule(
             problem.domain.sector(),
             &pivot,
             &right_hand_side,
-            problem.ordering,
+            problem.ordering.clone(),
             limits,
         )?;
         if !admission.domain().contains(problem.anchor.powers())? {

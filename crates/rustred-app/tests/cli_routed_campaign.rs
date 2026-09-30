@@ -662,7 +662,7 @@ fn cli_walk_semantics_version_probe_reports_the_checkpoint_resume_identity() {
     assert_eq!(stdout.lines().count(), 1);
     let probe: Value = serde_json::from_str(&stdout).unwrap();
     // The three legacy keys are frozen (the production launcher reads them);
-    // walk semantics 3 adds per-policy versions and checkpoint formats.
+    // CP6 additionally reports its per-policy semantics and resumable format.
     assert_eq!(
         probe["walk_semantics_version"],
         json!(rustred_app::OWNER_DOMAIN_WALK_SEMANTICS_VERSION)
@@ -681,7 +681,20 @@ fn cli_walk_semantics_version_probe_reports_the_checkpoint_resume_identity() {
             "ready": rustred_app::OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
             "epoch": rustred_app::OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION})
     );
-    assert_eq!(probe.as_object().unwrap().len(), 5);
+    assert_eq!(
+        probe["checkpoint_formats"],
+        json!({"cp5": "RUSTRED-WALK-CP5", "cp6": "RUSTRED-WALK-CP6"})
+    );
+    assert_eq!(
+        probe["epoch_checkpoint"],
+        json!({
+            "format": "RUSTRED-WALK-CP6",
+            "schema": 3,
+            "walk_semantics_version": rustred_app::OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION,
+            "resumable": true
+        })
+    );
+    assert_eq!(probe.as_object().unwrap().len(), 6);
     let refused = Command::new(env!("CARGO_BIN_EXE_rustred"))
         .args(["walk-semantics-version", "extra"])
         .output()

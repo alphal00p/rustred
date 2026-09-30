@@ -214,7 +214,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
     let vacuous = off_parent
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             excluded_piece(),
@@ -260,7 +260,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
         let error = relative_parent
             .verify_cell(
                 context,
-                original.ordering,
+                original.ordering.clone(),
                 &[true; 3],
                 &zeros,
                 relative_piece(),
@@ -272,7 +272,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
     let off = parent(None, Arc::from([Arc::clone(&equality)]))
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             copy_piece(),
@@ -283,7 +283,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
         parent(Some(Arc::clone(&equality)), Arc::from([Arc::clone(next)]))
             .verify_cell(
                 context,
-                original.ordering,
+                original.ordering.clone(),
                 &[true; 3],
                 &zeros,
                 copy_piece(),
@@ -297,7 +297,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
     let on = parent(Some(on_domain), Arc::from([]))
         .verify_cell(
             context,
-            original.ordering,
+            original.ordering.clone(),
             &[true; 3],
             &zeros,
             copy_piece(),
@@ -320,7 +320,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
         schema: original.schema,
         algorithm_id: original.algorithm_id,
         arity: original.arity,
-        ordering: original.ordering,
+        ordering: original.ordering.clone(),
         supported_root_power_bounds: original.supported_root_power_bounds,
         family: original.family,
         context: original.context,

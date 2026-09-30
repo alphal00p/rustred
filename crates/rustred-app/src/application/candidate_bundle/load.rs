@@ -42,6 +42,7 @@ pub fn inspect_generated_candidate_bundle(
         status: record.status,
         family_fingerprint: record.family_fingerprint,
         arity: record.root_sector.len(),
+        integral_order: record.integral_order,
         numerical_depth: policy.numerical_depth,
         max_numerator_rank: policy.max_numerator_rank,
         finite_case_policy: policy.finite_case_policy,
@@ -96,7 +97,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
         prepared.sources.index_variables(),
         input_limits,
     )?;
-    let ordering = candidate_ordering(N, bundle.permutation.as_deref())?;
+    let ordering = super::order::saved_policy(&bundle)?;
     let max_numerator_rank = super::policy::parse(&bundle.solver_policy)?.max_numerator_rank;
     // Native transport ownership ends here: the unchanged applier consumes
     // the reconstructed solutions. Do not retain the dictionary alongside its
@@ -171,7 +172,7 @@ fn finish_reducer<const N: usize>(
     Ok((prepared.family, reducer))
 }
 
-fn candidate_ordering(
+pub(super) fn candidate_ordering(
     arity: usize,
     permutation: Option<&[usize]>,
 ) -> Result<OrderingPolicy, AppError> {

@@ -60,7 +60,7 @@ impl TerminalAliasPlan {
         let mut plan = Self {
             family_fingerprint: family.fingerprint_owner(),
             arity: family.denominator_count(),
-            ordering,
+            ordering: ordering.clone(),
             raw: raw.clone(),
             canonical: raw.clone(),
             aliases: BTreeMap::new(),
@@ -102,7 +102,7 @@ impl TerminalAliasPlan {
             let result = product(
                 family,
                 key,
-                ordering,
+                &ordering,
                 &variables,
                 &mut momenta,
                 &mut plan.statistics,
@@ -148,7 +148,7 @@ impl TerminalAliasPlan {
 fn product(
     family: &IntegralFamily,
     key: &IntegralKey,
-    ordering: OrderingPolicy,
+    ordering: &OrderingPolicy,
     variables: &Arc<Vec<PolyVariable>>,
     momenta: &mut [Option<Result<Vec<Coefficient>, Skip>>],
     statistics: &mut TerminalAliasStatistics,

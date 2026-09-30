@@ -262,7 +262,7 @@ impl OreOrderingAdapter {
     }
 
     pub(crate) fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub(crate) fn sector(&self) -> &Mask {

@@ -191,14 +191,14 @@ fn try_new_k6_full_rank_ledger_with_limits(
     limits: ExactOwnerCoverDeltaLimits,
     campaign_limits: ProbeCampaignLimits,
 ) -> Result<CanonicalExactOwnerLedger, FoundryCampaignError> {
-    if predecessor.canonicalizer_ordering() != Some(ordering) {
+    if predecessor.canonicalizer_ordering() != Some(ordering.clone()) {
         return Err(FoundryCampaignError::Setup {
             stage: FoundryCampaignSetupStage::Ledger,
             message: format!(
                 "K6 predecessor canonicalizer uses {:?}, but the ledger requested {}",
                 predecessor
                     .canonicalizer_ordering()
-                    .map(|policy| policy.stable_id()),
+                    .map(|policy| policy.stable_id().to_string()),
                 ordering.stable_id(),
             ),
         });

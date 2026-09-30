@@ -5,14 +5,15 @@ use super::super::invalid;
 use super::super::publication::FileRef;
 use super::super::read::Budget;
 use super::CheckedRead;
-use crate::application::routed_campaign::walking::checkpoint::manifest::{Section, Segment};
+use crate::application::routed_campaign::walking::checkpoint::manifest::Segment;
+use crate::application::routed_campaign::walking::epoch::{record_store, records::wire};
 use serde::de::{self, DeserializeSeed, Deserializer, SeqAccess, Visitor};
 use std::cell::Cell;
 use std::fmt;
 use std::io;
 use std::path::Path;
 
-// A descriptor has four u64 fields, one fixed records-<20 digits>.jsonl
+// A descriptor has four u64 fields, one fixed records-<20 digits>.bin
 // filename and a64-hex digest.512 exceeds its largest canonical encoding;
 // it does NOT limit a record body or impose a topology/record-count cap.
 const DESCRIPTOR_BYTES: u64 = 512;
@@ -50,10 +51,10 @@ impl<'de> Visitor<'de> for Registry<'_> {
                 || segment.generation > self.generation
                 || segment.first != total
                 || segment.count == 0
-                || segment.file != Section::Records.file_name(segment.generation)
+                || segment.file != record_store::file_name(segment.generation)
                 || segment
                     .count
-                    .checked_mul(3)
+                    .checked_mul(wire::HEADER_BYTES as u64 + 2)
                     .is_none_or(|minimum| minimum > segment.bytes)
                 || digest(&segment.blake3).is_err()
             {

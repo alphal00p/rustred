@@ -858,11 +858,11 @@ mod tests {
                 }),
         )
         .unwrap();
-        let select = |ordering| {
+        let select = |ordering: OrderingPolicy| {
             ordinals.iter().copied().find_map(|route_ordinal| {
                 let route = &routes[route_ordinal];
                 route
-                    .covers(&owners[route.owner_ordinal()], ordering, &widened)
+                    .covers(&owners[route.owner_ordinal()], ordering.clone(), &widened)
                     .then_some(route.owner_ordinal())
             })
         };
@@ -880,11 +880,15 @@ mod tests {
             }),
         )
         .unwrap();
-        let select_outside = |ordering| {
+        let select_outside = |ordering: OrderingPolicy| {
             ordinals.iter().copied().find_map(|route_ordinal| {
                 let route = &routes[route_ordinal];
                 route
-                    .covers(&owners[route.owner_ordinal()], ordering, &symmetry_outside)
+                    .covers(
+                        &owners[route.owner_ordinal()],
+                        ordering.clone(),
+                        &symmetry_outside,
+                    )
                     .then_some(route.owner_ordinal())
             })
         };

@@ -522,6 +522,7 @@ fn candidate(
             (
                 mask,
                 SectorSolution {
+                    order: crate::solver::IntegralOrder::new(mask, [false; 6]),
                     finite_case_policy: Default::default(),
                     max_numerator_rank: None,
                     rules: vec![],

@@ -66,7 +66,8 @@ pub(in super::super) fn completed_snapshot(restored: &mut Restored<1>) -> Value 
     restored
         .records
         .files()
-        .for_each_record(|mut record| {
+        .for_each_record(|record| {
+            let mut record = record.project()?;
             record
                 .as_object_mut()
                 .expect("record object")

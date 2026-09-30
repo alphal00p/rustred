@@ -119,6 +119,98 @@ fn ordinary_replay_and_unbounded_cover_close_the_generated_tadpole_report() {
 }
 
 #[test]
+fn source_replay_accepts_canonical_identity_priority_but_not_mismatches() {
+    let (audit, solution) = solved_tadpole();
+    assert_eq!(solution.order.permutation(), None);
+    let explicit = audit.audit_sector([true], Some([0]), &solution).unwrap();
+    assert_eq!(explicit.exact_replayed_rules, solution.rules.len());
+    assert!(explicit.issues.is_empty(), "{:?}", explicit.issues);
+    assert!(audit.audit_sector([true], Some([1]), &solution).is_err());
+    assert!(audit.audit_sector([false], Some([0]), &solution).is_err());
+}
+
+#[test]
+fn multi_index_programmed_generation_replays_under_its_actual_descriptor() {
+    use crate::order::{CompiledOrder, CoordinateGroups, DegreeRow, Direction, OrderDescriptor};
+    use crate::sector::{Mask, OrderingPolicy, zero};
+    let context = CoefficientContext::new(["d"]);
+    let family = IntegralFamily::new(
+        "programmed-sunset-replay",
+        vec!["p".into(), "q".into()],
+        vec![],
+        context.clone(),
+        context.parameter("d").unwrap(),
+        [[1, 0, 0], [0, 0, 1], [1, 2, 1]]
+            .into_iter()
+            .map(|row| {
+                AffineDenominator::new(
+                    context.integer(-1),
+                    row.into_iter().map(|x| context.integer(x)).collect(),
+                )
+            })
+            .collect(),
+        vec![],
+        vec![context.zero(); 3],
+    )
+    .unwrap();
+    let analyzer = zero::Analyzer::try_unrestricted(&family).unwrap();
+    let zeros: Arc<[[bool; 3]]> = (0..8)
+        .filter_map(|bits| {
+            let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
+            matches!(
+                analyzer.analyze(&Mask::try_new(sector).unwrap()).unwrap(),
+                zero::Decision::ProvedZero(_)
+            )
+            .then_some(sector)
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let program = CompiledOrder::compile(
+        OrderDescriptor {
+            support_weights: vec![3, 1, 2],
+            support_priority: vec![2, 0, 1],
+            degree_rows: vec![
+                DegreeRow {
+                    active: vec![1; 3],
+                    inactive: vec![1; 3],
+                },
+                DegreeRow {
+                    active: vec![0; 3],
+                    inactive: vec![3, 1, 2],
+                },
+            ],
+            coordinate_priority: vec![1, 2, 0],
+            coordinate_groups: CoordinateGroups::InactiveFirst,
+            active_direction: Direction::Descending,
+            inactive_direction: Direction::Ascending,
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let expected = OrderingPolicy::try_programmed(program.clone()).unwrap();
+    let source = SourceSystem::<3>::from_family(&family).unwrap();
+    let solver = SectorSolver::new(
+        &source,
+        [true; 3],
+        SectorConfig {
+            integral_order: Some(program),
+            zero_sectors: zeros.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let solution = solver.solve_sector(SectorSolveOptions::default()).unwrap();
+    assert!(!solution.rules.is_empty());
+    assert_eq!(solution.order.persisted_policy().unwrap(), expected);
+    let report = SourcePortAudit::try_new(&family, zeros)
+        .unwrap()
+        .replay_sector_rules([true; 3], None, &solution)
+        .unwrap();
+    assert_eq!(report.ordering, expected);
+    assert_eq!(report.rules.len(), solution.rules.len());
+}
+
+#[test]
 fn total_excess_audit_labels_its_scope_and_preserves_full_identity_checks() {
     let (audit, solution) = solved_tadpole();
     let bounded = audit

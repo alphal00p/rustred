@@ -40,6 +40,9 @@ EPOCH_PUBLICATION_ORDERS = ("oldest-prefix", "oldest-ready")
 EPOCH_CUT_SIZE = "epoch-cut-size"
 EPOCH_WINDOW = "epoch-window"
 EPOCH_BATCH_OPTIONS = (EPOCH_PUBLICATION_ORDER, EPOCH_CUT_SIZE, EPOCH_WINDOW)
+EPOCH_PREPARATION_OPTIONS = ("epoch-preparation-workers", "epoch-preparation-max-obligations",
+                             "epoch-preparation-max-retirements")
+EPOCH_DATA_OPTIONS = (*EPOCH_BATCH_OPTIONS, *EPOCH_PREPARATION_OPTIONS)
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -108,6 +111,43 @@ def validate_inspection_workers(parser, workers, inspectors, containment_cap):
         parser.error("inspection workers must be positive and leave one coordinator when workers > 1")
     if containment_cap not in (None, "unlimited") and inspectors != available:
         parser.error("finite containment cap requires all non-coordinator workers for inspection")
+
+
+def preparation_count(text):
+    value = positive(text)
+    if value > (1 << 32) - 1:
+        raise argparse.ArgumentTypeError("Epoch preparation counts must be in 1..=u32::MAX")
+    return value
+
+
+def add_epoch_preparation_arguments(parser):
+    parser.add_argument("--epoch-preparation-workers", type=nonnegative, action=StoreOnce,
+                        help="P2 helpers inside --workers, not extra threads; zero selects serial preparation")
+    for option in EPOCH_PREPARATION_OPTIONS[1:]:
+        parser.add_argument("--" + option, type=preparation_count, action=StoreOnce,
+                            help="per-cut logical scratch/output count, not RAM bytes or total work; default u32::MAX")
+
+
+def validate_epoch_preparation(options, symbolic, publication, workers, inspectors=None, containment_cap=None):
+    """Shared thin-driver validation; Rust validates again before loading inputs."""
+    values = [options.get(name.replace("-", "_")) for name in EPOCH_PREPARATION_OPTIONS]
+    if not any(value is not None for value in values):
+        return
+    if not symbolic or publication != "epoch":
+        raise ValueError("Epoch preparation options require a symbolic walk with epoch publication")
+    helpers, *counts = values
+    for value in counts:
+        if value is not None and (type(value) is not int or not 1 <= value < 1 << 32):
+            raise ValueError("Epoch preparation counts must be in 1..=u32::MAX")
+    if helpers is None:
+        return
+    available = 1 if workers == 1 else workers - 1
+    if type(helpers) is not int or not 0 <= helpers < available:
+        raise ValueError("Epoch preparation workers must leave one inspector within the total budget")
+    if inspectors is not None and inspectors != available - helpers:
+        raise ValueError("Epoch preparation and inspection workers must exactly partition the non-coordinator budget")
+    if containment_cap not in (None, "unlimited") and helpers:
+        raise ValueError("finite containment cap requires all non-coordinator workers for inspection")
 
 
 def validate_publication_policy(parser, policy, transfer_lookahead, checkpoint, subdivision):
@@ -230,6 +270,7 @@ def main() -> None:
     parser.add_argument("--" + EPOCH_DISPATCH, choices=EPOCH_DISPATCH_POLICIES, action=StoreOnce,
                         help="pending-job dispatch: fifo (default) or adaptive; adaptive requires rolling")
     add_epoch_batch_arguments(parser)
+    add_epoch_preparation_arguments(parser)
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,
@@ -277,6 +318,8 @@ def main() -> None:
         validate_epoch_batch(args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
                              args.epoch_rolling, args.follow_successors, args.publication_policy,
                              args.checkpoint is not None or args.resume is not None)
+        validate_epoch_preparation(vars(args), args.follow_successors, args.publication_policy,
+                                   args.workers or 1, args.inspection_workers, args.max_containment_checks)
     except ValueError as error:
         parser.error(str(error))
     validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
@@ -313,7 +356,7 @@ def main() -> None:
                    "apply_subdivision_axis", "apply_subdivision_cut"):
         if (value := getattr(args, option)) is not None:
             command += ["--" + option.replace("_", "-"), str(value)]
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, EPOCH_INSPECTOR_LOOKUP, *EPOCH_BATCH_OPTIONS, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, EPOCH_INSPECTOR_LOOKUP, *EPOCH_DATA_OPTIONS, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
                    FRONTIER_POLICY, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])

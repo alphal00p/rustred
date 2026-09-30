@@ -123,19 +123,36 @@ fn saved_saturatable_affine_chart_keeps_declared_layout_and_exact_application() 
     // The selective immutable loader uses the same strict declared-chart
     // decoder, including target/RHS/source layout. Deliberately different
     // saved roots and priorities are carried by the two synthetic owners.
-    let saved = decoded
-        .sectors
-        .iter()
-        .map(|sector| {
+    let saved = reconstructed
+        .into_iter()
+        .map(|(sector, mut solution)| {
             let mut shard = decoded.clone();
-            shard.sectors = vec![sector.clone()];
-            if sector.sector != [true; 3] {
-                shard.root_sector = sector.sector.clone();
+            if sector != [true; 3] {
+                // These synthetic owners carry terminals only: do not relabel
+                // a generated rule as having a different descent order.
+                assert!(solution.rules.is_empty());
+                solution.order = rustred::solver::IntegralOrder::new(sector, [false; 3])
+                    .with_permutation([2, 0, 1])
+                    .unwrap();
+                shard.root_sector = sector.to_vec();
                 shard.permutation = Some(vec![2, 0, 1]);
             }
+            let expected_order = solution.order.clone();
+            shard.integral_order = expected_order
+                .persisted_policy()
+                .unwrap()
+                .stable_id()
+                .to_string();
+            replace_solutions(&mut shard, &[(sector, solution)], limits);
+            let bytes = codec::write(&shard, limits).unwrap();
+            let reloaded = codec::read(&bytes, limits).unwrap();
+            let loaded = codec::solutions::<3>(&reloaded, &context, indices, limits).unwrap();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0].0, sector);
+            assert_eq!(loaded[0].1.order, expected_order);
             (
-                rustred::sector::Mask::try_new(sector.sector.clone()).unwrap(),
-                codec::write(&shard, limits).unwrap(),
+                rustred::sector::Mask::try_new(sector.to_vec()).unwrap(),
+                bytes,
             )
         })
         .collect::<Vec<_>>();

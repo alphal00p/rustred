@@ -340,6 +340,12 @@ fn summary<const N: usize>(
         doc["g2_residual_anchors"] = report;
     }
     doc["epoch"]["inspector_lookup"] = json!(state.inspector_lookup);
+    doc["epoch"]["preparation"] = json!(state.preparation);
+    doc["epoch"]["preparation_configuration"] = json!(
+        super::super::super::metadata::Preparation::from_request(request)
+    );
+    doc["epoch"]["preparation_scope"] =
+        json!("invocation-local accepted P2 plans; includes later P3 capacity refusal");
     doc["epoch"]["inspector_lookup_scope"] = json!(
         "accepted P2 work in this invocation, including later P3 reservation refusal; excludes rejected or interrupted cuts; not checkpoint lifetime totals"
     );

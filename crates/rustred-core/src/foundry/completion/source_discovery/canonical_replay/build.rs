@@ -86,7 +86,7 @@ pub(crate) fn try_canonicalize_replayed_probes(
             &target,
             &stratum_anchor,
             &owners,
-            ordering,
+            ordering.clone(),
             epoch,
         )?;
         check_limit(

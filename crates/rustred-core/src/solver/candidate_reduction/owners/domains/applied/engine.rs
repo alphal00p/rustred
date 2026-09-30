@@ -614,7 +614,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         [(shift.as_slice(), &())],
                         std::slice::from_ref(cell),
                         piece.owner(),
-                        self.owners[piece.owner()].ordering,
+                        self.owners[piece.owner()].ordering.clone(),
                         CompletionGeometryLimits {
                             max_uncovered_boxes: 1,
                             max_uncovered_box_coordinate_cells: budget

@@ -556,10 +556,7 @@ fn orphan_generations_are_skipped_and_corruption_falls_back_explicitly() {
     resave(&fixture, &mut restored); // latest2, previous1
     drop(restored);
     fs::write(
-        fixture
-            .directory
-            .0
-            .join("records-00000000000000000007.jsonl"),
+        fixture.directory.0.join("records-00000000000000000007.bin"),
         b"orphan",
     )
     .unwrap();
@@ -615,11 +612,10 @@ fn foreign_manifest_shapes_refuse_previous_without_reserving_session() {
         "edge_digest":[],"edge_runs":0,"edges":0,"self_edges":0,"extra":{},
         "family_closure_claim":false});
     let mut future_schema = good.clone();
-    future_schema["manifest"]["schema"] = json!(3);
-    future_schema["manifest"]["future_field"] = json!(true);
+    future_schema["manifest"]["schema"] = json!(publication::SCHEMA + 1);
     let mut future_semantics = good.clone();
-    future_semantics["manifest"]["walk_semantics_version"] = json!(4);
-    future_semantics["manifest"]["future_field"] = json!(true);
+    future_semantics["manifest"]["walk_semantics_version"] =
+        json!(crate::OWNER_DOMAIN_WALK_EPOCH_SEMANTICS_VERSION + 1);
     for (name, foreign) in [
         ("old private envelope", private),
         ("flat CP5", cp5),
@@ -647,6 +643,40 @@ fn foreign_manifest_shapes_refuse_previous_without_reserving_session() {
 }
 
 #[test]
+fn current_version_unknown_field_refuses_decode_but_allows_validated_previous_fallback() {
+    let fixture = Fixture::new();
+    fixture.save(3, 0);
+    let mut restored = fixture.open().unwrap();
+    resave(&fixture, &mut restored);
+    drop(restored);
+    let latest = fixture.directory.0.join(publication::LATEST);
+    let previous = fixture.directory.0.join(publication::PREVIOUS);
+    let session = fixture.directory.0.join("epoch-session.bin");
+    let previous_bytes = fs::read(&previous).unwrap();
+    let session_bytes = fs::read(&session).unwrap();
+    let mut malformed: Value = serde_json::from_slice(&fs::read(&latest).unwrap()).unwrap();
+    malformed["manifest"]["unknown_field"] = json!(true);
+    let malformed_bytes = serde_json::to_vec(&malformed).unwrap();
+    fs::write(&latest, &malformed_bytes).unwrap();
+
+    // Unlike an explicitly unsupported identity, this is malformed data of
+    // the current format. The strict decoder rejects it; restore may then
+    // independently validate the previous generation, never the bad latest.
+    let error = publication::read_manifest(&latest)
+        .err()
+        .expect("unknown fields cannot be silently discarded");
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert!(error.to_string().contains("unknown field"));
+    assert_eq!(fs::read(&session).unwrap(), session_bytes);
+    let restored = fixture.open().unwrap();
+    assert_eq!(restored.publisher.current_generation(), Some(1));
+    assert_eq!(restored.warnings.len(), 1);
+    assert_ne!(fs::read(&session).unwrap(), session_bytes);
+    assert_eq!(fs::read(&latest).unwrap(), malformed_bytes);
+    assert_eq!(fs::read(&previous).unwrap(), previous_bytes);
+}
+
+#[test]
 fn sticky_poison_refuses_even_valid_previous() {
     let fixture = Fixture::new();
     fixture.save(3, 0);
@@ -659,7 +689,10 @@ impl RecordOut for Output<'_> {
     fn reserve(&mut self) -> Result<(), String> {
         Ok(())
     }
-    fn push(&mut self, row: Value) -> Result<(), String> {
+    fn push(
+        &mut self,
+        row: crate::application::routed_campaign::walking::epoch::records::typed::Record,
+    ) -> Result<(), String> {
         self.0.push(&row)
     }
 }

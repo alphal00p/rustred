@@ -391,7 +391,13 @@ fn census_and_priority_fail_before_untrusted_sector_rules_are_checked() {
         [false, false, true],
     ]);
     let audit = SourcePortAudit::try_new(&family, zeros).unwrap();
-    let empty = || SectorSolution {
+    let empty = |sector, permutation| SectorSolution {
+        order: match permutation {
+            Some(slots) => crate::solver::IntegralOrder::new(sector, [false; 3])
+                .with_permutation(slots)
+                .unwrap(),
+            None => crate::solver::IntegralOrder::new(sector, [false; 3]),
+        },
         finite_case_policy: Default::default(),
         max_numerator_rank: None,
         rules: Vec::new(),
@@ -401,7 +407,10 @@ fn census_and_priority_fail_before_untrusted_sector_rules_are_checked() {
     let duplicate = audit
         .audit_complete_through_total_excess(
             &family,
-            [([true; 3], None, empty()), ([true; 3], None, empty())],
+            [
+                ([true; 3], None, empty([true; 3], None)),
+                ([true; 3], None, empty([true; 3], None)),
+            ],
             2,
         )
         .unwrap_err();
@@ -410,8 +419,12 @@ fn census_and_priority_fail_before_untrusted_sector_rules_are_checked() {
         .audit_complete_through_total_excess(
             &family,
             [
-                ([true; 3], None, empty()),
-                ([true, true, false], Some([2, 1, 0]), empty()),
+                ([true; 3], None, empty([true; 3], None)),
+                (
+                    [true, true, false],
+                    Some([2, 1, 0]),
+                    empty([true, true, false], Some([2, 1, 0])),
+                ),
             ],
             2,
         )

@@ -43,8 +43,19 @@ def expected_schedule(plan):
 
 def checkpoint_schema(plan):
     schema = plan.get("checkpoint_schema", 1)
-    require(type(schema) is int and schema in (1, 2), "unknown CP6 manifest schema")
+    require(type(schema) is int and schema in (1, 2, 3), "unknown CP6 manifest schema")
     return schema
+
+
+def walk_semantics(plan):
+    """Bind receipts to a frozen binary generation, never import old payloads.
+
+    Historical control plans use manifest 1/2 and semantics 3. The typed-record
+    implementation uses manifest 3 and semantics 4. Keeping both here permits
+    matched comparisons with the frozen baseline executable; each native reader
+    remains responsible for its own payload format.
+    """
+    return 4 if checkpoint_schema(plan) == 3 else 3
 
 
 def clean_collection(metrics, summary, expected):
@@ -136,7 +147,7 @@ def accept(metrics, summary, cold, audit, cold_guard, audit_guard, expected):
             and integer(cp["generation"], 1)
             and cp["generation"] == summary["checkpoint"]["generation"]
             and cp["publication_policy"] == "epoch" and type(cp["walk_semantics_version"]) is int
-            and cp["walk_semantics_version"] == 3
+            and cp["walk_semantics_version"] == walk_semantics(expected)
             and cp["request_binding_matches"] is True and cp["owner_digests_match"] is True,
             "cold checkpoint generation/request binding")
     queries = cold["queries"]

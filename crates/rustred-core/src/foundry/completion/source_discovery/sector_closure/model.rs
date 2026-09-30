@@ -28,8 +28,8 @@ impl StagedSectorClosureStopEvidence {
         &self.sector
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn owner_count(&self) -> usize {
@@ -62,7 +62,7 @@ impl StagedSectorClosureStopEvidence {
     ) -> Self {
         Self {
             sector: key.sector.clone(),
-            ordering: key.ordering,
+            ordering: key.ordering.clone(),
             owner_count,
             terminal_count,
             uncovered_box_count,

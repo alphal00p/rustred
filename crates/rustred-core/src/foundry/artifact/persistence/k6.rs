@@ -181,7 +181,7 @@ pub(super) fn decode(
     limits: ArtifactLoadLimits,
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     let authority = derive_k6_terminal_authority_with_ordering_and_limits(
-        ordering,
+        ordering.clone(),
         limits.family,
         limits.source_generation,
         limits.rule_derivation,
@@ -242,7 +242,7 @@ pub(super) fn decode(
         });
     }
     let header = rule_reader.bytes("K6 closure header", limits.max_artifact_bytes)?;
-    let supported_root_power_bounds = decode_root_bounds(parent, header, &parts, ordering)?;
+    let supported_root_power_bounds = decode_root_bounds(parent, header, &parts, ordering.clone())?;
     let cell_count = rule_reader.count("K6 artifact rule cells")?;
     preflight_k6_rule_cell_count(cell_count)?;
     if cell_count == 0 {
@@ -271,7 +271,7 @@ pub(super) fn decode(
                     field: "K6 canonicalizer",
                 })?,
             &parts.zero_sectors,
-            ordering,
+            ordering.clone(),
             limits.translated_sources,
             limits.rule_derivation,
             limits.rule_cells,
@@ -898,7 +898,7 @@ mod tests {
 
     fn synthetic_exact_artifact() -> ClosedArtifact {
         let ordering = OrderingPolicy::default();
-        let parts = derive_k6_terminal_authority_with_ordering(ordering)
+        let parts = derive_k6_terminal_authority_with_ordering(ordering.clone())
             .unwrap()
             .into_artifact_parts();
         let generator = ParametricIbpGenerator::try_new_with_config(
@@ -920,7 +920,7 @@ mod tests {
             generator.context(),
             completed.relations(),
             &anchor,
-            ordering,
+            ordering.clone(),
             ParametricRuleLimits::default(),
         )
         .unwrap();
@@ -939,7 +939,7 @@ mod tests {
             sources.relations(),
             &anchor,
             &target_shift,
-            ordering,
+            ordering.clone(),
             ParametricRuleLimits::default(),
         )
         .unwrap();
@@ -1199,7 +1199,7 @@ mod tests {
     #[test]
     fn cold_k6_header_rejects_root_bounds_that_are_not_symmetry_invariant() {
         let ordering = OrderingPolicy::default();
-        let parts = derive_k6_terminal_authority_with_ordering(ordering)
+        let parts = derive_k6_terminal_authority_with_ordering(ordering.clone())
             .unwrap()
             .into_artifact_parts();
         let mut header = Writer::new(Default::default());
@@ -1208,7 +1208,7 @@ mod tests {
             header.i64(if ordinal == 0 { -1 } else { 0 }).unwrap();
             header.i64(1).unwrap();
         }
-        encode_authority_tail(&mut header, &parts, ordering).unwrap();
+        encode_authority_tail(&mut header, &parts, ordering.clone()).unwrap();
         let (header, table) = header.finish_for_test().unwrap();
         let parent = Reader::with_table(&[], Default::default(), table).unwrap();
 

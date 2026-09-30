@@ -17,6 +17,7 @@ mod declared_affine;
 mod depth;
 mod export;
 mod finite;
+mod order;
 mod owners;
 mod rank;
 
@@ -76,6 +77,11 @@ fn replace_solutions<const N: usize>(
     solved: &[([bool; N], rustred::solver::SectorSolution<N>)],
     limits: CandidateBundleLimits,
 ) {
+    let policy = super::order::saved_policy(&bundle.records).unwrap();
+    for (sector, solution) in solved {
+        assert_eq!(solution.order.sector(), sector);
+        assert_eq!(solution.order.persisted_policy().unwrap(), policy);
+    }
     let family = bundle
         .family
         .to_family(
@@ -687,7 +693,9 @@ fn saved_formula_or_source_trace_tampering_never_becomes_certified() {
 
 #[test]
 fn native_namespaces_affine_faces_and_whole_exclusions_survive_codec() {
-    let generated = family_candidates(FamilyCandidatesRequest::new(K3)).unwrap();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.permutation = Some(vec![2, 0, 1]);
+    let generated = family_candidates(request).unwrap();
     let limits = CandidateBundleLimits::default();
     let mut bundle = codec::read(generated.bundle(), limits).unwrap();
     let family = preparation::family(K3, InputFormat::Toml).unwrap();
@@ -750,11 +758,11 @@ fn native_namespaces_affine_faces_and_whole_exclusions_survive_codec() {
         rustred::solver::Power::new(false, 1).unwrap(),
     ]);
     pinch.finite_residuals.push(negative_terminal);
-    bundle.permutation = Some(vec![2, 0, 1]);
     replace_solutions(&mut bundle, &solved, limits);
     let bytes = codec::write(&bundle, limits).unwrap();
     let decoded = codec::read(&bytes, limits).unwrap();
     assert_eq!(decoded.records, bundle.records);
+    assert_eq!(decoded.permutation.as_deref(), Some([2, 0, 1].as_slice()));
     let reconstructed = codec::solutions::<3>(
         &decoded,
         &context,
@@ -766,6 +774,11 @@ fn native_namespaces_affine_faces_and_whole_exclusions_survive_codec() {
         .iter()
         .find(|(sector, _)| *sector == [true; 3])
         .unwrap();
+    assert_eq!(solution.order.permutation(), Some(&[2, 0, 1]));
+    assert_eq!(
+        solution.order.persisted_policy().unwrap(),
+        super::order::saved_policy(&decoded.records).unwrap()
+    );
     assert!(solution.rules[0].candidate.case.affine().is_some());
     assert_eq!(
         solution.rules[0].candidate.case.fixed(),

@@ -17,6 +17,9 @@ use std::path::Path;
 
 mod metadata;
 mod publication;
+pub(crate) use publication::{
+    FORMAT as EPOCH_WALK_CHECKPOINT_FORMAT, SCHEMA as EPOCH_WALK_CHECKPOINT_SCHEMA,
+};
 mod read;
 mod restore;
 pub(super) use restore::run;

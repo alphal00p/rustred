@@ -50,6 +50,75 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn programmed_integral_order_survives_cli_reload_certification_and_application() {
+    let directory = Directory::new();
+    let descriptor = directory.0.join("order.json");
+    let report = directory.0.join("generation.toml");
+    let json = r#"{"version":1,"support_weights":[0],"support_priority":[0],
+        "degree_rows":[{"active":[1],"inactive":[1]}],"coordinate_priority":[0],
+        "coordinate_groups":"active-first","active_direction":"descending",
+        "inactive_direction":"descending"}"#;
+    std::fs::write(&descriptor, json).unwrap();
+    let candidate = success(
+        &[
+            "family-candidates",
+            "--integral-order",
+            descriptor.to_str().unwrap(),
+            "--report-output",
+            report.to_str().unwrap(),
+        ],
+        INPUT.as_bytes(),
+    );
+    let inspection =
+        rustred_app::inspect_generated_candidate_bundle(&candidate, Default::default()).unwrap();
+    let expected = rustred::sector::OrderingPolicy::try_programmed(
+        rustred_app::CandidateIntegralOrder::from_json(json).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(inspection.integral_order, expected.stable_id().as_str());
+    let report: toml::Value = toml::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+    assert_eq!(
+        report["integral_order"].as_str(),
+        Some(expected.stable_id().as_str())
+    );
+    // Each invocation is a new process: no ambient order or source state is reused.
+    let artifact = success(&["certify-candidates"], &candidate);
+    let reduced = success(
+        &["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+        &artifact,
+    );
+    let reduced: toml::Value = toml::from_str(std::str::from_utf8(&reduced).unwrap()).unwrap();
+    assert_eq!(reduced["status"].as_str(), Some("reduced"));
+
+    let ambiguous = run(
+        &[
+            "family-candidates",
+            "--integral-order",
+            descriptor.to_str().unwrap(),
+            "--permutation",
+            "0",
+        ],
+        INPUT.as_bytes(),
+    );
+    assert!(!ambiguous.status.success());
+    assert!(ambiguous.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&ambiguous.stderr).contains("permutation"));
+    let clobber = run(
+        &[
+            "family-candidates",
+            "--integral-order",
+            descriptor.to_str().unwrap(),
+            "--output",
+            descriptor.to_str().unwrap(),
+            "--force",
+        ],
+        INPUT.as_bytes(),
+    );
+    assert!(!clobber.status.success());
+    assert_eq!(std::fs::read_to_string(descriptor).unwrap(), json);
+}
+
+#[test]
 fn bundle_limits_validate_and_tiny_budgets_fail_without_output() {
     let help = String::from_utf8(success(&["--help"], b"")).unwrap();
     for option in [
@@ -644,6 +713,11 @@ fn candidate_command_help_and_policy_errors_are_explicit() {
     let help = std::str::from_utf8(&help).unwrap();
     assert!(help.contains("family-candidates"));
     assert!(help.contains("certify-candidates"));
+    assert!(help.contains("--discovery-strategy <PATH>"));
+    assert!(help.contains("--integral-order <PATH>"));
+    assert!(help.contains("separate from source scheduling"));
+    assert!(help.contains("CP6 supports G2 union anchors"));
+    assert!(help.contains("the helper count may change within a valid worker partition"));
     for command in [
         vec!["family-candidates", "--max-predicate-atoms", "64"],
         vec!["certify-candidates", "--n-cores", "2"],

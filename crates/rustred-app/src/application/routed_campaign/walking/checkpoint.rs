@@ -1105,7 +1105,7 @@ pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
     binding(request)
 }
 
-/// The request digest of an `epoch` walk (walk semantics 3, W2.0 protocol
+/// The request digest of an `epoch` walk (current native walk semantics, W2.0 protocol
 /// §11.5, A7). Bound: owner selection, queries, limits, publication and
 /// semantics, the D-band, Route and query allowances, the frontier policy,
 /// and nondefault Epoch lookup, dispatch, publication order and explicit cut.
@@ -1120,7 +1120,7 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
         "queries":request.matching.queries_json,
         "limits":super::limits_json(request),
         "reduction":format!("{:?}",request.matching.reduction_limits),
-        "publication":"epoch","walk_semantics_version":3,
+        "publication":"epoch","walk_semantics_version":super::epoch::EPOCH_WALK_SEMANTICS_VERSION,
         "reuse_initial_d_bands":request.reuse_initial_d_bands,
         "route_domain_overcover":request.route_domain_overcover,
         "route_joint_source_support_pruning":request.route_joint_source_support_pruning,

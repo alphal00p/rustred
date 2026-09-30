@@ -70,11 +70,25 @@ impl CompiledOrder {
     pub fn arity(&self) -> usize {
         self.descriptor().support_weights.len()
     }
+
+    /// On one fixed support, descent under this program cannot increase
+    /// unweighted total excess if its first row is a positive multiple of E.
+    /// This is not a bound on a support-changing or transported successor.
+    pub fn has_total_excess_primary(&self) -> bool {
+        let row = &self.descriptor().degree_rows[0];
+        let weight = row.active[0];
+        weight != 0
+            && row
+                .active
+                .iter()
+                .chain(&row.inactive)
+                .all(|&value| value == weight)
+    }
 }
 
 impl PartialEq for CompiledOrder {
     fn eq(&self, other: &Self) -> bool {
-        self.canonical_bytes() == other.canonical_bytes()
+        Arc::ptr_eq(&self.0, &other.0) || self.canonical_bytes() == other.canonical_bytes()
     }
 }
 impl Eq for CompiledOrder {}
@@ -85,6 +99,9 @@ impl PartialOrd for CompiledOrder {
 }
 impl Ord for CompiledOrder {
     fn cmp(&self, other: &Self) -> Ordering {
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return Ordering::Equal;
+        }
         self.canonical_bytes().cmp(other.canonical_bytes())
     }
 }

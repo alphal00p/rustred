@@ -21,7 +21,7 @@ pub use policy::{
 
 impl OrderingPolicy {
     /// Build an exact, injective complexity key from unshifted indices.
-    pub fn complexity_key(self, indices: &[i64]) -> Result<ComplexityKey, Error> {
+    pub fn complexity_key(&self, indices: &[i64]) -> Result<ComplexityKey, Error> {
         self.require_arity(indices.len())?;
         let sector = Mask::try_from_indices(indices)?;
         let mut dots = 0_u128;
@@ -53,7 +53,7 @@ impl OrderingPolicy {
                 measure: "corner distance",
             })?;
         Ok(ComplexityKey {
-            policy: self,
+            policy: self.clone(),
             arity: indices.len(),
             propagators: sector.active_count(),
             sector,
@@ -65,20 +65,50 @@ impl OrderingPolicy {
     }
 
     /// Compare integrals by the persisted exact key. `Less` means simpler.
-    pub fn compare(self, left: &[i64], right: &[i64]) -> Result<Ordering, Error> {
+    pub fn compare(&self, left: &[i64], right: &[i64]) -> Result<Ordering, Error> {
         if left.len() != right.len() {
             return Err(Error::WrongArity {
                 expected: left.len(),
                 actual: right.len(),
             });
         }
+        if let Some(program) = self.program() {
+            return program
+                .compare(left, right)
+                .map(|comparison| comparison.ordering)
+                .map_err(Error::OrderProgram);
+        }
         Ok(self.complexity_key(left)?.cmp(&self.complexity_key(right)?))
+    }
+
+    /// Compare the complete support prefix in the declared order. Degree
+    /// comparisons are valid only when this prefix is equal.
+    pub fn compare_support(&self, left: &[bool], right: &[bool]) -> Result<Ordering, Error> {
+        self.require_arity(left.len())?;
+        if left.len() != right.len() {
+            return Err(Error::WrongArity {
+                expected: left.len(),
+                actual: right.len(),
+            });
+        }
+        if let Some(program) = self.program() {
+            return program
+                .compare_support(left, right)
+                .map(|comparison| comparison.ordering)
+                .map_err(Error::OrderProgram);
+        }
+        Ok(left
+            .iter()
+            .filter(|&&active| active)
+            .count()
+            .cmp(&right.iter().filter(|&&active| active).count())
+            .then_with(|| left.cmp(right)))
     }
 
     /// Prove that `target` is strictly simpler than `source` under this exact
     /// serialized policy.
     pub fn prove_strict_descent(
-        self,
+        &self,
         source: &[i64],
         target: &[i64],
     ) -> Result<StrictDescentWitness, Error> {
@@ -96,7 +126,7 @@ impl OrderingPolicy {
         let decisive_component = first_differing_component(&source_key, &target_key)
             .expect("strictly different keys have a first differing component");
         Ok(StrictDescentWitness {
-            policy: self,
+            policy: self.clone(),
             source: source_key,
             target: target_key,
             decisive_component,
@@ -129,6 +159,24 @@ impl PartialOrd for ComplexityKey {
 
 impl Ord for ComplexityKey {
     fn cmp(&self, other: &Self) -> Ordering {
+        let prefix = self
+            .policy
+            .cmp(&other.policy)
+            .then_with(|| self.arity.cmp(&other.arity));
+        if prefix != Ordering::Equal {
+            return prefix;
+        }
+        if let Some(program) = self.policy.program() {
+            return program
+                .compare_excess(
+                    self.sector.active_bits(),
+                    &self.index_excess,
+                    other.sector.active_bits(),
+                    &other.index_excess,
+                )
+                .expect("keys retain validated i64-derived coordinates")
+                .ordering;
+        }
         self.policy
             .cmp(&other.policy)
             .then_with(|| self.arity.cmp(&other.arity))
@@ -155,7 +203,7 @@ impl Ord for ComplexityKey {
 
 impl ComplexityKey {
     pub fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub fn arity(&self) -> usize {
@@ -220,6 +268,20 @@ pub enum ComplexityComponent {
     DotPower,
     NumeratorPower,
     IndexExcess { position: usize },
+    SupportWeight,
+    DegreeRow { ordinal: usize },
+}
+
+impl From<rustred_order::Component> for ComplexityComponent {
+    fn from(component: rustred_order::Component) -> Self {
+        match component {
+            rustred_order::Component::SupportCount => Self::PropagatorCount,
+            rustred_order::Component::SupportWeight => Self::SupportWeight,
+            rustred_order::Component::SupportAxis(position) => Self::SectorBit { position },
+            rustred_order::Component::DegreeRow(ordinal) => Self::DegreeRow { ordinal },
+            rustred_order::Component::Coordinate(position) => Self::IndexExcess { position },
+        }
+    }
 }
 
 /// Exact witness that a target key is strictly below a source key.
@@ -233,7 +295,7 @@ pub struct StrictDescentWitness {
 
 impl StrictDescentWitness {
     pub fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub fn source(&self) -> &ComplexityKey {
@@ -263,6 +325,18 @@ fn first_differing_component(
 ) -> Option<ComplexityComponent> {
     if source.arity != target.arity {
         return Some(ComplexityComponent::Arity);
+    }
+    if let Some(program) = source.policy.program() {
+        return program
+            .compare_excess(
+                source.sector.active_bits(),
+                &source.index_excess,
+                target.sector.active_bits(),
+                &target.index_excess,
+            )
+            .expect("keys retain validated i64-derived coordinates")
+            .component
+            .map(Into::into);
     }
     if source.propagators != target.propagators {
         return Some(ComplexityComponent::PropagatorCount);
@@ -301,6 +375,10 @@ fn first_differing_component(
 #[cfg(test)]
 #[path = "ordering/spired_tests.rs"]
 mod spired_tests;
+
+#[cfg(test)]
+#[path = "ordering/programmed_tests.rs"]
+mod programmed_tests;
 
 #[cfg(test)]
 mod tests {

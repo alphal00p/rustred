@@ -1,5 +1,77 @@
 use super::*;
 
+#[test]
+fn epoch_preparation_is_inside_the_total_budget_and_zero_remains_serial() {
+    for workers in 1..=256 {
+        let available = if workers == 1 { 1 } else { workers - 1 };
+        for helpers in 0..available {
+            let resolved = epoch_inspection(workers, None, None, Some(helpers)).unwrap();
+            let budget = WorkerBudget::new(
+                workers,
+                resolved,
+                None,
+                OwnerDomainWalkPublicationPolicy::Epoch,
+            );
+            assert_eq!(budget.helpers, helpers);
+            assert_eq!(
+                budget.inspection + budget.helpers + budget.coordinator,
+                workers
+            );
+            assert!(budget.inspection > 0);
+            assert_eq!(
+                epoch_inspection(workers, Some(budget.inspection), None, Some(helpers)),
+                Ok(resolved)
+            );
+            for wrong in [0, available + 1, usize::MAX] {
+                assert!(epoch_inspection(workers, Some(wrong), None, Some(helpers)).is_err());
+            }
+        }
+        assert!(epoch_inspection(workers, None, None, Some(available)).is_err());
+        assert!(epoch_inspection(workers, None, None, Some(usize::MAX)).is_err());
+        assert_eq!(
+            epoch_inspection(workers, None, Some(1), Some(0)),
+            Ok(Some(available))
+        );
+        if available > 1 {
+            assert!(epoch_inspection(workers, None, Some(1), Some(1)).is_err());
+            assert!(epoch_inspection(workers, Some(available), None, Some(1)).is_err());
+        }
+    }
+    assert!(epoch_inspection(0, None, None, Some(0)).is_err());
+}
+
+#[test]
+fn epoch_request_explicit_preparation_matches_resolved_receipt() {
+    let mut request = OwnerDomainWalkRequest::new(super::super::OwnerDomainMatchRequest::new(
+        "unused".into(),
+        "unused".into(),
+    ));
+    request.workers = 50;
+    request.publication_policy = OwnerDomainWalkPublicationPolicy::Epoch;
+    assert_eq!(WorkerBudget::for_request(&request).helpers, 0);
+    request.epoch_preparation_workers = Some(7);
+    let budget = WorkerBudget::for_request(&request);
+    assert_eq!(
+        (budget.inspection, budget.helpers, budget.coordinator),
+        (42, 7, 1)
+    );
+    assert_eq!(budget.json(None)["total_compute_worker_limit"], 50);
+    request.epoch_preparation_workers = None;
+    request.inspection_workers = Some(42);
+    assert_eq!(WorkerBudget::for_request(&request), budget);
+    assert_eq!(
+        request.epoch_preparation_limits(),
+        Ok((u32::MAX as usize, u32::MAX as usize))
+    );
+    request.epoch_preparation_max_obligations = Some(23);
+    request.epoch_preparation_max_retirements = Some(17);
+    assert_eq!(request.epoch_preparation_limits(), Ok((23, 17)));
+    for invalid in [0, usize::MAX] {
+        request.epoch_preparation_max_obligations = Some(invalid);
+        assert!(request.epoch_preparation_limits().is_err());
+    }
+}
+
 const POLICIES: [OwnerDomainWalkPublicationPolicy; 3] = [
     OwnerDomainWalkPublicationPolicy::Ordered,
     OwnerDomainWalkPublicationPolicy::OwnerBatched,

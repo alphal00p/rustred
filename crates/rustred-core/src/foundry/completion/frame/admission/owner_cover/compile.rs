@@ -141,7 +141,7 @@ impl ExactCircuitOwnerCover {
         let family_fingerprint = scope.family_fingerprint.clone();
         let context_fingerprint = scope.context_fingerprint.clone();
         let sector = scope.sector.clone();
-        let ordering = scope.ordering;
+        let ordering = scope.ordering.clone();
         let owner_snapshot_id = scope.owner_snapshot_id.clone();
 
         prepared.sort_unstable_by(compare_prepared_owners);

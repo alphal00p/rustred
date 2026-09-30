@@ -558,7 +558,7 @@ fn applied_small_integer_oracle_matches_native_evaluator_and_noninvolutive_order
                 let actual = CandidateEvaluator {
                     context: &shared.context,
                     root_sector: owner.root,
-                    ordering: owner.ordering,
+                    ordering: &owner.ordering,
                     rules: &owner.batches[0].rules,
                     source_conditions: &shared.source_conditions,
                     zero_sectors: &shared.zero_sectors,

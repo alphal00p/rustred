@@ -32,6 +32,30 @@ impl PartialOrd for ShiftComplexityKey {
 
 impl Ord for ShiftComplexityKey {
     fn cmp(&self, other: &Self) -> Ordering {
+        let prefix = self
+            .policy
+            .cmp(&other.policy)
+            .then_with(|| self.arity.cmp(&other.arity));
+        if prefix != Ordering::Equal {
+            return prefix;
+        }
+        if let Some(program) = self.policy.program() {
+            let support = program
+                .compare_support(self.sector.active_bits(), other.sector.active_bits())
+                .expect("keys retain program arity")
+                .ordering;
+            if support != Ordering::Equal {
+                return support;
+            }
+            return program
+                .compare_shift_excess(
+                    self.sector.active_bits(),
+                    &self.index_excess_offsets,
+                    &other.index_excess_offsets,
+                )
+                .expect("keys retain validated i64-derived offsets")
+                .ordering;
+        }
         self.policy
             .cmp(&other.policy)
             .then_with(|| self.arity.cmp(&other.arity))
@@ -60,7 +84,7 @@ impl Ord for ShiftComplexityKey {
 
 impl ShiftComplexityKey {
     pub fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub fn arity(&self) -> usize {
@@ -109,8 +133,8 @@ impl ShiftComplexityKey {
         })
     }
 
-    pub(super) fn verifies_for_sector(&self, policy: OrderingPolicy, sector: &Mask) -> bool {
-        if self.policy != policy
+    pub(super) fn verifies_for_sector(&self, policy: &OrderingPolicy, sector: &Mask) -> bool {
+        if &self.policy != policy
             || self.sector != *sector
             || self.arity != sector.arity()
             || self.index_excess_offsets.len() != self.arity
@@ -139,7 +163,7 @@ impl ShiftComplexityKey {
             && corner_distance == self.corner_distance_offset
     }
 
-    fn verifies_for(&self, policy: OrderingPolicy, domain: &SectorInteriorDomain) -> bool {
+    fn verifies_for(&self, policy: &OrderingPolicy, domain: &SectorInteriorDomain) -> bool {
         if !self.verifies_for_sector(policy, domain.sector()) {
             return false;
         }
@@ -198,7 +222,7 @@ pub struct ShiftStrictDescentWitness {
 
 impl ShiftStrictDescentWitness {
     pub fn policy(&self) -> OrderingPolicy {
-        self.policy
+        self.policy.clone()
     }
 
     pub fn domain(&self) -> &SectorInteriorDomain {
@@ -220,8 +244,8 @@ impl ShiftStrictDescentWitness {
     /// Recheck both universal domain inclusions and the exact structural key
     /// comparison without evaluating a particular anchor.
     pub fn verify(&self) -> bool {
-        self.source.verifies_for(self.policy, &self.domain)
-            && self.target.verifies_for(self.policy, &self.domain)
+        self.source.verifies_for(&self.policy, &self.domain)
+            && self.target.verifies_for(&self.policy, &self.domain)
             && self.target < self.source
             && first_differing_component(&self.source, &self.target)
                 == Some(self.decisive_component)
@@ -237,7 +261,7 @@ impl OrderingPolicy {
     /// [`Self::compare_shifts_on_domain`], while strict descent requires
     /// [`Self::prove_shift_strict_descent`].
     pub fn shift_complexity_key(
-        self,
+        &self,
         sector: &Mask,
         shift: &[i64],
     ) -> Result<ShiftComplexityKey, Error> {
@@ -278,7 +302,7 @@ impl OrderingPolicy {
                     measure: "shift corner-distance offset",
                 })?;
         Ok(ShiftComplexityKey {
-            policy: self,
+            policy: self.clone(),
             arity: shift.len(),
             sector: sector.clone(),
             corner_distance_offset,
@@ -291,7 +315,7 @@ impl OrderingPolicy {
     /// Compare two shifts by the exact structural remainder of the policy key on
     /// an interior that universally covers both shifts.
     pub fn compare_shifts_on_domain(
-        self,
+        &self,
         domain: &SectorInteriorDomain,
         left: &[i64],
         right: &[i64],
@@ -311,7 +335,7 @@ impl OrderingPolicy {
 
     /// Prove strict structural descent uniformly over a checked interior.
     pub fn prove_shift_strict_descent(
-        self,
+        &self,
         domain: &SectorInteriorDomain,
         source_shift: &[i64],
         target_shift: &[i64],
@@ -332,7 +356,7 @@ impl OrderingPolicy {
         let decisive_component =
             first_differing_component(&source, &target).ok_or(Error::NotStrictDescent)?;
         Ok(ShiftStrictDescentWitness {
-            policy: self,
+            policy: self.clone(),
             domain: domain.clone(),
             source,
             target,
@@ -347,6 +371,24 @@ fn first_differing_component(
 ) -> Option<ComplexityComponent> {
     if source.arity != target.arity {
         return Some(ComplexityComponent::Arity);
+    }
+    if let Some(program) = source.policy.program() {
+        let support = program
+            .compare_support(source.sector.active_bits(), target.sector.active_bits())
+            .ok()?;
+        return support
+            .component
+            .or_else(|| {
+                program
+                    .compare_shift_excess(
+                        source.sector.active_bits(),
+                        &source.index_excess_offsets,
+                        &target.index_excess_offsets,
+                    )
+                    .ok()?
+                    .component
+            })
+            .map(Into::into);
     }
     if source.sector.active_count() != target.sector.active_count() {
         return Some(ComplexityComponent::PropagatorCount);

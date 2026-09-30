@@ -11,10 +11,15 @@ mod codec;
 mod generate;
 mod load;
 mod model;
+mod order;
 mod policy;
 pub(super) mod preparation;
 mod save;
 mod strategy;
+
+pub use order::{
+    CandidateCoordinateGroups, CandidateDegreeRow, CandidateIntegralOrder, CandidateOrderDirection,
+};
 
 pub use strategy::{
     CandidateDiscoveryStrategy, CandidateRowFeature, CandidateRowPriority, CandidateSectorPriority,

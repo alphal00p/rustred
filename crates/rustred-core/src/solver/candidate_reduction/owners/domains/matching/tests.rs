@@ -98,7 +98,7 @@ fn concrete(p: &CandidateOwnerPrograms<3>, key: IntegralKey) -> OwnerDomainMatch
     let evaluator = |rules| CandidateEvaluator {
         context: &shared.context,
         root_sector: owner.root,
-        ordering: owner.ordering,
+        ordering: &owner.ordering,
         rules,
         source_conditions: &shared.source_conditions,
         zero_sectors: &shared.zero_sectors,

@@ -36,7 +36,7 @@ const DIAGNOSTIC_EXACT_ROW_CAP: usize = 8;
 const DIAGNOSTIC_PROBE_COUNT: usize = 4;
 const DIAGNOSTIC_POST_HIT_WINDOW: usize = 32;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct DiagnosticConfig {
     orbit_ordinal: Option<usize>,
     ordering: OrderingPolicy,
@@ -315,7 +315,7 @@ fn k6_spired_root_attempt_reports_every_full_rank_orbit() {
         {
             continue;
         }
-        let predecessor = k6_root_predecessor_for_ordering(config.ordering)
+        let predecessor = k6_root_predecessor_for_ordering(config.ordering.clone())
             .expect("the K6 root predecessor must build");
         let profile = K6CampaignResourceProfile::try_for_task_report_ceiling(1)
             .expect("the one-step K6 resource profile must build");
@@ -323,7 +323,7 @@ fn k6_spired_root_attempt_reports_every_full_rank_orbit() {
             inputs,
             orbit.representative,
             predecessor,
-            config.ordering,
+            config.ordering.clone(),
             profile,
             ProbeCampaignLimits::default(),
         )
@@ -352,7 +352,7 @@ fn k6_spired_root_attempt_reports_every_full_rank_orbit() {
             &probes[..config.probe_count],
             &mut worklist,
             &mut ledger,
-            diagnostic_limits(config),
+            diagnostic_limits(config.clone()),
         ) {
             Ok(report) => {
                 let outcome = format!("{:?}", report.outcome());

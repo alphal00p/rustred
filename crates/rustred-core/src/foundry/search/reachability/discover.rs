@@ -148,7 +148,7 @@ impl<'foundry> ReachabilityPlanner<'foundry> {
                 &mut known,
                 &mut pending,
                 &mut statistics,
-                self.ordering,
+                self.ordering.clone(),
                 self.limits,
             )?;
         }
@@ -171,7 +171,7 @@ impl<'foundry> ReachabilityPlanner<'foundry> {
                         &mut known,
                         &mut pending,
                         &mut statistics,
-                        self.ordering,
+                        self.ordering.clone(),
                         self.limits,
                     )?;
                 }

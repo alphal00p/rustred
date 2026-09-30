@@ -552,3 +552,81 @@ fn input_arity_mismatch_cannot_reach_indexing_or_shift_evaluation() {
             .is_err()
     );
 }
+
+#[test]
+fn borrowed_excess_keys_match_the_same_program_without_raw_power_copies() {
+    let order = compile(weighted());
+    let points = cube(3, -2, 2);
+    for a in &points {
+        let sa: Vec<_> = a.iter().map(|&n| n > 0).collect();
+        let ea: Vec<_> = a
+            .iter()
+            .map(|&n| {
+                if n > 0 {
+                    (n - 1) as u64
+                } else {
+                    n.unsigned_abs()
+                }
+            })
+            .collect();
+        for b in &points {
+            let sb: Vec<_> = b.iter().map(|&n| n > 0).collect();
+            let eb: Vec<_> = b
+                .iter()
+                .map(|&n| {
+                    if n > 0 {
+                        (n - 1) as u64
+                    } else {
+                        n.unsigned_abs()
+                    }
+                })
+                .collect();
+            assert_eq!(
+                order.compare_excess(&sa, &ea, &sb, &eb).unwrap(),
+                order.compare(a, b).unwrap()
+            );
+            let support = [true, false, true];
+            let shifts = |values: &[i64]| {
+                values
+                    .iter()
+                    .zip(support)
+                    .map(|(&n, active)| {
+                        if active {
+                            i128::from(n)
+                        } else {
+                            -i128::from(n)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                order
+                    .compare_shift_excess(&support, &shifts(a), &shifts(b))
+                    .unwrap(),
+                order.compare_shifts(&support, a, b).unwrap()
+            );
+        }
+    }
+    assert!(
+        order
+            .compare_excess(&[true; 3], &[u64::MAX; 3], &[true; 3], &[0; 3])
+            .is_err()
+    );
+    assert!(
+        order
+            .compare_shift_excess(&[false; 3], &[i128::MIN; 3], &[0; 3])
+            .is_err()
+    );
+}
+
+#[test]
+fn total_excess_capability_is_an_explicit_positive_uniform_first_row() {
+    assert!(compile(standard(3)).has_total_excess_primary());
+    assert!(!compile(weighted()).has_total_excess_primary());
+    let mut d = standard(3);
+    d.degree_rows[0].active.fill(7);
+    d.degree_rows[0].inactive.fill(7);
+    assert!(compile(d.clone()).has_total_excess_primary());
+    d.degree_rows[0].inactive[1] = 8;
+    assert!(!compile(d).has_total_excess_primary());
+}

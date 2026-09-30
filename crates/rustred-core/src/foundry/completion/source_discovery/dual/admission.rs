@@ -172,8 +172,8 @@ impl SampledDeclaredModuleDual {
         &self.stratum_id
     }
 
-    pub(crate) const fn ordering(&self) -> OrderingPolicy {
-        self.ordering
+    pub(crate) fn ordering(&self) -> OrderingPolicy {
+        self.ordering.clone()
     }
 
     pub(crate) const fn snapshot_id(&self) -> &ImmutableOwnerSnapshotId {

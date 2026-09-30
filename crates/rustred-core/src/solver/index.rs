@@ -148,11 +148,12 @@ impl<const N: usize> fmt::Display for Integral<N> {
 }
 
 /// The harder-first order of SpIRed's `intLessStatic` / `intLessDynamic`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IntegralOrder<const N: usize> {
     sector: [bool; N],
     deltas: [bool; N],
     permutation: Option<[usize; N]>,
+    program: Option<rustred_order::CompiledOrder>,
 }
 
 impl<const N: usize> IntegralOrder<N> {
@@ -161,6 +162,7 @@ impl<const N: usize> IntegralOrder<N> {
             sector,
             deltas,
             permutation: None,
+            program: None,
         }
     }
 
@@ -170,6 +172,11 @@ impl<const N: usize> IntegralOrder<N> {
     /// cut priorities, powers, or family coordinates. The identity permutation
     /// is normalized to the static path, including when replacing an override.
     pub fn with_permutation(mut self, permutation: [usize; N]) -> Result<Self, SolverError> {
+        if self.program.is_some() {
+            return Err(SolverError::InvalidInput(
+                "a full integral-order program cannot also use the legacy tie permutation".into(),
+            ));
+        }
         let mut seen = [false; N];
         let mut identity = true;
         for (position, &index) in permutation.iter().enumerate() {
@@ -187,6 +194,78 @@ impl<const N: usize> IntegralOrder<N> {
         }
         self.permutation = (!identity).then_some(permutation);
         Ok(self)
+    }
+
+    pub fn with_program(
+        mut self,
+        program: rustred_order::CompiledOrder,
+    ) -> Result<Self, SolverError> {
+        if program.arity() != N || self.deltas.iter().any(|&cut| cut) || self.permutation.is_some()
+        {
+            return Err(SolverError::InvalidInput("integral-order program requires matching arity, no cuts and no legacy tie permutation".into()));
+        }
+        self.program = Some(program);
+        Ok(self)
+    }
+
+    pub fn program(&self) -> Option<&rustred_order::CompiledOrder> {
+        self.program.as_ref()
+    }
+
+    /// The exact uncut mathematical order carried into replay and persistence.
+    /// Legacy cut search is still available, but cannot masquerade as uncut.
+    pub fn persisted_policy(&self) -> Result<crate::sector::OrderingPolicy, SolverError> {
+        if self.deltas.iter().any(|&cut| cut) {
+            return Err(SolverError::InvalidInput(
+                "cut integral order has no supported persisted uncut policy".into(),
+            ));
+        }
+        if let Some(program) = &self.program {
+            return crate::sector::OrderingPolicy::try_programmed(program.clone())
+                .map_err(|error| SolverError::InvalidInput(error.to_string()));
+        }
+        let Some(slots) = self.permutation else {
+            return Ok(crate::sector::OrderingPolicy::SpiredUncutV1);
+        };
+        let mut ranks = [0; N];
+        for (rank, slot) in slots.into_iter().enumerate() {
+            ranks[slot] = rank;
+        }
+        let priority = crate::sector::CoordinatePriority::try_new(N, &ranks, Default::default())
+            .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+        crate::sector::OrderingPolicy::try_spired_with_coordinate_priority(&priority)
+            .map_err(|error| SolverError::InvalidInput(error.to_string()))
+    }
+
+    pub fn from_persisted_policy(
+        sector: [bool; N],
+        policy: &crate::sector::OrderingPolicy,
+    ) -> Result<Self, SolverError> {
+        if let Some(program) = policy.program() {
+            return Self::new(sector, [false; N]).with_program(program.clone());
+        }
+        if !policy.is_source_port_uncut() {
+            return Err(SolverError::InvalidInput(
+                "persisted policy is not a supported source solver order".into(),
+            ));
+        }
+        let mut order = Self::new(sector, [false; N]);
+        if let Some(priority) = policy
+            .try_coordinate_priority()
+            .map_err(|error| SolverError::InvalidInput(error.to_string()))?
+        {
+            if priority.arity() != N {
+                return Err(SolverError::InvalidInput(
+                    "persisted order arity differs".into(),
+                ));
+            }
+            let mut slots = [0; N];
+            for (slot, &rank) in priority.rank_by_slot().iter().enumerate() {
+                slots[rank] = slot;
+            }
+            order = order.with_permutation(slots)?;
+        }
+        Ok(order)
     }
 
     /// An explicit nonidentity tie-break permutation; `None` means identity.
@@ -208,6 +287,23 @@ impl<const N: usize> IntegralOrder<N> {
     /// the two keys to agree on which coordinates are symbolic; symbolic delta
     /// coordinates must belong to the denominator sector.
     pub fn compare(&self, left: &Integral<N>, right: &Integral<N>) -> Ordering {
+        if let Some(program) = &self.program {
+            let symbolic: [bool; N] = std::array::from_fn(|axis| {
+                assert_eq!(
+                    left[axis].is_symbolic(),
+                    right[axis].is_symbolic(),
+                    "integral ordering requires the same symbolic coordinate pattern"
+                );
+                left[axis].is_symbolic()
+            });
+            let l: [i64; N] = std::array::from_fn(|axis| i64::from(left[axis].value()));
+            let r: [i64; N] = std::array::from_fn(|axis| i64::from(right[axis].value()));
+            return program
+                .compare_mixed(&self.sector, &symbolic, &l, &r)
+                .expect("program and compact integral arities were checked")
+                .ordering
+                .reverse();
+        }
         let (mut denominators_left, mut denominators_right) = (0usize, 0usize);
         let mut sector_lex = Ordering::Equal;
         let mut delta_order = Ordering::Equal;

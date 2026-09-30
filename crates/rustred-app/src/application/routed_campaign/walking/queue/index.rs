@@ -462,50 +462,6 @@ pub(in super::super) struct IndexBytes {
 }
 
 impl<const N: usize> AggregateIndex<N> {
-    /// One-time copy into a globally shared epoch lookup buffer. Subsequent
-    /// publications replay only new insertions and their retirement sets.
-    pub(in super::super) fn try_lookup_clone_with(
-        &self,
-        checkpoint: &mut impl FnMut() -> Result<(), &'static str>,
-    ) -> Result<Self, &'static str> {
-        checkpoint()?;
-        let mut copy = Self::default();
-        copy.groups
-            .try_reserve_exact(self.groups.len())
-            .map_err(|_| "lookup replica groups allocation")?;
-        copy.positions
-            .try_reserve(self.positions.len())
-            .map_err(|_| "lookup replica groups allocation")?;
-        copy.positions
-            .extend(self.positions.iter().map(|(&key, &value)| (key, value)));
-        for group in &self.groups {
-            let mut meta = Vec::new();
-            let mut blocks = Vec::new();
-            meta.try_reserve_exact(group.meta.len())
-                .map_err(|_| "lookup replica rows allocation")?;
-            blocks
-                .try_reserve_exact(group.blocks.len())
-                .map_err(|_| "lookup replica blocks allocation")?;
-            for (at, (row, block)) in group.meta.iter().zip(&group.blocks).enumerate() {
-                if at % 1024 == 0 {
-                    checkpoint()?;
-                }
-                let (row, block) = row.try_clone_pair(block)?;
-                meta.push(row);
-                blocks.push(block);
-            }
-            copy.groups.push(Group {
-                signature: group.signature,
-                meta,
-                blocks,
-                live: group.live,
-            });
-        }
-        copy.live = self.live;
-        copy.totals = copy.recount();
-        Ok(copy)
-    }
-
     #[cfg(test)]
     pub(super) fn set_work_counters_enabled(&mut self, enabled: bool) {
         self.work.enabled = enabled;
@@ -572,7 +528,7 @@ impl<const N: usize> AggregateIndex<N> {
 
     /// Cancellation checkpoints are uncharged and also visit rejected blocks;
     /// speculative cancellation must not depend on reaching a native callback.
-    pub(super) fn find_controlled(
+    pub(in super::super) fn find_controlled(
         &self,
         signature: Signature,
         probe: &Probe<'_, N>,
@@ -645,6 +601,22 @@ impl<const N: usize> AggregateIndex<N> {
             }
         }
         Ok(best)
+    }
+
+    /// Read-only live-ID streaming for an immutable snapshot bootstrap. The
+    /// receiver can stop without allocating a campaign-sized temporary list.
+    pub(in super::super) fn visit_live(
+        &self,
+        mut visit: impl FnMut(u32) -> Result<(), &'static str>,
+    ) -> Result<(), &'static str> {
+        for group in &self.groups {
+            for (meta, block) in group.meta.iter().zip(&group.blocks) {
+                for &id in &block[0].ids[..meta.len as usize] {
+                    visit(id)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Every indexed (live) candidate ID, in group/block order.

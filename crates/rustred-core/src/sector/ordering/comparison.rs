@@ -6,7 +6,7 @@ use super::{ComplexityComponent, MAX_PACKED_ORDERING_PRIORITY_ARITY, Mask, Order
 
 impl OrderingPolicy {
     pub(crate) fn compare_degrees<T: Ord>(
-        self,
+        &self,
         left_dots: &T,
         left_numerators: &T,
         right_dots: &T,
@@ -24,7 +24,7 @@ impl OrderingPolicy {
     }
 
     pub(crate) fn first_differing_degree<T: Eq>(
-        self,
+        &self,
         left_dots: &T,
         left_numerators: &T,
         right_dots: &T,
@@ -45,7 +45,7 @@ impl OrderingPolicy {
     /// SpIRed reverses excess in both sign groups. Using `reverse()` avoids
     /// negating a potentially extreme integer or unsigned magnitude.
     pub(crate) fn compare_coordinate_slices<T: Ord>(
-        self,
+        &self,
         sector: &Mask,
         left: &[T],
         right: &[T],
@@ -62,7 +62,7 @@ impl OrderingPolicy {
     }
 
     pub(crate) fn first_differing_coordinate<T: Eq>(
-        self,
+        &self,
         sector: &Mask,
         left: &[T],
         right: &[T],

@@ -26,7 +26,7 @@ pub(crate) fn install_published_sector_waves(
     // Regenerate the canonical nine-row ordinary module independently of the
     // search transcript. This also provides an owned terminal payload with no
     // campaign configuration or external-hint provenance.
-    let terminal_authority = derive_k6_terminal_authority_with_ordering(ordering)?;
+    let terminal_authority = derive_k6_terminal_authority_with_ordering(ordering.clone())?;
     let parts = terminal_authority.into_artifact_parts();
     let generator =
         ParametricIbpGenerator::try_new_with_config(&parts.family, ParametricIbpConfig::default())?;

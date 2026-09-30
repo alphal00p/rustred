@@ -38,7 +38,7 @@ fn spired_identity_round_trips_and_cannot_alias_the_original_order() {
         Some("rustred.spired-uncut-sector-order.v1")
     );
     let custom = policy_for_slots([2, 0, 1]);
-    for policy in [natural, custom] {
+    for policy in [natural, custom.clone()] {
         assert_eq!(
             OrderingPolicy::try_from_stable_id(&policy.stable_id()).unwrap(),
             policy
