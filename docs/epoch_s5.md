@@ -325,11 +325,13 @@ closure. Document counter exclusions narrowly; never discard a mathematical
 mismatch as telemetry. Serial/parallel P2 over the same canonical store still
 requires exact deterministic accounting.
 
-The outstanding performance gate uses frozen fully optimized executables,
-identical owner/query inputs, worker budgets and CPU placement, and independent
-cold reinspection. The earlier lockstep and helper experiments are recorded;
-the next comparison uses the selected rolling/lookahead Epoch configuration
-against a contemporaneous Ready baseline in repeated matched pairs.
+The performance gate uses frozen fully optimized executables, identical
+owner/query inputs, worker budgets and CPU placement, and independent cold
+reinspection. The final selected rolling/lookahead four-loop comparison and
+single finite-five-loop pair are recorded above. Strict four-loop wall-time
+non-regression has not passed; repeated five-loop and current hot-control
+qualification remain incomplete. The frozen release is an explicitly qualified
+user-run trial, not a declaration that these performance gates passed.
 Checkpoint-only finalization and Ready's full result generation are different
 workloads, so report native and cold-validation costs separately and together.
 

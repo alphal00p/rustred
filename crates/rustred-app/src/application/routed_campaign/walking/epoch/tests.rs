@@ -26,6 +26,7 @@ use serde_json::Value;
 use std::sync::atomic::AtomicBool;
 
 mod admission;
+mod compact_images;
 mod rescue;
 mod snapshot;
 

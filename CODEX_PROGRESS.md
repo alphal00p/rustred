@@ -3,7 +3,8 @@
 Authoritative current plan:
 [ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md](ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md).
 Earlier plans and measurements below remain historical evidence, not a launch
-instruction. The user postponed production launch on September30.
+instruction. The user launched the frozen generation-first trial on September30;
+root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
@@ -31,6 +32,146 @@ preparation→all67 selected-owner generation→native admission→Epoch walk, w
 no silent old-payload fallback. Build/tests/freeze are complete; see the final
 release receipt below. On 2026-09-30 the user selected **32 physical cores and
 600 GB RAM** for the actual new campaign. W16 measurements remain W16 evidence.
+
+## Live-trial feedback and next structural work — 2026-09-30 19:40 UTC
+
+### Validation update — 20:10 UTC
+
+- [M] A/B native correctness build passed on retry in827.434s. The complete
+  application library suite then passed **1,243 tests, zero failures, 12 ignored**
+  in119.11s (guard wall120.181s). This includes the new exact parallel-route
+  preparation and compact-image differential/mutation tests. The build used
+  release dependencies with the application package at opt-level1 for validation;
+  these are **not optimized campaign performance measurements**. Receipts:
+  `TMP/postlaunch-20260930/route-compact-native-build-retry/` and
+  `TMP/postlaunch-20260930/route-compact-native-tests/`.
+- [M] Parallel parent supervisor:48 pure/mocked tests plus three real subprocess
+  controls passed. Independent `s5_fixed_work_pilots` audit passed after correcting
+  failed-versus-interrupted labels and moving large-output hashing until all
+  owned native groups drain. This keeps the aggregate RAM guard responsive while
+  siblings solve. All seven test process groups were independently found absent.
+  Evidence: `TMP/aster-integration-20260930-resumed/parent-scheduler-process-smoke-v2/`
+  and `structural-routing-envelope/PARENT_SCHEDULER_AUDIT.md` under that same base.
+- [M] Separate native telemetry/dashboard is source-ready, implemented by
+  `final_requirements_audit`; independent review now belongs to
+  `s5_fixed_work_pilots`. It is **not in the A/B test binary** and has not yet
+  passed native validation. Python rendering integration and fresh parallel
+  four-loop generation remain pending. No production launch recommendation yet.
+- [M] The new live campaign continues advancing through sector3822: at about
+  1,899s in parent31740 it reached case672/frame588, after the earlier ten-minute
+  exact frame. Ten of eleven parent sectors are generated, about1.8GiB RSS,
+  zero reported failures. This remains a generation tail, not a closure or
+  progress-fraction estimate. Production is unchanged.
+- [D] Next structural priorities: a small exact-incidence shadow census before
+  changing routed covers, and bounded alternative source-trace selection before
+  expensive exact materialization. Neither is a claimed speedup. The existing
+  Symbolica SourceWeights backend is available for an isolated large-frame
+  comparison; prior completed comparisons lost, so it is not a default switch.
+
+- [M] The user has started `campaigns/five-loop-a1-epoch-20260930` from the
+  frozen checkout, with 32 physical CPUs64–95. LC2 still owns CPUs128–227.
+  Development builds/pilots must exclude **both** reservations; the historical
+  W50 pilot mask32–81 is no longer safe. No production file or process changed.
+- [M] First native generation groups completed: parent30527, 17 selected
+  sectors, 164.378s, sampled peak process-tree RSS1.187GB; parent30699, 18 sectors,
+  560.941s, peak1.653GB. Both exit0 with owned groups drained. Parent31740 is
+  now active (11 selected sectors); at62s it had10 generated and was discovering
+  rules for3822. Parent32745's21 sectors remain queued. These are generation
+  milestones, not scoped closure. Evidence is each attempt's `result.json`,
+  `resources.jsonl` and `stderr` beneath the user's campaign directory.
+- [M] Current RAM admission is about471GB despite a600GB request: the existing
+  guard retains the requested150GB host reserve. This is not a newly imposed
+  arbitrary limit. No changes to the user's resource policy were made.
+- [D] User requests independent parent preparations in parallel, a clean
+  dedicated dashboard, and support for more complex future preparation flows.
+  Implement this for a **future build**, not by editing the frozen live pipeline.
+  Use one aggregate CPU/RAM budget, disjoint worker slots, one owned-process
+  supervisor and explicit dependency barriers before staging/admission/walking.
+  Separate structured progress production from rendering; never parse human
+  progress text as mathematical authority or mislabel generated sectors closed.
+- [D] The user prioritizes ambitious structural gains. Investigate avoidable
+  routed-domain expansion and downstream-work-aware recurrence selection, not
+  merely increased busy-core counts. Existing joint-mask pruning's negative
+  result is retained: many rejected local masks did not deliver a campaign win.
+  `s5_fixed_work_pilots` owns this read-only proposal/evidence pass; a separate
+  reviewer must challenge the mathematics before any implementation.
+- [M] Narrow post-release slices A/B are source-ready and independently audited
+  by `final_requirements_audit`: A parallel exact route preparation, preserving
+  ordered errors/cancellation and replica budgets (`runtime_order_pilots`);
+  B allocation-free compact decode/summary construction (`s5_fixed_work_pilots`).
+  Native compilation/tests and performance validation are **pending**. No speed
+  gain has been assigned to either. The next action is a consolidated guarded
+  native test build; this does not modify either frozen production executable.
+- [M] First build (446.295s) compiled the production application library but
+  refused a new B unit test: one missing `[bool; N]` annotation produced19
+  cascading type-inference diagnostics. Root added that annotation only;
+  the library-test rebuild is active. Evidence:
+  `TMP/postlaunch-20260930/route-compact-native-build{,-retry}/`.
+- [M] Structural source/math review delivered
+  [a conditional routing-envelope proposal](docs/research/routing_envelopes_and_rule_portfolios_2026-09-30.md).
+  Verified inactive-numerator incidence can constrain every target numerator
+  axis, but the current cover only consumes it for active-axis survival/pinches.
+  Exact homogeneous maps can also preserve upper A-R, when proved—not merely
+  assumed from vacuum kinematics. Independent review found the derivation sound;
+  benefit is unmeasured. Next gate is a bounded shadow census on actual visited
+  boxes after existing projection. Repeated fragmentation/subsumption could erase
+  the gain, so a tighter local bound is not itself success.
+- [D] The better-supported large-gain direction remains downstream-work-aware
+  recurrence selection: A1 already demonstrated sensitivity, whereas the new
+  envelope is only a cheap, falsifiable opportunity. The research lane is now
+  locating minimal executable tests for both, without creating a new CAS or
+  claiming this fixes the live sector3822 exact-elimination tail.
+- Active future-preparation implementation: `runtime_order_pilots` owns the
+  Python queue/resource supervisor; `final_requirements_audit` implements new
+  unreferenced Rust telemetry/dashboard modules while the current build drains.
+  That agent will not audit its own implementation. Default serial behavior,
+  single aggregate RAM guard, owned process-group draining, immutable command
+  binding and the all-parents staging barrier remain explicit test obligations.
+- [M] Source-ready Python scheduler:45 mocked/pure tests passed, not yet a
+  native parallel-generation acceptance result. Root review requested real
+  short-lived subprocess tests for sibling drain, interruption and lingering
+  children, plus invalid/nonfinite-telemetry refusal. These small lifecycle tests
+  may use CPUs32–35; they do not launch algebra or touch either campaign.
+- [M] Read-only live observations at19:48–19:54UTC: old LC2 remains at6/67
+  roots,219.75M discovered,97.44M completions and64.15M pending. Its rolling-hour
+  pending growth is now+0.032/completion, materially below the earlier+0.70,
+  but still no convergence/closure inference. New preparation remains on3822:
+  frame451 has4,014 source rows/8,482 integral columns and two active coefficient
+  variables; its exact-elimination phase passed400s while rows still advanced.
+  About1 observed core and1.8GB RSS. This identifies an algebraic tail, not a
+  stalled process; active-sector work still cannot be checkpoint-resumed.
+
+## Post-release follow-through — 2026-09-30 19:25 UTC
+
+- [M] Previous goal turn made concrete progress: final optimized controls,
+  frozen W32 launch preflight, independent release audit and push `d93e64ad`.
+  The subsequent user question was answered: metadata-only preparation exits
+  intentionally; `--resume --start` begins generation. Root did not launch it.
+- [M] Read-only old-LC2 snapshot at 19:22 UTC: PID360092 alive with fresh
+  heartbeat; 218.8M discovered domains, at least9.84M recursively closed,
+  6/67 initial roots closed, 64.4M pending, 96.7M local completions. Last-hour
+  rate approximately1.07M completions/hour and pending growth+0.70/completion.
+  About9 busy cores and93GB RSS, zero frontiers; latest checkpoint generation14
+  saved17:16:36UTC. Snapshot closure is conservative and scan-batched, not ETA.
+- [M] User authorized further promising improvements after delivery, guided
+  later by the full run. Independent `final_requirements_audit` confirms the
+  implementation and launch package are delivered but the original performance
+  acceptance is incomplete. The plan now records that distinction explicitly.
+- Initially diagnostic lanes (subsequently granted the narrow slices above):
+  `s5_fixed_work_pilots` studies measured P1/P2 costs and serial task allocation;
+  `runtime_order_pilots` traces repeated owner/route preparation; root coordinates
+  source review and future acceptance. Frozen source/executables remain unchanged.
+- [M] Initial preparation attribution: existing heartbeat records place about
+  70 of82 preparation seconds in serial verification/compilation of8,179 routing
+  maps, not owner loading. Detailed source/resource recommendations are pending.
+  This matters to startup and cold checks; it is not automatically a substantial
+  speedup for a many-hour traversal. No new CAS primitive is proposed.
+- [E] Root source hypothesis under review: the binary job decoder creates two
+  coordinate vectors for each compact image, and P2 reconstructs expanded
+  geometry for summaries. Eliminating these allocations through shared checked
+  slice/array constructors may reduce coordinator overhead without changing
+  work selection. The measured P1/P2 totals are not an allocation-only profile;
+  benefit remains unproven and needs differential tests and matched controls.
 
 ## Frozen generation-first release — 2026-09-30 19:20 UTC
 

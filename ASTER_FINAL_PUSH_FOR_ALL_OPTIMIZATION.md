@@ -4,6 +4,42 @@ Status: authorized on 2026-09-30; implementation follows this plan.
 Branch: `fable_5_1_parallel`. Starting committed milestone: `297be07f`.
 Continuous evidence and task ownership: `CODEX_PROGRESS.md`.
 
+## Current completion state — 2026-09-30 post-release audit
+
+The frozen generation-first release is delivered at `d93e64ad` (source checkout
+`b21e4522`). The user selected 32 physical cores and 600 GB RAM and launched it.
+The user subsequently authorized continued optimization in the development
+checkout; the frozen release and both production campaigns remain untouched.
+
+| Requirement | State and evidence |
+|---|---|
+| Persisted runtime integral order and interfaces | Implemented, tested and independently audited; non-default comparators tested, without a useful advantage over A1 source selection |
+| Deterministic parallel P2, typed records, bulk edges and shared immutable P4 | Implemented and independently audited; native failure/replay/helper-budget tests and cold controls pass |
+| Repeated source-selection benefit | Passed: two matched four-loop pairs and bounded 14-owner five-loop transfer evidence |
+| Combined final four-loop non-regression | Not passed: current Ready/Epoch medians 15.494/16.293 s, with Epoch slower in both pairs; CPU/work benefits do not erase this wall-time result |
+| Repeated current five-loop Ready comparison | Incomplete: one finite pair is 319.826/311.466 s including cold checking, but Epoch traversal is slower; a repeated speed claim is unsupported |
+| Current optimized hot control | Prepared, not executed; remains a qualification task, not a result |
+| Twenty-plus useful cores | Unmet/unmeasured target; the user-selected 32-core reservation is not scaling evidence |
+| Frozen generation-first launch, scope, resume, documentation and push | Delivered; fresh four-loop pipeline and full-scope metadata preflight passed, all 116 required queries and 67 helpers retained |
+
+Independent requirement-by-requirement review found no outstanding source
+architecture blocker, but performance qualification remains incomplete. The
+release-priority clarification authorized an honestly qualified production trial,
+not relabeling unpassed gates as passed. Further work first investigates the
+measured coordinator costs and repeated route preparation. Every candidate still
+needs a narrow mechanism, independent review and bounded matched verification.
+Full 67-owner generation and 116-query production closure remain outside this
+optimization goal's required execution scope and are not invented blockers.
+
+Post-launch direction: inspect the live campaign read-only and prioritize
+structural reductions in algebra/domain work informed by that evidence. Add
+parallel independent parent preparation and a separate clean dashboard to the
+future pipeline, with a single aggregate resource budget and structured progress
+separated from presentation. Neither this nor narrower coordinator/route-setup
+optimizations may alter the running frozen release. CPU reservations64–95 and
+128–227 are both excluded from development work. Source-ready changes still
+require native tests and matched measurements before benefit claims.
+
 Latest clarification: the user removes the delivery deadline. Take the time
 needed for clean implementations, thorough organization and smart delegation.
 These two tracks are intended as durable foundations, not rushed experimental

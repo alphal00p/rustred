@@ -467,6 +467,7 @@ pub(super) fn run<const N: usize>(
     // No hidden temporary checkpoint backs a memory-only request.
     let export_dir: Option<std::path::PathBuf> = None;
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
+    load.workers = request.workers;
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
     let mut owners = Vec::new();

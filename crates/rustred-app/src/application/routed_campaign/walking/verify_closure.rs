@@ -2102,6 +2102,7 @@ fn verify<const N: usize>(
     );
     let prepare_started = Instant::now();
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
+    load.workers = options.threads.max(1);
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
     let mut prepared_owners = None;

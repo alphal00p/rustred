@@ -549,6 +549,12 @@ fn run_fixture<const N: usize>(
         .map(|d| d.as_str().expect("digest").to_owned())
         .collect();
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
+    // This research harness can prepare replicas concurrently on individually
+    // pinned threads below. Keep their preparation inline: a pool using the
+    // saved campaign's worker count would multiply the replica budget and
+    // violate the single-CPU affinity. Production cold verification instead
+    // passes its own explicit verifier thread budget to the shared preparer.
+    load.workers = 1;
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
     let prepare_one = |never: &AtomicBool| -> Result<RoutedCandidateReducer<N>, String> {

@@ -284,6 +284,70 @@ fn compact_domain_round_trips_every_field_and_rejects_out_of_range() {
 }
 
 #[test]
+fn borrowed_compact_coordinates_preserve_validation_and_native_summary() {
+    fn check<const N: usize>() {
+        let mut rng = Lcg(0xb077_0eed ^ N as u64);
+        for case in 0..1_000 {
+            let owner: [bool; N] = std::array::from_fn(|_| rng.chance(50));
+            let mut domain = random_domain(&mut rng, owner, case % 7 == 0);
+            if case % 11 == 0 {
+                domain.lower[0] = 65534;
+                domain.upper[0] = Some(65534);
+            }
+            if case % 13 == 0 {
+                domain.lower[0] = 2;
+                domain.upper[0] = Some(1);
+            }
+            let compact = CompactDomain::try_from_domain(&domain).unwrap();
+            assert_eq!(
+                CompactDomain::try_from_parts(
+                    domain.phase,
+                    domain.owner,
+                    &domain.lower,
+                    &domain.upper,
+                    domain.rank,
+                    domain.powers,
+                ),
+                Ok(compact)
+            );
+            assert_eq!(
+                compact.try_native_summary(),
+                DomainPowerSummary::try_new(
+                    domain.owner,
+                    &domain.lower,
+                    &domain.upper,
+                    domain.rank,
+                    domain.powers,
+                )
+            );
+            for (lower, upper) in [
+                (&domain.lower[..N - 1], domain.upper.as_slice()),
+                (domain.lower.as_slice(), &domain.upper[..N - 1]),
+            ] {
+                assert_eq!(
+                    CompactDomain::try_from_parts(
+                        domain.phase,
+                        domain.owner,
+                        lower,
+                        upper,
+                        domain.rank,
+                        domain.powers,
+                    ),
+                    Err("domain coordinate arity")
+                );
+            }
+        }
+    }
+    check::<1>();
+    check::<2>();
+    check::<6>();
+    check::<10>();
+    check::<15>();
+    check::<16>();
+    check::<32>();
+}
+
+#[test]
 fn coordinates_above_the_compact_range_are_refused_without_publishing() {
     for max_checks in [None, Some(100)] {
         let mut queue = Queue::new(8, max_checks);

@@ -3,10 +3,10 @@ use std::io::Read;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rustred::sector::symmetry::{self, CoefficientMatrix, MomentumMap, integral_transport};
-use rustred::solver::{CandidateOwnerRoute, RoutedCandidateReducer};
+use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
-use symbolica::prelude::{Matrix, Q, Rational};
+
+mod routes;
 
 use super::{
     RoutedCampaignRequest,
@@ -15,21 +15,6 @@ use super::{
 use crate::{
     AppError, CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
 };
-
-fn matrix(
-    rows: &[Vec<String>],
-) -> Result<Matrix<symbolica::domains::rational::RationalField>, AppError> {
-    let values = rows
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|x| x.parse::<i64>().map(Rational::from))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::input(e.to_string()))?;
-    Matrix::from_nested_vec(values, Q).map_err(|e| AppError::input(format!("native matrix: {e:?}")))
-}
 
 pub(super) fn prepare<const N: usize>(
     request: &RoutedCampaignRequest,
@@ -125,68 +110,20 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
         "family_fingerprint":family.fingerprint(), "rank_bound":programs.context().scope().max_numerator_rank,
         "finite_case_policy":format!("{:?}", programs.context().scope().finite_case_policy)}),
     );
-    let mut routes = Vec::new();
-    for (ordinal, route) in selection.initial_frontier_routes.iter().enumerate() {
-        if cancellation.load(Ordering::Relaxed) {
-            return Ok(None);
-        }
-        let loops = family.loop_count();
-        if route.source_to_representative.len() != loops
-            || route.owner_to_representative.len() != loops
-        {
-            return Err(AppError::input(
-                "route matrix dimensions differ from native family",
-            ));
-        }
-        if !route.requires_transport {
-            continue;
-        }
-        observer(
-            json!({"event":"preparation", "phase":"native_map_verification", "completed":ordinal,
-            "total":selection.initial_frontier_routes.len(), "verified":routes.len()}),
-        );
-        let source = mask(&route.source_mask, N)?;
-        let target = mask(&route.owner_mask, N)?;
-        let inverse = matrix(&route.owner_to_representative)?
-            .inv()
-            .map_err(|e| AppError::input(format!("native route inverse: {e:?}")))?;
-        let composed = &matrix(&route.source_to_representative)? * &inverse;
-        let context = family.coefficient_context();
-        let mut entries = Vec::new();
-        for i in 0..loops {
-            for j in 0..loops {
-                let value = composed[(i as u32, j as u32)]
-                    .to_string()
-                    .parse::<i64>()
-                    .map_err(|_| {
-                        AppError::input("composed witness must remain an integral loop map")
-                    })?;
-                entries.push(context.integer(value));
-            }
-        }
-        let map_error = |e| AppError::input(format!("native map: {e:?}"));
-        let momentum = MomentumMap::new(
-            CoefficientMatrix::try_new(loops, loops, entries).map_err(map_error)?,
-            CoefficientMatrix::try_new(loops, 0, []).map_err(map_error)?,
-            CoefficientMatrix::try_new(0, 0, []).map_err(map_error)?,
-        );
-        let verified = symmetry::verify(&family, &family, momentum, Default::default())
-            .map_err(|e| AppError::input(format!("native map verification: {e:?}")))?;
-        let transport = integral_transport::compile(
-            &family,
-            family.clone(),
-            Arc::new(verified),
-            source,
-            target.clone(),
-            Default::default(),
-        )
-        .map_err(|e| AppError::input(format!("native integral transport: {e:?}")))?;
-        routes.push(CandidateOwnerRoute {
-            owner_sector: target,
-            transport: Arc::new(transport),
-        });
-    }
+    let Some(routes) = routes::prepare::<N>(
+        &family,
+        &selection.initial_frontier_routes,
+        request.workers,
+        cancellation,
+        observer,
+    )?
+    else {
+        return Ok(None);
+    };
     observer(json!({"event":"routes_verified", "routes":routes.len()}));
+    if cancellation.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
     RoutedCandidateReducer::try_new(Arc::new(programs), routes, request.trace_limits)
         .map(Some)
         .map_err(|e| AppError::input(format!("routed programs: {e:?}")))

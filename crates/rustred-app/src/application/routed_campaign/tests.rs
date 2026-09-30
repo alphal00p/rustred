@@ -10,6 +10,7 @@ mod index_admission;
 mod observer_boundary;
 mod owner_batches;
 mod power_domains;
+mod preparation;
 mod record_sidecar;
 mod rescue;
 

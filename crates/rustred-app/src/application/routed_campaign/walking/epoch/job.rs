@@ -11,7 +11,7 @@
 //! all target images are independently verified, not sampled canaries. Local,
 //! MRU and rolling refresh are absent. This ephemeral byte version is not a
 //! checkpoint compatibility importer or a change to persisted record bodies.
-use super::super::queue::{CompactDomain, Domain, Phase};
+use super::super::queue::{CompactDomain, Phase};
 use rustred::solver::DomainPowerBounds;
 
 pub(super) const JOB_MAGIC: u32 = u32::from_le_bytes(*b"EJB2");
@@ -193,8 +193,9 @@ pub(super) fn write_image<const N: usize>(w: &mut Writer, image: &CompactDomain<
     w.powers(image.powers());
 }
 
-/// Decode, then rebuild through `CompactDomain::try_from_domain` (the one
-/// geometry source, F1) and require the bytes to be canonical.
+/// Decode, then rebuild through the same checked compact encoding as transport
+/// domains (F1), without allocating temporary coordinate vectors. Canonical
+/// wire checks and their error order remain independent of domain validation.
 pub(super) fn read_image<const N: usize>(r: &mut Reader<'_>) -> Decoded<CompactDomain<N>> {
     let phase = match r.u8()? {
         0 => Phase::Apply,
@@ -210,25 +211,24 @@ pub(super) fn read_image<const N: usize>(r: &mut Reader<'_>) -> Decoded<CompactD
     if !rank_present && rank_value != 0 {
         return Err("non-canonical absent rank");
     }
-    let mut lower = Vec::with_capacity(N);
-    for _ in 0..N {
-        lower.push(u64::from(r.u16()?));
+    let mut lower = [0_u64; N];
+    for value in &mut lower {
+        *value = u64::from(r.u16()?);
     }
-    let mut upper = Vec::with_capacity(N);
-    for _ in 0..N {
+    let mut upper = [None; N];
+    for value in &mut upper {
         let v = r.u16()?;
-        upper.push((v != INFINITE).then_some(u64::from(v)));
+        *value = (v != INFINITE).then_some(u64::from(v));
     }
     let powers = r.powers()?;
-    let domain = Domain {
+    CompactDomain::try_from_parts(
         phase,
-        owner: std::array::from_fn(|axis| owner_bits >> axis & 1 == 1),
-        lower,
-        upper,
-        rank: rank_present.then_some(rank_value),
+        std::array::from_fn(|axis| owner_bits >> axis & 1 == 1),
+        &lower,
+        &upper,
+        rank_present.then_some(rank_value),
         powers,
-    };
-    CompactDomain::try_from_domain(&domain)
+    )
 }
 
 // ---- jobs --------------------------------------------------------------------

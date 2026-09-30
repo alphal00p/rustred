@@ -82,31 +82,51 @@ fn owner_bits<const N: usize>(owner: &[bool; N]) -> u32 {
 
 impl<const N: usize> CompactDomain<N> {
     pub(in super::super) fn try_from_domain(domain: &Domain<N>) -> Result<Self, &'static str> {
+        Self::try_from_parts(
+            domain.phase,
+            domain.owner,
+            &domain.lower,
+            &domain.upper,
+            domain.rank,
+            domain.powers,
+        )
+    }
+
+    /// The same checked encoding for transport domains and borrowed coordinates.
+    /// This checks representability only; native summary construction remains
+    /// responsible for validating the mathematical domain.
+    pub(in super::super) fn try_from_parts(
+        phase: Phase,
+        owner: [bool; N],
+        lower_bounds: &[u64],
+        upper_bounds: &[Option<u64>],
+        rank: Option<u32>,
+        powers: DomainPowerBounds,
+    ) -> Result<Self, &'static str> {
         const { assert!(N <= MAX_COMPACT_ARITY) };
-        if domain.lower.len() != N || domain.upper.len() != N {
+        if lower_bounds.len() != N || upper_bounds.len() != N {
             return Err("domain coordinate arity");
         }
         let mut lower = [0; N];
         let mut upper = [INFINITE_COORDINATE; N];
         for axis in 0..N {
-            lower[axis] = compact_coordinate(domain.lower[axis])?;
-            if let Some(value) = domain.upper[axis] {
+            lower[axis] = compact_coordinate(lower_bounds[axis])?;
+            if let Some(value) = upper_bounds[axis] {
                 upper[axis] = compact_coordinate(value)?;
             }
         }
-        let powers = domain.powers;
         let flag = |none: bool, bit: u8| if none { bit } else { 0 };
         Ok(Self {
-            phase: match domain.phase {
+            phase: match phase {
                 Phase::Apply => 0,
                 Phase::Route => 1,
             },
-            flags: flag(domain.rank.is_none(), RANK_NONE)
+            flags: flag(rank.is_none(), RANK_NONE)
                 | flag(powers.max_positive_power.is_none(), POSITIVE_POWER_NONE)
                 | flag(powers.min_power_difference.is_none(), MIN_DIFFERENCE_NONE)
                 | flag(powers.max_power_difference.is_none(), MAX_DIFFERENCE_NONE),
-            owner: owner_bits(&domain.owner),
-            rank: domain.rank.unwrap_or(0),
+            owner: owner_bits(&owner),
+            rank: rank.unwrap_or(0),
             lower,
             upper,
             max_positive_power: powers.max_positive_power.unwrap_or(0),
@@ -207,14 +227,9 @@ impl<const N: usize> CompactDomain<N> {
     pub(in super::super) fn try_native_summary(
         &self,
     ) -> Result<DomainPowerSummary<N>, DomainPowerError> {
-        let domain = self.expand();
-        DomainPowerSummary::try_new(
-            domain.owner,
-            &domain.lower,
-            &domain.upper,
-            domain.rank,
-            domain.powers,
-        )
+        let lower: [u64; N] = std::array::from_fn(|axis| self.lower(axis));
+        let upper: [Option<u64>; N] = std::array::from_fn(|axis| self.upper(axis));
+        DomainPowerSummary::try_new(self.owner(), &lower, &upper, self.rank(), self.powers())
     }
 
     /// The native summary this domain was admitted with. `try_new` is a pure

@@ -1147,6 +1147,7 @@ fn run<const N: usize>(
         }
     }
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
+    load.workers = request.workers;
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
     let reducer = if let Some(store) = checkpoint.as_mut() {
