@@ -14,8 +14,13 @@ The September30 user trial successfully generated and admitted all67 owners
 failure, not a memory stop or failure to generate the rules. The finite-point
 reuse planner can accept a union whose separate region-decomposition proof
 exceeds its work budget; the current release incorrectly makes that inconclusive
-recheck fatal. A conservative preflight/fallback repair is under implementation
-and independent review. It must not weaken coverage checks.
+recheck fatal. A conservative Epoch-only preflight/fallback repair has passed
+independent source review and1,292 native application/CLI tests. It declines
+reuse and inspects the whole obligation when the persisted union proof cannot
+be obtained within its budget; it does not weaken coverage checks. The combined
+four-loop control has passed independent full reinspection (all58 required
+queries,32 roots and17,957 inspections). The bounded full-input five-loop
+recovery control and frozen optimized replacement build are still pending.
 
 **Do not relaunch the affected frozen build with this recipe yet.** Retain the
 failed campaign, generated bundles and completed-sector receipts. Its CP6 walk

@@ -19,6 +19,10 @@ ordinary-inspection fallback is now the immediate priority. The generated inputs
 are reusable; the poisoned walk checkpoint is not. The previously delivered
 launch is on hold pending a tested build and fresh-walk recovery instructions.
 No source-architecture-completion statement below overrides this new evidence.
+At21:13UTC the conservative repair passed independent source audit,1,292 native
+application/CLI tests and the combined four-loop cold-All control. The saved
+five-loop inputs are undergoing a separate bounded recovery pilot; optimized
+replacement delivery remains pending. None of these checks launches production.
 
 | Requirement | State and evidence |
 |---|---|

@@ -170,6 +170,12 @@ fn plans_are_exact_covers_below_the_snapshot() {
         // Deterministic: the same query plans the same way again.
         assert_eq!(
             store.plan(id, &q, &AtomicBool::new(false)),
+            Outcome::Planned(plan.clone())
+        );
+        // Epoch's extra proof gate preserves the exact successful decision;
+        // it changes only proposals whose persisted union proof is undecided.
+        assert_eq!(
+            store.plan_at(snapshot, &q, &AtomicBool::new(false)),
             Outcome::Planned(plan)
         );
     }
@@ -208,4 +214,96 @@ fn initial_d_band_anchors_lend_only_their_low_slice() {
     };
     assert_eq!(plan.residual, Some((5, 8)));
     assert_eq!(plan.anchors[0].kind, kind::INITIAL_D_BAND);
+}
+
+#[test]
+fn epoch_union_budget_exhaustion_falls_back_before_residual_inspection() {
+    let whole = domain([0, 0, 0], [3, 0, 3], 0, DomainPowerBounds::default());
+    let mut slice = whole.clone();
+    slice.powers.max_power_difference = Some(4);
+    let store = store_with(&[(slice, kind::INITIAL_D_BAND)], None);
+    let cancel = AtomicBool::new(false);
+    let legacy = store.plan(9, &whole, &cancel);
+    let Outcome::Planned(plan) = &legacy else {
+        panic!("pointwise discovery proves a valid low-slice cover");
+    };
+    assert_eq!(plan.residual, Some((5, 8)));
+    // One region cannot prove the union, although every covered point has
+    // already passed the native exact inclusion check. This is a normal
+    // optimization miss, not a malformed rule or internal invariant failure.
+    assert_eq!(
+        store.plan_bound(Some(1), 0, &whole, &cancel, Some(1)),
+        Outcome::Whole
+    );
+    assert_eq!(
+        store.report()["whole_inspections"]["union_cover_undecided"],
+        1
+    );
+    assert!(store.peek(0).is_none());
+    assert!(store.pending_pins().is_empty());
+    assert_eq!(store.plan_at(1, &whole, &cancel), legacy);
+    assert_eq!(store.plan(9, &whole, &cancel), legacy);
+}
+
+#[test]
+fn epoch_union_preflight_rejects_a_real_gap_not_just_resource_exhaustion() {
+    let whole = domain([0, 0, 0], [3, 0, 3], 0, DomainPowerBounds::default());
+    let mut slice = whole.clone();
+    slice.powers.max_power_difference = Some(4);
+    let scope = CompactDomain::try_from_domain(&slice).unwrap();
+    assert_eq!(
+        replayable_union_cover(
+            &whole,
+            Some((5, 8)),
+            [&scope].into_iter(),
+            EPOCH_COVER_REGIONS
+        ),
+        Some(true)
+    );
+    assert_eq!(
+        replayable_union_cover(
+            &whole,
+            Some((6, 8)),
+            [&scope].into_iter(),
+            EPOCH_COVER_REGIONS
+        ),
+        Some(false),
+        "D=5 must not be silently discarded"
+    );
+    assert_eq!(
+        replayable_union_cover(&whole, None, [&scope].into_iter(), EPOCH_COVER_REGIONS),
+        Some(false)
+    );
+}
+
+#[test]
+fn epoch_large_lender_union_uses_whole_inspection_without_recursive_preflight() {
+    let count = EPOCH_COVER_ANCHORS + 1;
+    let whole = domain(
+        [0, 0, 0],
+        [count as u64 - 1, 0, 0],
+        0,
+        DomainPowerBounds::default(),
+    );
+    let anchors: Vec<_> = (0..count)
+        .map(|i| {
+            let point = [i as u64, 0, 0];
+            (
+                domain(point, point, 0, DomainPowerBounds::default()),
+                kind::NATIVE,
+            )
+        })
+        .collect();
+    let store = store_with(&anchors, None);
+    let cancel = AtomicBool::new(false);
+    let Outcome::Planned(plan) = store.plan(count + 1, &whole, &cancel) else {
+        panic!("pointwise proof covers every point");
+    };
+    assert_eq!(plan.anchors.len(), count);
+    assert_eq!(plan.residual, None);
+    assert_eq!(store.plan_at(count as u64, &whole, &cancel), Outcome::Whole);
+    assert_eq!(
+        store.report()["whole_inspections"]["union_cover_lender_budget"],
+        1
+    );
 }

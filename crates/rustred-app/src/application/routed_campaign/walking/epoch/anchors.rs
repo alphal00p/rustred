@@ -47,7 +47,7 @@ use super::ledger6::{Entry6, Ledger6};
 /// disposition D19: u32 counts, a lent scope per anchor, union-form residual).
 pub(super) const ANCHORS_VERSION: u16 = 2;
 /// Region budget of the exact union cover (as the closure verifier).
-pub(super) const COVER_REGIONS: u64 = 1 << 16;
+pub(super) const COVER_REGIONS: u64 = super::super::g2::EPOCH_COVER_REGIONS;
 pub(super) const MAX_ANCHORS: usize = super::super::g2::POINT_CAP;
 pub(super) const MAX_RESIDUAL_PIECES: usize = 1 << 18;
 

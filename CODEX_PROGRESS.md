@@ -37,6 +37,71 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] Fixed-build four-loop gate passed at21:13UTC: all58 required queries,
+  32 roots,26,025 domains and495,898 edges; independent cold-All reinspection
+  checked all17,957 natives with zero errors, uncovered obligations, frontiers
+  or violations.49 accepted G2 unions; both new fallback counters are zero
+  in this control (focused native tests exercise them). Native8.999s plus
+  cold9.1751s are correctness-only app-opt1 boundaries, not optimized timing.
+  Secondary Python diagnostic remains explicitly INCOMPLETE, not a substitute
+  PASS. All three owned process groups drained and resource locks released.
+  Evidence: `TMP/aster-integration-20260930-resumed/union-undecided-regression/runs/fixed-r1/four-all/`.
+  Root granted S5 the audited full-input W32/CPUs0–31 pilot next: cooperative
+  stop at1,200s, total ceiling1,800s including cold structural verification.
+  It retains all67 owners/116 required queries/67 helpers and the failed run's
+  steering, using separate copied inputs/checkpoint. No production is changed.
+- [M] Update at21:11UTC: the union-preflight repair native build completed
+  successfully in1049.499s. Full application library suite: **1,267 passed,
+  zero failed,12 ignored** in117.81s; candidate CLI:19 passed; routed CLI:6
+  passed. The combined guarded test command exited0 and drained in119.180s.
+  Evidence: `TMP/postlaunch-20260930/epoch-union-fallback-native-{build-retry,tests}/`.
+  This is release-dependencies/app-opt1 correctness, not optimized performance.
+  Root granted `runtime_order_pilots` the fixed four-loop native+cold-All gate
+  on CPUs32–47. The full-input five-loop replay remains ungranted until that
+  gate passes. `final_requirements_audit` independently checks source/binary/test
+  bindings. The recovery metadata-only rehearsal may use ordinary inherited
+  affinity because its launcher validates the future64–95 production mask;
+  it starts no solver and does not modify the original campaign.
+- [M] The metadata-only fresh-recovery rehearsal passed independently:
+  all67 saved owners/8,246 routes/183 queries retained, query bytes and
+  original steering identical, no native start, no runs/checkpoints created,
+  and original poison/session/pipeline controls unchanged. Evidence:
+  `TMP/postlaunch-20260930/production-union-repro/RECOVERY_{COMMAND,METADATA,SOURCE_CONTROL_HASHES}.json`.
+  This is recovery preparation, not a production restart or closure claim.
+- [M] Read-only LC2 observation at21:13UTC:223,011,011 discovered domains,
+  99,082,185 local completions,64,814,177 pending,6/67 recursively closed roots,
+  about94.93GB sampled tree RSS. Last-hour pending growth is+0.3159/completion;
+  computing-inspector mean0.417. No production state changed; there is still
+  no justified completion ETA.
+- [M] Parallel preparation/dashboard milestone committed and pushed as
+  `adc686e0`. The launch runbook now explicitly holds the affected frozen Epoch
+  release. No production executable, pipeline file, input, or checkpoint changed.
+- [M] The four-file union-preflight repair received independent source GO from
+  `final_requirements_audit` after the bounded-recursion and malformed-scope
+  regressions were added. Native build is running under CPUs0–15/eight Cargo
+  jobs at `TMP/postlaunch-20260930/epoch-union-fallback-native-build-retry/`.
+  Root's first command named a nonexistent integration test target and exited
+  before compilation in3.137s; corrected to `cli_routed_campaign`. The pending
+  build includes full app library plus candidate/routed CLI integration tests.
+- [D] `s5_fixed_work_pilots` owns a full-input regression harness on copied
+  immutable A1 inputs (all67 owners/116 required+67 auxiliary queries), W32 on
+  CPUs0–31, with a cooperative pilot stop inside the30-minute total ceiling.
+  No launch is granted before native tests pass. `final_requirements_audit`
+  independently reviews scope, lifecycle and interpretation; runtime agent
+  prepares four-loop regression commands and cost-counter interpretation.
+  Original production stays untouched. Surviving the previous failure is not
+  closure; a stopped run must cold-load its checkpoint before restart claims.
+- [E] Runtime-agent cost audit identifies a specific follow-up, not included
+  in the urgent repair: worker preflight adds one union evaluation; P1 already
+  calls the same exact predicate twice (record validation and token creation).
+  A private, state-bound proof object could let these two P1 consumers share one
+  check while retaining independent cold/restore validation. Worker-to-publisher
+  proof transport is a separate larger change and is deferred. Existing
+  `planner_telemetry.plan_seconds` includes preflight but is summed call time,
+  not campaign wall; `epoch.telemetry.phase_wall_seconds.p1` includes both P1
+  checks, and `epoch.verify.union_covers` counts only token-producing calls.
+  Measure these before claiming a bottleneck or speedup. No extra optimization
+  entered the frozen repair source during compilation.
 - [M] Follow-through at20:49UTC: independent review confirmed the planner's
   262,144-point proof budget and P1's65,536-region budget can disagree without
   indicating an actual uncovered point. Epoch-only preflight repair is source

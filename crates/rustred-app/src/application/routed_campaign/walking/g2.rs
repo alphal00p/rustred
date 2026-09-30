@@ -52,9 +52,18 @@ pub(super) use index::Entry;
 use index::{Bucket, Point, Query, Shape};
 
 use super::queue::{CompactDomain, Domain, Phase};
+use super::verify_closure::lattice::Cell;
 
 /// Largest query (lattice points) a plan enumerates; larger Q is inspected whole.
 pub(super) const POINT_CAP: usize = 1 << 18;
+/// Epoch admission and persisted-anchor validation must use the same exact
+/// union predicate and region budget. Pointwise discovery alone is not enough
+/// to guarantee that the independent persisted proof can be replayed.
+pub(super) const EPOCH_COVER_REGIONS: u64 = 1 << 16;
+/// The independent union predicate recurses per target. Limit optimization
+/// proposals before running it on an inspector's stack; larger unions are
+/// inspected whole, so this is not a bound on supported mathematical scope.
+const EPOCH_COVER_ANCHORS: usize = 256;
 /// Membership tests a plan may spend beyond 64 per point.
 const TEST_BUDGET: u64 = 1 << 22;
 
@@ -180,6 +189,8 @@ enum Whole {
     NoCoveredLevel,
     OverBudget,
     AuthorityRefused,
+    UnionUndecided,
+    UnionLenderBudget,
 }
 
 #[derive(Default)]
@@ -188,7 +199,7 @@ struct Stats {
     pinned: AtomicU64,
     full_cover: AtomicU64,
     residual: AtomicU64,
-    whole: [AtomicU64; 8],
+    whole: [AtomicU64; 10],
     points: AtomicU64,
     covered_points: AtomicU64,
     candidates: AtomicU64,
@@ -204,7 +215,7 @@ struct Stats {
     unindexed: AtomicU64,
 }
 
-const WHOLE_NAMES: [&str; 8] = [
+const WHOLE_NAMES: [&str; 10] = [
     "unrepresentable",
     "empty",
     "unbounded",
@@ -213,6 +224,8 @@ const WHOLE_NAMES: [&str; 8] = [
     "no_covered_level",
     "over_test_budget",
     "authority_refused",
+    "union_cover_undecided",
+    "union_cover_lender_budget",
 ];
 
 /// Shared G2' state of one walk session: the anchor index, the plans that
@@ -361,13 +374,22 @@ impl<const N: usize> Store<N> {
     }
 
     fn plan(&self, id: usize, q: &Domain<N>, cancellation: &AtomicBool) -> Outcome {
-        self.plan_bound(None, id, q, cancellation)
+        self.plan_bound(None, id, q, cancellation, None)
     }
 
     /// Epoch adapter: an explicit exclusive merge-stamp bound. This does not
     /// consult publication timing or retain a callback plan in the CP5 tables.
+    /// Before emitting residual events, require the same bounded union proof
+    /// as P1/restore. An undecidable optimization becomes a whole inspection,
+    /// not an engine invariant failure after partial inspection has begun.
     pub fn plan_at(&self, snapshot: u64, q: &Domain<N>, cancellation: &AtomicBool) -> Outcome {
-        self.plan_bound(Some(snapshot), 0, q, cancellation)
+        self.plan_bound(
+            Some(snapshot),
+            0,
+            q,
+            cancellation,
+            Some(EPOCH_COVER_REGIONS),
+        )
     }
 
     fn plan_bound(
@@ -376,10 +398,11 @@ impl<const N: usize> Store<N> {
         id: usize,
         q: &Domain<N>,
         cancellation: &AtomicBool,
+        cover_regions: Option<u64>,
     ) -> Outcome {
         let started = Instant::now();
         self.stats.plans.fetch_add(1, Ordering::Relaxed);
-        let result = self.plan_inner(snapshot, id, q, cancellation);
+        let result = self.plan_inner(snapshot, id, q, cancellation, cover_regions);
         self.stats
             .plan_micros
             .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -410,6 +433,7 @@ impl<const N: usize> Store<N> {
         id: usize,
         q: &Domain<N>,
         cancellation: &AtomicBool,
+        cover_regions: Option<u64>,
     ) -> Result<Plan, Whole> {
         let compact = CompactDomain::try_from_domain(q).map_err(|_| Whole::Unrepresentable)?;
         let (lower, upper) = compact.raw_bounds();
@@ -564,6 +588,30 @@ impl<const N: usize> Store<N> {
             // uncovered level, [top] the highest.
             (i64::from(levels[bottom - 1].0), i64::from(levels[top].0))
         });
+        if let Some(max_regions) = cover_regions {
+            if used.len() > EPOCH_COVER_ANCHORS {
+                return Err(Whole::UnionLenderBudget);
+            }
+            // P1 records the residual first and then lenders in (stamp, ID)
+            // order. Region-budget exhaustion is order-sensitive: preserve
+            // that order rather than the discovery order in `used`. Legacy
+            // planning needs no additional sort or union preflight.
+            used.sort_unstable_by_key(|&c| (candidates[c].stamp, candidates[c].id));
+            let proof = replayable_union_cover(
+                q,
+                residual,
+                used.iter().map(|&c| &candidates[c].scope),
+                max_regions,
+            );
+            match proof {
+                Some(true) => {}
+                Some(false) => return Err(Whole::AuthorityRefused),
+                None => return Err(Whole::UnionUndecided),
+            }
+            if cancellation.load(Ordering::Relaxed) {
+                return Err(Whole::NoCoveredLevel);
+            }
+        }
         s.original_levels
             .fetch_add(levels.len() as u64, Ordering::Relaxed);
         s.residual_levels
@@ -633,6 +681,34 @@ impl<const N: usize> Store<N> {
             "entry_bytes":std::mem::size_of::<Entry<N>>(),
             "index":"per (Apply, owner) bucket: Morton-sorted runs with a hull tree (leaf 16, fan-out 16), geometric merges, append-only tail chunks of 1024"})
     }
+}
+
+/// Reuse the independent lattice verifier; this is not another cover solver.
+/// Indexed scopes already contain exactly the low-D slice lent by partial
+/// anchors. Compact encoding preserves their coordinates/rank/power bounds.
+/// Missing or undecidable proof is handled before any residual event exists.
+fn replayable_union_cover<'a, const N: usize>(
+    q: &Domain<N>,
+    residual: Option<(i64, i64)>,
+    scopes: impl Iterator<Item = &'a CompactDomain<N>>,
+    max_regions: u64,
+) -> Option<bool> {
+    let cell = |domain: &Domain<N>| Cell {
+        owner: domain.owner.to_vec(),
+        lower: domain.lower.clone(),
+        upper: domain.upper.clone(),
+        rank: domain.rank,
+        powers: domain.powers,
+    };
+    let query = cell(q);
+    let mut targets = Vec::new();
+    if let Some((lo, hi)) = residual {
+        let mut remainder = query.clone();
+        remainder.powers = residual_powers(q.powers, lo, hi);
+        targets.push(remainder);
+    }
+    targets.extend(scopes.map(|scope| cell(&scope.expand())));
+    query.covered_by_union(&targets.iter().collect::<Vec<_>>(), max_regions)
 }
 
 /// Every lattice point of the query (at most `cap`), with its aggregates.

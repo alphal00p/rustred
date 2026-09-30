@@ -976,6 +976,85 @@ fn indexed_epoch_planner_uses_dispatch_cut_and_drops_no_partial_plan_state() {
 }
 
 #[test]
+fn epoch_planner_preflight_matches_persisted_union_for_lent_low_slices() {
+    use super::super::g2 as planner;
+    let original = boxed([0, 0], [8, 4]);
+    let mut low = original.clone();
+    low.powers.max_power_difference = Some(2);
+    let index = planner::Store::new(None, 0, 2);
+    index.append(
+        &original.owner,
+        planner::Store::entry(&low, 0, 1, planner::kind::INITIAL_D_BAND),
+    );
+    for full_cover in [false, true] {
+        let mut query = boxed([0, 0], [5, 3]);
+        if full_cover {
+            query.powers.max_power_difference = Some(2);
+        }
+        let node = image(&query);
+        let planner::Outcome::Planned(plan) = index.plan_at(2, &query, &AtomicBool::new(false))
+        else {
+            panic!("a replayable low-slice union is available");
+        };
+        assert_eq!(plan.residual.is_none(), full_cover);
+        let (lower, upper) = node.raw_bounds();
+        let record = AnchorRecord {
+            node: 1,
+            kind: AnchorKind::G2Residual,
+            dispatch_version: 1,
+            scope: AnchorScope::Residual(
+                plan.residual
+                    .into_iter()
+                    .map(|(lo, hi)| Piece {
+                        d_lo: Some(lo),
+                        d_hi: Some(hi),
+                        lower: lower.to_vec(),
+                        upper: upper.to_vec(),
+                    })
+                    .collect(),
+            ),
+            anchors: plan
+                .anchors
+                .iter()
+                .map(|anchor| AnchorRef {
+                    anchor: anchor.id,
+                    stamp: Some(anchor.stamp),
+                    lent: Lent::LowSlice,
+                })
+                .collect(),
+        };
+        assert_eq!(
+            super::anchors::union_cover(&node, &[image(&original), node], &record, &|id| (id == 0)
+                .then_some(3)),
+            Some(true),
+            "preflight must reproduce P1's residual-first exact raw cells"
+        );
+        // A different cut must not gain the uninspected high-D band.
+        assert_eq!(
+            super::anchors::union_cover(&node, &[image(&original), node], &record, &|_| Some(2)),
+            Some(false)
+        );
+        assert_eq!(
+            super::anchors::union_cover(&node, &[image(&original), node], &record, &|_| None),
+            None,
+            "a missing lent-scope cut never means the anchor's full domain"
+        );
+        let mut malformed = record.clone();
+        malformed.scope = AnchorScope::Residual(vec![Piece {
+            d_lo: None,
+            d_hi: None,
+            lower: vec![0],
+            upper: vec![u16::MAX],
+        }]);
+        assert_eq!(
+            super::anchors::union_cover(&node, &[image(&original), node], &malformed, &|_| Some(3)),
+            None,
+            "malformed residual dimensions stay fail-closed"
+        );
+    }
+}
+
+#[test]
 fn merged_lender_eligibility_excludes_route_frontier_and_empty_residual() {
     let (mut state, _, _, _) = d_band_fixture(G2);
     assert!(super::g2::eligible(
