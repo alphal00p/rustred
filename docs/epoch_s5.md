@@ -19,8 +19,11 @@ Focused preparation, binary framing/sidecar, immutable snapshot, bulk dependency
 record restoration, helper-repartition, and real native replay checks ran. The
 first 16-CPU reservation emitted W50 skip markers. The later full suite used 50
 distinct physical cores and exercised all ten intended W50 subcases successfully,
-with no skip markers. Optimized matched
-performance pilots are **pending**. The application test build uses optimization
+with no skip markers. The first optimized matched four-loop comparisons are
+complete: runtime is effectively neutral, while the checkpoint is about 61%
+smaller. Larger five-loop and current Ready/Epoch qualification remain open;
+see [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
+The application test build uses optimization
 level 1 for correctness checks; it must not supply production performance numbers.
 
 The correction review also found stale nested CP6 metadata in the public CLI
@@ -30,7 +33,7 @@ constant. The final rebuilt CLI probe, help, candidate/routed integration tests,
 Rust application API and ordering-inspector tests all pass. A fresh installed
 Python wheel passes all 19 candidate API tests without skips, including cold
 subprocess loading and CLI parity; the focused four-test order gate also passes.
-Optimized matched performance pilots remain pending.
+These interface checks do not establish a production performance gain.
 
 The combined four-loop saved-rule control also passes independent full
 reinspection with zero and two preparation helpers: all 58 required queries and

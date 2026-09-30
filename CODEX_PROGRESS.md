@@ -20,11 +20,11 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | kernel17/core2864 PASS; app/CLI PASS; installed Python19/19 plus focused4 PASS; source archive PASS | Optimized runtime descriptor portfolio |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | native app1198 PASS; real combined4L and finite5L h0/h2 cold-All and graph identity PASS | Optimized matched old/new and helper pilots, then current Ready comparison |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | native/interface gates PASS; four optimized scouts cold-PASS, fifth stops with four frontiers | Diagnose rejected order; replicate promising source strategy and test five-loop transfer |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | eight optimized combined4L arms cold-PASS; runtime neutral, checkpoints 61% smaller | Optimized finite5L old/new fixed-work pair active; then current Ready comparison |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | final full50-core, installed Python and combined4L smoke audited; no W50 skips | Independent interpretation of finite5L and optimized pilot results |
-| Integration, resources, profiling and release | root; `s5_pilot_preflight` prepares measurements | native/interface gates passed; campaign-profile build active; production untouched | Audited implementation push, frozen optimized executable and matched pilots |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface and eight optimized S5 receipts audited; no W50 skips | Independent ordering failure and finite5L measurement audit |
+| Integration, resources, profiling and release | root | implementation711b18c5 and correctness docs27b95768 pushed; optimized executable frozen; production untouched | Audited measurement update, larger-case profiling and qualified campaign setup |
 
 **Current implementation milestone:** `711b18c5`, committed and pushed to
 `origin/fable_5_1_parallel` at11:33 UTC on2026-09-30 after native, Python and
@@ -742,6 +742,130 @@ Ready/Epoch ABBA instructions. Both full-JSON/CP5 and summary/CP6 output costs
 remain charged to native+cold time, rather than labelled pure scheduler time.
 No additional harness, source edits or solver runs were introduced by that
 preparation. Timing pilots remain unexecuted pending the optimized freeze.
+
+[M] Documentation/correctness checkpoint committed and pushed as `27b95768`;
+compiled implementation remains `711b18c5`. At12:16 UTC the optimized build
+finished the application library and moved to the two normal executable targets.
+The build guard remains live; no final executable has yet been frozen.
+
+[M] Read-only LC2 observation at12:24 UTC:195,033,248 discovered domains,
+84,345,405 local completions,59,853,363 pending,zero frontiers,approximately
+84.2GB RSS and9.6 observed cores in that instantaneous sample. Its unchanged
+hour-window pending-growth/completion metric is+0.0693; coordinator duty is90.3%
+(55.0% ordered commit,35.4% preparation). The cached6/67 root count is stale
+by about2207s, not the all116-required-query closure status. The current Stage-A
+binary remains `0995f0fd…`, PID360092, CPUs128–227; production was only read.
+This continues to motivate measuring publication/preparation relief, but is
+neither a prediction of S5 gains nor a closure ETA. Host headroom remains well
+above the build guard's admission/stop thresholds, and no swap growth is reported.
+
+[M] Full optimized build passed at12:44 UTC:3898.575s guarded (Cargo64m55s),
+4221.704 userCPU seconds,174.266 systemCPU seconds,17858460KiB peak single-child
+RSS, exit0/no stop. Both compiler-artifact entries are fresh normal executables,
+opt-level3, non-test, with the requested campaign fat-LTO/one-codegen-unit profile.
+The guarded process group drained. Compilation is excluded from solver timing.
+Responsible freeze agent: `runtime_order_pilots`; root independently checked the
+actual successful build receipt and SHA256 of the read-only copies:
+
+- `optimized/bin/rustred`: `560f0dddea01e7be22aa7820a2c943a67c1f84b2766c1f6f1a47897867d33420`
+- `optimized/bin/inspect_candidate_orders`: `6baeca06d9f1aa55bb7635cda3429a8e346eb9e885dfae48f01e2ac68d954988`
+
+Paths are below `TMP/aster-integration-20260930-resumed/`. Compiled source is
+`711b18c5`; subsequent `27b95768` changes documentation only. No old binary or
+production file was replaced. Root granted `s5_fixed_work_pilots` the first
+combined-four-loop optimized old/new h0 ABBA, then h0/h2 if the exact graph and
+cold gates pass, on32–47 with heavy/pilot locks. `release_correctness_audit`
+independently reviews freeze and measurement receipts. Ordering, finite/hot
+five-loop timing and wider pilots wait for the first outcomes; no speed claim yet.
+
+[M] First optimized combined-four-loop old/new helper0 pair passes cold-All and
+exact durable-state comparison:58 required queries,32 roots,31,826 inspections,
+51,166 domains,1,149,999 edges. Independent receipt audit passed. Old/new native
+times are15.308/14.801s; cold guards15.181823/15.153171s; combined30.489823/29.954171s.
+The apparent1.76% reduction is **inconclusive**, not a demonstrated speedup:
+traversal is10.794511/10.853804s and sampled foreign busy cores differ2.445/1.999.
+Sampled tree RSS is371,507,200/336,637,952 bytes (one pair, not a memory-win claim).
+The reversed second pair and preparation-helper comparisons continue under the
+same grant. Evidence: `s5-pilot-plan/runs/{old,new}-h0-r1/four-all/` and the paired
+state report. New ordering matrices are now bound to the frozen binaries but
+have not run. The prior correctness-only timings are not used in this comparison.
+
+[M] Optimized old/new combined-four-loop ABBA is complete and independently
+audited. Both pairs retain exact graph identity and full cold reinspection.
+The second pair reverses the small timing difference: new27.5484s versus
+old27.1787s native+cold (+1.36%). Two-sample medians are28.83425s old versus
+28.75128s new (approximately0.29% lower). This is **performance-neutral/inconclusive**,
+not the required decisive gain. Sampled foreign load varies between1.28 and2.45
+cores. Coordinator phase diagnostics show P3 falling from0.51–0.54 to0.20–0.22s
+and boundary from0.28–0.30 to0.15–0.17s, but P2 increasing from1.53–1.59 to
+1.72–1.80s. Phase savings are real recorded observations, not a replacement for
+whole-command comparison. Native sampled RSS is4–9% lower, below the memory gate.
+
+Decision: finish the registered h0/h2 ABBA, then give the optimized runtime-order
+portfolio its slot. Subsequently measure the larger finite/hot five-loop controls
+before inferring how shared-index/publication costs scale. No source tuning or
+rebuild from this small-control result alone. LC2 remains untouched; the S5
+implementation is tested, but its performance deployment gate remains unmet.
+
+### Optimized measurement follow-through — 2026-09-30 13:13 UTC
+
+[M] All eight combined-four-loop S5 arms completed and independently passed
+full cold reinspection. The h0/h2 helper block is also neutral/inconclusive:
+native+cold medians27.69301/28.87475s; its slower second h2 cold check remains
+in the comparison. Actual checkpoint storage falls52.269→20.200MB (61%),
+record segments42.773→10.704MB (75%). These are storage, not RSS or throughput,
+gains. Exact durable mathematical graphs agree across both old/new pairs;
+helper pairs also match lookup/verification diagnostics. Detailed receipts:
+`s5-pilot-plan/FOUR_ALL_RESULTS.{md,json}`. The independent reviewer approved
+the tracked summary in `docs/research/final_order_s5_pilots_2026-09-30.md`.
+
+[M] Runtime-order scouts use the same frozen optimized executables, regenerate
+both complete four-loop parent downsets, stage the same16 owners/508 routes,
+and retain all58 required queries. Four candidates passed native admission and
+full cold reinspection. Measured generation+staging+admission+walk+cold totals:
+A0 default99.282s; A1 sparse/coefficient-aware source visitation86.726s;
+B0 A1 with explicit default order91.853s; B1 shared-interface order97.786s.
+A1 reduces domains64,129→38,693 and native inspections24,415→15,311 relative
+to A0. B1 reduces inspections further to14,322 but its generation cost erases
+that benefit. These are single unpaired scouts, not a new deployment gate.
+
+[M] B2 routing-density order generated/admitted successfully but encountered
+four frontiers. Root authorized cooperative stopping of this owned scout;
+supervisor248762/native group248764 drained, both heavy/pilot locks released.
+The saved prefix has139,530 domains,100,739 native inspections,3,492 pending,
+18/32 roots closed. Walk-through-drain156.212s is censored, not a successful
+completion timing; no cold acceptance was attempted. The author and separate
+auditor are inspecting the actual frontier reasons before drawing conclusions
+about the heuristic or rule-search limits. No production process was signalled.
+
+[D] Following the registered sequence, root granted `s5_fixed_work_pilots`
+the larger optimized finite-five oldh0/newh0 pair, serially onCPU32–47 with
+heavy/pilot locks. Both use the same67 saved owners/8246 routes and the same
+single R2/A11/D>=9 query (1324 integer starting points), W16/B16/FIFO/snapshot/
+G2Union. Old launched13:13UTC, inclusive deadline13:43UTC; new starts only
+after old cold acceptance. Bound plans are under `s5-pilot-plan/{plans,bound-new}`;
+exact runner/native argv and hashes are saved in each run. No broader scope,
+helper sweep or source tuning is authorized by this first pair alone.
+
+[E] Narrow next S5 hypothesis: geometric index cohorts may retain retired
+containment entries until compaction, adding prefilter callbacks. Four-loop
+actual callbacks rise440,008→599,701, not the3× broad candidate count (which
+also includes bulk-rejected ranges). The oldest-cohort/minimum-ID shortcut
+already exists and must not be reinvented or reordered. A live-aware filter
+or bounded refresh is only worth implementing if the larger profile justifies
+it; retired exact hits and dominant-orthant semantics must remain unchanged.
+All root/agent source work remains frozen while these measurements execute.
+
+[M] Independent B2 diagnosis: the four frontiers are two guard-classification
+cells repeated under the owner's R5 and R12 starting queries. Saved records15/31
+for owner `0111111111` identify batch0 rule11 excluded-conjunction branch1 and
+rule13 equality0; `error=null` and `reached_missing_rule_claim=false`. This is
+an unresolved classification under the chosen order, **not demonstrated missing
+IBPs or an invalid mathematical comparator**. Its offset boxes fix the sole
+inactive coordinate to zero, so simply lowering numerator rank does not remove
+them. Exact guard-polynomial diagnosis is pending; no engine repair or scope
+narrowing has been authorized. The auditor checked the complete scout table,
+correcting three rounded walk+cold entries directly from raw stage receipts.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

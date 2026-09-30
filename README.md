@@ -17,8 +17,10 @@ The current optimization build adds [persisted runtime integral orders](docs/run
 and [parallel Epoch preparation/publication](docs/epoch_s5.md). Source-row
 visitation and mathematical integral ordering are separate runtime controls;
 changing a rule's mathematical order requires regenerating that owner, not
-recompiling the engine. Native and Python correctness gates pass, while matched
-optimized performance qualification is still pending. See
+recompiling the engine. Native and Python correctness gates pass. Initial matched
+[four-loop measurements](docs/research/final_order_s5_pilots_2026-09-30.md) show
+neutral S5 runtime and smaller checkpoints; larger-case performance qualification
+and ordering experiments continue. See
 [the current progress log](CODEX_PROGRESS.md) for deployment status; the dated
 development results below are not instructions to replace a running campaign.
 
