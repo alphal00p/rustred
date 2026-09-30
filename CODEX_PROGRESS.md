@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 01:28 UTC
+## Current shortened-delivery ownership — 2026-09-30 02:07 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -58,11 +58,47 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
-| Mechanistic input/pivot ordering and true deepening | additional input-only study active | `bounded_ordering_pilots`; independent root | Prepare existing append-amend staged diagnostic and justified5L candidate; upfront prefix was not true deepening. New4L library useful, no proven5L transfer |
-| Runtime discovery-strategy API | isolated source/metadata pass; native correctness build active | author `stage_a_release`; independent `parallel_gate_critique`/root | Frozen `b95e1465`, build started01:07; no merge/availability until runtime gates. Full integral-comparator B remains design only |
+| True iterative deepening | prepared, not executed; next heavy job | `bounded_ordering_pilots` end-to-end; independent root | Execute actual4L saved/amended/cold-verified stages versus identical final one-shot scope; only then decide5L staging |
+| Mechanistic input/pivot ordering | dedicated runtime portfolio preparation active | `stage_a_release` end-to-end; independent root/`parallel_gate_critique` | Baseline plus two justified newA strategies at4L; separate5L transferred-coordinate-priority pilot. No proven5L transfer |
+| Epoch matched profiling/decision | new matrix prepared, not executed | `parallel_gate_critique` end-to-end; independent root/`stage_a_release` | Original58-query four-cell scout after native gates and final optimized build; repeat promising candidates, retain/reject from whole-run evidence |
+| Runtime discovery-strategy API and builds | isolated source/metadata pass; native correctness build active | root now owns builds/integration; author `stage_a_release`, independent `parallel_gate_critique`/root | Frozen `b95e1465`, build started01:07; no merge/availability until runtime gates. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
 | Matched performance and deployment | reopened for definitive build and200-core setup | root; independent author/auditor separation | User will pauseLC2 before production launch. Only156 disjoint physical cores remain meanwhile; do not claim200-core measurement usingSMT or LC2 overlap. Previous50-core handoff superseded |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
+
+## Delivery experiment board — authoritative current execution queue
+
+This board separates **prepared** from **executed** and is updated after each
+result. Completion of one lane cannot silently close another. Root owns the
+shared resource calendar, builds, integration and final independent acceptance;
+the three agents own experiments end-to-end. No new engine build per recipe.
+
+| ID | Owner | Experiment / scope | Current state | Dependency / completion receipt |
+|---|---|---|---|---|
+| B0 | root | Frozenb95 full native core/app correctness | core2853/0/32PASS; app compiling | ExistingPG1050516; root core receipt`TMP/codex-runtime-discovery.280crc/root-core-suite-b95e1465`; strict licensed execution, not performance timing |
+| D1 | `bounded_ordering_pilots` | Genuine4L shallow→larger→full checkpoint amendments versus identical90-row one-shot; preserve original58 geometric scope | prepared, not executed; first measurement slot | B0 drain; saved segment identity plus independent cold-All after every stage; report full staged cost, not only last step |
+| D2 | `bounded_ordering_pilots` | Bounded5L true staging ifD1 justifies it | conditional, not executed | Explicit D1-based proceed/defer decision; no substitution of an ordering pilot |
+| B1 | root | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | source/metadata/audits pass; build pair prepared | B0/D1 completion, reviewed guard and clean same-source caches; full app plus CLI lifecycle controls |
+| E1 | `parallel_gate_critique` | Original58-query4L: Ready, prefix31, prefix76, oldest-ready31; same optimized executable | prepared, not executed | B1; cold-All, work/CPU/RSS, P1/P2/P3 and new waits; four-cell total≤1800s |
+| E2 | `parallel_gate_critique` | Repeat promisingE1 against contemporaneousReady, then finite/hot5L if justified | pendingE1, not executed | Counterbalanced matched scope; retain all censors/regressions; decide deploy or reject |
+| P1 | `stage_a_release` |4L exact-default generation plus at least two generic runtime source/pivot-discovery recipes | preparation active, not executed | B1; fixed family/order/scope, source replay, equivalent final58-query cold checks where feasible; separate generation and traversal timing |
+| P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | prepared, not executed | Existing3428 can run input-only pair; independent deadline/scope preflight; no direct11-line-interface claim beneath7-line root |
+| S1 | root with agents | Capacity/scaling follow-up for selected engine; exact200-physical-core setup | pending decision | W200 synthetic lifecycle is capacity only; smaller physical pilots whileLC2 runs; user pausesLC2 before launch |
+| L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | pending all dispositions | Every row completed or explicitly rejected/deferred from evidence; no untested engine recommendation |
+
+Resource calendar: currentB0 owns heavy/build0 onCPU0–15. D1 receives the next
+heavy measurement slot before another build. B1 may compile its independent
+native-test and optimizedCLI caches concurrently onCPU0–15 and16–31 under one
+outer heavy reservation, with guarded400GiB start/250GiB live headroom. During
+builds, all experiment agents prepare/audit inputs independently. Afterwards,
+root assigns disjoint slots for suitable non-gating functional exploration;
+decisive matched timing pairs remain isolated from compilers and other pilots.
+No agent bypasses locks. Actual measured contention is recorded, not subtracted
+by a guessed correction. Every pilot retains its≤1800s all-in deadline.
+
+Recipe exploration must not be mistaken for the richer mathematical integral
+comparatorB: A selects finite source/sector visit order; coordinate reindexing
+changes different priorities. Native API tests alone do not complete P1.
 
 ## Earlier work ownership and backlog (historical)
 
@@ -107,6 +143,130 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 02:18 UTC — full strategy-core suite passes
+
+- [M] Frozenb95 core suite:2853 passed,0 failed,32 intentionally ignored;
+  test-body130.14s, guarded wall131.196s, maximum childRSS199,136KiB.
+  CPU16–31, strict licensed mode, single test thread. Exact command and output
+  are in `TMP/codex-runtime-discovery.280crc/root-core-suite-b95e1465`;
+  exit0/reasonnull and independentPG1463813 drain confirmed.
+- [M] New executed tests cover invalid recipes, native Symbolica feature counts,
+  deterministic callback ties, row conservation, unchanged explicit defaults,
+  original source-ID provenance, and both symbolic/shared-numerical paths.
+  This is correctness evidence, not a pivot-performance result. App compilation
+  remains active; no application-suite PASS or source merge is claimed yet.
+
+### 2026-09-30 02:16 UTC — native core execution and frozen three-recipe portfolio
+
+- [M] Root started the already-builtb95 core executable's full suite at02:15,
+  CPU16–31/build1, strict licensed mode and one test thread, while app codegen
+  continues onCPU0–15. This overlaps correctness work, not solver timing.
+  Receipt: `TMP/codex-runtime-discovery.280crc/root-core-suite-b95e1465`.
+  No test-suite PASS is claimed until its process and result complete.
+- [M] Pivot portfolio prepared at `TMP/codex-runtime-pivot-portfolio.78ueFJ`,
+  matrix`32a27c64…`: default, sparse/coefficient, and uniform shift-cost source
+  priorities; fixed active-first sector scheduling. All regenerate both full
+  common-family root downsets, stage16 fresh owners with508 unchanged routes,
+  and test all58 unchanged Required rows. Fixed Ready+Union is the primary
+  walker, so this lane does not depend on E1 selecting an Epoch policy.
+- [D] Candidate loading/cold graph inspection is not original-IBP source
+  replay. The public certification command attempts replay plus stronger
+  downset coverage; preserve typed failures separately, and never present an
+  uncertified trusted-generation diagnostic as qualified source replay.
+  Existing production67 programs remain unchanged by these experiments.
+- [M] `git merge-tree` found a clean source integration of b95 with current
+  c672; working files and branches were not merged yet. Root reviewed the
+  corrected paired-build receipt reader and its finish/cancel/partial-write
+  mock receipts; the previous early-lock-release concern is resolved. Actual
+  paired compilation remains behind B0 and D1.
+
+### 2026-09-30 02:07 UTC — pivot lane restored as an explicit experiment gate
+
+- [D] User correctly required the implemented runtime strategies to be tested,
+  not displaced by Epoch and deepening. Three dedicated experiment lanes now
+  own E/D/P above. Root accepted build ownership from`stage_a_release`, including
+  the ongoing frozenb95 process and its untouched receipts. That agent now owns
+  the4L source-strategy portfolio and separate5L coordinate pilot.
+- [D] Added the authoritative execution board above with every experiment's
+  owner, execution state, dependency and receipt requirement. New runtime recipe
+  variants reuse one final optimized binary; sourceA's native tests are not
+  substituted for actual portfolio measurements. Negative or censored results
+  remain explicit and cannot be quietly dropped at final delivery.
+
+### 2026-09-30 02:03 UTC — separate end-to-end experiment ownership
+
+- [D] Following the user's delegation request, `bounded_ordering_pilots` owns
+  true deepening from preparation through execution and results;
+  `parallel_gate_critique` owns the separate matched Epoch profiling/decision
+  lane. `stage_a_release` owns compilation/native validation and independent
+  review of Epoch. Root coordinates resources, integration and final acceptance.
+  The Epoch author cannot approve its own mathematical or measurement result.
+- [M] Prepared200-core launch preflight confirms unchanged183 ordered query
+  objects, explicit116 Required/67 Auxiliary roles,67 payloads and8246 routes
+  (8179 transported plus67 identity). CPU0–199 is200 physical cores, not SMT.
+  Evidence: `TMP/codex-launch200-preflight.CXIBRy`. No launch command is bound
+  to an untested binary, and no production input has been changed.
+- [D] Two independent consolidated compilation caches can run concurrently
+  under one outer heavy reservation, with disjointCPU0–15/16–31 and guarded
+  400GiB admission/250GiB live headroom. Preparation and mock drain tests exist
+  in `TMP/codex-combined-build.iirdmE`; root found a partial-JSON-read cleanup
+  issue for correction before approval. Neither build has started. The current
+  b95 build and then the true4L experiment retain priority.
+
+### 2026-09-30 02:02 UTC — explicit deepening status and next measurement
+
+- [D] Root explicitly told the user that true staged deepening has not run at
+  either four or five loops. The earlier35.244s upfront-helper test is not a
+  staged test; its28.89% regression must not be used as such a result.
+- [D] After the currentb95 native build and suites drain, the genuine four-loop
+  staged-versus-one-shot comparison is the next heavy job, before any further
+  build. It uses the already frozen3428 executable. A favorable result warrants
+  a bounded five-loop staging study; a negative result does not automatically
+  justify expanding that search. The separately prepared5L ordering diagnostic
+  is not a deepening experiment.
+- [E] Root explained the measured Epoch regression: the finite5L traversal is
+  188.378s versus Ready76.891s despite less work; prefix/window blocking, replica
+  availability and roughly47s in serialP1/P2/P3 are distinct constraints. The
+  new policy addresses publication blocking, not all those constraints. Near
+  saturation of200 physical cores is not currently supported by measurements.
+
+### 2026-09-30 01:57 UTC — independent publication audit and launch namespace
+
+- [M] `stage_a_release` independently audited the native`c672af8f` slice with
+  no blocking finding. Nonprefix cuts retain authenticated held sequence
+  inventory; P1/P2 still validate provenance and stale observations; P3 and
+  cold replay use actual publication epochs. Saved holes replay before fresh
+  admission. Protected roots and quarantine rules remain unchanged. This is
+  source review plus the earlier typecheck, not executed native acceptance.
+- [M] Launch preflight resolved a misleading terminal listing: without
+  `XDG_RUNTIME_DIR`, Zellij reported an exited session; using LC2's observed
+  `/run/user/1125` runtime, the `rustred` session is active with
+  `five_loop_vacuum` and `fable_5_1` tabs. `codex_astra` does not exist yet.
+  Only the owner will create/use it. No session or campaign was changed.
+
+### 2026-09-30 01:53 UTC — active delivery goal and native typecheck
+
+- [D] User replaced the tool-managed goal: settle the remaining deepening and
+  pivot studies, either demonstrate an Epoch win or decide against deploying
+  it, then deliver a tested long-standing-campaign setup and its exact launch
+  command. Root verified goal status is now active. This replaces the earlier
+  paused broad-goal state; no duplicate goal was created.
+- [M] Independent `stage_a_release` metadata gate on source`c672af8f` passed
+  core/app/Python release test typechecking in111.190s, usingCPU16–19/j1.
+  Maximum childRSS2,433,784KiB; minimum available RAM694,123,753,472B.
+  Receipt: `TMP/codex-runtime-discovery.280crc/typecheck-c672af8f-ready`.
+  Process group drained and build lock released. This does not execute tests.
+  The separate frozenb95 API native build continues unchanged onCPU0–15.
+- [D] True-deepening/pivot preparation incorporates independent caveats before
+  execution: total deadline includes lock admission/drain; development means
+  disjoint CPUs and observed foreign load, not pausingLC2; the proposed5L
+  coordinate order transfers an11-line pinch heuristic to a7-line diagnostic,
+  which cannot directly contain that interface. No positive transfer is assumed.
+- [D] `parallel_gate_critique` now prepares a read-only200-physical-core launch
+  input/resource/rollback preflight independently of root's steering changes.
+  User has confirmed they will pauseLC2 for the eventual launch. Production is
+  untouched; current snapshots and prepared commands are not launched jobs.
 
 ### 2026-09-30 01:46 UTC — ready-publication source frozen for native checks
 

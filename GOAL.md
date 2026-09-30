@@ -2,6 +2,14 @@
 
 ## Latest delivery directive — September30
 
+The active tool-managed objective was replaced by the user at01:53 UTC:
+
+> Continue with all the test and experiments discussed so far (rank deepening, pivot strategies, etc...) and until you have Epoch demonstrably faster than Ready (or decide that it can't or shouldn't be) and a promising tested setup ready to be launched as a new long-standing campaign. The goal is deemed achieved when you have the exact command communicated to me ready for that launch.
+
+This is the current delivery finish line, not a requirement to finish five-loop
+mathematical closure within this session. An evidence-backed Ready choice is
+permitted if the bounded Epoch rescue fails; do not relabel a regression a win.
+
 Continue through a definitive tested parallel build and launch setup, not merely
 a monitoring milestone. Settle the measured Epoch bottleneck/repair, justified
 five-loop ordering candidate, real staged-deepening experiment, and honest
