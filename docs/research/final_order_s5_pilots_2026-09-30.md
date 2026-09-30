@@ -1,7 +1,8 @@
 # Runtime ordering and completed S5: measured controls
 
-Status: optimized four-loop S5 comparisons, the first finite-five-loop S5 pair,
-five ordering scouts and the source-selection qualification complete.
+Status: optimized fixed-work S5 comparisons, the first finite-five-loop S5 pair,
+current four-loop Ready/rolling-S5 comparison, five ordering scouts and the
+source-selection qualification complete.
 **No Epoch deployment recommendation yet.**
 See [the active plan](../../ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md) and
 [progress log](../../CODEX_PROGRESS.md). Production LC2 was not modified.
@@ -263,6 +264,46 @@ JSON/CP5 output and Epoch's summary/CP6 output costs both remain charged to
 their respective native boundaries: this is end-to-end verified throughput,
 not a pure scheduler benchmark. The 1.5× gate requires two matched pairs.
 
+## Current Ready versus rolling S5: four-loop ABBA
+
+The same optimized binary and original saved16-owner/508-route input were
+compared in Ready→prefix76→prefix76→Ready order. Source selection was **not**
+changed in one scheduler arm. Both use16 total workers on CPU32–47. Ready's
+automatic partition is8 inspectors,7 admission helpers and1 coordinator;
+Epoch uses15 inspectors and1 coordinator, FIFO, snapshot lookup, G2 Union and
+oldest-prefix publication with window76/cut16. This measures the actual policies
+within the same total budget, not equal inspector counts.
+
+| Arm | Native s | Cold-All s | Primary sum s | Native CPU s | Peak native RSS MB | Domains | Native inspections |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Ready1 | 9.779 | 12.150 | 21.929 | 30.695 | 245.6 | 69,156 | 24,406 |
+| Prefix1 | 9.583 | 16.153 | 25.736 | 20.834 | 331.4 | 51,143 | 31,895 |
+| Prefix2 | 9.578 | 13.152 | 22.730 | 20.856 | 316.4 | 51,143 | 31,895 |
+| Ready2 | 8.773 | 14.158 | 22.931 | 31.075 | 243.4 | 66,595 | 24,356 |
+
+All four native/cold comparisons pass the exact frozen scope:58 required
+queries,32 roots, every native inspection repeated, zero errors/frontiers or
+uncovered obligations. Medians are22.429834s Ready and24.233158s prefix:
+**8.04% slower**, with opposite per-pair signs. The1.5× gate fails. Ready's two
+secondary Python audits also pass (6.153/5.150s); Epoch keeps the previously
+declared CP6 secondary INCOMPLETE transport. All owned groups drained and each
+whole arm remained below1800s. Short native runs gave no10-second contention
+samples; contention is unknown, not assumed zero.
+
+Rolling is working: inspect/wait drops to3.328/3.384s from fixed-cut roughly8.2s.
+Snapshot refresh costs only0.104s per run, with no refill lacking the current
+snapshot. However, prefix retains about31% more native inspections despite fewer
+domains. Traversal remains5.674/5.726s versus Ready4.994/4.950s. Different work
+mix and cold reinspection offset the local barrier relief. Neither fewer domains
+nor more available workers establish whole-campaign improvement.
+
+Ready writes64–66MB of full result JSON plus46–47MB of CP5 checkpoint; prefix
+writes roughly10KB of summary plus20.239MB of CP6 checkpoint. Both actual
+materialization costs remain charged. Prefix cold loading is roughly0.497s,
+versus Ready0.35s, despite its smaller files. This is not a format-normalized
+scheduler microbenchmark. Raw receipts and complete phase/storage metrics:
+`s5-pilot-plan/ready-followthrough/FOUR_ALL_READY_PREFIX76_RESULTS.{md,json}`.
+
 ## Next discriminating measurements
 
 1. Assess limited five-loop transfer of the now-qualified source strategy
@@ -275,9 +316,11 @@ not a pure scheduler benchmark. The 1.5× gate requires two matched pairs.
    counters increase, but many count bulk-rejected ranges rather than individual
    checks: actual forward callbacks rise from 440,008 to 599,701. Possible stale
    containment-index entries need measurement, not an assumption of a 3× slowdown.
-3. Only then compare the selected current Epoch configuration against current
-   Ready, and test useful wider execution. More busy cores are not success if
-   they create substantially more domain work. Eventual campaign preparation
+3. The current finite-five Ready/prefix76 first pair is now authorized to test
+   whether overlapping its longer inspections outweighs the work trade-off.
+   No second pair, wider execution or helper sweep is automatically authorized.
+   More busy cores are not success if they create substantially more domain work.
+   Eventual campaign preparation
    must preserve all 116 required queries and 67 auxiliary helpers, without
    narrowing the frozen request.
 

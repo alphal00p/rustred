@@ -21,10 +21,10 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
 | O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | source-selection two-pair work gate qualified; B2 guard obstruction diagnosed and parked | Limited5L transfer and one structural ablation prepared, awaiting resource grant |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | optimized4L and finite5L fixed-work controls cold-PASS; neutral runtime, checkpoints 56–61% smaller | Current Ready versus rolling-prefix76/cut16 four-all ABBA active |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | fixed-work controls cold-PASS; rolling4L ABBA cold-PASS but median8.04% slower than Ready; checkpoints56–61% smaller | Current finite5L Ready versus rolling-prefix76/cut16 first pair authorized |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface and eight optimized S5 receipts audited; no W50 skips | Independent ordering failure and finite5L measurement audit |
-| Integration, resources, profiling and release | root | implementation711b18c5 and correctness docs27b95768 pushed; optimized executable frozen; production untouched | Audited measurement update, larger-case profiling and qualified campaign setup |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface, source-selection ABBA and current rolling4L ABBA audited | Finite5L measurement audit and bounded review of redundant native work |
+| Integration, resources, profiling and release | root | implementation711b18c5 and measured qualification70cb287f pushed; optimized executable frozen; production untouched | Larger-case profiling and qualified campaign setup |
 
 **Current implementation milestone:** `711b18c5`, committed and pushed to
 `origin/fable_5_1_parallel` at11:33 UTC on2026-09-30 after native, Python and
@@ -965,6 +965,83 @@ override; each arm keeps its1800s inclusive allowance and independent coldAll.
 Ready-r1 runner695087 started13:47UTC. Limited5L ordering transfer, one B1
 ablation, finite5L rolling and wider-worker measurements remain prepared but
 not yet granted. No engine source changed or production action occurred.
+
+### Current rolling-S5 comparison and next grant — 2026-09-30
+
+[M] Committed/pushed `70cb287f` records the reproduced source-selection work
+gain, finite-five fixed-cut measurements and independent audits. The current
+optimized executable remains560f; no Rust changes or rebuild were involved.
+
+[M] The fresh current-binary Ready→prefix76→prefix76→Ready four-loop block
+completed and independently passed cold-All: every arm covers58required
+queries/32roots, with zero remaining obligations, errors or frontiers. Primary
+native+cold times are Ready21.928952/22.930716s and
+prefix25.735908/22.730407s. Medians22.429834→24.233158s make prefix8.04% slower;
+paired directions differ. This does **not** qualify the1.5x deployment gate.
+Both Ready secondary Python audits passed (6.153/5.150s); Epoch's documented
+CP6 secondary remains INCOMPLETE transport, not a contrary native result.
+
+[M] Prefix deterministically retains51,143domains/31,895native inspections,
+versus Ready69,156/24,406 and66,595/24,356. Fewer total domains do not establish
+lower end-to-end cost: prefix performs about31% more native inspections, while
+native CPU actually falls from roughly31s to21s. Rolling
+does reduce the inspection-wait phase substantially (first arm3.328s versus
+roughly8.2s fixed-cut), but that local improvement is not an end-to-end win.
+All four owned groups and secondary checks drained before releasing the slot.
+
+[D] Root granted the current finite-five Ready→prefix76 **first pair only**:
+same prepared1324-point query, owners/routes, W16, CPU32–47, optimized560f,
+shared locks and predeclared primary/secondary boundaries. Each arm retains
+the1800s inclusive budget. No helper/W50 sweep or second pair is authorized
+until the first pair identifies useful behavior. Auditor examines actual
+receipts and the immutable-snapshot/work-selection mechanism. O lane prepares
+the exact source-A1 regeneration/production-input inventory without native
+calls or campaign mutation; limited5L transfer is next in the heavy queue.
+
+[M] Read-only LC2 observation at heartbeat1790776664: running,201,591,293
+discovered domains,88,130,037local completions,60,863,692pending,0frontiers,
+about85.9GB RSS. The cached6/67 root closure is2558s old and is not the116-query
+required-scope result. Pending growth/completion remains its unchanged metric
+(+0.172 over the last hour). Production is untouched; no completion ETA inferred.
+
+[E] Independent bounded source review identified a falsifiable explanation for
+the four-loop work-mix difference, not a proven defect: Epoch's whole-cut maximal
+antichain admission can choose broader Route obligations than Ready's original
+event-order admission. Fixed-cut and rolling Epoch have31,826/31,895 natives,
+only0.22% apart; the76-window alone does not explain the roughly31% gap to Ready.
+Cold routed admissions rise885,369→1,053,267 while Apply successor admissions
+fall962,149→884,304. Both engines revalidate stale misses, so stale immutable
+snapshots are not by themselves an explanation. Native CPU is lower for Epoch.
+Falsifier: one otherwise unchanged prefix76/**cut1** four-loop scout. If it does
+not materially reduce the Route gap, reject the cut-coalescing hypothesis before
+considering dispatch/G2 freshness. Root requested data preparation only, with
+limited5L ordering transfer ahead in the heavy queue; no new solver code.
+
+[M] O's production inventory exposed a real integration constraint. LC2's query
+bodies match the tracked frozen183-query document (116required/67auxiliary), but
+its saved generation policy is depth0/R10/sparse-factorized, unlike the fresh
+qualified pilots' depth2/unbounded-rank/sparse policy. The owner loader requires
+compatible common policies; splicing these programs is not a valid deployment
+recipe. The67 owners use8,246 routes, four partial parent checkpoints and a
+standalone817MB override. Its source/provenance was recovered rather than
+silently replaced with an incomplete shard. The lane is mapping exact reuse/
+regeneration options and the existing targeted-sector Rust/export seam; no
+production input or saved artifact has been changed.
+
+[D] Following independent preliminary design approval, root authorized
+`runtime_order_pilots` to expose explicit selected-sector generation through the
+existing candidate Rust/CLI/Python path. This is the runtime-expressivity part
+of TrackO, not a new solver. Original family axes/root/global zero census stay
+intact; only the nonzero solve inventory is filtered, before strategy validation
+and checkpoint identity. Generation and checkpoint reload share validation;
+missing sectors remain uncovered and certification still checks the full root.
+The existing native program already carries its actual sector inventory, so no
+new binary authority format or compatibility project is needed. New checkpoint
+recipe/report scope will explicitly record selection. Tests must cover default
+identity, exact selected/full rules, refused selection mutation and missing
+sector/certification claims, native/Python surfaces and workers. Root retains
+shared docs/manifests and resource coordination. No native build is authorized
+during matched heavy measurements; frozen560f pilot inputs remain unchanged.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

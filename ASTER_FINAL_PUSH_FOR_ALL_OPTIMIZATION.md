@@ -165,6 +165,19 @@ executables and files so the owner retains control.
   affected owner programs when an algebraic order changes; remap/load/replay
   them consistently rather than pretending a walk flag can rewrite saved rules.
 
+Measured integration addendum (2026-09-30): production preparation exposed a
+missing public input control. Add explicit selected-sector generation to the
+existing candidate request/CLI/Python, using the existing sector executor and
+binary exporter. Keep the full mathematical root and global proved-zero census;
+filter only the requested nonzero solve inventory, in original family axes.
+Canonical selection must bind checkpoint identity and reload; source-strategy
+overrides must validate against it. Missing sectors remain uncovered, and a
+completed selected solve is not full-root closure. Preserve default bundle
+semantics and test selected/full per-sector equality. This avoids regenerating
+irrelevant downsets just to change a saved owner's source/order strategy; it
+does not authorize mixing incompatible generation policies or silently dropping
+the standalone production override. Full preparation costs remain measured.
+
 ### O3. Validation and measured selection
 
 - Test admissibility, totality, transitivity, strict-pinch descent, finite-fibre
