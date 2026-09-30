@@ -98,8 +98,10 @@ commands for the user to launch in `codex_astra`, with disjoint resources so LC2
 can continue. The user still owns all production start/stop decisions. Subsequent
 optimization can use read-only feedback from the newly launched full campaign.
 Distinguish immediate reuse of existing saved rules with the new engine from
-fresh A1 rule generation: the latter's full67-owner preparation is not completed
-and must never be represented as ready payloads. Supply explicit, honest paths
+fresh A1 rule generation: at initial delivery the latter's full67-owner
+preparation had not completed and could not be represented as ready payloads.
+The subsequent user trial completed it; the post-failure recovery now reuses
+those exact generated inputs in a fresh walk. Supply explicit, honest paths
 rather than silently substituting old rules for the improved source strategy.
 The user selected **fresh improved rules first**. The primary launch must thus
 prepare the frozen scope, generate every selected owner, admit the complete new

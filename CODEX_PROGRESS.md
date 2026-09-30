@@ -37,6 +37,34 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] At21:58UTC the independent requirement-delta audit found no new
+  source-contract gap from the repair. Remaining release work is the optimized
+  freeze, actual-binary controls and bound fresh-walk recovery commands. Wider
+  performance qualification remains open: four-loop wall non-regression,
+  repeated current five-loop comparison and optimized hot control;20+ useful
+  cores remains a target, not a condition to invent as a repair-release blocker.
+  Evidence: `TMP/postlaunch-20260930/requirement_delta_1dae6099.json`.
+- [M] Corrected stale present-tense generation/test status in the S5 reference,
+  measured-controls introduction, active plan and runbook. Independent audit
+  confirmed the four completed parent guard times total3,391.427s, excluding
+  inter-group orchestration/admission, and their outputs total67 owners,
+  9,966 rules and939 finite residual cases. These residuals are not a claim of
+  independent masters. All prior censored evidence remains labeled historical.
+- [D] Runtime agent owns the next optimized release gate: after the existing
+  build exits cleanly, drains and releases locks, freeze a new immutable CLI
+  and run the prepared four-loop Ready/Epoch ABBA comparison on CPUs32–47.
+  Exact same inputs, W16, full native cold-All and owned-process cleanup are
+  mandatory. No regeneration or production changes; each arm has its own
+  inclusive1,800s ceiling. Metadata plans are ready at
+  `TMP/postlaunch-20260930/optimized-repair-four-qualification/`; execution
+  remains conditional on the optimized build, currently compiling.
+- [M] S5 agent completed the runtime-only h0/h2 adapter; runtime agent's
+  independent audit and eight pure/mocked tests pass. It reuses the audited
+  lifecycle, retains all183 queries and enforces the corrected cold-start
+  cutoff at1,500s. The adapter remains unbound and native execution ungranted.
+  Evidence: `TMP/postlaunch-20260930/full-a1-preparation-h0-h2/`.
+  Equal-window results would be causal-screen evidence, not matched-prefix
+  speedup or closure. This follow-up will not delay delivery of the repair.
 - [M] **Full-input repair regression PASS, independently audited at21:44UTC.**
   Receipt: `TMP/postlaunch-20260930/production-union-repro-retry/REGRESSION_RESULT.json`
   SHA `f72841bbd1fc0ea47ad3e9a2af6d15a1356e5356ecf178f4ab40135e7e9df548`.

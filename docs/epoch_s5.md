@@ -9,12 +9,23 @@ obligations. A drained work queue alone is not a closure certificate.
 ## Validation status
 
 As of 2026-09-30, the previously completed core native suite reports 2,864
-passed and 32 ignored. The latest application suite reports **1,229 passed,
-zero failed, and 12 intentionally ignored** with 50 distinct physical cores
-available and no worker-availability skips. This includes bounded-lookahead
-controller, pool, memory and profile tests, cold verification, resume and
-cancellation. The latest CLI and application API checks pass all nine tests.
-Full receipts, fixture corrections and failed attempts remain in the progress log.
+passed and 32 ignored. Following the production union-preflight repair, the
+latest application suite reports **1,267 passed, zero failed and 12 ignored**;
+candidate and routed CLI suites add 19 and 6 passing tests. The earlier
+1,229-test milestone supplied 50 distinct physical cores and exercised all
+worker-availability subcases. These are separate receipts, not a claim that
+every later run repeated that allocation. Full receipts, fixture corrections
+and failed attempts remain in the progress log.
+
+The first full-input trial exposed an optional G2 union-proof budget mismatch:
+the discovery procedure could succeed while P1's separate bounded proof was
+inconclusive. The repair conservatively inspects the whole domain in that case;
+publication and cold checking remain strict. All 58 four-loop queries pass
+independent full reinspection. A separate bounded full-input five-loop pilot
+exercised four such fallbacks, saved cleanly, and passed structural cold checks
+with zero violations. That latter check deliberately re-inspected no native
+records and does not prove all-query closure. The optimized replacement build
+is pending; the old failed checkpoint must not be resumed.
 
 The final fully optimized CLI (`38e0e763…`) has now passed the repeated
 four-loop Ready/Epoch comparison with 1,024 extra completed-result slots.
@@ -32,8 +43,11 @@ Native CPU falls 545.133→482.216 s, while sampled RSS rises 6.233→6.582 GB.
 This control covers one bounded 1,324-point query and its reachable descendants,
 not the production 116-query scope. The user-selected launch reserves 32 physical
 cores/600 GB; all these final comparisons used 16 cores, so 32-core performance
-remains unmeasured. The fresh-generation-first pipeline is ready for a user-run
-trial; full 67-owner generation time and full-scope completion remain unknown.
+remains unmeasured. The user trial subsequently generated and admitted all 67
+owners (9,966 rules and 939 finite residual cases), then hit the reuse-check
+failure described above. Saved rules can be reused for recovery; full-scope
+completion remains unknown. See the runbook for the current launch hold rather
+than treating these earlier performance measurements as a recovery instruction.
 
 Focused preparation, binary framing/sidecar, immutable snapshot, bulk dependency,
 record restoration, helper-repartition, and real native replay checks ran. The

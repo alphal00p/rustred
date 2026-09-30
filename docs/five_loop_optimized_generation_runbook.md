@@ -158,11 +158,16 @@ The five-loop data live in
 
 ## Important affordability and interruption limits
 
-The large standalone 3822 A1 probe was censored after 1,350.62 seconds. It had
+The earlier standalone 3822 A1 probe was censored after 1,350.62 seconds. It had
 no completed sector shard or final bundle, with a late sampled RSS of about
 1.46 GB and essentially one busy core. Its checkpoint contained preparation
-metadata only. Therefore the total time to regenerate all 67 A1 owners is
-**unknown**; the earlier lower-loop wins do not settle this cost.
+metadata only. This was incomplete pilot evidence, not the eventual generation
+result. The subsequent user trial completed all four parent groups: 164.378,
+560.941, 2,563.821 and 102.287 seconds respectively (native guard wall times).
+Their sum is 3,391.427 seconds, excluding inter-group orchestration and admission;
+it is not an end-to-end campaign timing. All 67 owners were admitted, with
+9,966 rules and 939 finite residual cases. No regeneration is needed for the
+reuse-validation repair. Full-scope walking completion remains unknown.
 
 Generation checkpoints preserve completed sectors. They do **not** preserve
 the active sector's GPLU computation. During generation, Ctrl-C or a RAM stop

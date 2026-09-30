@@ -3,8 +3,14 @@
 Status: optimized fixed-work S5 comparisons, the first finite-five-loop S5 pair,
 current four-loop Ready/rolling-S5 comparison, five ordering scouts and the
 source-selection qualification complete.
-The final frozen release is now ready for a **user-launched trial**, with honest
-CPU/work versus wall-time trade-offs; Epoch is not a universal speed winner.
+The original frozen release was delivered for a **user-launched trial**, with
+honest CPU/work versus wall-time trade-offs; Epoch is not a universal speed
+winner. That trial generated all 67 owners but failed in an optional union-reuse
+check. Its conservative repair has passed native tests and bounded full-input
+validation; the optimized replacement is building. **Recovery launch is on
+hold** until the runbook supplies the tested replacement and fresh-walk commands.
+Saved generation outputs remain reusable. None of the historical timings below
+is silently reassigned to the repaired build.
 See the [generation-first release runbook](../five_loop_optimized_generation_runbook.md)
 for the final optimized comparisons, exact frozen executable identities, and
 the user-selected32-core/600GB launch. The measurements below retain their
