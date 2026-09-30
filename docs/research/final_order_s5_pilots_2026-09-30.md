@@ -1,7 +1,8 @@
 # Runtime ordering and completed S5: measured controls
 
-Status: optimized four-loop S5 comparisons and five ordering scouts complete;
-larger five-loop measurements in progress. **No Epoch deployment recommendation yet.**
+Status: optimized four-loop S5 comparisons, the first finite-five-loop S5 pair,
+five ordering scouts and the source-selection qualification complete.
+**No Epoch deployment recommendation yet.**
 See [the active plan](../../ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md) and
 [progress log](../../CODEX_PROGRESS.md). Production LC2 was not modified.
 
@@ -84,6 +85,62 @@ All receipts, coordinator-phase timings and independent checks are retained in
 Neither the general improvement threshold nor the stronger 1.5× Epoch-over-Ready
 deployment gate has passed on these measurements.
 
+## Fixed-work finite-five-loop comparison
+
+The first larger pair also passes independent cold-All and exact durable
+mathematical-state comparison. Both use the same 67 saved owners/8,246 routes,
+W16/B16/FIFO/snapshot/G2 Union, CPU32–47. The actual requested scope is one
+bounded R2/A11/D>=9 query containing 1,324 integer starting points, **not** the
+116-query production request. Both retain 910,957 domains, 743,502 native
+inspections, 6,861,296 dependency edges and 46,470 cuts, with no frontier or
+unresolved obligation. Every native inspection is repeated in a fresh process.
+
+| Arm | Native s | Cold s | Native+cold s | Preparation s | Traversal s | Peak tree RSS GB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Old h0 | 323.692 | 132.199 | 455.891 | 81.310 | 236.274 | 6.759 |
+| New h0 | 326.514 | 138.199 | 464.713 | 80.207 | 240.403 | 6.564 |
+
+This is one pair, approximately 1.94% slower overall, not a speedup claim.
+Both arms are uncensored; the documented checkpoint-only exit4 is followed by
+successful independent native cold-All acceptance. Native output finalization
+is explicitly not evaluated by this CP6 transport; no invented finalization
+timing is subtracted. Cold owner preparation alone takes roughly82 seconds.
+Sampled foreign CPU load is0.203/0.214 cores. Cached recursive-closure counts
+differ because maintenance is time-driven, but both cold checks find every
+domain closed in the same graph.
+
+P3 decreases11.911→5.003s, offset by P2 increasing13.273→15.369s, inspection
+181.966→190.349s and boundary10.083→10.635s. Summed inspector lookup time rises
+32.548→45.827s; this is overlapping per-inspection time, not coordinator wall.
+The new P2 breakdown is source resolution10.693s, canonical deduplication1.383s,
+antichain0.304s, representative selection0.172s, reverse lookup2.024s and
+transfer0.316s. Assigning many more preparation helpers cannot fix the dominant
+inspection phase by itself.
+
+The new checkpoint totals about0.500GB versus1.143GB old (56.2% smaller),
+with records0.360GB versus1.003GB. However, native cold loading takes12.972s
+versus5.578s, so the compact representation does not yet imply faster startup.
+
+A single read-only pass after both timed runs groups the743,502 timed records
+by their46,470 persisted merge epochs (the167,455 aliases carry no native
+timer). Callback wall times sum to314.570577s; per-cut maxima sum to180.013936s,
+almost the181.966252s observed inspection wall. Even the ideal per-cut bound
+`max(longest_callback, sum_callbacks / 15)` totals180.013944s. This supports
+straggler-limited fixed batches rather than predominantly unrelated waiting.
+All ten longest records are G2 Apply residuals of owner `000011001001011`,
+maximum2.134845s. These timers are not CPU time and do not isolate guard
+planning from algebra. The independently reviewed aggregation is retained in
+`s5-pilot-plan/FIVE_FINITE_RECORD_SKEW.json`.
+
+The next discriminating experiment is existing rolling oldest-prefix
+publication (window76, cut16), compared with a fresh current Ready baseline.
+Do not equate inspection-phase wall time with pure barrier waste: the read-only
+aggregation above supports testing overlap across straggler-limited cuts.
+Cold reinspection has an independent, already-known work list and can exploit
+parallelism differently; its speed is not a direct scheduling benchmark.
+Evidence: `s5-pilot-plan/runs/{old,new}-h0-r1/five-finite/` and
+`s5-pilot-plan/five-finite-old-new-r1-state.json`.
+
 ## Runtime source and mathematical-order scouts
 
 These are five **single, unpaired** scouts using the frozen new CLI and normal
@@ -131,19 +188,89 @@ not remove these cases. Root authorized stopping only this owned experiment;
 it saved and drained normally with 3,492 pending obligations, and no cold
 acceptance was attempted. Its 156.212-second native walk is censored.
 
+The existing `owner-guarded-apply` diagnostic subsequently exposed the actual
+guards without a rebuild. Rule11 excludes both `n3 - 1 = 0` and
+`1 - n2 + n1 = 0`; rule13 has equality `1 - n2 + n1 = 0`, excludes `n2 - 2 = 0`,
+and is explicitly an affine case. These are native **zero-based** physical
+index symbols, not the nonnegative owner offsets. Thus a generated rule exists
+on the problematic diagonal `n2 = n1 + 1`; the rectangular walk cannot classify
+that mixed face uniformly. The diagnostics retained original RHS denominators
+but stopped at their 64-event display cap (exit4), so they are not complete
+one-hop or closure proofs. Both small CPU16 diagnostics drained in 4.290 seconds
+combined. B2 stays rejected as a campaign candidate; exact affine-domain support
+or an alternative order avoiding this guard would be a reopening condition,
+not a reason to narrow the required queries.
+Guard-display receipts are in `order-pilot-plans/diagnostics/b2-guards/`;
+the consolidated scout report is `order-pilot-plans/SCOUT_RESULTS_20260930.md`.
+
 Evidence: `order-pilot-plans/prepared-v5/` below the same local evidence base,
 including frozen descriptors, native commands, complete generation checkpoints,
 staging receipts, admitted identities, saved walks and independent cold reports.
 There is no production restart recommendation from this unpaired portfolio.
 
+## Reproduced source-selection qualification
+
+Two subsequent fresh matched pairs use the same frozen binaries, CPU64–79/W16,
+complete root downsets and all58 required queries, with execution order A0→A1
+then A1→A0. Every arm regenerates its own programs, passes native owner/order
+admission and independently cold-verifies all required queries. The primary
+phase sum is unchanged from the scouts; neither previous artifacts nor previous
+timings are recycled into these pairs.
+
+| Pair | A0 total s | A1 total s | Time reduction | A0 domains | A1 domains | Domain reduction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1, A0 then A1 | 97.286 | 84.538 | 13.10% | 69,315 | 38,680 | 44.20% |
+| 2, A1 then A0 | 102.024 | 82.553 | 19.08% | 64,231 | 38,681 | 39.78% |
+
+This passes the predeclared **at least20% work-reduction criterion in both
+pairs, without an offsetting throughput regression**. It does not pass the
+20% timing-only criterion in both pairs. Native inspections fall37.27%/37.32%,
+waited-child CPU27.37%/27.84%, and maximum single-child RSS15.51%/12.11%.
+The latter is not aggregate peak RSS. Ready's timing-dependent publication can
+change graph counts slightly; physical query coverage remains identical.
+
+The short walks produced no10-second foreign-CPU samples, so absence of samples
+means unknown contention, not an idle host. An unrelated compiler was observed
+with affinity0–383; it was not modified. Sampled pending counts are lower bounds,
+not exact queue peaks. All four runs were uncensored, all24 owned groups drained,
+and an independent agent checked actual commands, identities, receipts and gate
+interpretation. Evidence: `order-pilot-plans/QUALIFICATION_RESULTS.{md,json}`
+and `qualification-pair{1,2}/`.
+
+The qualified intervention is **finite source visitation**, not a changed
+mathematical integral comparator. Five-loop transfer, the single structural
+B1 ablation, Epoch's stronger1.5× gate and production closure are still open.
+
+## Predeclared Ready/Epoch timing and audit boundary
+
+Before running the new Ready comparison, the common primary metric is fixed as
+native process launch through owned-group drain **plus independent native
+cold-All verification**, for both policies. Actual required-query coverage,
+frontiers, errors, dependency closure and full native reinspection must pass.
+The secondary Python event audit is timed and reported separately for both
+policies. A timeout there is **incomplete, never a pass**; it is not added only
+to Ready's primary timing or used to turn an unsuccessful native run into an
+accepted comparison. A genuine secondary contradiction blocks interpretation
+until resolved. A valid primary timing with an incomplete secondary audit must
+not be described as an all-audits-passed deployment.
+
+This clarification is registered before the new runs, because the historical
+million-record Ready Python audit exceeded 300 seconds despite successful
+native cold-All checking. Native cold verification already checks the full
+result/checkpoint binding, dependency graph and every native inspection. No
+new proof mechanism or weaker scoped native gate is introduced. Ready's full
+JSON/CP5 output and Epoch's summary/CP6 output costs both remain charged to
+their respective native boundaries: this is end-to-end verified throughput,
+not a pure scheduler benchmark. The 1.5× gate requires two matched pairs.
+
 ## Next discriminating measurements
 
-1. Replicate the promising source strategy and assess limited five-loop transfer
-   with the same optimized executables. Diagnose the actual B2 predicates before
-   considering a repair or another mechanistic order. Compare any new comparator
+1. Assess limited five-loop transfer of the now-qualified source strategy
+   with the same optimized executables. B2 stays parked following its concrete
+   coupled-affine diagnosis. Compare the one prepared B1 degree-row ablation
    against strong A1, including regeneration and cold verification costs;
    retain unsuccessful candidates rather than repeatedly trying blind permutations.
-2. Run the existing larger finite-five-loop old/new fixed-work control before
+2. Use the completed larger finite-five-loop fixed-work profile before
    tuning the shared index or preparation grain. Four-loop index candidate
    counters increase, but many count bulk-rejected ranges rather than individual
    checks: actual forward callbacks rise from 440,008 to 599,701. Possible stale

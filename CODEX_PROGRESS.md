@@ -20,8 +20,8 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | native/interface gates PASS; four optimized scouts cold-PASS, fifth stops with four frontiers | Diagnose rejected order; replicate promising source strategy and test five-loop transfer |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | eight optimized combined4L arms cold-PASS; runtime neutral, checkpoints 61% smaller | Optimized finite5L old/new fixed-work pair active; then current Ready comparison |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | source-selection two-pair work gate qualified; B2 guard obstruction diagnosed and parked | Limited5L transfer and one structural ablation prepared, awaiting resource grant |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | optimized4L and finite5L fixed-work controls cold-PASS; neutral runtime, checkpoints 56–61% smaller | Current Ready versus rolling-prefix76/cut16 four-all ABBA active |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
 | Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface and eight optimized S5 receipts audited; no W50 skips | Independent ordering failure and finite5L measurement audit |
 | Integration, resources, profiling and release | root | implementation711b18c5 and correctness docs27b95768 pushed; optimized executable frozen; production untouched | Audited measurement update, larger-case profiling and qualified campaign setup |
@@ -866,6 +866,105 @@ inactive coordinate to zero, so simply lowering numerator rank does not remove
 them. Exact guard-polynomial diagnosis is pending; no engine repair or scope
 narrowing has been authorized. The auditor checked the complete scout table,
 correcting three rounded walk+cold entries directly from raw stage receipts.
+
+[M] Measurement/documentation milestone `84d597de` is committed and pushed;
+the optimized engine remains unchanged at711b18c5. The complete source-selection
+and S5 comparison report records unsuccessful candidates as well as wins.
+
+[M] B2's two native guard-display diagnostics (CPU16,4.290s combined) recover
+the exact coupled affine factor `1-n2+n1`. Rule11 excludes its zero set;
+rule13 explicitly supplies an affine rule on that same zero set, excluding
+`n2-2`. All original denominators remain in the diagnostic payloads. Both
+displays stop at the64-event reporting cap, exit4, so no complete one-hop or
+closure claim is made. This confirms the limitation is rectangular
+classification of a mixed positive-dot diagonal, not absence of its generated
+IBP. B2 is parked; adding a general affine geometry subsystem is outside this
+optimization slice. Evidence: `order-pilot-plans/diagnostics/b2-guards/`.
+
+[M] Optimized old finite-five baseline passed independent acceptance at13:22:
+323.692s native,132.198566s cold,455.890566s total. Native preparation81.310s,
+traversal236.274s; cold preparation82.228s. All743,502 native inspections were
+repeated over910,957 domains and6,861,296 edges, one required query, zero
+uncovered/frontiers/errors. This is scoped dependency-graph closure, not an
+unrestricted source/descent certificate. The matched newh0 arm started13:23:17,
+collector370976/native371715, inclusive deadline13:53:17; its result is pending.
+
+[M] The new finite-five arm also passed and the independent reviewer accepted
+the exact durable graph match:910,957 domains,743,502 natives,6,861,296 edges,
+46,470 cuts, zero uncovered/error/frontier. New native326.514s plus
+cold138.199082s =464.713082s, versus old455.890566s (+1.94%, single pair).
+Sampled peak tree RSS6.759→6.564GB; foreign cores0.203→0.214. Native preparation
+is80.207s and traversal240.403s. P3 falls11.911→5.003s, but P2 rises
+13.273→15.369s and inspect181.966→190.349s. Summed lookup32.548→45.827s is not
+coordinator wall time. Time-driven cached closure counts differ, while both
+cold checks independently close all910,957 nodes. No performance win claimed.
+Evidence: `s5-pilot-plan/five-finite-old-new-r1-state.json` and both run directories.
+
+[D] Do not add helpers or rewrite the shared index merely to raise utilization.
+The lane is aggregating existing old record timings once, after all timed native
+groups drained, to distinguish cut stragglers from other inspection-phase cost.
+Next S5 measurement is current Ready versus rolling oldest-prefix window76/
+cut16/FIFO/h0; plans only until an explicit heavy-slot grant. O prepares two
+fresh A0/A1 matched pairs and one limited784-point five-loop transfer, plus
+one mechanistic B1 ablation (remove only private-excess degree priority).
+Their runtime-only plans passed independent data audits; no extra source build.
+
+[D] Ready/Epoch's common primary timing remains native-through-drain plus
+native cold-All under identical scope gates. The historical Ready Python event
+audit exceeded300s; treat this as separately reported secondary INCOMPLETE,
+never PASS or an extra cost charged only to Ready in the primary comparison.
+Actual secondary contradictions still block interpretation. This clarification
+is registered in the tracked research report before any new Ready measurement;
+no native authority check is removed or new certification framework introduced.
+
+[M] Post-run streaming analysis of the old finite-five record file took13.134s
+after all timed native groups drained. It groups all743,502 timed native/G2/
+partial records by persisted merge epoch;167,455 aliases are the untimed rows.
+Across46,470 cuts, sum of callback wall times314.570577s and sum of per-cut
+maxima180.013936s; the ideal15-inspector per-cut lower bound totals180.013944s.
+Measured inspection wall is181.966252s. Thus the observed fixed-cut phase
+closely tracks its slowest members; it is not mostly unrelated waiting.
+This is evidence for testing rolling overlap, not proof of a future speedup
+or equivalent graph. Top10 long records all concern G2 Apply residuals of
+owner `000011001001011`, maximum2.134845s; those timers do not separately
+attribute G2 planning versus algebra. Independent methodology audit passed.
+Evidence: `s5-pilot-plan/FIVE_FINITE_RECORD_SKEW.json` and
+`FIVE_FINITE_RESULTS.{md,json}`. Final checkpoint storage1.143→0.500GB (56.2%
+smaller), but cold loading5.578→12.972s is slower; do not equate compactness
+with faster cold startup.
+
+[D] Root granted O the next exclusive heavy slot: two fresh full4L matched
+pairs A0→A1, then A1→A0, CPU64–79/W16, same560f executable and independent
+1800s whole-arm allowances. Generation, staged ownership, admission and full
+cold checks remain charged; no Rust rebuild. Plan directories
+`order-pilot-plans/qualification-pair{1,2}` passed independent data checks;
+the inherited screening-order fields were corrected before execution and
+bindings refreshed without altering argv/input bytes. A0 has started under
+durable supervision; no B/5L or S5 heavy run is simultaneously authorized.
+An unrelated compilerPID549784 is active with affinity0–383, so host silence
+is not claimed and contention observations remain part of interpretation.
+ProductionPID360092 and its reserved cores are untouched.
+
+[M] Source-selection A1 now passes the reproduced work-reduction gate on two
+fresh full4L pairs, independently audited. Pair1 A0→A1 totals97.285982→84.538030s
+with69,315→38,680 domains; pair2 (reverse execution) totals102.023588→82.553182s
+with64,231→38,681 domains. Domain work decreases44.20%/39.78%, native inspections
+37.27%/37.32%, whole time13.10%/19.08%; no offsetting throughput regression.
+The20% **time-only** criterion is not met in both pairs, but the agreed >=20%
+work criterion is. Waited-child CPU falls27.37%/27.84%; maximum single-child
+RSS falls15.51%/12.11%, not an aggregate-memory claim. Every arm freshly
+generates314/328 sectors with zero reuse, admits all16 owners and cold-verifies
+all58 required queries/32 roots. This qualifies source visitation on this
+four-loop control, not a changed mathematical comparator, five-loop transfer,
+or the Epoch1.5x gate. All24 owned groups drained and locks released.
+
+[D] Root granted the S5 lane fresh same-binary four-all Ready→prefix76→prefix76→
+Ready comparisons, preserving the original saved rules rather than substituting
+A1 in one arm. CPU32–47/W16, explicit FIFO/window76/cut16/h0, no lockstep
+override; each arm keeps its1800s inclusive allowance and independent coldAll.
+Ready-r1 runner695087 started13:47UTC. Limited5L ordering transfer, one B1
+ablation, finite5L rolling and wider-worker measurements remain prepared but
+not yet granted. No engine source changed or production action occurred.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 
