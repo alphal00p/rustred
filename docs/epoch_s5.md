@@ -7,13 +7,13 @@ obligations. A drained work queue alone is not a closure certificate.
 
 ## Validation status
 
-As of 2026-09-30, the core native suite reports 2,864 passed and 32 ignored.
-The final application suite reports **1,198 passed, zero failed, and 12 ignored**
-on 50 distinct physical cores, with no worker-availability skips. This includes
-the repaired callback fixtures, cold verification, resume and cancellation.
-The ordering, version handling and 22 controller tests pass, including the
-selected-proposal telemetry correction with exact save/publication/replay
-assertions preserved. Full receipts and failed attempts remain in the progress log.
+As of 2026-09-30, the previously completed core native suite reports 2,864
+passed and 32 ignored. The latest application suite reports **1,229 passed,
+zero failed, and 12 intentionally ignored** with 50 distinct physical cores
+available and no worker-availability skips. This includes bounded-lookahead
+controller, pool, memory and profile tests, cold verification, resume and
+cancellation. The latest CLI and application API checks pass all nine tests.
+Full receipts, fixture corrections and failed attempts remain in the progress log.
 
 Focused preparation, binary framing/sidecar, immutable snapshot, bulk dependency,
 record restoration, helper-repartition, and real native replay checks ran. The
@@ -22,9 +22,10 @@ distinct physical cores and exercised all ten intended W50 subcases successfully
 with no skip markers. The first optimized matched four-loop comparisons are
 complete: runtime is effectively neutral, while the checkpoint is about 61%
 smaller. The first finite-five-loop fixed-work pair also passes with identical
-graphs and neutral runtime, with a56% smaller checkpoint. Current Ready/Epoch
-rolling controls cold-verify successfully but fail the speed gate: the four-loop
-ABBA median is8.04% slower and the finite-five first pair13.43% slower. Rolling
+graphs and neutral runtime, with a56% smaller checkpoint. The earlier optimized
+Ready/Epoch rolling controls cold-verify successfully but favor Ready: the
+four-loop ABBA median is8.04% slower for Epoch and the finite-five first pair
+13.43% slower. Rolling
 overlap reduces Epoch's own inspector waiting substantially without making it
 faster than Ready. Deployment qualification therefore remains open;
 see [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
@@ -36,9 +37,21 @@ identity probe. Its format and schema now come from the native checkpoint
 writer, and both advertised Epoch semantics fields use the same native
 constant. The final rebuilt CLI probe, help, candidate/routed integration tests,
 Rust application API and ordering-inspector tests all pass. A fresh installed
-Python wheel passes all 19 candidate API tests without skips, including cold
+Python wheel at the preceding milestone passes all 19 candidate API tests without skips, including cold
 subprocess loading and CLI parity; the focused four-test order gate also passes.
-These interface checks do not establish a production performance gain.
+These interface checks do not establish a production performance gain. A new
+installed-wheel check and real Python-steered CLI check for bounded lookahead
+remain pending; mock steering tests are not substitutes for those checks.
+
+The new bounded-lookahead screen compares Epoch against itself, not against
+Ready. At 16 workers, an extra inventory of 1,024 complete results reduced
+finite-five traversal from 182.661 to 123.745 seconds and native run plus cold
+verification from 430.500 to 371.751 seconds, with 0.74% more inspections and
+nearly unchanged CPU time. Both arms independently cold-verify. This is one
+pair using the same application-opt-level-1 executable. It is evidence for the
+mechanism, not the final fully optimized engine choice. The four-loop screen
+with 32 extra slots was traversal-neutral and cold-verified. Repeated optimized
+Ready/Epoch comparisons with the proposed configuration remain outstanding.
 
 The combined four-loop saved-rule control also passes independent full
 reinspection with zero and two preparation helpers: all 58 required queries and
@@ -155,6 +168,45 @@ not automatically a speedup. For a controlled rolling comparison, freeze the
 cut and window explicitly: changing the inspector count can otherwise also
 change the automatically selected fresh window.
 
+## Bounded complete-result lookahead
+
+Rolling oldest-prefix execution can have idle inspectors while a slow result
+blocks publication of its prefix. Reusing physical worker slots alone does not
+solve this: the logical reservation window can already be full. Optional extra
+inventory allows inspection to proceed further without publishing out of order.
+
+| Rust field / CLI flag | Meaning |
+| --- | --- |
+| `epoch_result_escrow_jobs` / `--epoch-result-escrow-jobs` | Extra logical reservations beyond the base window; defaults to zero. |
+| `epoch_result_escrow_bytes` / `--epoch-result-escrow-bytes` | Admission threshold for retained complete-result buffer capacity; mandatory with positive extra inventory. |
+
+These controls are also forwarded by the Python campaign supervisor to the
+CLI. There is no direct owner-walk PyO3 method. Positive inventory requires
+rolling checkpoint Epoch with oldest-prefix publication. Bytes without extra
+jobs are rejected. The base window plus extra inventory must remain within the
+existing 4,096-job operational limit.
+
+Extra work is dispatched only when a prefix is missing, work remains unreserved,
+an inspector is idle, no work is already queued, and both inventory and byte
+admission checks allow it. Results remain indivisible: P1/P2/P3 still process
+whole jobs in the original ordered prefix. The cut remains bounded by the base
+window, not enlarged by extra inventory. One-worker execution dispatches no
+extra work; zero inventory preserves the prior path.
+
+Logical reservations outlive reusable physical slots. Keys and generations bind
+callbacks to their reservations, while immutable snapshot leases are released
+when inspection returns. Capacity accounting follows result buffers, including
+buffers waiting in the result channel, until P1 takes ownership. This byte limit
+is **not a hard RSS ceiling**: already-running jobs may return after admission
+stops and overshoot it. The campaign-wide RAM guard is still necessary.
+
+Checkpoint, cancellation and error handling retain unresolved obligations for
+replay or recomputation; discarded speculative results cannot discard required
+work. A stopped/error report may miss late buffer peaks during worker joining,
+so those observed peaks are lower bounds. Completed, fully drained runs record
+the final accounting. More lookahead is beneficial only if saved waiting exceeds
+the cost of additional domain work and coordinator processing.
+
 ## Immutable lookup roots
 
 P4 replaces the earlier full lookup-replica scheme with persistent geometry,
@@ -191,14 +243,17 @@ The native generation uses these distinct versions:
 | --- | --- |
 | Walk semantics | 4 |
 | CP6 manifest / checkpoint summary | 3 |
-| Native scalar metadata | 4 |
+| Native scalar metadata | 5 |
 | Typed record schema | 1 (`ERB1` frames) |
 | Diagnostic export schema | 2 |
 
-Do not use this build to resume an earlier semantics-3 Epoch checkpoint. A fresh
-campaign is the intended deployment path; no historical-format compatibility
-project is required. Existing typed checkpoints bind mathematical requests,
-logical preparation allowances, scheduling choices, and canonical authority.
+Do not use this build to resume an earlier semantics-3 Epoch checkpoint or a
+scalar-metadata-4 checkpoint. Scalar version 5 explicitly binds the base window,
+extra inventory and nullable byte threshold; the native reader rejects version
+4 rather than guessing defaults. A fresh campaign is the intended deployment
+path; no historical-format compatibility project is required. Existing typed
+checkpoints bind mathematical requests, logical preparation allowances,
+scheduling choices, and canonical authority.
 
 The native restore API permits changing a valid execution-only helper partition,
 including a helper-enabled checkpoint resumed with one inline worker. Saved
@@ -244,10 +299,10 @@ requires exact deterministic accounting.
 
 The outstanding performance gate uses frozen fully optimized executables,
 identical owner/query inputs, worker budgets and CPU placement, and independent
-cold reinspection. First compare old/new lockstep with the same cut and no
-helpers, then compare helper allocations, then test rolling scheduling. Compare
-the selected Epoch configuration against a contemporaneous Ready baseline;
-checkpoint-only finalization and Ready's full result generation are different
+cold reinspection. The earlier lockstep and helper experiments are recorded;
+the next comparison uses the selected rolling/lookahead Epoch configuration
+against a contemporaneous Ready baseline in repeated matched pairs.
+Checkpoint-only finalization and Ready's full result generation are different
 workloads, so report native and cold-validation costs separately and together.
 
 Known risks still to measure include large single antichain buckets, serial
@@ -255,5 +310,8 @@ canonical folding and P3 mutation, cohort-compaction carries, exact-key binary
 search costs, retained-root pressure, and the loss of inspectors to helper
 reservations. Wider rolling windows or out-of-order publication can increase
 total domain work. Their ability to keep more cores busy is not sufficient
-evidence of a better campaign. Epoch deployment retains the agreed 1.5× matched
-throughput gate, with all required mathematical checks passing.
+evidence of a better campaign. The user relaxed the former mandatory 1.5×
+throughput threshold on 2026-09-30. Deployment still requires a reproducible
+useful benefit, four-loop non-regression, honest work/memory accounting, and all
+required mathematical checks. An Epoch-versus-Epoch improvement alone cannot
+establish a preference over Ready, nor prove useful 20-core or 200-core scaling.

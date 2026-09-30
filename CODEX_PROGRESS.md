@@ -29,13 +29,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; selected-owner Ready/Epoch and new lookahead cold-All PASS; full67 preparation audited; standalone3822 generation censored | Prepare data-only optimized selected-A1 four-loop and existing hot-five matched plans; complete installed-Python smoke planning |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | native and four-/finite-five lookahead gates PASS; finite traversal32.25% lower at essentially flat CPU, whole charged13.61% lower in one app-opt1 pair | Commit audited opt-in milestone and build fully optimized candidate; qualify against contemporaneous Ready before deployment |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; selected-owner Ready/Epoch and new lookahead cold-All PASS; full67 preparation audited; standalone3822 generation censored | Optimized matched plans and installed-Python delivery instructions prepared/audited; prepare executable full-scope future runbook without disguising ungenerated inputs |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | native and four-/finite-five lookahead gates PASS; finite traversal32.25% lower at essentially flat CPU, whole charged13.61% lower in one app-opt1 pair | Committed/pushed; optimized build active; qualify against contemporaneous Ready before deployment |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
 | Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
 | Integration, resources, profiling and release | root | audited lookahead milestone56176df5 committed/pushed; all pilot groups drained; guarded optimized build active; production untouched | Freeze and verify optimized executables, then matched qualification and final campaign setup |
 
-### Active decision register — refreshed 2026-09-30 17:22 UTC
+### Active decision register — refreshed 2026-09-30 17:49 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -49,13 +49,13 @@ the same experiment after a handoff.
 | Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS. Full production preparation remains unmeasured. |
 | S5 typed merge/shared lookup/rolling prefix | delivered, performance unqualified | Cold controls pass, smaller checkpoints; contemporaneous Ready comparisons fail speed gate. |
 | Prefix wait / dispatch-credit diagnosis | delivered | Off/on cold-All and strict mathematical-state comparison PASS. Measured95.841/97.712s credit-blocked; bounded slow-job correlation has explicit limits. |
-| Bounded whole-result lookahead | implemented; four-/finite-five cold-All PASS; optimized qualification pending | Native retry1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Four-loop traversal neutral, +0.19% inspections. Finite-five E1024 traversal182.661→123.745s, whole charged431.641→372.889s, +0.74% inspections/+1.60% edges, CPU essentially unchanged. One app-opt1 pair supports the mechanism, not the optimized1.5x deployment gate. |
+| Bounded whole-result lookahead | implemented; four-/finite-five cold-All PASS; optimized qualification pending | Native retry1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Four-loop traversal neutral, +0.19% inspections. Finite-five E1024 traversal182.661→123.745s, whole charged431.641→372.889s, +0.74% inspections/+1.60% edges, CPU essentially unchanged. One app-opt1 pair supports the mechanism, not preference over contemporaneous optimized Ready. |
 | A1 selected-owner programs with Epoch | delivered | Same16owner/508route/58query input passed CP6 cold-All;16,932inspections/25,945domains. Correctness integration, not qualified speed superiority. |
 | cut1 cross-job-coalescing remedy | rejected | September29 cold-PASS control barely changed Route count and slowed down; September30 proposed repeat canceled before launch. |
 | oldest-ready / blind wider-window / adaptive-dispatch sweep | rejected | Preserved work explosion or negative timing; require a new causal mechanism before reopening. |
 | CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
 | Ready bulk-edge-only optimization | deferred | Entire ordered commit is <8% of finite-control primary time; no profile of edge-only share and not a cure for80s Epoch waiting. |
-| Hot traversal-heavy saved-rule control | prepared, not launched | Data-only plan validated; native grant depends on diagnostic results and a concrete remedy. |
+| Hot traversal-heavy saved-rule control | prepared, not launched | Diagnostic remedy passes causal screen; all8 matched4L/hot plans audited. Native grant awaits optimized freeze and first4L qualification. |
 | Production deployment | pending | No LC2 mutation. Source work gain is real, but no qualified new Epoch launch recipe or20-core demonstration. |
 
 **Current implementation milestone:** `56176df5`, committed and pushed to
@@ -66,6 +66,33 @@ sector/profiling and711b18c5 ordering/S5 milestones. All39 task-owned changed
 files were staged explicitly; unrelated user work remains outside the commit.
 Optimized matched qualification and final campaign setup are still open. This
 is not a deployment recommendation or completion of the goal.
+
+### Delivery-gap review — 2026-09-30 17:49 UTC
+
+- [M] Independent reviewer `release_correctness_audit` checked both tracks
+  against the whole active goal. Implementation/native authority gates are
+  substantially complete; qualification and operational handoff are not.
+  Remaining gates are the optimized freeze, matched4L/hot Ready controls,
+  newly installed Python tests plus actual CLI-steered smoke, justified wider-
+  worker evidence, and full-scope future generation/admission/walk instructions.
+- [M] Root corrected stable-documentation drift: scalar checkpoint metadata5,
+  candidate-generation checkpoint4, current1229 application tests, opt-in
+  whole-result lookahead lifecycle and the user's threshold waiver. Independent
+  review passed. Historical measurements are distinguished from current
+  qualification rather than deleted. No Rust/Cargo source changed.
+- [M] At17:44UTC optimized Cargo group329576/rustc330248 remained active,
+  error-free, about16minutes elapsed,98.5% compiler CPU and13.2GiB RSS. Build
+  evidence remains `escrow-optimized-build/`; source implementation56176df5.
+  It is left running; no competing heavy job or production action was started.
+- [E] Delivery does not require executing the116-query production campaign
+  or completing all67 new A1 payloads here. It does require honest executable
+  preparation→generation→admission→walk instructions retaining every request.
+  Existing prepared JSON is not generated output. Standalone3822 affordability
+  and metadata-only generation resume remain explicit risks. Agent
+  `runtime_order_pilots` owns the future runbook; root owns stable docs and log.
+- [E] A small read-only S5 profile synthesis is delegated while compiling to
+  prioritize any subsequent input-only experiment. It grants no new native
+  run and does not replace the ready-to-execute matched qualification plans.
 
 ### Historical resource handoff — 2026-09-30 16:49 UTC
 
@@ -244,6 +271,42 @@ running, not an accepted closure or speed result. Source remains frozen.
   reduction route (repeated four-loop evidence, not full-five validation).
   The already-prepared hot control is the next scheduler discriminator; larger
   core counts follow useful-work evidence rather than occupancy alone.
+
+### Qualification preparation audited — 2026-09-30 17:36 UTC
+
+- [M] The user-approved threshold clarification is committed/pushed as
+  `7c5cf29a`; it changes no Rust source or running build. Root revalidated
+  compiler330248/group329576 at17:36UTC (8m30s active, no compiler error).
+  Exec session32267 remains the sole heavy build; it has not been restarted.
+- Agents `runtime_order_pilots` and `release_correctness_audit` completed
+  independent data-only preparation/review of all eight unbound optimized
+  plans under `order-pilot-plans/optimized-qualification`. Two pairs per
+  workload use Ready→Epoch then Epoch→Ready. All shared input/route/query
+  bindings, original launcher rewrites, resources and distinct Ready/CP6
+  acceptance paths were checked. The auditor caught an incorrect duplicate
+  Ready label in pairing metadata; all four Ready matrices were corrected
+  before binding or execution. No benchmark ran with that metadata defect.
+- Four-loop qualification tests the actual E1024 candidate, not the E32
+  safety setting. Hot-five keeps the exact existing R<=1/A<=12 query and no
+  extra D floor; it is not silently narrowed to ensure quick closure. Same
+  W16/CPUs32–47, base76/cut16/h0, FIFO/snapshot/G2 Union,256MiB admission
+  policy and per-arm1800s inclusive allowance. Binary hashes stay zero until
+  an actual optimized freeze. No native launch grant is implicit in the plans.
+- `PYTHON_DELIVERY.md` and `python-steering-smoke-command.json` describe a
+  fresh isolated correctness-wheel build,23 real installed candidate/order
+  tests and a real CLI-backed Python supervisor escrow/cold check. The
+  supervisor's actual argument parser accepted the exact prepared request
+  without starting runtime/file work. A first thin-driver proposal lacked G2
+  support and was rejected during preparation; the existing full supervisor
+  supports both options, so no new Python API was invented. These native
+  delivery tests have **not** run yet.
+- Next executable actions after successful build and complete group drain:
+  freeze/hash the actual CLI and inspector without overwriting prior copies;
+  independently audit profile/source identities; bind and revalidate plans;
+  grant first four-loop pair; then extend only through the registered gates.
+  Fresh Python delivery remains a separate guarded slot. Final launch guidance,
+  full67-owner A1 preparation affordability and useful wider-core evidence
+  remain open; no smaller control proves the full116-query production scope.
 
 ### Integration and live observation — 2026-09-30 16:07 UTC
 

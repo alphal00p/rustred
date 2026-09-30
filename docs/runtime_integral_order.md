@@ -110,7 +110,7 @@ not a claim of automatic crate-level reuse.
 
 ## Persistence, routing and proof boundaries
 
-Generated candidate structure is version2, generation checkpoints version3.
+Generated candidate structure is version2, generation checkpoints version4.
 A narrow read-only reader for existing version1 candidate structures derives
 their exact legacy permutation order; it cannot introduce programmed metadata
 or silently migrate a campaign. Unknown/inconsistent versions are rejected
