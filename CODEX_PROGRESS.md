@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 02:46 UTC
+## Current shortened-delivery ownership — 2026-09-30 03:04 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -58,8 +58,8 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
-| True iterative deepening | concurrent exploratory slot granted, awaiting final resource audit | `bounded_ordering_pilots` end-to-end; independent root | Actual4L saved/amended/cold-verified stages versus identical final one-shot scope, CPU32–47; only then decide5L staging |
-| Mechanistic input/pivot ordering | dedicated runtime portfolio preparation active | `stage_a_release` end-to-end; independent root/`parallel_gate_critique` | Baseline plus two justified newA strategies at4L; separate5L transferred-coordinate-priority pilot. No proven5L transfer |
+| True iterative deepening | delivered negative four-loop result; five-loop transfer deferred | `bounded_ordering_pilots` end-to-end; independent `parallel_gate_critique`/root | Actual16→32→90-row saved/amended/cold barriers pass; guarded native+cold30.038s versus16.330s; do not deploy this curriculum |
+| Mechanistic input/pivot ordering | P2 five-loop coordinate pilot delivered negative; P1 runtime portfolio prepared | `stage_a_release` end-to-end; independent root/`parallel_gate_critique` | Both P2 scoped cold checks pass; reindex generates slower/larger coefficients and is not a production replacement. P1 awaits the consolidated executable |
 | Epoch matched profiling/decision | new matrix prepared, not executed | `parallel_gate_critique` end-to-end; independent root/`stage_a_release` | Original58-query four-cell scout after native gates and final optimized build; repeat promising candidates, retain/reject from whole-run evidence |
 | Runtime discovery-strategy API and builds | isolated full native suites pass; merged as `a4635a93` | root builds/integration; author `stage_a_release`, independent `parallel_gate_critique`/root | Core2853/app1129 PASS; consolidated ready-batch build follows D1/P2. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
@@ -76,26 +76,25 @@ the three agents own experiments end-to-end. No new engine build per recipe.
 | ID | Owner | Experiment / scope | Current state | Dependency / completion receipt |
 |---|---|---|---|---|
 | B0 | root | Frozenb95 full native core/app correctness | delivered: core2853/0/32; app1129/0/12 | `TMP/codex-runtime-discovery.280crc/root-{core,app}-suite-b95e1465`; strict licensed execution; W50 affinity skips excluded, not performance timing |
-| D1 | `bounded_ordering_pilots` | Genuine4L shallow→larger→full checkpoint amendments versus identical90-row one-shot; preserve original58 geometric scope | granted alongsideP2, CPU32–47 | Saved segment identity plus independent cold-All after every stage; report full staged cost, not only last step |
-| D2 | `bounded_ordering_pilots` | Bounded5L true staging ifD1 justifies it | conditional, not executed | Explicit D1-based proceed/defer decision; no substitution of an ordering pilot |
-| B1 | root | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | merged `a4635a93`; build pair prepared | D1/P2 drain, reviewed guard and clean same-source caches; full app plus CLI lifecycle controls |
+| D1 | `bounded_ordering_pilots` | Genuine4L shallow→larger→full checkpoint amendments versus identical90-row one-shot; preserve original58 geometric scope | delivered; all barriers pass, performance negative | Guarded native+cold30.038/16.330s (+83.95%);36,894/19,529 natives. Exact final90 rows/roles and original58 coverage verified independently |
+| D2 | `bounded_ordering_pilots` | Bounded5L true staging ifD1 justifies it | deferred, not executed | D1 increases both work and wall time; reopen only for a materially different justified curriculum, not a blind depth sweep |
+| B1 | root | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | paired compilation running on frozen `1b33ad29` | `TMP/codex-combined-build.iirdmE/source-1b33ad29-full`; full app plus CLI lifecycle controls remain pending |
 | E1 | `parallel_gate_critique` | Original58-query4L: Ready, prefix31, prefix76, oldest-ready31; same optimized executable | prepared, not executed | B1; cold-All, work/CPU/RSS, P1/P2/P3 and new waits; four-cell total≤1800s |
 | E2 | `parallel_gate_critique` | Repeat promisingE1 against contemporaneousReady, then finite/hot5L if justified | pendingE1, not executed | Counterbalanced matched scope; retain all censors/regressions; decide deploy or reject |
 | P1 | `stage_a_release` |4L exact-default generation plus at least two generic runtime source/pivot-discovery recipes | preparation active, not executed | B1; fixed family/order/scope, source replay, equivalent final58-query cold checks where feasible; separate generation and traversal timing |
-| P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | granted alongsideD1, CPU64–79 | Existing3428 input-only pair; independent deadline/scope preflight; no direct11-line-interface claim beneath7-line root |
+| P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | delivered; scoped cold checks pass, heuristic not selected | Both artifact certifications hit8220>8192 lowering cap; guarded generation+walk+cold25.763/42.861s. Fewer inspections do not compensate for slower generation/larger coefficients |
 | S1 | root with agents | Capacity/scaling follow-up for selected engine; exact200-physical-core setup | pending decision | W200 synthetic lifecycle is capacity only; smaller physical pilots whileLC2 runs; user pausesLC2 before launch |
 | L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | pending all dispositions | Every row completed or explicitly rejected/deferred from evidence; no untested engine recommendation |
 
-Resource calendar: B0 has finished and its owned processes have drained.
-Following the user's request, D1 and P2 run concurrently on disjoint CPU32–47
-and64–79. Root holds the global heavy reservation until BOTH lanes drain;
-each lane also holds its own lock and retains the existing headroom/deadline
-guards. Their timings are concurrent exploratory evidence, not isolated
-performance qualification. B1 may then compile its independent
+Resource calendar: B0 and both concurrent D1/P2 pilots have finished, and root
+independently confirmed all owned groups drained before releasing their outer
+heavy reservation. Their timings remain concurrent exploratory evidence, not
+isolated performance qualification. B1 is compiling its independent
 native-test and optimizedCLI caches concurrently onCPU0–15 and16–31 under one
 outer heavy reservation, with guarded400GiB start/250GiB live headroom. During
 builds, all experiment agents prepare/audit inputs independently. Afterwards,
-root assigns disjoint slots for suitable non-gating functional exploration;
+E1 scouts onCPU32–47 and P1 recipes on64–79 may overlap under root's external
+heavy reservation and explicit local locks, after native correctness gates;
 decisive matched timing pairs remain isolated from compilers and other pilots.
 No agent bypasses locks. Actual measured contention is recorded, not subtracted
 by a guessed correction. Every pilot retains its≤1800s all-in deadline.
@@ -147,6 +146,54 @@ changes different priorities. Native API tests alone do not complete P1.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 03:07 UTC — consolidated frontend checks pass; native compilation continues
+
+- [M] Frozen1b33 core/app/PyO3 `cargo check --release --locked --offline --tests`
+  passed in71.180s under CPU84–87 with a separate metadata cache. This is not
+  execution of the new native controller tests. Both native compilation jobs
+  remain active, with no further engine source changes planned.
+- [M] Python steering discovery ran356 tests:355 passed, one optional skip,
+  guarded35.172s onCPU96–111. The first run was assigned only four CPUs and
+  hit an earlier resource-validation diagnostic than a six-worker negative
+  test expected; retained that failure and reran on sufficient affinity without
+  changing code/assertions. Three pure discovery-descriptor tests also pass.
+  Receipts are under `TMP/codex-combined-build.iirdmE/`.
+- [M] Independent final D1/P2 conservation audit passed, including identical
+  final row/role objects, authenticated amendments, inverse-mapped physical
+  coordinates and both full cold scopes. D1 report:
+  `docs/research/true_iterative_deepening_2026-09-30.md`. The next exploratory
+  E1/P1 resource amendments use distinct local locks beneath root's outer
+  reservation; they do not change the registered mathematical workloads.
+
+### 2026-09-30 03:04 UTC — both concurrent pilots finish; consolidated builds start
+
+- [M] D1 genuinely resumed and expanded a saved proof through16,32,90 rows.
+  Every explicit all-root/All-native cold barrier passed; final90 row/role
+  objects exactly equal one-shot and include all original58 geometries.
+  Guarded native+cold30.038061s versus16.329673s (+83.95%); distinct natives
+  36,894 versus19,529, final domains52,872 versus35,510. Three preventable
+  harness errors (missing parent, invalid resume argv, cold auto-scope) were
+  preserved and corrected within the original clock; the negative timing
+  above excludes them. Independent audit passed. D2 is explicitly deferred:
+  this is not support for applying the same curriculum to five loops.
+- [M] P2 both regenerated seven-line libraries pass the same784-point finite
+  scope with independent All checks. Reindexing reduces natives2644→1792 but
+  increases generation and coefficient bytes. Guarded generation+native+cold
+  25.762945→42.861415s; even guarded walk+cold3.600631→3.692896s is not faster.
+  Both broader artifact certifications fail at the unchanged8220>8192 lowering
+  cap; no certified artifacts are claimed. Independent audit passed.
+  Report: `docs/research/five_loop_coordinate_pilot_2026-09-30.md`.
+- [M] D1/P2 drained in738.5/604.6s of their original1800s clocks. Root checked
+  all20 recorded process groups absent, released its outer flock, and started
+  the consolidated native-test/optimized-CLI build pair at03:01:25UTC on
+  `1b33ad2956d87f29db6ef9987542f3364f443814`. Receipt:
+  `TMP/codex-combined-build.iirdmE/source-1b33ad29-full`. An initial abbreviated
+  SHA was refused by the strict wrapper before spawning anything; full SHA
+  supplied to a fresh receipt. No scope or code change resulted.
+- [D] E1 and P1 are explicitly prepared to overlap on disjoint CPU sets after
+  native gates, using this one executable for all variants. Decisive finalist
+  pairs remain isolated. No production launch, pause or input edit occurred.
 
 ### 2026-09-30 02:46 UTC — parallel exploratory lanes and tested source integration
 
