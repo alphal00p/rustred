@@ -6,6 +6,33 @@ manifest. It neither parses native bincode/Atoms nor proves an IBP identity.
 Native candidate admission and independent cold reinspection follow staging.
 Historical discovery-only stagers, payloads and benchmark receipts stay intact.
 
+## Fresh selected-owner pipeline
+
+`pipeline.py` packages the existing public steps: metadata preparation,
+sequential parent generation with one shared worker budget, strict selected
+staging, native owner admission, and the production owner-walk supervisor.
+`prepare_selected.py` handles only immutable metadata; `generation_guard.py`
+reuses the campaign's process/RAM services without introducing another solver.
+The concrete five-loop recipe is input data, not code-level topology dispatch.
+See [the generation and launch runbook](../../../docs/five_loop_optimized_generation_runbook.md).
+
+Preparation never launches native work; `--resume --start` is explicit.
+Generation resumes **completed sectors only**, not a live unfinished sector.
+The pipeline has no runtime deadline and no fallback to old owner payloads.
+Resource limits are caller-configurable, while recipe options cannot silently
+replace the caller's CPU/RAM allocation. Interrupted staging remains in its
+attempt directory and is retried via an atomic publish into the final location.
+
+The pure tests use synthetic bytes and mocked native generation/admission:
+
+```sh
+nix develop --command python -B -m unittest discover \
+  -s tools/research/runtime_order -p 'test_*.py' -v
+```
+
+These tests do not certify native closure. A real four-loop pipeline followed by
+independent cold-All inspection is required before recommending a release.
+
 ## Data-only staging
 
 Run the lightweight tests in the repository Nix environment:

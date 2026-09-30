@@ -1,0 +1,200 @@
+{
+  "schema": "rustred.selected-owner-pipeline.v1",
+  "source_selection_sha256": "d2667dc9c761d1dcd171408452eea030c0b1eae23421e55407745d046deec3f0",
+  "family": {
+    "path": "../tide_five_loop.toml",
+    "sha256": "9cca7932b85b38f374ab23845391527cdd04ef767bd5e33c5b2a311a3f89f55a"
+  },
+  "queries": {
+    "path": "queries.json",
+    "sha256": "42a0c62771b6e7c53cc937d46ad9505e33c282db31a8d6f64846ecbca749ef64"
+  },
+  "expected_counts": {
+    "owners": 67,
+    "routes": 8246,
+    "required": 116,
+    "auxiliary": 67
+  },
+  "missing_parent_assignments": {
+    "011101110111000": 31740
+  },
+  "groups": [
+    {
+      "parent": 30527,
+      "root": "111011100111111",
+      "owners": 17,
+      "selected_sectors": [
+        "001000100101111",
+        "001001000101111",
+        "001001100101111",
+        "011001000001111",
+        "011001000101111",
+        "011011000111111",
+        "101010000110001",
+        "111000100011101",
+        "111000100111001",
+        "111001000001111",
+        "111001100101101",
+        "111001100110110",
+        "111001100111001",
+        "111001100111111",
+        "111010100100101",
+        "111011000101001",
+        "111011100111111"
+      ]
+    },
+    {
+      "parent": 30699,
+      "root": "111011111101011",
+      "owners": 18,
+      "selected_sectors": [
+        "000010011001001",
+        "000011001001011",
+        "001001011101001",
+        "010011111101011",
+        "011000101101011",
+        "011011101101001",
+        "101011011101001",
+        "101011111001010",
+        "110001011101011",
+        "110001101101001",
+        "110010101101011",
+        "111001111101011",
+        "111010111100011",
+        "111011001101001",
+        "111011011101001",
+        "111011101100011",
+        "111011111101010",
+        "111011111101011"
+      ]
+    },
+    {
+      "parent": 31740,
+      "root": "111101111111100",
+      "owners": 11,
+      "selected_sectors": [
+        "001100101110000",
+        "010100101110000",
+        "011001110110100",
+        "011101110111000",
+        "011101111101100",
+        "011101111111100",
+        "101101100101000",
+        "111100000011100",
+        "111100011111100",
+        "111101010011100",
+        "111101111111100"
+      ]
+    },
+    {
+      "parent": 32745,
+      "root": "111111111101001",
+      "owners": 21,
+      "selected_sectors": [
+        "010111011000001",
+        "011011111101001",
+        "011100111100001",
+        "011101011001001",
+        "011110111001001",
+        "011111001101001",
+        "101111101101001",
+        "110101101101001",
+        "110110111101001",
+        "111000010101001",
+        "111100100101001",
+        "111100111101001",
+        "111101101101001",
+        "111101110101001",
+        "111101111101001",
+        "111110111001001",
+        "111111001001001",
+        "111111001101001",
+        "111111011101001",
+        "111111101101001",
+        "111111111101001"
+      ]
+    }
+  ],
+  "discovery_strategy": {
+    "version": 1,
+    "sectors": {
+      "kind": "active-first"
+    },
+    "rows": {
+      "kind": "features",
+      "priorities": [
+        {
+          "feature": {
+            "kind": "terms"
+          },
+          "descending": false
+        },
+        {
+          "feature": {
+            "kind": "coefficient-monomials"
+          },
+          "descending": false
+        }
+      ]
+    }
+  },
+  "integral_order": "rustred.spired-uncut-sector-order.v1",
+  "exact_backend": "sparse-factorized",
+  "solver_policy": "ordinary-source-port-numerical-depth-0-max-numerator-rank-10-v1",
+  "generation_options": [
+    "--numerical-depth",
+    "0",
+    "--max-numerator-rank",
+    "10",
+    "--finite-case-policy",
+    "search",
+    "--case-max-work-items",
+    "8192",
+    "--case-max-terms-per-conjunction",
+    "100000",
+    "--case-max-normalizations",
+    "1024",
+    "--case-max-factorizations",
+    "4096",
+    "--bundle-max-bytes",
+    "1073741824",
+    "--bundle-max-entries",
+    "32000000",
+    "--bundle-max-total-coefficient-bytes",
+    "1073741824",
+    "--bundle-max-coefficient-bytes",
+    "16777216"
+  ],
+  "walk_options": [
+    "--publication-policy",
+    "epoch",
+    "--epoch-inspector-lookup",
+    "snapshot",
+    "--epoch-rolling",
+    "--epoch-dispatch",
+    "fifo",
+    "--epoch-publication-order",
+    "oldest-prefix",
+    "--epoch-window",
+    "76",
+    "--epoch-cut-size",
+    "16",
+    "--epoch-result-escrow-jobs",
+    "1024",
+    "--epoch-result-escrow-bytes",
+    "268435456",
+    "--epoch-preparation-workers",
+    "0",
+    "--epoch-preparation-max-obligations",
+    "4294967295",
+    "--epoch-preparation-max-retirements",
+    "4294967295",
+    "--transfer-unreserved-lookahead",
+    "256",
+    "--g2-residual-anchors",
+    "union",
+    "--frontier-policy",
+    "stop",
+    "--no-auto-rescue"
+  ]
+}

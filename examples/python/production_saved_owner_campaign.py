@@ -42,7 +42,7 @@ import sys
 import tempfile
 import time
 
-# Supervisor RAM guard options: frozen at preparation, overridable per resume.
+# Supervisor RAM guard options: frozen at preparation, overridable per start/resume.
 # None (steering frozen before the option existed) means the supervisor's
 # default at launch; new steering freezes each default explicitly.
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent", "host_memory_reserve_bytes",
@@ -851,7 +851,7 @@ def native_command(options, executable, inputs, count, size):
 
 
 def frozen_policy(campaign, args, executable, inputs, count, size):
-    """Persist original steering; only per-resume supervisor RAM may differ."""
+    """Persist original steering; only per-invocation supervisor RAM may differ."""
     path = campaign / "bin" / "steering.json"
     if path.exists():
         policy = json.loads(path.read_text())
@@ -865,7 +865,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 supplied = SUPERVISOR.format_cpu_set(SUPERVISOR.parse_cpu_set(supplied))
             expected = frozen.get(name, "off" if name == "g2_residual_anchors" else None)
             if supplied is not None and supplied != expected:
-                if getattr(args, "resume", False) and name in RAM_POLICY_OPTIONS:
+                if (getattr(args, "resume", False) or getattr(args, "start", False)) and name in RAM_POLICY_OPTIONS:
                     continue
                 raise ValueError(f"--{name.replace('_', '-')} differs from frozen policy; use a new campaign directory")
         return policy
@@ -967,11 +967,11 @@ def memory_admission_preview(options):
 
 
 def effective_supervisor_policy(policy, args):
-    """Overlay resume-only RAM settings without rewriting frozen solver policy."""
+    """Overlay start/resume RAM settings without rewriting frozen solver policy."""
     options = frozen_options(policy)
     command = list(policy["command_arguments"])
     overrides = {}
-    if args.resume:
+    if args.resume or getattr(args, "start", False):
         for name in RAM_POLICY_OPTIONS:
             supplied = getattr(args, name)
             if supplied is not None and supplied != options[name]:
@@ -1033,7 +1033,7 @@ def main(argv=None):
                         help="explicit native inspectors (default: native split); frozen for resume")
     parser.add_argument("--checkpoint-interval-seconds", type=int, help="initial default: 3600")
     parser.add_argument("--max-memory-bytes", type=int,
-                        help="positive requested RAM ceiling; initial default: 500000000000; may override per resume")
+                        help="positive requested RAM ceiling; initial default: 500000000000; may override per start/resume")
     parser.add_argument("--ram-guard-margin-percent", type=float,
                         help="initial default: 5 (save+stop at 95%%); may override per resume")
     parser.add_argument("--host-memory-reserve-bytes", "--host-available-floor-bytes",

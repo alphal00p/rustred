@@ -38,6 +38,26 @@ coverage checks and combined four-loop non-regression. Historical references
 to the1.5x requirement in earlier reports describe the gate at that time; it is
 no longer a necessary condition for deployment recommendation.
 
+Release-priority clarification (2026-09-30): the user now requests a clean
+committed/pushed, frozen optimized launch milestone before further experiments.
+Finish the running build, essential optimized controls and operational checks;
+do not delay it for new helper/lookahead/code optimization work. Prepare precise
+commands for the user to launch in `codex_astra`, with disjoint resources so LC2
+can continue. The user still owns all production start/stop decisions. Subsequent
+optimization can use read-only feedback from the newly launched full campaign.
+Distinguish immediate reuse of existing saved rules with the new engine from
+fresh A1 rule generation: the latter's full67-owner preparation is not completed
+and must never be represented as ready payloads. Supply explicit, honest paths
+rather than silently substituting old rules for the improved source strategy.
+The user selected **fresh improved rules first**. The primary launch must thus
+prepare the frozen scope, generate every selected owner, admit the complete new
+payload set, and only then walk it with Epoch. Package the existing generation,
+staging and supervision primitives into a tested executable recipe. Generation
+restart retains completed sectors, not unfinished in-sector elimination; state
+that limitation plainly. Existing-rule reuse is an explicitly labeled fallback,
+not the chosen launch. Fix necessary packaging/admission defects narrowly rather
+than deferring them to the user's first run or expanding engine optimization.
+
 The user explicitly postpones launching a campaign. **Do not stop, restart,
 resume or mutate LC2 or launch another production campaign.** A prepared future
 command is a deliverable, not permission to execute it. Existing campaigns need

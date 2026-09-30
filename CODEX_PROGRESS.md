@@ -16,6 +16,16 @@ not Ready against Epoch. Earlier1.5x statements below are historical, not the
 current threshold. The active tool-managed objective already asks for measured
 pilot gains without specifying that ratio, so its full scope remains unchanged.
 
+**Latest release priority (2026-09-30 17:48UTC):** deliver a clean frozen release
+and exact full-campaign launch instructions next, before further optimization
+experiments. The user will launch it in `codex_astra` and wants LC2 left running
+if resources permit. New production remains user-launched only. Root requested
+an asynchronous choice between fresh all67 A1 rule generation first (not yet
+completed/timed) and immediate reuse of existing rules with new Epoch. The user
+selected **regenerate improved rules first**. Primary delivery is now executable
+preparation→all67 selected-owner generation→native admission→Epoch walk, with
+no silent old-payload fallback. Build/tests/freeze continue in parallel.
+
 ## Final optimization push — 2026-09-30 05:49 UTC
 
 The previous audited milestone is committed and pushed as `297be07f` on
@@ -93,6 +103,173 @@ is not a deployment recommendation or completion of the goal.
 - [E] A small read-only S5 profile synthesis is delegated while compiling to
   prioritize any subsequent input-only experiment. It grants no new native
   run and does not replace the ready-to-execute matched qualification plans.
+
+### Frozen-launch milestone preparation — 2026-09-30 17:49 UTC
+
+- [M] Audited documentation/progress milestone `869db79c` is committed and
+  pushed to `origin/fable_5_1_parallel`. Optimized compilation remains active;
+  `s5_fixed_work_pilots` now owns completion watch and no-clobber executable
+  freezing only, with no permission for a new native experiment.
+- [M] Read-only resource check: LC2 PID360092 still reserves CPUs128–227,
+  uses approximately84.5GiB RSS and remains untouched. Host MemAvailable was
+  approximately564GiB. Proposed new-run CPUs64–79 are16 distinct physical
+  cores on a separate NUMA node from LC2, with a provisional400GB requested
+  own-memory ceiling and explicit host headroom; final launch rechecks memory.
+  This is a conservative starting reservation, not a scaling/throughput claim.
+- [M] Existing `production_saved_owner_campaign.py` can clone/freeze immutable
+  inputs and executable into a new campaign, preserve role-explicit queries,
+  forward Epoch controls, supervise RAM/checkpoints/dashboard, and resume.
+  Agent `runtime_order_pilots` owns exact commands/tests; independent reviewer
+  checks resume/scope/resource pitfalls. Existing-rule reuse must be labeled
+  honestly as unchanged source rules, not the A1 generation improvement.
+- [E] Fresh A1 preparation still needs generation of every selected owner,
+  and its native generation checkpoints preserve completed sectors rather
+  than in-sector elimination state. The small inspector's fixed aggregate
+  allowance may also reject the complete new output. No rushed new generator
+  supervisor or untested loader-limit bypass is part of the immediate release.
+- [E] Deferred until after launch qualification: one optional helper-count
+  falsifier if optimized P2 cost justifies it. Remaining prefix waiting is not
+  automatically evidence for more lookahead; the previous profile-off receipt
+  establishes a peak window occupancy, not time spent blocked on that limit.
+
+User selection follow-through (17:53UTC): `runtime_order_pilots` owns narrow
+generic Python preparation/pipeline modules and mock tests under
+`tools/research/runtime_order/`, the input-only five-loop recipe and launch
+runbook. It will reuse existing native generation, stage and supervisor
+primitives, not implement another solver. The independent auditor is reviewing
+generation RAM/cancel/restart and complete payload admission. A concrete release
+defect is already identified: the study inspector caps aggregate payload at1GiB,
+below the historical complete67-owner size (~1.28GiB). A narrow existing-budget
+interface fix is necessary; no cap bypass or incomplete-owner admission is
+acceptable. Root owns that example-only change after the current frozen build,
+so the running compiler's source snapshot stays unchanged. The live production
+campaign and reference payloads remain read-only.
+
+Release packaging checks (18:06UTC):
+
+- [M] Root exercised the new tracked preparer against the real frozen5L
+  selection in metadata-only mode (`launch-data-smoke/`). All67 owners,
+  8,246 exact route objects,116 required+67auxiliary queries, owner/query order
+  and original selection hash are preserved. Parent job counts are17/18/11/21.
+  No native invocation occurred; every new payload remains explicitly
+  UNGENERATED. The smoke binds older frozen executables solely to exercise
+  preparation, so its emitted command is not the final release launch command.
+- [M] Independent source audit accepted the narrow inspector budget proposal
+  in `inspector_load_limits.patch`, applied only to a TMP copy for now. Its
+  seven strict positive manifest fields match the native loader, including
+  rejection of null/unknown/duplicate/overflow values and the per-owner1GiB
+  ceiling. The identical resolved limits reach reads, inspection and shared
+  native import. Native compilation/tests remain pending after current freeze.
+- [M] Main optimized library compilation finished around18:03UTC. CLI and
+  inspector final build stages remain active under group329576; no runtime
+  source was changed during compilation. Prior native correctness is not
+  relabeled a completed optimized build.
+- [M] Root and independent reviewer found operational packaging gaps before
+  deployment: recipe flags overriding resource bindings, partial staging on
+  interruption, early walk-policy validation, RAM-only resume overrides,
+  exceptional guard failure receipts, and visible generation progress. The
+  implementation agent is correcting them and extending regression tests.
+  Final acceptance includes a real fresh combined4L pipeline, not just mocks.
+
+Release supervision checks (18:19UTC):
+
+- [M] The new pipeline's real signal/drain smoke passed in0.684s onCPU64,
+  with no CAS workload: SIGTERM to its supervisor reached the independently
+  grouped native stand-in and grandchild; both groups drained and handlers were
+  restored. Evidence: `order-pilot-plans/pipeline-acceptance/signal-smoke-run/`.
+- [M] Root independently reran35 runtime-order/staging tests,5 escrow-steering
+  tests and27 shared-supervisor tests successfully. The implementation agent
+  also reports the complete35 production/escrow-steering group passing. These
+  mock/operational checks are not the pending native fresh4L acceptance.
+- [M] Final operational changes permit per-invocation RAM overrides even before
+  the first walking checkpoint; source, worker allocation and mathematical
+  policies remain frozen. Interrupted staging uses a new atomic attempt and
+  retains completed generation. Monitor initialization is exception-protected.
+- [E] After the active build succeeds and drains, `s5_fixed_work_pilots` is
+  authorized to freeze its binaries and run the four optimized matched4L arms
+  in Ready/Epoch/Epoch/Ready order onCPUs32–47, with full cold-All checks. Root
+  will then apply/test the already audited inspector-only load-limit fix. No
+  hot-sector or production run is authorized by this qualification grant.
+- [M] At18:24UTC `s5_fixed_work_pilots` independently reviewed the final Python
+  operational fixes and exact frozen query geometry/role partition; no source
+  blocker found. `runtime_order_pilots` separately reviewed the inspector patch
+  against native loader semantics. The4GiB generation checkpoint allowance is
+  per parent, not a whole-campaign disk or RAM cap; fresh A1 sizes remain unknown.
+  Neither review substitutes for native execution.
+
+Optimized freeze (18:32UTC):
+
+- [M] The full campaign-profile build completed successfully in3727.479s
+  (Cargo62m04s), exit0/no stop reason, with its entire process group drained.
+  Root independently checked Cargo's opt3/non-test artifact entries and SHA256
+  equality of separate read-only copies. Frozen CLI:
+  `TMP/aster-integration-20260930-resumed/optimized-escrow-bin/rustred`, SHA256
+  `38e0e7637a228aeccb13902915378d70f25736323916976819d2145ea19b1d89`.
+  `FROZEN_BUILD.json` records source56176df5, full fatLTO/CGU1, exact command
+  and preservation of older binaries. Compilation is excluded from solver time.
+- [M] Only after freezing both executables, root applied the reviewed inspector
+  load-limit patch and formatted it. The frozen CLI does not change; the old
+  frozen inspector remains intact and will not be presented as the patched one.
+  Seven example unit tests and a separate inspector rebuild remain pending.
+- [M] Read-only API-diff review found no Python/core/candidate-generation API
+  change between the last23-test installed wheel and this escrow slice. Escrow
+  is CLI-backed, not a newly added PyO3 entry point. The current fresh native
+  Python pipeline is the relevant acceptance gate; a rebuilt wheel alone would
+  not test escrow. Existing installed-wheel compatibility may be retested and
+  must retain its actual earlier provenance.
+
+Optimized four-loop qualification (18:41UTC):
+
+- [M] `s5_fixed_work_pilots` completed the Ready/Epoch/Epoch/Ready block on
+  the same frozen38e0e763 CLI,16 selected A1 owners,508 routes,58 required
+  queries and32 roots, W16 onCPUs32–47. Root independently inspected all four
+  raw cold-All PASS reports and complete58-query certification tallies. All
+  twelve native/cold/audit process groups drained; compilation did not overlap.
+- [M] Native+cold seconds: Ready15.6965/15.2916; Epoch16.2951/16.2910. Epoch's
+  median is5.16% slower, not a wall-time win. Native CPU is34.14% lower and graph
+  domains33.04% fewer, with17.03% more native inspections. Epoch repeats have
+  identical record/edge digests. The short runs produced no foreign-load
+  samples, so host contention is unmeasured, not assumed absent.
+- [M] Full evidence and interpretation are in
+  `order-pilot-plans/optimized-qualification/FOUR_ALL_RESULTS.{md,json}`.
+  Epoch's summary/Python diagnostic remains explicitly INCOMPLETE by transport
+  design; actual CP6 cold-All is PASS. This is scoped query closure, not source
+  certification or unrestricted family closure.
+- [M] The inspector-only seven-test plus optimized-example build is running
+  under `inspector-limits-release-build/`, after all comparison arms drained.
+  The delivery CLI remains frozen and unchanged. The fresh4L generation pipeline
+  gate awaits that matching inspector. A finite1,324-point5L Ready/E1024 pair
+  is being prepared read-only; no further heavy grant yet.
+
+Fresh public pipeline accepted (18:57UTC):
+
+- [M] Inspector build/test passed0/null in746.408s, seven tests passed, and
+  group1166539 drained. Root froze the new standalone checker as
+  `optimized-inspector-limits-bin/inspect_candidate_orders`, SHA256
+  `925a778b3393016bedee38f85e9db31b7a82a6aadb8e3c568c93ed740e1b4187`.
+  The independent S5 reviewer confirmed normal opt3 artifact/source identity,
+  separate read-only inode, unchanged CLI and native budget semantics.
+- [M] `runtime_order_pilots` completed the real public Python pipeline on the
+  combined4L control:4+12 newly generated sectors,523 rules/28 finite residuals,
+  no reused sectors,16 owners admitted,508 route records unchanged and all58
+  required queries preserved. Generation/admission/walk18.142s plus cold-All
+  10.145s; these are measured phase times, not a matched speed ratio.
+- [M] Raw cold-All passed all58 queries/32 roots and17,957 of17,957 inspections;
+  zero violations/errors/uncovered/frontiers. Root and the independent S5
+  reviewer separately checked these reports. Graph:26,025 domains/495,898 edges.
+  The dashboard retained a stale conservative closure lower bound at this short
+  exit; neither that display nor native4 was used as closure evidence.
+- [M] Existing installed selected-profile wheel against the new frozen CLI:
+  23 tests passed,0 failed/skipped,1.136s guarded time. No new wheel or PyO3 walk
+  API is claimed. Root also independently reran all35 epoch-steering tests.
+- [M] Seven owned process groups drained and heavy/pilot locks were free.
+  Exact scope equality, generation counts and receipts are in
+  `order-pilot-plans/pipeline-acceptance/{ACCEPTANCE_RESULT.json,RESULTS.md}`.
+  No source fix was required by the native pipeline test.
+- [E] The S5 lane now owns the separately granted optimized finite-five
+  Ready/E1024 pair, using the unchanged1,324-point query and historical67
+  owners, not fresh all67 A1 rules. Root owns documentation/final release;
+  no further feature development or production launch is authorized here.
 
 ### Historical resource handoff — 2026-09-30 16:49 UTC
 

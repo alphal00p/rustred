@@ -15,11 +15,11 @@ use std::path::{Component, Path, PathBuf};
 use rustred::reduction::ReductionLimits;
 use rustred::sector::Mask;
 use rustred_app::{
-    CandidateBundleInspection, CandidateBundleLimits, CandidateOwnerBundle,
-    CandidateOwnerLoadLimits, MAX_CANDIDATE_BUNDLE_BYTES, MAX_INPUT_BYTES,
-    inspect_generated_candidate_bundle, load_generated_candidate_owners,
+    CandidateBundleInspection, CandidateOwnerBundle, CandidateOwnerLoadLimits,
+    MAX_CANDIDATE_BUNDLE_BYTES, MAX_INPUT_BYTES, inspect_generated_candidate_bundle,
+    load_generated_candidate_owners,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -70,6 +70,82 @@ struct Selection {
     family_fingerprint: String,
     owner_count: usize,
     owners: Vec<Owner>,
+    #[serde(default)]
+    load_limits: LoadLimits,
+}
+
+/// The same caller-owned ingress keys as the native routed selection loader.
+/// Kept local to this read-only example; no candidate data can raise its limits.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoadLimits {
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_bundle_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_total_input_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_total_coefficient_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_collection_entries: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_total_symbolica_state_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_zero_sector_visits: Option<usize>,
+    #[serde(default, deserialize_with = "explicit_positive_limit")]
+    max_coefficient_bytes: Option<usize>,
+}
+
+fn explicit_positive_limit<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<usize>, D::Error> {
+    let value = usize::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom("load limits must be positive"));
+    }
+    Ok(Some(value))
+}
+
+impl LoadLimits {
+    fn resolve(&self) -> Result<CandidateOwnerLoadLimits> {
+        let mut limits = CandidateOwnerLoadLimits::default();
+        if let Some(value) = self.max_bundle_bytes {
+            limits.bundle.max_bundle_bytes = value;
+        }
+        if let Some(value) = self.max_total_input_bytes {
+            limits.max_total_input_bytes = value;
+        }
+        if let Some(value) = self.max_total_coefficient_bytes {
+            limits.bundle.max_total_coefficient_bytes = value;
+        }
+        if let Some(value) = self.max_collection_entries {
+            limits.bundle.max_collection_entries = value;
+        }
+        if let Some(value) = self.max_total_symbolica_state_bytes {
+            limits.max_total_symbolica_state_bytes = value;
+        }
+        if let Some(value) = self.max_zero_sector_visits {
+            limits.max_zero_sector_visits = value;
+        }
+        if let Some(value) = self.max_coefficient_bytes {
+            limits.bundle.max_coefficient_bytes = value;
+        }
+        if limits.bundle.max_bundle_bytes > MAX_CANDIDATE_BUNDLE_BYTES {
+            return Err("per-owner bundle exceeds the 1 GiB hard ceiling".into());
+        }
+        Ok(limits)
+    }
+}
+
+fn limits_report(limits: CandidateOwnerLoadLimits) -> Value {
+    json!({
+        "max_bundle_bytes": limits.bundle.max_bundle_bytes,
+        "max_total_input_bytes": limits.max_total_input_bytes,
+        "max_total_coefficient_bytes": limits.bundle.max_total_coefficient_bytes,
+        "max_collection_entries": limits.bundle.max_collection_entries,
+        "max_total_symbolica_state_bytes": limits.max_total_symbolica_state_bytes,
+        "max_zero_sector_visits": limits.max_zero_sector_visits,
+        "max_coefficient_bytes": limits.bundle.max_coefficient_bytes,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,20 +180,6 @@ impl Selection {
                 Ok(Mask::try_new(owner.mask.bytes().map(|bit| bit == b'1'))?)
             })
             .collect()
-    }
-}
-
-fn limits() -> CandidateOwnerLoadLimits {
-    CandidateOwnerLoadLimits {
-        bundle: CandidateBundleLimits {
-            max_bundle_bytes: MAX_CANDIDATE_BUNDLE_BYTES,
-            max_collection_entries: 8_000_000,
-            max_total_coefficient_bytes: 512 * 1024 * 1024,
-            ..Default::default()
-        },
-        max_total_input_bytes: MAX_CANDIDATE_BUNDLE_BYTES,
-        max_total_symbolica_state_bytes: 512 * 1024 * 1024,
-        max_zero_sector_visits: 8_000_000,
     }
 }
 
@@ -157,9 +219,13 @@ fn validate_inspection(
     Ok(())
 }
 
-fn admit<const N: usize>(inputs: &[CandidateOwnerBundle<'_>], expected_family: &str) -> Result<()> {
+fn admit<const N: usize>(
+    inputs: &[CandidateOwnerBundle<'_>],
+    expected_family: &str,
+    limits: CandidateOwnerLoadLimits,
+) -> Result<()> {
     let (family, owners) =
-        load_generated_candidate_owners::<N>(inputs, limits(), ReductionLimits::default())?;
+        load_generated_candidate_owners::<N>(inputs, limits, ReductionLimits::default())?;
     if family.fingerprint() != expected_family || owners.owner_count() != inputs.len() {
         return Err("native admitted family/owner count differs from the selection".into());
     }
@@ -183,7 +249,7 @@ fn run(args: Args) -> Result<Value> {
     let masks = selection.masks()?;
     let arity = masks[0].arity();
     let owner_base = args.owner_base.canonicalize()?;
-    let limits = limits();
+    let limits = selection.load_limits.resolve()?;
     let mut payloads = Vec::with_capacity(selection.owners.len());
     let mut summaries = Vec::with_capacity(selection.owners.len());
     let mut input_bytes = 0_usize;
@@ -231,7 +297,7 @@ fn run(args: Args) -> Result<Value> {
         .collect();
     macro_rules! dispatch {
         ($($n:literal),+) => { match arity {
-            $($n => admit::<$n>(&inputs, &selection.family_fingerprint)?,)+
+            $($n => admit::<$n>(&inputs, &selection.family_fingerprint, limits)?,)+
             _ => return Err("unsupported native owner arity".into()),
         } };
     }
@@ -240,6 +306,7 @@ fn run(args: Args) -> Result<Value> {
         json!({"schema": SCHEMA, "status": "NATIVE_OWNER_BINDING_ADMITTED",
         "arity": arity, "owner_count": inputs.len(), "input_bytes": input_bytes,
         "integral_order": args.expected_order, "owners": summaries,
+        "effective_load_limits": limits_report(limits),
         "native_payload_admission": true, "actual_order_matches": true,
         "expected_sector_set_matches": true, "expected_family_matches": true,
         "source_replay_claim": false, "route_verification_claim": false,
@@ -263,6 +330,89 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omitted_load_limits_match_native_loader_defaults() {
+        assert_eq!(
+            serde_json::from_str::<LoadLimits>("{}")
+                .unwrap()
+                .resolve()
+                .unwrap(),
+            CandidateOwnerLoadLimits::default()
+        );
+        let selection: Selection = serde_json::from_str(
+            r#"{"family_fingerprint":"family","owner_count":1,"owners":[{"mask":"1","path":"one"}]}"#,
+        ).unwrap();
+        assert_eq!(
+            selection.load_limits.resolve().unwrap(),
+            CandidateOwnerLoadLimits::default()
+        );
+    }
+
+    #[test]
+    fn all_explicit_limits_reach_the_native_budget_and_report() {
+        let limits: LoadLimits = serde_json::from_value(json!({
+            "max_bundle_bytes": 1_073_741_824usize,
+            "max_total_input_bytes": 2_147_483_648usize,
+            "max_total_coefficient_bytes": 2_147_483_648usize,
+            "max_collection_entries": 32_000_000,
+            "max_total_symbolica_state_bytes": 268_435_456,
+            "max_zero_sector_visits": 9_000_000,
+            "max_coefficient_bytes": 33_554_432,
+        }))
+        .unwrap();
+        let actual = limits.resolve().unwrap();
+        assert_eq!(actual.bundle.max_bundle_bytes, 1_073_741_824);
+        assert_eq!(actual.max_total_input_bytes, 2_147_483_648);
+        assert_eq!(actual.bundle.max_total_coefficient_bytes, 2_147_483_648);
+        assert_eq!(actual.bundle.max_collection_entries, 32_000_000);
+        assert_eq!(actual.max_total_symbolica_state_bytes, 268_435_456);
+        assert_eq!(actual.max_zero_sector_visits, 9_000_000);
+        assert_eq!(actual.bundle.max_coefficient_bytes, 33_554_432);
+        assert_eq!(
+            serde_json::from_value::<LoadLimits>(limits_report(actual))
+                .unwrap()
+                .resolve()
+                .unwrap(),
+            actual
+        );
+    }
+
+    #[test]
+    fn load_limits_reject_ambiguous_or_invalid_values() {
+        for field in [
+            "max_bundle_bytes",
+            "max_total_input_bytes",
+            "max_total_coefficient_bytes",
+            "max_collection_entries",
+            "max_total_symbolica_state_bytes",
+            "max_zero_sector_visits",
+            "max_coefficient_bytes",
+        ] {
+            for value in [
+                "0",
+                "-1",
+                "null",
+                "1.5",
+                "true",
+                "\"1\"",
+                "18446744073709551616",
+            ] {
+                let text = format!("{{\"{field}\":{value}}}");
+                assert!(serde_json::from_str::<LoadLimits>(&text).is_err(), "{text}");
+            }
+            let duplicate = format!("{{\"{field}\":1,\"{field}\":2}}");
+            assert!(serde_json::from_str::<LoadLimits>(&duplicate).is_err());
+        }
+        assert!(serde_json::from_str::<LoadLimits>(r#"{"unknown_limit":1}"#).is_err());
+        assert!(serde_json::from_str::<LoadLimits>("null").is_err());
+        assert!(
+            serde_json::from_str::<LoadLimits>(r#"{"max_bundle_bytes":1073741825}"#)
+                .unwrap()
+                .resolve()
+                .is_err()
+        );
+    }
 
     fn arguments(values: &[&str]) -> Result<Args> {
         Args::parse(values.iter().map(|value| (*value).to_owned()))
