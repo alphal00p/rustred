@@ -36,8 +36,11 @@ pub(super) fn schedule_matches_request(
         return true; // Historical non-resumable exports have no CP6 scalars.
     }
     let rolling = manifest["epoch_rolling"].as_bool();
-    let window = manifest["lockstep_b"].as_u64();
+    let window = manifest["epoch_base_window"].as_u64();
     rolling == Some(request.epoch_rolling)
+        && manifest["epoch_result_escrow_jobs"].as_u64()
+            == Some(request.epoch_result_escrow_jobs as u64)
+        && manifest["epoch_result_escrow_bytes"] == json!(request.epoch_result_escrow_bytes)
         && manifest["epoch_publication_order"].as_str()
             == Some(request.epoch_publication_order.name())
         && request.epoch_cut_size.is_none_or(|n| {
@@ -516,7 +519,28 @@ fn read_inner<const N: usize>(
     let admission = scalar["initial_admission"]
         .as_str()
         .ok_or("missing admission state")?;
-    if scalar["schema"] != 4
+    let base_window = count(&scalar, "epoch_base_window")?;
+    let escrow_jobs = count(&scalar, "epoch_result_escrow_jobs")?;
+    let escrow_bytes = scalar
+        .get("epoch_result_escrow_bytes")
+        .ok_or("missing epoch escrow byte admission budget")?;
+    if !(1..=4096).contains(&base_window)
+        || base_window.checked_add(escrow_jobs) != Some(count(&scalar, "lockstep_b")?)
+        || (if escrow_jobs == 0 {
+            !escrow_bytes.is_null()
+        } else {
+            !rolling
+                || scalar["epoch_publication_order"]
+                    .as_str()
+                    .is_some_and(|s| s != "oldest-prefix")
+                || escrow_bytes
+                    .as_u64()
+                    .is_none_or(|n| n == 0 || usize::try_from(n).is_err())
+        })
+    {
+        return Err("invalid epoch base/escrow bounds".into());
+    }
+    if scalar["schema"] != 5
         || scalar["walk_semantics_version"] != 4
         || scalar["record_schema"] != 1
         || scalar["preparation"]
@@ -832,6 +856,9 @@ fn read_inner<const N: usize>(
         "epoch_rolling":rolling,"epoch_cut_size":scalar["epoch_cut_size"],
         "epoch_publication_order":scalar.get("epoch_publication_order").cloned().unwrap_or(json!("oldest-prefix")),
         "lockstep_b":scalar["lockstep_b"],
+        "epoch_base_window":scalar["epoch_base_window"],
+        "epoch_result_escrow_jobs":scalar["epoch_result_escrow_jobs"],
+        "epoch_result_escrow_bytes":scalar["epoch_result_escrow_bytes"],
         "k":scalar["k"],"p0":p0,"edge_digest":scalar["edge_digest"],"records_digest":scalar["records_digest"],
         "ledger6_counts":{}});
     for (name, value) in [

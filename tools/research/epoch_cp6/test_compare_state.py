@@ -211,6 +211,75 @@ class ComparisonTests(unittest.TestCase):
     def test_json_scalar_types_are_not_silently_equated(self):
         self.assertEqual(differences({"n": 1}, {"n": True}), ["n"])
 
+    def enable_scalar5(self, extra=0, retained=None):
+        self.change_meta(lambda meta: meta.update(
+            schema=5, epoch_base_window=16 - extra,
+            epoch_result_escrow_jobs=extra, epoch_result_escrow_bytes=retained))
+
+    def test_scalar5_disabled_policy_matches_historical_no_escrow(self):
+        self.enable_scalar5()
+        report = self.report()
+        self.assertTrue(report["durable_mathematical_state_equal"])
+        self.assertEqual(report["right"]["semantic"]["escrow_policy"], {
+            "epoch_base_window": 16, "epoch_result_escrow_jobs": 0,
+            "epoch_result_escrow_bytes": None,
+        })
+
+    def test_scalar5_enabled_policy_is_not_normalized_away(self):
+        self.enable_scalar5(extra=4, retained=1024)
+        self.change_meta(lambda meta: meta.update(epoch_rolling=True))
+        report = self.report()
+        self.assertFalse(report["durable_mathematical_state_equal"])
+        self.assertIn("escrow_policy.epoch_result_escrow_jobs", report["differences"])
+        self.assertIn("escrow_policy.epoch_result_escrow_bytes", report["differences"])
+        self.assertIn("escrow_policy.epoch_base_window", report["differences"])
+
+    def test_scalar5_native_omitted_publication_default_is_accepted(self):
+        self.enable_scalar5(extra=4, retained=1024)
+        self.change_meta(lambda meta: meta.update(epoch_rolling=True))
+        self.change_meta(lambda meta: meta.pop("epoch_publication_order", None))
+        omitted = self.report()["right"]["semantic"]
+        self.change_meta(lambda meta: meta.update(epoch_publication_order="oldest-prefix"))
+        explicit = self.report()["right"]["semantic"]
+        self.assertEqual(omitted, explicit)
+        self.change_meta(lambda meta: meta.update(epoch_publication_order="oldest_sequence_prefix"))
+        with self.assertRaisesRegex(ValueError, "enabled escrow"):
+            self.report()  # Summary spelling is not the native scalar spelling.
+
+    def test_scalar5_missing_invalid_or_inconsistent_policy_refused(self):
+        self.enable_scalar5()
+        original = json.loads((self.right / "meta.part").read_text())
+        mutations = [
+            lambda m: m.pop("epoch_base_window"),
+            lambda m: m.pop("epoch_result_escrow_jobs"),
+            lambda m: m.pop("epoch_result_escrow_bytes"),
+            lambda m: m.update(epoch_base_window=True),
+            lambda m: m.update(epoch_result_escrow_jobs=-1),
+            lambda m: m.update(epoch_base_window=4097, lockstep_b=4097),
+            lambda m: m.update(epoch_base_window=15),
+            lambda m: m.update(epoch_result_escrow_bytes=1),
+            lambda m: m.update(epoch_base_window=12, epoch_result_escrow_jobs=4),
+            lambda m: m.update(epoch_base_window=12, epoch_result_escrow_jobs=4,
+                               epoch_result_escrow_bytes=1, epoch_rolling=False),
+            lambda m: m.update(epoch_base_window=12, epoch_result_escrow_jobs=4,
+                               epoch_result_escrow_bytes=True, epoch_rolling=True),
+            lambda m: m.update(epoch_base_window=12, epoch_result_escrow_jobs=4,
+                               epoch_result_escrow_bytes=1, epoch_rolling=True,
+                               epoch_publication_order="oldest_ready"),
+        ]
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(original)
+                mutation(changed)
+                self.change_part("meta", json.dumps(changed).encode())
+                with self.assertRaisesRegex(ValueError, "escrow"):
+                    self.report()
+
+    def test_older_scalar_cannot_smuggle_new_operational_fields(self):
+        self.change_meta(lambda meta: meta.update(epoch_result_escrow_jobs=0))
+        with self.assertRaisesRegex(ValueError, "older scalar"):
+            self.report()
+
 
 if __name__ == "__main__":
     unittest.main()

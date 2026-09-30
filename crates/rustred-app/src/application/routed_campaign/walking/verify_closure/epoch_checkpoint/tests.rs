@@ -54,7 +54,8 @@ impl Fixture {
         value.section(8, 1, vec![0]);
         value.section(9, 0, vec![]);
         let empty_digest = blake3::hash(b"").to_hex().to_string();
-        let scalar = json!({"schema":4,"record_schema":1,
+        let scalar = json!({"schema":5,"record_schema":1,
+            "epoch_base_window":16,"epoch_result_escrow_jobs":0,"epoch_result_escrow_bytes":null,
             "preparation":{"helpers":0,"obligations":4294967295u64,"retirements":4294967295u64},
             "request":"bound-request","owner_count":0,
             "owners_digest":blake3::hash(b"[]").as_bytes(),"walk_semantics_version":4,
@@ -273,6 +274,9 @@ fn authenticated_valid_but_wrong_schedule_scalars_do_not_match_the_command() {
     ] {
         let mut changed = scalar.clone();
         changed[key] = wrong;
+        if key == "lockstep_b" {
+            changed["epoch_base_window"] = changed[key].clone();
+        }
         fixture.replace("meta", 1, serde_json::to_vec(&changed).unwrap());
         fixture.publish();
         let before = fixture.inventory();
@@ -298,6 +302,7 @@ fn historical_diagnostic_cut_is_not_inferred_from_the_cold_process_environment()
         let mut fixture = Fixture::new();
         let mut scalar = fixture.scalar();
         scalar["lockstep_b"] = json!(4);
+        scalar["epoch_base_window"] = json!(4);
         if rolling {
             scalar["epoch_rolling"] = json!(true);
             scalar["epoch_cut_size"] = json!(4);
@@ -313,6 +318,48 @@ fn historical_diagnostic_cut_is_not_inferred_from_the_cold_process_environment()
         assert!(!schedule_matches_request(&sections.manifest, &request));
         request.epoch_cut_size = Some(4);
         assert!(schedule_matches_request(&sections.manifest, &request));
+    }
+}
+
+#[test]
+fn escrow_scalar_bounds_and_exact_command_are_checked() {
+    use crate::{OwnerDomainMatchRequest, OwnerDomainWalkRequest};
+    let mut fixture = Fixture::new();
+    let mut scalar = fixture.scalar();
+    scalar["epoch_rolling"] = json!(true);
+    scalar["epoch_cut_size"] = json!(8);
+    scalar["epoch_result_escrow_jobs"] = json!(4);
+    scalar["epoch_result_escrow_bytes"] = json!(1024);
+    scalar["lockstep_b"] = json!(20);
+    fixture.replace("meta", 1, serde_json::to_vec(&scalar).unwrap());
+    fixture.publish();
+    let (_, sections, _) = read_raw::<1>(&fixture.directory).unwrap();
+    let mut request =
+        OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    request.epoch_rolling = true;
+    request.epoch_window = Some(16);
+    request.epoch_result_escrow_jobs = 4;
+    request.epoch_result_escrow_bytes = Some(1024);
+    assert!(schedule_matches_request(&sections.manifest, &request));
+    request.epoch_window = Some(20);
+    assert!(!schedule_matches_request(&sections.manifest, &request));
+    request.epoch_window = None;
+    assert!(schedule_matches_request(&sections.manifest, &request));
+    request.epoch_result_escrow_bytes = Some(2048);
+    assert!(!schedule_matches_request(&sections.manifest, &request));
+    for (key, value) in [
+        ("schema", json!(4)),
+        ("epoch_base_window", json!(17)),
+        ("epoch_result_escrow_bytes", json!(null)),
+        ("epoch_result_escrow_bytes", json!(0)),
+        ("epoch_publication_order", json!("oldest-ready")),
+        ("epoch_rolling", json!(false)),
+    ] {
+        let mut changed = scalar.clone();
+        changed[key] = value;
+        fixture.replace("meta", 1, serde_json::to_vec(&changed).unwrap());
+        fixture.publish();
+        assert!(read_raw::<1>(&fixture.directory).is_err(), "{key}");
     }
 }
 

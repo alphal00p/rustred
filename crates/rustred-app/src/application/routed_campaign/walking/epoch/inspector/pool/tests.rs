@@ -267,6 +267,8 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
             returned: false,
         }],
         occupied: vec![true],
+        generations: vec![1],
+        next_generation: 1,
         shutdown: false,
     });
     let ready = Condvar::new();
@@ -281,6 +283,9 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
         remaining: 1,
         threads: 1,
         cancelled: false,
+        result_memory: Arc::new(memory::Counter::default()),
+        recycled: Vec::new(),
+        logical_limit: MAX_BATCH,
     };
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -419,4 +424,5 @@ fn one_worker_capability_refusal_wakes_authorized_idle_siblings_without_dispatch
     assert_eq!(checks.load(Ordering::Relaxed), 3);
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
+mod escrow;
 mod snapshot;

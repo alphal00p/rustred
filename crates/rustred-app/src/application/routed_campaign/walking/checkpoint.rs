@@ -1148,6 +1148,10 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
     if let Some(cut) = request.epoch_cut_size.filter(|&cut| cut != 16) {
         value["epoch_cut_size"] = json!(cut);
     }
+    if request.epoch_result_escrow_jobs != 0 {
+        value["epoch_result_escrow_jobs"] = json!(request.epoch_result_escrow_jobs);
+        value["epoch_result_escrow_bytes"] = json!(request.epoch_result_escrow_bytes);
+    }
     if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off {
         value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
     }

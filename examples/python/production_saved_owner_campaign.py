@@ -65,6 +65,7 @@ FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
                   "epoch_inspector_lookup", "epoch_rolling", "epoch_dispatch",
                   "epoch_publication_order", "epoch_cut_size", "epoch_window",
+                  "epoch_result_escrow_jobs", "epoch_result_escrow_bytes",
                   "epoch_preparation_workers", "epoch_preparation_max_obligations", "epoch_preparation_max_retirements",
                   *OPTIONAL_RAM_POLICY_OPTIONS, *RESCUE_OPTIONS)
 DEFAULT_PUBLICATION_POLICY = "ready"
@@ -781,7 +782,8 @@ def frozen_options(policy):
             raise ValueError("frozen Epoch batch options and command disagree; use a new campaign directory")
     SUPERVISOR.DOMAIN.validate_epoch_batch(
         options.get("epoch_publication_order"), options.get("epoch_cut_size"), options.get("epoch_window"),
-        rolling, True, options["publication_policy"], True)
+        rolling, True, options["publication_policy"], True,
+        options.get("epoch_result_escrow_jobs"), options.get("epoch_result_escrow_bytes"))
     if "transfer_unreserved_lookahead" not in options:
         lookahead = flag_value("--transfer-unreserved-lookahead")
         options["transfer_unreserved_lookahead"] = 256 if lookahead is None else int(lookahead)
@@ -913,7 +915,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         options["epoch_dispatch"], options["epoch_rolling"], True, options["publication_policy"], True)
     SUPERVISOR.DOMAIN.validate_epoch_batch(
         options["epoch_publication_order"], options["epoch_cut_size"], options["epoch_window"],
-        options["epoch_rolling"], True, options["publication_policy"], True)
+        options["epoch_rolling"], True, options["publication_policy"], True,
+        options.get("epoch_result_escrow_jobs"), options.get("epoch_result_escrow_bytes"))
     SUPERVISOR.DOMAIN.validate_epoch_preparation(
         options, True, options["publication_policy"], options["workers"], options["inspection_workers"])
     # Keep default and historical steering/argv free of new optional fields.
@@ -1134,7 +1137,8 @@ def main(argv=None):
                     args.epoch_dispatch, args.epoch_rolling, True, selected_policy, True)
                 SUPERVISOR.DOMAIN.validate_epoch_batch(
                     args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
-                    args.epoch_rolling, True, selected_policy, True)
+                    args.epoch_rolling, True, selected_policy, True,
+                    args.epoch_result_escrow_jobs, args.epoch_result_escrow_bytes)
                 SUPERVISOR.DOMAIN.validate_epoch_preparation(
                     vars(args), True, selected_policy, args.workers or min(50, len(os.sched_getaffinity(0))),
                     args.inspection_workers)
@@ -1239,6 +1243,9 @@ def main(argv=None):
         plan["epoch_publication_order"] = options.get("epoch_publication_order", "oldest-prefix")
         plan["epoch_cut_size"] = options.get("epoch_cut_size", 16)
         plan["epoch_window"] = options.get("epoch_window")
+        plan.update({name.replace("-", "_"): options[name.replace("-", "_")]
+                     for name in SUPERVISOR.DOMAIN.EPOCH_ESCROW_OPTIONS
+                     if name.replace("-", "_") in options})
         plan.update({name.replace("-", "_"): options[name.replace("-", "_")]
                      for name in SUPERVISOR.DOMAIN.EPOCH_PREPARATION_OPTIONS
                      if name.replace("-", "_") in options})

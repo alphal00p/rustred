@@ -266,6 +266,63 @@ fn rolling_custom_policy_cut_and_window_bind_resume_before_session_adoption() {
 }
 
 #[test]
+fn escrow_base_total_and_byte_budget_bind_resume() {
+    let mut fixture = Fixture::new();
+    fixture.request.epoch_rolling = true;
+    fixture.request.epoch_window = Some(32);
+    fixture.request.epoch_result_escrow_jobs = 8;
+    fixture.request.epoch_result_escrow_bytes = Some(1024);
+    fixture.request.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
+        &fixture.directory.0,
+    ));
+    fixture.save_window(3, 2, false, 40);
+    let manifest =
+        publication::read_manifest(&fixture.directory.0.join(publication::LATEST)).unwrap();
+    let meta = manifest
+        .files
+        .iter()
+        .find(|file| file.key == "meta")
+        .unwrap();
+    let scalar: Value =
+        serde_json::from_slice(&fs::read(fixture.directory.0.join(&meta.file)).unwrap()).unwrap();
+    assert_eq!(scalar["schema"], 5);
+    assert_eq!(scalar["epoch_base_window"], 32);
+    assert_eq!(scalar["lockstep_b"], 40);
+    assert_eq!(scalar["epoch_result_escrow_jobs"], 8);
+    assert_eq!(scalar["epoch_result_escrow_bytes"], 1024);
+    let mut missing = scalar.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("epoch_result_escrow_bytes");
+    assert!(
+        serde_json::from_value::<super::super::super::metadata::OwnedScalars>(missing).is_err()
+    );
+    let session_path = fixture.directory.0.join("epoch-session.bin");
+    let session = fs::read(&session_path).unwrap();
+    let original = fixture.request.clone();
+    for choice in 0..3 {
+        fixture.request = original.clone();
+        match choice {
+            0 => fixture.request.epoch_result_escrow_jobs = 9,
+            1 => fixture.request.epoch_result_escrow_bytes = Some(2048),
+            _ => fixture.request.epoch_window = Some(40),
+        }
+        assert!(fixture.open().is_err());
+        assert_eq!(fs::read(&session_path).unwrap(), session);
+    }
+    fixture.request = original;
+    fixture.request.epoch_window = None;
+    fixture.request.workers = 1;
+    let restored = fixture.open().unwrap();
+    assert_eq!(
+        restored.window, 40,
+        "saved total survives changed physical workers"
+    );
+    assert_eq!(restored.replay.len(), 2);
+}
+
+#[test]
 fn default_publication_policy_is_omitted_from_legacy_compatible_scalars() {
     let fixture = Fixture::new();
     fixture.save(3, 0);

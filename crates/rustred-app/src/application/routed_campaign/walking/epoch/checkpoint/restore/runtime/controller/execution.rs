@@ -2,13 +2,17 @@
 //! Inline W1 never spawns, authorizes an off-thread CAS, or promises a poll
 //! while CAS is running. Each poll returns after one caller-thread inspection.
 use crate::application::routed_campaign::walking::epoch::inspector::{
-    Activity, Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
+    Activity, Poll, Pool, ResultMemory, ReturnedBytes, RunError, Status, SubmitError, Work,
+    with_authorized_pool,
 };
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub(super) trait Execution {
+    fn enable_result_escrow(&mut self, total: usize) -> Result<(), String>;
+    fn result_memory(&self) -> ResultMemory;
+    fn recycle_result(&mut self, key: u64) -> Result<(), String>;
     fn activity(&self) -> Option<Activity>;
     fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)>;
     fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError>;
@@ -21,6 +25,15 @@ pub(super) trait Execution {
 }
 
 impl Execution for Pool<'_> {
+    fn enable_result_escrow(&mut self, total: usize) -> Result<(), String> {
+        Pool::enable_result_escrow(self, total)
+    }
+    fn result_memory(&self) -> ResultMemory {
+        Pool::result_memory(self)
+    }
+    fn recycle_result(&mut self, key: u64) -> Result<(), String> {
+        Pool::recycle_result(self, key)
+    }
     fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
         Pool::profiled_activity(self, key)
     }
@@ -59,6 +72,15 @@ struct Inline<'a> {
 }
 
 impl Execution for Inline<'_> {
+    fn enable_result_escrow(&mut self, _: usize) -> Result<(), String> {
+        Err("inline execution has no result escrow".into())
+    }
+    fn result_memory(&self) -> ResultMemory {
+        ResultMemory::default()
+    }
+    fn recycle_result(&mut self, _: u64) -> Result<(), String> {
+        Err("inline execution cannot recycle unmerged results".into())
+    }
     fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
         let activity = self.activity()?;
         Some((
@@ -126,7 +148,7 @@ impl Execution for Inline<'_> {
         self.next += 1;
         Ok(Poll::Result {
             key: job.key,
-            bytes,
+            bytes: ReturnedBytes::uncharged(bytes),
         })
     }
 

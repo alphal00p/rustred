@@ -4,10 +4,12 @@
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::Duration;
 
 const MAX_BATCH: usize = 4096;
+mod memory;
+pub(in super::super) use memory::{EscrowDiagnostics, ResultMemory, ReturnedBytes};
 type Inspect<'a> = dyn Fn(&[u8], &AtomicBool) -> Vec<u8> + Sync + 'a;
 
 #[derive(Debug)]
@@ -70,6 +72,8 @@ pub(in super::super) struct Activity {
     pub queued: usize,
     pub computing: usize,
     pub returned: usize,
+    /// Completed logical reservations whose physical slots were recycled.
+    pub escrow_returned: usize,
     pub cancelled_queued: usize,
     pub occupied: usize,
     pub inline: bool,
@@ -105,15 +109,17 @@ struct Queue {
     jobs: VecDeque<(usize, Vec<u8>)>,
     status: Vec<Status>,
     occupied: Vec<bool>,
+    generations: Vec<u64>,
+    next_generation: u64,
     shutdown: bool,
 }
 enum Message {
-    Started(usize),
-    Result(usize, Vec<u8>),
+    Started(usize, u64, u64),
+    Result(usize, u64, u64, ReturnedBytes),
 }
 pub(in super::super) enum Poll {
     Started(u64),
-    Result { key: u64, bytes: Vec<u8> },
+    Result { key: u64, bytes: ReturnedBytes },
     Waiting,
     Drained,
 }
@@ -127,6 +133,9 @@ pub(in super::super) struct Pool<'a> {
     remaining: usize,
     threads: usize,
     cancelled: bool,
+    result_memory: Arc<memory::Counter>,
+    recycled: Vec<Status>,
+    logical_limit: usize,
 }
 
 fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<(), String> {
@@ -147,6 +156,61 @@ fn shutdown(queue: &Mutex<Queue>, ready: &Condvar, stop: &AtomicBool) -> Result<
 }
 
 impl Pool<'_> {
+    pub fn enable_result_escrow(&mut self, total: usize) -> Result<(), String> {
+        if total == 0 || total > MAX_BATCH || self.remaining != 0 {
+            return Err("invalid escrow pool initialization".into());
+        }
+        let mut queue = self.queue.lock().map_err(|_| "epoch queue poisoned")?;
+        if queue.next_generation != 0 || !self.recycled.is_empty() {
+            return Err("escrow enabled after dispatch".into());
+        }
+        // The stop inventory can append escrowed statuses without allocating
+        // on the memory-stop path. Slot reuse itself needs no extra storage.
+        queue
+            .status
+            .try_reserve(total)
+            .map_err(|_| "escrow status allocation")?;
+        queue
+            .occupied
+            .try_reserve(total)
+            .map_err(|_| "escrow slot allocation")?;
+        queue
+            .generations
+            .try_reserve(total)
+            .map_err(|_| "escrow generation allocation")?;
+        self.receipts
+            .try_reserve(total)
+            .map_err(|_| "escrow receipt allocation")?;
+        self.recycled
+            .try_reserve(total)
+            .map_err(|_| "escrow stop inventory allocation")?;
+        self.result_memory.enable();
+        self.logical_limit = total;
+        Ok(())
+    }
+
+    pub fn result_memory(&self) -> ResultMemory {
+        self.result_memory.snapshot()
+    }
+
+    /// Physical descriptor recycling is NOT publication or ledger retirement.
+    pub fn recycle_result(&mut self, key: u64) -> Result<(), String> {
+        if self.recycled.len() == self.recycled.capacity()
+            || self.recycled.iter().any(|status| status.key == key)
+        {
+            return Err("escrow physical slot recycled twice or without capacity".into());
+        }
+        self.retire(&[key])?;
+        // Survives moving result bytes into P1/P2: a stop before P3 must still
+        // report this completed but logically Reserved inspection.
+        self.recycled.push(Status {
+            key,
+            started: true,
+            returned: true,
+        });
+        Ok(())
+    }
+
     /// Optional profiler snapshot: the requested prefix job and aggregate pool
     /// state come from one bounded scan under one lock, without allocation.
     pub fn profiled_activity(&self, key: Option<u64>) -> Option<(Activity, Option<Status>)> {
@@ -155,7 +219,7 @@ impl Pool<'_> {
             return None;
         }
         let mut selected = None;
-        let activity = Activity::from_status(
+        let mut activity = Activity::from_status(
             guard
                 .status
                 .iter()
@@ -169,6 +233,14 @@ impl Pool<'_> {
             self.cancelled,
             false,
         );
+        activity.escrow_returned = self.recycled.len();
+        if selected.is_none() {
+            selected = self
+                .recycled
+                .iter()
+                .find(|status| Some(status.key) == key)
+                .copied();
+        }
         Some((activity, selected))
     }
 
@@ -181,7 +253,7 @@ impl Pool<'_> {
             // longer update it. Do not manufacture zero activity before join.
             return None;
         }
-        Some(Activity::from_status(
+        let mut activity = Activity::from_status(
             guard
                 .status
                 .iter()
@@ -189,11 +261,17 @@ impl Pool<'_> {
                 .filter_map(|(status, &live)| live.then_some(status)),
             self.cancelled,
             false,
-        ))
+        );
+        activity.escrow_returned = self.recycled.len();
+        Some(activity)
     }
 
     pub fn submit(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
-        if self.cancelled || self.remaining != 0 || jobs.len() > MAX_BATCH {
+        if self.cancelled
+            || self.remaining != 0
+            || !self.recycled.is_empty()
+            || jobs.len() > self.logical_limit
+        {
             return Err(SubmitError::Protocol(
                 "epoch submit outside an empty lockstep slot (C5)",
             ));
@@ -224,6 +302,15 @@ impl Pool<'_> {
             .map_err(|_| SubmitError::Allocation("epoch inspector queue allocation"))?;
         guard.status.clear();
         guard.occupied.clear();
+        guard.generations.clear();
+        guard
+            .next_generation
+            .checked_add(jobs.len() as u64)
+            .ok_or(SubmitError::Protocol("epoch slot generation exhausted"))?;
+        guard
+            .generations
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch generation allocation"))?;
         guard
             .status
             .try_reserve(jobs.len())
@@ -235,6 +322,9 @@ impl Pool<'_> {
         self.remaining = jobs.len();
         self.receipts.resize(jobs.len(), 0);
         for (index, job) in jobs.into_iter().enumerate() {
+            guard.next_generation += 1;
+            let generation = guard.next_generation;
+            guard.generations.push(generation);
             guard.status.push(Status {
                 key: job.key,
                 started: false,
@@ -249,9 +339,9 @@ impl Pool<'_> {
     }
 
     /// Add bounded work without waiting for unrelated running inspections.
-    /// Slots remain occupied after their bytes return until the controller
-    /// acknowledges publication (or discard), so stop receipts describe the
-    /// complete unmerged inventory, including buffered results.
+    /// By default physical slots remain occupied until publication. Opt-in
+    /// recycling moves completed status to a distinct logical inventory;
+    /// both inventories count against the same declared total reservation cap.
     pub fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
         let wake = jobs.len().min(self.threads);
         let mut guard = self
@@ -259,13 +349,20 @@ impl Pool<'_> {
             .lock()
             .map_err(|_| SubmitError::Protocol("epoch inspector queue poisoned (C5)"))?;
         let occupied = guard.occupied.iter().filter(|&&live| live).count();
-        if self.cancelled || guard.shutdown || occupied.saturating_add(jobs.len()) > MAX_BATCH {
+        if self.cancelled
+            || guard.shutdown
+            || occupied
+                .saturating_add(self.recycled.len())
+                .saturating_add(jobs.len())
+                > self.logical_limit
+        {
             return Err(SubmitError::Protocol(
                 "epoch rolling in-flight bound or stopped pool",
             ));
         }
         for (at, job) in jobs.iter().enumerate() {
             if jobs[..at].iter().any(|other| other.key == job.key)
+                || self.recycled.iter().any(|status| status.key == job.key)
                 || guard
                     .status
                     .iter()
@@ -278,6 +375,14 @@ impl Pool<'_> {
             }
         }
         // Reserve every collection before accepting any descriptor.
+        guard
+            .next_generation
+            .checked_add(jobs.len() as u64)
+            .ok_or(SubmitError::Protocol("epoch slot generation exhausted"))?;
+        guard
+            .generations
+            .try_reserve(jobs.len())
+            .map_err(|_| SubmitError::Allocation("epoch generation allocation"))?;
         guard
             .jobs
             .try_reserve(jobs.len())
@@ -295,6 +400,8 @@ impl Pool<'_> {
             .map_err(|_| SubmitError::Allocation("epoch result receipt allocation"))?;
         self.remaining += jobs.len();
         for job in jobs {
+            guard.next_generation += 1;
+            let generation = guard.next_generation;
             let status = Status {
                 key: job.key,
                 started: false,
@@ -303,11 +410,13 @@ impl Pool<'_> {
             let index = if let Some(index) = guard.occupied.iter().position(|&live| !live) {
                 guard.occupied[index] = true;
                 guard.status[index] = status;
+                guard.generations[index] = generation;
                 self.receipts[index] = 0;
                 index
             } else {
                 let index = guard.status.len();
                 guard.status.push(status);
+                guard.generations.push(generation);
                 guard.occupied.push(true);
                 self.receipts.push(0);
                 index
@@ -330,6 +439,10 @@ impl Pool<'_> {
             .lock()
             .map_err(|_| "epoch inspector queue poisoned (C5)")?;
         for &key in keys {
+            if let Some(index) = self.recycled.iter().position(|status| status.key == key) {
+                self.recycled.swap_remove(index);
+                continue;
+            }
             let index = guard
                 .status
                 .iter()
@@ -350,6 +463,7 @@ impl Pool<'_> {
             .lock()
             .map_err(|_| "epoch inspector queue poisoned (C5)")?;
         if self.remaining != 0
+            || !self.recycled.is_empty()
             || guard
                 .occupied
                 .iter()
@@ -393,22 +507,30 @@ impl Pool<'_> {
                 );
             }
         };
-        let (index, bytes) = match message {
-            Message::Started(index) => (index, None),
-            Message::Result(index, bytes) => (index, Some(bytes)),
+        let (index, message_key, generation, bytes) = match message {
+            Message::Started(index, key, generation) => (index, key, generation, None),
+            Message::Result(index, key, generation, bytes) => (index, key, generation, Some(bytes)),
         };
         let receipt = self
             .receipts
             .get_mut(index)
             .ok_or("epoch result index outside batch (C5)")?;
-        let key = self
+        let guard = self
             .queue
             .lock()
-            .map_err(|_| "epoch inspector queue poisoned (C5)")?
+            .map_err(|_| "epoch inspector queue poisoned (C5)")?;
+        let key = guard
             .status
             .get(index)
             .ok_or("epoch result status absent (C5)")?
             .key;
+        if key != message_key
+            || guard.occupied.get(index) != Some(&true)
+            || guard.generations.get(index) != Some(&generation)
+        {
+            return Err("epoch stale result slot generation (C5)".into());
+        }
+        drop(guard);
         if let Some(bytes) = bytes {
             if *receipt != 1 {
                 return Err("epoch duplicate/unstarted result (C5)".into());
@@ -434,7 +556,7 @@ impl Pool<'_> {
             .map_err(|_| "epoch inspector queue poisoned (C5)")?;
         let mut values = Vec::new();
         values
-            .try_reserve_exact(guard.status.len())
+            .try_reserve_exact(guard.status.len() + self.recycled.len())
             .map_err(|_| "epoch status snapshot allocation")?;
         values.extend(
             guard
@@ -443,6 +565,7 @@ impl Pool<'_> {
                 .zip(&guard.occupied)
                 .filter_map(|(status, &live)| live.then_some(*status)),
         );
+        values.extend_from_slice(&self.recycled);
         Ok(values)
     }
 
@@ -468,6 +591,13 @@ impl Pool<'_> {
             index += 1;
             keep
         });
+        if status.capacity().saturating_sub(status.len()) < self.recycled.len() {
+            return Err("escrow stop inventory exceeds preallocated capacity".into());
+        }
+        if !self.recycled.is_empty() {
+            status.append(&mut self.recycled);
+            status.sort_unstable_by_key(|entry| entry.key);
+        }
         Ok(status)
     }
 
@@ -510,20 +640,29 @@ pub(in super::super) fn with_authorized_pool<R>(
         jobs: VecDeque::new(),
         status: Vec::new(),
         occupied: Vec::new(),
+        generations: Vec::new(),
+        next_generation: 0,
         shutdown: false,
     });
     let ready = Condvar::new();
     let stop = AtomicBool::new(false);
     let (sender, receiver) = mpsc::channel();
     let (authorized, authorization) = mpsc::channel();
+    let result_memory = Arc::new(memory::Counter::default());
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         handles
             .try_reserve_exact(threads)
             .map_err(|_| RunError::Resource("epoch worker handle allocation".into()))?;
         for slot in 0..threads {
-            let (queue, ready, stop, sender, authorized) =
-                (&queue, &ready, &stop, sender.clone(), authorized.clone());
+            let (queue, ready, stop, sender, authorized, result_memory) = (
+                &queue,
+                &ready,
+                &stop,
+                sender.clone(),
+                authorized.clone(),
+                &result_memory,
+            );
             match std::thread::Builder::new()
                 .name(format!("epoch-inspector-{slot}"))
                 .spawn_scoped(scope, move || {
@@ -544,7 +683,12 @@ pub(in super::super) fn with_authorized_pool<R>(
                                 }
                                 if let Some((index, bytes)) = guard.jobs.pop_front() {
                                     guard.status[index].started = true;
-                                    break Some((index, bytes));
+                                    break Some((
+                                        index,
+                                        guard.status[index].key,
+                                        guard.generations[index],
+                                        bytes,
+                                    ));
                                 }
                                 guard = match ready.wait(guard) {
                                     Ok(guard) => guard,
@@ -552,14 +696,28 @@ pub(in super::super) fn with_authorized_pool<R>(
                                 };
                             }
                         };
-                        let Some((index, bytes)) = next else { return };
-                        if sender.send(Message::Started(index)).is_err() {
+                        let Some((index, key, generation, bytes)) = next else {
+                            return;
+                        };
+                        if sender
+                            .send(Message::Started(index, key, generation))
+                            .is_err()
+                        {
                             return;
                         }
                         let result = catch_unwind(AssertUnwindSafe(|| job(&bytes, stop)))
                             .unwrap_or_default();
+                        let result = result_memory.wrap(result);
                         let Ok(mut guard) = queue.lock() else { return };
+                        if !guard.shutdown {
+                            assert_eq!(
+                                guard.generations.get(index),
+                                Some(&generation),
+                                "epoch worker generation changed"
+                            );
+                        }
                         if let Some(status) = guard.status.get_mut(index) {
+                            assert_eq!(status.key, key, "epoch worker slot reused before return");
                             status.returned = true;
                         } else {
                             // Cancellation may have moved the stop inventory to
@@ -567,7 +725,10 @@ pub(in super::super) fn with_authorized_pool<R>(
                             assert!(guard.shutdown, "missing live epoch worker status");
                         }
                         drop(guard);
-                        if sender.send(Message::Result(index, result)).is_err() {
+                        if sender
+                            .send(Message::Result(index, key, generation, result))
+                            .is_err()
+                        {
                             return;
                         }
                     }
@@ -607,6 +768,9 @@ pub(in super::super) fn with_authorized_pool<R>(
             remaining: 0,
             threads,
             cancelled: false,
+            result_memory: Arc::clone(&result_memory),
+            recycled: Vec::new(),
+            logical_limit: MAX_BATCH,
         };
         let result = catch_unwind(AssertUnwindSafe(|| body(&mut pool)));
         let cancelled = pool.cancel();

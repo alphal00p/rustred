@@ -245,6 +245,10 @@ pub(in super::super) struct WaitSample {
     queued: usize,
     computing: usize,
     returned: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logical_issued: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logical_returned: Option<usize>,
     activity_available: bool,
     inspector_capacity: usize,
     prefix_started: Option<bool>,
@@ -267,7 +271,31 @@ impl WaitSample {
         pending: usize,
         activity: Option<(Activity, Option<Status>)>,
     ) -> Self {
+        Self::capture_with_inventory(
+            publication,
+            issued,
+            missing,
+            window,
+            inspector_capacity,
+            pending,
+            activity,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture_with_inventory(
+        publication: bool,
+        issued: bool,
+        missing: Option<u64>,
+        window: usize,
+        inspector_capacity: usize,
+        pending: usize,
+        activity: Option<(Activity, Option<Status>)>,
+        logical: Option<(usize, usize)>,
+    ) -> Self {
         let (a, selected) = activity.unwrap_or_default();
+        let (occupied, returned) = logical.unwrap_or((a.occupied, a.returned));
         let kind = if publication {
             WaitKind::PublicationRetention
         } else if !issued {
@@ -281,8 +309,8 @@ impl WaitSample {
                 WaitKind::ReceiptDrain
             } else if !selected.started {
                 WaitKind::PrefixQueued
-            } else if a.occupied >= window
-                && a.returned != 0
+            } else if occupied >= window
+                && returned != 0
                 && pending != 0
                 && a.queued == 0
                 && a.computing < inspector_capacity
@@ -301,6 +329,8 @@ impl WaitSample {
             queued: a.queued,
             computing: a.computing,
             returned: a.returned,
+            logical_issued: logical.map(|x| x.0),
+            logical_returned: logical.map(|x| x.1),
             activity_available: activity.is_some(),
             inspector_capacity,
             prefix_started: selected.map(|s| s.started),
@@ -314,9 +344,9 @@ impl WaitSample {
     }
 }
 
-pub(in super::super) fn earliest_missing(
+pub(in super::super) fn earliest_missing<T>(
     order: &VecDeque<u64>,
-    results: &BTreeMap<u64, Vec<u8>>,
+    results: &BTreeMap<u64, T>,
     cut: usize,
 ) -> Option<u64> {
     order

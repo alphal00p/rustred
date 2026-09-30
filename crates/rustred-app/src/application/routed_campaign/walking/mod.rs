@@ -133,6 +133,12 @@ pub struct OwnerDomainWalkRequest {
     /// None selects the automatic fresh bound and inherits a saved window on
     /// resume; an explicit resumed bound must equal the persisted window.
     pub epoch_window: Option<usize>,
+    /// Extra logical reservations backed by complete-result escrow. Zero
+    /// retains the normal window; this does not add compute threads.
+    pub epoch_result_escrow_jobs: usize,
+    /// Admission threshold for retained complete results, not a hard RSS cap.
+    /// Required and positive when escrow jobs are enabled.
+    pub epoch_result_escrow_bytes: Option<usize>,
     /// Epoch P2 helpers inside `workers`, not additional threads. Zero selects
     /// serial preparation; None retains the helper complement of an explicit
     /// inspection partition, or zero helpers when both are omitted.
@@ -191,6 +197,8 @@ impl OwnerDomainWalkRequest {
             epoch_publication_order: OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
             epoch_cut_size: None,
             epoch_window: None,
+            epoch_result_escrow_jobs: 0,
+            epoch_result_escrow_bytes: None,
             epoch_preparation_workers: None,
             epoch_preparation_max_obligations: None,
             epoch_preparation_max_retirements: None,
@@ -211,6 +219,7 @@ impl OwnerDomainWalkRequest {
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        self.validate_epoch_result_escrow()?;
         let preparation = self.epoch_preparation_workers.is_some()
             || self.epoch_preparation_max_obligations.is_some()
             || self.epoch_preparation_max_retirements.is_some();
@@ -307,6 +316,42 @@ impl OwnerDomainWalkRequest {
                 .max(cut_size)
                 .min(4096)
         })
+    }
+
+    pub fn validate_epoch_result_escrow(&self) -> Result<(), &'static str> {
+        if self.epoch_result_escrow_jobs == 0 {
+            return if self.epoch_result_escrow_bytes.is_none() {
+                Ok(())
+            } else {
+                Err("Epoch result escrow bytes require positive escrow jobs")
+            };
+        }
+        if self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
+            || !self.epoch_rolling
+            || self.checkpoint.is_none()
+            || self.epoch_publication_order != OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+        {
+            return Err(
+                "Epoch result escrow requires checkpoint-enabled rolling oldest-prefix publication",
+            );
+        }
+        if !self.epoch_result_escrow_bytes.is_some_and(|n| n > 0) {
+            return Err("Epoch result escrow requires a positive explicit byte admission budget");
+        }
+        let cut = self
+            .effective_epoch_cut_size()
+            .map_err(|_| "Invalid epoch cut size or diagnostic override")?;
+        self.resolved_epoch_total_window(cut).map(|_| ())
+    }
+
+    /// Total bounded logical reservation space, including returned results.
+    /// W=1 retains the declaration but never dispatches extra work; callers
+    /// must clamp publication cuts to the base window, not this total.
+    pub fn resolved_epoch_total_window(&self, cut_size: usize) -> Result<usize, &'static str> {
+        let base = self.resolved_epoch_window(cut_size)?;
+        base.checked_add(self.epoch_result_escrow_jobs)
+            .filter(|&total| total <= 4096)
+            .ok_or("Epoch base window plus escrow jobs must be at most 4096")
     }
 
     pub(crate) fn epoch_window(&self, cut_size: usize) -> usize {

@@ -5,6 +5,9 @@
 use super::super::RollingDiagnostics;
 use super::*;
 use crate::OwnerDomainWalkEpochPublicationOrder;
+use crate::application::routed_campaign::walking::epoch::inspector::{
+    EscrowDiagnostics, ReturnedBytes,
+};
 use crate::application::routed_campaign::walking::epoch::ledger6::Tag;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Instant;
@@ -16,7 +19,7 @@ fn stopped<const N: usize>(
     b: usize,
     pool: &mut dyn execution::Execution,
     snapshots: Option<&Publication<N>>,
-    results: &mut BTreeMap<u64, Vec<u8>>,
+    results: &mut BTreeMap<u64, ReturnedBytes>,
     reason: StopReason,
     context: Option<stop::Stop>,
     progress: &mut impl FnMut(&EpochState<N>, &Dispatch, &'static str, &dyn Fn() -> Option<Activity>),
@@ -25,11 +28,11 @@ fn stopped<const N: usize>(
     // Queued and returned-but-unmerged bytes are released before streaming the
     // canonical checkpoint. Running readers own independent immutable leases.
     pool.cancel().map_err(Failure::Engine)?;
+    let status = pool.take_cancelled_status().map_err(Failure::Engine)?;
     results.clear();
     if let Some(snapshots) = snapshots {
         snapshots.clear().map_err(|e| Failure::Engine(e.into()))?;
     }
-    let status = pool.take_cancelled_status().map_err(Failure::Engine)?;
     let receipt = save_observed(
         restored,
         identity,
@@ -45,8 +48,10 @@ fn stopped<const N: usize>(
 fn collect(
     message: Poll,
     order: &VecDeque<u64>,
-    results: &mut BTreeMap<u64, Vec<u8>>,
+    results: &mut BTreeMap<u64, ReturnedBytes>,
     diagnostics: &mut RollingDiagnostics,
+    pool: &mut dyn execution::Execution,
+    escrow: bool,
 ) -> Result<bool, Failure> {
     match message {
         Poll::Result { key, bytes } => {
@@ -55,6 +60,9 @@ fn collect(
                 return Err(Failure::Engine(
                     "rolling result absent/duplicate sequence".into(),
                 ));
+            }
+            if escrow {
+                pool.recycle_result(key).map_err(Failure::Engine)?;
             }
             Ok(false)
         }
@@ -72,9 +80,9 @@ fn collect(
 
 /// Select only completed jobs and prefer a full cut. Partial cuts are reserved
 /// for the existing tail/replay drain conditions, never a wall-clock heuristic.
-fn select_cut(
+fn select_cut<T>(
     order: &VecDeque<u64>,
-    results: &BTreeMap<u64, Vec<u8>>,
+    results: &BTreeMap<u64, T>,
     cut_size: usize,
     partial_allowed: bool,
     policy: OwnerDomainWalkEpochPublicationOrder,
@@ -113,7 +121,7 @@ mod selection_tests {
     fn ready_bypasses_a_hole_but_never_turns_a_full_window_into_singleton_cuts() {
         use OwnerDomainWalkEpochPublicationOrder::{OldestPrefix, OldestReady};
         let order = (0..32).collect();
-        let mut results = BTreeMap::new();
+        let mut results: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
         for key in 1..16 {
             results.insert(key, Vec::new());
         }
@@ -140,7 +148,8 @@ mod selection_tests {
     #[test]
     fn partial_tail_and_replay_wait_for_their_entire_remaining_inventory() {
         let order = VecDeque::from([3, 7, 9]);
-        let mut results = BTreeMap::from([(7, Vec::new()), (9, Vec::new())]);
+        let mut results: BTreeMap<u64, Vec<u8>> =
+            BTreeMap::from([(7, Vec::new()), (9, Vec::new())]);
         for policy in [
             OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
             OwnerDomainWalkEpochPublicationOrder::OldestReady,
@@ -154,7 +163,16 @@ mod selection_tests {
         ] {
             assert!(select_cut(&order, &results, 16, false, policy).is_empty());
             assert_eq!(select_cut(&order, &results, 16, true, policy), [3, 7, 9]);
-            assert!(select_cut(&VecDeque::new(), &BTreeMap::new(), 16, true, policy).is_empty());
+            assert!(
+                select_cut(
+                    &VecDeque::new(),
+                    &BTreeMap::<u64, Vec<u8>>::new(),
+                    16,
+                    true,
+                    policy
+                )
+                .is_empty()
+            );
         }
     }
 }
@@ -165,9 +183,10 @@ mod selection_tests {
 fn collect_available(
     pool: &mut dyn execution::Execution,
     order: &VecDeque<u64>,
-    results: &mut BTreeMap<u64, Vec<u8>>,
+    results: &mut BTreeMap<u64, ReturnedBytes>,
     diagnostics: &mut RollingDiagnostics,
     window: usize,
+    escrow: bool,
 ) -> Result<(), Failure> {
     for _ in 0..window.saturating_mul(2).min(256) {
         let message = pool.poll(Duration::ZERO).map_err(Failure::Engine)?;
@@ -175,7 +194,7 @@ fn collect_available(
             break;
         }
         diagnostics.ready_poll_messages += 1;
-        collect(message, order, results, diagnostics)?;
+        collect(message, order, results, diagnostics, pool, escrow)?;
     }
     Ok(())
 }
@@ -184,17 +203,18 @@ fn collect_available(
 fn wait_for_receipt(
     pool: &mut dyn execution::Execution,
     order: &VecDeque<u64>,
-    results: &mut BTreeMap<u64, Vec<u8>>,
+    results: &mut BTreeMap<u64, ReturnedBytes>,
     diagnostics: &mut RollingDiagnostics,
     publication_wait: bool,
     cut_size: usize,
     window: usize,
     pending: usize,
     inspector_capacity: usize,
+    escrow: bool,
 ) -> Result<bool, Failure> {
     let sample = diagnostics.wait_profile.as_ref().map(|_| {
         let missing = profile::earliest_missing(order, results, cut_size);
-        profile::WaitSample::capture(
+        profile::WaitSample::capture_with_inventory(
             publication_wait,
             !order.is_empty(),
             missing,
@@ -202,6 +222,7 @@ fn wait_for_receipt(
             inspector_capacity,
             pending,
             pool.profiled_activity(missing),
+            escrow.then_some((order.len(), results.len())),
         )
     });
     let started = Instant::now();
@@ -224,6 +245,8 @@ fn wait_for_receipt(
         order,
         results,
         diagnostics,
+        pool,
+        escrow,
     )
 }
 
@@ -255,10 +278,27 @@ pub(super) fn run<const N: usize>(
     }
     MergeBoundary::borrow(&restored.state, &restored.dispatch, b)?;
     let preparation = preparation_engine(identity)?;
-    let cut_size = identity.epoch_cut_size().min(b);
+    let base_window = identity.epoch_base_window(b)?;
+    let cut_size = identity.epoch_cut_size().min(base_window);
+    let escrow = identity.epoch_result_escrow_jobs() != 0 && budget > 1;
+    let byte_limit = identity.epoch_result_escrow_bytes().unwrap_or(0);
+    if identity.epoch_result_escrow_jobs() != 0 {
+        restored.rolling_diagnostics.escrow = Some(EscrowDiagnostics {
+            enabled: escrow,
+            version: 1,
+            base_window,
+            total_logical_limit: b,
+            extra_job_allowance: identity.epoch_result_escrow_jobs(),
+            result_byte_admission_limit: byte_limit,
+            ..Default::default()
+        });
+    }
     let publication_order = identity.epoch_publication_order();
     let outcome = execution::with(budget, authorize, inspect, |pool| {
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<Outcome, Failure> {
+            if escrow {
+                pool.enable_result_escrow(b).map_err(Failure::Engine)?;
+            }
             let mut order = VecDeque::new();
             order
                 .try_reserve(b)
@@ -322,9 +362,53 @@ pub(super) fn run<const N: usize>(
                     continue;
                 }
 
-                let room = b
+                let logical_room = b
                     .checked_sub(restored.state.in_flight.len())
                     .ok_or_else(|| Failure::Engine("rolling flight bound exceeded".into()))?;
+                if escrow {
+                    collect_available(
+                        pool,
+                        &order,
+                        &mut results,
+                        &mut restored.rolling_diagnostics,
+                        b,
+                        true,
+                    )?;
+                }
+                let mut room = base_window.saturating_sub(restored.state.in_flight.len());
+                let mut extra_dispatch = false;
+                if escrow
+                    && room == 0
+                    && logical_room != 0
+                    && restored.state.ledger.counts().get(Tag::Pending) != 0
+                    && profile::earliest_missing(&order, &results, cut_size).is_some()
+                {
+                    let memory = pool.result_memory();
+                    if memory.bytes < byte_limit {
+                        if let Some(activity) = pool.activity() {
+                            if activity.queued == 0
+                                && activity.computing < budget - 1
+                                && !results.is_empty()
+                            {
+                                room = logical_room.min(budget - 1 - activity.computing);
+                                extra_dispatch = room != 0;
+                            }
+                        }
+                    }
+                }
+                if let Some(d) = &mut restored.rolling_diagnostics.escrow {
+                    d.logical_reserved = restored.state.in_flight.len();
+                    d.peak_logical_reserved = d.peak_logical_reserved.max(d.logical_reserved);
+                    d.coordinator_completed = results.len();
+                    d.returned_results = pool.result_memory();
+                    d.result_byte_overshoot =
+                        d.returned_results.peak_bytes.saturating_sub(byte_limit);
+                    if let Some(a) = pool.activity() {
+                        d.physical_queued = a.queued;
+                        d.physical_computing = a.computing;
+                        d.physical_returned = a.returned;
+                    }
+                }
                 if room != 0 || !restored.replay.is_empty() {
                     let snapshot = if snapshots.is_some() {
                         let refresh_started = Instant::now();
@@ -410,6 +494,19 @@ pub(super) fn run<const N: usize>(
                             }
                         };
                         if !jobs.is_empty() {
+                            if let Some(d) = &mut restored.rolling_diagnostics.escrow {
+                                d.logical_reserved = restored.state.in_flight.len();
+                                d.peak_logical_reserved =
+                                    d.peak_logical_reserved.max(d.logical_reserved);
+                            }
+                            if extra_dispatch {
+                                restored
+                                    .rolling_diagnostics
+                                    .escrow
+                                    .as_mut()
+                                    .expect("enabled escrow")
+                                    .extra_jobs_dispatched += jobs.len() as u64;
+                            }
                             let mut work = Vec::new();
                             let mut keys = Vec::new();
                             if work.try_reserve_exact(jobs.len()).is_err()
@@ -501,6 +598,7 @@ pub(super) fn run<const N: usize>(
                         &mut results,
                         &mut restored.rolling_diagnostics,
                         b,
+                        escrow,
                     )?;
                     restored.rolling_diagnostics.ready_drain_seconds +=
                         drain_started.elapsed().as_secs_f64();
@@ -532,6 +630,7 @@ pub(super) fn run<const N: usize>(
                         b,
                         restored.state.ledger.counts().get(Tag::Pending) as usize,
                         budget.saturating_sub(1),
+                        escrow,
                     )?;
                     if drained && order.is_empty() {
                         return Err(Failure::Engine(
@@ -553,7 +652,7 @@ pub(super) fn run<const N: usize>(
                 );
                 let bytes = keys
                     .iter()
-                    .map(|key| results.remove(key).expect("checked ready cut"))
+                    .map(|key| results.remove(key).expect("checked ready cut").into_vec())
                     .collect();
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
                     pool.activity()
@@ -689,6 +788,7 @@ pub(super) fn run<const N: usize>(
                                 b,
                                 restored.state.ledger.counts().get(Tag::Pending) as usize,
                                 budget.saturating_sub(1),
+                                escrow,
                             )?;
                         }
                     }

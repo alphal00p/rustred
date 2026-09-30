@@ -49,6 +49,8 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub epoch_publication_order: Option<crate::OwnerDomainWalkEpochPublicationOrder>,
     pub epoch_cut_size: Option<usize>,
     pub epoch_window: Option<usize>,
+    pub epoch_result_escrow_jobs: usize,
+    pub epoch_result_escrow_bytes: Option<usize>,
     pub epoch_preparation_workers: Option<usize>,
     pub epoch_preparation_max_obligations: Option<usize>,
     pub epoch_preparation_max_retirements: Option<usize>,
@@ -112,6 +114,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         epoch_publication_order: None,
         epoch_cut_size: None,
         epoch_window: None,
+        epoch_result_escrow_jobs: 0,
+        epoch_result_escrow_bytes: None,
         epoch_preparation_workers: None,
         epoch_preparation_max_obligations: None,
         epoch_preparation_max_retirements: None,
@@ -194,6 +198,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-publication-order" => "--epoch-publication-order",
             "--epoch-cut-size" => "--epoch-cut-size",
             "--epoch-window" => "--epoch-window",
+            "--epoch-result-escrow-jobs" => "--epoch-result-escrow-jobs",
+            "--epoch-result-escrow-bytes" => "--epoch-result-escrow-bytes",
             "--epoch-preparation-workers" => "--epoch-preparation-workers",
             "--epoch-preparation-max-obligations" => "--epoch-preparation-max-obligations",
             "--epoch-preparation-max-retirements" => "--epoch-preparation-max-retirements",
@@ -336,6 +342,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--epoch-window" => {
                 result.epoch_window = Some(parse_positive_integer(name, value)?);
+            }
+            "--epoch-result-escrow-jobs" => {
+                result.epoch_result_escrow_jobs = parse_nonnegative_integer(name, value)?;
+            }
+            "--epoch-result-escrow-bytes" => {
+                result.epoch_result_escrow_bytes = Some(parse_positive_integer(name, value)?);
             }
             "--epoch-preparation-workers" => {
                 result.epoch_preparation_workers = Some(parse_nonnegative_integer(name, value)?);
@@ -505,6 +517,36 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    if result.epoch_result_escrow_jobs == 0 && result.epoch_result_escrow_bytes.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "Epoch result escrow bytes require positive escrow jobs",
+        ));
+    }
+    if result.epoch_result_escrow_jobs > 0 {
+        if !result.follow_successors
+            || !epoch
+            || !result.epoch_rolling
+            || result.checkpoint.is_none()
+            || result.epoch_publication_order.is_some_and(|order| {
+                order != crate::OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+            })
+            || result.epoch_result_escrow_bytes.is_none()
+        {
+            return Err(ArgError::InvalidCombination(
+                "Epoch result escrow requires rolling oldest-prefix CP6 and positive explicit bytes",
+            ));
+        }
+        if result.epoch_result_escrow_jobs >= 4096
+            || result.epoch_window.is_some_and(|base| {
+                base.checked_add(result.epoch_result_escrow_jobs)
+                    .is_none_or(|total| total > 4096)
+            })
+        {
+            return Err(ArgError::InvalidCombination(
+                "Epoch base window plus escrow jobs must be at most 4096",
+            ));
+        }
+    }
     if (result.epoch_preparation_workers.is_some()
         || result.epoch_preparation_max_obligations.is_some()
         || result.epoch_preparation_max_retirements.is_some())
@@ -742,6 +784,32 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn result_escrow_requires_paired_bytes_and_rolling_prefix() {
+        let base = "--manifest m --queries q --output o --follow-successors --publication-policy epoch --transfer-unreserved-lookahead 16 --checkpoint cp --epoch-rolling";
+        let Command::OwnerDomainMatch(args) = parse(&format!("{base} --epoch-window 76 --epoch-result-escrow-jobs 16 --epoch-result-escrow-bytes 1048576")).unwrap() else { panic!("match") };
+        assert_eq!(args.epoch_result_escrow_jobs, 16);
+        assert_eq!(args.epoch_result_escrow_bytes, Some(1048576));
+        for suffix in [
+            "--epoch-result-escrow-jobs 1",
+            "--epoch-result-escrow-bytes 1",
+            "--epoch-result-escrow-jobs 1 --epoch-result-escrow-bytes 0",
+            "--epoch-result-escrow-jobs 1 --epoch-result-escrow-bytes 1 --epoch-publication-order oldest-ready",
+            "--epoch-result-escrow-jobs 4096 --epoch-result-escrow-bytes 1",
+            "--epoch-result-escrow-jobs 1 --epoch-result-escrow-bytes 1 --epoch-window 4096",
+            "--epoch-result-escrow-jobs 1 --epoch-result-escrow-bytes 1 --epoch-result-escrow-jobs 1",
+        ] {
+            assert!(parse(&format!("{base} {suffix}")).is_err(), "{suffix}");
+        }
+        assert!(parse("--manifest m --queries q --output o --epoch-result-escrow-jobs 1 --epoch-result-escrow-bytes 1").is_err());
+        let Command::OwnerDomainMatch(zero) =
+            parse("--manifest m --queries q --output o --epoch-result-escrow-jobs 0").unwrap()
+        else {
+            panic!("match")
+        };
+        assert_eq!(zero.epoch_result_escrow_jobs, 0);
     }
 
     #[test]

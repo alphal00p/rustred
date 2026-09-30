@@ -45,10 +45,13 @@ pub(super) struct RollingDiagnostics {
     pub wait_profile: Option<super::super::super::inspector::profile::Waits>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inspection_profile: Option<super::super::super::inspector::profile::Jobs>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escrow: Option<super::super::super::inspector::EscrowDiagnostics>,
 }
 
 pub(super) struct Restored<const N: usize> {
-    /// Frozen logical dispatch bound. Inspector width may change on resume.
+    /// Frozen total logical reservation bound (base plus result escrow).
+    /// Inspector width may change on resume without dropping reservations.
     pub window: usize,
     pub cut_size: usize,
     pub rolling_diagnostics: RollingDiagnostics,
@@ -202,6 +205,12 @@ pub(super) fn open<const N: usize>(
             return Err(invalid("epoch incomplete admission has record segments"));
         }
     }
+    let window = if identity.epoch_rolling() {
+        scalars.lockstep_b
+    } else {
+        lockstep_b
+    };
+    identity.epoch_base_window(window)?;
     // Last fallible authority operation before making a Dispatch. Session
     // exhaustion/failure issues no jobs; a later assembly error burns it safely.
     let session = publisher.adopt(manifest, session)?;
@@ -215,11 +224,6 @@ pub(super) fn open<const N: usize>(
         &mut state,
     )
     .map_err(io::Error::other)?;
-    let window = if identity.epoch_rolling() {
-        scalars.lockstep_b
-    } else {
-        lockstep_b
-    };
     MergeBoundary::borrow(&state, &dispatch, window)?;
     if record_segments.iter().try_fold(0usize, |sum, segment| {
         usize::try_from(segment.count)

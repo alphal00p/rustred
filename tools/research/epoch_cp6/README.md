@@ -21,9 +21,9 @@ directory. Paths are absolute. The plan fields are:
 | Fields | Meaning |
 | --- | --- |
 | `contract` | Exactly `rustred.epoch-cp6-control.v1`. |
-| `mode`, `b` | `all-miss` or `snapshot`; positive saved flight bound at most4096. Historical plans use lockstep B. |
-| `schedule` (optional) | Exact current summary object: `kind`, `depth`, `b`, `window`, `cut_size`, `publication_order`, `dispatch`. Required for current extended reports; absent means the historical exact `{kind:lockstep,depth:1,b:B}` receipt, not an inferred rolling mode. |
-| `g2`, `checkpoint_schema` (optional) | Frozen run policy `off` (default) or `union`. New typed-record plans explicitly select manifest/summary schema3, walk semantics4 and native scalar schema4. Historical baseline plans retain schema1 (the old default) or2 and semantics3. Receipt pairs must match exactly; this adapter does not decode or migrate payloads. |
+| `mode`, `b` | `all-miss` or `snapshot`; positive total saved reservation bound at most4096. With result escrow this is `M = B + E`, not just the base window. Historical plans use lockstep B. |
+| `schedule` (optional) | Exact current summary object: `kind`, `depth`, `b`, `window`, `cut_size`, `publication_order`, `dispatch`; enabled escrow adds both `result_escrow_jobs` and `result_escrow_bytes`. `window` remains base B and the effective cut cannot exceed B. Required for current extended reports; absent means the historical exact `{kind:lockstep,depth:1,b:B}` receipt, not an inferred rolling mode. |
+| `g2`, `checkpoint_schema` (optional) | Frozen run policy `off` (default) or `union`. Typed-record plans select manifest/summary schema3 and walk semantics4; escrow-capable binaries use scalar schema5, older typed-record binaries schema4. Historical baseline plans retain schema1 (the old default) or2 and semantics3. Receipt pairs must match exactly; this adapter does not decode or migrate payloads. |
 | `run`, `checkpoint` | Fresh output directory and its `checkpoint` child, as produced by the historical runner's rewrite. |
 | `queries`, `queries_sha256`, `queries_blake3` | Frozen actual query file with explicit required/auxiliary roles; SHA256 and BLAKE3 of its exact bytes. Obtain BLAKE3 using an existing trusted tool/library, not a new hash implementation. The adapter derives role counts from the file. |
 | `binary`, `binary_sha256` | Frozen, already validated executable; no build/upgrade in this adapter. |
@@ -45,6 +45,18 @@ example schedule is `{kind:rolling,depth:5,b:65,window:65,cut_size:16,
 publication_order:oldest_sequence_prefix,dispatch:adaptive}`. It records a
 bounded cohort count, not measured active concurrency. G2 Union never changes
 the verifier's `--reference-levers off` or full `--reinspect all` requirements.
+An enabled escrow example is `{kind:rolling,depth:7,b:108,window:76,cut_size:16,
+publication_order:oldest_sequence_prefix,dispatch:fifo,result_escrow_jobs:32,
+result_escrow_bytes:1048576}`. Its command must explicitly request
+`--epoch-result-escrow-jobs 32 --epoch-result-escrow-bytes 1048576`; an explicit
+`--epoch-window` still means76. The byte value limits admission of extra jobs
+against retained returned-buffer capacity; running jobs can overshoot it, so
+it is not a strict RSS limit. The separate global RAM guard is unchanged.
+Disabled escrow retains the old schedule shape. Schema5's native scalar payload
+always carries explicit base/E/nullable-byte fields; its omitted publication-order
+default means `oldest-prefix`, not the summary spelling above. The diagnostic
+`compare_state.py` preserves changed escrow policies as comparison differences;
+it never silently treats expanded lookahead as the same operational policy.
 Rescue-specific scoped acceptance is separate: this gate still requires every
 domain and every declared helper root independently closed, with no frontiers.
 Freeze `native_argv` after applying that runner's existing rewrite; it adds output,

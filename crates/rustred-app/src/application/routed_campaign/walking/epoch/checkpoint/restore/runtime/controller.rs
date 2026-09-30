@@ -679,7 +679,7 @@ pub(super) fn run_observed<const N: usize>(
                         .map_err(Failure::Engine)?
                     {
                         Poll::Started(_) | Poll::Waiting => {}
-                        Poll::Result { bytes, .. } => results.push(bytes),
+                        Poll::Result { bytes, .. } => results.push(bytes.into_vec()),
                         Poll::Drained => break,
                     }
                 }

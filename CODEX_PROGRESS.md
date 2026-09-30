@@ -20,13 +20,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; positive limited5L transfers; B1 ablation no gain; selected-sector native/Python tests PASS | Selected-sector four-loop cold verification and production-owner input preparation |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | controls cold-PASS; rolling4L median8.04% slower and finite5L first pair13.43% slower than Ready; checkpoints56–61% smaller | Bounded observational prefix-wait/dispatch-credit attribution; no new publication authority |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; selected-owner Ready/Epoch and new lookahead cold-All PASS; full67 preparation audited; standalone3822 generation censored | Prepare data-only optimized selected-A1 four-loop and existing hot-five matched plans; complete installed-Python smoke planning |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | native and four-/finite-five lookahead gates PASS; finite traversal32.25% lower at essentially flat CPU, whole charged13.61% lower in one app-opt1 pair | Commit audited opt-in milestone and build fully optimized candidate; qualify against contemporaneous Ready before deployment |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current native/interface/Python/source audits PASS; source-selection ABBA, rolling controls, both limited5L transfers and B1 ablation audited | Selected-sector actual four-loop and profile-diagnostic receipt audits |
-| Integration, resources, profiling and release | root | implementation711b18c5 and measured report7e9a7341 pushed; new selected/profile correctness binaries frozen; production untouched | Evidence-led performance follow-through, audited code commit and qualified campaign setup |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
+| Integration, resources, profiling and release | root | published milestone9cc1acca; lookahead source and evidence ready for audited commit; all pilot groups drained; production untouched | Explicit task-only commit/push, guarded optimized build, then qualified campaign setup |
 
-### Active decision register — refreshed 2026-09-30 15:20 UTC
+### Active decision register — refreshed 2026-09-30 17:22 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -39,7 +39,9 @@ the same experiment after a handoff.
 | B2 support-density order | deferred | Diagnosed coupled-affine classification obstruction; missing IBPs not demonstrated. Reopen only with a separately justified exact geometry change. |
 | Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS. Full production preparation remains unmeasured. |
 | S5 typed merge/shared lookup/rolling prefix | delivered, performance unqualified | Cold controls pass, smaller checkpoints; contemporaneous Ready comparisons fail speed gate. |
-| Prefix wait / dispatch-credit diagnosis | active | Observational-only patch authorized after independent review. Phase-biased returned-tail samples support measurement, not an escrow/partial-source redesign. |
+| Prefix wait / dispatch-credit diagnosis | delivered | Off/on cold-All and strict mathematical-state comparison PASS. Measured95.841/97.712s credit-blocked; bounded slow-job correlation has explicit limits. |
+| Bounded whole-result lookahead | implemented; four-/finite-five cold-All PASS; optimized qualification pending | Native retry1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Four-loop traversal neutral, +0.19% inspections. Finite-five E1024 traversal182.661→123.745s, whole charged431.641→372.889s, +0.74% inspections/+1.60% edges, CPU essentially unchanged. One app-opt1 pair supports the mechanism, not the optimized1.5x deployment gate. |
+| A1 selected-owner programs with Epoch | delivered | Same16owner/508route/58query input passed CP6 cold-All;16,932inspections/25,945domains. Correctness integration, not qualified speed superiority. |
 | cut1 cross-job-coalescing remedy | rejected | September29 cold-PASS control barely changed Route count and slowed down; September30 proposed repeat canceled before launch. |
 | oldest-ready / blind wider-window / adaptive-dispatch sweep | rejected | Preserved work explosion or negative timing; require a new causal mechanism before reopening. |
 | CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
@@ -47,11 +49,298 @@ the same experiment after a handoff.
 | Hot traversal-heavy saved-rule control | prepared, not launched | Data-only plan validated; native grant depends on diagnostic results and a concrete remedy. |
 | Production deployment | pending | No LC2 mutation. Source work gain is real, but no qualified new Epoch launch recipe or20-core demonstration. |
 
-**Current implementation milestone:** `711b18c5`, committed and pushed to
-`origin/fable_5_1_parallel` at11:33 UTC on2026-09-30 after native, Python and
-independent receipt/scope audits. Only unrelated user work remains outside this
-commit. Optimized matched performance qualification and final campaign setup
-are still open; this is not a deployment recommendation or goal completion.
+**Current implementation milestone:** `9cc1acca`, committed and pushed to
+`origin/fable_5_1_parallel` on2026-09-30 after native, installed-Python and
+selected four-loop cold verification audits. It adds selected-sector generation
+and private bounded Epoch observations to the earlier711b18c5 architecture.
+Unrelated user work remains outside the commit. Optimized matched performance
+qualification and final campaign setup are still open; this is not a deployment
+recommendation or goal completion.
+
+### Historical resource handoff — 2026-09-30 16:49 UTC
+
+- [M] Library-test-only rebuild remains live under group3937511, no compiler
+  error. Root has not interrupted it. `s5_fixed_work_pilots` owns the already
+  granted guarded full-library retry after successful build and complete drain.
+- Independent reviewer rehashed the frozen CLI and all four bound screen
+  plans, checked unchanged inputs, resource isolation and explicit cold-All
+  commands, and accepted the9/9 interface receipt. No screen has started yet.
+- `runtime_order_pilots` has a **conditional** grant for the four-loop E0/E32
+  pair only: require corrected library success, drained test group and explicit
+  independent acceptance first. Each arm retains the inclusive1800s boundary,
+  existing locks and CPUs32–47. Finite-five requires a further root grant.
+- [E] The scheduling hypothesis is overlap of separated slow prefixes, not
+  an assertion that Epoch is now faster. Extra lookahead may increase obsolete
+  work and cannot reduce initialization/cold verification by itself. Both total
+  native-plus-cold cost and work inflation decide the next step; no busy-core
+  observation or smaller diagnostic wait bucket constitutes qualification.
+- [E] Scale of that isolated opportunity: the instrumented finite control used
+  272.214s native plus159.209s cold-All. Hypothetically deleting all95.841s
+  classified credit waiting, with everything else fixed, gives1.286x whole-
+  boundary speedup (22.2% less time), versus2.104x for its182.654s traversal
+  alone. These are arithmetic ceilings for this isolated measured component,
+  not speed predictions or universal bounds on the architecture. Additional
+  work/preparation savings would be needed for the1.5x overall deployment gate.
+  This saved-rule control includes no new IBP generation.
+
+Native retry handoff (16:56UTC): the test-only rebuild passed0/null in803.4221s,
+Cargo13m20s, peak single-child RSS20,279,880KiB; its complete process group has
+drained. Agent `s5_fixed_work_pilots` discovered the library-test executable
+from CargoJSON and launched the authorized1241-test retry under
+`escrow-native-tests-retry`, unchanged50-core affinity and heavy/pilot locks.
+The frozen solver CLI remains unchanged. Compilation is excluded from every
+campaign timing. Independent acceptance and the first comparison are pending.
+
+Native retry result (16:59UTC): **1229 passed,0failed,12 intentional ignored**,
+0filtered,116.60s library time; guarded exit0/no stop reason in117.1803s.
+Evidence:`escrow-native-tests-retry/{request,result,child}.json` and`stdout`.
+The12 ignored tests are unchanged explicit external-fixture/scale/exploration
+tests, not license/worker-count skips. All five controller escrow tests pass,
+including the corrected stale/quarantine fixture; pool, memory, periodic-resume
+and W50 transfer tests pass. Interfaces remain9/9PASS. The original failing
+receipt remains retained, not overwritten. No runtime source changed during
+the correction. Independent process-drain acceptance precedes the screen.
+
+### First lookahead campaign pair — 2026-09-30 17:03 UTC
+
+- [M] Both selected-A1 four-loop arms completed without censoring and passed
+  the registered independent cold-All gate for all58 required queries and32
+  roots. Same frozen `d68ada…319b` app-opt1 CLI,16 workers, CPUs32–47,
+  base76/cut16/FIFO/snapshot/G2 Union/h0. Evidence:
+  `order-pilot-plans/escrow-next/runs/{e0,e32}-r1/four-all/`.
+- [M] E0:9.372s native +11.150524s cold +1.141054s secondary diagnostic;
+  25,945 domains,16,932 inspections,481,213 edges. Strict historical/new E0
+  durable mathematical state and physical lookup/verification counters match.
+  This comparison does not claim byte identity for typed record payloads.
+- [M] E32:8.562s native +11.144431s cold +1.137377s secondary diagnostic;
+  25,948 domains,16,964 inspections,481,694 edges. The mechanism issued448
+  extra jobs, reached108/108 logical slots and20,894,936 retained buffer bytes
+  against the256MiB admission threshold, with no measured byte overshoot.
+  All queued/computing/reserved/result inventories drained at completion.
+- [E] Traversal5.187941→5.210677s is essentially neutral. The roughly0.81s
+  launcher-inclusive difference is not demonstrated engine acceleration in a
+  single small control. Work inflation is small (32 additional inspections,
+  approximately0.19%). This is a correctness/integration screen, not the
+  optimized1.5x performance gate or a production campaign recommendation.
+- Root conditionally authorized the preregistered finite-five E0/E1024 pair
+  after independent review and complete drain of the four-loop pair. Scope
+  remains one1,324-point query using67 saved owners/8,246 routes, not the116
+  production queries. Each arm retains its1800s inclusive pilot allowance;
+  production and source generation remain untouched. Agent
+  `runtime_order_pilots` owns execution, `release_correctness_audit` reviews
+  evidence independently, and root coordinates resources and interpretation.
+
+Finite control launch (17:04:28.929UTC): independent four-loop safety review
+accepted all receipts and verified every owned group drained. Agent
+`runtime_order_pilots` started the authorized finite-five E0 baseline under
+`escrow-next/runs/e0-r1/five-finite`, collector group57163/native group57165,
+same frozen CLI and reserved CPUs32–47. Startup is verifying the existing8,246
+routing maps. No new rules are generated; source and production remain
+untouched. The E1024 arm follows only after this baseline's full cold gate and
+historical flag-off identity check. The finite comparison has no result yet.
+
+Finite baseline accepted (17:13UTC): native274.294s, preparation84.942s,
+traversal182.661s, cold-All156.206282s and secondary1.141144s; charged phase
+sum431.641426s. It reproduces749,157 inspections,919,534 domains and6,978,690
+edges with no pending work, errors or frontiers. Cold-All replays every native
+inspection and closes the one required query/root. Independent review accepts
+the strict historical/new E0 mathematical-state and physical lookup/verify
+comparison. Cached closure refresh/timing and declared format differences are
+not authority differences; typed-record byte identity is not claimed. Native
+CPU631.035s and sampled own activity2.307/16 cores include preparation; foreign
+activity averaged0.203 cores. All baseline groups drained before the next arm.
+
+E1024 launched17:12:55.137UTC under the existing conditional grant, collector
+group168057/native group168060, evidence`escrow-next/runs/e1024-r1/five-finite`.
+Same frozen program/input/resource settings; total logical allowance1100,
+base76 and256MiB returned-buffer admission threshold. This arm is still
+running, not an accepted closure or speed result. Source remains frozen.
+
+### Lookahead finite-five result — 2026-09-30 17:22 UTC
+
+- [M] E1024 completed naturally and passed independent cold-All:754,706
+  inspections replayed,925,732 domains,7,090,301 edges, the one required
+  query/root closed, zero uncovered obligations/errors/frontiers. The separate
+  Python transport diagnostic remains honestly INCOMPLETE; it is not the
+  closure authority. Auditor verified receipts and all owned groups drained.
+- [M] E0→E1024 native274.294→214.555s; preparation84.942→84.873s;
+  traversal182.660534→123.744910s; cold156.206282→157.196070s. Including the
+  secondary diagnostic, charged total431.641426→372.888661s (13.61% lower).
+  Native+cold alone430.500282→371.751070s. Compilation and manual gaps are
+  not included in these phase sums; both inclusive arm clocks were<1800s.
+- [M] Waiting97.835→37.936s accounts for almost all59.739s native reduction.
+  Native CPU631.035→632.496s (+0.23%), inspections+0.74%, domains+0.67%,
+  edges+1.60%. Sampled whole-invocation own cores2.307→2.967; foreign mean
+  0.203→0.281. This is real overlap evidence, not20-core saturation.
+- [M] Extra dispatch credits were used525,512 times, not525,512 additional
+  total inspections. Peak logical inventory1100/1100; retained capacity
+  32,614,280B below256MiB; zero overshoot or inventory remaining at drain.
+  Groups168060/240006/257788 absent and locks free17:20:06UTC.
+- [E] This clears the preregistered causal screen: useful total improvement
+  with little work inflation. It does **not** establish optimized performance,
+  the1.5x Epoch-over-Ready gate, full116-query closure or a production switch.
+  Root will commit the audited opt-in implementation, then qualify with one
+  fully optimized frozen executable and contemporaneous matched baselines.
+  Source remains frozen; production remains untouched.
+- Agent `s5_fixed_work_pilots` performed a bounded read-only review of whether
+  existing helper preparation is a justified next control: P1≈30s, P2≈33s,
+  P3≈9s and boundary≈13s now dominate residual traversal. No new source work,
+  CAS implementation, blind sweep or competing benchmark is authorized. The
+  existing h2 mechanism is testable, but tiny source tasks remain about17µs
+  and even halving source+reverse cost would save only about4% of the current
+  whole boundary before overhead. Defer this optional single falsifier until
+  the optimized profile; prioritize the existing traversal-heavy comparison.
+- `runtime_order_pilots` now owns **data-only** preparation of matched optimized
+  Ready/E1024 h0 controls for selected-A1 combined four-loop and the unchanged
+  hot-five query, initially W16/CPUs32–47. Binary/hash must remain unbound until
+  root freezes the build. The agent also plans an actual freshly built public
+  Python escrow smoke; existing steering tests are not claimed as that run.
+  No further solver run or build has been authorized to an agent.
+
+### Integration and live observation — 2026-09-30 16:07 UTC
+
+- [M] The sole owned heavy experiment is the fresh A1 standalone3822 source
+  generation under `order-pilot-plans/selected-runtime-next/standalone3822`.
+  It started15:51:29UTC; at16:03:48 it had used12m11CPU in12m18wall,
+  RSS1,240,212KiB, no error or completed shard. A single selected sector uses
+  roughly one core despite the16-core reservation; this is not a scaling test.
+  Its generation stop is16:13:59; total preparation/drain/load budget ends
+  by16:21:29. Author`runtime_order_pilots` monitors the existing guard. No
+  compilation or second heavy experiment is authorized while it runs.
+- [M] Escrow API/scalar5/CLI/Python source integration is ready for native
+  validation;33 focused Python steering tests passed. Root measurement gates
+  now distinguish base window from total logical capacity and retain the
+  explicit byte allowance. All33 CP6 diagnostic/receipt unit tests pass:
+  `/nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
+  -B -m unittest discover -s tools/research/epoch_cp6 -p 'test_*.py'`.
+  These are synthetic/steering tests, not native execution or performance.
+- Independent reviewer`release_correctness_audit` caught a diagnostic-reader
+  mismatch between native scalar spelling`oldest-prefix` (omitted by default)
+  and summary spelling`oldest_sequence_prefix`. Root fixed normalization and
+  added an omitted/explicit-default regression. No native authority was weakened.
+  The pool author is also testing rejection of duplicate logical keys after
+  recycling a physical slot. Root owns runtime/public base-to-total glue;
+  `s5_fixed_work_pilots` owns execution/RAII/lifecycle, and`runtime_order_pilots`
+  owns request/steering/checkpoint/cold adapters. Native compile remains pending.
+- [E] User status clarification: not every original Fable/Opus avenue has been
+  exhausted. N1 modular witnesses, broader N2 geometry allocation removal,
+  N4 coverage-first work, NUMA/memory tiering and helper-scope alternatives
+  remain deferred/unqualified under their recorded reopening conditions.
+  Current two-track focus is intentional, not a claim these avenues failed.
+- [M] Epoch is not universally slower: historical W6 individual4L native+cold
+  FG27.178→24.161s, BMW44.385→40.403s, H27.966→26.415s, X56.000→70.813s.
+  These are one pair each on an older frozen build, with some gains in cold
+  verification, not qualification of the latest architecture. Current optimized
+  W16 combined4L medians22.429834→24.233158s and finite5L318.0429666→360.7542972s
+  still favor Ready. Current comparisons use equal total physical-core budgets;
+  role allocation differs. No current scaling curve or200-core gain is claimed.
+  Today's fallback choice remains Ready16/G2Union; deployment remains postponed.
+
+Standalone generation disposition (16:14UTC): **censored**, no candidate bundle,
+report or completed sector shard; retained checkpoint metadata alone is not a
+completed sector. Generation guard wall1350.620102s, outer deadline exit124;
+preserved inner guard exit-9/reason`operator_signal_2` comes from the scheduled
+deadline, not a user stop. Last direct native sample at22m02elapsed had21m49CPU
+and1,427,840KiB RSS (~1.46GB); this is an observation, not an exact whole-run CPU
+or peak-RSS receipt. Guard child accounting0CPU/12MB concerns the launcher and
+must not be attributed to the solver. Process group3222656/native3222657 absent;
+heavy/pilot locks independently checked free16:14:25. No cold load was attempted
+without output. Full67 A1 regeneration affordability remains unknown; historical
+source-policy artifacts were not substituted. The existing profile is app-opt1,
+so this censoring does not establish an optimized matched speed comparison.
+
+Escrow final source review (16:15UTC): independent reviewer found no current
+runtime authority blocker. Tests now cover positive-extra held-prefix dispatch,
+all logical statuses at stop, cancellation after P1 consumes result bytes,
+late/duplicate slot messages, stale and quarantined results, and W1 effective
+cut1 despite a larger declared total. A direct periodic-generation inventory
+check was added and independently reviewed before source freeze. Actual returned-but-unmerged
+monitor counts include recycled returned statuses, not an inference that would
+mislabel restored or not-yet-submitted reservations. Native metadata/execution
+remain pending; no extra-capacity speed claim.
+
+Native build gate (16:19:54UTC): both guarded release metadata checks pass,
+`escrow-check`29.1685s and`escrow-check-final`27.1562s, app/Python including test
+targets; no compiler errors. Final check includes the direct periodic-generation
+decode regression. Exact commands and nonsecret environment/resource settings
+are in each evidence directory's`request.json`. Root has now started
+`escrow-native-build` with the same optimized core and app-opt1 correctness
+profile, CPUs0–15, heavy/build locks,8build workers, minimum250GiB start/150GiB
+run host headroom. Targets are app library, CLI, routed-CLI and application API
+tests. Compilation is separate from pilot timings. Source is frozen; production
+CPUs128–227 and all LC2 files remain untouched.
+
+Next registered causal screens (not launched): selectedA1 four-loop E0/E32,
+then finite5 E0/E1024, base76/cut16/W16/snapshot/FIFO/G2Union, explicit256MiB
+returned-buffer admission allowance when enabled. The first is a small-work
+integration screen. The finite allowance is chosen from measured heavy-tail
+sequence gaps981/1064 in`PROFILE_EXTRACTION.json`correlations0/2/1, not a blind
+capacity grid. These selected top-window correlations are not representative;
+new reservations may change the sequence and inflate work. Full cold-All,
+logical/byte bounds, total blocking, traversal and whole-command-plus-cold time
+must be examined. A smaller credit-blocked diagnostic bucket alone is not a
+gain (byte-blocked waits are classified separately from full logical capacity).
+Root authorizes no pilot before native lifecycle tests and independent review.
+These app-opt1 screens cannot qualify the optimized1.5x deployment gate.
+Data-only screen preflight was independently accepted: the four active plans
+under`order-pilot-plans/escrow-next` retain identical owner/query/routing inputs
+and resource policy; the finiteE1024 plan hash is
+`05db01a54df723c8a3ba68ca70ad304ca984cc5e8690308aac8fb7efad3b7d25`.
+Binary paths/hashes remain deliberately unbound. The finiteE32 proposal is
+superseded and unrun, not another arm awaiting a sweep. Observational profiling
+is disabled equally, so comparisons must use always-on total blocking and
+whole native+cold costs, not treat an absent profile-specific bucket as zero.
+Inspection of diagnostic accounting confirms logical peak is updated immediately
+after dispatch (before cancellation can skip a loop). Shared returned-buffer
+peaks are exported through observations: a normal drain observes their final
+values, but stopped/error arms may miss late-return activity during join and
+must label those exported values as lower bounds. This is a reporting caveat,
+not lost checkpoint work; it is now explicit in the campaign-driver docs.
+
+Execution handoff (16:25UTC): root's native build guard session90635 owns process
+group3652085 and heavy/build locks, source remains frozen. At5m19s two compiler
+processes were active, no compiler errors; compilation is not a solver timing.
+`s5_fixed_work_pilots` has conditional authorization, only after successful
+build/group drain, to execute the discovered app library test binary with one
+test thread and physical CPUs32–81, strict license availability, existing heavy/
+pilot locks and900s test timeout plus30s drain; routed-CLI/application API tests
+follow sequentially. Report failures before any code repair or rebuild. Root
+remains resource coordinator and final verifier. Neither this conditional test
+grant nor the prepared screen plans authorize a production or performance run.
+
+Native execution checkpoint (16:39UTC): compilation passed in1010.5037s
+guarded (Cargo16m47s), peak single-child RSS19,676,128KiB, minimum host available
+638,510,120,960B. The CLI is frozen read-only at`escrow-bin/rustred`, SHA256
+`d68ada4577ccd71489375d536134a30a0a6b3c0ed10d1f3ec6fb98ffc56c319b`.
+The first native library run completed normally with1228passed/1failed/12ignored
+in116.45s; guard117.18s. No license/W50 skip markers; audited affinity is50
+physical cores. The fail-fast driver did not execute interface suites.
+
+The failure is in the new synthetic stale/quarantine test: its positive stored
+target had all-zero lookup/verification counters, so P2 correctly rejected the
+malformed fixture before the intended quarantine check. Root, author and
+independent auditor checked`merge::lookup_accounting` and the existing
+preparation fixture. A minimal **test-only** correction sets one exact hit and
+one verified raw inclusion; the expected quarantine error,16 preceding accepted
+records and poisoned-state assertions remain unchanged. No engine guard or
+algorithm is weakened. The original failure receipt is retained. Other new
+held-prefix, byte-budget, W1, periodic/P1 restore, memory and slot-generation
+tests passed. Next: run the existing interface executables, rebuild only the
+corrected library-test target, rerun that gate, then independently review before
+granting any pilot. The frozen CLI need not be regenerated for a cfg(test)-only
+fixture change. Production and prepared pilot outputs remain untouched.
+
+Follow-through (16:42UTC): independent review confirmed the fixture correction
+matches actual stored-hit accounting. Interface-only execution now passes:
+`cli_routed_campaign`6/6 and`application_api`3/3,0ignored/skipped,6.142s guard,
+group3931890 drained. The failed full-library run still remains in evidence;
+its focused outcomes were controller escrow4PASS/1fixturefailure, pool escrow
+2PASS, memory1PASS, inspector/controller profiling10PASS, plus successful public
+binding/summary/monitor tests. Root started`escrow-lib-rebuild` at16:42:41UTC,
+same release profile, build affinity0–15 and guarded resources, **library-test
+target only**. Source stays frozen until the corrected test executes. These
+are correctness gates, not performance pilots, and no live campaign was aborted
+or otherwise touched in response to the user's status questions.
 
 First-slice design audit (05:55 UTC): both tracks received a preliminary GO,
 not approval of unimplemented code. Ordering uses a shared immutable validated
@@ -1270,6 +1559,77 @@ each remains bounded by1800s including preparation and drainage. Results are
 causal observations in the correctness profile, not production speed evidence.
 No new scheduler or partial-source publication change is authorized by the
 earlier phase-biased samples alone.
+
+[M] Independent file-level comparison additionally confirms all16 fresh
+selected owner payloads are byte-identical to their prior full-root A1 outputs,
+5,128,567bytes in total. No old payload was used to fill new output. Thus this
+control avoided626 unused solver jobs while preserving the delivered programs;
+the equality is observed here, not a universal binary-dump determinism promise.
+Implementation/docs are committed and pushed as9cc1acca. The finite-five
+diagnostic off arm started15:25:30UTC; no deployment action followed the push.
+
+[M/D] The independently audited TMP-only production materializer reproduces
+identical prepared inputs twice: all67owners,8,246routes and original183query
+geometries survive, with explicit116required/67auxiliary roles and unchanged
+loader budgets. Only the new manifest assigns owner66 to its recovered31740
+parent; original files remain unchanged. Caller RAM750GB is accepted and its
+external guard requirement is explicit. No full67generation was launched.
+The small native-order inspector has fixed study budgets, so the standalone
+owner's separately prepared public-loader fallback proves load/classification
+only—not expected-order binding or closure. This contingency must not be
+silently promoted to a stronger gate. Workspace formatting check also passes.
+
+[M] The profiling-off finite control naturally drained (expected CP6-summary
+exit4, uncensored), then cold-All passed in159.202s:749,157native cases,
+919,534domains,6,978,690edges, one required query/root and zero uncovered/errors.
+Those work counts match the prior optimized prefix control, but these opt1
+timings are not an optimized comparison. Profiling-on, durable-state comparison
+and causal analysis are pending. After that pair, preserve a small joint gate:
+run the identical newly generated A1 four-loop owner files through Epoch, not
+just Ready. This is additional integration/work evidence, not a new build or a
+blind scheduling sweep.
+
+[M/E] The profiling-on native run drained. Its independently checked small
+summary attributes95.84112845s of97.712257653s blocking polls (98.09%) to the
+exact credit-blocked start-state predicate. Wait-sampled means are2.631 computing
+workers and72.816 returned results; these are not CPU utilization measurements.
+The retained32 blocker windows cover only17.538s. Nineteen windows match retained
+slow jobs and cover13.560s; all are Apply jobs,18 wholly after the first event and
+16 wholly after the first Admit. Do not extrapolate early emission to the full
+97.7s or treat first Admit as useful new work. This is enough evidence to review
+one bounded completed-whole-result credit mechanism, not to implement partial
+source publication or promise a speedup. Profiling-on cold verification and
+strict paired durable-state comparison remain pending. Author and independent
+auditor are reviewing count/byte/snapshot/restore bounds and the risk of extra
+native work from reserving tasks that later containment could have avoided.
+
+[M/D] The entire off/on pair now passes independent audit. Both cold-All gates
+check749,157native cases and close the sole required query/root, with equal
+919,534domains and6,978,690edges. Exact geometry, inspected/sealed state, ledger,
+ordered dependencies, anchors, logical-record digests and physical lookup/verify
+counters match. Cached periodic closure bit/timings are observational; raw typed
+record files are not claimed byte-identical. All six owned groups drained.
+Evidence: `profile-diagnostics/{RESULTS.json,OFF_ON_STATE_COMPARISON.json,
+PROFILE_EXTRACTION.json}` under the S5 follow-through directory. Root grants the
+separately audited selected-A1/Epoch four-loop joint check next, W16/CPUs64–79.
+The proposed credit mechanism remains design-only pending independent review:
+total logical capacity must increase (or reservations be safely eliminated),
+not merely physical slots be recycled. Extra lookahead is a measured, bounded
+experiment with possible work inflation, not guaranteed free parallelism.
+
+[M/D] The joint selected-A1/Epoch control passes its CP6 raw cold-All gate:
+58/58required queries,32/32roots,16,932native inspections,25,945domains and
+481,213edges, with no uncovered/errors/frontiers/pending work. Native summary
+exit4 and secondary Python INCOMPLETE remain explicit; the accepted authority
+is the raw checkpoint cold result. Native9.388s and cold11.152s are opt1 control
+receipts, not a new deployment speed claim. All three owned groups drained.
+Evidence: `order-pilot-plans/selected-runtime-next/four-selected-epoch/`.
+Root then grants the already prepared single-owner3822 A1 generation/load
+probe: frozen859698, exact production generation policy, one actual selected
+job on reservedW16/CPUs64–79,1350s generation plus load/drain within1800s.
+It started15:51:29UTC. Its checkpoint is completed-sector granularity; retaining
+an unfinished manifest does not promise restart inside an interrupted solve.
+No full67-owner production generation or campaign action is authorized.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

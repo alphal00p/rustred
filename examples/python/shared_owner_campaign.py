@@ -1055,7 +1055,8 @@ def main() -> int:
                                        args.publication_policy, args.checkpoint is not None or args.resume is not None)
         DOMAIN.validate_epoch_batch(args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
                                     args.epoch_rolling, symbolic, args.publication_policy,
-                                    args.checkpoint is not None or args.resume is not None)
+                                    args.checkpoint is not None or args.resume is not None,
+                                    args.epoch_result_escrow_jobs, args.epoch_result_escrow_bytes)
         DOMAIN.validate_epoch_preparation(vars(args), symbolic, args.publication_policy,
                                           args.workers, args.inspection_workers, args.max_containment_checks)
         validate_g2_residual_anchors(args.g2_residual_anchors, args.transfer_unreserved_lookahead,

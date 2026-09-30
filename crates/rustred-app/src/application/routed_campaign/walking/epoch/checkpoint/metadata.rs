@@ -32,6 +32,8 @@ pub(super) struct Identity<'a> {
     epoch_cut_size: usize,
     epoch_publication_order: OwnerDomainWalkEpochPublicationOrder,
     requested_window: Option<usize>,
+    epoch_result_escrow_jobs: usize,
+    epoch_result_escrow_bytes: Option<usize>,
     adaptive: bool,
     preparation: Preparation,
     amendments: Vec<super::super::super::rescue::Parsed>,
@@ -91,6 +93,8 @@ impl<'a> Identity<'a> {
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
             epoch_publication_order: request.epoch_publication_order,
             requested_window: request.epoch_window,
+            epoch_result_escrow_jobs: request.epoch_result_escrow_jobs,
+            epoch_result_escrow_bytes: request.epoch_result_escrow_bytes,
             adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
             preparation: Preparation::from_request(request),
             amendments,
@@ -101,7 +105,7 @@ impl<'a> Identity<'a> {
     /// arrays. Aggregate allowances may change between sessions, but the
     /// saved arena must fit both its saved and the requested domain limits.
     pub(super) fn validate_saved(&self, saved: &OwnedScalars, lockstep_b: usize) -> io::Result<()> {
-        if saved.schema != 4 {
+        if saved.schema != 5 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported private epoch scalar version; fresh state required",
@@ -159,9 +163,12 @@ impl<'a> Identity<'a> {
             || saved.lockstep_b != lockstep_b
             || saved.epoch_rolling != self.epoch_rolling
             || saved.epoch_publication_order != self.epoch_publication_order
+            || saved.epoch_result_escrow_jobs != self.epoch_result_escrow_jobs
+            || saved.epoch_result_escrow_bytes != self.epoch_result_escrow_bytes
+            || self.epoch_base_window(lockstep_b)? != saved.epoch_base_window
             || self
                 .requested_window
-                .is_some_and(|window| window != saved.lockstep_b)
+                .is_some_and(|window| window != saved.epoch_base_window)
             || (if saved.epoch_rolling {
                 saved.epoch_cut_size != self.epoch_cut_size
             } else {
@@ -305,6 +312,21 @@ impl<'a> Identity<'a> {
 
     pub(super) fn epoch_cut_size(&self) -> usize {
         self.epoch_cut_size
+    }
+
+    pub(super) fn epoch_result_escrow_jobs(&self) -> usize {
+        self.epoch_result_escrow_jobs
+    }
+
+    pub(super) fn epoch_result_escrow_bytes(&self) -> Option<usize> {
+        self.epoch_result_escrow_bytes
+    }
+
+    pub(super) fn epoch_base_window(&self, total: usize) -> io::Result<usize> {
+        total
+            .checked_sub(self.epoch_result_escrow_jobs)
+            .filter(|&base| base > 0 && total <= 4096)
+            .ok_or_else(|| invalid("invalid Epoch base/escrow reservation bounds"))
     }
 
     pub(super) fn epoch_publication_order(&self) -> OwnerDomainWalkEpochPublicationOrder {
@@ -482,6 +504,10 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub preparation: Preparation,
     pub record_schema: u32,
     pub lockstep_b: usize,
+    pub epoch_base_window: usize,
+    pub epoch_result_escrow_jobs: usize,
+    #[serde(deserialize_with = "serde::Deserialize::deserialize")]
+    pub epoch_result_escrow_bytes: Option<usize>,
     // Omitted for legacy lockstep CP6 bytes. Rolling binds the original cut
     // size independently of the persisted, worker-width-independent window.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -539,6 +565,16 @@ fn is_zero(value: &usize) -> bool {
 impl Inputs<'_> {
     pub fn validate<const N: usize>(&self, boundary: &MergeBoundary<'_, N>) -> io::Result<()> {
         let state = boundary.state;
+        let base = self.identity.epoch_base_window(boundary.lockstep_b)?;
+        if self
+            .identity
+            .requested_window
+            .is_some_and(|requested| requested != base)
+        {
+            return Err(invalid(
+                "epoch save base window differs from requested window",
+            ));
+        }
         if boundary.dispatch.adaptive.is_some() != self.identity.adaptive {
             return Err(invalid("epoch adaptive dispatch policy/state differs"));
         }
@@ -684,7 +720,7 @@ impl Inputs<'_> {
         self.validate(boundary)?;
         let state = boundary.state;
         let scalars = Scalars {
-            schema: 4,
+            schema: 5,
             request: self.identity.request.as_str(),
             owner_count: self.identity.owners.len(),
             owners_digest: self.identity.owners_digest,
@@ -692,6 +728,9 @@ impl Inputs<'_> {
             preparation: self.identity.preparation,
             record_schema: super::super::records::wire::RECORD_SCHEMA,
             lockstep_b: boundary.lockstep_b,
+            epoch_base_window: self.identity.epoch_base_window(boundary.lockstep_b)?,
+            epoch_result_escrow_jobs: self.identity.epoch_result_escrow_jobs,
+            epoch_result_escrow_bytes: self.identity.epoch_result_escrow_bytes,
             epoch_rolling: self.identity.epoch_rolling,
             epoch_cut_size: if self.identity.epoch_rolling {
                 self.identity.epoch_cut_size

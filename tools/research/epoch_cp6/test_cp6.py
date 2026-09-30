@@ -141,6 +141,31 @@ class PredicateTests(unittest.TestCase):
         self.assertEqual(result["python_audit"], "INCOMPLETE")
         self.assertFalse(result["full_result_proof"])
 
+    def test_escrow_schedule_exposes_both_bounds_without_widening_the_cut(self):
+        plan = {"b": 108, "schedule": {
+            "kind": "rolling", "depth": 7, "b": 108, "window": 76, "cut_size": 16,
+            "publication_order": "oldest_sequence_prefix", "dispatch": "fifo",
+            "result_escrow_jobs": 32, "result_escrow_bytes": 1 << 20}}
+        self.assertEqual(expected_schedule(plan), plan["schedule"])
+        for field, bad in (("result_escrow_jobs", 0), ("result_escrow_jobs", True),
+                           ("result_escrow_jobs", 31), ("result_escrow_bytes", 0),
+                           ("result_escrow_bytes", True), ("result_escrow_bytes", 1 << 64),
+                           ("window", 108), ("cut_size", 77), ("depth", 5),
+                           ("publication_order", "oldest_ready_sequences"), ("kind", "lockstep")):
+            changed = copy.deepcopy(plan)
+            changed["schedule"][field] = bad
+            with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                expected_schedule(changed)
+        for field in ("result_escrow_jobs", "result_escrow_bytes"):
+            changed = copy.deepcopy(plan)
+            del changed["schedule"][field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                expected_schedule(changed)
+        inline = copy.deepcopy(plan)
+        inline["b"] = 33
+        inline["schedule"].update(b=33, window=1, cut_size=1, depth=33)
+        self.assertEqual(expected_schedule(inline), inline["schedule"])
+
     def test_fail_closed_mutation_matrix(self):
         cases = [(0, ["exit_code"], 0), (0, ["censored"], True), (0, ["stop_reason"], "time_limit"),
                  (0, ["runner_error"], "failed"), (0, ["killed_after_grace"], True),
@@ -331,6 +356,47 @@ class FileReceiptTests(unittest.TestCase):
             "publication_order": "oldest_sequence_prefix", "dispatch": "fifo"})
         plan["native_argv"] += ["--epoch-rolling", "--epoch-cut-size", "16"]
         self.assertEqual(validate_plan(plan)["b"], 1)
+
+    def test_escrow_argv_must_match_explicit_base_total_and_byte_policy(self):
+        plan = copy.deepcopy(self.plan)
+        plan.update(b=108, checkpoint_schema=3, schedule={
+            "kind": "rolling", "depth": 7, "b": 108, "window": 76, "cut_size": 16,
+            "publication_order": "oldest_sequence_prefix", "dispatch": "fifo",
+            "result_escrow_jobs": 32, "result_escrow_bytes": 1048576})
+        plan["native_argv"] += ["--epoch-rolling", "--epoch-window", "76", "--epoch-cut-size", "16",
+                                "--epoch-result-escrow-jobs", "32", "--epoch-result-escrow-bytes", "1048576"]
+        self.assertEqual(validate_plan(plan)["b"], 108)
+        for flag in ("--epoch-result-escrow-jobs", "--epoch-result-escrow-bytes", "--epoch-window"):
+            for mode in ("wrong", "duplicate", "equals"):
+                changed = copy.deepcopy(plan)
+                argv = changed["native_argv"]
+                index = argv.index(flag)
+                if mode == "wrong":
+                    argv[index + 1] = "1"
+                elif mode == "duplicate":
+                    argv += [flag, argv[index + 1]]
+                else:
+                    argv[index] = flag + "=" + argv.pop(index + 1)
+                with self.subTest(flag=flag, mode=mode), self.assertRaises(ValueError):
+                    validate_plan(changed)
+        for flag in ("--epoch-result-escrow-jobs", "--epoch-result-escrow-bytes"):
+            changed = copy.deepcopy(plan)
+            index = changed["native_argv"].index(flag)
+            del changed["native_argv"][index:index + 2]
+            with self.subTest(missing=flag), self.assertRaises(ValueError):
+                validate_plan(changed)
+        for flag, value in (("--epoch-result-escrow-jobs", "1"),
+                            ("--epoch-result-escrow-bytes", "1048576")):
+            changed = copy.deepcopy(self.plan)
+            changed["native_argv"] += [flag, value]
+            with self.subTest(unregistered=flag), self.assertRaises(ValueError):
+                validate_plan(changed)
+        inline = copy.deepcopy(plan)
+        inline["b"] = 33
+        inline["schedule"].update(b=33, window=1, cut_size=1, depth=33)
+        index = inline["native_argv"].index("--epoch-window")
+        del inline["native_argv"][index:index + 2]
+        self.assertEqual(validate_plan(inline)["b"], 33)
 
     def test_pointer_session_lock_payload_or_new_file_change_refuses(self):
         for name in ("latest.json", "previous.json", "epoch-session.bin", "checkpoint.lock", "epoch-payload.part", "new.part"):

@@ -1,5 +1,6 @@
 use super::*;
 use crate::application::routed_campaign::walking::epoch::snapshot::Publication;
+mod escrow_tests;
 
 struct ReleaseGateOnDrop<'a>(&'a (Mutex<bool>, Condvar));
 impl Drop for ReleaseGateOnDrop<'_> {

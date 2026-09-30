@@ -746,6 +746,12 @@ order (default oldest-prefix); --epoch-cut-size N and --epoch-window N tune
 bounded batching (1..4096). These require rolling Epoch with checkpoint/resume.
 Resume must retain saved publication order and cut; an omitted window inherits
 the saved window. They do not change exact inspection or publication checks.
+--epoch-result-escrow-jobs E with --epoch-result-escrow-bytes N allows bounded
+extra logical reservations behind completed whole results, for rolling
+oldest-prefix CP6 only. Default E=0 keeps the ordinary path. Base window + E
+must not exceed 4096. N is a returned-result admission threshold, not a strict
+RSS cap; running results may overshoot it. No threads or mathematical scope are
+added. These fields are frozen on resume; scalar schema5 requires fresh state.
 Adaptive requires --epoch-rolling and persists its observations and fairness
 state on restart. It does not change algebraic pivots or discard obligations.
 --epoch-preparation-workers N reserves P2 helpers within --workers (zero runs

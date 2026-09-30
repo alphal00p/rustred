@@ -450,6 +450,32 @@ Epoch refreshes the dependency tracker periodically at committed boundaries
 with the existing dirty, duty and cancellation checks. Heartbeat serialization
 is O(1), and saving a checkpoint does not force an additional scan.
 
+Experimental Epoch result escrow is controlled by paired
+`--epoch-result-escrow-jobs E --epoch-result-escrow-bytes BYTES` options in the
+native matcher and Python campaign steering. It requires checkpoint-enabled
+rolling oldest-prefix publication. The default is disabled (`E=0`, no byte
+option); it is not presently a performance-qualified production recommendation.
+The ordinary `--epoch-window B` and publication cut remain unchanged. At a
+blocked prefix with idle inspectors, the scheduler may admit extra work up to
+`B+E` total outstanding jobs, while retaining later completed results. A single
+worker does not issue extra work. All outstanding reservations, including
+completed-but-unpublished jobs, survive checkpointing; disposable result buffers
+are recomputed after restore, not treated as published rules or closure evidence.
+
+The byte option counts the allocated capacity of completed result buffers in
+both worker transport and coordinator storage. It gates extra admissions; it
+does not cap in-progress algebra or decoded merge scratch, and already-running
+jobs may overshoot it. Keep the global RAM guard enabled. Checkpoints bind base
+window, extra count and byte policy explicitly; unsupported older scalar payloads
+are rejected rather than silently upgraded. In monitoring, physical returned
+slots and total finished-but-uncommitted jobs differ when completed jobs release
+their worker slots. The latter includes actual retained completed results, not
+an estimate from the number of outstanding reservations. Extra dispatch, buffer
+peaks and overshoot are recorded in the invocation's Epoch diagnostics.
+For a stopped or failed invocation, those exported buffer observations can
+precede late worker returns during shutdown and are lower bounds, not final
+lifetime peaks. A normally drained invocation observes the completed run.
+
 Presentation and measurement are separate. `campaign_telemetry.py` converts one
 status into a bounded `rustred.campaign-telemetry.v1` frame and appends it to
 the run's `telemetry.jsonl`; `campaign_dashboard.py` consumes that same frame

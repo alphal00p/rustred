@@ -46,11 +46,43 @@ fn activity(started: bool, returned: bool) -> Option<(Activity, Option<Status>)>
 #[test]
 fn missing_sequence_is_in_required_prefix_not_first_issued_or_later_tail() {
     let order = VecDeque::from([3, 8, 12]);
-    let mut results = BTreeMap::from([(3, vec![])]);
+    let mut results: BTreeMap<u64, Vec<u8>> = BTreeMap::from([(3, vec![])]);
     assert_eq!(earliest_missing(&order, &results, 2), Some(8));
     results.insert(8, vec![]);
     assert_eq!(earliest_missing(&order, &results, 2), None);
     assert_eq!(earliest_missing(&order, &results, 3), Some(12));
+}
+
+#[test]
+fn escrow_wait_classifies_logical_credits_not_recycled_pool_slots() {
+    let physical = Some((
+        Activity {
+            computing: 1,
+            occupied: 1,
+            ..Default::default()
+        },
+        Some(Status {
+            key: 8,
+            started: true,
+            returned: false,
+        }),
+    ));
+    let full = WaitSample::capture_with_inventory(
+        false,
+        true,
+        Some(8),
+        16,
+        4,
+        10,
+        physical,
+        Some((16, 15)),
+    );
+    assert_eq!(full.kind, WaitKind::PrefixCreditBlocked);
+    assert_eq!(full.returned, 0);
+    assert_eq!(full.logical_returned, Some(15));
+    let room =
+        WaitSample::capture_with_inventory(false, true, Some(8), 16, 4, 10, physical, Some((8, 7)));
+    assert_eq!(room.kind, WaitKind::PrefixComputing);
 }
 
 #[test]

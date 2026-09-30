@@ -263,6 +263,42 @@ the standalone production override. Full preparation costs remain measured.
   compaction. Cooperative output/RAM limits discard the unpublished cut; they
   never truncate its mathematical obligations or create partial authority.
 
+### Measured S5 follow-through: bounded whole-result lookahead
+
+The September30 profiling-off/on finite control passes independent cold-All and
+durable mathematical-state comparison. In the instrumented correctness-profile
+run,95.841s of97.712s blocking polls meet the full-logical-window, returned-tail,
+idle-inspector and pending-work predicate. This new evidence justifies one
+bounded extra-lookahead experiment after independent design audit; it does not
+qualify Epoch performance or reopen blind ordering/window sweeps.
+
+- Separate physical compute descriptors from completed whole-result storage
+  while preserving oldest-prefix publication and all ordinary P1/P2/P3 gates.
+- Acknowledge the cost honestly: freeing physical descriptors alone cannot
+  help with the same full logical cap. Allow explicit extra logical inventory
+  with both count and returned-byte admission controls, or retain the baseline.
+  Additional reservations may cause redundant work and older snapshots.
+- Default extra inventory to zero. Persist base window, extra capacity and byte
+  policy unambiguously; test interruption, RAM stops, error, late messages and
+  complete replay of all unresolved reservations. No partial-source publication
+  or new mathematical authority is introduced.
+- Count result-channel as well as coordinator-owned buffers. The byte threshold
+  gates extra dispatch; running jobs can overshoot it, so preserve the global
+  RAM guard and do not claim a strict RSS limit from that threshold.
+- Make public controls available through existing Rust/CLI/Python steering
+  interfaces, so later capacity experiments reuse one frozen binary. Keep the
+  existing pending-growth metric unchanged.
+- Test the finite control as a work-inflation/causal falsifier and the selected
+  A1 four-loop owner programs as joint integration. Only a promising result
+  proceeds to optimized matched hot-control qualification. Preserve the1.5x
+  gate and combined four-loop non-regression; allow one evidence-backed
+  correction before parking an unsuccessful remedy.
+
+Root coordinates integration and profiling; the S5 agent owns pool/controller
+lifecycle, the ordering/API agent owns input/binding/checkpoint controls, and an
+independent agent audits authority, resource accounting and measurement claims.
+No new CAS primitive is needed for this scheduling work.
+
 ## Integration, pilots and acceptance
 
 1. Freeze current measured baseline binaries and inputs. Never overwrite LC2

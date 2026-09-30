@@ -2,6 +2,37 @@ use super::*;
 use std::time::Duration;
 
 #[test]
+fn schedule_retains_default_shape_and_separates_base_from_escrow() {
+    use crate::application::routed_campaign::matching::OwnerDomainMatchRequest;
+    let request = OwnerDomainWalkRequest {
+        epoch_rolling: true,
+        ..OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()))
+    };
+    assert_eq!(
+        schedule_json(&request, 76, 76, 16),
+        json!({
+            "kind":"rolling", "depth":5, "b":76, "window":76,
+            "cut_size":16, "dispatch":"fifo", "publication_order":"oldest_sequence_prefix"
+        })
+    );
+    let request = OwnerDomainWalkRequest {
+        epoch_result_escrow_jobs: 32,
+        epoch_result_escrow_bytes: Some(1 << 20),
+        ..request
+    };
+    let extra = schedule_json(&request, 108, 76, 16);
+    assert_eq!(extra["b"], 108);
+    assert_eq!(extra["window"], 76);
+    assert_eq!(extra["cut_size"], 16);
+    assert_eq!(extra["depth"], 7);
+    assert_eq!(extra["result_escrow_jobs"], 32);
+    assert_eq!(extra["result_escrow_bytes"], 1 << 20);
+    let inline = schedule_json(&request, 33, 1, 16);
+    assert_eq!(inline["cut_size"], 1);
+    assert_eq!(inline["depth"], 33);
+}
+
+#[test]
 fn epoch_monitor_reservations_follow_execution_budget_without_duty_timings() {
     use crate::application::routed_campaign::walking::OwnerDomainWalkPublicationPolicy;
     for (workers, explicit, expected) in [
@@ -41,6 +72,16 @@ fn activity_fields_separate_computing_from_returned_and_unknown_inline() {
     assert_eq!(parallel["finished_uncommitted_domains"], 4);
     assert_eq!(parallel["occupied_native_slots"], 9);
     assert_eq!(parallel["activity_observation_age_seconds"], 0.0);
+    let escrow = activity_json(
+        Some(Activity {
+            escrow_returned: 7,
+            ..value
+        }),
+        "p2",
+    );
+    assert_eq!(escrow["returned_inspections"], 4);
+    assert_eq!(escrow["occupied_native_slots"], 9);
+    assert_eq!(escrow["finished_uncommitted_domains"], 11);
     let inline = activity_json(
         Some(Activity {
             queued: 1,

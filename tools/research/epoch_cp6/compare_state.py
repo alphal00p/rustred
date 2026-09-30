@@ -40,11 +40,34 @@ DIAGNOSTIC = {
     "records_digest", "edge_digest", "lookup", "verify", "closure",
 }
 DEFAULTS = {"epoch_rolling": False, "epoch_cut_size": 0,
-            "epoch_publication_order": "oldest_sequence_prefix", "adaptive_dispatch": None}
+            "epoch_publication_order": "oldest-prefix", "adaptive_dispatch": None}
+ESCROW = {"epoch_base_window", "epoch_result_escrow_jobs", "epoch_result_escrow_bytes"}
 
 
 def integer(value, minimum=0):
     return type(value) is int and value >= minimum
+
+
+def escrow_policy(meta):
+    """Compare explicit operational bounds; old measurements had no escrow."""
+    if meta["schema"] != 5:
+        require(not ESCROW.intersection(meta), "escrow fields in an older scalar schema")
+        return {"epoch_base_window": meta["lockstep_b"],
+                "epoch_result_escrow_jobs": 0, "epoch_result_escrow_bytes": None}
+    require(ESCROW <= meta.keys(), "scalar5 escrow fields missing")
+    base, extra, retained = (meta[key] for key in
+        ("epoch_base_window", "epoch_result_escrow_jobs", "epoch_result_escrow_bytes"))
+    require(integer(base, 1) and integer(extra) and base + extra <= 4096
+            and integer(meta["lockstep_b"], 1) and base + extra == meta["lockstep_b"],
+            "escrow logical window differs")
+    if extra:
+        require(meta.get("epoch_rolling") is True
+                and meta.get("epoch_publication_order", DEFAULTS["epoch_publication_order"]) == "oldest-prefix"
+                and integer(retained, 1) and retained <= (1 << 64) - 1,
+                "enabled escrow policy differs")
+    else:
+        require(retained is None, "disabled escrow has a byte budget")
+    return {key: meta[key] for key in sorted(ESCROW)}
 
 
 def file_digest(path, expected_bytes=None, closure_flags=False):
@@ -125,11 +148,12 @@ def capture(directory, queries):
         identities[key] = metadata(paths[key])
     require(REQUIRED <= refs.keys(), "required checkpoint sections missing")
     meta = read(paths["meta"], 1 << 20)
-    require(set(meta) <= LOGICAL | DIAGNOSTIC and LOGICAL - DEFAULTS.keys() <= meta.keys(),
+    require(set(meta) <= LOGICAL | DIAGNOSTIC | ESCROW and LOGICAL - DEFAULTS.keys() <= meta.keys(),
             "scalar fields changed or missing; review comparator")
-    require(meta["schema"] == (4 if schema == 3 else 3)
+    require(type(meta["schema"]) is int and meta["schema"] in ((4, 5) if schema == 3 else (3,))
             and meta["walk_semantics_version"] == semantics
             and (schema != 3 or meta.get("record_schema") == 1), "scalar schema differs")
+    policy = escrow_policy(meta)
     ledger = meta["ledger_counts"]
     require(isinstance(ledger, list) and len(ledger) == 8 and all(integer(n) for n in ledger)
             and ledger[0] == ledger[1] == 0, "comparison requires drained, unreserved checkpoints")
@@ -176,6 +200,7 @@ def capture(directory, queries):
     semantic["query_file"] = file_digest(queries)
     semantic["arity"] = manifest["arity"]
     semantic["logical_metadata"] = {key: meta.get(key, DEFAULTS.get(key)) for key in sorted(LOGICAL)}
+    semantic["escrow_policy"] = policy
     closure = meta["closure"]
     semantic["closure_facts"] = {key: closure[key] for key in ("initial", "unavailable", "inspected")}
     for key, ref in refs.items():

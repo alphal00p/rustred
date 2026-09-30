@@ -468,6 +468,13 @@ Their phase times sum to25.704s in the correctness profile; this is **not** a
 speed comparison with the optimized full-downset measurements. Evidence:
 `order-pilot-plans/selected-runtime-next/four-selected/`.
 
+A subsequent read-only comparison, independently audited, found all16 fresh
+owner payloads byte-identical to the full-root A1 outputs (5,128,567bytes total).
+Generation/staging used only fresh checkpoints. This is stronger evidence for
+these particular files, not a promise of generally byte-stable Symbolica dumps.
+The selected path avoided626 unused sector solves without changing the delivered
+owner programs in this control.
+
 The new diagnostic executable is frozen at
 `859698b6c40da017009cb9e2454a5b008dd49dd595d5d9411e455daed9c42778`
 (`selected-profile-bin/rustred` in the current evidence directory). Its app crate
@@ -505,22 +512,177 @@ Both fresh execution and restored-checkpoint tests compare mathematical state
 and durable graph sections with profiling on/off. Native pilot graph comparison
 and independent cold-All reinspection remain required after this unit gate.
 
+### Completed finite-five diagnostic pair
+
+Both arms completed and passed independent cold-All reinspection of all749,157
+native cases. Each produced919,534domains and6,978,690edges for the same single
+1,324-point query. Both satisfy the existing CP6 acceptance contract, including
+its explicit secondary Python transport limitation. There were no uncovered
+obligations, errors or frontiers; all six owned process groups drained.
+
+The strict comparison preserves geometry, inspected/sealed flags, ledger,
+ordered dependency targets, anchors/pins, owner/query identity, orthants, rescue,
+logical records and actual physical lookup counters. Those all match. Cached
+periodic closure counts differ, but independent cold reinspection closes all
+919,534domains in both arms. This is **not** a claim of byte-identical checkpoints
+or complete typed-record file identity: diagnostic timing fields differ.
+
+| Correctness-profile observation | Profiling off | Profiling on |
+|---|---:|---:|
+| Native through process drain, s | 275.021 | 272.214 |
+| Cold-All, s | 159.202 | 159.209 |
+| Traversal, s | 184.027 | 182.654 |
+| Blocking polls, s | 98.290 | 97.712 |
+| Native inspections | 749,157 | 749,157 |
+
+This pair is diagnostic, not optimized performance qualification. Its measured
+mechanism is nevertheless specific:95.841s of the enabled arm's97.712s blocking
+polls (98.09%) met the exact start-state credit-blocked condition. Wait-sampled
+means were2.631 computing workers and72.816 returned results, against15 inspector
+slots and a76-job logical window. These are occupancy estimates, not CPU usage.
+
+The retained32 blocker windows account for17.538s. Nineteen match retained slow
+jobs, accounting for13.560s; all are Apply jobs,18 entirely after the first event
+and16 entirely after the first Admit. The rest straddle those boundaries or have
+no retained matching job. Early emission is therefore demonstrated for that
+subset, not for all97.7s. First Admit is not necessarily useful new work.
+
+This supports reviewing one bounded whole-result lookahead experiment. Merely
+recycling physical worker slots cannot help while all76 logical reservations
+remain occupied: the proposal must explicitly allow additional bounded logical
+lookahead or safely remove reservations. Preserve oldest-prefix publication and
+whole-job authority, cap both total reservations and retained result bytes, and
+measure redundant native work and stale-snapshot effects. Do not present this
+as free concurrency, a proven speedup or authorization for partial-source CP6
+publication. Evidence and strict comparator receipt are in
+`s5-pilot-plan/ready-followthrough/profile-diagnostics/`.
+
+### Bounded lookahead: implementation and first campaign screen
+
+The opt-in implementation is now tested. It separates returned whole-result
+storage from physical inspector slots, and permits an explicit extra logical
+inventory beyond the base window. Default extra capacity is zero. Oldest-prefix
+publication, exact merge gates and persistence of every unresolved reservation
+are unchanged. A returned-buffer byte allowance controls extra admission; it is
+not a hard RSS limit because in-flight jobs can return after admission stops.
+Rust, CLI and Python expose the same controls. Native scalar schema5 carries
+the explicit base window, extra allowance and byte policy.
+
+Native acceptance:1,229 library tests passed,12 existing fixture/benchmark tests
+intentionally ignored, zero failures; nine public-interface tests also passed.
+An initial malformed synthetic lookup fixture was corrected without changing
+its quarantine assertions or the engine. The failing receipt is retained.
+The rebuilt library suite, source review and process drain were independently
+audited before any campaign was launched.
+
+The first campaign pair uses the same16 selected A1 owners,508 routes and58
+required queries, with base76/cut16,16 workers on CPUs32–47, FIFO/snapshot/G2
+Union and no preparation helpers. Both arms use the same frozen app-opt1 CLI,
+SHA256`d68ada4577ccd71489375d536134a30a0a6b3c0ed10d1f3ec6fb98ffc56c319b`.
+This is a causal/correctness screen, not the fully optimized deployment gate.
+
+| Four-loop screen | Extra0 | Extra32 |
+|---|---:|---:|
+| Native through process drain, s |9.372|8.562|
+| Core traversal, s |5.187941|5.210677|
+| Cold-All guard, s |11.150524|11.144431|
+| Secondary diagnostic guard, s |1.141054|1.137377|
+| Native inspections |16,932|16,964|
+| Domains |25,945|25,948|
+| Dependency edges |481,213|481,694|
+
+Both independently cold-verify all58 required queries and32 roots, with no
+uncovered obligations or frontiers. Extra32 dispatched448 additional-lookahead
+jobs, reached108/108 logical reservations and20.895MB retained result capacity,
+and reported no overshoot of its256MiB admission allowance. Inspections grew
+0.19%; no reservations or returned buffers remained after drain. Flag-off E0
+also matches the prior accepted checkpoint's durable mathematical state and
+physical lookup/verification counters exactly. Typed-record byte identity is
+not claimed across versions.
+
+Traversal and blocking time were essentially unchanged. The lower
+launcher-inclusive phase sum is not evidence of a causal engine speedup in
+this single short pair; the periodic contention sampler did not obtain a
+sample before either native run ended. The result clears the integration and
+safety gate, not the performance gate. Evidence:
+`order-pilot-plans/escrow-next/FOUR_RESULTS.{md,json}` and its per-arm receipts.
+
+The larger registered finite-five E0/E1024 pair has also completed and passed
+independent cold-All verification. It retains one1,324-point query,67 saved
+owners and8,246 routes; it does not cover the116-query production scope. Each
+arm finished within its own inclusive30-minute allowance. The finite lookahead
+was selected from measured slow-job sequence gaps, not a blind capacity sweep.
+
+| Finite-five screen | Extra0 | Extra1024 |
+|---|---:|---:|
+| Native through process drain, s |274.294|214.555|
+| Owner preparation, s |84.942|84.873|
+| Core traversal, s |182.660534|123.744910|
+| Cold-All guard, s |156.206282|157.196070|
+| Secondary diagnostic guard, s |1.141144|1.137591|
+| Native + cold-All, s |430.500282|371.751070|
+| All charged phases, s |431.641426|372.888661|
+| Native CPU, s |631.035|632.496|
+| Native inspections |749,157|754,706|
+| Domains |919,534|925,732|
+| Dependency edges |6,978,690|7,090,301|
+| Blocking polls, s |97.835|37.936|
+| Sampled own cores, whole invocation |2.307|2.967|
+
+Both cold verifiers replay every native inspection, close the required query
+and find zero uncovered obligations, frontiers or violations. The new E0
+matches the historical accepted E0 durable mathematical state and physical
+lookup/verification counters. Extra1024 need not have an identical graph:
+lookahead changes dispatch snapshots and selected work, which is independently
+checked rather than normalized away.
+
+The result supports the proposed mechanism: **32.25% less traversal time,
+21.78% less native wall time and13.61% less time across all charged phases**.
+Waiting falls by59.90s, accounting for almost all59.74s of native wall reduction.
+Native CPU grows0.23%, inspections0.74%, domains0.67% and edges1.60%. There is
+no large redundant-work penalty in this control. Sampled foreign load averaged
+0.203 versus0.281 cores; this is still one pair, not a repeated qualification.
+
+Extra1024 issued525,512 cumulative extra-lookahead dispatches; these recycle
+credits and are **not** that many additional total inspections. Peak logical
+inventory was1100/1100, peak retained buffer capacity32,614,280B against256MiB,
+with no reported overshoot and no remaining reservations after drain. Sampled
+whole-invocation activity includes about85s of predominantly serial startup;
+2.967 cores is not a claim of16-core or20-core saturation. All six owned
+native/cold/secondary process groups drained, with locks released before any
+next heavy job. Evidence is under`order-pilot-plans/escrow-next/`.
+
+This is a meaningful causal result, but **not** the fully optimized1.5x
+verified-throughput gate. Do not compare these app-opt1 timings directly to the
+older campaign-profile Ready measurements. The next performance step must use
+one frozen fully optimized binary and a contemporaneous Ready baseline.
+
+For perspective, removing all95.841s of the earlier diagnostic wait while
+holding all other costs fixed could improve its431.423s native+cold boundary
+by at most1.286x (22.2% less wall time), versus2.104x for traversal alone.
+This is an optimistic arithmetic bound for that isolated component, not a
+prediction or a bound on changes that also reduce preparation or total work.
+The1.5x deployment requirement still needs a stronger measured result.
+
+### Next bounded steps
+
 1. Both limited five-loop source transfers are positive and audited; prepare
    full67-owner integration without claiming it complete. B1's degree-row
    ablation is now completed and parked for lack of gain. B2 stays parked
    following its concrete coupled-affine diagnosis. Preserve failed candidates
    rather than repeatedly trying blind permutations.
-2. The finite-five Ready/prefix comparison is complete and negative. Add one
-   bounded observational diagnostic to distinguish actual prefix wait from
-   dispatch-credit blockage and pre-first-event work. Existing phase-biased
-   snapshots show returned tails and pending work but do not establish lost
-   core-seconds. No partial-source CP6 publication or blind larger-window sweep
-   is justified yet. A prepared traversal-heavy hot control remains unlaunched.
-3. Finish selected-sector Rust/CLI/Python generation and checkpoint staging
-   acceptance so source strategies can be applied to the actual saved-owner
-   inventory without regenerating unused downsets. Missing sectors must remain
-   uncovered, not implicit terminals. Production preparation must preserve all
-   116 required queries and67 auxiliary helpers without narrowing the request.
+2. The finite-five lookahead pair now passes cold coverage and its causal
+   work-inflation screen. Freeze an audited optimized milestone for matched
+   qualification, including a contemporaneous Ready baseline and the prepared
+   traversal-heavy control. No partial-source CP6 publication or blind window
+   sweep follows from it. The existing optimized Ready comparison remains
+   negative until new matched evidence replaces it.
+3. Selected-sector Rust/CLI/Python, Ready and Epoch four-loop integration pass.
+   The bounded standalone3822 A1 generation probe was censored without a
+   completed shard; full67-owner generation affordability remains unknown.
+   Production preparation must retain all116 required queries and67 auxiliary
+   helpers. Missing sectors remain uncovered, not implicit terminals. Do not
+   replace a missing regenerated owner with an old program and call it fresh.
 
 The independent opt-level-1 finite-five correctness pair already verifies one
 bounded query over 910,957 domains and 743,502 native inspections with identical

@@ -70,7 +70,8 @@ def validate_plan(plan):
         require(argv_value(argv, option) == value, f"native {option} mismatch")
     require("--resume" not in argv and "--follow-successors" in argv, "fresh symbolic arms only")
     for option in ("--epoch-rolling", "--epoch-dispatch", "--g2-residual-anchors",
-                   "--epoch-publication-order", "--epoch-cut-size", "--epoch-window"):
+                   "--epoch-publication-order", "--epoch-cut-size", "--epoch-window",
+                   "--epoch-result-escrow-jobs", "--epoch-result-escrow-bytes"):
         require(not any(arg.startswith(option + "=") for arg in argv), f"use exact {option} argv")
     rolling = schedule["kind"] == "rolling"
     require(argv.count("--epoch-rolling") == int(rolling), "native rolling policy mismatch")
@@ -88,11 +89,21 @@ def validate_plan(plan):
                 "invalid native cut size")
         # Inline W1's automatic window can be smaller than the requested cut;
         # the native summary reports the effective clamped cut.
-        require(rolling and min(int(text), plan["b"]) == schedule["cut_size"],
+        require(rolling and min(int(text), schedule.get("window", plan["b"])) == schedule["cut_size"],
                 "native cut size mismatch")
     if "--epoch-window" in argv:
-        require(rolling and argv_value(argv, "--epoch-window") == str(plan["b"]),
+        require(rolling and argv_value(argv, "--epoch-window") == str(schedule.get("window", plan["b"])),
                 "native window mismatch")
+    extra = schedule.get("result_escrow_jobs", 0)
+    if extra:
+        require(argv_value(argv, "--epoch-result-escrow-jobs") == str(extra)
+                and argv_value(argv, "--epoch-result-escrow-bytes") == str(schedule["result_escrow_bytes"]),
+                "native escrow policy mismatch")
+    else:
+        require("--epoch-result-escrow-bytes" not in argv, "unregistered escrow byte policy")
+        if "--epoch-result-escrow-jobs" in argv:
+            require(argv_value(argv, "--epoch-result-escrow-jobs") == "0",
+                    "unregistered escrow logical capacity")
     if g2 == "union":
         require(argv_value(argv, "--g2-residual-anchors") == g2, "native G2 policy mismatch")
     else:

@@ -23,8 +23,8 @@ use std::time::{Duration, Instant};
 mod pool;
 pub(super) mod profile;
 pub(super) use pool::{
-    Activity, Poll, Pool, RunError, Status, SubmitError, Work, with_authorized_pool,
-    with_polling_pool,
+    Activity, EscrowDiagnostics, Poll, Pool, ResultMemory, ReturnedBytes, RunError, Status,
+    SubmitError, Work, with_authorized_pool, with_polling_pool,
 };
 
 pub(super) struct Context<'a, const N: usize> {
@@ -197,7 +197,7 @@ pub(super) fn with_pool<R>(
                 .map_err(|_| "epoch result batch allocation")?;
             loop {
                 match pool.poll(Duration::from_millis(50))? {
-                    Poll::Result { bytes, .. } => results.push(bytes),
+                    Poll::Result { bytes, .. } => results.push(bytes.into_vec()),
                     Poll::Started(_) | Poll::Waiting => {}
                     Poll::Drained => return Ok(results),
                 }

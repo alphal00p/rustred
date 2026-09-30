@@ -214,7 +214,7 @@ fn activity_json(activity: Option<Activity>, phase: &str) -> Value {
         "computing_workers":known.map(|value| value.computing),
         "queued_inspections":known.map(|value| value.queued),
         "returned_inspections":activity.map(|value| value.returned),
-        "finished_uncommitted_domains":activity.map(|value| value.returned),
+        "finished_uncommitted_domains":activity.map(|value| value.returned + value.escrow_returned),
         "cancelled_queued_inspections":activity.map(|value| value.cancelled_queued),
         "occupied_native_slots":activity.map(|value| value.occupied),
         "workers_joined":phase == "joined",
@@ -259,6 +259,34 @@ fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value 
         "retained_storage_estimate_bytes":null,"family_closure_claim":false})
 }
 
+/// Keep the ordinary schedule shape unchanged when escrow is disabled. The
+/// base window controls publication cuts; extra reservations only allow bounded
+/// lookahead, and must not silently enlarge a W=1 publication cut.
+fn schedule_json(
+    request: &OwnerDomainWalkRequest,
+    total_window: usize,
+    base_window: usize,
+    requested_cut: usize,
+) -> Value {
+    let cut = if request.epoch_rolling {
+        requested_cut.min(base_window)
+    } else {
+        total_window
+    };
+    let mut schedule = json!({
+        "kind":if request.epoch_rolling {"rolling"} else {"lockstep"},
+        "depth":if request.epoch_rolling {total_window.div_ceil(cut)} else {1},
+        "b":total_window,"window":base_window,"cut_size":cut,
+        "dispatch":request.epoch_dispatch.name(),
+        "publication_order":request.epoch_publication_order.report_name(),
+    });
+    if request.epoch_result_escrow_jobs > 0 {
+        schedule["result_escrow_jobs"] = json!(request.epoch_result_escrow_jobs);
+        schedule["result_escrow_bytes"] = json!(request.epoch_result_escrow_bytes);
+    }
+    schedule
+}
+
 #[allow(clippy::too_many_arguments)]
 fn summary<const N: usize>(
     restored: &Restored<N>,
@@ -268,6 +296,7 @@ fn summary<const N: usize>(
     telemetry: &Telemetry,
     drained: bool,
     b: usize,
+    base_window: usize,
     started: Instant,
     prepared: f64,
     observer_failed: bool,
@@ -308,11 +337,7 @@ fn summary<const N: usize>(
             "cancellation":"W1 cooperative caller-thread CAS; W>=2 durable save may precede join"},
         "descendant_closure":scalar_closure(state),
         "epoch":{"stage":"S3_checkpoint_lifecycle","k":state.k,"p0":state.p0,"watermark":state.watermark(),
-            "schedule":{"kind":if request.epoch_rolling {"rolling"} else {"lockstep"},
-                "depth":if request.epoch_rolling { b.div_ceil(cut_size.min(b)) } else {1},
-                "b":b,"window":b,"cut_size":if request.epoch_rolling { cut_size.min(b) } else {b},
-                "dispatch":request.epoch_dispatch.name(),
-                "publication_order":request.epoch_publication_order.report_name()},"resolution":"canonical_in_merge",
+            "schedule":schedule_json(request,b,base_window,cut_size),"resolution":"canonical_in_merge",
             "records_digest":state.edges.records_digest(),"edge_digest":state.edges.edge_digest(),
             "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}})
     else {
@@ -372,7 +397,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         .checkpoint
         .as_ref()
         .ok_or_else(|| AppError::input("CP6 requires explicit checkpoint directory"))?;
-    let b = request.epoch_window(b);
+    let b = request
+        .resolved_epoch_total_window(b)
+        .map_err(AppError::input)?;
     let identity = Identity::new(request, owners, queries)
         .map_err(|error| AppError::input(error.to_string()))?;
     let roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
@@ -401,6 +428,9 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     } else {
         b
     };
+    identity
+        .epoch_base_window(b)
+        .map_err(|error| AppError::input(error.to_string()))?;
     restored.window = b;
     let last = RefCell::new(None::<Value>);
     let progress = |state: &epoch::state::EpochState<N>,
@@ -605,6 +635,9 @@ fn finish<const N: usize>(
         telemetry,
         drained,
         b,
+        identity
+            .epoch_base_window(b)
+            .map_err(|error| AppError::internal_invariant(error.to_string()))?,
         started,
         prepared,
         observer_failed,

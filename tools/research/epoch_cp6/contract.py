@@ -22,15 +22,23 @@ def expected_schedule(plan):
     if "schedule" not in plan:
         return {"kind": "lockstep", "depth": 1, "b": b}
     schedule = plan["schedule"]
-    require(isinstance(schedule, dict) and set(schedule) == {
-        "kind", "depth", "b", "window", "cut_size", "publication_order", "dispatch"
-    }, "explicit schedule shape")
+    basic = {"kind", "depth", "b", "window", "cut_size", "publication_order", "dispatch"}
+    extra_keys = {"result_escrow_jobs", "result_escrow_bytes"}
+    require(isinstance(schedule, dict) and set(schedule) in (basic, basic | extra_keys),
+            "explicit schedule shape")
+    extra = schedule.get("result_escrow_jobs", 0)
+    if extra_keys <= schedule.keys():
+        require(integer(extra, 1) and integer(schedule["result_escrow_bytes"], 1)
+                and schedule["result_escrow_bytes"] <= (1 << 64) - 1
+                and schedule["kind"] == "rolling"
+                and schedule["publication_order"] == "oldest_sequence_prefix",
+                "explicit escrow schedule policy")
     require(schedule["kind"] in ("lockstep", "rolling")
             and schedule["dispatch"] in ("fifo", "adaptive")
             and schedule["publication_order"] in ("oldest_sequence_prefix", "oldest_ready_sequences")
             and all(integer(schedule[key], 1) for key in ("depth", "b", "window", "cut_size"))
-            and schedule["b"] == schedule["window"] == b
-            and schedule["cut_size"] <= b, "explicit schedule bounds/policy")
+            and schedule["b"] == schedule["window"] + extra == b
+            and schedule["cut_size"] <= schedule["window"], "explicit schedule bounds/policy")
     cut = schedule["cut_size"]
     if schedule["kind"] == "rolling":
         require(schedule["depth"] == (b + cut - 1) // cut, "rolling cohort bound")

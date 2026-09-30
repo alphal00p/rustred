@@ -42,7 +42,8 @@ EPOCH_WINDOW = "epoch-window"
 EPOCH_BATCH_OPTIONS = (EPOCH_PUBLICATION_ORDER, EPOCH_CUT_SIZE, EPOCH_WINDOW)
 EPOCH_PREPARATION_OPTIONS = ("epoch-preparation-workers", "epoch-preparation-max-obligations",
                              "epoch-preparation-max-retirements")
-EPOCH_DATA_OPTIONS = (*EPOCH_BATCH_OPTIONS, *EPOCH_PREPARATION_OPTIONS)
+EPOCH_ESCROW_OPTIONS = ("epoch-result-escrow-jobs", "epoch-result-escrow-bytes")
+EPOCH_DATA_OPTIONS = (*EPOCH_BATCH_OPTIONS, *EPOCH_PREPARATION_OPTIONS, *EPOCH_ESCROW_OPTIONS)
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -207,10 +208,27 @@ def add_epoch_batch_arguments(parser):
                         help="rolling publication batch size (default 16); frozen on resume")
     parser.add_argument("--" + EPOCH_WINDOW, type=epoch_batch_size, action=StoreOnce,
                         help="rolling unmerged-job bound; omitted resume inherits the saved bound")
+    parser.add_argument("--epoch-result-escrow-jobs", type=nonnegative, action=StoreOnce,
+                        help="extra logical reservations for complete results; default zero, no extra threads")
+    parser.add_argument("--epoch-result-escrow-bytes", type=query_allowance, action=StoreOnce,
+                        help="positive returned-result byte admission budget; not a hard RSS cap")
 
 
-def validate_epoch_batch(publication_order, cut_size, window, rolling, symbolic, publication, checkpoint):
-    if publication_order is None and cut_size is None and window is None:
+def validate_epoch_batch(publication_order, cut_size, window, rolling, symbolic, publication, checkpoint,
+                         escrow_jobs=None, escrow_bytes=None):
+    if escrow_jobs is not None and (type(escrow_jobs) is not int or not 0 <= escrow_jobs < 4096):
+        raise ValueError("Epoch result escrow jobs must be an integer in 0..4095")
+    jobs = escrow_jobs or 0
+    if jobs:
+        if type(escrow_bytes) is not int or not 1 <= escrow_bytes <= 2 * sys.maxsize + 1:
+            raise ValueError("Epoch result escrow requires a positive native-sized byte admission budget")
+        if publication_order not in (None, "oldest-prefix"):
+            raise ValueError("Epoch result escrow requires oldest-prefix publication")
+        if window is not None and window + jobs > 4096:
+            raise ValueError("Epoch base window plus escrow jobs must be at most 4096")
+    elif escrow_bytes is not None:
+        raise ValueError("Epoch result escrow bytes require positive escrow jobs")
+    if publication_order is None and cut_size is None and window is None and not jobs:
         return
     if not rolling or not symbolic or publication != "epoch" or not checkpoint:
         raise ValueError("Epoch publication order, cut size and window require a symbolic rolling "
@@ -317,7 +335,8 @@ def main() -> None:
                                 args.publication_policy, args.checkpoint is not None or args.resume is not None)
         validate_epoch_batch(args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
                              args.epoch_rolling, args.follow_successors, args.publication_policy,
-                             args.checkpoint is not None or args.resume is not None)
+                             args.checkpoint is not None or args.resume is not None,
+                             args.epoch_result_escrow_jobs, args.epoch_result_escrow_bytes)
         validate_epoch_preparation(vars(args), args.follow_successors, args.publication_policy,
                                    args.workers or 1, args.inspection_workers, args.max_containment_checks)
     except ValueError as error:

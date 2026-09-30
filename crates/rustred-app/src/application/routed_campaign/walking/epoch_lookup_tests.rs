@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn result_escrow_is_explicit_bounded_and_request_bound() {
+    let mut request =
+        OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    let default = checkpoint::epoch_request_binding(&request);
+    assert_eq!(request.epoch_result_escrow_jobs, 0);
+    assert_eq!(request.epoch_result_escrow_bytes, None);
+    assert!(request.validate_epoch_result_escrow().is_ok());
+    request.epoch_result_escrow_bytes = Some(1024);
+    assert!(request.validate_epoch_result_escrow().is_err());
+    request.epoch_result_escrow_jobs = 8;
+    assert!(request.validate_epoch_result_escrow().is_err());
+    request.publication_policy = OwnerDomainWalkPublicationPolicy::Epoch;
+    request.epoch_rolling = true;
+    request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new("unused"));
+    request.epoch_window = Some(32);
+    assert_eq!(request.resolved_epoch_total_window(16), Ok(40));
+    assert!(request.validate_epoch_result_escrow().is_ok());
+    let enabled = checkpoint::epoch_request_binding(&request);
+    request.epoch_result_escrow_bytes = Some(2048);
+    assert_ne!(checkpoint::epoch_request_binding(&request), enabled);
+    request.epoch_result_escrow_bytes = Some(0);
+    assert!(request.validate_epoch_result_escrow().is_err());
+    request.epoch_result_escrow_bytes = Some(1024);
+    request.epoch_publication_order = OwnerDomainWalkEpochPublicationOrder::OldestReady;
+    assert!(request.validate_epoch_result_escrow().is_err());
+    request.epoch_publication_order = OwnerDomainWalkEpochPublicationOrder::OldestPrefix;
+    for bad in [4065, usize::MAX] {
+        request.epoch_result_escrow_jobs = bad;
+        assert!(request.resolved_epoch_total_window(16).is_err());
+    }
+    request.epoch_result_escrow_jobs = 8;
+    request.epoch_window = None;
+    request.workers = 1;
+    assert_eq!(request.resolved_epoch_window(16), Ok(1));
+    assert_eq!(request.resolved_epoch_total_window(16), Ok(9));
+    // The runtime must keep W1's effective cut at its base1, not declared9.
+    let reset = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    assert_eq!(checkpoint::epoch_request_binding(&reset), default);
+}
+
+#[test]
 fn rolling_publication_cut_and_window_defaults_validation_and_binding() {
     use OwnerDomainWalkEpochPublicationOrder::{OldestPrefix, OldestReady};
     let mut request =
