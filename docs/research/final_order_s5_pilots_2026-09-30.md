@@ -239,8 +239,99 @@ interpretation. Evidence: `order-pilot-plans/QUALIFICATION_RESULTS.{md,json}`
 and `qualification-pair{1,2}/`.
 
 The qualified intervention is **finite source visitation**, not a changed
-mathematical integral comparator. Five-loop transfer, the single structural
-B1 ablation, Epoch's stronger1.5× gate and production closure are still open.
+mathematical integral comparator. The subsequent small five-loop transfers below
+are positive; the structural B1 ablation is completed and parked. Full
+production-policy qualification, Epoch's stronger1.5× gate and production
+closure are still open.
+
+### Limited five-loop source-selection transfer
+
+One fresh A0→A1 pair uses the same frozen executables, W16/CPU64–79 and a
+784-point query (R<=1, A<=10, D>=9) over14 literal owners/routes. Both generate
+all14 sectors without reuse, admit the saved programs and pass cold-All for the
+same query with no uncovered obligations or frontiers. This is **not** the
+67-owner/116-required-query production request. Both arms use depth2, unrestricted
+generation rank, SearchFinite and sparse exact arithmetic—not LC2's depth0/R10/
+sparse-factorized generation policy.
+
+| Quantity | A0 default | A1 source-selected |
+| --- | ---: | ---: |
+| Fresh generation s | 21.157 | 15.162 |
+| Staging + native admission s | 2.310 | 2.300 |
+| Guarded walk wrapper s | 2.621 | 1.539 |
+| Cold-All s | 2.152 | 1.149 |
+| Charged phase sum s | 28.239 | 20.149 |
+| Domains / native inspections | 3,149 / 2,840 | 2,185 / 1,947 |
+| Generated rules / finite residuals | 4,283 / 14 | 698 / 14 |
+| Bundle MB | 10.200 | 3.254 |
+| All-phase waited CPU s | 149.939 | 75.029 |
+| Maximum single-child RSS MB | 386.91 | 302.13 |
+
+A1 reduces measured phase time28.65% and domain work30.61%, with unchanged
+finite residual count. This is one positive transfer pair, not independent
+qualification of the production policy or a minimal-master claim. Whole-arm
+clocks155.791/103.695s include manual interphase reviews and remain below1800s;
+those gaps are not solver speed. Short native walks provide no foreign-load
+samples, so contention is unknown. All10 owned groups drained. An independent
+agent audited input hashes, actual commands, receipts and native cold results.
+Evidence: `order-pilot-plans/FIVE_TRANSFER_RESULTS.{md,json}` and
+`five-transfer-current/`.
+
+### Separate transfer with LC2's generation policy
+
+A second fresh pair keeps the same14-owner/784-point input and switches both
+arms to the actual production generation policy: depth0, R10, SearchFinite,
+sparse-factorized. Only A1's source visitation differs between arms. Explicit
+case resources match (8,192 work items,100,000 terms,1,024 normalizations,
+4,096 factorizations); these are work limits, not truncated coverage. The
+source-order strategy, optimized binaries, CPU placement and W16 remain fixed.
+
+| Quantity | A0 default | A1 source-selected |
+| --- | ---: | ---: |
+| Fresh generation s | 20.157 | 14.157 |
+| Staging + native admission s | 2.303 | 2.303 |
+| Guarded walk wrapper s | 2.619 | 2.625 |
+| Cold-All s | 2.154 | 1.150 |
+| Charged phase sum s | 27.232 | 20.235 |
+| Domains / native inspections | 3,151 / 2,843 | 2,191 / 1,947 |
+| Generated rules / finite residuals | 4,279 / 18 | 696 / 16 |
+| Bundle MB | 10.173 | 3.245 |
+| All-phase waited CPU s | 129.661 | 52.900 |
+| Maximum single-child RSS MB | 243.86 | 130.24 |
+
+Both fresh generations and native admissions pass; cold-All independently
+reinspects every reached native obligation and the unchanged sole query, with
+zero uncovered cases, errors or frontiers. A1 lowers charged time25.70% and
+domain work30.47%. Walk time alone is neutral: generation and cold verification
+provide the elapsed-time improvement. The finite residual count18→16 genuinely
+differs; neither minimality nor equality of terminal bases is claimed.
+
+This is one production-policy **transfer** pair, not a full67-owner solve or
+two-pair production qualification. Both whole-arm deadlines are under94s and
+all10 process groups drained. Short runs again lack periodic contention
+samples; other users' builds were observed nearby and left untouched. Actual
+argv, source/policy bindings and cold receipts passed independent audit.
+Evidence: `order-pilot-plans/FIVE_PRODUCTION_POLICY_RESULTS.{md,json}` and
+`five-transfer-production-policy/`.
+
+### B1 degree-row ablation: no useful gain
+
+One further input-only four-loop experiment keeps B1's shared-support sector
+weights/priorities but removes its private-excess degree row, retaining the
+ordinary E-then-R degree order. Fresh314+328-sector generation,16 selected
+owners/508 routes and all58 required queries pass native admission and cold-All:
+38,819 domains,15,332 native inspections,471,368 edges and zero uncovered
+obligations or frontiers. All6 owned process groups drained.
+
+The charged phase sum is91.955s (generation40.180+34.169s, walking6.137s,
+cold-All9.155s plus staging/admission), compared with prior strong-A1
+qualification84.538/82.553s and about38.68k domains/15.3k inspections. This is
+one ablation, not a new paired qualification. Removing the degree row does not
+reveal a useful sector-priority gain; park this candidate instead of extending
+it into a blind permutation sweep. It does not rule out other lawful runtime
+comparators. Frozen executable711b18c5/560f identity and physical query scope
+are unchanged; only the requested descriptor differs. Independent receipt
+audit passed. Evidence: `order-pilot-plans/b1-sector-only/`.
 
 ## Predeclared Ready/Epoch timing and audit boundary
 
@@ -304,25 +395,78 @@ versus Ready0.35s, despite its smaller files. This is not a format-normalized
 scheduler microbenchmark. Raw receipts and complete phase/storage metrics:
 `s5-pilot-plan/ready-followthrough/FOUR_ALL_READY_PREFIX76_RESULTS.{md,json}`.
 
+## Current Ready versus rolling S5: finite-five first pair
+
+This returns to the larger saved-rule control:67 owners/8,246 routes, one
+1,324-point R<=2/A<=11/D>=9 query, original programs, W16/CPU32–47, no IBP
+regeneration. Both arms finish naturally and independently cold-verify their
+entire native work and sole required query/root. Neither proves production-wide
+or unrestricted five-loop closure.
+
+| Quantity | Ready | Prefix76/cut16 |
+| --- | ---: | ---: |
+| Native s | 167.841 | 219.549 |
+| Native owner preparation s | 81.528 | 79.942 |
+| Traversal s | 71.034 | 133.595 |
+| Cold-All s | 150.202 | 141.205 |
+| Primary native+cold s | 318.043 | 360.754 |
+| Native CPU s | 536.576 | 476.732 |
+| Peak process-tree RSS GB | 6.233 | 6.568 |
+| Interior sampled process-tree cores | 6.330 | 2.908 |
+| Domains | 967,843 | 919,534 |
+| Native inspections | 760,719 | 749,157 |
+| Dependency edges | 7,146,573 | 6,978,690 |
+
+Epoch is13.43% slower in this single pair; no deployment gate passes and no
+automatic repeat follows. It performs slightly fewer routed admissions and
+Apply successors, using less CPU, but has much more elapsed waiting. Rolling
+inspect time improves190.349→80.435s versus fixed-cut Epoch; the contemporaneous
+Ready comparison remains the relevant baseline. Prefix waits total80.290s;
+P1/P2/P3/boundary cost19.884/17.550/5.020/10.354s. Snapshot refresh costs7.543s
+across93,823 calls. These observations do not establish that adding workers
+alone will help. Core samples include helpers/coordinator, not just inspectors.
+
+Cold phases (Ready→Epoch) are load8.195→13.634s, owner preparation81.285→83.590s,
+graph checking27.779→9.924s and native reinspection28.623→30.619s. Ready writes
+1.435GB full JSON plus0.930GB CP5; Epoch writes a10.6KB summary plus0.506GB CP6.
+All costs remain charged. Fixed loading/preparation makes this finite control
+a limited scaling discriminator: eliminating only Ready's entire traversal,
+with everything else unchanged, would cap overall speedup at1.287×. This is
+an explanatory bound, not permission to redefine the comparison after the fact.
+
+Ready's separate Python diagnostic times out after241.233s (exit124) in
+`union_covered`: **INCOMPLETE, not PASS**. Its primary native cold-All and full
+result/checkpoint binding pass. Epoch retains its documented CP6 secondary
+INCOMPLETE transport. No mathematical contradiction was reported. Whole arms
+remain below1800s and every owned group drained. Independent receipt audit
+passed; production was untouched. Evidence:
+`s5-pilot-plan/ready-followthrough/FIVE_FINITE_READY_PREFIX76_RESULTS.{md,json}`.
+
+A proposed cut1 diagnostic was cancelled before preparation: the preserved
+September29 experiment had already failed to reduce the extra Route work
+(31,558→31,547), despite passing all58 four-loop queries. Window differences
+alone do not justify repeating it. Keep that rejected hypothesis, alongside
+the earlier negative oldest-ready and adaptive-dispatch results, when choosing
+the next architectural test.
+
 ## Next discriminating measurements
 
-1. Assess limited five-loop transfer of the now-qualified source strategy
-   with the same optimized executables. B2 stays parked following its concrete
-   coupled-affine diagnosis. Compare the one prepared B1 degree-row ablation
-   against strong A1, including regeneration and cold verification costs;
-   retain unsuccessful candidates rather than repeatedly trying blind permutations.
-2. Use the completed larger finite-five-loop fixed-work profile before
-   tuning the shared index or preparation grain. Four-loop index candidate
-   counters increase, but many count bulk-rejected ranges rather than individual
-   checks: actual forward callbacks rise from 440,008 to 599,701. Possible stale
-   containment-index entries need measurement, not an assumption of a 3× slowdown.
-3. The current finite-five Ready/prefix76 first pair is now authorized to test
-   whether overlapping its longer inspections outweighs the work trade-off.
-   No second pair, wider execution or helper sweep is automatically authorized.
-   More busy cores are not success if they create substantially more domain work.
-   Eventual campaign preparation
-   must preserve all 116 required queries and 67 auxiliary helpers, without
-   narrowing the frozen request.
+1. Both limited five-loop source transfers are positive and audited; prepare
+   full67-owner integration without claiming it complete. B1's degree-row
+   ablation is now completed and parked for lack of gain. B2 stays parked
+   following its concrete coupled-affine diagnosis. Preserve failed candidates
+   rather than repeatedly trying blind permutations.
+2. The finite-five Ready/prefix comparison is complete and negative. Add one
+   bounded observational diagnostic to distinguish actual prefix wait from
+   dispatch-credit blockage and pre-first-event work. Existing phase-biased
+   snapshots show returned tails and pending work but do not establish lost
+   core-seconds. No partial-source CP6 publication or blind larger-window sweep
+   is justified yet. A prepared traversal-heavy hot control remains unlaunched.
+3. Finish selected-sector Rust/CLI/Python generation and checkpoint staging
+   acceptance so source strategies can be applied to the actual saved-owner
+   inventory without regenerating unused downsets. Missing sectors must remain
+   uncovered, not implicit terminals. Production preparation must preserve all
+   116 required queries and67 auxiliary helpers without narrowing the request.
 
 The independent opt-level-1 finite-five correctness pair already verifies one
 bounded query over 910,957 domains and 743,502 native inspections with identical

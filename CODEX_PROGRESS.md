@@ -20,11 +20,32 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; pilots `runtime_order_pilots` | source-selection two-pair work gate qualified; B2 guard obstruction diagnosed and parked | Limited5L transfer and one structural ablation prepared, awaiting resource grant |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; pilots `s5_fixed_work_pilots` | fixed-work controls cold-PASS; rolling4L ABBA cold-PASS but median8.04% slower than Ready; checkpoints56–61% smaller | Current finite5L Ready versus rolling-prefix76/cut16 first pair authorized |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; positive limited5L transfers; B1 ablation no gain; selected-sector API typechecked | Selected-sector staging/native tests and production-owner input preparation |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | controls cold-PASS; rolling4L median8.04% slower and finite5L first pair13.43% slower than Ready; checkpoints56–61% smaller | Bounded observational prefix-wait/dispatch-credit attribution; no new publication authority |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface, source-selection ABBA and current rolling4L ABBA audited | Finite5L measurement audit and bounded review of redundant native work |
-| Integration, resources, profiling and release | root | implementation711b18c5 and measured qualification70cb287f pushed; optimized executable frozen; production untouched | Larger-case profiling and qualified campaign setup |
+| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | native/interface, source-selection ABBA, rolling controls, both limited5L transfers and B1 ablation audited | Selected-sector and diagnostic implementation audits |
+| Integration, resources, profiling and release | root | implementation711b18c5 and measured report80ff0b91 pushed; optimized executable frozen; production untouched | Consolidated native tests, evidence-led performance follow-through and qualified campaign setup |
+
+### Active decision register — refreshed 2026-09-30 14:40 UTC
+
+This compact register takes precedence over stale provisional next steps in the
+chronological history. It records negative results explicitly to avoid reopening
+the same experiment after a handoff.
+
+| Candidate | State | Evidence / reopening condition |
+|---|---|---|
+| A1 structural source visitation | delivered, integration active | Two four-loop pairs:40–44% fewer domains; limited5L depth2 and production-policy transfers positive. Full67-owner input regeneration and116-query outcome remain unmeasured. |
+| Persisted programmable integral order | delivered | Native/interface authority tests pass; B1 full comparator is not faster overall than A1. Degree-row ablation cold-PASS but no useful gain; parked. |
+| B2 support-density order | deferred | Diagnosed coupled-affine classification obstruction; missing IBPs not demonstrated. Reopen only with a separately justified exact geometry change. |
+| Selected-sector public generation | active | Shared validation/checkpoint identity, missing sectors fail closure, Rust/CLI/Python metadata PASS; native tests and staging integration pending. |
+| S5 typed merge/shared lookup/rolling prefix | delivered, performance unqualified | Cold controls pass, smaller checkpoints; contemporaneous Ready comparisons fail speed gate. |
+| Prefix wait / dispatch-credit diagnosis | active | Observational-only patch authorized after independent review. Phase-biased returned-tail samples support measurement, not an escrow/partial-source redesign. |
+| cut1 cross-job-coalescing remedy | rejected | September29 cold-PASS control barely changed Route count and slowed down; September30 proposed repeat canceled before launch. |
+| oldest-ready / blind wider-window / adaptive-dispatch sweep | rejected | Preserved work explosion or negative timing; require a new causal mechanism before reopening. |
+| CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
+| Ready bulk-edge-only optimization | deferred | Entire ordered commit is <8% of finite-control primary time; no profile of edge-only share and not a cure for80s Epoch waiting. |
+| Hot traversal-heavy saved-rule control | prepared, not launched | Data-only plan validated; native grant depends on diagnostic results and a concrete remedy. |
+| Production deployment | pending | No LC2 mutation. Source work gain is real, but no qualified new Epoch launch recipe or20-core demonstration. |
 
 **Current implementation milestone:** `711b18c5`, committed and pushed to
 `origin/fable_5_1_parallel` at11:33 UTC on2026-09-30 after native, Python and
@@ -1042,6 +1063,121 @@ identity, exact selected/full rules, refused selection mutation and missing
 sector/certification claims, native/Python surfaces and workers. Root retains
 shared docs/manifests and resource coordination. No native build is authorized
 during matched heavy measurements; frozen560f pilot inputs remain unchanged.
+
+[M] Four-loop rolling comparison and the selected-sector addendum are committed
+and pushed as `80ff0b91`. The current finite-five Ready primary independently
+passes:167.841s native +150.201967s cold =318.042967s;967,843domains,
+760,719native inspections,7,146,573edges, the unchanged single1324-point query,
+zero errors/frontiers/uncovered. Its1.435GB full-result/checkpoint binding has
+zero mismatches. The secondary Python diagnostic stopped at241.233s (exit124)
+inside `union_covered`: **INCOMPLETE_TIMEOUT_NOT_PASS**, not a contradiction or
+successful audit. Whole arm694s, within1800s; prefix finite collector921130
+started14:10UTC only after Ready drained. Primary acceptance follows the
+already registered boundary, not a retrospective timeout exclusion.
+
+[M/E] Ready's owner preparation costs81.528s native and81.285s cold. Traversal
+is71.034s; cold reinspection28.623s. Its interior traversal resource samples
+average6.330 busy cores versus3.276 whole-run (including helpers/coordinator,
+not inspector-only CPU). Even eliminating traversal alone would cap primary
+speedup at1.287x if other costs stayed unchanged; also eliminating cold
+reinspection gives1.456x. Thus the1.5x gate on this small control needs other
+savings too. This does not relax the gate or prove larger LC2 behavior. A
+predeclared existing traversal-dominant hot control is a possible later scaling
+test; no hot launch or timing exclusion has been granted.
+
+[D] **Correction before any repeated experiment:** the auditor recovered the
+September29 cut1 falsifier at
+`TMP/codex-ordering-study.7nspU4/cut1-falsifier/RESULT.md`. It already passed
+all58 queries/32roots but changed Route work only31,558→31,547, with worse
+wall time. Its retained report describes rolling cut1/window16/depth16, not
+today's prefix76; this difference alone is not new evidence for reopening it.
+Root cancelled the proposed cut1 preparation; no new cut1 run or data was made.
+The earlier provisional cross-job-antichain explanation above is therefore
+rejected as a promising untested avenue. Neither oldest-ready/cut1 nor speculative
+per-origin admission changes are authorized. Preserve this negative result in
+the active backlog rather than rediscovering it again.
+
+[M] Current finite-five prefix76 completed and independently cold-PASS:
+219.549s native +141.205297s cold =360.754297s, versus Ready318.042967s
+(13.43% slower, one pair). Prefix covers the same single1324-point query with
+919,534domains/749,157native inspections/6,978,690edges and zero uncovered
+obligations, errors or frontiers. Native CPU falls536.576→476.732s, but traversal
+rises71.034→133.595s. Inspection/prefix waiting remains about80s, despite falling
+from fixed-cut190s. P1/P2/P3/boundary are19.88/17.55/5.02/10.35s. Sampled interior
+process-tree activity is roughly2.6–3.4cores, not a useful20-core demonstration.
+Both owned groups drained; Epoch's secondary stays its documented INCOMPLETE
+transport, and Ready's timed-out secondary is not promoted to PASS.
+
+[D] Heavy slot passed to O for the already bound narrow five-loop A0→A1
+source-selection transfer on frozen560f/6ba executables and unchanged v3
+steering, CPU64–79/W16. No B1 ablation or build is concurrently authorized.
+Selected-sector implementation source is now under independent audit; this
+does not retroactively change the binaries or authority of existing pilots.
+
+### 2026-09-30 14:40 UTC — source transfer and bounded S5 follow-through
+
+- [M] Limited five-loop source-selection transfer completed and independently
+  audited: the same14-owner/14-route,784-point R<=1/A<=10/D>=9 query, full fresh
+  generation and native cold-All. A0→A1 charged phase sums28.239343→20.149485s
+  (-28.65%);3,149→2,185 domains (-30.61%);2,840→1,947 native inspections;
+ 149.939→75.029 CPU seconds. Both have14 finite residuals and zero uncovered
+  obligations, errors or frontiers. One pair, depth2/unranked/sparse; this is
+  not the full67-owner/116-required-query production workload. Evidence:
+  `TMP/aster-integration-20260930-resumed/order-pilot-plans/FIVE_TRANSFER_RESULTS.{md,json}`.
+- [M] The second narrow pair uses the actual LC2 generation policy instead:
+  depth0/R10/SearchFinite/sparse-factorized, the same input/query and frozen
+  executables, CPU64–79/W16. Author reports cold-All PASS and all10 process
+  groups drained:27.232→20.235s charged time,3,151→2,191 domains,
+  2,843→1,947 native inspections. Residual counts are18→16, not the previous
+  pair's14→14. Independent receipt audit PASS confirms identical bound inputs,
+  recipe, native owner admission and complete cold reinspection. Do not
+  conflate different generation-policy pairs or claim a repeated full-production
+  gate.
+- [M] Selected-sector source passed the guarded app/Python release metadata
+  check including test targets:28.159s wrapper,25.03s Cargo, exit0. Evidence:
+  `TMP/aster-integration-20260930-resumed/selected-sector-check/`. This is
+  **typechecking, not native test execution**. Unchanged core does not need
+  another wholesale rebuild; consolidate app/CLI/Python native gates with the
+  observational S5 patch below to reuse existing build caches.
+- [D] The sole prepared B1 degree-row ablation is now granted after the
+  production-policy pair, with the unchanged frozen v3 stager and guarded
+  <=1800s-per-arm boundary. Afterward the timing slot returns to integrated
+  native checks; selected-sector staging can then move to checkpoint v4.
+- [E/D] Epoch heartbeat review found26 distinct phase-biased snapshots with
+  zero queued jobs, positive undispatched pending work and57–76 returned jobs
+  occupying its76-job window. This is evidence for measuring dispatch-credit
+  blockage, not duration-weighted idle-core evidence. The independent reviewer
+  approved one **observational-only** slice: mutually exclusive blocked-wait
+  intervals, earliest missing prefix sequence, bounded slow-job timing and
+  first-event/first-Admit markers. First Admit may be redundant; it is not
+  evidence of a newly discharged obligation. No new ledger, streaming source
+  authority, scheduling decision, checkpoint schema or CAS primitive is
+  authorized. `s5_fixed_work_pilots` implements; `release_correctness_audit`
+  audits. A private invocation-local `RUSTRED_EPOCH_PROFILE=1` switch keeps
+  timers out of the normal path. Detailed mechanism/falsifiers:
+  `s5-pilot-plan/ready-followthrough/S5_MECHANISM_REVIEW.md` under the evidence
+  directory above. The premature partial-CP6 and bulk-edge remedies are parked.
+
+Production LC2 remains untouched. Root's next integration boundary is native
+selected-sector/interface and diagnostic-equivalence acceptance, not a new
+full production run or a declaration of the1.5x Epoch performance gate.
+
+[M/D] B1's single degree-row ablation completed at14:47UTC: both whole roots
+freshly generated (314+328sectors,0reused), all58 required queries cold-PASS,
+38,819domains/15,332native inspections/471,368edges. Charged phases total91.955s,
+versus strong A1's prior matched qualification82.553–84.538s with about38.68k
+domains/15.3k natives. This unpaired ablation provides no compelling gain; it
+is parked, not promoted to another permutation sweep. All6 owned groups drained
+and the heavy slot returned. The author is finishing receipts and the auditor
+will check them; native candidate staging now moves to explicit selection-v4.
+
+[D] To avoid a second instrumentation-only fat-LTO rebuild, first run the new
+S5 diagnostic on the warm application-opt1 correctness build after native
+acceptance. Independent reviewer agrees it can localize waiting and test
+diagnostic equivalence, **not** establish optimized dominance or speedup.
+Even with unchanged optimized core/Symbolica, application optimization changes
+arrival, lookup and publication timing. Any actual architectural remedy still
+needs a fresh fully optimized build and matched performance qualification.
 
 ### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
 

@@ -2,8 +2,10 @@
 
 Status (2026-09-30): native core/application, CLI, installed Python API and
 cold-load/checkpoint tests pass on `fable_5_1_parallel`. Optimized matched pilots
-remain pending. Do not treat these new controls as a campaign-switch
-recommendation before the performance gates in `CODEX_PROGRESS.md` pass.
+qualify a source-visitation strategy with40–44% less four-loop domain work;
+the tested non-default mathematical comparators have not beaten that strategy
+overall. See [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
+Do not treat API flexibility alone as a campaign-switch recommendation.
 
 Two independent controls select generated rules:
 

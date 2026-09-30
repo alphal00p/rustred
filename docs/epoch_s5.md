@@ -23,7 +23,10 @@ with no skip markers. The first optimized matched four-loop comparisons are
 complete: runtime is effectively neutral, while the checkpoint is about 61%
 smaller. The first finite-five-loop fixed-work pair also passes with identical
 graphs and neutral runtime, with a56% smaller checkpoint. Current Ready/Epoch
-rolling qualification remains open;
+rolling controls cold-verify successfully but fail the speed gate: the four-loop
+ABBA median is8.04% slower and the finite-five first pair13.43% slower. Rolling
+overlap reduces Epoch's own inspector waiting substantially without making it
+faster than Ready. Deployment qualification therefore remains open;
 see [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
 The application test build uses optimization
 level 1 for correctness checks; it must not supply production performance numbers.
