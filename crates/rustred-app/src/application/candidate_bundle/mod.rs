@@ -14,6 +14,12 @@ mod model;
 mod policy;
 pub(super) mod preparation;
 mod save;
+mod strategy;
+
+pub use strategy::{
+    CandidateDiscoveryStrategy, CandidateRowFeature, CandidateRowPriority, CandidateSectorPriority,
+    CandidateSourcePriority, CandidateSourceVisitPlan,
+};
 
 pub use certify::{certify_candidates, certify_candidates_with_progress};
 pub use checkpoint::CandidateCheckpointOptions;

@@ -57,6 +57,81 @@ fn assert_no_search(events: &[FamilyCloseProgress]) {
 }
 
 #[test]
+fn materialized_callback_plan_is_persisted_and_resumed_without_callback() {
+    use rustred::solver::{SectorConfig, SectorSolver, SourceVisitOrder};
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K1);
+    let family = preparation::family(K1, request.input_format).unwrap();
+    let prepared = preparation::prepare::<1>(family, &[true], None).unwrap();
+    let mut callback_calls = 0;
+    let plans = prepared
+        .sectors
+        .iter()
+        .map(|&sector| {
+            let solver = SectorSolver::new(
+                &prepared.sources,
+                sector,
+                SectorConfig {
+                    zero_sectors: prepared.zeros.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let plan = SourceVisitOrder::by_key(solver.basis(), |ordinal, _| {
+                callback_calls += 1;
+                std::cmp::Reverse(ordinal)
+            })
+            .unwrap();
+            CandidateSourceVisitPlan {
+                sector: sector.to_vec(),
+                ordinals: plan.ordinals().to_vec(),
+            }
+        })
+        .collect();
+    assert!(callback_calls > 0);
+    request.discovery_strategy = Some(CandidateDiscoveryStrategy {
+        rows: CandidateSourcePriority::Materialized { sectors: plans },
+        ..Default::default()
+    });
+    request.checkpoint = Some(directory.options());
+    let (original, _) = observed(request.clone());
+    let manifest_path = request
+        .checkpoint
+        .as_ref()
+        .unwrap()
+        .directory
+        .join("checkpoint.toml");
+    let manifest = fs::read(&manifest_path).unwrap();
+    assert!(
+        std::str::from_utf8(&manifest)
+            .unwrap()
+            .contains("materialized")
+    );
+    request.checkpoint.as_mut().unwrap().resume = true;
+    // Simulate reconstructing only the descriptor, with no closure present.
+    let json = serde_json::to_string(request.discovery_strategy.as_ref().unwrap()).unwrap();
+    request.discovery_strategy = Some(CandidateDiscoveryStrategy::from_json(&json).unwrap());
+    let before = callback_calls;
+    let (resumed, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), resumed.bundle());
+    assert_eq!(callback_calls, before);
+    assert_eq!(manifest, fs::read(&manifest_path).unwrap());
+    request.discovery_strategy = None;
+    assert!(family_candidates(request).is_err());
+    assert_eq!(manifest, fs::read(&manifest_path).unwrap());
+}
+
+#[test]
+fn explicit_default_discovery_preserves_default_candidates() {
+    let ordinary = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let mut explicit = FamilyCandidatesRequest::new(K1);
+    explicit.discovery_strategy = Some(CandidateDiscoveryStrategy::default());
+    let explicit = family_candidates(explicit).unwrap();
+    assert_same_program(ordinary.bundle(), explicit.bundle());
+}
+
+#[test]
 fn case_intersection_resources_do_not_change_saved_identity_or_regenerate_shards() {
     let directory = Directory::new();
     let mut request = FamilyCandidatesRequest::new(K3);
@@ -283,6 +358,133 @@ fn partial_resume_solves_only_missing_original_ordinal_with_changed_workers() {
         })
         .collect();
     assert_eq!(completed, [1]);
+}
+
+#[test]
+fn partial_materialized_resume_reuses_per_sector_plans_and_rejects_same_shape_changes() {
+    use rustred::solver::{SectorConfig, SectorSolver, SourceVisitOrder};
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.numerical_depth = 0;
+    request.permutation = Some(vec![1, 2, 0]);
+    let family = preparation::family(K3, request.input_format).unwrap();
+    let prepared =
+        preparation::prepare::<3>(family, &[true; 3], request.permutation.as_deref()).unwrap();
+    let plans: Vec<_> = prepared
+        .sectors
+        .iter()
+        .enumerate()
+        .map(|(ordinal, &sector)| {
+            let solver = SectorSolver::new(
+                &prepared.sources,
+                sector,
+                SectorConfig {
+                    zero_sectors: prepared.zeros.clone(),
+                    permutation: prepared.permutation,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let count = solver.basis().len();
+            let plan =
+                SourceVisitOrder::by_key(solver.basis(), |row, _| (row + ordinal) % count).unwrap();
+            CandidateSourceVisitPlan {
+                sector: sector.to_vec(),
+                ordinals: plan.ordinals().to_vec(),
+            }
+        })
+        .collect();
+    assert!(
+        plans
+            .iter()
+            .map(|p| &p.ordinals)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            > 1
+    );
+    request.discovery_strategy = Some(CandidateDiscoveryStrategy {
+        sectors: CandidateSectorPriority::Materialized {
+            ordinals: (0..plans.len()).rev().collect(),
+        },
+        rows: CandidateSourcePriority::Materialized { sectors: plans },
+        ..Default::default()
+    });
+    let baseline = family_candidates(request.clone()).unwrap();
+    let bundle = codec::read(baseline.bundle(), request.bundle_limits).unwrap();
+    let last = bundle.sectors.len() - 1;
+    assert!(last > 1);
+    let manifest = CheckpointManifest::for_request(
+        &request,
+        &bundle.family_fingerprint,
+        &bundle.root_sector,
+        bundle.sectors.iter().map(|s| s.sector.clone()).collect(),
+    )
+    .unwrap();
+    let mut options = directory.options();
+    let store = CheckpointStore::open(&options, manifest, request.bundle_limits).unwrap();
+    for (ordinal, sector) in bundle.sectors.iter().enumerate() {
+        if ordinal == 1 || ordinal == last {
+            continue;
+        }
+        let mut shard = bundle.clone();
+        shard.sectors = vec![sector.clone()];
+        store
+            .publish(
+                ordinal,
+                &codec::write(&shard, request.bundle_limits).unwrap(),
+            )
+            .unwrap();
+    }
+    drop(store);
+    options.resume = true;
+    request.checkpoint = Some(options);
+    let files = || {
+        fs::read_dir(&request.checkpoint.as_ref().unwrap().directory)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (entry.file_name(), fs::read(entry.path()).unwrap())
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let before = files();
+    let mut wrong = request.clone();
+    let CandidateSourcePriority::Materialized { sectors: plans } =
+        &mut wrong.discovery_strategy.as_mut().unwrap().rows
+    else {
+        unreachable!()
+    };
+    let plan = plans
+        .iter_mut()
+        .find(|p| p.ordinals.len() >= 2)
+        .expect("nontrivial prepared K3 basis");
+    plan.ordinals.swap(0, 1); // Same length, still bijective, different saved recipe.
+    let rejected_events = Mutex::new(Vec::new());
+    assert!(
+        family_candidates_with_progress(wrong, |event| rejected_events.lock().unwrap().push(event))
+            .is_err()
+    );
+    assert_no_search(&rejected_events.into_inner().unwrap());
+    assert_eq!(before, files());
+    let (resumed, events) = observed(request.clone());
+    assert_same_program(baseline.bundle(), resumed.bundle());
+    let completed: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            FamilyCloseProgress::GeneratedSector { ordinal, .. } => Some(*ordinal),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(completed, [last, 1]); // W1, reversed full plan restricted to pending slots.
+    let after = files();
+    for (name, bytes) in before {
+        assert_eq!(after.get(&name), Some(&bytes));
+    }
+    let report: toml::Value = toml::from_str(resumed.to_toml()).unwrap();
+    assert_eq!(
+        report["checkpoint"]["newly_solved_sectors"].as_integer(),
+        Some(2)
+    );
 }
 
 #[test]

@@ -531,6 +531,8 @@ formulas with an explicit uncertified status. It does not replay provenance,
 prove global coverage, or emit a closing artifact. `certify-candidates`
 independently reconstructs and replays that bundle through the existing complete
 publication pipeline without running search again; incomplete inputs fail.
+Finite row/job discovery can be selected with `--discovery-strategy <JSON_FILE>`;
+this does not change the persisted integral order or grant closure authority.
 Optional --report-output records phase timings separately from bundle/artifact
 bytes. Data is written before its report; destinations must differ.
 Optional --checkpoint-dir stores completed sectors without certifying them.

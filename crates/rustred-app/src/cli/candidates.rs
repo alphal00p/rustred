@@ -27,6 +27,13 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.case_intersection_limits = arguments.case_intersection_limits;
     request.bundle_limits = arguments.bundle_limits;
     request.permutation = arguments.permutation;
+    request.discovery_strategy = arguments
+        .discovery_strategy
+        .map(|path| {
+            let text = read_input(&StreamPath::File(path))?;
+            crate::CandidateDiscoveryStrategy::from_json(&text).map_err(CliError::from)
+        })
+        .transpose()?;
     request.nonpositive_indices = arguments.nonpositive_indices;
     request.checkpoint = arguments.checkpoint;
     let terminal = std::io::stderr().is_terminal();
@@ -62,10 +69,29 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
 /// before parsing input or starting work, including existing symlink aliases.
 /// This is ordinary local-path policy, not hostile-filesystem authentication.
 fn preflight_checkpoint_paths(arguments: &FamilyCandidatesArgs) -> Result<(), CliError> {
+    if let Some(strategy) = &arguments.discovery_strategy {
+        let strategy = resolved_location(strategy)?;
+        for stream in std::iter::once(&arguments.output).chain(arguments.report_output.iter()) {
+            if let StreamPath::File(path) = stream {
+                if resolved_location(path)? == strategy {
+                    return Err(CliError::Input(
+                        "discovery strategy must differ from bundle/report destinations".into(),
+                    ));
+                }
+            }
+        }
+    }
     let Some(checkpoint) = &arguments.checkpoint else {
         return Ok(());
     };
     let directory = resolved_location(&checkpoint.directory)?;
+    if let Some(path) = &arguments.discovery_strategy {
+        if resolved_location(path)?.starts_with(&directory) {
+            return Err(CliError::Input(
+                "discovery strategy must be outside the dedicated checkpoint directory".into(),
+            ));
+        }
+    }
     for stream in [&arguments.input, &arguments.output]
         .into_iter()
         .chain(arguments.report_output.iter())
