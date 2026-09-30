@@ -25,7 +25,11 @@ five-loop inputs subsequently passed a separate bounded recovery pilot: four
 actual undecided-union fallbacks, a clean CP6 save and structural cold read with
 zero violations, completed in1,403.219s. This is neither full native reinspection
 nor scoped closure or actual resume execution. Optimized replacement compilation
-has started; delivery remains pending. None of these checks launches production.
+has started. The user subsequently waived further pre-launch verification and
+started the recovery launcher: it waits only for compilation/atomic publication,
+then reuses all saved rules in a fresh walk. Additional optimized controls are
+deferred, not marked passed. Production lifecycle remains user-owned. Observe
+the repaired run to guide subsequent optimization rather than delaying it.
 
 | Requirement | State and evidence |
 |---|---|

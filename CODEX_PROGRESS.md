@@ -37,6 +37,30 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] At00:06 October1 Europe/Zurich (22:06UTC), user recovery launcher
+  PID3564028 is alive and waiting. The new campaign directory is absent:
+  traversal has not started. Existing Cargo3441062/rustc3441196 are active;
+  compiler CPU time advances, no error is reported. The runtime agent lost
+  its tool session to an authentication error, so root installed a small
+  process-independent binary publisher, session83664, that waits for this
+  same build's successful final receipt and atomically exposes the complete
+  binary. It invokes no native test and no production command. This removes
+  any dependency on another agent turn to unblock the user's waiting launcher.
+- [D] User confirmed the repaired full run should inform later optimization.
+  S5 agent is mapping existing read-only profile outputs to the previously
+  measured P2/inspection bottlenecks, with no new monitoring framework or
+  linked Rust edits. The h0/h2 screen and wider performance gates remain
+  follow-up work, not release holds. No production settings are changed.
+- [D] User override at22:02UTC: stop adding pre-launch verification and supply
+  recovery commands now; further controls may follow the user's launch. Revoked
+  the runtime agent's ABBA native grant before any arm started. Only the already
+  running optimized compilation must finish successfully, followed by atomic
+  publication of the frozen binary; no help/probe/pilot gate is added. Prepared
+  a user-invoked launcher at
+  `TMP/postlaunch-20260930/epoch-union-repair-delivery/launch.py`, using the
+  already checked exact command template, saved generated inputs and a fresh
+  campaign directory. It waits for that build only. Root has not invoked it
+  and does not start or mutate production. Existing performance caveats remain.
 - [M] At21:58UTC the independent requirement-delta audit found no new
   source-contract gap from the repair. Remaining release work is the optimized
   freeze, actual-binary controls and bound fresh-walk recovery commands. Wider

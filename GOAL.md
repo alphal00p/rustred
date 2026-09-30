@@ -1,5 +1,18 @@
 # RustRed project goal
 
+## Current recovery and observation directive — October1, Europe/Zurich
+
+The user has launched the recovery command and explicitly waived additional
+pre-launch verification. Finish the existing optimized build and atomically
+publish its binary; do not hold the launch behind further tests. The user's
+launcher reuses all saved A1 rules in a fresh walk, preserving the complete
+116-required/67-helper scope,32 physical cores and600GB requested RAM. Do not
+resume the poisoned checkpoint or regenerate the rules. The user alone owns
+production lifecycle. Observe the new run read-only and use its measured
+bottlenecks to guide the remaining two optimization tracks below; subsequent
+isolated tests must not alter or block the live campaign. Prior correctness
+evidence and outstanding performance qualifications remain distinct.
+
 ## Authoritative directive — September30 final optimization push
 
 The user has explicitly postponed the campaign launch and authorized

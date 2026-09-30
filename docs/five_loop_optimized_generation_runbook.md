@@ -6,7 +6,7 @@ terms-first, then coefficient-monomial-count source visitation, with active
 sectors first. It does not change the mathematical integral comparator, which
 remains the native legacy order.
 
-## Current launch hold: Epoch reuse validation
+## Current recovery: fresh walk using the completed rules
 
 The September30 user trial successfully generated and admitted all67 owners
 (9,966 rules), then its Epoch walk stopped after403.143s with
@@ -24,15 +24,48 @@ control also passed: it exercised four conservative fallbacks, saved cleanly,
 and its structural cold reader found no violations across165,305 accepted G2
 unions. That deliberately stopped campaign remains incomplete; the cold check
 did not re-inspect native records or execute a resume. The optimized replacement
-build is running and still must be frozen and checked before launch.
+build is running. On October1 (Europe/Zurich), the user explicitly deferred
+additional optimized post-build controls until after their launch. Publication
+therefore waits only for successful compilation and atomic binary installation,
+not another verification gate. Those deferred controls are not claimed passed.
 
-**Do not relaunch the affected frozen build with this recipe yet.** Retain the
+**Do not relaunch the old affected executable.** Retain the
 failed campaign, generated bundles and completed-sector receipts. Its CP6 walk
 checkpoint is marked poisoned and is not resumable; do not delete that marker.
-Recovery will use a fresh walk with the saved generated inputs and a tested
-replacement executable, not regenerate the rules. Exact recovery instructions
-will be added after validation. The historical release commands and measurements
-below are preserved as evidence, not a current recommendation to retry.
+Recovery uses a fresh walk with the saved generated inputs and the repaired
+executable, without regenerating rules. The historical release commands and
+measurements below remain evidence, not an instruction to retry the old binary.
+
+In `codex_astra`, with the Symbolica license already in the environment:
+
+```sh
+cd /common/dev/rustred/TMP/releases/20260930-epoch-union-repair
+nix develop --command python -B \
+  /common/dev/rustred/TMP/postlaunch-20260930/epoch-union-repair-delivery/launch.py
+```
+
+This machine-local release launcher waits for the completed optimized binary,
+then invokes the public `production_saved_owner_campaign.py` preparation and
+start commands. It copies/verifies the existing inputs, preserves their query
+order and all183 queries, and starts a fresh campaign at
+`/common/dev/rustred/campaigns/five-loop-a1-epoch-repaired-20260930`.
+The old campaign remains untouched. Do not invoke it twice: a pre-existing
+destination is not permission to overwrite campaign state.
+
+The resource settings remain32 workers on CPUs64–95,600GB requested ceiling,
+150GB host headroom and hourly checkpoints. The actual RAM ceiling can be lower
+after shared-host admission. Once this new campaign has saved a clean checkpoint,
+its subsequent user-initiated resume is:
+
+```sh
+python -B examples/python/production_saved_owner_campaign.py \
+  --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-epoch-repaired-20260930 \
+  --resume --start
+```
+
+That resume command applies only to the new campaign after a successful save,
+not to the poisoned original. The initial launcher waiting message does not
+mean traversal has begun.
 
 ## Readiness and what the command will do
 
