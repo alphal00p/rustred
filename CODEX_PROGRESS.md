@@ -147,6 +147,31 @@ changes different priorities. Native API tests alone do not complete P1.
 
 ## Event log
 
+### 2026-09-30 03:25 UTC — final experiment command preflight
+
+- [M] P1's24 command arrays match the current CLI, including explicit all-root
+  All-native verification and correct fresh checkpoint parents. No argument
+  change or new run was needed. Certification's existing ingress limits are
+  recorded separately; exceeding one cannot be called successful source replay.
+- [M] E1's CP6 Python command generator still relied on automatic cold scope.
+  Added explicit `--certification-scope all-roots` to that generator and all
+  four prepared E1 cold commands, preserving the registered intended scope.
+  Independent root review and15 focused tests pass (0.094s); native source
+  `1b33ad29` and both ongoing Rust builds are unchanged. Final tooling identity
+  will be frozen separately from the native executable identity.
+- [D] Registered exactly one conditional larger-cut diagnostic: cut64/window79
+  at W16, only if no accepted E1 candidate meets the1.5x gate and measured
+  boundary OR snapshot-refresh time is at least10% of traversal. These times
+  overlap and are never added. The joint cut/window change can amortize some
+  setup, not per-result replay/containment or every delta update. It has its
+  own <=1800s clock, no parameter grid, and still needs isolated repeats if
+  promising. Plan: `TMP/codex-publication-rescue-matrix.2ScWnG/E2_CONDITIONAL.md`.
+- [M] Independent launch review preserves all183 ordered rows,116 Required/
+  67 Auxiliary and8246 routes. CPU0–199 is200 physical cores but overlaps72
+  LC2 cores, so owner pause/save and full drain remain prerequisites. Draft
+  checkpoint interval corrected to3600s; safe-boundary/save-cost policy can
+  defer it, so this is a target rather than a wall-clock guarantee.
+
 ### 2026-09-30 03:07 UTC — consolidated frontend checks pass; native compilation continues
 
 - [M] Frozen1b33 core/app/PyO3 `cargo check --release --locked --offline --tests`

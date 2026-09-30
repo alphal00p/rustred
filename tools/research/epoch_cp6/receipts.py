@@ -154,7 +154,7 @@ def commands(plan):
     run = Path(plan["run"])
     cold = [plan["binary"], "walk-verify-closure", "--command", str(run / "command.json"),
             "--checkpoint", plan["checkpoint"], "--no-result", "--require-closure", "--reinspect", "all",
-            "--reference-levers", "off", "--threads", str(plan["verify_threads"]),
+            "--certification-scope", "all-roots", "--reference-levers", "off", "--threads", str(plan["verify_threads"]),
             "--output", str(run / "cold-verify.json")]
     audit = [plan["python"], "-B", str(ROOT / "examples/python/audit_owner_domain_walk.py"),
              str(run), "--require-closure", "--output", str(run / "cold-audit.json")]

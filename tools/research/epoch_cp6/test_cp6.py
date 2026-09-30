@@ -220,6 +220,20 @@ class FileReceiptTests(unittest.TestCase):
         self.assertNotIn("--result", frozen["commands"]["cold-verifier"])
         self.assertTrue(acceptance(self.plan, frozen)["checkpoint_read_only"])
 
+    def test_cold_command_explicitly_requires_all_roots_with_unchanged_timeout_and_audit(self):
+        run = Path(self.plan["run"])
+        prefix = ["timeout", "--signal=INT", "--kill-after=60", "60"]
+        self.assertEqual(commands(self.plan), {
+            "cold-verifier": prefix + [self.plan["binary"], "walk-verify-closure",
+                "--command", str(run / "command.json"), "--checkpoint", self.plan["checkpoint"],
+                "--no-result", "--require-closure", "--reinspect", "all",
+                "--certification-scope", "all-roots", "--reference-levers", "off", "--threads", "1",
+                "--output", str(run / "cold-verify.json")],
+            "python-audit": prefix + [self.plan["python"], "-B",
+                str(ROOT / "examples/python/audit_owner_domain_walk.py"), str(run),
+                "--require-closure", "--output", str(run / "cold-audit.json")],
+        })
+
     def test_plan_requires_exact_rolling_dispatch_and_union_flags(self):
         plan = copy.deepcopy(self.plan)
         plan.update(b=20, checkpoint_schema=2, g2="union", schedule={
