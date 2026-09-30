@@ -9,7 +9,7 @@ use symbolica::license::LicenseManager;
 
 use super::{
     SectorConfig, SectorEvent, SectorSolution, SectorSolveError, SectorSolveOptions, SectorSolver,
-    SolverError, SourceSystem,
+    SectorVisitOrder, SolverError, SourceSystem,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -145,6 +145,7 @@ impl<const N: usize, E: std::error::Error + 'static> std::error::Error
 pub struct SectorExecutor {
     workers: usize,
     scheduling: SectorScheduling,
+    visit_order: Option<SectorVisitOrder>,
     pool: Option<ThreadPool>,
 }
 
@@ -153,6 +154,7 @@ impl fmt::Debug for SectorExecutor {
         f.debug_struct("SectorExecutor")
             .field("workers", &self.workers)
             .field("scheduling", &self.scheduling)
+            .field("visit_order", &self.visit_order)
             .field("owns_pool", &self.pool.is_some())
             .finish()
     }
@@ -200,6 +202,7 @@ impl SectorExecutor {
         Ok(Self {
             workers,
             scheduling: SectorScheduling::default(),
+            visit_order: None,
             pool,
         })
     }
@@ -214,6 +217,17 @@ impl SectorExecutor {
 
     pub fn with_scheduling(mut self, scheduling: SectorScheduling) -> Self {
         self.scheduling = scheduling;
+        self.visit_order = None;
+        self
+    }
+
+    /// Override scheduling with a validated finite plan. It must match the
+    /// next call's full input inventory, including any repeated sector masks.
+    /// Results/source IDs remain in original order; parallel start order is
+    /// not a serial dependency barrier. No callback runs in the worker engine.
+    /// An empty input remains a no-op, as with the ordinary executor.
+    pub fn with_sector_visit_order(mut self, plan: SectorVisitOrder) -> Self {
+        self.visit_order = Some(plan);
         self
     }
 
@@ -328,8 +342,28 @@ impl SectorExecutor {
         H: Fn(&SectorExecutionError<N, E>) + Send + Sync,
         F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
     {
-        let mut jobs: Vec<_> = (0..sectors.len()).collect();
-        if self.scheduling == SectorScheduling::ActiveFirst {
+        let mut jobs: Vec<_> = if let Some(plan) = &self.visit_order {
+            if let Err(source) =
+                super::discovery_strategy::validate_visit_order(plan.ordinals(), sectors.len())
+            {
+                // An empty inventory executes no work. Any nonempty inventory
+                // rejects the mismatch before configure/prepare/observe.
+                if let Some(&sector) = sectors.first() {
+                    let error = SectorExecutionError::Prepare {
+                        ordinal: 0,
+                        sector,
+                        source,
+                    };
+                    observe_error(&error);
+                    return Err(error);
+                }
+                return Ok(Vec::new());
+            }
+            plan.ordinals().to_vec()
+        } else {
+            (0..sectors.len()).collect()
+        };
+        if self.visit_order.is_none() && self.scheduling == SectorScheduling::ActiveFirst {
             jobs.sort_unstable_by_key(|&ordinal| {
                 (
                     std::cmp::Reverse(sectors[ordinal].iter().filter(|&&active| active).count()),

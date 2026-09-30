@@ -328,3 +328,84 @@ fn empty_basis_accepts_only_the_empty_schedule_without_panicking() {
     );
     assert!(matches!(result, Err(SolverError::InvalidInput(_))));
 }
+
+#[test]
+fn configured_materialized_plan_reaches_symbolic_and_shared_numeric_paths() {
+    let context = CoefficientContext::new(["n"]);
+    let basis = vec![
+        row(&context, &[1, 0]),
+        row(&context, &[1, 0]),
+        row(&context, &[1, -1]),
+    ];
+    let system = SourceSystem::new(basis.clone(), [0]).unwrap();
+    let solver = SectorSolver {
+        system: &system,
+        basis: basis.clone(),
+        order: IntegralOrder::new([true], [false]),
+        config: SectorConfig::default(),
+    }
+    .with_source_visit_order(SourceVisitOrder::new(vec![2, 1, 0], 3).unwrap())
+    .unwrap();
+    let case = CoordinateCase::new([Some(1)]).unwrap();
+    let ordinary = solver.solve_case(case, depth_zero()).unwrap();
+    let numerical = solver
+        .solve_numeric_cases(vec![case], depth_zero())
+        .unwrap();
+    assert!(numerical.residuals.is_empty());
+    assert_eq!(numerical.rules.len(), 1);
+    for candidate in [&ordinary, &numerical.rules[0]] {
+        assert_eq!(
+            candidate
+                .sources
+                .iter()
+                .map(|s| s.basis_row)
+                .collect::<Vec<_>>(),
+            [2, 1]
+        );
+        assert_eq!(candidate.stats.rows, 2);
+        assert_regenerated_equation(&solver, candidate);
+    }
+    assert_eq!(ordinary.target, numerical.rules[0].target);
+    assert_eq!(ordinary.rhs, numerical.rules[0].rhs);
+    assert_eq!(solver.basis(), basis);
+}
+
+#[test]
+fn configured_identity_preserves_real_preparation_and_default_direct_result() {
+    let system = SourceSystem::<1>::from_family(&crate::solver::tests::tadpole()).unwrap();
+    let ordinary = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();
+    let count = ordinary.basis().len();
+    let configured = SectorSolver::new(
+        &system,
+        [true],
+        SectorConfig {
+            source_discovery: SourceDiscoveryStrategy::Materialized(
+                SourceVisitOrder::new((0..count).collect(), count).unwrap(),
+            ),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ordinary.basis(), configured.basis());
+    assert_same_candidate(
+        &ordinary
+            .solve_case(CoordinateCase::generic(), depth_zero())
+            .unwrap(),
+        &configured
+            .solve_case(CoordinateCase::generic(), depth_zero())
+            .unwrap(),
+    );
+    assert!(
+        SectorSolver::new(
+            &system,
+            [true],
+            SectorConfig {
+                source_discovery: SourceDiscoveryStrategy::Materialized(
+                    SourceVisitOrder::new((0..count + 1).collect(), count + 1).unwrap()
+                ),
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+}

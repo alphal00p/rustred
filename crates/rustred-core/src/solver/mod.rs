@@ -10,6 +10,7 @@ mod candidate_reduction;
 mod case;
 mod cuts;
 mod discovery;
+mod discovery_strategy;
 mod error;
 mod exception;
 mod execution;
@@ -69,6 +70,10 @@ pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::{
     CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend,
+};
+pub use discovery_strategy::{
+    SectorVisitOrder, SourceDiscoveryStrategy, SourceRowFeature, SourceRowFeatures,
+    SourceRowPriority, SourceVisitOrder,
 };
 pub use error::SolverError;
 pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};

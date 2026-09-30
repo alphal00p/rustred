@@ -154,7 +154,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             }
             stats.seeds += 1;
 
-            for (basis_row, source) in self.basis.iter().enumerate() {
+            for position in 0..self.basis.len() {
+                let basis_row = self
+                    .source_visit_order()
+                    .map_or(position, |plan| plan.ordinals()[position]);
+                let source = &self.basis[basis_row];
                 let row = instantiate(
                     source,
                     &seed,
