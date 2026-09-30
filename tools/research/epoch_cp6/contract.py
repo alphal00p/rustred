@@ -27,7 +27,7 @@ def expected_schedule(plan):
     }, "explicit schedule shape")
     require(schedule["kind"] in ("lockstep", "rolling")
             and schedule["dispatch"] in ("fifo", "adaptive")
-            and schedule["publication_order"] == "oldest_sequence_prefix"
+            and schedule["publication_order"] in ("oldest_sequence_prefix", "oldest_ready_sequences")
             and all(integer(schedule[key], 1) for key in ("depth", "b", "window", "cut_size"))
             and schedule["b"] == schedule["window"] == b
             and schedule["cut_size"] <= b, "explicit schedule bounds/policy")
@@ -35,7 +35,8 @@ def expected_schedule(plan):
     if schedule["kind"] == "rolling":
         require(schedule["depth"] == (b + cut - 1) // cut, "rolling cohort bound")
     else:
-        require(schedule["depth"] == 1 and cut == b and schedule["dispatch"] == "fifo",
+        require(schedule["depth"] == 1 and cut == b and schedule["dispatch"] == "fifo"
+                and schedule["publication_order"] == "oldest_sequence_prefix",
                 "lockstep schedule differs")
     return schedule
 

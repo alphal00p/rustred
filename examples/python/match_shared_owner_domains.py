@@ -35,6 +35,11 @@ EPOCH_INSPECTOR_LOOKUP_MODES = ("all-miss", "snapshot")
 EPOCH_ROLLING = "epoch-rolling"
 EPOCH_DISPATCH = "epoch-dispatch"
 EPOCH_DISPATCH_POLICIES = ("fifo", "adaptive")
+EPOCH_PUBLICATION_ORDER = "epoch-publication-order"
+EPOCH_PUBLICATION_ORDERS = ("oldest-prefix", "oldest-ready")
+EPOCH_CUT_SIZE = "epoch-cut-size"
+EPOCH_WINDOW = "epoch-window"
+EPOCH_BATCH_OPTIONS = (EPOCH_PUBLICATION_ORDER, EPOCH_CUT_SIZE, EPOCH_WINDOW)
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 FRONTIER_POLICY = "frontier-policy"
@@ -148,6 +153,37 @@ def validate_epoch_dispatch(policy, rolling, symbolic, publication, checkpoint):
         raise ValueError("--epoch-dispatch adaptive requires --epoch-rolling")
 
 
+def epoch_batch_size(text):
+    value = positive(text)
+    if value > 4096:
+        raise argparse.ArgumentTypeError("Epoch cut/window must be in 1..4096")
+    return value
+
+
+def add_epoch_batch_arguments(parser):
+    parser.add_argument("--" + EPOCH_PUBLICATION_ORDER, choices=EPOCH_PUBLICATION_ORDERS,
+                        action=StoreOnce, help="rolling merge order; default oldest-prefix; frozen on resume")
+    parser.add_argument("--" + EPOCH_CUT_SIZE, type=epoch_batch_size, action=StoreOnce,
+                        help="rolling publication batch size (default 16); frozen on resume")
+    parser.add_argument("--" + EPOCH_WINDOW, type=epoch_batch_size, action=StoreOnce,
+                        help="rolling unmerged-job bound; omitted resume inherits the saved bound")
+
+
+def validate_epoch_batch(publication_order, cut_size, window, rolling, symbolic, publication, checkpoint):
+    if publication_order is None and cut_size is None and window is None:
+        return
+    if not rolling or not symbolic or publication != "epoch" or not checkpoint:
+        raise ValueError("Epoch publication order, cut size and window require a symbolic rolling "
+                         "Epoch walk with --checkpoint or --resume")
+    if publication_order not in (None, *EPOCH_PUBLICATION_ORDERS):
+        raise ValueError("Epoch publication order must be oldest-prefix or oldest-ready")
+    for value in (cut_size, window):
+        if value is not None and (type(value) is not int or not 1 <= value <= 4096):
+            raise ValueError("Epoch cut/window must be integers in 1..4096")
+    if window is not None and window < (cut_size or 16):
+        raise ValueError("Epoch window must be at least the cut size")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -193,6 +229,7 @@ def main() -> None:
                         help="opt into bounded rolling CP6 execution; frozen on resume")
     parser.add_argument("--" + EPOCH_DISPATCH, choices=EPOCH_DISPATCH_POLICIES, action=StoreOnce,
                         help="pending-job dispatch: fifo (default) or adaptive; adaptive requires rolling")
+    add_epoch_batch_arguments(parser)
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,
@@ -237,6 +274,9 @@ def main() -> None:
                                args.publication_policy, args.checkpoint is not None or args.resume is not None)
         validate_epoch_dispatch(args.epoch_dispatch, args.epoch_rolling, args.follow_successors,
                                 args.publication_policy, args.checkpoint is not None or args.resume is not None)
+        validate_epoch_batch(args.epoch_publication_order, args.epoch_cut_size, args.epoch_window,
+                             args.epoch_rolling, args.follow_successors, args.publication_policy,
+                             args.checkpoint is not None or args.resume is not None)
     except ValueError as error:
         parser.error(str(error))
     validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
@@ -273,7 +313,7 @@ def main() -> None:
                    "apply_subdivision_axis", "apply_subdivision_cut"):
         if (value := getattr(args, option)) is not None:
             command += ["--" + option.replace("_", "-"), str(value)]
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, EPOCH_INSPECTOR_LOOKUP, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, EPOCH_INSPECTOR_LOOKUP, *EPOCH_BATCH_OPTIONS, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
                    FRONTIER_POLICY, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])

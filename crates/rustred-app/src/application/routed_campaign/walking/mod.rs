@@ -73,7 +73,7 @@ pub use epoch::EPOCH_WALK_SEMANTICS_VERSION;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::{
     OwnerDomainWalkEpochDispatchPolicy, OwnerDomainWalkEpochInspectorLookup,
-    OwnerDomainWalkPublicationPolicy,
+    OwnerDomainWalkEpochPublicationOrder, OwnerDomainWalkPublicationPolicy,
 };
 pub use rescue::{
     AMENDMENT_SCHEMA as OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
@@ -123,6 +123,15 @@ pub struct OwnerDomainWalkRequest {
     /// Optional cost/work-growth-guided dispatch. Requires rolling CP6;
     /// observations and unselected candidates survive checkpoint/resume.
     pub epoch_dispatch: OwnerDomainWalkEpochDispatchPolicy,
+    /// Fresh rolling publication policy, frozen across checkpoint resume.
+    pub epoch_publication_order: OwnerDomainWalkEpochPublicationOrder,
+    /// Explicit rolling cut bound (1..=4096). None retains the fixed default
+    /// 16, or the existing diagnostic override. A custom cut must match resume.
+    pub epoch_cut_size: Option<usize>,
+    /// Explicit fresh rolling unmerged-work bound (1..=4096, at least the cut).
+    /// None selects the automatic fresh bound and inherits a saved window on
+    /// resume; an explicit resumed bound must equal the persisted window.
+    pub epoch_window: Option<usize>,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -169,6 +178,9 @@ impl OwnerDomainWalkRequest {
             epoch_inspector_lookup: OwnerDomainWalkEpochInspectorLookup::AllMiss,
             epoch_rolling: false,
             epoch_dispatch: OwnerDomainWalkEpochDispatchPolicy::Fifo,
+            epoch_publication_order: OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
+            epoch_cut_size: None,
+            epoch_window: None,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             g2_residual_anchors: OwnerDomainWalkG2ResidualAnchors::Off,
@@ -186,6 +198,28 @@ impl OwnerDomainWalkRequest {
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
+        if (self.epoch_publication_order != OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+            || self.epoch_cut_size.is_some()
+            || self.epoch_window.is_some())
+            && !self.epoch_rolling
+        {
+            return Err("Epoch cut/window/publication options require rolling CP6");
+        }
+        if self
+            .epoch_cut_size
+            .is_some_and(|n| !(1..=4096).contains(&n))
+            || self.epoch_window.is_some_and(|n| !(1..=4096).contains(&n))
+        {
+            return Err("Epoch cut and window must be in 1..=4096");
+        }
+        if let Some(window) = self.epoch_window {
+            let cut = self
+                .effective_epoch_cut_size()
+                .map_err(|_| "Invalid epoch cut size or diagnostic override")?;
+            if window < cut {
+                return Err("Epoch window must be at least the cut size");
+            }
+        }
         if self.epoch_dispatch == OwnerDomainWalkEpochDispatchPolicy::Adaptive
             && !self.epoch_rolling
         {
@@ -206,10 +240,35 @@ impl OwnerDomainWalkRequest {
         Ok(())
     }
 
-    /// Initial logical in-flight bound, not an extra compute pool. A restored
-    /// campaign retains its persisted bound even if the worker width changes.
-    pub(crate) fn epoch_window(&self, cut_size: usize) -> usize {
-        if !self.epoch_rolling {
+    /// Resolve the public cut size and reject a conflicting diagnostic override.
+    pub fn effective_epoch_cut_size(&self) -> Result<usize, String> {
+        if let Some(cut) = self.epoch_cut_size {
+            if !(1..=4096).contains(&cut) {
+                return Err("Epoch cut size must be in 1..=4096".into());
+            }
+            let diagnostic = epoch::lockstep_b()?;
+            if diagnostic != epoch::LOCKSTEP_B && diagnostic != cut {
+                return Err("Explicit epoch cut conflicts with diagnostic override".into());
+            }
+            Ok(cut)
+        } else {
+            epoch::lockstep_b()
+        }
+    }
+
+    /// Initial logical in-flight bound, not an extra compute pool. Resolve the
+    /// fresh bound only; restore retains its authenticated window across widths.
+    pub fn resolved_epoch_window(&self, cut_size: usize) -> Result<usize, &'static str> {
+        if !(1..=4096).contains(&cut_size) {
+            return Err("Epoch cut size must be in 1..=4096");
+        }
+        if let Some(window) = self.epoch_window {
+            if !(cut_size..=4096).contains(&window) {
+                return Err("Epoch window must be between its cut size and 4096");
+            }
+            return Ok(window);
+        }
+        Ok(if !self.epoch_rolling {
             cut_size
         } else if self.workers == 1 {
             1
@@ -219,7 +278,12 @@ impl OwnerDomainWalkRequest {
                 .saturating_add(cut_size)
                 .max(cut_size)
                 .min(4096)
-        }
+        })
+    }
+
+    pub(crate) fn epoch_window(&self, cut_size: usize) -> usize {
+        self.resolved_epoch_window(cut_size)
+            .expect("validated epoch window")
     }
 
     pub(crate) fn validate_inspection_workers(

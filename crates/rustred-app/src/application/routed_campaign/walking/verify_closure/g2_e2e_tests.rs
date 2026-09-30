@@ -65,6 +65,11 @@ fn kinds(result: &Value) -> BTreeMap<String, u64> {
 
 #[test]
 fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
+    epoch_union_save_resume_mode(false);
+    epoch_union_save_resume_mode(true);
+}
+
+fn epoch_union_save_resume_mode(ready: bool) {
     let fixture = g2_fixture();
     let dir = scratch("epoch-g2-cp6");
     let selection = write_owners(&dir.0, fixture.rank, fixture.omit, &fixture.routes);
@@ -82,8 +87,22 @@ fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
         !request.epoch_rolling,
         "exercise the public lockstep Union path"
     );
+    if ready {
+        request.epoch_rolling = true;
+        request.epoch_publication_order = crate::OwnerDomainWalkEpochPublicationOrder::OldestReady;
+        request.epoch_window = Some(16);
+    }
     let result = walk(&dir.0, &request);
-    assert_eq!(result["epoch"]["schedule"]["kind"], "lockstep");
+    assert_eq!(
+        result["epoch"]["schedule"]["kind"],
+        if ready { "rolling" } else { "lockstep" }
+    );
+    if ready {
+        assert_eq!(
+            result["epoch"]["schedule"]["publication_order"],
+            "oldest_ready_sequences"
+        );
+    }
     assert_eq!(result["recursive_worklist_exhausted"], true, "{result}");
     assert!(
         result["g2_residual_anchors"]["logged_g2_records"]
@@ -131,6 +150,11 @@ fn epoch_union_real_plans_save_resume_and_independent_cold_reinspection() {
 
 #[test]
 fn epoch_union_rescue_abandons_auxiliaries_and_cold_certifies_unchanged_required_scope() {
+    epoch_union_rescue_mode(false);
+    epoch_union_rescue_mode(true);
+}
+
+fn epoch_union_rescue_mode(ready: bool) {
     let mut fixture = g2_fixture();
     fixture.queries["query_roles"] = json!({"required":["anchor011"],
         "auxiliary":["anchor110","anchor","big","big-inner"]});
@@ -145,6 +169,11 @@ fn epoch_union_rescue_abandons_auxiliaries_and_cold_certifies_unchanged_required
         .unwrap();
     argv[at + 1] = "epoch".into();
     let mut request = crate::cli::walk_request_from_argv(argv).unwrap();
+    if ready {
+        request.epoch_rolling = true;
+        request.epoch_publication_order = crate::OwnerDomainWalkEpochPublicationOrder::OldestReady;
+        request.epoch_window = Some(16);
+    }
     // Public allowances must be positive. One event still stops the complete
     // five-root cut before publication, leaving real obligations to abandon.
     request.max_events = 1;

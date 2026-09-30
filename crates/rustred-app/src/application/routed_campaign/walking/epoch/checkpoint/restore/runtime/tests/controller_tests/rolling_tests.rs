@@ -1,6 +1,14 @@
 use super::*;
 use crate::application::routed_campaign::walking::epoch::snapshot::Publication;
 
+struct ReleaseGateOnDrop<'a>(&'a (Mutex<bool>, Condvar));
+impl Drop for ReleaseGateOnDrop<'_> {
+    fn drop(&mut self) {
+        *self.0.0.lock().unwrap() = true;
+        self.0.1.notify_all();
+    }
+}
+
 fn rolling_config() -> MergeConfig {
     MergeConfig {
         lockstep: false,
@@ -38,6 +46,138 @@ fn rolling_fixture(count: usize) -> Fixture {
     })
     .to_string();
     fixture
+}
+
+#[test]
+fn oldest_ready_publishes_refills_and_saves_around_held_sequence_zero_then_replays_holes() {
+    for with_snapshot in [false, true] {
+        let mut fixture = rolling_fixture(48);
+        fixture.request.epoch_publication_order =
+            crate::OwnerDomainWalkEpochPublicationOrder::OldestReady;
+        fixture.request.epoch_window = Some(32);
+        fixture.save_window(48, 0, false, 32);
+        let identity = fixture.identity();
+        let mut restored = fixture.open().unwrap();
+        let snapshots = Publication::new();
+        let gate = (Mutex::new(false), Condvar::new());
+        let held = AtomicBool::new(false);
+        let returned = AtomicBool::new(false);
+        let refilled = AtomicBool::new(false);
+        let cancel = AtomicBool::new(false);
+        let expected_remaining: Vec<_> = std::iter::once(0).chain(17..48).collect();
+        // Total budget three means exactly two inspectors. Once zero holds
+        // one, the other processes 1..31 serially from the shared FIFO queue;
+        // the first ready cut is therefore deterministically 1..16.
+        let inspect = |bytes: &[u8], _: &AtomicBool| {
+            let job = Job::<1>::decode(bytes).unwrap();
+            let view = with_snapshot.then(|| snapshots.acquire_job(job.seq).unwrap());
+            if job.parent == 0 {
+                held.store(true, Ordering::Release);
+                let (guard, timeout) = gate
+                    .1
+                    .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |open| {
+                        !*open
+                    })
+                    .unwrap();
+                assert!(!timeout.timed_out() && *guard);
+                if let Some(view) = &view {
+                    assert_eq!(view.version, 0);
+                    assert_eq!(view.len(), 48);
+                }
+                returned.store(true, Ordering::Release);
+            } else if job.parent == 1 {
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                while !held.load(Ordering::Acquire) {
+                    assert!(std::time::Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+            } else if job.parent == 32 {
+                assert_eq!(job.v0, 1, "new work sees the committed nonprefix cut");
+                if let Some(view) = &view {
+                    assert_eq!(view.version, 1);
+                }
+                refilled.store(true, Ordering::Release);
+                cancel.store(true, Ordering::Release);
+            }
+            result(&job, false)
+        };
+        let mut saved = 0;
+        assert_eq!(
+            controller::run_observed(
+                &mut restored,
+                &identity,
+                32,
+                3,
+                rolling_config(),
+                &|| Ok(()),
+                &inspect,
+                || stop::requested(&cancel, None),
+                |_| false,
+                |state, _, status| {
+                    let _release = ReleaseGateOnDrop(&gate);
+                    saved += 1;
+                    assert!(held.load(Ordering::Acquire));
+                    assert!(!returned.load(Ordering::Acquire));
+                    assert!(refilled.load(Ordering::Acquire));
+                    assert_eq!(state.state.k, 1);
+                    assert_eq!(state.records.total(), 16);
+                    let mut remaining = state.state.in_flight.keys().copied().collect::<Vec<_>>();
+                    remaining.sort_unstable();
+                    assert_eq!(remaining, expected_remaining);
+                    assert_eq!(status.len(), 32);
+                    // Stop saves before joining this genuinely older reader.
+                },
+                with_snapshot.then_some(&snapshots),
+                |_, _, _, _| {},
+                |_| {},
+            )
+            .unwrap(),
+            Outcome::Stopped(merge::StopReason::Paused)
+        );
+        assert_eq!(saved, 1);
+        assert!(returned.load(Ordering::Acquire));
+        assert_eq!(restored.rolling_diagnostics.selected_nonprefix_cuts, 1);
+        assert_eq!(restored.rolling_diagnostics.selected_partial_cuts, 0);
+        drop(restored);
+        let mut restored = fixture.open().unwrap();
+        assert_eq!(restored.window, 32);
+        assert_eq!(
+            restored
+                .replay
+                .iter()
+                .map(|job| job.parent)
+                .collect::<Vec<_>>(),
+            expected_remaining
+        );
+        assert!(restored.replay.iter().all(|job| job.v0 == 1));
+        let seen = Mutex::new(Vec::new());
+        assert_eq!(
+            controller::run_observed(
+                &mut restored,
+                &identity,
+                32,
+                1,
+                rolling_config(),
+                &|| Ok(()),
+                &|bytes, _| {
+                    let job = Job::<1>::decode(bytes).unwrap();
+                    seen.lock().unwrap().push(job.parent);
+                    result(&job, false)
+                },
+                || None,
+                |_| false,
+                |_, _, _| {},
+                None,
+                |_, _, _, _| {},
+                |_| {},
+            )
+            .unwrap(),
+            Outcome::Drained
+        );
+        assert_eq!(*seen.lock().unwrap(), expected_remaining);
+        assert_eq!(restored.records.total(), 48);
+        assert_eq!(restored.state.k, 3);
+    }
 }
 
 #[test]
@@ -202,7 +342,17 @@ fn rolling_publishes_and_saves_while_old_reader_runs_then_reissues_only_unmerged
 
 #[test]
 fn rolling_partial_replay_retires_before_new_pending_dispatch() {
-    let fixture = rolling_fixture(3);
+    for policy in [
+        crate::OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
+        crate::OwnerDomainWalkEpochPublicationOrder::OldestReady,
+    ] {
+        rolling_partial_replay_mode(policy);
+    }
+}
+
+fn rolling_partial_replay_mode(policy: crate::OwnerDomainWalkEpochPublicationOrder) {
+    let mut fixture = rolling_fixture(3);
+    fixture.request.epoch_publication_order = policy;
     fixture.save(3, 2);
     let mut restored = fixture.open().unwrap();
     let seen = Mutex::new(Vec::new());
@@ -231,6 +381,63 @@ fn rolling_partial_replay_retires_before_new_pending_dispatch() {
     );
     assert_eq!(*seen.lock().unwrap(), [(0, 0), (1, 0), (2, 1)]);
     assert_eq!(restored.state.k, 2);
+}
+
+#[test]
+fn default_prefix_never_publishes_later_results_while_sequence_zero_is_held() {
+    let fixture = rolling_fixture(48);
+    fixture.save_window(48, 0, false, 32);
+    let mut restored = fixture.open().unwrap();
+    let gate = (Mutex::new(false), Condvar::new());
+    let held = AtomicBool::new(false);
+    let cancel = AtomicBool::new(false);
+    let inspect = |bytes: &[u8], _: &AtomicBool| {
+        let job = Job::<1>::decode(bytes).unwrap();
+        if job.parent == 0 {
+            held.store(true, Ordering::Release);
+            let (guard, timeout) = gate
+                .1
+                .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(10), |open| {
+                    !*open
+                })
+                .unwrap();
+            assert!(!timeout.timed_out() && *guard);
+        } else if job.parent == 31 {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !held.load(Ordering::Acquire) {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::yield_now();
+            }
+            cancel.store(true, Ordering::Release);
+        }
+        result(&job, false)
+    };
+    assert_eq!(
+        controller::run_observed(
+            &mut restored,
+            &fixture.identity(),
+            32,
+            3,
+            rolling_config(),
+            &|| Ok(()),
+            &inspect,
+            || stop::requested(&cancel, None),
+            |_| false,
+            |state, _, status| {
+                let _release = ReleaseGateOnDrop(&gate);
+                assert_eq!(state.state.k, 0);
+                assert_eq!(state.records.total(), 0);
+                assert_eq!(state.state.in_flight.len(), 32);
+                assert_eq!(status.len(), 32);
+            },
+            None,
+            |_, _, _, _| {},
+            |_| {},
+        )
+        .unwrap(),
+        Outcome::Stopped(merge::StopReason::Paused)
+    );
+    assert_eq!(restored.rolling_diagnostics.selected_cuts, 0);
 }
 
 #[test]

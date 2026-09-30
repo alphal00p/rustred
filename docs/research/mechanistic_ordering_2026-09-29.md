@@ -5,8 +5,9 @@ no decisive performance gain established. The later stitched natural pair
 closes; mixed-line-first grows dramatically and is censored in both engines.
 Exact terminal-key equality remains unestablished and is not assumed. A cheap
 finite-prefix proxy also completes but is slower. Full coordinate reindexing
-now closes the complete control with promising reduced work in one pair;
-replication remains pending. No production
+now closes the complete control with reduced work in two matched pairs;
+Ready/Epoch means16.937s/16.729s include cold verification and have mixed
+pairwise signs, so there is no robust Epoch speedup. No production
 mutation, graph canonizer, or algebra implementation. The
 prepared inputs are in `TMP/codex-mechanistic-ordering.5NFxVw/`; their exact
 permutations and preservation checks are in `input-mapping.json`.

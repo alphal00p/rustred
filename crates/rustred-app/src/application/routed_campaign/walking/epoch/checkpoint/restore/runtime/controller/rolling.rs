@@ -1,10 +1,13 @@
-//! Bounded rolling publication: the oldest sequence prefix is the next cut,
-//! while unrelated inspections keep running. Result arrival order has no
-//! authority over the order inside a cut. CP6 retains the exact issued
+//! Bounded rolling publication: the default commits the oldest sequence prefix;
+//! opt-in oldest-ready commits the lowest completed sequences instead. Arrival
+//! may change the selected cut, never its exact P1/P2/P3 authority. CP6 retains the exact issued
 //! seq/v0/parent inventory and accepted records retain their publication epoch.
+use super::super::RollingDiagnostics;
 use super::*;
+use crate::OwnerDomainWalkEpochPublicationOrder;
 use crate::application::routed_campaign::walking::epoch::ledger6::Tag;
 use std::collections::{BTreeMap, VecDeque};
+use std::time::Instant;
 
 #[allow(clippy::too_many_arguments)]
 fn stopped<const N: usize>(
@@ -43,9 +46,11 @@ fn collect(
     message: Poll,
     order: &VecDeque<u64>,
     results: &mut BTreeMap<u64, Vec<u8>>,
+    diagnostics: &mut RollingDiagnostics,
 ) -> Result<bool, Failure> {
     match message {
         Poll::Result { key, bytes } => {
+            diagnostics.returned_messages += 1;
             if !order.contains(&key) || results.insert(key, bytes).is_some() {
                 return Err(Failure::Engine(
                     "rolling result absent/duplicate sequence".into(),
@@ -53,9 +58,150 @@ fn collect(
             }
             Ok(false)
         }
-        Poll::Started(_) | Poll::Waiting => Ok(false),
+        Poll::Started(_) => {
+            diagnostics.started_messages += 1;
+            Ok(false)
+        }
+        Poll::Waiting => {
+            diagnostics.poll_timeouts += 1;
+            Ok(false)
+        }
         Poll::Drained => Ok(true),
     }
+}
+
+/// Select only completed jobs and prefer a full cut. Partial cuts are reserved
+/// for the existing tail/replay drain conditions, never a wall-clock heuristic.
+fn select_cut(
+    order: &VecDeque<u64>,
+    results: &BTreeMap<u64, Vec<u8>>,
+    cut_size: usize,
+    partial_allowed: bool,
+    policy: OwnerDomainWalkEpochPublicationOrder,
+) -> Vec<u64> {
+    let count = cut_size.min(order.len());
+    if count == 0 || (count < cut_size && !partial_allowed) {
+        return Vec::new();
+    }
+    match policy {
+        OwnerDomainWalkEpochPublicationOrder::OldestPrefix => {
+            if order
+                .iter()
+                .take(count)
+                .all(|key| results.contains_key(key))
+            {
+                order.iter().take(count).copied().collect()
+            } else {
+                Vec::new()
+            }
+        }
+        OwnerDomainWalkEpochPublicationOrder::OldestReady => {
+            if results.len() >= count {
+                results.keys().take(count).copied().collect()
+            } else {
+                Vec::new()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn ready_bypasses_a_hole_but_never_turns_a_full_window_into_singleton_cuts() {
+        use OwnerDomainWalkEpochPublicationOrder::{OldestPrefix, OldestReady};
+        let order = (0..32).collect();
+        let mut results = BTreeMap::new();
+        for key in 1..16 {
+            results.insert(key, Vec::new());
+        }
+        for tail in [false, true] {
+            assert!(select_cut(&order, &results, 16, tail, OldestReady).is_empty());
+        }
+        results.insert(16, Vec::new());
+        assert!(select_cut(&order, &results, 16, true, OldestPrefix).is_empty());
+        assert_eq!(
+            select_cut(&order, &results, 16, false, OldestReady),
+            (1..=16).collect::<Vec<_>>()
+        );
+        results.insert(0, Vec::new());
+        assert_eq!(
+            select_cut(&order, &results, 16, false, OldestReady),
+            (0..16).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            select_cut(&order, &results, 16, false, OldestPrefix),
+            (0..16).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn partial_tail_and_replay_wait_for_their_entire_remaining_inventory() {
+        let order = VecDeque::from([3, 7, 9]);
+        let mut results = BTreeMap::from([(7, Vec::new()), (9, Vec::new())]);
+        for policy in [
+            OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
+            OwnerDomainWalkEpochPublicationOrder::OldestReady,
+        ] {
+            assert!(select_cut(&order, &results, 16, true, policy).is_empty());
+        }
+        results.insert(3, Vec::new());
+        for policy in [
+            OwnerDomainWalkEpochPublicationOrder::OldestPrefix,
+            OwnerDomainWalkEpochPublicationOrder::OldestReady,
+        ] {
+            assert!(select_cut(&order, &results, 16, false, policy).is_empty());
+            assert_eq!(select_cut(&order, &results, 16, true, policy), [3, 7, 9]);
+            assert!(select_cut(&VecDeque::new(), &BTreeMap::new(), 16, true, policy).is_empty());
+        }
+    }
+}
+
+/// Consume only already available threaded-pool messages. Inline W1 must not
+/// call this: its poll executes a native rather than performing a channel read.
+/// The fixed cap preserves cancellation/heartbeat opportunities at wide bounds.
+fn collect_available(
+    pool: &mut dyn execution::Execution,
+    order: &VecDeque<u64>,
+    results: &mut BTreeMap<u64, Vec<u8>>,
+    diagnostics: &mut RollingDiagnostics,
+    window: usize,
+) -> Result<(), Failure> {
+    for _ in 0..window.saturating_mul(2).min(256) {
+        let message = pool.poll(Duration::ZERO).map_err(Failure::Engine)?;
+        if matches!(message, Poll::Waiting | Poll::Drained) {
+            break;
+        }
+        diagnostics.ready_poll_messages += 1;
+        collect(message, order, results, diagnostics)?;
+    }
+    Ok(())
+}
+
+fn wait_for_receipt(
+    pool: &mut dyn execution::Execution,
+    order: &VecDeque<u64>,
+    results: &mut BTreeMap<u64, Vec<u8>>,
+    diagnostics: &mut RollingDiagnostics,
+    publication_wait: bool,
+) -> Result<bool, Failure> {
+    let started = Instant::now();
+    let message = pool
+        .poll(Duration::from_millis(50))
+        .map_err(Failure::Engine)?;
+    let seconds = started.elapsed().as_secs_f64();
+    diagnostics.blocking_poll_calls += 1;
+    diagnostics.blocking_poll_seconds += seconds;
+    if publication_wait {
+        diagnostics.publication_wait_calls += 1;
+        diagnostics.publication_wait_seconds += seconds;
+    } else {
+        diagnostics.prefix_wait_calls += 1;
+        diagnostics.prefix_wait_seconds += seconds;
+    }
+    collect(message, order, results, diagnostics)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -86,6 +232,7 @@ pub(super) fn run<const N: usize>(
     }
     MergeBoundary::borrow(&restored.state, &restored.dispatch, b)?;
     let cut_size = identity.epoch_cut_size().min(b);
+    let publication_order = identity.epoch_publication_order();
     let outcome = execution::with(budget, authorize, inspect, |pool| {
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<Outcome, Failure> {
             let mut order = VecDeque::new();
@@ -156,13 +303,18 @@ pub(super) fn run<const N: usize>(
                     .ok_or_else(|| Failure::Engine("rolling flight bound exceeded".into()))?;
                 if room != 0 || !restored.replay.is_empty() {
                     let snapshot = if snapshots.is_some() {
-                        match refresh_snapshot(
+                        let refresh_started = Instant::now();
+                        let refreshed = refresh_snapshot(
                             restored,
                             &mut stop_requested,
                             &mut |state, dispatch, phase| {
                                 progress(state, dispatch, phase, &|| pool.activity())
                             },
-                        )? {
+                        )?;
+                        restored.rolling_diagnostics.snapshot_refresh_calls += 1;
+                        restored.rolling_diagnostics.snapshot_refresh_seconds +=
+                            refresh_started.elapsed().as_secs_f64();
+                        match refreshed {
                             Refresh::Ready(snapshot) => snapshot,
                             Refresh::Stopped(context) => {
                                 return stopped(
@@ -196,6 +348,9 @@ pub(super) fn run<const N: usize>(
                     } else {
                         None
                     };
+                    if snapshots.is_some() && snapshot.is_none() {
+                        restored.rolling_diagnostics.refill_without_current_snapshot += 1;
+                    }
                     // Both buffers can be leased by queued/running jobs. No
                     // third replica and no unbounded historical view is made.
                     if snapshots.is_none() || snapshot.is_some() {
@@ -313,28 +468,41 @@ pub(super) fn run<const N: usize>(
                     on_saved(restored, &receipt, &[]);
                     return Ok(Outcome::Drained);
                 }
-                let count = cut_size.min(order.len());
+                if budget > 1 {
+                    let drain_started = Instant::now();
+                    collect_available(
+                        pool,
+                        &order,
+                        &mut results,
+                        &mut restored.rolling_diagnostics,
+                        b,
+                    )?;
+                    restored.rolling_diagnostics.ready_drain_seconds +=
+                        drain_started.elapsed().as_secs_f64();
+                }
                 let no_unissued = restored.state.ledger.counts().get(Tag::Pending) == 0
                     && restored.dispatch.queued() == (0, 0);
                 // A restored partial cohort must retire before Dispatch opens
                 // fresh pending work. Waiting to fill this cut would deadlock
                 // when the saved unfinished inventory is smaller than B.
                 let replay_barrier = !restored.dispatch.admission_ready();
-                let ready = count != 0
-                    && (count == cut_size || no_unissued || replay_barrier)
-                    && order
-                        .iter()
-                        .take(count)
-                        .all(|key| results.contains_key(key));
-                if !ready {
+                let keys = select_cut(
+                    &order,
+                    &results,
+                    cut_size,
+                    no_unissued || replay_barrier,
+                    publication_order,
+                );
+                if keys.is_empty() {
                     progress(&restored.state, &restored.dispatch, "inspect", &|| {
                         pool.activity()
                     });
-                    let drained = collect(
-                        pool.poll(Duration::from_millis(50))
-                            .map_err(Failure::Engine)?,
+                    let drained = wait_for_receipt(
+                        pool,
                         &order,
                         &mut results,
+                        &mut restored.rolling_diagnostics,
+                        false,
                     )?;
                     if drained && order.is_empty() {
                         return Err(Failure::Engine(
@@ -344,10 +512,19 @@ pub(super) fn run<const N: usize>(
                     continue;
                 }
 
-                let keys: Vec<u64> = order.iter().take(count).copied().collect();
+                restored.rolling_diagnostics.selected_cuts += 1;
+                restored.rolling_diagnostics.selected_partial_cuts +=
+                    u64::from(keys.len() < cut_size);
+                restored.rolling_diagnostics.selected_nonprefix_cuts += u64::from(
+                    !order
+                        .iter()
+                        .take(keys.len())
+                        .copied()
+                        .eq(keys.iter().copied()),
+                );
                 let bytes = keys
                     .iter()
-                    .map(|key| results.remove(key).expect("checked ready prefix"))
+                    .map(|key| results.remove(key).expect("checked ready cut"))
                     .collect();
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
                     pool.activity()
@@ -369,13 +546,18 @@ pub(super) fn run<const N: usize>(
                         loop {
                             // A completed callback has released its lease even
                             // when its bytes are waiting for their sequence.
-                            match refresh_snapshot(
+                            let refresh_started = Instant::now();
+                            let refreshed = refresh_snapshot(
                                 restored,
                                 &mut stop_requested,
                                 &mut |state, dispatch, phase| {
                                     progress(state, dispatch, phase, &|| pool.activity())
                                 },
-                            )? {
+                            )?;
+                            restored.rolling_diagnostics.snapshot_refresh_calls += 1;
+                            restored.rolling_diagnostics.snapshot_refresh_seconds +=
+                                refresh_started.elapsed().as_secs_f64();
+                            match refreshed {
                                 Refresh::Ready(view) => drop(view),
                                 Refresh::Stopped(context) => {
                                     drop(plan);
@@ -440,11 +622,12 @@ pub(super) fn run<const N: usize>(
                             });
                             // A drained pool releases the final readers; retry
                             // refresh before deciding whether publication fits.
-                            collect(
-                                pool.poll(Duration::from_millis(50))
-                                    .map_err(Failure::Engine)?,
+                            wait_for_receipt(
+                                pool,
                                 &order,
                                 &mut results,
+                                &mut restored.rolling_diagnostics,
+                                true,
                             )?;
                         }
                     }
@@ -488,9 +671,23 @@ pub(super) fn run<const N: usize>(
                     }
                 };
                 pool.retire(&keys).map_err(Failure::Engine)?;
-                for key in keys {
-                    if order.pop_front() != Some(key) {
-                        return Err(Failure::Engine("rolling publication prefix changed".into()));
+                if publication_order == OwnerDomainWalkEpochPublicationOrder::OldestPrefix {
+                    for key in keys {
+                        if order.pop_front() != Some(key) {
+                            return Err(Failure::Engine(
+                                "rolling publication prefix changed".into(),
+                            ));
+                        }
+                    }
+                } else {
+                    // Both inventories are sequence-sorted, but `order` may
+                    // contain older unfinished holes. Retire only this cut.
+                    let before = order.len();
+                    order.retain(|key| keys.binary_search(key).is_err());
+                    if before - order.len() != keys.len() {
+                        return Err(Failure::Engine(
+                            "rolling ready cut inventory changed".into(),
+                        ));
                     }
                 }
                 if let Some(reason) = reason {

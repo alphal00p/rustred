@@ -1108,10 +1108,12 @@ pub(super) fn request_binding(request: &OwnerDomainWalkRequest) -> String {
 /// The request digest of an `epoch` walk (walk semantics 3, W2.0 protocol
 /// §11.5, A7). Bound: owner selection, queries, limits, publication and
 /// semantics, the D-band, Route and query allowances, the frontier policy,
-/// and nondefault Epoch inspector-lookup and rolling execution modes.
-/// Not bound: workers, inspection workers, the schedule and its lookahead,
+/// and nondefault Epoch lookup, dispatch, publication order and explicit cut.
+/// Not digest-bound: workers, inspection workers, the legacy schedule/lookahead,
 /// and the aggregate `max_domains` / `max_events` / `max_frontiers`
-/// allowances. Shared by the epoch export and the closure verifier; the
+/// allowances. CP6 separately authenticates the effective cut/window; an
+/// explicit requested window must match, omission inherits on restore.
+/// Shared by the epoch export and the closure verifier; the
 /// CP5 `binding` above is unchanged.
 pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String {
     let mut value = json!({"selection":request.matching.selection_json,
@@ -1135,6 +1137,16 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
     }
     if request.epoch_dispatch != super::OwnerDomainWalkEpochDispatchPolicy::Fifo {
         value["epoch_dispatch"] = json!(request.epoch_dispatch.name());
+    }
+    if request.epoch_publication_order != super::OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+    {
+        value["epoch_publication_order"] = json!(request.epoch_publication_order.name());
+    }
+    // Preserve historical default request bytes. The effective cut and window
+    // are also authenticated by the existing CP6 scalar inventory; a public
+    // custom cut additionally binds the replay command used by cold checks.
+    if let Some(cut) = request.epoch_cut_size.filter(|&cut| cut != 16) {
+        value["epoch_cut_size"] = json!(cut);
     }
     if request.g2_residual_anchors != super::OwnerDomainWalkG2ResidualAnchors::Off {
         value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());

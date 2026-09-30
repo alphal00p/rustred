@@ -9,6 +9,33 @@ user to resume or launch production. Only the user operates those campaigns.
 
 ## Objective and invariant scope
 
+### September30 continuation: settle deployment, not just the dashboard
+
+The latest user directive is to continue until there is a definitive tested
+build and campaign setup, with explicit answers about five-loop ordering,
+genuine iterative deepening, Epoch's measured regression and its possible
+repair, and expected utilization at a **200-physical-core** budget. A dashboard
+milestone alone is not the requested handoff. The user confirmed that they will
+pause LC2 before this launch; only the user operates production. This supersedes
+the earlier alongside-50-core launch assumption, not the frozen116-query scope.
+
+During development LC2 remains untouched on CPUs128–227. This machine has256
+physical cores (384 logical CPUs), leaving only156 disjoint physical cores while
+LC2 runs. Do not benchmark a claimed200-physical-core setup by silently counting
+SMT siblings or overlapping production. Measure smaller disjoint pilots first;
+state any untested200-core scaling explicitly.
+
+The next narrow Epoch experiment addresses measured idle-with-pending behavior:
+finished jobs retain bounded-window slots until the oldest full prefix merges.
+Add an opt-in, persisted oldest-ready publication policy, runtime cut/window
+controls and focused diagnostics, retaining exact P1/P2/P3 publication and the
+default prefix policy. Independently audit delayed-earliest-job, stale snapshot,
+quarantine, stop/checkpoint/replay and cold-closure behavior before timing.
+Compare identical scopes and report failures rather than assuming that more
+cores fix serial merging or sparse ready work. Prepare a genuine staged
+deepening diagnostic through existing append-only amendments; the earlier
+upfront finite-prefix test is not such an experiment. No new CAS work.
+
 1. Deliver a stable optimized `fable_5_1` milestone that the user can use to
    pause and resume the existing LC2 campaign, retaining its progress.
 2. Deliver a compiled, reasonably tested first parallel-Epoch build on

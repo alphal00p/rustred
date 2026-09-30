@@ -247,6 +247,42 @@ class FileReceiptTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_plan(mutated)
 
+    def test_ready_publication_and_explicit_batch_arguments_must_match_schedule(self):
+        plan = copy.deepcopy(self.plan)
+        plan.update(b=64, checkpoint_schema=2, schedule={
+            "kind": "rolling", "depth": 4, "b": 64, "window": 64, "cut_size": 16,
+            "publication_order": "oldest_ready_sequences", "dispatch": "fifo"})
+        plan["native_argv"] += ["--epoch-rolling", "--epoch-publication-order", "oldest-ready",
+                                "--epoch-cut-size", "16", "--epoch-window", "64"]
+        self.assertEqual(validate_plan(plan)["b"], 64)
+        for flag, wrong in (("--epoch-publication-order", "oldest-prefix"),
+                            ("--epoch-cut-size", "8"), ("--epoch-window", "32")):
+            for kind in ("wrong", "duplicate", "equals"):
+                mutated = copy.deepcopy(plan)
+                argv = mutated["native_argv"]
+                at = argv.index(flag)
+                if kind == "wrong":
+                    argv[at + 1] = wrong
+                elif kind == "duplicate":
+                    argv += [flag, argv[at + 1]]
+                else:
+                    argv[at] = flag + "=" + argv.pop(at + 1)
+                with self.subTest(flag=flag, kind=kind), self.assertRaises(ValueError):
+                    validate_plan(mutated)
+        mutated = copy.deepcopy(plan)
+        at = mutated["native_argv"].index("--epoch-publication-order")
+        del mutated["native_argv"][at:at + 2]
+        with self.assertRaises(ValueError):
+            validate_plan(mutated)
+
+    def test_inline_requested_cut_can_exceed_automatic_window(self):
+        plan = copy.deepcopy(self.plan)
+        plan.update(b=1, checkpoint_schema=2, schedule={
+            "kind": "rolling", "depth": 1, "b": 1, "window": 1, "cut_size": 1,
+            "publication_order": "oldest_sequence_prefix", "dispatch": "fifo"})
+        plan["native_argv"] += ["--epoch-rolling", "--epoch-cut-size", "16"]
+        self.assertEqual(validate_plan(plan)["b"], 1)
+
     def test_pointer_session_lock_payload_or_new_file_change_refuses(self):
         for name in ("latest.json", "previous.json", "epoch-session.bin", "checkpoint.lock", "epoch-payload.part", "new.part"):
             with self.subTest(name=name):

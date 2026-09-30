@@ -46,6 +46,9 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub epoch_inspector_lookup: Option<crate::OwnerDomainWalkEpochInspectorLookup>,
     pub epoch_rolling: bool,
     pub epoch_dispatch: Option<crate::OwnerDomainWalkEpochDispatchPolicy>,
+    pub epoch_publication_order: Option<crate::OwnerDomainWalkEpochPublicationOrder>,
+    pub epoch_cut_size: Option<usize>,
+    pub epoch_window: Option<usize>,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
@@ -103,6 +106,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         epoch_inspector_lookup: None,
         epoch_rolling: false,
         epoch_dispatch: None,
+        epoch_publication_order: None,
+        epoch_cut_size: None,
+        epoch_window: None,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
@@ -179,6 +185,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-inspector-lookup" => "--epoch-inspector-lookup",
             "--epoch-rolling" => "--epoch-rolling",
             "--epoch-dispatch" => "--epoch-dispatch",
+            "--epoch-publication-order" => "--epoch-publication-order",
+            "--epoch-cut-size" => "--epoch-cut-size",
+            "--epoch-window" => "--epoch-window",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
@@ -301,6 +310,23 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                         },
                     )?,
                 );
+            }
+            "--epoch-publication-order" => {
+                result.epoch_publication_order = Some(
+                    crate::OwnerDomainWalkEpochPublicationOrder::parse(&value).ok_or(
+                        ArgError::InvalidValue {
+                            option: name,
+                            value,
+                            expected: "oldest-prefix or oldest-ready",
+                        },
+                    )?,
+                );
+            }
+            "--epoch-cut-size" => {
+                result.epoch_cut_size = Some(parse_positive_integer(name, value)?);
+            }
+            "--epoch-window" => {
+                result.epoch_window = Some(parse_positive_integer(name, value)?);
             }
             "--frontier-policy" => {
                 result.frontier_policy = crate::OwnerDomainWalkFrontierPolicy::parse(&value)
@@ -459,6 +485,25 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     let epoch = result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    if (result.epoch_publication_order.is_some()
+        || result.epoch_cut_size.is_some()
+        || result.epoch_window.is_some())
+        && (!result.follow_successors
+            || !epoch
+            || !result.epoch_rolling
+            || result.checkpoint.is_none())
+    {
+        return Err(ArgError::InvalidCombination(
+            "Epoch publication order, cut size and window require --follow-successors, --publication-policy epoch, --epoch-rolling and --checkpoint or --resume",
+        ));
+    }
+    if result.epoch_cut_size.is_some_and(|value| value > 4096)
+        || result.epoch_window.is_some_and(|value| value > 4096)
+    {
+        return Err(ArgError::InvalidCombination(
+            "Epoch cut size and window must be in 1..=4096",
+        ));
+    }
     if result.epoch_dispatch.is_some()
         && (!result.follow_successors
             || !epoch
@@ -556,6 +601,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--epoch-inspector-lookup",
             "--epoch-rolling",
             "--epoch-dispatch",
+            "--epoch-publication-order",
+            "--epoch-cut-size",
+            "--epoch-window",
             "--max-domains",
             "--max-frontiers",
             "--frontier-policy",
@@ -644,6 +692,42 @@ mod tests {
     use super::*;
     fn parse(text: &str) -> Result<Command, ArgError> {
         super::parse(text.split_whitespace().map(OsString::from))
+    }
+
+    #[test]
+    fn rolling_batch_controls_are_explicit_bounded_and_require_durable_epoch() {
+        let base = "--manifest m --queries q --output o --follow-successors";
+        let epoch = format!(
+            "{base} --publication-policy epoch --transfer-unreserved-lookahead 16 --checkpoint cp"
+        );
+        let Command::OwnerDomainMatch(default) = parse(&epoch).unwrap() else {
+            panic!("match")
+        };
+        assert_eq!(default.epoch_publication_order, None);
+        assert_eq!(default.epoch_cut_size, None);
+        assert_eq!(default.epoch_window, None);
+        for mode in ["oldest-prefix", "oldest-ready"] {
+            let Command::OwnerDomainMatch(args) = parse(&format!(
+                "{epoch} --epoch-rolling --epoch-publication-order {mode} --epoch-cut-size 16 --epoch-window 800"
+            )).unwrap() else { panic!("match") };
+            assert_eq!(args.epoch_publication_order.unwrap().name(), mode);
+            assert_eq!(args.epoch_cut_size, Some(16));
+            assert_eq!(args.epoch_window, Some(800));
+        }
+        for bad in [
+            format!("{base} --epoch-window 32"),
+            format!("{epoch} --epoch-cut-size 16"),
+            format!("{epoch} --epoch-rolling --epoch-cut-size 0"),
+            format!("{epoch} --epoch-rolling --epoch-window 4097"),
+            format!("{epoch} --epoch-rolling --epoch-cut-size 4097"),
+            format!("{epoch} --epoch-rolling --epoch-publication-order invalid"),
+            format!("{epoch} --epoch-rolling --epoch-window 32 --epoch-window 64"),
+            format!(
+                "{epoch} --epoch-rolling --epoch-publication-order oldest-ready --epoch-publication-order oldest-prefix"
+            ),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

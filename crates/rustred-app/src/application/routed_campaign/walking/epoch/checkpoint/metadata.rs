@@ -1,6 +1,8 @@
 //! Borrowed metadata for the private writer. Query rows are streamed
 //! individually; the full query document is bound once before the save path.
-use super::super::super::{OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest};
+use super::super::super::{
+    OwnerDomainWalkEpochPublicationOrder, OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
+};
 use super::super::ledger6::Tag;
 use super::super::merge::StopReason;
 use super::super::state::WalkCounters;
@@ -28,6 +30,8 @@ pub(super) struct Identity<'a> {
     g2: &'static str,
     epoch_rolling: bool,
     epoch_cut_size: usize,
+    epoch_publication_order: OwnerDomainWalkEpochPublicationOrder,
+    requested_window: Option<usize>,
     adaptive: bool,
     amendments: Vec<super::super::super::rescue::Parsed>,
 }
@@ -81,8 +85,11 @@ impl<'a> Identity<'a> {
             route_domain_overcover: request.route_domain_overcover,
             g2: request.g2_residual_anchors.name(),
             epoch_rolling: request.epoch_rolling,
-            epoch_cut_size: super::super::lockstep_b()
+            epoch_cut_size: request
+                .effective_epoch_cut_size()
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
+            epoch_publication_order: request.epoch_publication_order,
+            requested_window: request.epoch_window,
             adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
             amendments,
         })
@@ -136,6 +143,10 @@ impl<'a> Identity<'a> {
             || saved.total_queries != self.queries.len()
             || saved.lockstep_b != lockstep_b
             || saved.epoch_rolling != self.epoch_rolling
+            || saved.epoch_publication_order != self.epoch_publication_order
+            || self
+                .requested_window
+                .is_some_and(|window| window != saved.lockstep_b)
             || (if saved.epoch_rolling {
                 saved.epoch_cut_size != self.epoch_cut_size
             } else {
@@ -281,6 +292,10 @@ impl<'a> Identity<'a> {
         self.epoch_cut_size
     }
 
+    pub(super) fn epoch_publication_order(&self) -> OwnerDomainWalkEpochPublicationOrder {
+        self.epoch_publication_order
+    }
+
     pub(super) fn limits(&self) -> (usize, usize, usize) {
         (self.domain_limit, self.event_limit, self.frontier_limit)
     }
@@ -418,6 +433,11 @@ pub(super) struct Scalars<W, L, V, S, C = super::stop::Stop> {
     pub epoch_rolling: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub epoch_cut_size: usize,
+    #[serde(
+        default,
+        skip_serializing_if = "OwnerDomainWalkEpochPublicationOrder::is_default"
+    )]
+    pub epoch_publication_order: OwnerDomainWalkEpochPublicationOrder,
     pub k: u64,
     pub watermark: u32,
     pub p0: u32,
@@ -621,6 +641,7 @@ impl Inputs<'_> {
             } else {
                 0
             },
+            epoch_publication_order: self.identity.epoch_publication_order,
             k: state.k,
             watermark: state.watermark(),
             p0: state.p0,

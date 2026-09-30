@@ -312,7 +312,7 @@ fn summary<const N: usize>(
                 "depth":if request.epoch_rolling { b.div_ceil(cut_size.min(b)) } else {1},
                 "b":b,"window":b,"cut_size":if request.epoch_rolling { cut_size.min(b) } else {b},
                 "dispatch":request.epoch_dispatch.name(),
-                "publication_order":"oldest_sequence_prefix"},"resolution":"canonical_in_merge",
+                "publication_order":request.epoch_publication_order.report_name()},"resolution":"canonical_in_merge",
             "records_digest":state.edges.records_digest(),"edge_digest":state.edges.edge_digest(),
             "ledger6":counts.json(),"engine_certification_void":false,"telemetry":telemetry.json()}})
     else {
@@ -323,6 +323,12 @@ fn summary<const N: usize>(
         .extend(progress);
     doc["parallel"]["admission_preparation"] = reservation_json(WorkerBudget::for_request(request));
     doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
+    if request.epoch_rolling {
+        doc["epoch"]["rolling_diagnostics"] = json!(restored.rolling_diagnostics);
+        doc["epoch"]["rolling_diagnostics_scope"] = json!(
+            "current invocation only; selected cuts and polling calls/time, not worker CPU or lifetime totals; prefix waits include waiting for enough ready results; replica publication waits are separate; inline W1 polling executes native work"
+        );
+    }
     if let Some(rescue) = &state.rescue {
         doc["amendments"] =
             crate::application::routed_campaign::walking::rescue::chain_json(&rescue.amendments);

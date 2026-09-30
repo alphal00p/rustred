@@ -69,13 +69,30 @@ def validate_plan(plan):
                           ("--publication-policy", "epoch"), ("--epoch-inspector-lookup", plan["mode"])):
         require(argv_value(argv, option) == value, f"native {option} mismatch")
     require("--resume" not in argv and "--follow-successors" in argv, "fresh symbolic arms only")
-    for option in ("--epoch-rolling", "--epoch-dispatch", "--g2-residual-anchors"):
+    for option in ("--epoch-rolling", "--epoch-dispatch", "--g2-residual-anchors",
+                   "--epoch-publication-order", "--epoch-cut-size", "--epoch-window"):
         require(not any(arg.startswith(option + "=") for arg in argv), f"use exact {option} argv")
     rolling = schedule["kind"] == "rolling"
     require(argv.count("--epoch-rolling") == int(rolling), "native rolling policy mismatch")
     dispatch = schedule.get("dispatch", "fifo")
     if dispatch == "adaptive" or "--epoch-dispatch" in argv:
         require(argv_value(argv, "--epoch-dispatch") == dispatch, "native dispatch policy mismatch")
+    publication = schedule.get("publication_order", "oldest_sequence_prefix")
+    native_publication = {"oldest_sequence_prefix": "oldest-prefix", "oldest_ready_sequences": "oldest-ready"}[publication]
+    if publication != "oldest_sequence_prefix" or "--epoch-publication-order" in argv:
+        require(rolling and argv_value(argv, "--epoch-publication-order") == native_publication,
+                "native publication order mismatch")
+    if "--epoch-cut-size" in argv:
+        text = argv_value(argv, "--epoch-cut-size")
+        require(text.isascii() and text.isdecimal() and 1 <= int(text) <= 4096,
+                "invalid native cut size")
+        # Inline W1's automatic window can be smaller than the requested cut;
+        # the native summary reports the effective clamped cut.
+        require(rolling and min(int(text), plan["b"]) == schedule["cut_size"],
+                "native cut size mismatch")
+    if "--epoch-window" in argv:
+        require(rolling and argv_value(argv, "--epoch-window") == str(plan["b"]),
+                "native window mismatch")
     if g2 == "union":
         require(argv_value(argv, "--g2-residual-anchors") == g2, "native G2 policy mismatch")
     else:

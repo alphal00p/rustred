@@ -1,6 +1,68 @@
 use super::*;
 
 #[test]
+fn rolling_publication_cut_and_window_defaults_validation_and_binding() {
+    use OwnerDomainWalkEpochPublicationOrder::{OldestPrefix, OldestReady};
+    let mut request =
+        OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    assert_eq!(request.epoch_publication_order, OldestPrefix);
+    assert_eq!(request.epoch_cut_size, None);
+    assert_eq!(request.epoch_window, None);
+    for policy in [OldestPrefix, OldestReady] {
+        assert_eq!(
+            OwnerDomainWalkEpochPublicationOrder::parse(policy.name()),
+            Some(policy)
+        );
+    }
+    assert_eq!(
+        OwnerDomainWalkEpochPublicationOrder::parse("oldest_ready"),
+        None
+    );
+    request.publication_policy = OwnerDomainWalkPublicationPolicy::Epoch;
+    request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new("unused"));
+    request.epoch_rolling = true;
+    let baseline = checkpoint::epoch_request_binding(&request);
+    request.epoch_cut_size = Some(16);
+    assert_eq!(checkpoint::epoch_request_binding(&request), baseline);
+    request.epoch_window = Some(64);
+    assert_eq!(
+        checkpoint::epoch_request_binding(&request),
+        baseline,
+        "window bound in CP6 scalars, omission inherits"
+    );
+    assert_eq!(request.resolved_epoch_window(16), Ok(64));
+    request.epoch_publication_order = OldestReady;
+    assert_ne!(checkpoint::epoch_request_binding(&request), baseline);
+    request.epoch_publication_order = OldestPrefix;
+    request.epoch_cut_size = Some(8);
+    assert_ne!(checkpoint::epoch_request_binding(&request), baseline);
+    assert_eq!(request.effective_epoch_cut_size(), Ok(8));
+    assert!(request.validate_epoch_inspector_lookup().is_ok());
+    for invalid in [0, 4097] {
+        request.epoch_cut_size = Some(invalid);
+        assert!(request.validate_epoch_inspector_lookup().is_err());
+        request.epoch_cut_size = Some(16);
+        request.epoch_window = Some(invalid);
+        assert!(request.validate_epoch_inspector_lookup().is_err());
+    }
+    request.epoch_window = Some(15);
+    assert!(request.validate_epoch_inspector_lookup().is_err());
+    request.epoch_window = None;
+    request.epoch_cut_size = None;
+    request.workers = 200;
+    assert_eq!(request.resolved_epoch_window(16), Ok(215));
+    request.workers = 1;
+    assert_eq!(
+        request.resolved_epoch_window(16),
+        Ok(1),
+        "historical inline default preserved"
+    );
+    request.epoch_publication_order = OldestReady;
+    request.epoch_rolling = false;
+    assert!(request.validate_epoch_inspector_lookup().is_err());
+}
+
+#[test]
 fn adaptive_dispatch_requires_rolling_and_changes_only_nondefault_epoch_binding() {
     let mut request =
         OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));

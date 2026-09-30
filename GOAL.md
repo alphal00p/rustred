@@ -1,5 +1,17 @@
 # RustRed project goal
 
+## Latest delivery directive — September30
+
+Continue through a definitive tested parallel build and launch setup, not merely
+a monitoring milestone. Settle the measured Epoch bottleneck/repair, justified
+five-loop ordering candidate, real staged-deepening experiment, and honest
+utilization expectations for200 physical cores. The user will pause LC2 before
+launching that campaign; only they operate production. LC2 stays untouched
+during development. This replaces the earlier alongside50-core deployment
+assumption. Preserve all116 required queries and67 original helpers. See the
+September30 continuation in `SHORTENED_PLAN.md` and ongoing evidence in
+`CODEX_PROGRESS.md`. Do not infer high-core speedup from budget alone.
+
 ## Current execution directive — approved shortened plan, September 29
 
 Follow `SHORTENED_PLAN.md`, approved at13:25 UTC. Stage A is a compatible stable

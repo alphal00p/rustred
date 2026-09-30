@@ -169,6 +169,75 @@ fn multiple_batches_have_exact_started_result_receipts_and_panic_is_not_lost() {
 }
 
 #[test]
+fn w200_pool_capacity_refill_cancel_and_join_are_bounded_not_a_throughput_test() {
+    // Synthetic callbacks only: this exercises 199 actual inspector threads
+    // plus the caller/coordinator, not 200 physical-core or licensed CAS work.
+    let authorized = AtomicUsize::new(0);
+    let calls = AtomicUsize::new(0);
+    let inspect = |bytes: &[u8], stop: &AtomicBool| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        if bytes == [255] {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !stop.load(Ordering::Acquire) {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        bytes.to_vec()
+    };
+    with_authorized_pool(
+        199,
+        &|| {
+            authorized.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        },
+        &inspect,
+        |pool| {
+            assert_eq!(authorized.load(Ordering::Relaxed), 199);
+            let keys: Vec<_> = (0..215).collect();
+            pool.submit_rolling(keys.iter().copied().map(work).collect())
+                .unwrap();
+            let mut starts = Vec::new();
+            let mut returned = Vec::new();
+            loop {
+                match pool.poll(Duration::from_secs(5)).unwrap() {
+                    Poll::Started(key) => starts.push(key),
+                    Poll::Result { key, bytes } => {
+                        assert_eq!(bytes, [key as u8]);
+                        returned.push(key);
+                    }
+                    Poll::Drained => break,
+                    Poll::Waiting => panic!("bounded synthetic W200 batch stalled"),
+                }
+            }
+            starts.sort_unstable();
+            returned.sort_unstable();
+            assert_eq!(starts, keys);
+            assert_eq!(returned, keys);
+            pool.retire(&keys).unwrap();
+            assert_eq!(pool.activity().unwrap(), Activity::default());
+            pool.submit_rolling(vec![work(255)]).unwrap();
+            assert!(matches!(
+                pool.poll(Duration::from_secs(5)).unwrap(),
+                Poll::Started(255)
+            ));
+            pool.cancel().unwrap();
+            let status = pool.take_cancelled_status().unwrap();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].key, 255);
+            assert!(status[0].started);
+            assert!(pool.submit_rolling(vec![work(256)]).is_err());
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        216,
+        "all workers joined without losing the active callback"
+    );
+}
+
+#[test]
 fn cancellation_discards_result_channel_without_waiting_for_polling() {
     let finished = AtomicUsize::new(0);
     let job = |bytes: &[u8], _: &AtomicBool| {
@@ -210,6 +279,7 @@ fn poisoned_queue_is_fatal_even_when_idle_siblings_keep_channel_connected() {
         receiver: Some(receiver),
         receipts: vec![1],
         remaining: 1,
+        threads: 1,
         cancelled: false,
     };
     assert!(

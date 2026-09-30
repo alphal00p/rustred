@@ -211,6 +211,76 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn authenticated_valid_but_wrong_schedule_scalars_do_not_match_the_command() {
+    use crate::{
+        OwnerDomainMatchRequest, OwnerDomainWalkEpochPublicationOrder, OwnerDomainWalkRequest,
+    };
+    let mut fixture = Fixture::new();
+    let mut scalar = fixture.scalar();
+    scalar["epoch_rolling"] = json!(true);
+    scalar["epoch_cut_size"] = json!(8);
+    scalar["epoch_publication_order"] = json!("oldest-ready");
+    fixture.replace("meta", 1, serde_json::to_vec(&scalar).unwrap());
+    fixture.publish();
+    let mut request =
+        OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+    request.epoch_rolling = true;
+    request.epoch_publication_order = OwnerDomainWalkEpochPublicationOrder::OldestReady;
+    request.epoch_cut_size = Some(8);
+    request.epoch_window = Some(16);
+    let (_, sections, _) = read_raw::<1>(&fixture.directory).unwrap();
+    assert!(schedule_matches_request(&sections.manifest, &request));
+    for (key, wrong) in [
+        ("epoch_publication_order", json!("oldest-prefix")),
+        ("epoch_cut_size", json!(16)),
+        ("lockstep_b", json!(32)),
+    ] {
+        let mut changed = scalar.clone();
+        changed[key] = wrong;
+        fixture.replace("meta", 1, serde_json::to_vec(&changed).unwrap());
+        fixture.publish();
+        let before = fixture.inventory();
+        let (_, sections, _) = read_raw::<1>(&fixture.directory).unwrap();
+        assert!(
+            !schedule_matches_request(&sections.manifest, &request),
+            "{key}"
+        );
+        assert_eq!(fixture.inventory(), before);
+    }
+    request.epoch_window = None;
+    let (_, sections, _) = read_raw::<1>(&fixture.directory).unwrap();
+    assert!(
+        schedule_matches_request(&sections.manifest, &request),
+        "omitted window inherits saved 32"
+    );
+}
+
+#[test]
+fn historical_diagnostic_cut_is_not_inferred_from_the_cold_process_environment() {
+    use crate::{OwnerDomainMatchRequest, OwnerDomainWalkRequest};
+    for rolling in [false, true] {
+        let mut fixture = Fixture::new();
+        let mut scalar = fixture.scalar();
+        scalar["lockstep_b"] = json!(4);
+        if rolling {
+            scalar["epoch_rolling"] = json!(true);
+            scalar["epoch_cut_size"] = json!(4);
+        }
+        fixture.replace("meta", 1, serde_json::to_vec(&scalar).unwrap());
+        fixture.publish();
+        let (_, sections, _) = read_raw::<1>(&fixture.directory).unwrap();
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new("s".into(), "q".into()));
+        request.epoch_rolling = rolling;
+        assert!(schedule_matches_request(&sections.manifest, &request));
+        request.epoch_cut_size = Some(16);
+        assert!(!schedule_matches_request(&sections.manifest, &request));
+        request.epoch_cut_size = Some(4);
+        assert!(schedule_matches_request(&sections.manifest, &request));
+    }
+}
+
+#[test]
 fn cp6_cold_reads_twice_without_adopting_session_or_mutating_any_file() {
     let mut fixture = Fixture::new();
     fixture.read_only();

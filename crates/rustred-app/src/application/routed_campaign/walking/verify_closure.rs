@@ -2134,13 +2134,17 @@ fn verify<const N: usize>(
         }
         None => None,
     };
-    // Walk semantics 3 binds its own request digest (A7: workers, schedule
-    // and aggregate allowances are not bound).
+    // Walk semantics 3 binds its own request digest. CP6 additionally compares
+    // authenticated scheduling scalars; worker width and aggregate allowances
+    // remain changeable, and an omitted window inherits the saved bound.
     let bound = if loaded.raw.publication_policy == "epoch" {
         checkpoint::epoch_request_binding(request)
     } else {
         checkpoint::request_binding(request)
-    } == loaded.raw.request;
+    } == loaded.raw.request
+        && loaded.epoch.as_ref().is_none_or(|sections| {
+            epoch_checkpoint::schedule_matches_request(&sections.manifest, request)
+        });
     if let Some(sections) = &loaded.epoch {
         let nodes = &loaded.nodes;
         let record_of = |id: usize| {
@@ -2162,7 +2166,8 @@ fn verify<const N: usize>(
     }
     if !bound {
         violations.add("binding", || {
-            "checkpoint request digest differs from the command's request/queries binding".into()
+            "checkpoint request digest or persisted schedule differs from the command's binding"
+                .into()
         });
     }
     let owners_match = prepared_owners.as_ref() == Some(&loaded.raw.owners);

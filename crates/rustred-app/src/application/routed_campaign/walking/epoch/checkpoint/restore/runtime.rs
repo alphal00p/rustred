@@ -21,10 +21,33 @@ mod public;
 mod rescue;
 pub(in crate::application::routed_campaign::walking::epoch) use public::run;
 
+/// Invocation-local transport observations, never persisted proof authority.
+#[derive(Default, serde::Serialize)]
+pub(super) struct RollingDiagnostics {
+    pub started_messages: u64,
+    pub returned_messages: u64,
+    pub ready_poll_messages: u64,
+    pub ready_drain_seconds: f64,
+    pub blocking_poll_calls: u64,
+    pub blocking_poll_seconds: f64,
+    pub poll_timeouts: u64,
+    pub prefix_wait_calls: u64,
+    pub prefix_wait_seconds: f64,
+    pub publication_wait_calls: u64,
+    pub publication_wait_seconds: f64,
+    pub refill_without_current_snapshot: u64,
+    pub snapshot_refresh_calls: u64,
+    pub snapshot_refresh_seconds: f64,
+    pub selected_cuts: u64,
+    pub selected_partial_cuts: u64,
+    pub selected_nonprefix_cuts: u64,
+}
+
 pub(super) struct Restored<const N: usize> {
     /// Frozen logical dispatch bound. Inspector width may change on resume.
     pub window: usize,
     pub cut_size: usize,
+    pub rolling_diagnostics: RollingDiagnostics,
     pub state: EpochState<N>,
     pub dispatch: Dispatch,
     /// Original unfinished cut, in original sequence order with fresh seqs.
@@ -211,6 +234,7 @@ pub(super) fn open<const N: usize>(
     Ok(Restored {
         window,
         cut_size: identity.epoch_cut_size(),
+        rolling_diagnostics: Default::default(),
         state,
         dispatch,
         replay,

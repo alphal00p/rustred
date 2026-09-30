@@ -207,6 +207,82 @@ fn resave(fixture: &Fixture, restored: &mut Restored<1>) {
 }
 
 #[test]
+fn rolling_custom_policy_cut_and_window_bind_resume_before_session_adoption() {
+    let mut fixture = Fixture::new();
+    fixture.request.epoch_rolling = true;
+    fixture.request.epoch_publication_order =
+        crate::OwnerDomainWalkEpochPublicationOrder::OldestReady;
+    fixture.request.epoch_cut_size = Some(8);
+    fixture.request.epoch_window = Some(32);
+    fixture.request.checkpoint = Some(crate::OwnerDomainWalkCheckpointOptions::new(
+        &fixture.directory.0,
+    ));
+    fixture.save_window(3, 2, false, 32);
+    let latest = fixture.directory.0.join(publication::LATEST);
+    let manifest_bytes = fs::read(&latest).unwrap();
+    let manifest = publication::read_manifest(&latest).unwrap();
+    let meta = manifest
+        .files
+        .iter()
+        .find(|file| file.key == "meta")
+        .unwrap();
+    let scalar: Value =
+        serde_json::from_slice(&fs::read(fixture.directory.0.join(&meta.file)).unwrap()).unwrap();
+    assert_eq!(scalar["epoch_publication_order"], "oldest-ready");
+    assert_eq!(scalar["epoch_cut_size"], 8);
+    assert_eq!(scalar["lockstep_b"], 32);
+    let session_path = fixture.directory.0.join("epoch-session.bin");
+    let session_bytes = fs::read(&session_path).unwrap();
+    let original = fixture.request.clone();
+    for changed in 0..4 {
+        fixture.request = original.clone();
+        match changed {
+            0 => {
+                fixture.request.epoch_publication_order =
+                    crate::OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+            }
+            1 => fixture.request.epoch_cut_size = Some(16),
+            2 => fixture.request.epoch_window = Some(64),
+            3 => fixture.request.epoch_cut_size = None,
+            _ => unreachable!(),
+        }
+        let error = match fixture.open() {
+            Ok(_) => panic!("changed policy must refuse"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{error}");
+        assert_eq!(fs::read(&latest).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&session_path).unwrap(), session_bytes);
+    }
+    fixture.request = original;
+    fixture.request.epoch_window = None;
+    fixture.request.workers = 200;
+    let restored = fixture.open().unwrap();
+    assert_eq!(
+        restored.window, 32,
+        "omission inherits rather than recomputing for W200"
+    );
+    assert_eq!(restored.replay.len(), 2);
+}
+
+#[test]
+fn default_publication_policy_is_omitted_from_legacy_compatible_scalars() {
+    let fixture = Fixture::new();
+    fixture.save(3, 0);
+    let manifest =
+        publication::read_manifest(&fixture.directory.0.join(publication::LATEST)).unwrap();
+    let meta = manifest
+        .files
+        .iter()
+        .find(|file| file.key == "meta")
+        .unwrap();
+    let scalar: Value =
+        serde_json::from_slice(&fs::read(fixture.directory.0.join(&meta.file)).unwrap()).unwrap();
+    assert!(scalar.get("epoch_publication_order").is_none());
+    assert_eq!(fixture.open().unwrap().window, 16);
+}
+
+#[test]
 fn adaptive_checkpoint_preserves_candidates_observations_and_replay_precedence() {
     let mut fixture = Fixture::new();
     fixture.request.epoch_dispatch = crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive;

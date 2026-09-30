@@ -728,6 +728,11 @@ The mode is bound to the checkpoint request and cannot change on resume.
 checkpoint-enabled Epoch walk. The choice is frozen on resume; omitted retains
 the lockstep control. It changes scheduling, not the required mathematical scope.
 --epoch-dispatch fifo|adaptive selects pending-job order (default fifo).
+--epoch-publication-order oldest-prefix|oldest-ready selects rolling publication
+order (default oldest-prefix); --epoch-cut-size N and --epoch-window N tune
+bounded batching (1..4096). These require rolling Epoch with checkpoint/resume.
+Resume must retain saved publication order and cut; an omitted window inherits
+the saved window. They do not change exact inspection or publication checks.
 Adaptive requires --epoch-rolling and persists its observations and fairness
 state on restart. It does not change algebraic pivots or discard obligations.
 --route-joint-source-support-pruning enables a conservative shared-numerator

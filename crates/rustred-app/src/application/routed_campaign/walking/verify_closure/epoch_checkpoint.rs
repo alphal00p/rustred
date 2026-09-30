@@ -22,6 +22,37 @@ mod tests;
 const FORMAT: &str = "RUSTRED-WALK-CP6";
 const MANIFEST_LIMIT: u64 = 64 << 10;
 
+/// Compare scheduling scalars authenticated by the selected CP6 manifest with
+/// the command. An omitted window inherits the saved bound, just as restore
+/// does. Only explicit cut options are compared here: historical diagnostic
+/// environment-only cuts were not command-bound, and cold proof checking need
+/// not recreate that process environment. New public custom cuts are also
+/// bound by the request digest, so omitting one still fails overall binding.
+pub(super) fn schedule_matches_request(
+    manifest: &Value,
+    request: &super::super::OwnerDomainWalkRequest,
+) -> bool {
+    if manifest["format"] != FORMAT {
+        return true; // Historical non-resumable exports have no CP6 scalars.
+    }
+    let rolling = manifest["epoch_rolling"].as_bool();
+    let window = manifest["lockstep_b"].as_u64();
+    rolling == Some(request.epoch_rolling)
+        && manifest["epoch_publication_order"].as_str()
+            == Some(request.epoch_publication_order.name())
+        && request.epoch_cut_size.is_none_or(|n| {
+            Some(n as u64)
+                == if request.epoch_rolling {
+                    manifest["epoch_cut_size"].as_u64()
+                } else {
+                    window
+                }
+        })
+        && request
+            .epoch_window
+            .is_none_or(|n| window == Some(n as u64))
+}
+
 // Field order is the public canonical manifest digest encoding.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -466,6 +497,15 @@ fn read_inner<const N: usize>(
         None => false,
         Some(value) => value.as_bool().ok_or("invalid rolling policy")?,
     };
+    match scalar
+        .get("epoch_publication_order")
+        .and_then(Value::as_str)
+    {
+        None if scalar.get("epoch_publication_order").is_none() => {}
+        Some("oldest-prefix") if rolling => {}
+        Some("oldest-ready") if rolling => {}
+        _ => return Err("invalid epoch publication order".into()),
+    }
     if rolling {
         if !(1..=4096).contains(&count(&scalar, "epoch_cut_size")?) {
             return Err("invalid rolling cut size".into());
@@ -779,6 +819,9 @@ fn read_inner<const N: usize>(
         .ok_or("ledger counts")?;
     let mut normalized = json!({"format":FORMAT,"schema":2,"generation":manifest.generation,
         "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
+        "epoch_rolling":rolling,"epoch_cut_size":scalar["epoch_cut_size"],
+        "epoch_publication_order":scalar.get("epoch_publication_order").cloned().unwrap_or(json!("oldest-prefix")),
+        "lockstep_b":scalar["lockstep_b"],
         "k":scalar["k"],"p0":p0,"edge_digest":scalar["edge_digest"],"records_digest":scalar["records_digest"],
         "ledger6_counts":{}});
     for (name, value) in [

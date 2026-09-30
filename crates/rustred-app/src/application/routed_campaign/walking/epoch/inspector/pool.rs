@@ -125,6 +125,7 @@ pub(in super::super) struct Pool<'a> {
     receiver: Option<mpsc::Receiver<Message>>,
     receipts: Vec<u8>,
     remaining: usize,
+    threads: usize,
     cancelled: bool,
 }
 
@@ -227,6 +228,7 @@ impl Pool<'_> {
     /// acknowledges publication (or discard), so stop receipts describe the
     /// complete unmerged inventory, including buffered results.
     pub fn submit_rolling(&mut self, jobs: Vec<Work>) -> Result<(), SubmitError> {
+        let wake = jobs.len().min(self.threads);
         let mut guard = self
             .queue
             .lock()
@@ -288,7 +290,12 @@ impl Pool<'_> {
             guard.jobs.push_back((index, job.bytes));
         }
         drop(guard);
-        self.ready.notify_all();
+        // Active workers keep pulling from the shared queue. Wake only enough
+        // sleepers for the new descriptors, rather than every wide-pool worker
+        // after a small cut. A later waiter checks the queue before sleeping.
+        for _ in 0..wake {
+            self.ready.notify_one();
+        }
         Ok(())
     }
 
@@ -573,6 +580,7 @@ pub(in super::super) fn with_authorized_pool<R>(
             receiver: Some(receiver),
             receipts: Vec::new(),
             remaining: 0,
+            threads,
             cancelled: false,
         };
         let result = catch_unwind(AssertUnwindSafe(|| body(&mut pool)));

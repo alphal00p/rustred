@@ -1,5 +1,11 @@
 # Parallel five-loop campaign: owner-operated launch
 
+**September30: superseded experimental recipe, not the final launch handoff.**
+The user now plans200 physical cores and will pause LC2 before launch. A bounded
+Epoch scheduling repair and further ordering/deepening checks are in progress.
+Preserve this50-worker recipe as evidence/rollback only; final tested build and
+resource instructions will be supplied separately. No agent operates LC2.
+
 **Status: compiled, tested candidate for an owner-operated experimental run;
 not qualified as a faster replacement.** The measured controls and limitations
 are in [the delivery report](parallel_epoch_delivery_2026-09-29.md).

@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 01:07 UTC
+## Current shortened-delivery ownership — 2026-09-30 01:28 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,16 +52,16 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | compiled/tested experimental candidate; speed gate fails | original `epoch_rolling_impl`; validation `stage_a_release`, root | Original4L+11.41%, finite5L+25.57%, hot5L+20.50% wall vs Ready; reindexed4L near parity, no faster-replacement recommendation |
+| Rolling Epoch controller and lookup replicas | bounded rescue implementation active; existing speed gate fails | `parallel_gate_critique` author; root/`stage_a_release` independent review | Persisted oldest-ready/cut/window controls; held-earliest-result and replay tests before matched pilots; original4L+11.41%, finite5L+25.57%, hot5L+20.50% retained |
 | Fresh CP6 G2 Union | final CLI cold/resume, all4L and both5L controls pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | W50 reindexed4L also passes; all measured scopes retained, no full-five-loop closure claim |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
-| Mechanistic input/pivot ordering | delivered bounded study; mixed reindex pairs | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | New4L library useful; mean16.937s Ready/16.729s Epoch, no robust scheduler win or5L ordering transfer. Negative pivot/prefix cases retained |
+| Mechanistic input/pivot ordering and true deepening | additional input-only study active | `bounded_ordering_pilots`; independent root | Prepare existing append-amend staged diagnostic and justified5L candidate; upfront prefix was not true deepening. New4L library useful, no proven5L transfer |
 | Runtime discovery-strategy API | isolated source/metadata pass; native correctness build active | author `stage_a_release`; independent `parallel_gate_critique`/root | Frozen `b95e1465`, build started01:07; no merge/availability until runtime gates. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
-| Matched performance and deployment | completed measurements; experimental-only handoff | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | All scoped cold checks pass, event-audit limitations explicit; matched1.5x gate not met. Owner-operated alongside instructions disclose risk; no production action |
+| Matched performance and deployment | reopened for definitive build and200-core setup | root; independent author/auditor separation | User will pauseLC2 before production launch. Only156 disjoint physical cores remain meanwhile; do not claim200-core measurement usingSMT or LC2 overlap. Previous50-core handoff superseded |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -107,6 +107,94 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 01:46 UTC — ready-publication source frozen for native checks
+
+- [M] Native author `parallel_gate_critique` delivered opt-in oldest-ready
+  publication, runtime cut/window, bounded message draining, narrow wakeups,
+  and invocation-local wait/refresh diagnostics. Exact P1/P2/P3 authority is
+  unchanged. Source-format/diff checks pass; no native execution is claimed.
+- [M] Root independently reviewed sequence/v0 validation, reserved-parent
+  retirement, durable inventory, and the delayed-earliest-result regression.
+  The test's budget3 means two inspectors, so holdingseq0 leaves exactly one
+  FIFO inspector and makes its first nonprefix cut deterministic. An initial
+  concern about that assumption was resolved by inspecting the actual budget.
+  Tests also cover saved holes/inline replay and a synthetic199-inspector plus
+  coordinator lifecycle; that is not a200-physical-core performance test.
+- [M] Review tightened cold request/scalar consistency without tying historical
+  diagnostic-only batch sizes to the verifier's process environment. Explicit
+  new cut/window and policy mismatches are rejected; legacy omitted diagnostic
+  values remain independently verifiable. Native tests still need execution.
+- [M] `bounded_ordering_pilots` independently audited root's CLI/Python layer
+  and reran five new steering and two new receipt tests PASS. Root independently
+  reran all nine prepared-deepening input tests PASS. No native experiment has
+  run during the existing correctness build; LC2 remains untouched.
+- [D] Commit this source for the bounded metadata gate in the inactive worktree.
+  Do not describe the commit as a release/launch milestone before native tests,
+  optimized build, cold controls and measured performance decisions complete.
+
+### 2026-09-30 01:36 UTC — runtime steering and real deepening fixtures prepared
+
+- [M] Root implemented CLI/Python forwarding, durable steering replay and
+  mismatch rejection for `--epoch-publication-order`, `--epoch-cut-size`, and
+  `--epoch-window`. Omitted controls leave historical steering/native arguments
+  unchanged; custom controls require durable rolling Epoch. Full Python suite:
+  356 run, PASS with one existing optional skip,30.982s. Focused new steering:
+  five PASS. Command: `TMPDIR=/common/dev/rustred/TMP python -m unittest discover
+  -s examples/python -p 'test_*.py' -q`, using the pinned Nix Python. Mocked
+  launch tests are not native policy or closure evidence.
+- [M] Updated small CP6 measurement contracts to bind the selected publication
+  policy, explicit cut/window and inline-W1 clamping. Fourteen tests PASS in
+  0.077s. Default schedule retains `oldest_sequence_prefix`; new opt-in report
+  name is `oldest_ready_sequences`. Author is still implementing native held-job
+  publication/replay tests; source is not frozen or compiled yet.
+- [M] True-deepening fixture prepared at `TMP/codex-true-deepening.l9fXPO`:
+  16 narrow shells (97 integer points), then16 larger shells (1456 points), then
+  all58 original four-loop rows. Both arms have the same final90 rows and roles
+  (16 required/74 auxiliary). Each staged transition requires cold-All success;
+  final explicit coverage of all58 unchanged original geometries is mandatory.
+  Nine synthetic input/receipt tests pass; no solver run yet. This deliberately
+  tests curriculum/reuse, not production-role migration or pure rank-only cost:
+  one-shot/staged protected admission histories differ.
+- [E] Five-loop candidate uses native pinch-class incidence to prioritize a
+  repeatedly shared interface (`111011111101010`), with inverse coordinate tie
+  mapping. Proposed seven-line diagnostic root `101101100101000` has128 possible
+  supports,14 routed nonzero labels and four owner classes. Natural/reindexed
+  inputs and784-point entry probe are prepared, not executed. No full67-owner
+  regenerated library or five-loop winning order is claimed.
+- [D] Existingb95 native API build remains untouched. After source freeze,
+  `stage_a_release` may run a bounded120s metadata-only check on disjoint
+  CPUs16–19 and the inactive author cache; native build source/cache stay
+  unchanged. Heavy pilots remain serialized after build drain.
+
+### 2026-09-30 01:28 UTC — deployment reopened; bounded Epoch rescue
+
+- [D] User requires continued work until ordering/deepening/Epoch questions and
+  a definitive build/setup are settled. Earlier dashboard-only final was
+  premature. User confirmed they will pause LC2 before the200-physical-core
+  launch; no production action authorized to agents. Host inventory256 physical,
+  384 logical; LC2 reserves100 physical, leaving156 disjoint during development.
+- [M] Read-only scheduling audit found a real lost-overlap mechanism: completed
+  results occupy the bounded window until all oldest16 results are available
+  and serial P1/P2/P3 retires them. The inspector pool already shares a work
+  queue; simply adding work stealing does not fix publication blocking. Two
+  leased lookup replicas can additionally gate refill. Existing inspect-phase
+  timer conflates these waits and must not be called pureCAS cost.
+- [D] `parallel_gate_critique` now authors a narrow opt-in oldest-ready policy,
+  cut/window controls, bounded message draining and causally useful diagnostics.
+  Root owns CLI/Python plumbing and independent source review;
+  `stage_a_release` independently audits after its existing native build.
+  No changes to exact publication authority. Required counterexample: holdseq0
+  while16 later jobs finish; ready policy should publish/refill, default should
+  retain its prefix semantics. Register tests and falsifier before pilot runs.
+- [M] Real staged-deepening seam exists in public `--resume --amend-queries`;
+  amendments are Auxiliary. `bounded_ordering_pilots` prepares a diagnostic
+  with identical final roles/union on both arms and cold-All validation of all
+  original58 domains. This is not a production required-role migration. The
+  previous74-row upfront prefix (+28.89% wall) remains a different negative.
+- [M] Isolatedb95 API correctness build continues unchanged from01:07, estimate
+  80–110 minutes total plus suites. No heavy pilot overlaps it. Frozen3428
+  remains only an experimental baseline, not a200-core recommendation.
 
 ### 2026-09-30 01:07 UTC — W50 correctness passes; isolated API native build starts
 

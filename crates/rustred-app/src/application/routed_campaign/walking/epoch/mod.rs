@@ -93,7 +93,7 @@ pub(super) fn assert_large_finalization_allowed() {
 /// walk; an invalid value is refused, never ignored.
 pub(crate) const LOCKSTEP_B_VARIABLE: &str = "RUSTRED_EPOCH_LOCKSTEP_B";
 
-fn lockstep_b() -> Result<usize, String> {
+pub(super) fn lockstep_b() -> Result<usize, String> {
     match std::env::var(LOCKSTEP_B_VARIABLE) {
         Err(std::env::VarError::NotPresent) => Ok(LOCKSTEP_B),
         Ok(value) if value.is_empty() => Ok(LOCKSTEP_B),
@@ -456,7 +456,9 @@ pub(super) fn run<const N: usize>(
     observer: &impl Fn(Value),
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
-    let lockstep = lockstep_b().map_err(AppError::input)?;
+    let lockstep = request
+        .effective_epoch_cut_size()
+        .map_err(AppError::input)?;
     // Durable CP6 and memory-only execution are explicit entry boundaries.
     // No hidden temporary checkpoint backs a memory-only request.
     let export_dir: Option<std::path::PathBuf> = None;
