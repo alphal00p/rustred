@@ -20,9 +20,10 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | `stage_a_release` | pure kernel implemented,15 release tests PASS and independent source audit PASS; integration active | Carry complete descriptor through solver, descent, replay, artifacts and interfaces; preserve mixed-order routing |
-| S: original S5 merge architecture | `parallel_gate_critique`; root bulk support | first immutable P2 preparation and bulk Tracker source drafted; not wired or executed | Warm metadata check, focused execution and independent audit; then full source-resolution/typed-record/bulk/P4 integration |
-| Independent mathematical/code/performance audit | `active_goal_delivery_audit` | active, read-only | Challenge both designs and define adversarial correctness/performance gates; do not author the feature being audited |
+| O: generated-rule selection and full persisted integral order | `stage_a_release` | pure kernel implemented,17 release tests PASS; core integration active, diagnostic intentionally not compile-complete | Resolve non-Copy ownership, then complete artifact/interface propagation and mixed-order routing tests |
+| S: original S5 merge architecture | `parallel_gate_critique`; root bulk/config support | second immutable P2 source stage audited; typed records partly wired; bulk source audited but not executed | Complete controller/typed-record/bulk integration and native tests |
+| P4 shared immutable lookup publication | `active_goal_delivery_audit`, rotated to implementation; root reviews | approved narrow layered design; shared-page primitive/tests drafted | Finish exact/orthant/live-layer adapters, atomic publication, bounded retention and failure tests |
+| Independent mathematical/code/performance audit | root; rotate separate lane authors when available | P2/bulk/pure-order source audits completed before P4 role change | P4 author must not audit their own new implementation; finish independent integrated audit before pilots |
 | Integration, resources, profiling and release | root | active | Persist new plan and goal; coordinate shared files/builds and combined acceptance |
 
 First-slice design audit (05:55 UTC): both tracks received a preliminary GO,
@@ -56,12 +57,116 @@ files and confirmed finite-fibre/sign coverage, signed accumulator bounds,
 allocation-checked canonical parsing and coordinate pullback. These checks do
 not yet establish integrated B-order generation or whole-engine speedup.
 
-The S5 author has drafted bounded immutable bucket/reverse preparation; root
-has drafted real source-wise Tracker/Edges batches with scalar differential
-tests, exact fold boundaries and failure injection. Neither is production-wired
-or execution-validated yet. Warm full metadata checking is now guarded in
-`TMP/aster-order-kernel.fiY5ua/integration-check`; source edits are briefly frozen
-during that check. No native pilot or new production campaign has started.
+The pure kernel is committed/pushed as `1feb5c71`. The S5 author has drafted
+bounded immutable bucket/reverse preparation; root has drafted real source-wise
+Tracker/Edges batches with scalar differential tests, exact fold boundaries and
+failure injection. Both passed independent source review and the warm full
+`cargo check --release --tests --locked --offline` for core/app/Python:61.182s
+guarded,58.08s Cargo, exit0/null,2440784KiB peak single-child RSS. Evidence:
+`TMP/aster-order-kernel.fiY5ua/integration-check`. This is metadata compilation,
+not execution of the new S5/bulk tests. Both helpers remain unwired; full native
+execution and performance claims are pending. The brief source freeze is lifted
+for the end-to-end adapters and controlled source-resolution/typed-record work.
+No native pilot or new production campaign has started.
+
+Integration checkpoint (06:27 UTC): the second P2 source slice passed independent
+review. Source-ordered headers and bounded 256-miss tasks resolve against an
+immutable Store; canonical deduplication and error selection stay in original
+order. Cancellation now reaches existing aggregate-index group/block scans.
+Eight synthetic tests include actual multi-block inputs, stale/current misses,
+quarantine and error precedence; they are authored, not yet executed. The prior
+metadata PASS does not cover this newer slice. Typed Epoch records and their
+checkpoint/cold-reader adapters are the author's next implementation slice.
+Root retains ownership of bulk dependencies and is reviewing P4's shared-layer
+boundary so the remaining S5 work is not serialized behind the record migration.
+
+The ordering author ran a deliberately diagnostic core-only metadata build,
+which reported104 integration errors (chiefly ownership after making order
+policies shared rather than Copy): exit101,50.174s guarded, no timeout. These
+are retained failures to repair, not a passed gate. The updated independent
+`rustred-order` suite then passed17/0 (Cargo1.79s, guard4.157s,199496KiB peak).
+Evidence: `TMP/aster-order-adapters.DOQX7C/{core-error-harvest,order-tests-v2}`.
+Both guarded process groups drained and the heavy/build locks were released.
+No CAS code generation or campaign run was involved. Root authorized the broad
+ownership propagation because actual order identity must reach every replay and
+descent consumer; preserving Copy through process-local handles would weaken
+that contract. Current source remains an in-progress integration tree.
+
+### Service-interrupted checkpoint — 2026-09-30 07:35 UTC
+
+All three implementation agents returned an explicit usage-limit error; a
+follow-up to the ordering lane was refused with `agent thread limit reached`.
+This is an external delegation interruption, not an implementation milestone or
+a completed goal. The last pushed code milestone remains `1feb5c71`. Substantial
+new source is preserved in the working tree, including untracked new modules;
+do not discard it or use this tree as a production executable. The user did not
+ask to pause the goal, so it has not been marked paused or complete.
+
+Root's completed work since the preceding checkpoint:
+
+- Added explicit per-cut preparation helper/obligation/retirement controls to
+  the Rust request, worker partition, CLI and all three Python steering layers.
+  Helpers are **inside** the total worker budget; zero is the serial control.
+  Counts bound logical scratch/output, not RAM, rank or cumulative work. Limits
+  stop rather than truncate. This source still needs integrated Rust compilation
+  and controller/metadata wiring by the S5 lane.
+- Python steering and audit tests passed:70 tests in9.780s, covering the new
+  options, existing batch/lookup/rolling/checkpoint behavior, frozen upgrade
+  checks and JSON audit contracts. Command (from `examples/python`):
+  `python -B -m unittest test_epoch_preparation_steering test_epoch_batch_steering
+  test_epoch_checkpoint_steering test_epoch_lookup_steering
+  test_epoch_rolling_steering test_audit_owner_domain_walk test_production_upgrade`.
+  These use mocks/fake executables, not native solver authority. `TMPDIR` was
+  `/common/dev/rustred/TMP`; no production campaign was launched.
+- Research CP6 receipt tests passed17/0 in0.098s with
+  `python -B -m unittest test_cp6` from `tools/research/epoch_cp6`. Manifest1/2
+  pairs only with semantics3; new manifest3 only with semantics4. This read-only
+  comparison adapter can inspect the old frozen baseline's receipts; it does
+  not add native checkpoint compatibility. New diagnostic export schema2 pairs
+  with semantics4, old export1 with3, and mismatched/unknown pairs are rejected.
+- `git diff --check` passed. Production LC2 PID360092 was still live at the
+  read-only check; no stop/start/resume or campaign mutation occurred.
+
+Unfinished lane boundaries:
+
+1. **Ordering:** seventeen isolated kernel tests passed. Core/shared-order
+   propagation, candidate bundle/order codecs, CLI/Python generation options and
+   source replay edits exist, but the non-Copy integration is not compile-ready.
+   New `candidate_bundle/order.rs` is part of this work. Finish compiler errors
+   before native tests, then test exact source replay, unsupported cut/affine
+   refusal, E-primary certification capability and mixed-order routing.
+2. **S5 P2/bulk/records:** second P2 source slice passed independent review;
+   synthetic tests are authored but not executed. Typed authority/wire modules
+   and Epoch-only sidecar are drafted and partly wired into merge publication.
+   Restore/cold/export/metadata/controller integration is not complete. Agreed
+   versions: Epoch semantics4, CP6 manifest3, scalar4, binary record1; diagnostic
+   walk JSON remainsv6. Root's batch Tracker API is ready for integration but
+   runtime differential tests remain unexecuted.
+3. **P4:** canonical Store and Ready remain unchanged. The approved approach is
+   shared immutable pages and bounded delta indexes, preserving exact→dominant
+   orthant→minimum-current-live choices. Only `snapshot/shared.rs` and its tests
+   are drafted; the existing two-replica path is not yet replaced. Root must
+   independently review this code because its author has rotated out of audit.
+   Layered physical probe counts may change honestly under semantics4, but not
+   logical selected work. Post-P3 allocation failure must keep the old snapshot
+   and save the valid merge boundary, never lose retirements or fabricate closure.
+
+The final guarded diagnostic completed at
+`TMP/aster-integration-20260930T0740/check`: warm metadata-only
+`cargo check --release --tests --locked --offline --config
+profile.release.package.rustred-app.opt-level=1 -j8 -p rustred -p rustred-app
+-p rustred-python`, using existing heavy/build-0 locks, CPUs0–15, and
+`TMP/codex-runtime-discovery.280crc/target-check`. This is an error harvest of
+an interrupted integration tree, not a release acceptance or performance test.
+It exited101 without an operational stop in59.204s, peak single-child
+RSS2434144KiB. Core library compilation reports9 remaining errors; the core test
+target reports101 (including stale test constructors and non-Copy assumptions).
+App/Python integration was therefore not validated. The guard drained owned
+process group4134409 and released its locks; no diagnostic job is left running.
+Read `result.json` and `stderr` before retrying; preserve the negative result.
+Next restore separate lane ownership, finish compilation, independently review,
+execute focused/native tests, and only then schedule matched complete controls.
+Do not jump to production instructions from any of these partial results.
 
 The `297be07f` and frozen1b33/62c delivery remains a rollback/reference, not proof
 that these newly authorized tracks are implemented. Source A's repeated gains

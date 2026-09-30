@@ -218,6 +218,15 @@ executables and files so the owner retains control.
 - Implement P4 immutable lookup publication/delta layers and bounded compaction
   where required by the completed merge design. Preserve exact positive checks
   and correct stale-negative handling; enforce bounded retained snapshots.
+  Preserve the current chosen container: admissible exact hits include retired
+  IDs, the dominant orthant keeps its existing rank/tie policy, and general
+  containment chooses the minimum currently live ID. A layered physical index
+  may change truthful candidate/test telemetry under the new Epoch semantics;
+  do not claim those physical counters equal the old layout. For a fixed new
+  layout they must remain deterministic across helper budgets. Selected IDs,
+  dependency edges, logical work and authority must not change merely because
+  storage is shared. Do not adopt the historical design's retired-tier first-hit
+  shortcut, which would change selected work.
 - Share the configured worker budget between inspectors and merge preparation;
   avoid oversubscribed nested Rayon/Symbolica pools and large per-worker clones.
   Start with controlled task granularity and transparent scheduling rather than
