@@ -37,6 +37,48 @@ def _numbers(source, keys):
     return {key: number(source.get(key)) for key in keys}
 
 
+def discovery_closure_balance(gap):
+    """Dimensionless balance of two deltas from the SAME closure window.
+
+    This is an observed scan-batched balance, not convergence or a bound.
+    Never substitute the independently sampled local-completion window.
+    """
+    gap = mapping(gap)
+    result = {**_numbers(gap, ("covered_seconds", "window_seconds", "first_elapsed_seconds",
+                               "last_elapsed_seconds")), "value": None,
+              "warmup": gap.get("warmup") is True,
+              "state": clean(gap.get("state", "missing"), 100)}
+    if result["state"] not in ("valid", "warmup"):
+        return result
+    span, window, first, last = (result[key] for key in
+        ("covered_seconds", "window_seconds", "first_elapsed_seconds", "last_elapsed_seconds"))
+    if any(value is None for value in (span, window, first, last)):
+        result["state"] = "missing_window"
+        return result
+    if (span <= 0 or window <= 0 or first < 0 or last <= first or span > window
+            or not math.isclose(last - first, span, rel_tol=1e-9, abs_tol=1e-9)):
+        result["state"] = "window_mismatch"
+        return result
+    discovered, closed = number(gap.get("discovered_delta")), number(gap.get("closed_delta"))
+    if discovered is None or closed is None or discovered < 0 or closed < 0:
+        result["state"] = "invalid_deltas"
+        return result
+    # Reject inconsistent/malformed supplied rate fields, but the ratio itself
+    # uses the paired deltas, not rounded rates or an unrelated sample window.
+    for key, expected in (("discovered_per_second", discovered / span),
+                          ("closed_per_second", closed / span),
+                          ("per_second", (discovered - closed) / span)):
+        if key in gap and (number(gap[key]) is None or not math.isclose(gap[key], expected, rel_tol=1e-9, abs_tol=1e-9)):
+            result["state"] = "window_mismatch"
+            return result
+    denominator = discovered + closed
+    if number(denominator) is None or denominator == 0:
+        result["state"] = "zero_denominator" if denominator == 0 else "invalid_deltas"
+        return result
+    result["value"] = (discovered - closed) / denominator
+    return result
+
+
 def normalize_status(status, sequence=None):
     """Convert one already observed status into a small, explicit public frame.
 
@@ -91,6 +133,9 @@ def normalize_status(status, sequence=None):
     if closure_counts["total_domains"] is None:
         closure_counts["total_domains"] = number(work.get("scheduled"))
     available = closure.get("available") is True
+    balance = discovery_closure_balance(net)
+    if not available:
+        balance.update(value=None, state="closure_unavailable")
     if not available:
         for key in ("initial_closed", "total_closed", "unresolved_domains"):
             closure_counts[key] = None
@@ -152,6 +197,7 @@ def normalize_status(status, sequence=None):
                       "coordinator_duty_1h": number(derived.get("coordinator_duty_1h")),
                       "stall_share_5s": number(derived.get("stall_share_5s"))},
         "rates": {"local_completion": completion, "recursive_closure": recursive,
+                  "discovery_closure_balance": balance,
                   "completions_per_hour_1h": number(derived.get("completions_per_hour_1h")),
                   "discovery_minus_closure": {**_numbers(net, (
                       "per_second", "covered_seconds", "window_seconds",

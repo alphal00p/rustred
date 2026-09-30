@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Plot a saved telemetry.jsonl as a portable SVG (Python stdlib only).
 
-Local completion and recursively closed domain rates are distinct measured
-trailing-hour quantities. No curve is extrapolated, no missing rate becomes
-zero, and scan-batched closure is not instantaneous throughput. This utility
-reads receipts only; it never connects to or controls a running campaign.
+Left axis: observed unresolved-domain total (discovered minus recursively
+closed). Right axis: RAW trailing-window discovery-minus-closure rate in
+domains/second, not the dimensionless dashboard balance. No interpolation or
+extrapolation, missing values stay missing, and scan-batched closure is not
+instantaneous throughput. This utility never controls a running campaign.
 """
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ def observations(path, start=0.0, end=None):
     """Yield bounded scalar plot observations, preserving missing/reset gaps."""
     last_elapsed = None
     last_run = None
-    last_endpoints = None
+    last_observation = None
     for frame in records(path):
         if frame is None:
             yield None
@@ -60,27 +61,34 @@ def observations(path, start=0.0, end=None):
         run = frame.get("run_directory")
         if last_elapsed is not None and (elapsed <= last_elapsed or run != last_run):
             yield None
+            last_observation = None
         last_elapsed, last_run = elapsed, run
         rates = TELEMETRY.mapping(frame.get("rates"))
         completion = TELEMETRY.mapping(rates.get("local_completion"))
         closure = TELEMETRY.mapping(rates.get("recursive_closure"))
         gap = TELEMETRY.mapping(rates.get("discovery_minus_closure"))
         snapshot = TELEMETRY.mapping(frame.get("closure_snapshot"))
-        endpoints = (number(completion.get("last_elapsed_seconds")), number(closure.get("last_elapsed_seconds")))
-        if (endpoints == last_endpoints and any(value is not None for value in endpoints)
-                and frame.get("heartbeat_stale") is not True
-                and completion.get("state") == "measured" and closure.get("state") in ("valid", "warmup")):
+        counts = TELEMETRY.mapping(frame.get("counts"))
+        total, closed = number(counts.get("total_domains")), number(counts.get("total_closed"))
+        unresolved = total - closed if (snapshot.get("available") is True and total is not None
+            and closed is not None and 0 <= closed <= total) else None
+        observation = (number(gap.get("last_elapsed_seconds")), total, closed,
+                       gap.get("state"), number(gap.get("per_second")), snapshot.get("stale"))
+        if (observation == last_observation and observation[0] is not None
+                and frame.get("heartbeat_stale") is not True):
             # The supervisor/UI can poll more often than a native heartbeat.
             # A repeated endpoint is not a new rate observation.
             continue
-        last_endpoints = endpoints
+        last_observation = observation
         values = {"completion": number(completion.get("per_second")),
-                  "closure": number(closure.get("per_second")), "gap": number(gap.get("per_second"))}
+                  "closure": number(closure.get("per_second")), "gap": number(gap.get("per_second")),
+                  "unresolved": unresolved}
         if completion.get("state") != "measured":
             values["completion"] = None
         if closure.get("state") not in ("valid", "warmup"):
             values["closure"] = None
-        if gap.get("state") not in ("valid", "warmup"):
+        paired = TELEMETRY.discovery_closure_balance(gap)
+        if snapshot.get("available") is not True or paired["state"] not in ("valid", "warmup", "zero_denominator"):
             values["gap"] = None
         if frame.get("heartbeat_stale") is True:
             values = dict.fromkeys(values)
@@ -88,7 +96,7 @@ def observations(path, start=0.0, end=None):
                "closure_stale": snapshot.get("stale") is not False,
                "snapshot_age_seconds": number(snapshot.get("snapshot_age_seconds")),
                "scan_advanced": snapshot.get("advanced"),
-               "warmup": completion.get("warmup") is True or closure.get("warmup") is True}
+               "warmup": gap.get("warmup") is True}
 
 
 def load_points(path, start=0, end=None, max_points=20000):
@@ -100,7 +108,7 @@ def load_points(path, start=0, end=None, max_points=20000):
     """
     options = dict(start=start, end=end)
     total = sum(1 for _ in observations(path, **options))
-    bucket_size = max(1, math.ceil(total / max(1, max_points // 8)))
+    bucket_size = max(1, math.ceil(total / max(1, max_points // 6)))
     points = []
     first = last = None
     extrema, missing, count = {}, set(), 0
@@ -120,11 +128,11 @@ def load_points(path, start=0, end=None, max_points=20000):
             break
         count += 1
         if point is None:
-            missing.update(("completion", "closure", "gap"))
+            missing.update(("unresolved", "gap"))
         else:
             pair = (index, point)
             first, last = first or pair, pair
-            for key in ("completion", "closure", "gap"):
+            for key in ("unresolved", "gap"):
                 if point[key] is None:
                     missing.add(key)
                     continue
@@ -140,7 +148,7 @@ def load_points(path, start=0, end=None, max_points=20000):
     return points, {"records": total, "bucket_size": bucket_size, "plotted_samples": len(points)}
 
 
-def make_svg(points, metadata, title="RustRed campaign rates"):
+def make_svg(points, metadata, title="RustRed unresolved domains and net rate"):
     samples = [point for point in points if point is not None]
     if not samples:
         raise ValueError("no telemetry frames in the requested elapsed-time interval")
@@ -148,57 +156,69 @@ def make_svg(points, metadata, title="RustRed campaign rates"):
     last = max(point["elapsed"] for point in samples)
     span = max(1.0, last - origin)
     time_scale, time_unit = (1.0, "Seconds") if span < 120 else (60.0, "Minutes") if span < 7200 else (3600.0, "Hours")
-    left, right, top, bottom, width = 95, 1050, 115, 475, 1120
-    rate_values = [point[key] for point in samples for key in ("completion", "closure") if point[key] is not None]
-    ymax = max(rate_values, default=0)
-    ymax = 1.0 if ymax <= 0 else ymax * 1.08
+    left, right, top, bottom, width = 110, 990, 120, 475, 1120
+    totals = [point["unresolved"] for point in samples if point["unresolved"] is not None]
+    raw_rates = [point["gap"] for point in samples if point["gap"] is not None]
+    # Scale before adding headroom: finite extreme inputs must not overflow.
+    total_scale = max(totals, default=0) or 1.0
+    rate_scale = max((abs(value) for value in raw_rates), default=0) or 1.0
+    rmin = min([0.0, *(value / rate_scale for value in raw_rates)])
+    rmax = max([0.0, *(value / rate_scale for value in raw_rates)])
+    if rmin == rmax:
+        rmin, rmax = -1.0, 1.0
+    rpad = (rmax - rmin) * .05
+    rmin, rmax = rmin - rpad, rmax + rpad
     esc = html.escape
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="690" viewBox="0 0 {width} 690">',
            '<rect width="100%" height="100%" fill="#0e1726"/>',
            '<style>text{font-family:system-ui,sans-serif;fill:#dae4f0} .small{font-size:13px} .axis{font-size:14px;fill:#a8b8cd}</style>',
            f'<text x="42" y="42" font-size="24" font-weight="600">{esc(title)}</text>',
-           '<text x="42" y="68" class="small">Measured trailing-hour rates; actual sampled windows during warm-up · no ETA</text>']
+           '<text x="42" y="68" class="small">Left: unresolved domains · Right: RAW discovery − recursive closure (domains/s), not normalized balance</text>',
+           '<text x="42" y="91" class="small">Observed samples only; no interpolation · trailing-hour rate uses actual sampled windows during warm-up · no ETA</text>']
     x = lambda seconds: left + (seconds - origin) / span * (right - left)
-    y = lambda value: bottom - value / ymax * (bottom - top)
+    y_total = lambda value: bottom - (value / total_scale) / 1.08 * (bottom - top)
+    y_rate = lambda value: bottom - ((value / rate_scale) - rmin) / (rmax - rmin) * (bottom - top)
     for index in range(6):
-        value = ymax * index / 5
-        yy = y(value)
+        fraction = index / 5
+        value = total_scale * fraction  # Upper padding is not a fabricated sample.
+        yy = y_total(value)
         svg += [f'<line x1="{left}" x2="{right}" y1="{yy:.2f}" y2="{yy:.2f}" stroke="#27384e"/>',
-                f'<text x="{left - 12}" y="{yy + 5:.2f}" text-anchor="end" class="axis">{value:,.3g}</text>']
+                f'<text x="{left - 12}" y="{yy + 5:.2f}" text-anchor="end" class="axis" style="fill:#59cbfa">{value:,.3g}</text>']
+        rate_tick = rmin + fraction * (rmax - rmin)
+        # Tick labels stay inside the measured scale to avoid extreme overflow.
+        rate_tick = max(-1.0, min(1.0, rate_tick))
+        yy_rate = y_rate(rate_tick * rate_scale)
+        svg.append(f'<text x="{right + 12}" y="{yy_rate + 5:.2f}" class="axis" style="fill:#f2ba72">{rate_tick * rate_scale:+,.3g}</text>')
         xx = left + index / 5 * (right - left)
         elapsed = span * index / 5 / time_scale
         svg += [f'<line x1="{xx:.2f}" x2="{xx:.2f}" y1="{top}" y2="{bottom}" stroke="#1b2b40"/>',
                 f'<text x="{xx:.2f}" y="{bottom + 28}" text-anchor="middle" class="axis">{elapsed:.2f}</text>']
-    svg += ['<text x="22" y="280" transform="rotate(-90 22 280)" text-anchor="middle" class="axis">domains / second</text>',
+    svg += ['<text x="22" y="295" transform="rotate(-90 22 295)" text-anchor="middle" class="axis" style="fill:#59cbfa">Unresolved domains (total)</text>',
+            '<text x="1100" y="295" transform="rotate(90 1100 295)" text-anchor="middle" class="axis" style="fill:#f2ba72">Discovery − closure (domains / second)</text>',
             f'<text x="{(left + right) / 2}" y="{bottom + 55}" text-anchor="middle" class="axis">{time_unit} since plotted interval start (run elapsed {origin:.3f} s)</text>']
-    for key, color, label in (("completion", "#59cbfa", "Local completions"),
-                              ("closure", "#d0a0ff", "Recursively closed — conservative scan-batched observations")):
+    zero = y_rate(0)
+    svg.append(f'<line x1="{left}" x2="{right}" y1="{zero:.2f}" y2="{zero:.2f}" stroke="#f2ba72" stroke-dasharray="3 5" opacity=".35"/>')
+    for key, color, label, y in (("unresolved", "#59cbfa", "LEFT: discovered − recursively closed total", y_total),
+                                ("gap", "#f2ba72", "RIGHT: raw net rate, domains/s (signed)", y_rate)):
         count = 0
-        previous = None
         for point in points:
             if point is None or point[key] is None:
-                previous = None
                 continue
             xx, yy = x(point["elapsed"]), y(point[key])
-            stale = key == "closure" and point["closure_stale"]
-            if previous is not None:
-                # Step plot: retain measured endpoints; do not invent smooth fits.
-                dashed = stale or key == "closure" and previous["closure_stale"]
-                style = ' stroke-dasharray="5 4" opacity="0.7"' if dashed else ''
-                svg.append(f'<path d="M {x(previous["elapsed"]):.2f},{y(previous[key]):.2f} H {xx:.2f} V {yy:.2f}" fill="none" stroke="{color}" stroke-width="2"{style}/>')
+            stale = point["closure_stale"]
             fill = "#0e1726" if stale else color
-            radius = 3 if key == "closure" and point["scan_advanced"] is True else 1.7
+            radius = 3.5 if point["scan_advanced"] is True else 2.5
             svg.append(f'<circle cx="{xx:.2f}" cy="{yy:.2f}" r="{radius}" fill="{fill}" stroke="{color}"/>')
-            previous, count = point, count + 1
-        legend_y = 565 if key == "completion" else 590
+            count += 1
+        legend_y = 565 if key == "unresolved" else 590
         svg += [f'<line x1="48" x2="73" y1="{legend_y - 5}" y2="{legend_y - 5}" stroke="{color}" stroke-width="3"/>',
                 f'<text x="85" y="{legend_y}" class="small">{esc(label)} ({count:,} plotted observations)</text>']
     max_age = max((point["snapshot_age_seconds"] for point in samples if point["snapshot_age_seconds"] is not None), default=None)
     age_label = "unknown" if max_age is None else f"{max_age:,.1f}s"
-    policy = f"Dashed / hollow: graph-dirty closure snapshot (max age {age_label}); larger dots: scan advanced."
+    policy = f"Hollow: graph-dirty closure snapshot (max age {age_label}); unresolved total is then an upper bound."
     svg += [f'<text x="42" y="625" class="small">{esc(policy)}</text>',
             f'<text x="42" y="650" class="small">{metadata["records"]:,} records · extrema-envelope bucket {metadata["bucket_size"]} · missing / invalid / stale-heartbeat samples are gaps.</text>',
-            '<text x="42" y="674" class="small">A zero scan-batched rate is an observed count delta, not proof that no new domains closed.</text>',
+            '<text x="42" y="674" class="small">Larger dots: scan advanced. A zero scan-batched rate is not proof that no new domains closed. JSON retains window metadata.</text>',
             '</svg>']
     return "\n".join(svg) + "\n"
 
@@ -210,7 +230,7 @@ def main(argv=None):
     parser.add_argument("--start", type=float, default=0, help="inclusive run elapsed seconds")
     parser.add_argument("--end", type=float, help="inclusive run elapsed seconds")
     parser.add_argument("--max-points", type=int, default=20000)
-    parser.add_argument("--title", default="RustRed campaign rates")
+    parser.add_argument("--title", default="RustRed unresolved domains and net rate")
     args = parser.parse_args(argv)
     if (not math.isfinite(args.start) or args.start < 0 or
             args.end is not None and (not math.isfinite(args.end) or args.end < args.start) or

@@ -215,6 +215,17 @@ def _rate(value):
     return "unknown" if number(value) is None else f"{value:,.3f}/s"
 
 
+def indicator_color(value, kind):
+    """Exact requested thresholds; unknown observations have no alarm colour."""
+    value = number(value)
+    if value is None:
+        return None
+    if kind == "cpu":
+        return "31" if value < .5 else "33" if value < .75 else "32"
+    boundary = 1 if kind == "pending" else .5
+    return "31" if value > boundary else "33" if value > 0 else "32"
+
+
 def render_table(frame, width=100, height=24, color=True):
     """Pure, size-bounded terminal view of one normalized frame.
 
@@ -278,17 +289,22 @@ def render_table(frame, width=100, height=24, color=True):
     root = f"{conservative}{count(counts['initial_closed'])} / {count(counts['initial_total'])}"
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
-    gap_rate = number(gap.get("per_second"))
-    gap_text = "unknown" if gap_rate is None else f"{gap_rate:+.3f}/s"
+    balance = rates.get("discovery_closure_balance") or TELEMETRY.discovery_closure_balance(gap)
+    balance_value = number(balance.get("value"))
+    balance_text = "unknown" if balance_value is None else f"{balance_value:+.3f}"
     freshness = "stale" if snap["stale"] is True else "fresh" if snap["stale"] is False else "unknown"
     scan = "scan advanced" if snap["advanced"] is True else "no new closure scan" if snap["advanced"] is False else "scan update unknown"
     freshness_text = f"Closure snapshot {freshness} · age {duration(snap['snapshot_age_seconds'])} · {scan}"
     if stale_heartbeat:
         freshness_text += " · heartbeat stale"
-    gap_state = gap.get("state")
+    gap_state = balance.get("state")
     gap_detail = window(gap) + (f" · {clean(gap_state)}" if gap_state not in (None, "valid", "warmup") else "")
     published = f"published {count(counts['initial_published'])}/{count(counts['initial_entries'])}; not closure"
-    cpu = resource["native_busy_cores"]
+    cpu = number(resource["native_busy_cores"])
+    reserved = number(resource["workers"])
+    utilization = cpu / reserved if cpu is not None and cpu >= 0 and reserved is not None and reserved > 0 else None
+    if utilization is None:
+        cpu = None
     cpu_text = f"{'?' if cpu is None else f'{cpu:.1f}'} / {count(resource['workers'])} cores"
     workers = (f"active {count(resource['active_native_slots'])} · blocked {count(resource['backpressured_native_slots'])}"
                f" · awaiting {count(resource['finished_native_awaiting_publication'])}")
@@ -304,7 +320,7 @@ def render_table(frame, width=100, height=24, color=True):
         (0, row("ROOT CLOSURE", root, bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "94")),
         (1, row("Domains", count(counts["total_domains"]), f"{conservative}{count(counts['total_closed'])} closed · {unresolved_bound}{count(counts['unresolved_domains'])} unresolved")),
         (2, row("Queue / local", count(counts["pending"]) + " pending", f"{count(counts['locally_completed'])} completions · frontiers {count(counts['frontiers'])}")),
-        (2, row("CPU", cpu_text, workers, "32")),
+        (2, row("Active CPU cores", cpu_text, "observed · " + workers, indicator_color(utilization, "cpu"))),
         (5, row("Inspectors (1h)", "unknown" if computing is None else f"{computing:.1f} computing",
                 f"reserved {count(reservations['inspectors'])} inspect / {count(reservations['admission_helpers'])} admission / {count(reservations['coordinator'])} coordinator")),
         (5, row("Coordinator duty", percent(resource["coordinator_duty_1h"]), "stall >=5 s " + percent(resource["stall_share_5s"]))),
@@ -313,8 +329,8 @@ def render_table(frame, width=100, height=24, color=True):
                 "RSS " + ("unknown" if rates["rss_bytes_per_discovered_domain"] is None else f"{rates['rss_bytes_per_discovered_domain'] / 1000:.1f} KB / domain"))),
         (-2, row("Local completions", _rate(completion["per_second"]), rate_window(completion), "36")),
         (-2, row("Recursive closure", _rate(closure["per_second"]), rate_window(closure, scan_batched=True), "35")),
-        (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure")),
-        (0, full(f"Discovery−closure {gap_text} observed gap", "32" if gap_rate is not None and gap_rate < 0 else "33")),
+        (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure", indicator_color(growth, "pending"))),
+        (0, full(f"Closure balance {balance_text} · (D−C)/(D+C) · observed scan-batched", indicator_color(balance_value, "balance"))),
         (0, full(gap_detail)),
         (-2, full(freshness_text, "33" if snap["stale"] is not False else "2")),
         (3, full("Initial " + published)),
@@ -345,12 +361,13 @@ def plain_summary(frame):
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
     gap = rates["discovery_minus_closure"]
-    net = gap["per_second"]
-    net_text = "unknown" if net is None else f"{net:+.3f}/s"
-    net_line = (f"Discovery−closure {net_text} observed gap · window {duration(gap['covered_seconds'])}"
+    balance = rates.get("discovery_closure_balance") or TELEMETRY.discovery_closure_balance(gap)
+    value = number(balance.get("value"))
+    balance_text = "unknown" if value is None else f"{value:+.3f}"
+    net_line = (f"Closure balance {balance_text} (D−C)/(D+C) observed scan-batched · window {duration(gap['covered_seconds'])}"
                 f"/{duration(gap['window_seconds'])}" + (" warm-up" if gap["warmup"] else ""))
-    if gap["state"] not in (None, "valid", "warmup"):
-        net_line += " · " + clean(gap["state"])
+    if balance["state"] not in (None, "valid", "warmup"):
+        net_line += " · " + clean(balance["state"])
     freshness = "stale" if snapshot["stale"] is True else "fresh" if snapshot["stale"] is False else "unknown"
     scan = "scan advanced" if snapshot["advanced"] is True else "no new closure scan" if snapshot["advanced"] is False else "scan update unknown"
     checkpoint = frame["checkpoint"]

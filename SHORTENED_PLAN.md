@@ -363,6 +363,32 @@ Relative schedule after approval:
 
 ## Acceptance, resources and fallback
 
+### Dashboard follow-up (September 30)
+
+Delegate this independently of solver work. Keep the detected CPU-core usage
+beside its reservation and colour utilization red below 50%, yellow from 50%
+to below 75%, and green from 75%. Keep pending-growth arithmetic and naming,
+but colour values red above 1, yellow above 0 through 1, and green at or below 0.
+This explicit request supersedes the older restriction on changing its rendering,
+not its calculation.
+
+Show a dimensionless closure balance `(D-C)/(D+C)`, where D and C are newly
+discovered and newly recursively closed domains from the same trailing window.
+Use red above 0.5, yellow above 0 through 0.5, and green at or below 0. Undefined
+denominators, resets and mismatched windows remain unknown, not zero. Retain
+conservative/stale scan qualifications and raw rates in the generic stream.
+
+Replace the earlier two-rate plot with one dual-axis plot: unresolved-domain
+count on the left and raw discovery-minus-closure rate in domains/second on the
+right. This interpretation has been stated to the user. Keep bounded processing
+and independent producer/consumer modules. Test thresholds, missing data and
+terminal sizes, then visually replay the existing genuine four-loop captures
+and explicitly labelled synthetic boundary cases; no new native run is needed.
+Use a measurement-free slot for browser rasterization. Root remains focused on
+the campaign controls and independently reviews the delegated result afterward.
+
+### Native acceptance
+
 - Use release/optimized binaries with matched profiles for timing. Preserve
   compiler/test distinctions; do not time debug or app-opt1 correctness builds.
 - Reuse FG/BMW/H/X, combined four-loop, finite five-loop and hot-sector controls.

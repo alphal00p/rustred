@@ -95,7 +95,8 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 1. The approved plan supersedes stale stop/launch directives. Latest follow-up
    permits a later restart but requires a consolidated validated build first;
    leave LC2 untouched during that work. No G2′-only restart or launch now.
-2. Leave pending-growth calculation, name, and rendering unchanged.
+2. Leave pending-growth calculation and name unchanged. The September30 user
+   follow-up explicitly changes its colour thresholds in the new dashboard.
 3. Resume compatibility is a convenience, not a veto or a migration project.
    Recommend fresh runs when necessary; preserve old campaigns for rollback.
 4. A passing internal microbenchmark is not sufficient deployment evidence.
@@ -106,6 +107,128 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 00:38 UTC — requested dashboard thresholds/plot independently checked
+
+- [M] `parallel_gate_critique` implemented the orthogonal monitoring slice;
+  root independently reviewed the paired-window calculation, exact boundary
+  colours and plot data/units, reran27 dashboard tests (PASS), and viewed the
+  actual80-column FG replay plus synthetic boundary/signed dual-axis images.
+  Author's full suite:351 tests,350 PASS/one existing optional skip in31.641s;
+  focused58/58 PASS. No native code, pending arithmetic or production mutation.
+- [M] `Closure balance` uses `(D-C)/(D+C)` from common window endpoints; zero
+  denominator and invalid/missing/reset observations stay unknown. Raw net
+  domains/s remains in the stream and uses the plot's RIGHT axis; unresolved
+  total uses LEFT. No interpolation or invented zeroes. Active observed cores
+  stay beside reserved cores; unknown observations are neutral. At previously
+  unspecified exact boundaries,75% CPU is green, pending1 and balance0.5 are
+  yellow, and zero pending/balance is green.
+- [M] Evidence: `TMP/codex-dashboard-balance.VBpyjw/self-review.json` and ten
+  inspected PNGs. These are saved actual-FG terminal replays and explicitly
+  labelled synthetic stress cases, not a new solver run or OS screenshot.
+  The original visual pilot's unobserved positive-computing sample remains
+  incomplete; this rendering update does not change that receipt.
+- [D] Root updated the public driver documentation. The agent now returns to
+  independent read-only measurement review; source implementation and final
+  mathematical/performance interpretation remain separately reviewed.
+
+### 2026-09-30 00:36 UTC — finite control cold pass; secondary audit censored
+
+- [M] Finite five-loop Ready cold-All retry passes in156.211s: all759,802
+  native/partial/G2 reinspections,966,681 domains,1/1 required root/query and
+  zero uncovered/errors. Successful native+cold boundary is332.293s. This is
+  one finite control, not the complete five-loop production request.
+- [M] The separate Python full-result/event audit times out at301.255s with
+  exit124 and no report. Native+cold remain valid; full pipeline acceptance
+  is **incomplete**. Native+failed cold+successful cold+audit incurred784.779s;
+  whole arm through reporting1001.127s remains below1800s. Evidence:
+  `TMP/codex-final-monitor-matrix.LJLGfi/finite-ready-after-retry.json` and
+  `FINAL_FIVE_LOOP_STATUS.md`. All owned groups drained.
+- [D] No further full Python-audit retry. Continue finite FIFO and the hot
+  Ready/FIFO pair with unchanged native scope and cold-All, the registered300s
+  verification allowance and inclusive1800s per-arm bound. Mark omitted full
+  Python audits NOT RUN. Retain Epoch's inexpensive summary audit solely for
+  its existing CP6 acceptance check; it is not the missing full-result proof.
+  Python additionally checks event-accounting/coverage/publication consistency;
+  cold-All re-derives native successors and closes the recorded graph. Neither
+  is original algebraic-IBP replay.
+- [D] After those controls, authorize one separately bounded900s reverse-order
+  replication of the promising reindexed four-loop pair, using the same saved
+  inputs and binary, no regeneration. Then hand heavy resources to the isolated
+  discovery-API native build. No W50/new ordering sweep is added. Production
+  and frozen launch source/executable remain untouched.
+- [M] Dashboard author reports58 focused tests passing; actual-FG replay at
+ 80/100/140 columns and explicit synthetic colour boundaries are under visual
+  review. An affinity-dependent full-suite failure under only2 allowed CPUs is
+  not a reason to change the unrelated supervisor test; rerun with sufficient
+  affinity. Root independently audits the completed slice before publication.
+
+### 2026-09-30 00:27 UTC — dashboard follow-up delegated; finite cold retry bounded
+
+- [D] User adds utilization/pending colour thresholds, normalized closure
+  balance and a dual-axis unresolved-count/net-rate plot. Added this directive
+  to `SHORTENED_PLAN.md`; pending arithmetic/name stay unchanged. Original
+  dashboard thread and a new spawn hit the agent-thread limit, so the existing
+  `parallel_gate_critique` slot is reassigned to implementation/self-review.
+  Root independently reviews afterward and stays on native measurements.
+  Existing actual FG captures suffice for visual replay; no native pilot is added.
+- [M] Finite five-loop Ready traversal completes in176.082s,966,681 domains,
+ 759,802 native inspections and6.24GB peak RSS. Preparation82.984s and traversal
+ 76.891s are reported separately. Its original150s cold-All allowance expires:
+  exit124/151.230s, no cold report or pass. Cold preparation84.646s and graph
+  checking28.546s left insufficient time for the full reinspection. This is a
+  failed verification-time budget, not a completed comparison or closure failure.
+- [D] Authorized one fresh cold-only300s retry plus60s drain, preserving the
+  failed receipt and the original native result. At admission497s of the
+  original1800s whole-arm budget had elapsed, enough for retry/audit/drain.
+  Future five-loop plans explicitly register300s verification allowances with
+  the same absolute1800s whole-arm bound. No native/input/coverage weakening;
+  successful-cold timing and cumulative failed-attempt overhead remain separate.
+
+### 2026-09-30 00:19 UTC — mechanistic reindex completes, promising single pair
+
+- [M] The input-only reindex pilot finished within438.03s of its900s inclusive
+  deadline. Both regenerated parents, all16 newly selected owner payloads,
+ 508 remapped/native-verified routes and the inverse-identical58 physical
+  query rows were used. All eight owned groups drained; no compiler/engine or
+  production changes. Evidence: `TMP/codex-sector-reindex.D5Yawx/results.json`.
+- [M] Ready:8.564s native+9.166s cold=17.730s,50,039 domains/16,082 inspections.
+  Epoch FIFO:9.665s+7.174s=16.839s,36,013 domains/19,568 inspections. Both
+  cold-All32/32 admitted roots pass for all58 required rows; Epoch CP6 accepted.
+  Both native loaders report28 aggregate saved terminals and unchanged finite
+  search policy, but exact terminal-key equality is not asserted.
+- [E] This is promising **input-library** improvement versus the original
+  repeated controls, and one near-parity/slightly favorable Epoch pair on the
+  same new library. It does not isolate sector comparison from representation,
+  coefficient variable registration or fresh regeneration, and does not prove
+  a1.5x parallel throughput gain. No production recommendation follows yet.
+- [D] The preregistered repeat's worst-case stop/cold/drain allowance no longer
+  fit the remaining original pilot budget, so it was not squeezed in or extended.
+  A reversed replication is pending separately. Representative original finite
+  and hot five-loop pairs run first; finite Ready is now active. Optional
+  repetitions require actual evidence, not a blind parameter sweep.
+
+### 2026-09-30 00:12 UTC — discovery API frozen after source and metadata gates
+
+- [M] Corrected metadata check PASS for core/app/Python test targets in28.170s
+  (Cargo25.55s), exit0/no guard stop. Receipt:
+  `TMP/codex-runtime-discovery.280crc/typecheck-a-corrected`. Root independently
+  read it. Earlier77.188s failed receipt is preserved. Independent source audit
+  also passes the added partial K3 resume and same-shape strategy-change tests.
+- [M] Isolated commits `e6d1b103` (core) and `b95e1465` (app/CLI/Python,
+  persistence, tests and docs) are frozen on `codex/runtime-discovery-strategy`.
+  They are **not merged into the delivery build** and native execution remains
+  pending. The owned inactive `TMP/codex-parallel-validation.RPJKV5/repo` now
+  holds exactb95/clean Symbolicaef0 for the approved faithful native test build;
+  original cache/receipts and the separate clean3428 campaign tree are preserved.
+- [M] Input-only coordinate-reindex pilot has generated its first parent in
+ 27.169s guard/26.026s core:314 sectors,19,984 rules,386 aggregate finite
+  residuals,47.43MB bundle. This is generation only, not scoped closure or a
+  matched speedup. Second parent and unchanged-scope walk verification follow
+  within the single900s inclusive deadline. No engine rebuild is involved.
+- [M] Documentation milestone `b1005c9b` pushed: complete individual4L results,
+  negative mixed-pivot/prefix probes and current draft launch identities. The
+  dashboard's matching Python tree remains frozen at69f86bd6, native at3428.
 
 ### 2026-09-30 00:08 UTC — all individual four-loop cold controls pass
 

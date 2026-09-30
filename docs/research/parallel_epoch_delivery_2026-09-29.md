@@ -40,6 +40,15 @@ Ready arm ended before a sample. Do not infer a contention-adjusted speedup.
 Raw receipts: `TMP/codex-final-monitor-matrix.LJLGfi/runs/`. Further input/runtime
 diagnostics remain exploratory, not grounds for a launch recommendation yet.
 
+One **input-library** improvement now passes a first matched pair: the
+mechanistic pinch-interface coordinate reindex, with both parents regenerated
+and all58 query objects exactly inverse-equivalent, gives Ready17.730s versus
+Epoch16.839s including cold-All. Both verify all32 admitted roots; generated
+rules and routed fingerprints are consistent. This changes sector priorities
+and representation together, not just scheduler code. A reverse-order repeat
+is authorized separately; no1.5x architectural speedup is established. See the
+[ordering study](mechanistic_ordering_2026-09-29.md) for counts and exclusions.
+
 The individual controls also completed on that final executable, W6 on
 CPUs32–37. Every Ready and Epoch arm passed independent full cold-All; these
 are one pair per input, not replicated performance claims:
@@ -74,7 +83,8 @@ native live closure refresh. Its frozen executable is
 `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519`, SHA256
 `321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`.
 Actual CLI pause/resume/live-refresh and lockstep controls passed on this
-binary; remaining family/five-loop performance controls remain pending. The first M2
+binary; the individual four-loop controls above also pass, while five-loop
+comparisons remain pending. The first M2
 resumed leg finished before its5s heartbeat and remains an incomplete live
 observation. One additional same-FG248/W6 run with two inspectors observed
 genuine live refresh both before pause and after resume and passed independent

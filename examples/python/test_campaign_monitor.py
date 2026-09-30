@@ -571,23 +571,27 @@ class DerivedDashboardTests(unittest.TestCase):
             tail.poll(2.0)
             self.assertEqual(seen[-1], {"event": "partial"})
 
-    def test_signed_gap_window_and_freshness_in_plain_and_tty(self):
+    def test_signed_balance_window_and_freshness_in_plain_and_tty(self):
         class TtyStream(io.StringIO):
             def isatty(self):
                 return True
 
-        for rate, text in ((1.25, "+1.250/s"), (-0.25, "-0.250/s"), (0.0, "+0.000/s")):
-            status = {"state": "running", "heartbeat_age_seconds": 3, "derived": {
+        for rate, text in ((1.25, "+0.238"), (-0.25, "-0.067"), (0.0, "+0.000")):
+            status = {"state": "running", "heartbeat_age_seconds": 3,
+                "progress": {"descendant_closure": MonitorTests.closure(snapshot_age_seconds=20, snapshot_stale=True)}, "derived": {
                 "pending_growth_per_completion_1h": -0.5,
                 "discovery_closure_net_1h": {"per_second": rate, "covered_seconds": 600,
                     "window_seconds": 3600, "warmup": True, "state": "valid",
+                    "first_elapsed_seconds": 0, "last_elapsed_seconds": 600,
+                    "discovered_delta": (rate + 2) * 600, "closed_delta": 1200,
+                    "discovered_per_second": rate + 2, "closed_per_second": 2,
                     "snapshot_stale": True, "snapshot_age_seconds": 17, "snapshot_advanced": False}}}
             for stream in (io.StringIO(), TtyStream()):
                 with self.subTest(rate=rate, tty=stream.isatty()), patch.dict(os.environ, TERM="xterm"), \
                         patch.object(MONITOR.shutil, "get_terminal_size", return_value=os.terminal_size((100, 24))):
                     MONITOR.Presenter(stream).render(status, now=0)
                     output = stream.getvalue()
-                    self.assertIn(f"Discovery−closure {text} observed gap", output)
+                    self.assertIn(f"Closure balance {text}", output)
                     self.assertIn("00:10:00/01:00:00 warm-up", output)
                     self.assertIn("Closure snapshot stale · age 00:00:20 · no new closure scan", output)
                     self.assertIn("pending -0.50 per completion", output)

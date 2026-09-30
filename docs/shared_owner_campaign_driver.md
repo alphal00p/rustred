@@ -422,12 +422,27 @@ window of any `events.jsonl`, tolerating a partially written last line.
 The additive `discovery_closure_net_1h` object reports
 `delta(total_domains - total_closed) / observed_seconds` over the trailing
 hour, with actual span, warm-up, reset state and closure-snapshot freshness.
-`Discovery−closure` renders this signed domains/second rate; `Closure snapshot`
+`Closure balance` renders `(D-C)/(D+C)`, where `D` and `C` are newly discovered
+and newly recursively closed counts from the **same** trailing-hour window
+(the actual shorter interval during warm-up). The raw signed domains/second
+rate remains in telemetry. Zero denominator, missing endpoints, resets or
+inconsistent windows produce `unknown`, not an inferred zero. `Closure snapshot`
 reports scan age and whether a scan advanced. It is an observed trend in the
 conservative unresolved count, not instantaneous closure throughput: batching
 can cause jumps, and negative does not certify eventual termination. Missing
 optional telemetry is labelled; invalid or reset counters start a new segment.
-It does not alter `pending_growth_per_completion_1h` or its existing display.
+It does not alter `pending_growth_per_completion_1h` or its name. Dashboard
+colours follow these thresholds; missing observations stay neutral:
+
+| Indicator | Red | Yellow | Green |
+| --- | --- | --- | --- |
+| Observed CPU cores / reserved cores | below50% |50% to below75% |75% or more |
+| Pending growth per completion | above1 | above0 through1 |0 or below |
+| Closure balance | above0.5 | above0 through0.5 |0 or below |
+
+The CPU row retains both observed cores and total reserved cores. Colours are
+diagnostics, not closure evidence. In particular, differences of stale lower-
+bound closed counts do not themselves form a lower-bound closure rate.
 Each launcher invocation, including resume or automatic rescue, starts a fresh
 window. Closure counts persist, but sample history is not imported from the
 previous process and scan age is unknown until the next native refresh.
@@ -440,19 +455,24 @@ status into a bounded `rustred.campaign-telemetry.v1` frame and appends it to
 the run's `telemetry.jsonl`; `campaign_dashboard.py` consumes that same frame
 for an aligned, colored, overwriting terminal table or plain JSON events.
 Neither module can control the solver or certify closure. Raw counts, measured
-local-completion and conservative recursive-closure deltas/rates, actual
+local-completion and observed scan-batched recursive-closure deltas/rates, actual
 window endpoints, and freshness/missing/reset flags remain available to a
 future website consumer without scraping terminal text. This adds no Python
 or Nix dependency and no native graph scan. Stream failures are nonfatal and
 visible in `status.json.telemetry_stream`; each frame is at most 64 KiB.
 
 `examples/python/plot_campaign_rates.py RUN/telemetry.jsonl --output rates.svg`
-renders both rates in a standalone SVG using the Python standard library.
+renders a dual-axis standalone SVG using the Python standard library: the
+left axis is the total discovered-but-not-recursively-closed count, and the
+right axis is the raw signed discovery-minus-closure rate in domains/second
+(not the dimensionless dashboard balance).
 The read-only utility streams its input twice with bounded memory, preserving
-an extrema envelope when downsampling. Missing/invalid samples and stale
-heartbeats break a curve; ordinary graph-dirty snapshots remain dashed/hollow
-conservative observations, with scan-age and refresh-marker disclosure.
-No smoothed curve, zero fill or inferred closure ETA is introduced.
+an extrema envelope when downsampling. Only measured points are plotted, with
+no interpolation; missing/invalid samples and stale heartbeats stay missing.
+Hollow points mark graph-dirty snapshots: their unresolved total is an upper
+bound, while their raw rate remains an observed delta, not a bound. Larger
+points mark an advanced closure scan. No zero fill or inferred closure ETA is
+introduced.
 `--start S --end E` selects an elapsed-time interval.
 
 Existing runs can be viewed with the updated standalone monitor without

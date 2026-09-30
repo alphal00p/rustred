@@ -5,7 +5,8 @@ no decisive performance gain established. The later stitched natural pair
 closes; mixed-line-first grows dramatically and is censored in both engines.
 Exact terminal-key equality remains unestablished and is not assumed. A cheap
 finite-prefix proxy also completes but is slower. Full coordinate reindexing
-is the remaining prepared intervention. No production
+now closes the complete control with promising reduced work in one pair;
+replication remains pending. No production
 mutation, graph canonizer, or algebra implementation. The
 prepared inputs are in `TMP/codex-mechanistic-ordering.5NFxVw/`; their exact
 permutations and preservation checks are in `input-mapping.json`.
@@ -526,3 +527,39 @@ Evidence: `TMP/codex-final-monitor-matrix.LJLGfi/finite-prefix-falsifier/` and
 discovery recipes are being implemented in an isolated worktree; the true
 algebraic integral-order abstraction remains a separate design, not a delivered
 runtime option in these measurements.
+
+## Completed sector-priority coordinate reindex
+
+The prepared pinch-interface coordinate permutation above was executed with
+the same final3428 binary, without a Rust rebuild. Both parents were regenerated
+using sparse exact/depth2/finite search; all16 selected payloads come from those
+new native checkpoints. The508 routes were remapped and admitted natively.
+Inverse mapping recovers every original58 query object, including bounds and
+roles, exactly. No old-family payload was mixed into the new fingerprint.
+
+First-parent core generation took26.026s (guard27.169s), yielding314 sectors,
+19,984 rules and386 aggregate finite residuals. Second-parent core total was
+36.333s, yielding328 sectors,21,228 rules and445 aggregate finite residuals.
+These are downset generation counts, not distinct selected-owner masters.
+Generation costs are separate from the matched walking boundary below.
+
+| Scheduler on the same reindexed library | Native seconds | Cold-All seconds | Sum | Domains | Native inspections |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ready | 8.564 | 9.166 | 17.730 | 50,039 | 16,082 |
+| Epoch FIFO | 9.665 | 7.174 | 16.839 | 36,013 | 19,568 |
+
+Both complete all58 required queries through32 admitted roots and pass full
+cold reinspection. The loader reports28 aggregate saved terminals for both,
+with the same SearchFinite policy. This is not exact terminal-key identity
+or an independent replay of the original IBP algebra. The whole pilot takes
+438.03s within its900s inclusive limit; all eight owned process groups drain.
+
+The reindexed input materially improves the observed end-to-end times versus
+the original input, but **do not label old-input Ready versus new-input Epoch
+as a scheduler speedup**. On identical new inputs the single Epoch pair is
+about5% faster in native-plus-cold wall while native traversal itself is slower.
+The coordinate change affects sector priority, representation and variable
+registration together. This is a useful mechanistic direction, not an isolated
+comparator proof or a demonstrated1.5x architecture gain. Reverse-order
+replication is pending separately; it was not forced into an insufficient
+remaining pilot budget. Evidence: `TMP/codex-sector-reindex.D5Yawx/results.json`.
