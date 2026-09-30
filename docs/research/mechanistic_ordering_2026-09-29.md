@@ -1,8 +1,11 @@
 # Mechanistic ordering inputs, 2026-09-29
 
 Status: four query-order pairs and two banana-pivot generations completed;
-no decisive performance gain established. Exact pivot terminal-set comparison
-and the corresponding stitched closure tests remain pending. No production
+no decisive performance gain established. The later stitched natural pair
+closes; mixed-line-first grows dramatically and is censored in both engines.
+Exact terminal-key equality remains unestablished and is not assumed. A cheap
+finite-prefix proxy also completes but is slower. Full coordinate reindexing
+is the remaining prepared intervention. No production
 mutation, graph canonizer, or algebra implementation. The
 prepared inputs are in `TMP/codex-mechanistic-ordering.5NFxVw/`; their exact
 permutations and preservation checks are in `input-mapping.json`.
@@ -354,9 +357,10 @@ mask is native ordinal 5 in both new manifests; its shard sizes are
 `banana-pivot-results.json` under the preparation artifact directory.
 The separately bounded loader-only diagnostic reached its 120-second limit
 without producing an executable; no retry or alternate decoder was used.
-Exact terminal-key comparison and the stitched full-58 gate remain pending,
-so these generation results establish neither equivalent terminal inventories
-nor a walk-performance improvement. All three owned process groups drained.
+At this generation-only stage exact terminal-key comparison and the stitched
+full-58 gate remained pending. These results alone establish neither equivalent
+terminal inventories nor a walk-performance improvement. All three owned
+process groups drained. The later stitched outcomes are recorded below.
 
 ## Fair smallest gate
 
@@ -464,3 +468,61 @@ not an optimization metric.
 No full five-loop regeneration or factorial order search is proposed. The
 four-loop result decides whether an input heuristic deserves a bounded
 five-loop diagnostic; the frozen 67-owner/183-query scope remains unchanged.
+
+## Final monitored build: stitched pivot experiment
+
+Frozen native `3428b519` (SHA256
+`321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`),
+W16 on CPUs32–47, same58 required query objects and508 routes. Only the exact
+banana-root payload is substituted; all15 other payloads remain byte-identical.
+Both arms use the same depth2 finite-search generation policy. Exact selected
+terminal-key equality has not been established and is not required to explore
+this change: different finite terminal bases can be legitimate. Neither equal
+aggregate counts nor cold traversal establish independent algebraic provenance.
+
+| Input / scheduler | Result | Native seconds | Cold-All seconds | Domains | Native inspections |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Fresh natural / Ready | Complete, cold-All PASS | 9.661 | 15.178 | 66,382 | 24,368 |
+| Fresh natural / Epoch FIFO | Complete, cold-All PASS | 11.191 | 13.156 | 51,139 | 31,846 |
+| Mixed line first / Epoch FIFO | Operator-stopped, censored | 129.177 | Not run | 1,445,109 | 1,191,008 |
+| Mixed line first / Ready | Time-censored | 60.672 | Not run | 215,330 | 170,436 |
+
+Natural total24.839 versus24.347 seconds is one near-parity pair, not a robust
+speedup or permission to replace the original repeated performance gate.
+Both complete all58 required queries/32 admitted roots; the cold loader reports
+28 saved terminals across the16 owners, not banana-only terminals. Mixed arms
+have no completed cold-loader terminal observation. The unfinished arms are not
+proof of mathematical nonclosure and do not supply completion timings.
+
+The generated six-sector bundle has fewer rules with the mixed tie order
+(549→469), yet traversal grows drastically in both schedulers. Logged G2
+records/residual plans reach458,008/456,673 in mixed Epoch and48,912/48,658 in
+mixed Ready. This is evidence of much more fragmented/repeated work, not an
+isolated causal proof of a G2 bug. It falsifies this particular ordering's
+practical benefit and is not recommended for production. All owned jobs drained;
+partial checkpoints and failed acceptance receipts are retained.
+
+Evidence: `TMP/codex-banana-matrix.rSODf8/{RESULTS.md,results.json,counters.json}`;
+input-only exact-mask stitcher in `TMP/codex-banana-stitch.4Lf4R3/`.
+
+## Finite helper prefix: a limited rank-deepening proxy
+
+The unchanged58 required rows receive16 additional finite auxiliary helpers
+containing97 integer entry points, each contained in an original required row.
+All original programs and routes remain unchanged. This tests cheap early narrow
+work, **not** true staged checkpoint/rank deepening: initial admission still
+completes before walking, and a later broad initial representative can absorb
+a narrow helper.
+
+The final Epoch run completes and cold-All verifies all74 input rows/48 admitted
+roots. Native13.065s plus cold22.179s=35.244s, versus27.345s for the original
+Epoch mean. Domains fall51,139→49,174 and inspections31,846→29,930, but total
+time increases28.89%. The full pilot, including preparation/report/drain,
+takes91.4s within its240s bound. This rejects only the cheap prefix approach;
+it does not disprove true staged deepening. No production changes follow.
+
+Evidence: `TMP/codex-final-monitor-matrix.LJLGfi/finite-prefix-falsifier/` and
+`fourall-finite-prefix-depth0/queries.json`. More generic source/sector
+discovery recipes are being implemented in an isolated worktree; the true
+algebraic integral-order abstraction remains a separate design, not a delivered
+runtime option in these measurements.

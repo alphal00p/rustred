@@ -40,6 +40,23 @@ Ready arm ended before a sample. Do not infer a contention-adjusted speedup.
 Raw receipts: `TMP/codex-final-monitor-matrix.LJLGfi/runs/`. Further input/runtime
 diagnostics remain exploratory, not grounds for a launch recommendation yet.
 
+The individual controls also completed on that final executable, W6 on
+CPUs32–37. Every Ready and Epoch arm passed independent full cold-All; these
+are one pair per input, not replicated performance claims:
+
+| Control | Verified queries | Ready native + cold seconds | Epoch native + cold seconds |
+| --- | ---: | ---: | ---: |
+| FG | 248 | 16.020 +11.158 =27.178 | 16.004 +8.157 =24.161 |
+| BMW | 268 | 26.221 +18.164 =44.385 | 27.224 +13.179 =40.403 |
+| H | 628 | 16.804 +11.162 =27.966 | 16.261 +10.154 =26.415 |
+| X | 656 | 32.824 +23.176 =56.000 | 48.649 +22.164 =70.813 |
+
+FG/BMW/H improve by about5–11% in these single pairs, but X is26.45% slower.
+This is workload-dependent behavior, not uniform scaling or a qualified
+combined-control win. Full receipts, including CPU/RSS, host contention and
+separately timed summary audits, are in `final-individual-results.json` beside
+the repeated combined results. All24 owned groups drained afterward.
+
 The already exposed `all-miss` lookup control also completes the same scope:
 10.984s native plus16.159s cold=27.143s, with the same51,139 domains as Snapshot.
 That is only0.74% below Snapshot's mean and10.58% above Ready's mean; it is not

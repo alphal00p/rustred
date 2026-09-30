@@ -6,43 +6,46 @@ controls belong in [the delivery report](parallel_epoch_delivery_2026-09-29.md).
 Only the owner starts or stops production. LC2 continues unchanged alongside
 the new campaign.
 
-Consolidation note (22:20 UTC): the executable identities below still describe
-the earlier `e1bdb9e7` draft, not the new monitored build. The clean `3428b519`
-build is underway; replace the source, binary and checksum together after it
-is frozen and passes its gates. Do not use this draft to launch either version.
+Consolidation note (23:55 UTC): the final monitored `3428b519` executable is
+built and passes focused lifecycle/cold verification. Its original combined
+four-loop comparison is still11.41% slower than Ready, so the performance gate
+has **not** passed. Corrected Python dashboard `69f86bd6` is frozen separately.
+The identities below are current, but this remains a draft, not a launch approval.
 
 ## Frozen executable and environment
 
 The optimized executable is already built on this machine; another compilation
-is unnecessary. Its source is the clean workspace-local clone at `e1bdb9e7`:
+is unnecessary. Its native source is the clean workspace-local clone at `3428b519`:
 
 ```text
 source: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/repo
-binary: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-e1bdb9e7
-SHA256: b5bd346cd9bfa925a4324031660cb3b2993e23c11f1e53765cb6758b87d9d95c
+binary: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519
+SHA256: 321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3
 profile: campaign, opt3, fat LTO, one codegen unit
+Python steering/dashboard: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
 ```
 
-The feature branch subsequently merges the colleague's citation and Symbolica
-compatibility update. The locked Symbolica checkout and selected campaign
-engine sources are unchanged. Keep the existing `SYMBOLICA_LICENSE` exported;
+The Python revision improves monitoring only; it does not change the frozen
+native engine or selected programs. Symbolica is clean `ef0db494`. Keep the
+existing `SYMBOLICA_LICENSE` exported;
 no license value belongs in a committed command or file.
 
 Open a new tab from your existing Zellij session, or run:
 
 ```bash
 zellij --session rustred action new-tab --name codex_astra \
-  --cwd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/repo
+  --cwd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
 ```
 
 In that new tab:
 
 ```bash
-cd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/repo
+cd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
 nix develop
 ```
 
-For an optional rebuild of this exact source, the tested build command is
+For an optional rebuild, first enter the **native source** directory shown
+above, not the separate Python worktree. The tested build command is
 `cargo build --profile campaign --locked --offline -j8 -p rustred-app --bin rustred`.
 The delivered immutable binary is preferred for reproducing these measurements.
 Family inputs, query order and the exposed runtime policy choices do not require
@@ -59,9 +62,9 @@ The destination must not already exist. If it does, inspect it and choose a new
 name; never delete an existing campaign just to make this command succeed.
 
 ```bash
-STAGE_B_TREE=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/repo
+STAGE_B_TREE=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
 STAGE_B_PYTHON=/nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
-STAGE_B_BINARY=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-e1bdb9e7
+STAGE_B_BINARY=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519
 STAGE_B_CAMPAIGN=/common/dev/rustred/campaigns/five-loop-qcd-feynman-d9d10-epoch-rolling-union
 
 "$STAGE_B_PYTHON" -B "$STAGE_B_TREE/examples/python/production_saved_owner_campaign.py" \

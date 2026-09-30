@@ -56,7 +56,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
-| CLI/Python policy surfaces and monitoring | Python and actual focused Tracker checks pass; final native build active | `parallel_gate_critique` / `stage_a_release`, independent root review | Python323 PASS/one optional skip; a35 metadata PASS; Tracker12 PASS/one ignored; final live CLI refresh/restore pending |
+| CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | real-PTY visual audit and fixes delivered | `dashboard_stream`; independent root/StageA/`parallel_gate_critique` review |345 tests:344 pass/one optional skip; root viewed real80/140-column replays and plot; freeze corrected modules |
 | Mechanistic input/pivot ordering | query controls negative; mixed banana pivot blows up in both engines | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | Natural pair cold-All passes; mixed arms censored. Finite-prefix proxy complete but slower; individual controls and one bounded full-coordinate reindex next |
 | Runtime discovery-strategy API | isolated draft, not merged | author `stage_a_release`; independent `parallel_gate_critique`/root | Finite source/sector permutations, original source IDs, JSON checkpoint binding; metadata check then actual tests required |
@@ -106,6 +106,56 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 00:08 UTC — all individual four-loop cold controls pass
+
+- [M] Frozen3428, W6 CPUs32–37, same candidate/query inputs within each pair:
+  all eight cold-All controls PASS (FG248, BMW268, H628, X656); all four Epoch
+  CP6 receipts accepted and all24 owned groups drained. Native plus cold seconds:
+
+  | Control | Ready | Epoch FIFO | Interpretation |
+  | --- | ---: | ---: | --- |
+  | FG | 16.020 +11.158 =27.178 | 16.004 +8.157 =24.161 | One pair, about11.1% lower |
+  | BMW | 26.221 +18.164 =44.385 | 27.224 +13.179 =40.403 | One pair, about9.0% lower |
+  | H | 16.804 +11.162 =27.966 | 16.261 +10.154 =26.415 | One pair, about5.5% lower |
+  | X | 32.824 +23.176 =56.000 | 48.649 +22.164 =70.813 | One pair, about26.45% slower |
+
+- [M] Evidence: `TMP/codex-final-monitor-matrix.LJLGfi/
+  final-individual-results.json`. Separate Python summary audits are not folded
+  into these timings; Epoch's checkpoint-only summary is honestly incomplete
+  despite successful raw full reinspection. These mixed results do not replace
+  the unfavorable repeated combined control or establish a1.5x speed gate.
+- [D] Corrected strategy metadata now has the resource slot, followed by the
+  bounded full-coordinate reindex and one finite/one hot five-loop pair. Optional
+  repeats/W50 wait for evidence. Faithful strategy native-test build follows
+  drained measurements; no source mutation or compilation contaminates timings.
+
+### 2026-09-30 00:00 UTC — pushed visual milestone; isolated API testing boundary
+
+- [M] Visual fixes, prior final native lifecycle/performance receipts, and
+  progress updates committed/pushed as `69f86bd6`. Corrected Python source
+  is frozen separately at `TMP/codex-parallel-campaign.oiPK29/
+  python-delivery-69f86bd6`; native3428 remains unchanged. The launch draft
+  now binds these actual identities but explicitly remains NOT QUALIFIED.
+- [M] Independent performance review found no justified remaining exposed
+  scheduling knob: about2.306s of the2.800s repeated combined gap is native;
+  removing all measured small-cut administrative phases alone cannot eliminate
+  it. Earlier inspector8/cut1 and AllMiss controls do not support deployment.
+  Do not reopen a blind scheduling sweep or treat unused Epoch transfer
+  lookahead as a tunable rolling window.
+- [M] Isolated discovery-strategy source review found no provenance or integral
+  order bug. Original prepared-source ordinals survive both symbolic/numerical
+  search; finite schedules do not change mathematical descent. Initial metadata
+  check failed on one test-only import in77.188s; corrected and retained. Added
+  a real partial K3 checkpoint test after review identified that an all-complete
+  resume alone bypassed the pending-plan mapping. Native execution remains open.
+- [D] One corrected metadata retry is authorized after individual controls;
+  then freeze audited source and prepare faithful core/app opt1 native tests.
+  Historical codegen takes roughly80–110min; a Cargo test filter does not avoid
+  monolithic codegen. Do not substitute an old-library wrapper for integration
+  tests or repeat the previously failed opt0 build. Full native build/suites
+  wait for bounded4L/reindex/finite5L/hot5L controls to drain. This isolated API
+  does not enter the stable parallel build until executed tests pass.
 
 ### 2026-09-29 23:55 UTC — visual audit delivered; pivot/prefix negatives retained
 
