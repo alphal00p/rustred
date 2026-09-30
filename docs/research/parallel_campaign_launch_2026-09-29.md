@@ -6,10 +6,12 @@ controls belong in [the delivery report](parallel_epoch_delivery_2026-09-29.md).
 Only the owner starts or stops production. LC2 continues unchanged alongside
 the new campaign.
 
-Consolidation note (23:55 UTC): the final monitored `3428b519` executable is
+Consolidation note (September30,00:38 UTC): the final monitored `3428b519` executable is
 built and passes focused lifecycle/cold verification. Its original combined
 four-loop comparison is still11.41% slower than Ready, so the performance gate
-has **not** passed. Corrected Python dashboard `69f86bd6` is frozen separately.
+has **not** passed. Reindexed four-loop inputs give one promising near-parity
+pair; replication and five-loop controls are pending. The requested coloured
+CPU/balance dashboard and dual-axis plot at `adcee12c` are frozen separately.
 The identities below are current, but this remains a draft, not a launch approval.
 
 ## Frozen executable and environment
@@ -22,7 +24,7 @@ source: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/repo
 binary: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519
 SHA256: 321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3
 profile: campaign, opt3, fat LTO, one codegen unit
-Python steering/dashboard: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
+Python steering/dashboard: /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-adcee12c
 ```
 
 The Python revision improves monitoring only; it does not change the frozen
@@ -34,13 +36,13 @@ Open a new tab from your existing Zellij session, or run:
 
 ```bash
 zellij --session rustred action new-tab --name codex_astra \
-  --cwd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
+  --cwd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-adcee12c
 ```
 
 In that new tab:
 
 ```bash
-cd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
+cd /common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-adcee12c
 nix develop
 ```
 
@@ -62,7 +64,7 @@ The destination must not already exist. If it does, inspect it and choose a new
 name; never delete an existing campaign just to make this command succeed.
 
 ```bash
-STAGE_B_TREE=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-69f86bd6
+STAGE_B_TREE=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/python-delivery-adcee12c
 STAGE_B_PYTHON=/nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
 STAGE_B_BINARY=/common/dev/rustred/TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519
 STAGE_B_CAMPAIGN=/common/dev/rustred/campaigns/five-loop-qcd-feynman-d9d10-epoch-rolling-union
@@ -123,6 +125,23 @@ campaign's binary, input bindings, checkpoint or amendment chain.
 FIFO is the baseline. Adaptive changes pending-job dispatch, not algebraic
 pivots; it is a separate fresh-campaign option, not a later resume toggle. No
 ordering choice is claimed optimal or guaranteed to finish five loops.
+
+The frozen Python tree includes the aligned coloured terminal dashboard and
+the presentation-independent `telemetry.jsonl` stream. Observed/total cores,
+pending growth per completion and the dimensionless closure balance use the
+requested threshold colours. `NO_COLOR=1` disables colours. To plot a chosen
+run's saved observations without touching the solver:
+
+```bash
+"$STAGE_B_PYTHON" -B "$STAGE_B_TREE/examples/python/plot_campaign_rates.py" \
+  "$STAGE_B_CAMPAIGN/runs/RUN_ID/telemetry.jsonl" \
+  --output "$STAGE_B_CAMPAIGN/runs/RUN_ID/domains-and-net-rate.svg"
+```
+
+Replace `RUN_ID` with the actual run directory. The left axis is the unresolved
+domain total and the right axis is the raw discovery-minus-closure rate in
+domains/second. The plotted rate is deliberately not the normalized dashboard
+balance. Closure counts are scan-batched; neither view supplies an ETA.
 
 Automatic rescue is bounded to recognized cases and append-only amendments;
 unknown failures stop explicitly. Required queries cannot be relabelled or

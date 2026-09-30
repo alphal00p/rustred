@@ -22,7 +22,7 @@ this exploratory comparison makes no such claim. See
 [the detailed ordering study](mechanistic_ordering_2026-09-29.md).
 
 The final monitored3428 build confirms that negative result on the original
-matched combined control (native traversal plus independent cold-All; Python
+matched combined control (whole native command plus independent cold-All; Python
 summary audit timed separately):
 
 | Arm | Native seconds | Cold-All seconds | Sum seconds |
@@ -74,6 +74,34 @@ a useful improvement and is not being repeated. Its lower boundary cost
 (2.130s versus1.665s). These phase measurements are diagnostic, not additive
 substitutes for whole-command timing. Evidence: `all-miss-results.json` beside
 `final-abba-results.json` under the final-monitor matrix directory.
+
+### Representative finite five-loop control
+
+The common primary boundary now completes for the original finite control,
+with the full67-owner library/8,179 routes but only **one finite required
+query**, W16 on CPUs32–47:
+
+| Scheduler | Whole native command | Successful cold-All | Sum | Domains | Native inspections |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ready |176.082s |156.211s |332.293s |966,681 |759,802 |
+| Epoch FIFO |278.050s |139.214s |417.264s |916,438 |745,954 |
+
+Both cold-All reports close1/1 query/root with no uncovered/errors/violations.
+Epoch CP6 acceptance passes; its native exit4/summary remains explicitly
+incomplete until independent cold verification. Epoch is25.57% slower on this
+matched boundary despite doing slightly less domain work and using less native
+CPU (491.115s versus571.051s). This is negative performance evidence, not an
+all-five-loop scope result or launch qualification.
+
+Ready first exhausted the original150s cold allowance (151.230s, exit124),
+then passed the separately recorded300s retry. Its extra Python full-result/
+event audit was censored at301.255s; no successful full-pipeline audit is
+claimed. These452.485s of failed-attempt overhead are disclosed separately,
+not silently charged only to Ready in the successful-primary comparison.
+Epoch's inexpensive summary audit is explicitly INCOMPLETE and supports only
+its existing CP6 acceptance contract, not the missing event proof. Raw
+receipts and amendment records are under
+`TMP/codex-final-monitor-matrix.LJLGfi/`; hot-control comparisons follow.
 
 The requested hourly discovery-minus-closure monitor passes the complete Python
 suite (323 passed, one optional skip), native test metadata and the actual

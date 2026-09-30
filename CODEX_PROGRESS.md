@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-29 23:55 UTC
+## Current shortened-delivery ownership — 2026-09-30 00:40 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -53,15 +53,15 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
 | Rolling Epoch controller and lookup replicas | final build/lifecycle pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Final3428 original ABBA:27.345s Epoch versus24.545s Ready,11.41% slower; input/pivot controls continue |
-| Fresh CP6 G2 Union | final CLI cold/resume gates pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG and repeated combined controls pass exact cold verification; remaining BMW/H/X and five-loop controls pending |
+| Fresh CP6 G2 Union | final CLI cold/resume and all four-loop controls pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG/BMW/H/X and repeated combined controls pass cold-All; representative five-loop pair is running |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
-| Dashboard and rate-series stream | real-PTY visual audit and fixes delivered | `dashboard_stream`; independent root/StageA/`parallel_gate_critique` review |345 tests:344 pass/one optional skip; root viewed real80/140-column replays and plot; freeze corrected modules |
-| Mechanistic input/pivot ordering | query controls negative; mixed banana pivot blows up in both engines | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | Natural pair cold-All passes; mixed arms censored. Finite-prefix proxy complete but slower; individual controls and one bounded full-coordinate reindex next |
-| Runtime discovery-strategy API | isolated draft, not merged | author `stage_a_release`; independent `parallel_gate_critique`/root | Finite source/sector permutations, original source IDs, JSON checkpoint binding; metadata check then actual tests required |
+| Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
+| Mechanistic input/pivot ordering | reindex first pair promising; earlier negative results retained | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | Same reindexed library:17.730s Ready/16.839s Epoch, full cold pass; separate reverse-order replication follows five-loop controls |
+| Runtime discovery-strategy API | isolated source/metadata pass, not merged | author `stage_a_release`; independent `parallel_gate_critique`/root | Frozen `b95e1465`; prepare actual core/app native tests after measurement handoff; no claim of full integral-comparator API |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
-| Matched performance and deployment | active; combined four-loop parity not established | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Indexed mutation controls, query-order comparisons, final monitored binary and remaining family/five-loop controls. No production launch or claimed speedup |
+| Matched performance and deployment | active; original combined gate negative, reindex unreplicated | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Finite5L Ready native+cold passes332.293s; additional event audit censored. Epoch counterpart/hot pairs running; no production launch or claimed1.5x speedup |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -107,6 +107,38 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 00:44 UTC — verified finite-five-loop pair: negative speed result
+
+- [M] Same3428 binary, saved67-owner library/8,179 routes, single finite
+  required query, W16/CPUs32–47: Ready native176.082s+cold-All156.211s=
+ 332.293s; Epoch FIFO278.050s+139.214s=417.264s,25.57% slower. Both primary
+  cold-All checks pass1/1 query/root with zero uncovered/errors/violations.
+  Epoch CP6 acceptance passes. Ready's separate failed cold/audit overheads
+  remain documented; they are not charged only to Ready in the comparison.
+- [M] Epoch native exit4 is its explicit checkpoint-only/incomplete summary,
+  not a native closure claim. Its recorded queue drains; independent cold-All
+  closes916,438 domains and rechecks all745,954 native inspections. Ready has
+ 966,681 domains/759,802 inspections. Epoch therefore does slightly less work
+  and uses less native CPU (491.115s versus571.051s), but longer wall time:
+  preparation83.368s/traversal188.378s versus82.984s/76.891s. Do not substitute
+  CPU savings or overlapping diagnostic phase sums for an end-to-end speedup.
+- [M] Independent `parallel_gate_critique` raw-receipt review confirms the
+  common scope and timings. Epoch's tiny summary audit is explicitly
+  INCOMPLETE, not Ready's missing full event proof. Remaining hot W12 pair
+  starts next; no all-five-loop completion prediction follows from this control.
+- [D] One final launch-width correctness smoke is conditionally added after
+  reversed reindex replication: same58-query library, Epoch W50/CPUs32–81,
+  full cold-All, no cross-width speed claim. Its registered stop/cold/drain
+  allowance must fit inside that pilot's original900s inclusive deadline;
+  otherwise omit it. This reopens W50 only for final launch-width validation,
+  not a scaling sweep. Heavy build handoff follows immediately afterward.
+- [M] Independent frozen-source audit corrects a potential width inference:
+  publication cut remains16 at both W16 and W50; only the rolling window grows
+ 31→65 and inspector reservation15→49. Therefore more workers do not directly
+  reduce the46,624 merge cuts. W16's poor wall time does not measure W50, but
+  ideal linear inspector scaling is unsupported. No extra finite-W50 timing
+  pair is added; its performance remains unknown rather than presumed rescued.
 
 ### 2026-09-30 00:38 UTC — requested dashboard thresholds/plot independently checked
 
@@ -172,7 +204,7 @@ evidence, not a claim that the new parallel implementation has passed its gates.
   `parallel_gate_critique` slot is reassigned to implementation/self-review.
   Root independently reviews afterward and stays on native measurements.
   Existing actual FG captures suffice for visual replay; no native pilot is added.
-- [M] Finite five-loop Ready traversal completes in176.082s,966,681 domains,
+- [M] Finite five-loop Ready native command completes in176.082s,966,681 domains,
  759,802 native inspections and6.24GB peak RSS. Preparation82.984s and traversal
  76.891s are reported separately. Its original150s cold-All allowance expires:
   exit124/151.230s, no cold report or pass. Cold preparation84.646s and graph
@@ -189,7 +221,8 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 
 - [M] The input-only reindex pilot finished within438.03s of its900s inclusive
   deadline. Both regenerated parents, all16 newly selected owner payloads,
- 508 remapped/native-verified routes and the inverse-identical58 physical
+ 508 admitted routes (492 transported/native-verified and16 identity routes)
+  and the inverse-identical58 physical
   query rows were used. All eight owned groups drained; no compiler/engine or
   production changes. Evidence: `TMP/codex-sector-reindex.D5Yawx/results.json`.
 - [M] Ready:8.564s native+9.166s cold=17.730s,50,039 domains/16,082 inspections.

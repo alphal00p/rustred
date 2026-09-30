@@ -533,7 +533,8 @@ runtime option in these measurements.
 The prepared pinch-interface coordinate permutation above was executed with
 the same final3428 binary, without a Rust rebuild. Both parents were regenerated
 using sparse exact/depth2/finite search; all16 selected payloads come from those
-new native checkpoints. The508 routes were remapped and admitted natively.
+new native checkpoints. The508 routes were remapped and admitted natively:
+492 transported witnesses were checked and16 routes are identities.
 Inverse mapping recovers every original58 query object, including bounds and
 roles, exactly. No old-family payload was mixed into the new fingerprint.
 
