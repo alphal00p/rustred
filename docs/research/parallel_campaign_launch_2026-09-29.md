@@ -1,5 +1,9 @@
 # Parallel five-loop campaign: owner-operated launch
 
+Current consolidated instructions: [September30 Ready/Union delivery](consolidated_campaign_launch_2026-09-30.md).
+The old Epoch/W50 command below is retained only as historical evidence and
+must not be mistaken for the current recommended recipe.
+
 **September30: superseded experimental recipe, not the final launch handoff.**
 The user now plans200 physical cores and will pause LC2 before launch. A bounded
 Epoch scheduling repair and further ordering/deepening checks are in progress.

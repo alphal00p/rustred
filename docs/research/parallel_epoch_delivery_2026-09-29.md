@@ -1,5 +1,12 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
+September30 final follow-up: this ledger retains the earlier build-specific
+measurements. See [the consolidated decision and launch guide](consolidated_campaign_launch_2026-09-30.md)
+for the newer1b33 results, owner-operated Ready fallback and200-core caveats.
+The original S5 parallel-merge/typed-record roadmap is **still partial**; a
+working rolling engine and its negative performance tests do not establish
+that the full intended architecture was implemented and tested to failure.
+
 Status: **compiled experimental candidate; lifecycle, all four-loop and both
 representative five-loop cold checks pass, including W50 four-loop correctness.
 The faster-replacement performance gate is not met.**

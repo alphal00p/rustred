@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 05:10 UTC
+## Current shortened-delivery ownership — 2026-09-30 05:30 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -53,13 +53,14 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
 | Rolling Epoch controller and lookup replicas | delivered, rejected for this deployment | `parallel_gate_critique` author; root/`stage_a_release` independent review | New prefix76 scout remains18.1% slower than Ready including cold verification; oldest-ready causes severe extra work and was censored. Retain opt-in, not a recommended production engine |
+| Original S5 parallel merge / typed-record roadmap | partial; major throughput work unimplemented | root coordination; independent source audit `parallel_gate_critique` | Ledger6 and edge hash-feed batching exist, but P2 bucket planning/P3 remain serial, records remain JSON and tracker updates per-edge. Parallel bucket preparation, typed binary records, bulk tracker feed and P4 layers are not delivered. Reopen as a separate measured engineering slice, not another publication-order knob |
 | Fresh CP6 G2 Union | final CLI cold/resume, all4L and both5L controls pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | W50 reindexed4L also passes; all measured scopes retained, no full-five-loop closure claim |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
 | True iterative deepening | delivered negative four-loop result; five-loop transfer deferred | `bounded_ordering_pilots` end-to-end; independent `parallel_gate_critique`/root | Actual16→32→90-row saved/amended/cold barriers pass; guarded native+cold30.038s versus16.330s; do not deploy this curriculum |
-| Mechanistic input/pivot ordering | P1 source-order portfolio delivered; isolated confirmations pending; small5L transfer active | `stage_a_release` end-to-end; independent root/`parallel_gate_critique` | Sparse-coefficient four-loop generation+scoped-walk+cold69.47s versus98.30s default in one concurrent scout. Confirm with two isolated pairs; test natural-coordinate5L transfer separately. Earlier coordinate reindex P2 remains negative |
+| Mechanistic input/pivot ordering | P1 isolated confirmations and P3 small5L transfer delivered | `stage_a_release` end-to-end; independent root/`parallel_gate_critique` | Two isolated4L generation+walk+cold pairs improve17.45%/18.73%; walk+cold36.51%/39.23%. Small5L scout24.911→17.670s. Existing67 owners unchanged; no production-wide transfer claim. Earlier coordinate reindex P2 remains negative |
 | Epoch matched profiling/decision | E1 delivered negative; E2 not triggered | `parallel_gate_critique` end-to-end; independent root | All completed E1 cells cold-All pass; best accepted Epoch fails the speed gate. Bounded trace shows changed early cut composition/graph edges but not the full expansion's cause |
 | Runtime discovery-strategy API and builds | frozen optimizedCLI and native gates delivered with explicit stale-test caveat | root builds/integration; author `stage_a_release`, independent `parallel_gate_critique`/root | Frozen1b33 native; tools62c. Consolidated app1139PASS/1stale-diagnosticFAIL/12ignored; exact public-CLI equivalent10phasesPASS. Corrected Rust test not rebuilt. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
@@ -81,22 +82,20 @@ the three agents own experiments end-to-end. No new engine build per recipe.
 | B1 | root, validation `bounded_ordering_pilots` | Merge validatedA with ready-batch Epoch; native controller tests and final optimizedCLI | delivered with explicit raw-suite caveat |1139PASS/1stale-diagnosticFAIL/12ignored; corrected assertion committed, not rebuilt. Ten-phase actual public-CLI equivalent PASS; no production-code failure observed |
 | E1 | `parallel_gate_critique` | Original58-query4L: Ready, prefix31, prefix76, oldest-ready31; same optimized executable | delivered; reject Epoch deployment | Ready21.939s versus best accepted prefix76 25.911s native+cold; oldest-ready censored121.363s/1.034M native inspections. Completed cells All/all-roots PASS. Concurrent scout, not isolated qualification |
 | E2 | `parallel_gate_critique` | Repeat promisingE1 against contemporaneousReady, then finite/hot5L if justified | not triggered; deferred | No winning E1 candidate. Best accepted boundary/refresh shares below preregistered next-cut trigger. Do not open a new blind grid |
-| P1 | `stage_a_release` |4L exact-default generation plus two generic runtime source/pivot-discovery recipes | exploratory portfolio delivered; isolated two-pair confirmation pending | Default/sparse/shift generation+scoped-walk+cold98.296/69.471/77.335s. All scoped cold checks PASS; stronger artifact certification failed all six attempts and is excluded, not claimed successful |
-| P3 | `stage_a_release` | Small5L natural-coordinate default/sparse/shift source-order transfer | active on64–79, concurrent exploratory | Same784-point single required query,14literal programs, fixed Ready+Union and1b33 binary; descendants not clipped. No full67-input closure claim |
+| P1 | `stage_a_release` |4L exact-default generation plus two generic runtime source/pivot-discovery recipes | delivered, including two isolated confirmation pairs | Default/sparse103.290/85.268s and103.875/84.421s generation+walk+cold; all58 queries cold-All PASS. Stronger source certification remains unpassed, not included as success |
+| P3 | `stage_a_release` | Small5L natural-coordinate default/sparse/shift source-order transfer | delivered; concurrent scout only |24.911/17.670/17.767s generation+walk+cold; all cold-All PASS. Same784-point single required query,14literal programs. No full67-input closure claim |
 | P2 | `stage_a_release` |5L natural versus transferred pinch-incidence coordinate priority | delivered; scoped cold checks pass, heuristic not selected | Both artifact certifications hit8220>8192 lowering cap; guarded generation+walk+cold25.763/42.861s. Fewer inspections do not compensate for slower generation/larger coefficients |
-| S1 | `bounded_ordering_pilots`, root | Ready physical scaling and final200-core decision |4L W16 delivered; W50 performance-stopped; finite5L W16 active | W16 native+cold24.742s/24,259 reinspected records. W50 saved/drained at250.373s with1,284,105 native inspections and13,974 pending; no cold-completion claim. Finite W50 deferred;200-core capacity is not measured speed |
-| L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | pending all dispositions | Every row completed or explicitly rejected/deferred from evidence; no untested engine recommendation |
+| S1 | `bounded_ordering_pilots`, root | Ready physical scaling and final200-core decision | delivered; W50 negative, finiteW50 deferred | W16 native+cold24.742s4L/328.069s finite5L, cold-All PASS. W50 saved/drained at250.373s with1,284,105 native inspections and13,974 pending; no cold-completion claim.200-core capacity is not measured speed |
+| L1 | root | Clean push, freeze, tested prepare/resume/monitor instructions and exact launch command | exact-input no-start preparation PASS; final report/push pending | All67 original payloads/8246routes/183unchanged rows checked;116Required67Aux,Ready16Union,rescue32. No production launch. Current Epoch rejection does not mean the unimplemented S5 roadmap was tested |
 
-Resource calendar: all builds, D1/P2 and E1/P1 scouts are finished and their
-owned process groups drained. Root released its outer heavy reservation.
-S1 now owns the existing heavy lock per arm on32–47; root explicitly authorizes
-the independent P3 scout on64–79 under its existing local pilot lock. These are
-disjoint-core concurrent exploratory measurements, not isolated qualification.
-Two counterbalanced P1 confirmation pairs follow only after both lanes drain,
-without compilers or other pilots. The auditor performs light read-only work
-concurrently. LC2's128–227 reservation stays untouched. Actual contention and
-overlap are recorded, never subtracted through guessed corrections. Every pilot
-retains its≤1800s all-in deadline; no new supervisor or lock bypass is introduced.
+Resource calendar: all builds and D1/P2/E1/P1/P3/S1 native pilot groups have
+finished and drained. P3 scouts overlapped only S1's disjoint-core cold phase;
+the two subsequent counterbalanced P1 pairs had no authorized compiler/pilot
+overlap. Root then performed preparation-only input copying in TMP, under the
+existing heavy lock. LC2's128–227 reservation remains untouched. Agents now audit
+the milestone map and final reports; no additional native experiment is running.
+Recorded host contention is never removed through guessed corrections. Every
+pilot retained its≤1800s all-in deadline.
 
 Recipe exploration must not be mistaken for the richer mathematical integral
 comparatorB: A selects finite source/sector visit order; coordinate reindexing
@@ -145,6 +144,41 @@ changes different priorities. Native API tests alone do not complete P1.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 05:30 UTC — confirmations complete; original Epoch S5 remains partial
+
+- [M] P1 isolated counterbalanced pairs complete and independently audited:
+  generation+walk+cold default/sparse103.290/85.268s and103.875/84.421s
+  (17.45%/18.73% lower); walk+cold21.941/13.930s and21.525/13.080s
+  (36.51%/39.23% lower). Every cold-All check passes all58 queries/32 roots.
+  Stronger source certificates remain unpassed. See
+  `docs/research/runtime_source_strategy_portfolio_2026-09-30.md`.
+- [M] P3 natural-coordinate5L source-order scout completes: default/sparse/shift
+  24.911/17.670/17.767s generation+walk+cold; all784-point single-query scopes
+  cold-verify. Rules4283/698/697 and finite records14 each; this is14 owners,
+  not full67 transfer or exact terminal-key equivalence. S1 overlap is disclosed.
+- [M] S1 finiteW16 completes in172.858s native+155.211s cold; all760,033 native
+  records/one required root pass, no checkpoint mutation. FiniteW50 not run.
+  All pilot groups and locks drained before launch-preparation I/O.
+- [M] Root actual no-start launch preparation passed in10.167s; re-reading its
+  frozen plan passed in2.157s. `TMP/codex-ready-launch-preflight.H9eIUf/` contains
+  the actual67 owners/8246routes and183 unchanged query rows, explicit116/67 roles,
+  frozen1b33binary/62ctools and Ready16Union/rescue32 policy. No solver, checkpoint,
+  run directory or production write. A one-off census initially expected range
+  syntax rather than the launcher's canonical CPU list; correcting that exact
+  representation made its full read-only census PASS. No launcher change.
+- [M] User requests a milestone-by-milestone status. Independent current-source
+  audit exposes an important boundary: S3 durableCP6 and S4/S6 lookup/rolling are
+  delivered, but originalS5 is only partial. `epoch/merge.rs` still performs
+  P2 bucket/antichain/reverse planning and P3 serially; `epoch/records.rs` still
+  emits JSON, with per-edge tracker updates. Ledger6 and hash-feed batching do
+  not equal parallel bucket preparation, typed binary records or bulk tracker
+  publication. The original new layered4x lookup target also is not demonstrated.
+- [E] Current Epoch settings fail deployment gates; the entire intended original
+  parallel architecture has not been implemented and tested to failure. Finite5L
+  Epoch P2 alone was15.03s of417.26s native+cold, so completing that one substep
+  cannot be advertised as an assured rescue. Broader S5 remains a principled but
+  unmeasured future slice. No200-core saturation or full116-query closure claim.
 
 ### 2026-09-30 05:10 UTC — parallel lane control and measured deployment decisions
 

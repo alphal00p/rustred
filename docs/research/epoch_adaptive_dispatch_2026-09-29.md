@@ -1,8 +1,12 @@
 # Bounded adaptive Epoch dispatch
 
-Implementation note, 2026-09-29. Integrated native adaptive tests and independent
-source review have passed; matched performance qualification remains pending.
-It is not part of the compatible Stage A stable executable.
+Implementation note, 2026-09-29; result updated 2026-09-30. Integrated native
+adaptive tests and independent source review passed. The executed combined4L
+comparison was negative: FIFO26.877s versus adaptive30.068s native plus cold
+verification (one pair). Retain this policy opt-in; it is not selected for the
+next campaign and has no demonstrated performance gain. It is not part of the
+compatible Stage A stable executable. See the
+[current delivery decision](consolidated_campaign_launch_2026-09-30.md).
 
 The public policy contract is `--epoch-dispatch fifo|adaptive`. FIFO is the
 unchanged default. Adaptive requires checkpoint-enabled rolling Epoch and is
@@ -49,6 +53,6 @@ round-trip, authenticated CP6 replay/resave and real interruption/resume. All12
 adaptive-named tests pass in the `f3f707af` application run; its separate
 cold-reader failure and final targeted correction are accounted for in the
 delivery ledger, not hidden by this narrower result. The final executable keeps
-this adaptive implementation unchanged. A matched comparison must report
-work volume and closure as well as elapsed time; this heuristic has no claimed
-speedup yet.
+this adaptive implementation unchanged. The later matched comparison reported
+closure as well as elapsed time and did not qualify a speedup. No five-loop
+adaptive transfer is claimed from that negative four-loop result.

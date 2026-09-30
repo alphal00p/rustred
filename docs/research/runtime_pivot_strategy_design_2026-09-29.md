@@ -1,8 +1,23 @@
 # Runtime discovery strategies and persisted integral orders
 
-Date: 2026-09-29. Status: architecture proposal; no implementation or performance
-claim. The current frozen `3428b519` campaign executable, its validation, LC2,
-and every saved campaign remain independent of this proposed work.
+Design date: 2026-09-29. Updated status, 2026-09-30: **A is implemented and
+included in the optimized `1b33ad29` executable; B remains design-only.**
+The earlier `3428b519` executable does not contain A. LC2 and existing saved
+owner programs are not changed by making the new generation API available.
+
+The isolated A implementation passed the native core suite (2,853 tests) and
+application suite (1,129 tests). The consolidated application suite passed
+1,139 tests, with one stale diagnostic-string assertion and12 ignored; its
+corrected assertion has not been rebuilt, while the ten-phase public-CLI
+equivalent passed. See [the current progress ledger](../../CODEX_PROGRESS.md)
+for the exact build/test identities and measured strategy experiments. Scoped
+cold-walk validation is not a successful original-source artifact certificate:
+the optional stronger certificates in the current four-loop portfolio hit
+existing proof/input limits. Do not infer full-family proof from those pilots.
+
+The design and initial-draft sections below retain their original sequencing
+and proposed boundaries; their historical pending-build statements are not the
+current implementation status.
 
 The user wants richer runtime choices without rebuilding the full engine for
 each experiment. There are two distinct deliverables. A changes discovery and
@@ -217,7 +232,7 @@ One framework build per implemented capability is legitimate. Recompiling the
 engine for each named strategy, weight vector or coordinate priority is not.
 No speed, termination, closure or optimal-order claim follows from this design.
 
-## Isolated A source draft
+## Historical isolated A source draft
 
 The `codex/runtime-discovery-strategy` branch implements an unmerged A draft;
 it is not present in frozen `3428b519`. Initial metadata check failed on one
