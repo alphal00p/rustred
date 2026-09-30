@@ -44,7 +44,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
   identities. C-5F W24 traversal 565.63 s. S2 is not the completed performance
   architecture and has not met the deployment speed gate.
 
-## Current shortened-delivery ownership — 2026-09-30 00:40 UTC
+## Current shortened-delivery ownership — 2026-09-30 01:07 UTC
 
 This table supersedes the older lane assignments below; those remain historical
 evidence, not a claim that the new parallel implementation has passed its gates.
@@ -52,16 +52,16 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 | Work | Status | Responsible lane | Next executable step |
 |---|---|---|---|
 | Compatible Stage A executable | delivered | `stage_a_release`, root independent review | Stable `931d006c` pushed; owner commands communicated. LC2 remains owner-operated |
-| Rolling Epoch controller and lookup replicas | final build/lifecycle pass; four-loop performance blocked | original `epoch_rolling_impl`; validation `stage_a_release`, root | Final3428 original ABBA:27.345s Epoch versus24.545s Ready,11.41% slower; input/pivot controls continue |
-| Fresh CP6 G2 Union | final CLI cold/resume and all four-loop controls pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | FG/BMW/H/X and repeated combined controls pass cold-All; representative five-loop pair is running |
+| Rolling Epoch controller and lookup replicas | compiled/tested experimental candidate; speed gate fails | original `epoch_rolling_impl`; validation `stage_a_release`, root | Original4L+11.41%, finite5L+25.57%, hot5L+20.50% wall vs Ready; reindexed4L near parity, no faster-replacement recommendation |
+| Fresh CP6 G2 Union | final CLI cold/resume, all4L and both5L controls pass | original `epoch_g2_rescue_impl`; validation `stage_a_release`, root | W50 reindexed4L also passes; all measured scopes retained, no full-five-loop closure claim |
 | CP6 rescue and required scope | targeted final optimized regression passes | root narrow fix; independent `stage_a_release` | Real resume/cold, protected-prefix mutation and abandoned-helper distinction pass; do not claim final full-suite rerun |
 | Adaptive dispatch | integrated, reviewed, combined pilot negative | author `stage_a_release`, root independent review | Retain opt-in; FIFO26.877s vs adaptive30.068s including cold, one pair |
 | CLI/Python policy surfaces and monitoring | final native refresh/restore and corrected dashboard pass | `parallel_gate_critique` / `stage_a_release`, independent root review | Final M2/two inspectors and M4 pass; corrected Python344 PASS/one optional skip; real visual-pilot computing sample remains separately incomplete |
 | Dashboard and rate-series stream | requested thresholds/normalized balance/dual-axis plot delivered | `parallel_gate_critique` implementation; independent root review | `adcee12c` pushed and Python tree frozen;350 tests pass/one optional skip; actual FG and labelled synthetic replays inspected |
-| Mechanistic input/pivot ordering | reindex first pair promising; earlier negative results retained | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | Same reindexed library:17.730s Ready/16.839s Epoch, full cold pass; separate reverse-order replication follows five-loop controls |
-| Runtime discovery-strategy API | isolated source/metadata pass, not merged | author `stage_a_release`; independent `parallel_gate_critique`/root | Frozen `b95e1465`; prepare actual core/app native tests after measurement handoff; no claim of full integral-comparator API |
+| Mechanistic input/pivot ordering | delivered bounded study; mixed reindex pairs | `bounded_ordering_pilots`; independent root/`parallel_gate_critique` | New4L library useful; mean16.937s Ready/16.729s Epoch, no robust scheduler win or5L ordering transfer. Negative pivot/prefix cases retained |
+| Runtime discovery-strategy API | isolated source/metadata pass; native correctness build active | author `stage_a_release`; independent `parallel_gate_critique`/root | Frozen `b95e1465`, build started01:07; no merge/availability until runtime gates. Full integral-comparator B remains design only |
 | Historical closure-count audit | delivered read-only diagnosis; focused experiment pending | `stage_a_release`, root independent checks | Compare four exact historical anchors with G2 Off, retaining all 67 owners; distinguish changed helper bounds from same-input scheduling effects |
-| Matched performance and deployment | active; original combined gate negative, reindex unreplicated | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | Finite5L Ready native+cold passes332.293s; additional event audit censored. Epoch counterpart/hot pairs running; no production launch or claimed1.5x speedup |
+| Matched performance and deployment | completed measurements; experimental-only handoff | root, `bounded_ordering_pilots`, independent `parallel_gate_critique` | All scoped cold checks pass, event-audit limitations explicit; matched1.5x gate not met. Owner-operated alongside instructions disclose risk; no production action |
 | NUMA, new CAS/research, unrelated optimizations | deferred | root | Outside approved shortened delivery; reopen only after this delivery |
 
 ## Earlier work ownership and backlog (historical)
@@ -107,6 +107,81 @@ evidence, not a claim that the new parallel implementation has passed its gates.
 6. No extra terminal minimization, numerical-master or Vakint work in this stage.
 
 ## Event log
+
+### 2026-09-30 01:07 UTC — W50 correctness passes; isolated API native build starts
+
+- [M] W50/CPUs32–81 reindexed4L passes:58 required rows,32 admitted roots,
+ 19,597 reinspections and36,161 graph domains cold-closed; no uncovered/errors/
+  violations. Native7.985s+cold8.155s, peak RSS393,580,544 bytes. CP6 accepted,
+  summary/native exit4 remains distinct from cold authority. Both measurement
+  author and independent auditor verified receipts and resource width. This is
+  not a matched W50 speed result or a five-loop width extrapolation.
+- [M] Reverse-pair plus W50 pilot ends at261.147s within900s; all nine groups
+  drained. Evidence: `TMP/codex-sector-reindex.D5Yawx/reverse-replication/
+  results.json`. Together with the preceding12 drained five-loop groups, this
+  ends the scheduled performance runs. No additional tuning run is admitted.
+- [M] Explicit heavy/build handoff completed. `stage_a_release` now compiles
+  cleanb95e1465 in the dedicated validation tree, private `target-native`,
+  CPUs0–15/j8, locked offline release core/app tests with app opt-level1.
+  Receipt: `TMP/codex-runtime-discovery.280crc/native-build-b95e1465`, process
+  group1050516. Starting headroom742.46GB. Estimated additional80–110 minutes
+  plus roughly6 minutes for suites is disclosed as a correctness-build estimate,
+  not a delivery/performance-binary claim. This extends beyond the earlier
+  planning window for the subsequently requested API; no validation is skipped.
+- [D] Frozen3428 remains the tested campaign candidate and Pythonadcee12c its
+  current dashboard. Native API work remains isolated until runtime gates pass.
+  Independent measurement review supports only an explicitly experimental,
+  disjoint/resource-capped alongside launch; the1.5x/faster-replacement gate
+  has failed on current evidence. No user campaign is started or stopped.
+
+### 2026-09-30 01:04 UTC — reindexed four-loop replication: parity, not speedup
+
+- [M] Same frozen inputs/binary, reversed order: FIFO9.464s native+7.155s
+  cold=16.619s; Ready7.984s+8.160s=16.144s. Both cold-All58/32-root checks
+  pass; Ready's separately timed full audit also passes (4.150s).
+  The advantage flips from the first pair. Two-pair means are approximately
+ 16.729s Epoch/16.937s Ready (1.23% apart), so near parity rather than a robust
+  architecture speedup. The mechanistic **input-library** improvement remains
+  useful four-loop evidence, not a demonstrated five-loop ordering choice.
+- [M] W50 correctness-only arm admitted with744.194s remaining in the same
+ 900s pilot, exceeding its preregistered340s stop/cold/drain allowance. Same
+ 58-query scope, only worker/CPU/verification width changes; no matched W50
+  speedup claim. Heavy resources transfer to the isolated API build after
+  its complete verification and drain.
+
+### 2026-09-30 01:01 UTC — both representative five-loop comparisons complete
+
+- [M] Hot Epoch cold-All PASS: all731,117 native inspections,905,522 domains,
+ 1/1 required query/root, zero uncovered/errors/violations; CP6 accepted.
+  Native300.662s+cold149.212s=449.874s versus Ready373.341s,20.50% slower.
+  Native CPU496.881s versus580.315s and smaller work counts do not imply faster
+  wall time. The independent auditor checked raw receipts and exact query scope.
+- [M] `TMP/codex-final-monitor-matrix.LJLGfi/final-five-loop-results.json`
+  consolidates all four arms, including the Ready finite retry and audit censor.
+  All12 owned groups drained; subsequent hot full event audits are NOT RUN and
+  Epoch summary audits remain honestly INCOMPLETE. No full-pipeline/source-IBP
+  replay claim is substituted for the actual scoped cold-All result.
+- [D] Separate reversed reindex pair is now running within its900s pilot.
+  Conditional W50 four-loop correctness follows only if the complete allowance
+  fits. Then the isolated discovery-API native build starts without another
+  tuning sweep. LC2 and its current production checkpoint remain unchanged.
+
+### 2026-09-30 00:52 UTC — hot control baseline verified; dashboard frozen
+
+- [M] Hot Ready, original W12/CPUs32–43:195.124s whole native command plus
+ 178.217s full cold-All=373.341s. All798,399 native inspections and1,026,779
+  graph domains pass for1/1 required query/root, zero uncovered/errors.
+  The independent auditor confirmed the registered query digest and scope.
+  Full Python event audit is explicitly NOT RUN, not silently passed.
+  Hot Epoch now runs with the same input and verification allowance.
+- [M] Monitoring milestone `adcee12c` and results/doc follow-up `ee7cfbfe` are
+  pushed to `fable_5_1_parallel`. New frozen Python worktree:
+  `TMP/codex-parallel-campaign.oiPK29/python-delivery-adcee12c`; clean status
+  and production launcher `--help` checked. Native3428/source tree unchanged.
+  Only pre-existing unrelated FeynKit/reference work remains outside task edits.
+- [M] Root additionally reran the isolated discovery descriptor's three pure
+  Python tests (PASS). This is not native API execution; that build remains
+  queued behind the final matched pilots. No extra CAS work or feature sweep.
 
 ### 2026-09-30 00:44 UTC — verified finite-five-loop pair: negative speed result
 

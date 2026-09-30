@@ -1,8 +1,12 @@
 # Parallel Epoch delivery — implementation and validation ledger
 
-Status: **final monitored-binary lifecycle and combined four-loop correctness
-gates passed; combined four-loop performance gate not met**.
-This is not a production-launch recommendation. Follow
+Status: **compiled experimental candidate; lifecycle, all four-loop and both
+representative five-loop cold checks pass, including W50 four-loop correctness.
+The faster-replacement performance gate is not met.**
+The reindexed four-loop input library gives mixed-sign near-parity between
+schedulers in two pairs. The original combined control and the finite/hot
+five-loop controls favor Ready. Therefore this is not a faster-production
+recommendation: alongside use is explicitly experimental. Follow
 `SHORTENED_PLAN.md`; only the user operates LC2 or starts a new production run.
 The latest requested launch is alongside LC2 in session `rustred`, tab
 `codex_astra`, using disjoint resources, not a replacement of the current run.
@@ -40,14 +44,24 @@ Ready arm ended before a sample. Do not infer a contention-adjusted speedup.
 Raw receipts: `TMP/codex-final-monitor-matrix.LJLGfi/runs/`. Further input/runtime
 diagnostics remain exploratory, not grounds for a launch recommendation yet.
 
-One **input-library** improvement now passes a first matched pair: the
+For the reindexed **input library**, two matched pairs complete with cold-All
+PASS (not a performance-gate pass): the
 mechanistic pinch-interface coordinate reindex, with both parents regenerated
 and all58 query objects exactly inverse-equivalent, gives Ready17.730s versus
-Epoch16.839s including cold-All. Both verify all32 admitted roots; generated
-rules and routed fingerprints are consistent. This changes sector priorities
-and representation together, not just scheduler code. A reverse-order repeat
-is authorized separately; no1.5x architectural speedup is established. See the
+Epoch16.839s including cold-All in the first pair, then Ready16.144s versus
+Epoch16.619s in the reversed pair. Both verify all32 admitted roots; generated
+rules and routed fingerprints are consistent. The means16.937s/16.729s differ
+by1.23%, with mixed signs, not a robust speed win. This changes sector priorities
+and representation together, not just scheduler code. No1.5x architectural
+speedup is established. See the
 [ordering study](mechanistic_ordering_2026-09-29.md) for counts and exclusions.
+
+A final same-library W50/CPUs32–81 correctness check passes all58 required
+rows,32 admitted roots,19,597 native reinspections and36,161 graph domains.
+Native7.985s+cold8.155s and393.6MB peak RSS are recorded, but there is no matched
+W50 Ready arm and no W50 five-loop timing. The reverse-pair plus W50 pilot
+finishes within261.147s of its900s inclusive limit; all nine owned groups drain.
+Evidence: `TMP/codex-sector-reindex.D5Yawx/reverse-replication/results.json`.
 
 The individual controls also completed on that final executable, W6 on
 CPUs32–37. Every Ready and Epoch arm passed independent full cold-All; these
@@ -101,7 +115,25 @@ not silently charged only to Ready in the successful-primary comparison.
 Epoch's inexpensive summary audit is explicitly INCOMPLETE and supports only
 its existing CP6 acceptance contract, not the missing event proof. Raw
 receipts and amendment records are under
-`TMP/codex-final-monitor-matrix.LJLGfi/`; hot-control comparisons follow.
+`TMP/codex-final-monitor-matrix.LJLGfi/`.
+
+The hot five-loop control also completes, W12/CPUs32–43, again one required
+query rather than the full production request:
+
+| Scheduler | Whole native command | Cold-All | Sum | Domains | Native inspections |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ready |195.124s |178.217s |373.341s |1,026,779 |798,399 |
+| Epoch FIFO |300.662s |149.212s |449.874s |905,522 |731,117 |
+
+All native inspections and1/1 root pass full cold reinspection; Epoch CP6
+acceptance also passes. Full Python event audits are explicitly NOT RUN (the
+Epoch summary check remains INCOMPLETE). Epoch uses fewer domains/inspections
+and less native CPU (496.881s versus580.315s), but20.50% more end-to-end wall.
+All12 process groups from the two five-loop comparisons drain independently.
+The consolidated raw receipts are `final-five-loop-results.json` in that
+directory. These completed measurements do not establish favorable five-loop
+scaling. The publication cut is fixed at16; more workers enlarge the window,
+not the cut. No W50 five-loop performance result is available.
 
 The requested hourly discovery-minus-closure monitor passes the complete Python
 suite (323 passed, one optional skip), native test metadata and the actual
@@ -111,8 +143,8 @@ native live closure refresh. Its frozen executable is
 `TMP/codex-parallel-campaign.oiPK29/candidate-bin/rustred-3428b519`, SHA256
 `321b02b166c61dae927a220b7b8007b4659fef009d2b5b003084830b0f43eca3`.
 Actual CLI pause/resume/live-refresh and lockstep controls passed on this
-binary; the individual four-loop controls above also pass, while five-loop
-comparisons remain pending. The first M2
+binary; the individual four-loop and finite/hot five-loop controls above also
+pass. The first M2
 resumed leg finished before its5s heartbeat and remains an incomplete live
 observation. One additional same-FG248/W6 run with two inspectors observed
 genuine live refresh both before pause and after resume and passed independent
@@ -132,6 +164,14 @@ pass. Evidence: `TMP/codex-dashboard-live.09MDmS/VISUAL_AUDIT.md`. Rendered imag
 are captured-state exports/replays, not OS screenshots, and pyte does not
 reproduce faint intensity. Normalized telemetry, coloured table and SVG consumers
 do not change native decisions or the existing pending-growth calculation.
+
+The latest frozen Python revision is `adcee12c`: requested CPU/pending colour
+thresholds, normalized paired-window closure balance and dual-axis
+unresolved-total/raw-net-rate plot. Its full suite is350 PASS/one existing
+optional skip, with58 focused tests and root's independent27-test rerun passing.
+Author and root inspect saved actual-FG replays and labelled synthetic boundary
+plots; evidence is `TMP/codex-dashboard-balance.VBpyjw/self-review.json`. Earlier
+323/344 counts above describe preceding revisions, not this latest freeze.
 
 ## Delivered separately: compatible Stage A
 
@@ -206,7 +246,12 @@ rescue controls additionally distinguish required-query closure from abandoned
 auxiliary obligations. A saved receipt must reconcile with the final event before
 Python can automatically resume with a rescue amendment.
 
-## Validation and measurement status
+## Historical integration receipts — f083f254 through e1bdb9e7
+
+This section preserves the **earlier** integration/testing chronology and
+failed receipts. Pending controls and conditional launch statements below were
+their status at that time, not current blockers. The final3428 measurements,
+W50 check and current experimental-only interpretation are recorded above.
 
 - Source: combined rolling/rescue integration `f083f254` passes release compiler
   and test-type checks in 46.183 s. This is not executed native-test evidence.
@@ -270,11 +315,10 @@ Failed, censored and unexecuted cells remain
 explicit. No eventual five-loop completion time follows from zero frontiers or
 increased worker activity.
 
-Current evidence and exact commands live in `CODEX_PROGRESS.md`. This report
-will receive actual native results, optimized executable identity, matched
-measurements and tested fresh-launch instructions before final delivery.
+Current evidence and exact commands live in `CODEX_PROGRESS.md`; the current
+results and frozen executable identities are in the opening sections above.
 
-### Matched measurements and current blocker
+### Historical matched measurements and then-current blocker
 
 The same executable, query bytes, owner programs, CPU placement and worker
 budget are used on both sides. Times below include native command plus the
@@ -298,11 +342,11 @@ within the same W16 budget. It completed correctly but took 31.514 seconds,
 with 31,555 Route inspections versus 31,558 at the default width. This does
 not support further flight-width tuning. The subsequent cut-size-one
 diagnostic was also negative (31.469s). Neither is a useful measured remedy.
-The remaining runtime-only falsifier compares the existing `all-miss` lookup
-mode against Snapshot on the consolidated build; it has not yet executed.
+The then-remaining runtime-only falsifier compared `all-miss` lookup against
+Snapshot. It subsequently completed on3428 with a negative result, recorded above.
 
-The final optimized executable's lifecycle evidence remains valid despite
-this negative performance result. Launch instructions remain explicitly
-unqualified until the requested combined four-loop gate passes. Individual
-BMW/H/X and finite/hot five-loop timed arms have not yet run; mechanical W50
-tests are not a substitute for a measured W50 campaign.
+At this historical checkpoint, lifecycle evidence passed but a launch remained
+unqualified; individual BMW/H/X and finite/hot timed arms and an actual W50
+campaign were still pending. They have since completed as recorded above.
+The faster-replacement gate remains unmet; the current handoff is explicitly
+experimental, not a retrospective performance pass for these earlier results.

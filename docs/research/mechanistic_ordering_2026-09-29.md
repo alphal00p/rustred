@@ -561,6 +561,22 @@ as a scheduler speedup**. On identical new inputs the single Epoch pair is
 about5% faster in native-plus-cold wall while native traversal itself is slower.
 The coordinate change affects sector priority, representation and variable
 registration together. This is a useful mechanistic direction, not an isolated
-comparator proof or a demonstrated1.5x architecture gain. Reverse-order
-replication is pending separately; it was not forced into an insufficient
-remaining pilot budget. Evidence: `TMP/codex-sector-reindex.D5Yawx/results.json`.
+comparator proof or a demonstrated1.5x architecture gain. Evidence:
+`TMP/codex-sector-reindex.D5Yawx/results.json`.
+
+The separately authorized reverse-order repeat also completes, with exactly
+the same saved library and no regeneration:
+
+| Repeated scheduler (FIFO ran first) | Native seconds | Cold-All seconds | Sum |
+| --- | ---: | ---: | ---: |
+| Epoch FIFO |9.464 |7.155 |16.619 |
+| Ready |7.984 |8.160 |16.144 |
+
+Both again pass all58 required rows/32 admitted roots. Ready's additional
+full event audit passes in4.150s, timed separately. The small scheduler
+advantage changes sign: two-pair means are approximately16.729s Epoch versus
+16.937s Ready, about1.23% apart, not a robust speed win. Native command wall
+remains slower for Epoch in both pairs. The new input library improves the
+observed whole native-plus-cold boundary versus the original library, but no
+five-loop ordering, full-generation or1.5x architecture claim follows.
+Evidence: `TMP/codex-sector-reindex.D5Yawx/reverse-replication/`.

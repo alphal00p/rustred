@@ -1,18 +1,25 @@
 # Parallel five-loop campaign: owner-operated launch
 
-**Status: commands independently audited; performance qualification still in
-progress. Do not launch from this draft yet.** The final decision and measured
-controls belong in [the delivery report](parallel_epoch_delivery_2026-09-29.md).
+**Status: compiled, tested candidate for an owner-operated experimental run;
+not qualified as a faster replacement.** The measured controls and limitations
+are in [the delivery report](parallel_epoch_delivery_2026-09-29.md).
 Only the owner starts or stops production. LC2 continues unchanged alongside
 the new campaign.
 
-Consolidation note (September30,00:38 UTC): the final monitored `3428b519` executable is
-built and passes focused lifecycle/cold verification. Its original combined
-four-loop comparison is still11.41% slower than Ready, so the performance gate
-has **not** passed. Reindexed four-loop inputs give one promising near-parity
-pair; replication and five-loop controls are pending. The requested coloured
-CPU/balance dashboard and dual-axis plot at `adcee12c` are frozen separately.
-The identities below are current, but this remains a draft, not a launch approval.
+Consolidation note (September30,01:07 UTC): final monitored `3428b519` passes
+lifecycle, all individual/combined four-loop and representative finite/hot
+five-loop cold controls. Reindexed four-loop inputs give mixed-sign near-parity
+across two pairs; W50 four-loop correctness also passes. However, the original
+combined comparison is11.41% slower than Ready and the finite/hot five-loop
+comparisons are25.57%/20.50% slower at their matched W16/W12 budgets. W50
+five-loop performance is unmeasured. Do not launch expecting a demonstrated
+speedup or guaranteed completion. Keeping LC2 alone is a reasonable choice.
+
+The requested coloured CPU/balance dashboard and dual-axis plot at `adcee12c`
+are frozen separately. The additional discovery-strategy API is in an isolated
+native-test build and is **not** present in this executable; it is not needed
+to apply the existing saved programs in this campaign. No native regeneration
+or recompile is required to use the candidate below.
 
 ## Frozen executable and environment
 
@@ -102,7 +109,8 @@ not an instantaneous hard-memory guarantee. LC2's600GB policy is not changed.
 
 ## Start, stop and resume
 
-After the final delivery report qualifies the build, start in `codex_astra`:
+If you choose the experimental alongside run with these limitations, start in
+`codex_astra`:
 
 ```bash
 "$STAGE_B_PYTHON" -B "$STAGE_B_TREE/examples/python/production_saved_owner_campaign.py" \
