@@ -1,7 +1,8 @@
 # Epoch S5: parallel preparation and immutable publication
 
 This document describes the implemented S5 path, not a claim of five-loop
-closure or a recommendation to replace a running campaign. The mathematical
+closure. The frozen launch recipe and its measured trade-offs are in the
+[generation-first runbook](five_loop_optimized_generation_runbook.md). The mathematical
 scope remains the explicitly declared starting queries and their reachable
 obligations. A drained work queue alone is not a closure certificate.
 
@@ -15,6 +16,25 @@ controller, pool, memory and profile tests, cold verification, resume and
 cancellation. The latest CLI and application API checks pass all nine tests.
 Full receipts, fixture corrections and failed attempts remain in the progress log.
 
+The final fully optimized CLI (`38e0e763…`) has now passed the repeated
+four-loop Ready/Epoch comparison with 1,024 extra completed-result slots.
+Median native-launch-through-drain plus cold-All time is 15.494 s for Ready
+and 16.293 s for Epoch: **Epoch is 5.16% slower**, not a demonstrated wall-time
+winner. It uses 34.14% less native CPU and retains 33.04% fewer domains, while
+performing 17.03% more native inspections. All four arms independently verify
+every required query. The lower CPU/domain cost motivates a full-scale Epoch
+trial, not a claim that it is universally preferable to Ready.
+
+The final optimized finite-five-loop single pair also cold-verifies: Ready
+319.826 s versus Epoch 311.466 s native+cold. Epoch's native command is slower
+(174.275 versus 168.634 s); faster cold graph checking supplies the total saving.
+Native CPU falls 545.133→482.216 s, while sampled RSS rises 6.233→6.582 GB.
+This control covers one bounded 1,324-point query and its reachable descendants,
+not the production 116-query scope. The user-selected launch reserves 32 physical
+cores/600 GB; all these final comparisons used 16 cores, so 32-core performance
+remains unmeasured. The fresh-generation-first pipeline is ready for a user-run
+trial; full 67-owner generation time and full-scope completion remain unknown.
+
 Focused preparation, binary framing/sidecar, immutable snapshot, bulk dependency,
 record restoration, helper-repartition, and real native replay checks ran. The
 first 16-CPU reservation emitted W50 skip markers. The later full suite used 50
@@ -22,12 +42,14 @@ distinct physical cores and exercised all ten intended W50 subcases successfully
 with no skip markers. The first optimized matched four-loop comparisons are
 complete: runtime is effectively neutral, while the checkpoint is about 61%
 smaller. The first finite-five-loop fixed-work pair also passes with identical
-graphs and neutral runtime, with a56% smaller checkpoint. The earlier optimized
+graphs and neutral runtime, with a56% smaller checkpoint. Before bounded extra
+lookahead, the earlier optimized
 Ready/Epoch rolling controls cold-verify successfully but favor Ready: the
 four-loop ABBA median is8.04% slower for Epoch and the finite-five first pair
 13.43% slower. Rolling
 overlap reduces Epoch's own inspector waiting substantially without making it
-faster than Ready. Deployment qualification therefore remains open;
+faster than Ready. These historical controls are retained separately from the
+final release comparison;
 see [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
 The application test build uses optimization
 level 1 for correctness checks; it must not supply production performance numbers.
@@ -39,9 +61,13 @@ constant. The final rebuilt CLI probe, help, candidate/routed integration tests,
 Rust application API and ordering-inspector tests all pass. A fresh installed
 Python wheel at the preceding milestone passes all 19 candidate API tests without skips, including cold
 subprocess loading and CLI parity; the focused four-test order gate also passes.
-These interface checks do not establish a production performance gain. A new
-installed-wheel check and real Python-steered CLI check for bounded lookahead
-remain pending; mock steering tests are not substitutes for those checks.
+These interface checks do not establish a production performance gain. The
+existing selected-profile installed wheel has subsequently passed all 23
+compatibility checks against the new CLI; it was not rebuilt and does not
+expose a new PyO3 owner-walk method. The real public Python pipeline also passed
+fresh combined-four-loop generation, admission, Epoch traversal and cold-All:
+16 new owners, 523 rules, 58 required queries, and all 17,957 native inspections
+verified. This is actual execution evidence, separate from mock steering tests.
 
 The new bounded-lookahead screen compares Epoch against itself, not against
 Ready. At 16 workers, an extra inventory of 1,024 complete results reduced
@@ -50,8 +76,9 @@ verification from 430.500 to 371.751 seconds, with 0.74% more inspections and
 nearly unchanged CPU time. Both arms independently cold-verify. This is one
 pair using the same application-opt-level-1 executable. It is evidence for the
 mechanism, not the final fully optimized engine choice. The four-loop screen
-with 32 extra slots was traversal-neutral and cold-verified. Repeated optimized
-Ready/Epoch comparisons with the proposed configuration remain outstanding.
+with 32 extra slots was traversal-neutral and cold-verified. The repeated
+optimized four-loop Ready/Epoch result above supersedes the earlier pending
+qualification, without changing the provenance of this diagnostic ablation.
 
 The combined four-loop saved-rule control also passes independent full
 reinspection with zero and two preparation helpers: all 58 required queries and
@@ -73,7 +100,8 @@ These concurrent opt-level-1 runs are correctness evidence, not benchmarks.
 
 Independent source reviews covered preparation cancellation, helper
 repartition on restore, typed record authority, publication failures, and
-immutable snapshots. Optimized performance qualification remains open. Current receipts,
+immutable snapshots. Limited optimized controls do not establish full-production
+speed or saturation. Current receipts,
 commands, and outstanding decisions are maintained in [CODEX_PROGRESS.md](../CODEX_PROGRESS.md).
 
 ## The merge boundary

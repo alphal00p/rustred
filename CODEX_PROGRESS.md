@@ -15,6 +15,10 @@ a recommendation. The newly demonstrated gain compares Epoch E0 against E1024,
 not Ready against Epoch. Earlier1.5x statements below are historical, not the
 current threshold. The active tool-managed objective already asks for measured
 pilot gains without specifying that ratio, so its full scope remains unchanged.
+The final four-loop wall-time comparison is 5.16% slower for Epoch; it does not
+pass a strict non-regression gate. The latest user-requested release is therefore
+an explicitly qualified full-scale trial, not a declaration that every earlier
+performance preference gate passed.
 
 **Latest release priority (2026-09-30 17:48UTC):** deliver a clean frozen release
 and exact full-campaign launch instructions next, before further optimization
@@ -24,7 +28,58 @@ an asynchronous choice between fresh all67 A1 rule generation first (not yet
 completed/timed) and immediate reuse of existing rules with new Epoch. The user
 selected **regenerate improved rules first**. Primary delivery is now executable
 preparation→all67 selected-owner generation→native admission→Epoch walk, with
-no silent old-payload fallback. Build/tests/freeze continue in parallel.
+no silent old-payload fallback. Build/tests/freeze are complete; see the final
+release receipt below. On 2026-09-30 the user selected **32 physical cores and
+600 GB RAM** for the actual new campaign. W16 measurements remain W16 evidence.
+
+## Frozen generation-first release — 2026-09-30 19:20 UTC
+
+- [M] Implementation `b21e4522` is committed/pushed on `fable_5_1_parallel`.
+  Frozen source: `TMP/releases/20260930-a1-epoch`; optimized CLI SHA256
+  `38e0e7637a228aeccb13902915378d70f25736323916976819d2145ea19b1d89`;
+  matching inspector SHA256
+  `925a778b3393016bedee38f85e9db31b7a82a6aadb8e3c568c93ed740e1b4187`.
+  Exact preparation/start/resume/rollback commands are in
+  [the release runbook](docs/five_loop_optimized_generation_runbook.md).
+- [M] Final optimized Ready/Epoch W16 controls all pass native cold-All.
+  Combined4L two-pair medians: 15.494/16.293s native+cold, Epoch5.16% slower
+  wall but34.14% less native CPU and33.04% fewer domains. Finite5L one pair:
+  319.826/311.466s, Epoch2.61% lower total, despite native174.275s versus
+  Ready168.634s. Epoch's cold phase137.191s versus151.192s supplies the total
+  difference. This is not a proven traversal win or a repeated5L speed gate.
+- [M] Root independently read both finite raw cold reports: Ready760,609 and
+  Epoch754,320 inspections, all reinspected, zero errors/frontiers/uncovered,
+  one required query/root independently verified. Same1,324-point initial query
+  and historical67-owner input; not full116-query production or regenerated A1.
+  Native CPU545.133/482.216s. The separate Ready Python diagnostic timed out;
+  that censored secondary is neither PASS nor charged as completed comparison
+  work. All six owned finite-pilot groups drained; no further pilots granted.
+- [M] Fresh public Python4L pipeline passed with16 new owners,523 rules,
+  58 required queries and17,957 inspections cold-verified. Existing installed
+  wheel/newCLI23 checks pass; no newly built wheel claimed. Focused source
+  suites35 runtime/staging +35 production/escrow +27 supervisor tests and
+  seven inspector tests pass. Independent operational audit by
+  `runtime_order_pilots` and pipeline/checker review by
+  `s5_fixed_work_pilots` found no remaining release blocker.
+- [M] Final W32/600GB metadata-only preflight succeeded through the actual
+  frozen checkout's Nix environment. Exact command: the runbook preparation
+  command with `--directory
+  /common/dev/rustred/TMP/aster-integration-20260930-resumed/frozen-five-launch-check-w32`.
+  All67 owners/8,246 routes/116 required/67 auxiliary remain unchanged;
+  no native process, generation attempt or production write was made.
+  CPUs64–95 are32 distinct physical cores, disjoint from LC2's128–227.
+  A150GB host reserve remains explicit;600GB admission requires750GB available.
+- [E] Recommendation: a **fresh A1-generation + Epoch trial**, not an assertion
+  that Epoch universally beats Ready. The stronger repeated benefit remains
+  A1 rule selection. All67 generation time and full-scope closure time remain
+  unknown. No32-core scaling measurement or20+-core activity claim is made.
+  New production will be launched by the user only; LC2 is still untouched.
+- [E] Deferred until full-run feedback: hot-control and wider-worker pilots,
+  P1/P2/owner-preparation optimization, and any further helper/lookahead tuning.
+  No new feature or speculative experiment delays this handoff. Exact evidence:
+  `TMP/aster-integration-20260930-resumed/order-pilot-plans/optimized-qualification/`
+  (`FOUR_ALL_RESULTS`, `FIVE_FINITE_RESULTS`, raw runs) and
+  `order-pilot-plans/pipeline-acceptance/`.
 
 ## Final optimization push — 2026-09-30 05:49 UTC
 
@@ -39,13 +94,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | source-selection four-loop work gate qualified; selected-owner Ready/Epoch and new lookahead cold-All PASS; full67 preparation audited; standalone3822 generation censored | Optimized matched plans and installed-Python delivery instructions prepared/audited; prepare executable full-scope future runbook without disguising ungenerated inputs |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | native and four-/finite-five lookahead gates PASS; finite traversal32.25% lower at essentially flat CPU, whole charged13.61% lower in one app-opt1 pair | Committed/pushed; optimized build active; qualify against contemporaneous Ready before deployment |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | delivered; source-selection four-loop work gate qualified; fresh4L pipeline and full67 metadata preflight PASS | User launches frozen all67 generation; elapsed cost remains unknown |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; optimized four-/finite-five controls cold-All PASS; lower CPU/work but no general wall-time dominance | Collect full-scale feedback after user launch; no saturation promise |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
 | Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
-| Integration, resources, profiling and release | root | audited lookahead milestone56176df5 committed/pushed; all pilot groups drained; guarded optimized build active; production untouched | Freeze and verify optimized executables, then matched qualification and final campaign setup |
+| Integration, resources, profiling and release | root | frozen code b21e4522 pushed; all pilot groups drained; independent launch audit PASS; production untouched | User launch with32 physical cores/600GB; observe read-only afterward |
 
-### Active decision register — refreshed 2026-09-30 17:49 UTC
+### Active decision register — refreshed 2026-09-30 19:20 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -57,25 +112,25 @@ the same experiment after a handoff.
 | Persisted programmable integral order | delivered | Native/interface authority tests pass; B1 full comparator is not faster overall than A1. Degree-row ablation cold-PASS but no useful gain; parked. |
 | B2 support-density order | deferred | Diagnosed coupled-affine classification obstruction; missing IBPs not demonstrated. Reopen only with a separately justified exact geometry change. |
 | Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS. Full production preparation remains unmeasured. |
-| S5 typed merge/shared lookup/rolling prefix | delivered, performance unqualified | Cold controls pass, smaller checkpoints; contemporaneous Ready comparisons fail speed gate. |
+| S5 typed merge/shared lookup/rolling prefix | delivered, trial-ready | Cold controls pass, smaller checkpoints; Ready remains competitive. Finaloptimized4L+5.16%wall, finite5L-2.61%wall (singlepair); CPU lower. |
 | Prefix wait / dispatch-credit diagnosis | delivered | Off/on cold-All and strict mathematical-state comparison PASS. Measured95.841/97.712s credit-blocked; bounded slow-job correlation has explicit limits. |
-| Bounded whole-result lookahead | implemented; four-/finite-five cold-All PASS; optimized qualification pending | Native retry1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Four-loop traversal neutral, +0.19% inspections. Finite-five E1024 traversal182.661→123.745s, whole charged431.641→372.889s, +0.74% inspections/+1.60% edges, CPU essentially unchanged. One app-opt1 pair supports the mechanism, not preference over contemporaneous optimized Ready. |
+| Bounded whole-result lookahead | delivered; optimized controls PASS | Native1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Earlier app-opt1 E0/E1024 mechanism gain retained separately. Current optimized Ready comparison supports CPU/work tradeoff, not a universal wall win. |
 | A1 selected-owner programs with Epoch | delivered | Same16owner/508route/58query input passed CP6 cold-All;16,932inspections/25,945domains. Correctness integration, not qualified speed superiority. |
 | cut1 cross-job-coalescing remedy | rejected | September29 cold-PASS control barely changed Route count and slowed down; September30 proposed repeat canceled before launch. |
 | oldest-ready / blind wider-window / adaptive-dispatch sweep | rejected | Preserved work explosion or negative timing; require a new causal mechanism before reopening. |
 | CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
 | Ready bulk-edge-only optimization | deferred | Entire ordered commit is <8% of finite-control primary time; no profile of edge-only share and not a cure for80s Epoch waiting. |
-| Hot traversal-heavy saved-rule control | prepared, not launched | Diagnostic remedy passes causal screen; all8 matched4L/hot plans audited. Native grant awaits optimized freeze and first4L qualification. |
-| Production deployment | pending | No LC2 mutation. Source work gain is real, but no qualified new Epoch launch recipe or20-core demonstration. |
+| Hot traversal-heavy saved-rule control | deferred until full-run feedback | Prepared/audited, no native grant; latest user prioritizes frozen release over more pilots. |
+| Production deployment | ready for user launch | Fresh A1→admission→Epoch pipeline tested at4L and frozen; all67 output remains ungenerated. W32/600GB selected by user; no20-core demonstration. |
 
-**Current implementation milestone:** `56176df5`, committed and pushed to
+**Earlier engine implementation milestone:** `56176df5`, committed and pushed to
 `origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent
 source audit, and completed four-/finite-five cold-verified lookahead screens.
 It adds opt-in bounded whole-result lookahead to the earlier9cc1acca selected-
 sector/profiling and711b18c5 ordering/S5 milestones. All39 task-owned changed
 files were staged explicitly; unrelated user work remains outside the commit.
-Optimized matched qualification and final campaign setup are still open. This
-is not a deployment recommendation or completion of the goal.
+At that earlier milestone, optimized matched qualification and campaign setup
+were still open. Their final outcomes are recorded in the release receipt above.
 
 ### Delivery-gap review — 2026-09-30 17:49 UTC
 
@@ -270,6 +325,28 @@ Fresh public pipeline accepted (18:57UTC):
   Ready/E1024 pair, using the unchanged1,324-point query and historical67
   owners, not fresh all67 A1 rules. Root owns documentation/final release;
   no further feature development or production launch is authorized here.
+
+Tested generation pipeline pushed; frozen source checked (19:04UTC):
+
+- [M] Commit `b21e4522` is pushed to `origin/fable_5_1_parallel`. Its12 explicitly
+  staged files contain the tested Python pipeline, input recipe, operational
+  tests, narrow inspector fix and documentation. The license scan was clean;
+  unrelated FeynKit edits, untracked research notes and all campaign/reference
+  material were excluded.
+- [M] A detached frozen source checkout exists at
+  `/common/dev/rustred/TMP/releases/20260930-a1-epoch`, commit `b21e4522`.
+  Its actual `nix develop` plus tracked pipeline successfully performed a
+  metadata-only full5L preparation using the final frozen CLI and checker:
+  `TMP/aster-integration-20260930-resumed/frozen-five-launch-check/`.
+  Exact census remains67 owners/8,246 routes/116 required/67 auxiliary;
+  all payloads are explicitly UNGENERATED. No native process was launched,
+  and the detached checkout remained clean. This validates the script/import/
+  Nix path independently of the mutable development checkout.
+- [M] Finite5L Ready completed168.634s native (82.797s preparation,70.943s
+  traversal) and151.192s raw cold-All, primary319.826s. All760,609 natives
+  were re-inspected; its sole required query/root is verified with zero
+  frontiers/uncovered/errors. The separately timed Python diagnostic and
+  matched Epoch arm remain pending, so no completed comparison is claimed.
 
 ### Historical resource handoff — 2026-09-30 16:49 UTC
 

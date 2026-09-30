@@ -13,9 +13,11 @@ four-loop end-to-end test. The optimized CLI SHA-256 is
 `38e0e7637a228aeccb13902915378d70f25736323916976819d2145ea19b1d89`;
 the matching limits-aware inspector is
 `925a778b3393016bedee38f85e9db31b7a82a6aadb8e3c568c93ed740e1b4187`.
-The final performance report and frozen Python checkout still need to be
-recorded before the launch command below is recommended. Until its concrete
-checkout bindings are filled in, this remains a **preparation runbook**.
+The frozen Python checkout is commit `b21e4522` at
+`/common/dev/rustred/TMP/releases/20260930-a1-epoch`. Its actual Nix environment
+and full five-loop metadata preparation have been checked without launching
+native work. The final optimized controls below are complete. This is a ready
+fresh-campaign trial, not a demonstrated universal Epoch speed advantage.
 
 No new five-loop A1 payload set exists yet. Metadata preparation deliberately
 uses `UNGENERATED/...` owner paths. The pipeline has no fallback to old owner
@@ -43,6 +45,38 @@ There is no production runtime deadline. The thirty-minute rule applies to
 development pilots, not this user-launched solve. RAM limits are configurable;
 750 GB is not rejected by an arbitrary 500 GB maximum. Shared-host admission
 may lower the effective limit to preserve the requested host headroom.
+
+## Measured release trade-offs
+
+The final comparisons use the same optimized executable, saved rules, CPU
+placement and **16-worker budget** in each arm. Times include native launch
+through process-group drain plus independent full cold reinspection; they
+exclude compilation and saved-rule generation equally.
+
+| Control | Ready native + cold | Epoch native + cold | Interpretation |
+|---|---:|---:|---|
+| Combined four-loop, two runs per engine, median | 15.494 s | 16.293 s | Epoch 5.16% slower wall; 34.14% less native CPU; 33.04% fewer domains |
+| Finite five-loop, one pair | 319.826 s | 311.466 s | Epoch 2.61% faster total, but native walk command 3.35% slower; advantage comes from cold checking |
+
+All six runs passed independent full native reinspection. The five-loop control
+covers one 1,324-point starting query with unrestricted reachable descendants,
+not all 116 production queries, and uses historical saved owners rather than
+new A1 owners. Its Ready/Epoch inspection counts are 760,609/754,320; both have
+zero uncovered obligations or frontiers. Epoch uses about 11.5% less native CPU
+in that pair. This is modest work/CPU evidence, not a repeated five-loop speed
+qualification. The separate Ready Python diagnostic timed out; it is neither
+a PASS nor included as completed work in the timing comparison. Native cold-All
+is the independent acceptance authority for both engines.
+
+A1 source selection remains the stronger measured optimization: earlier matched
+four-loop pairs reduced complete generation/walk/check time by 17.45% and 18.73%,
+and domain work by roughly 40–44%. The selected launch combines that strategy
+with the tested Epoch implementation to obtain full-scale evidence. Ready is
+still a competitive alternative; no claim of 20+ busy cores has been established.
+
+At the user's request the production command now reserves **32 physical cores
+and 600 GB RAM**, not the 16 cores used in those timings. This changes the
+reservation, not the evidence. There is no measured 32-core speedup yet.
 
 ## Exact frozen scope
 
@@ -99,20 +133,22 @@ All 67 historical selected payloads total about 1.28 GiB: this is why the
 inspector must honor aggregate allowances from `selection.load_limits`, rather
 than use its former small-study aggregate default. An inspector refusal is
 fatal to the pipeline; it is never replaced by a corner-only load smoke.
+The command below allows 4 GiB of generation-checkpoint storage **per parent**;
+that is not a global campaign disk limit or a memory limit.
 
 ## Preparation and launch
 
 Use a **frozen release checkout** for Python and the explicit frozen binaries,
 so later edits in the development checkout cannot alter a long-running pipeline
-or its resume command. The release handoff supplies that checkout path and the
-CLI/inspector SHA-256 values. Do not point the production command at a changing
-Cargo target executable. The code below deliberately requires these bindings:
+or its resume command. The paths below are the tested release on this machine;
+keep them for future resumes. Do not point the production command at a changing
+Cargo target executable. No recompilation is needed for this frozen release:
 
 ```sh
-export RUSTRED_RELEASE_CHECKOUT=/absolute/path/to/frozen-release-checkout
-export RUSTRED_FROZEN_CLI=/absolute/path/to/frozen/rustred
-export RUSTRED_FROZEN_INSPECTOR=/absolute/path/to/frozen/inspect_candidate_orders
-export RUSTRED_A1_CAMPAIGN=/common/dev/rustred/campaigns/five-loop-a1-epoch
+export RUSTRED_RELEASE_CHECKOUT=/common/dev/rustred/TMP/releases/20260930-a1-epoch
+export RUSTRED_FROZEN_CLI=/common/dev/rustred/TMP/aster-integration-20260930-resumed/optimized-escrow-bin/rustred
+export RUSTRED_FROZEN_INSPECTOR=/common/dev/rustred/TMP/aster-integration-20260930-resumed/optimized-inspector-limits-bin/inspect_candidate_orders
+export RUSTRED_A1_CAMPAIGN=/common/dev/rustred/campaigns/five-loop-a1-epoch-20260930
 cd "$RUSTRED_RELEASE_CHECKOUT"
 nix develop
 ```
@@ -128,8 +164,8 @@ python -B tools/research/runtime_order/pipeline.py \
   --selection /common/dev/rustred/campaigns/five-loop-qcd-feynman-d9d10-lc2/inputs/selection.json \
   --executable "$RUSTRED_FROZEN_CLI" \
   --inspector "$RUSTRED_FROZEN_INSPECTOR" \
-  --workers 16 --cpus 64-79 \
-  --max-memory-bytes 400000000000 \
+  --workers 32 --cpus 64-95 \
+  --max-memory-bytes 600000000000 \
   --host-memory-reserve-bytes 150000000000 \
   --checkpoint-max-bytes 4294967296
 ```
@@ -137,9 +173,14 @@ python -B tools/research/runtime_order/pipeline.py \
 This command does **not** start a native process. It records the complete recipe,
 binary identities, resource policy and exact per-parent commands. It validates
 the existing production walking policy before any expensive solve. The example
-uses 16 disjoint cores and a 400 GB requested memory ceiling; the release
-handoff must confirm that this affinity and headroom remain available alongside
-LC2. There is no claim that 16 cores will remain busy inside one difficult sector.
+uses 32 distinct physical cores separate from LC2's 128–227 reservation and a
+600 GB requested memory ceiling. The guard rechecks availability at every start.
+To retain the full 600 GB ceiling with the explicit 150 GB host reserve, arrange
+at least 750 GB of available host memory before launching; otherwise the effective
+ceiling is reduced. The 5% guard margin requests save/stop near 570 GB when the
+full ceiling is admitted. There is no claim that all 32 cores will remain busy
+inside one difficult sector. The walk reserves 31 inspectors plus a coordinator;
+generation shares the same total worker budget rather than creating extra pools.
 
 Review `pipeline.json`, `shared/selection.json`, `shared/queries.json` and
 `commands/parent-*.json` in the new directory, then launch the entire sequence:
@@ -253,11 +294,11 @@ export RUSTRED_A1_RUN="$(python -c 'import json,os; from pathlib import Path; p=
 env RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 \
   OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1 \
   SYMBOLICA_HIDE_BANNER=1 \
-  taskset -c 64-79 "$RUSTRED_FROZEN_CLI" walk-verify-closure \
+  taskset -c 64-95 "$RUSTRED_FROZEN_CLI" walk-verify-closure \
   --command "$RUSTRED_A1_RUN/request.json" \
   --checkpoint "$RUSTRED_A1_CAMPAIGN/checkpoints/main" \
   --no-result --require-closure --reinspect all \
-  --certification-scope all-roots --reference-levers off --threads 16 \
+  --certification-scope all-roots --reference-levers off --threads 32 \
   --output "$RUSTRED_A1_RUN/cold-all.json"
 ```
 

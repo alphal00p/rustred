@@ -3,7 +3,13 @@
 Status: optimized fixed-work S5 comparisons, the first finite-five-loop S5 pair,
 current four-loop Ready/rolling-S5 comparison, five ordering scouts and the
 source-selection qualification complete.
-**No Epoch deployment recommendation yet.**
+The final frozen release is now ready for a **user-launched trial**, with honest
+CPU/work versus wall-time trade-offs; Epoch is not a universal speed winner.
+See the [generation-first release runbook](../five_loop_optimized_generation_runbook.md)
+for the final optimized comparisons, exact frozen executable identities, and
+the user-selected32-core/600GB launch. The measurements below retain their
+original executable identities and do not silently become measurements of that
+new configuration.
 See [the active plan](../../ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md) and
 [progress log](../../CODEX_PROGRESS.md). Production LC2 was not modified.
 
