@@ -38,6 +38,41 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Four-loop comparisons staged offline,03:21UTC:** S5 prepared the
+  four fresh old1/new1/new2/old2 plans/templates and byte-identical runner under
+  `TMP/postlaunch-20260930/stale-negative-prefix/performance/four/`.
+  All58 query roles and unchanged historical command rewrites validated;
+  baseline0f identity checked once. Candidate hash remains explicitly pending
+  optimized freeze. No run/checkpoint, clock, lock admission or native process
+  was created. Root reviewed the metadata; binding and actual execution wait
+  for the successful optimized build and complete resource drainage.
+- [M/E] **Mature-pilot feasibility assessed,03:18UTC:** small metadata only
+  shows production generation4 holds56.03M scheduled domains,605.43M edges
+  and25.49GB of referenced payloads. No mature CP6 runtime restore/save timing
+  is available; the208–218s fresh-pilot cold-reader times are not runtime
+  restores and must not be extrapolated linearly. Resume is supported and
+  persistent formats unchanged, but synchronous restore has no cancellation
+  poll in the inspected interfaces; the existing fresh runner also explicitly
+  rejects resume. Therefore a useful mature comparison inside the30-minute
+  inclusive budget is **unestablished**, not impossible. Do not launch one
+  without a separately bounded isolated feasibility check. Production was
+  not copied, modified or decoded in full. Evidence:
+  `TMP/postlaunch-20260930/stale-negative-prefix/MATURE_PILOT_FEASIBILITY.md`.
+  S5 is now preparing only the existing four-loop plans/byte-identical runner
+  in fresh local directories, with candidate identity pending the optimized
+  build. Root verified actualPG917522/rustc918340 live at5m14s, no errors.
+- [M/D] **Correctness milestone pushed; optimized build live,03:13UTC:**
+  origin/fable_5_1_parallel advanced from `eb6302e8` through source `f328844f`
+  to documentation/validation commit `16245bf7`. Task-owned work was clean;
+  unrelated FeynKit/untracked files were preserved. Runtime now owns the
+  exclusive heavy slot for the one granted cached campaign-profile CLI build:
+  session84403/PG917522, CPU0–15, eight jobs, opt3/fatLTO/CGU1, existing RAM
+  guards/locks, no application opt-level override. Evidence:
+  `TMP/postlaunch-20260930/stale-negative-prefix/optimized-build/`.
+  No benchmark or production action is granted yet. S5 has a bounded read-only
+  metadata/receipt task to assess whether a later isolated mature-checkpoint
+  pilot could fit the30-minute inclusive budget; it may not read large graphs,
+  copy/modify production or launch anything. Fresh comparison remains prepared.
 - [M/D] **Independent correctness milestone GO,03:12UTC:** reviewer confirmed
   all8 integrated file hashes exactly match the audited source, fresh Cargo
   artifacts match the executed tests, and actual restore/rolling/rescue tests
