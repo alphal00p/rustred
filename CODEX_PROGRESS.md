@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 15:47 UTC (17:47 Zurich)
+## Current workboard — October 1, 16:05 UTC (18:05 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,9 +18,9 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Feature implemented, source audit GO, app 9/9 pass; corrected core test build running | Corrected core tests, matching CLI/wheel, then same-binary full-cohort comparison |
+| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Feature implemented, source audit GO, core 19/19 and app 9/9 pass; matching CLI build running | Matching CLI/wheel public checks, then same-binary full-cohort comparison |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Rule-mechanism research | `frontier_probe_runner` | Joint-support pair stopped at required reference failure; exact incoming-domain matcher granted | Small CPU32 no-follow diagnostic during CPU0–15 compilation; new-score full control still waits for tested binaries |
+| Rule-mechanism research | `frontier_probe_runner` | Exact incoming matcher completed; real guard fallback but local partition totals still misleading | Independently review actual residual example; new-score full control still waits for tested binaries |
 | Independent authority/performance review | root; `rule_quality_audit` after its isolated UI slice | Feature/protocol source reviews passed; measurements pending | Check actual binary gates, cold/source receipts and whole-cohort work before any promotion |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered; independent 104-test pass, source/docs/render review | Commit current monitor only; frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -81,6 +81,65 @@ release nor input is edited.
   invalid/empty/reset/unavailable cases and exact threshold boundaries tested;
   pending arithmetic, CPU thresholds and raw net-rate plot remain unchanged.
   The auditor returns to independent rule-quality review after this UI slice.
+- [M] Monitoring milestone `cc5f449b` is committed and pushed to `main` with
+  requested identity/coauthorship. New native-score code and unrelated work
+  are not in that commit. No running release or campaign was modified.
+- [M] Corrected native core filter passes 19/19, zero ignored, in 0.01 seconds
+  after a 994.499-second release build/run (peak single-child RSS 11.83 GiB).
+  The previous app filter passes 9/9. Author freezes those exact binaries and
+  starts the matching CLI build at `active-replenishment-cli-build1` using
+  the unchanged build guard/cache. Full public API and new-score campaign
+  validation remain pending; compilation time is not a solver measurement.
+- [M] The incoming diagnostic's first run hit the existing 100,000-predicate
+  query allowance, not an exact gap. One approved existing-option increase to
+  1,000,000 is recorded; the failed receipt remains. Fresh execution-r2 fully
+  matches all eight stored responsibilities and all three actual G2 residuals
+  under both saved programs in 16.505 seconds, all groups drained. No gaps,
+  unresolved geometry or invalid source conditions. No recursive traversal.
+  Exact incoming role/rank/A/D fields remain intact on both sides.
+- [M/E] Guard-direction effects survive actual first-match: all three residuals
+  use A1 rule2 on some pieces but never the donor's rule2. The smallest residual
+  has six versus nine pieces, while aggregate residual pieces decrease from
+  802 to 688; stored-responsibility pieces decrease from 6,943 to 5,352 (49
+  terminal pieces on both sides). Thus the guard difference is real, but even
+  this contextual local partition count does not predict the donor's measured
+  whole-cohort regression. Do not substitute it for global cost or claim an
+  optimization. Independent audit of the exact smallest residual is pending.
+- [M] Independent review completes that audit: all 22 native responses preserve
+  exact input geometry and classify fully. Residual30569 has A=7 and D=-6,
+  so its five inactive coordinates sum to 13 (2,380 integer tuples). Every
+  tuple is covered exactly once by each retained native partition. A1 rule2
+  handles the 1,820 tuples with x0>=1; the donor uses rule5 on that same region
+  in x8=0 (455) and x8>=1 (1,365) pieces. Scope and global-cost caveats remain.
+- [E/D] A narrower follow-up is now source-only: determine whether an earlier
+  donor case splits on x8 before noticing a guard false across the entire
+  incoming domain. Investigate existing exact native/Symbolica services for
+  rejecting such a rule before partition, with independent safety critique.
+  Do not suppress denominator/source/exceptional obligations, reorder arbitrary
+  guards, infer coefficient equality from integer RHS keys, or edit frozen
+  source during compilation. This is rule-program simplification, not new
+  scheduler work; the registered new-score full control stays first.
+- [M/D] Both read-only source reviews confirm the relevant control-flow seam:
+  fixed-coordinate intersection is partitioned before exclusion checks, and
+  current rejection lookahead explicitly excludes the Fixed stage. A safe
+  narrow candidate would reuse existing exact guard resolution on the normalized
+  prospective intersection, and reject only a uniformly impossible current
+  rule while advancing the original unsplit cell. It must retain source and
+  terminal precedence, selected-rule denominator obligations, rank/A/D bounds,
+  strict error/cancellation handling, and an inconclusive fallback. No new CAS
+  or implementation has been added. Design and falsifiers are saved in
+  `PRE_CUT_CASE_REJECTION_DESIGN.md`; global gains remain unmeasured.
+- [M] Read-only `campaign_monitor.py RUN --once` against the untouched live
+  status succeeds with the new UI. At elapsed 06:50:21 it displays D/C=5.873
+  over 3,599.47 seconds and unchanged pending growth +0.1322 per completion,
+  explicitly retaining the 33-minute-old scan warning. Thus a separate current
+  monitor can show this UI without changing the frozen launcher or native run.
+  The source monitor does not modify the production status/telemetry files.
+- [M] At 16:04 UTC the matching CLI build is verified live: cargo3998673 and
+  compiler3999956, about ten minutes into application compilation on CPUs0–15,
+  roughly12.9 GB compiler RSS. Next tests are fully prepared, not awaiting new
+  user authority. Core19/app9 gates passed; public wheel and campaign gates
+  remain open. Do not restart or duplicate the build.
 
 - [M] Read-only production snapshot at336.6min remains running with fresh
   heartbeat,13/67 conservative closed roots,47,986,656 local completions,

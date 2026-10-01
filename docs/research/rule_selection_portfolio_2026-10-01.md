@@ -426,3 +426,108 @@ this confound before execution; that experiment is held rather than interpreted
 as an isolated support test. Existing runtime options and coherent source/rule
 preferences are being evaluated first. No new scoring default, CAS implementation
 or production modification follows from these observations.
+
+### Support-pruning diagnostic: acceptance failure retained
+
+A two-arm diagnostic was prepared using the existing joint-support option,
+with unchanged queries, owners and full-orthant anchors. This option prunes
+simultaneous pinch masks; it does not make the individual inactive-coordinate
+image bounds exact. The required stronger cold check deliberately disabled
+those reference levers.
+
+The first A1 arm exhausted 24,185 domains and 17,898 native inspections with
+zero frontiers or native errors, pruning 70,778 masks. Its reference cold check
+then rejected exactly 70,778 conservative Route covers. All 17,898 native
+records were reinspected without native errors. This is **not an accepted
+optimization result** and does not, by itself, prove the pruning or IBPs
+mathematically unsound: it exposes a mismatch with this required independent
+coverage check. The donor arm was not run, and no weaker as-run check was
+substituted after seeing the failure. The corrected diagnostic drained in
+16.470 seconds; an earlier staging-directory setup failure is also retained.
+
+Evidence: `joint-support-on-pair/execution-r2/` and
+`JOINT_SUPPORT_DIAGNOSTIC_RESULTS.md` under the local evidence root above.
+This routing experiment is parked; current development remains rule selection.
+
+### One next opt-in score, not a claimed improvement
+
+The next registered rule preference is `total-positive-shift-excursion`.
+For each RHS term, sum the existing positive displacement proxy on active
+axes, then sum over terms. The maximum already available cannot distinguish
+one child increasing a power from several children doing so. Symbolic powers
+use target-relative offsets; fixed powers use differences of their positive
+degrees. No algebraic primitive or custom polynomial operation is added.
+
+For the first two saved differing rules, maximum numerator excursion ties but
+this total positive excursion is 1 versus 4, and 1 versus 2 (A1 versus donor).
+The proposed order puts maximum numerator excursion first, this new total
+second, then total numerator excursion and RHS size. It preserves the A1
+choice for those two saved comparisons while preferring the donor on the
+other seven coordinate-case-matched comparisons, whose maximum numerator
+excursion improves. New case queues may differ: these are predictions from
+saved pairs, not observations of new generation.
+
+Independent source review accepts the narrow generic implementation. Its
+native/API validation and the fresh same-binary full four-loop comparison
+are still pending. Existing A1 defaults, exact admission, guards, exceptional
+recursion and mathematical order are unchanged. The falsifier is whole-cohort
+work: reproducing A1 or reducing a local score without reducing downstream
+cost is not a win. One useful pair still needs replication before transfer.
+See `ACTIVE_REPLENISHMENT_CANDIDATE.md` and `positive-shift-control/PLAN.json`
+for the fixed recipe and acceptance boundary.
+
+A separate read-only census supplies context for the longer-term question.
+Eight saved incoming responsibilities in the qualified Ready control favor
+different active-coordinate faces; inactive axes 0 and 8 have identical literal
+bounds in those eight stored boxes. Their owner corpus, routes and query bytes
+match A1, but the Ready
+graph is not the Epoch graph. A broad reusable anchor dominates incoming
+dependencies, three G2 records inspect only narrower residual power bands,
+and two records are delegated. Counts of these records are therefore neither
+event frequencies nor region volumes. Exact native first-match diagnostics
+are required before using this asymmetry to motivate a contextual guard score.
+
+### Actual incoming-domain dispatch: guard fallback is real, but not sufficient
+
+The no-follow native diagnostic subsequently completed under both saved programs,
+keeping the eight stored responsibilities separate from the three exact G2
+residual scopes. Every input and echoed rank/box/A/D constraint matches the
+saved Ready evidence. All 22 query responses are complete and locally applicable,
+with no gaps, unresolved conditions, invalid source conditions or output limits.
+An initial 100,000-predicate query limit was reached; a single documented increase
+to 1,000,000 through the existing CLI option sufficed. Both receipts are retained.
+Four phases drained in 16.505 seconds while a compiler ran on disjoint CPUs;
+this is a diagnostic duration, not a performance comparison.
+
+| Exact matching scope | A1 pieces | Donor pieces |
+| --- | ---: | ---: |
+| Eight stored responsibilities | 6,943 | 5,352 |
+| Actual residual 20920 | 769 | 645 |
+| Actual residual 30560 | 27 | 34 |
+| Actual residual 30569 | 6 | 9 |
+
+Stored responsibility totals include 49 terminal pieces on each side; actual
+residuals contain no terminal pieces. These scopes overlap, so sums are
+diagnostic work counts, not distinct-integral counts or arrival probabilities.
+
+The smallest residual gives a concrete example. Its active physical indices
+are `(n1,n2,n3,n4,n9)=(1,2,2,1,1)`, so the total positive power is 7. Its
+fixed power difference is −6, hence the five nonnegative inactive coordinates
+sum to numerator rank 13. There are exactly 2,380 integer tuples. Independent
+integer membership checks confirm that each program's native partition covers
+every tuple exactly once.
+
+A1 rule2 handles the 1,820 tuples with `x0>=1`. The donor cannot use its rule2
+because `n9=1` throughout this domain. It handles the same region with rule5
+in two pieces: `x8=0` (455 tuples) and `x8>=1` (1,365 tuples). This demonstrates
+an actual ordered guard/fallback split, not merely a guessed coordinate corner.
+The larger residual still partitions into fewer donor pieces. Thus even exact
+local incoming-domain fragmentation fails to predict the donor's measured
+whole-campaign regression; no guard-count score is justified by these results.
+
+Evidence: `owner-481-incoming-match/execution-r2/RESULT.json`. The prior budget
+failure remains in `execution/`. Runner: `frontier_probe_runner`; independent
+scope, receipt and finite-partition audit: `rule_quality_audit`. The new
+total-positive score now passes 19 focused core and 9 application tests; the
+matching CLI, installed-Python and complete new-score campaign gates remain
+pending. No production switch is recommended.
