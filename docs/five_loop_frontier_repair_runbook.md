@@ -75,8 +75,15 @@ observed over the same trailing hour, not `(D-C)/(D+C)`. Both this indicator and
 the unchanged pending-per-completion metric are red above2, yellow above1
 through2, and green at1 or below. Positive discoveries with zero observed
 closures show red `∞`;0/0 or unavailable data show neutral `unknown`.
-Closure scans are batched, so check the separate snapshot age/staleness line:
-`∞` during a stale scan does not prove that no additional domains have closed.
+Closure scans are batched, so check the separate snapshot age/staleness line.
+If the graph has changed and its closure snapshot predates the entire sampled
+window, the ratio and closure rate show `unknown` / `awaiting closure scan`,
+not zero or infinity. The plot likewise leaves a rate gap rather than treating
+absence of a scan as measured stagnation. Raw counters remain available and
+the stale closed count remains a conservative lower bound. In this release the
+periodic scan interval is at least100 times the preceding scan duration: a
+64-second scan can therefore leave the counter stale for about106minutes.
+This viewer correction changes neither that policy nor the running campaign.
 The new monitor derives the ratio from the old supervisor's raw paired counts;
 it does not reinterpret the old normalized-balance value.
 

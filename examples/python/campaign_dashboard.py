@@ -65,7 +65,7 @@ def derived_lines(status: dict) -> list[str]:
     seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
     net = derived.get("discovery_closure_net_1h")
     net = net if isinstance(net, dict) else {}
-    ratio = TELEMETRY.discovery_per_recursive_closure_1h(net)
+    ratio = TELEMETRY.normalize_status(status)["rates"]["discovery_per_recursive_closure_1h"]
     closure = progress.get("descendant_closure")
     if isinstance(closure, dict) and closure.get("available") is False:
         ratio.update(value=None, infinite=False, state="closure_unavailable")
@@ -226,10 +226,21 @@ def _ratio_text(ratio):
 def _closure_ratio(frame):
     # Recompute from raw paired deltas, including for saved frames that still
     # contain the old (D-C)/(D+C) field. Never reinterpret that stored value.
-    ratio = TELEMETRY.discovery_per_recursive_closure_1h(frame["rates"]["discovery_minus_closure"])
+    ratio = TELEMETRY.discovery_per_recursive_closure_1h(
+        frame["rates"]["discovery_minus_closure"], frame["closure_snapshot"])
     if frame["closure_snapshot"].get("available") is not True:
         ratio.update(value=None, infinite=False, state="closure_unavailable")
     return ratio
+
+
+def _closure_rate(frame):
+    # Recheck saved frames too: older producers stored a zero rate while a
+    # dirty closure snapshot predated the entire observation window.
+    rate = dict(frame["rates"]["recursive_closure"])
+    state = _closure_ratio(frame)["state"]
+    if state in ("awaiting_closure_scan", "closure_unavailable"):
+        rate.update(per_second=None, state=state)
+    return rate
 
 
 def indicator_color(value, kind):
@@ -252,7 +263,7 @@ def render_table(frame, width=100, height=24, color=True):
     width = max(20, min(160, width))
     height = max(8, height)
     counts, resource, rates = frame["counts"], frame["resources"], frame["rates"]
-    closure, completion = rates["recursive_closure"], rates["local_completion"]
+    closure, completion = _closure_rate(frame), rates["local_completion"]
     snap, gap = frame["closure_snapshot"], rates["discovery_minus_closure"]
     checkpoint, writing = frame["checkpoint"], frame["checkpoint_write"]
     inner = width - 4
@@ -292,6 +303,8 @@ def render_table(frame, width=100, height=24, color=True):
                 + (" warm-up" if value.get("warmup") is True else ""))
 
     def rate_window(value, scan_batched=False):
+        if value.get("state") == "awaiting_closure_scan":
+            return "awaiting closure scan"
         prefix = "scan-batched " if scan_batched else "window "
         detailed = ("observed scan-batched · " if scan_batched else "") + window(value)
         return detailed if cell_width(detailed) <= detail_width else prefix + compact_window(value)
@@ -391,7 +404,8 @@ def plain_summary(frame):
         checkpoint_text += f" · {checkpoint['duration_seconds']:.2f}s"
     return [f"RustRed · {clean(frame['state']).upper()} · {duration(frame['elapsed_seconds'])}",
             f"Rate {rate} per hour · pending {growth_text} per completion",
-            f"Recursive closure {_rate(rates['recursive_closure']['per_second'])} observed scan-batched",
+            f"Recursive closure {_rate(_closure_rate(frame)['per_second'])} "
+            + ("awaiting closure scan" if ratio["state"] == "awaiting_closure_scan" else "observed scan-batched"),
             net_line,
             f"Closure snapshot {freshness} · age {duration(snapshot['snapshot_age_seconds'])} · {scan}"
             + (" · heartbeat stale" if frame["heartbeat_stale"] else ""),

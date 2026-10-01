@@ -37,7 +37,7 @@ def _numbers(source, keys):
     return {key: number(source.get(key)) for key in keys}
 
 
-def discovery_per_recursive_closure_1h(gap):
+def discovery_per_recursive_closure_1h(gap, snapshot=None):
     """New discoveries / recursive closures in the SAME trailing-hour window.
 
     This is an observed scan-batched ratio, not convergence or a bound.
@@ -46,6 +46,7 @@ def discovery_per_recursive_closure_1h(gap):
     without that flag means unavailable, including an empty (0/0) window.
     """
     gap = mapping(gap)
+    snapshot = gap if snapshot is None else mapping(snapshot)
     result = {**_numbers(gap, ("covered_seconds", "window_seconds", "first_elapsed_seconds",
                                "last_elapsed_seconds")), "value": None, "infinite": False,
               "warmup": gap.get("warmup") is True,
@@ -73,6 +74,18 @@ def discovery_per_recursive_closure_1h(gap):
         if key in gap and (number(gap[key]) is None or not math.isclose(gap[key], expected, rel_tol=1e-9, abs_tol=1e-9)):
             result["state"] = "window_mismatch"
             return result
+    if snapshot.get("available") is False:
+        result["state"] = "closure_unavailable"
+        return result
+    age = number(snapshot.get("snapshot_age_seconds"))
+    stale = snapshot.get("stale", snapshot.get("snapshot_stale"))
+    # A dirty graph with no closure scan inside this entire sampled window
+    # provides no closure-rate observation. Zero cached counter movement is
+    # not a measured zero rate. An unchanged, explicitly fresh graph is not
+    # affected; its old but still-current counter can legitimately be flat.
+    if stale is not False and age is not None and age >= span:
+        result["state"] = "awaiting_closure_scan"
+        return result
     if closed == 0:
         if discovered > 0:
             result["infinite"] = True
@@ -139,9 +152,6 @@ def normalize_status(status, sequence=None):
     if closure_counts["total_domains"] is None:
         closure_counts["total_domains"] = number(work.get("scheduled"))
     available = closure.get("available") is True
-    ratio = discovery_per_recursive_closure_1h(net)
-    if not available:
-        ratio.update(value=None, infinite=False, state="closure_unavailable")
     if not available:
         for key in ("initial_closed", "total_closed", "unresolved_domains"):
             closure_counts[key] = None
@@ -156,6 +166,11 @@ def normalize_status(status, sequence=None):
                     closed_counts_are_conservative_lower_bounds=available,
                     unresolved_counts_are_conservative_upper_bounds=available,
                     reason=clean(closure.get("reason", "closure telemetry unavailable"), 300) if not available else None)
+    ratio = discovery_per_recursive_closure_1h(net, snapshot)
+    if not available:
+        ratio.update(value=None, infinite=False, state="closure_unavailable")
+    if ratio["state"] in ("awaiting_closure_scan", "closure_unavailable"):
+        recursive.update(per_second=None, state=ratio["state"])
     checkpoint = mapping(status.get("checkpoint") or progress.get("checkpoint"))
     writing = mapping(status.get("checkpoint_write", progress.get("checkpoint_write")))
 

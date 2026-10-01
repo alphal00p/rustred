@@ -63,6 +63,58 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_dirty_closure_snapshot_must_have_a_scan_inside_window(self):
+        status = sample_status()
+        gap = status["derived"]["discovery_closure_net_1h"]
+        gap.update(discovered_delta=1200, closed_delta=0, per_second=2,
+                   discovered_per_second=2, closed_per_second=0)
+        for age, blocked in ((599, False), (600, True), (5700, True)):
+            with self.subTest(age=age):
+                status["progress"]["descendant_closure"]["snapshot_age_seconds"] = age
+                frame = TELEMETRY.normalize_status(status)
+                ratio = frame["rates"]["discovery_per_recursive_closure_1h"]
+                self.assertEqual(ratio["infinite"], not blocked)
+                self.assertEqual(frame["rates"]["recursive_closure"]["per_second"],
+                                 None if blocked else 0)
+                self.assertEqual(frame["rates"]["pending_growth_per_completion_1h"], .22)
+                self.assertEqual(frame["rates"]["discovery_minus_closure"]["discovered_delta"], 1200)
+                self.assertEqual(frame["counts"]["total_closed"], 1_440_000)
+                if blocked:
+                    self.assertEqual(ratio["state"], "awaiting_closure_scan")
+                    self.assertIn("awaiting_closure_scan", "\n".join(DASHBOARD.derived_lines(status)))
+                json.dumps(frame, allow_nan=False)
+        # No graph change since the scan: an old counter is still current.
+        status["progress"]["descendant_closure"]["snapshot_stale"] = False
+        frame = TELEMETRY.normalize_status(status)
+        self.assertEqual(frame["rates"]["recursive_closure"]["per_second"], 0)
+        self.assertTrue(frame["rates"]["discovery_per_recursive_closure_1h"]["infinite"])
+
+    def test_old_saved_frames_hide_unmeasured_closure_rates_in_all_consumers(self):
+        frame = TELEMETRY.normalize_status(sample_status())
+        frame["closure_snapshot"].update(snapshot_age_seconds=5700, stale=True)
+        frame["rates"]["recursive_closure"]["per_second"] = 0
+        frame["rates"]["discovery_minus_closure"].update(
+            discovered_delta=1200, closed_delta=0, per_second=2,
+            discovered_per_second=2, closed_per_second=0)
+        for width in (80, 100, 140):
+            lines = DASHBOARD.render_table(frame, width, 32, True)
+            ratio = next(line for line in lines if "Discovery/closure" in line)
+            closure = next(line for line in lines if "Recursive closure" in line)
+            self.assertIn("Discovery/closure unknown", ratio)
+            self.assertNotIn("\x1b", ratio)
+            self.assertIn("unknown", closure)
+            self.assertIn("awaiting closure scan", closure)
+            self.assertNotIn("0.000/s", closure)
+        plain = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("Recursive closure unknown awaiting closure scan", plain)
+        self.assertNotIn("∞", plain)
+        with patch.object(PLOT, "records", return_value=iter([frame])):
+            point = next(PLOT.observations("unused"))
+        self.assertIsNone(point["closure"])
+        self.assertIsNone(point["gap"])
+        self.assertEqual(point["completion"], 1500)
+        self.assertEqual(point["unresolved"], 5_060_000)
+
     def test_ratio_uses_paired_deltas_and_preserves_raw_rates(self):
         status = sample_status()
         frame = TELEMETRY.normalize_status(status)
@@ -487,6 +539,20 @@ class PlotTests(unittest.TestCase):
         self.assertIsNone(points[1]["gap"])
         self.assertIsNone(points[2]["gap"])
         self.assertIsNone(points[3])
+
+    def test_same_endpoint_expiring_closure_snapshot_breaks_plot_rate(self):
+        first = TELEMETRY.normalize_status(sample_status())
+        first["closure_snapshot"]["snapshot_age_seconds"] = 599
+        second = json.loads(json.dumps(first))
+        second["elapsed_seconds"] += 1
+        second["closure_snapshot"]["snapshot_age_seconds"] = 600
+        with patch.object(PLOT, "records", return_value=iter([first, second])):
+            points = list(PLOT.observations("unused"))
+        self.assertEqual(len(points), 2)
+        self.assertEqual(points[0]["gap"], -12)
+        self.assertIsNone(points[1]["gap"])
+        self.assertIsNone(points[1]["closure"])
+        self.assertEqual(points[1]["completion"], 1500)
 
     def test_repeated_poll_endpoint_does_not_create_a_measurement(self):
         frame = TELEMETRY.normalize_status(sample_status())

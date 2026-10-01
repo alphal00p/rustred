@@ -1103,3 +1103,52 @@ to the R-primary result, including235 rules,31 terminals,7,126 RHS terms and
 audit confirms the result and process drain. The structural falsifier therefore
 fires: do not run another walk or priority sweep. This local ordering direction
 is parked. Evidence: `weighted-17941-generation-v1/receipts/` and `RESULTS.md`.
+
+## Closure-directed selection: exact-key history is not a useful cost proxy
+
+The next strategy may prefer successors entering inexpensive known regions,
+but must allow productive new regions and retain every exceptional obligation.
+Before adding a new engine policy, a read-only census tests whether saved graph
+keys provide a useful independent cost reference for the existing four-loop
+owner481 alternatives. This is a retrospective diagnostic, not a new solve.
+
+The reference is the qualified Ready `ready-new-r1` four-loop graph with39,006
+records. Its16 owner payloads and508 routes equal the A1 corpus; only owner481
+differs in the donor. Keep native-inspected, locally discharged, descendant-closed
+records with strictly fewer active propagators, excluding every cone reaching
+owner481, a frontier, an error or an unfinished inspection. Follow legitimate
+alias dependencies. The resulting10,917 distinct keys retain phase, owner,
+coordinate bounds, rank and **all** A/D bounds. Existing CP5 readers are reused;
+there is no new codec, algebra or approximate containment.
+
+The fixed input panels are the saved16-point `both-rule2` domain and the
+unchanged-rule1 singleton control in their original shared five-panel execution.
+Exact-key lookup finds **zero matches** for either panel/arm, whether examining
+direct dependencies, two-edge neighborhoods or complete recorded cones.
+Thus this inexpensive exact-equality reference is uninformative here.
+
+| Saved panel diagnostic | A1 | Donor |
+| --- | ---: | ---: |
+| Changed-rule2 native successor events | 4 | 8 |
+| Changed-rule2 direct graph dependencies | 4 | 7 |
+| Changed-rule2 records within two edges | 32 | 128 |
+| Unchanged-rule1 native successor events | 6 | 6 |
+| Unchanged-rule1 direct graph dependencies | 6 | 4 |
+| Unchanged-rule1 records within two edges | 105 | 82 |
+
+The unchanged-rule control also exposes graph-context bias: reuse and aliasing
+change its dependency counts without changing the rule or its native root
+statistics. Graph outdegree is not raw RHS fan-out, and this panel's smaller
+final graph cannot explain the donor's full-cohort regression. Do not fit
+weights to reverse this result or interpret unknown keys as harmful novelty.
+
+CPU32 execution completes in1.404s, exit0, with no native solver invocation.
+Independent audit verifies all20 bound input hashes and recomputes the12 zero-hit
+comparisons from the original domain records. Evidence:
+`closure-cost-census-v1/{PROTOCOL.md,run.py,RESULT.json}` under the study directory.
+Retire the exact-key proxy, not closure-directed synthesis. The next justified
+diagnostic observes native guarded successors **before** graph reuse and uses
+the existing `DomainPowerSummary` exact integer-set containment API. Envelope
+containment can supply sufficient known-context evidence; an envelope miss
+must remain unknown, because retained predicates can narrow the true support.
+No selection policy or production input has changed in this experiment.

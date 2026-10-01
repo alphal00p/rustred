@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 19:40 UTC (21:40 Zurich)
+## Current workboard — October 1, 20:05 UTC (22:05 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,9 +20,9 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` | R-primary increases work; weighted correction reproduces same rules/terminals and is parked | Minimal closure-directed selection design using existing four-loop alternatives |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Generation/symmetry/full-query/weighted receipts audited; no promotion | Critique cost model and controlled small falsifier; keep exploration profitable, not forbidden |
-| Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
+| Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected by executed census | Prepare native guarded-event containment diagnostic; productive new domains remain allowed |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Census receipts and monitor correction audited | Audit native event/control design and implementation before its pilot |
+| Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | D/C delivered; stale-window correction passes64 tests and review | Commit presentation-only correction; frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
@@ -36,6 +36,57 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 19:57 UTC — closure-directed selection, first cheap falsifier
+
+- [D] The immediately preceding user-question turn checked the live snapshot
+  and clarified safe monitor interruption; it did not advance optimization.
+  Resume the available saved-data falsifier now; the main goal remains active.
+- [D] The user explicitly permits productive newly opened domains: a known-result
+  context is a preference signal, never a requirement that every RHS is already
+  covered. Preserve every exact obligation and ordinary descent/replay gate.
+- [D] Runner compares already qualified owner481 alternatives against one frozen
+  four-loop Ready context using existing CP5 dependency readers and exact native
+  geometry keys only. Context anchors must have strictly lower support, unchanged
+  programs, and no dependency on owner481, failed or unfinished inspections.
+  Legitimate aliases are followed, not automatically treated as failures.
+  The independent auditor approves this narrow read-only experiment: compare a
+  changed-rule panel and an unchanged-rule control; report reuse, new domains and
+  lower-support progress separately, without fitting a scalar score. Insufficient
+  overlap or control-sharing bias rejects this proxy, not the general strategy.
+- [M] Root confirms current `campaign_monitor.py --once` derives the requested
+  D/C display from the running frozen supervisor's paired raw deltas. At this
+  observation there are zero newly scanned closures in the trailing hour and
+  the snapshot is over90minutes old, so the displayed infinity is explicitly
+  stale scan-batched evidence, not a claim that no other domain has closed.
+  The production process, release and inputs remain untouched.
+- [M/D] Census completes in1.404s on CPU32, exit0 with no native solver job.
+  The unchanged lower-program reference contains10,917 exact keys; every
+  panel/arm/neighborhood comparison has zero hits. Retire this exact-key cost
+  proxy. Rule2 emits4→8 native successor events, while unchanged rule1 emits
+  6→6 but acquires6→4 graph dependencies and105→82 two-edge records. Therefore
+  graph sharing contaminates the proposed local quality signal. Independent
+  audit confirms all20 input hashes and12 zero-hit comparisons. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/closure-cost-census-v1/`.
+- [D] Next runner task uses actual guarded successors before graph reuse and
+  existing public `DomainPowerSummary::try_new/contains`, preferably with a
+  tiny cached-library adapter and existing CLI rather than a full engine build.
+  Preserve predicate/A/D context; envelope containment is sufficient context,
+  a miss is unknown, not proof of novel work. Require the unchanged-rule control
+  to match. Auditor reviews this small native experiment independently.
+- [M/D] The user's follow-up exposes misleading zero/infinite hourly closure
+  rates: frozen production's last scan took63.674s, and its100x duty throttle
+  admits another scan only after106.1minutes. Root implements a presentation-only
+  correction: a dirty snapshot older than the entire sampled window makes
+  closure rate/D-C plot/ratio unavailable (`awaiting_closure_scan`). Raw counts,
+  conservative closed bounds and pending arithmetic remain intact; explicitly
+  fresh unchanged graphs retain valid zero observations. Old saved frames are
+  checked too. Independent audit finds one plotting dedup boundary: when only
+  snapshot age crosses the window, emit a null rate break rather than skipping
+  the observation. Root corrects it and adds a regression; auditor independently
+  reproduces the passing behavior. All64 monitoring tests pass in0.539s. Live
+  read-only output shows unknown/awaiting scan. Final independent source GO;
+  no Rust/native cadence, running release, process or input change.
 
 ### October 1, 19:20 UTC — generation pair and sector-symmetry falsifier
 

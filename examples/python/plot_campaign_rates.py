@@ -72,8 +72,9 @@ def observations(path, start=0.0, end=None):
         total, closed = number(counts.get("total_domains")), number(counts.get("total_closed"))
         unresolved = total - closed if (snapshot.get("available") is True and total is not None
             and closed is not None and 0 <= closed <= total) else None
+        paired = TELEMETRY.discovery_per_recursive_closure_1h(gap, snapshot)
         observation = (number(gap.get("last_elapsed_seconds")), total, closed,
-                       gap.get("state"), number(gap.get("per_second")), snapshot.get("stale"))
+                       gap.get("state"), number(gap.get("per_second")), snapshot.get("stale"), paired["state"])
         if (observation == last_observation and observation[0] is not None
                 and frame.get("heartbeat_stale") is not True):
             # The supervisor/UI can poll more often than a native heartbeat.
@@ -87,9 +88,9 @@ def observations(path, start=0.0, end=None):
             values["completion"] = None
         if closure.get("state") not in ("valid", "warmup"):
             values["closure"] = None
-        paired = TELEMETRY.discovery_per_recursive_closure_1h(gap)
         if snapshot.get("available") is not True or paired["state"] not in ("valid", "warmup", "empty_window"):
             values["gap"] = None
+            values["closure"] = None
         if frame.get("heartbeat_stale") is True:
             values = dict.fromkeys(values)
         yield {"elapsed": float(elapsed), **values,
