@@ -11,6 +11,39 @@ separate grant, the 116 required queries intersected with R=0. The latter keeps
 all original positive-power and A/D constraints, including 35 expected empty
 rows; the input-only census predicts 81 nonempty rows across 56 owners.
 
+### Rank-zero input cardinality is not uniformly small
+
+The frozen `queries-physics.json` has SHA256
+`fc9bb5a196b84600f1ca3f88364a4b342c53c608617cb5fd2bdaa2663c84e58e`.
+Its R0 scalar-input arithmetic is:
+
+| Required-row class | Rows | Distinct owners | Nonempty rows / owners | Raw sum of input tuples |
+|---|---:|---:|---:|---:|
+| Exact D=9 or D=10 | 98 | 49 | 63 / 38 | 1,185 |
+| Nested D>=9, finite A | 18 | 18 | 18 / 18 | 7,173,673 |
+| All required R0 | 116 | 67 | 81 / 56 | 7,174,858 |
+
+These are counts of the specified input geometry, not native admitted/covered
+integrals, independent master integrals, or a new enumeration run. For support
+size t, R=0 implies A=D. All local lower bounds are zero, and every active
+coordinate upper is nonbinding at the effective A maximum. Hence a row has
+`sum_A binomial(A-1,t-1)` tuples, where A runs from `max(t,Dmin)` through
+`min(Amax,Dmax)` (omitting an absent Dmax). This is elementary positive
+composition counting; no reducer, checkpoint decoder or new geometry kernel
+was used. The table reports the raw row sum without a deduplication algorithm.
+As an additional check, repeated rows for the same owner have disjoint A
+intervals, and the two classes use disjoint owner sets.
+
+The nested original A caps are **20 through 23**, not only 20 through 22. At
+R0 their D>=9 lower bound does not collapse them to A=9/10. Each ten-line owner
+with A<=23 contributes 1,144,066 tuples. Thus the hypothesis that the entire
+helper-free R0 input is only a modest collection of one-/two-dot points is
+false: the 18 required nested rows dominate. An exact-D-only experiment would
+omit all 18 of those required rows and could not replace the present scope.
+Any later concrete-path comparison should use a small explicitly matched
+panel from a representative problematic nested query, not silently substitute
+the easier exact-D class. No seven-million-point enumeration is proposed.
+
 Three effects must not be conflated:
 
 1. Actual IBP successors can raise numerator rank while reducing another
@@ -82,20 +115,30 @@ The existing optional application refinement only accepts a single varying
 finite axis and therefore does not cover this two-varying-axis case; see
 [applied/refinement.rs:22](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/owners/domains/applied/refinement.rs:22).
 
-### Smallest selective-splitting falsifier
+### Measured selective-splitting falsifier
 
-Partition exactly this source domain into x8=0 and x8>=1, retaining the full
-rank cap, all other bounds, ordered-case guards and all original successors.
-Use the existing native guarded application on each piece. The first check is
-that the zero face loses this event while the complementary nonzero image is
-retained. Then, only if warranted and separately granted, walk the original
-panel versus this exact partition with identical owner/routing authority.
+The separately granted native diagnostic partitioned exactly this source domain
+into x8=0 and x8>=1, retaining the rank cap, all other bounds, ordered-case
+guards and all 44 original denominator checks. Evidence is
+`TMP/postlaunch-20261001/coefficient-face-split-v1/execution-r1/`.
+It completed in **4.534894 seconds inclusive** (3.780531 seconds in the native
+phase), with zero problems/refusals and its owned group drained. The complete
+unsplit query output exactly matches the pinned historical baseline.
 
-The useful criterion is reduced total native/queue work including extra splits,
-not merely a smaller image of one event. A failure to reduce unique obligations,
-or a splitting cost larger than the saved inspections, falsifies this particular
-optimization. Full arbitrary-polynomial guarded domains are unnecessary for
-this test. No split experiment is launched by this document.
+The witness disappears on the zero face. On the positive face its coefficient
+is uniformly nonzero and the target lower bound is y8=1, giving the precise
+six-point image above. This validates the local precision mechanism without
+requiring arbitrary-polynomial guarded domains. However, partitioning increases
+local native operations **173 to 271**, term visits 58 to 88, predicate checks
+46 to 92, and emitted successors 37 to 59 (22 plus 37). Fourteen other baseline
+events absent on the zero face were already restricted to source x8>=1; they
+are not fourteen additional false-edge removals caused by this split.
+
+No native target-union comparison, recursive walk or global work improvement is
+claimed. Other RHS paths can still reach the four excluded witness points.
+The extra partition cost makes a broad splitting rollout unjustified by this
+result alone; another pilot needs a concrete net-work mechanism and a separate
+grant, not merely the smaller image of this one event.
 
 ## What the present geometry already preserves, and what it does not
 
@@ -249,8 +292,56 @@ process-tree RSS guards, not a kernel-enforced address-space limit. This
 resource discrepancy does not turn the observed leaf coverage into a recurrence
 test, nor does it license silently relabeling the original unit receipts.
 
-Review the separately granted physical R0 result next. If symbolic work is large,
-an independently granted comparison of a small, matched concrete input panel
+### Physical R0 result: full scoped coverage, with substantial symbolic work
+
+The separately granted physical arm also passed, in **587.901650 seconds
+inclusive**, using the corrected outer memory envelope. Its evidence is
+`TMP/postlaunch-20261001/five-loop-rank0-v1/receipts/physics/RESULT.json`.
+
+| Measured quantity | Physical R0 arm |
+|---|---:|
+| Required queries admitted and independently certified | 116 / 116 |
+| Required input roots independently verified | 92 / 92 |
+| Queries recorded as absorbed by existing initial roots | 24 |
+| Scheduled symbolic domains | 1,870,662 |
+| Completed native inspections, all cold rechecked | 1,685,449 |
+| Saved dependency edges | 11,101,902 |
+| Native events | 21,530,046 |
+| Native preparation / traversal | 76.524542 s / 221.211886 s |
+| Sampled process-tree peak RSS | 6.839017 GB |
+| Abstract graph nodes lying on cycles | 551,273 |
+
+All four phases have sampled hard/soft ceilings of 150/142.5 GB. All owned groups
+drained; the wrapper and all five recorded native/supervisor child PIDs were
+independently absent. Workers joined, pending and abandoned obligations were
+zero, the final checkpoint is generation 4, and cold-All found no violations,
+errors, frontiers, uncovered obligations or count mismatches. Saved owner and
+request bindings match; pre-cut and joint-support pruning remained off.
+
+The 24 absorbed queries are **not** the independently predicted 35 empty input
+rows: they are different notions. The final aggregate receipt does not expose
+the native per-row empty/nonempty split or maximum reached rank, so neither is
+invented from other counters. The original entry R0 constraint was never imposed
+on descendants. All 116 original required IDs and positive-power/A/D geometry
+were retained under the declared R0 transformation, with no auxiliary starts.
+
+This establishes native scoped successor coverage for this finite R0 query
+union, not the original R>0 production campaign or all positive-power orthants.
+In particular, **551,273 is a count of nodes on abstract graph cycles, not a
+count of SCCs or witnessed concrete IBP cycles**. Cold certification accepts
+sealed finite obligation graphs, including cycles. It is neither a new proof
+of concrete termination nor evidence of physical nontermination. The stale
+live closure sample was again smaller than the cold result; all 1,870,662
+recorded domains were closed by the cold oracle.
+
+Final work counters include 903,632 Route inspections and 15,918,098 successors,
+of which 71,198 were conditional. This does not make the rule-40 zero-face
+mechanism wrong, but a low conditional-event fraction alone neither proves
+that mechanism dominant nor rules out a few expensive conditional cones.
+Counts of symbolic domains and scalar input tuples are different units, and
+the totals do not attribute the work to particular owners or required rows.
+
+An independently granted comparison of a small, matched concrete input panel
 through the existing memoized exact `--targets` evaluator can distinguish symbolic
 overcover/partitioning from concrete transport work. A concrete refusal of a
 reactivated axis is an interface/authority difference, not evidence of a real
@@ -259,7 +350,7 @@ comparison now: a later comparison must use concrete points from the actually
 problematic finite input, with the same input points on both paths. No finite
 enumeration of the entire dotted physics input is implied.
 
-The saved rule-40 zero-face split is the smallest concrete precision falsifier.
+The completed rule-40 zero-face split confirms precision but increases local work.
 A per-domain E experiment needs a separate real E-inflation witness and native
 geometry design. Target-directed Laporta is a larger synthesis change and
 should be gated by a specific harmful transition plus exact source replay.

@@ -51,10 +51,27 @@ October1 supplemental research: assess target-directed Laporta elimination as
 a source of exact shortcut rules at demonstrated expensive transitions, reusing
 the existing shared numerical-case solver and Symbolica arithmetic. A relation
 proved only at fixed indices is not a parametric identity: wider publication
-requires exact symbolic source replay, guards and descent. Investigate resurgence
-separately and distinguish analytic boundary/master-evaluation information from
-algebraic reduction identities; do not assume it supplies missing IBPs. Preserve
-the current focus on symbolic closure rather than numerical master evaluation.
+requires exact symbolic source replay, guards and descent. The user clarified
+that "resurgence" meant dimensional recurrences connecting d and d±2, not
+resurgent analysis. Investigate these as an additional exact relation source,
+including the bubble/subgraph precedent in reference FMFT. Existing fixed-d
+bubble IBPs and epsilon-dependent powers after massless subloop integration
+are distinct mechanisms, not an already implemented native dimension-shift
+service. Preserve the focus on symbolic closure rather than master evaluation.
+
+October1 radical-rule follow-up: pursue exact compositions of saved rules,
+target-directed Laporta elimination and hidden-zero discovery, and dimensional
+recurrences in parallel, with independent mathematical/code critique. Consult
+primary literature and the existing source preconditioner before implementing
+anything already present. Seek a small real four-loop cancellation/shortcut
+witness first, then measure total work on the unchanged combined four-loop
+scope and controlled five-loop pilots. Include extra algebra, exceptional
+branches and preparation in the accounting. A modular zero is only a candidate;
+exact Symbolica arithmetic and the appropriate source identity must justify
+any removed term. Preserve original rules as fallback outside a shortcut's
+proved applicability domain. Changing dimension requires its own typed relation
+and normalization evidence, not an ordinary momentum-routing alias. No live
+campaign, input or frozen executable is modified by these experiments.
 
 ## Delivery and branch consolidation — October1
 

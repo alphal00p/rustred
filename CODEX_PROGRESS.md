@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 20:25 UTC (22:25 Zurich)
+## Current workboard — October 1, 20:48 UTC (22:48 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -21,9 +21,11 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
 | Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected; native guarded-envelope probe prepared/source-reviewed, not run | Resume after the newly requested rank-zero control |
-| Helper-free rank-zero controls | `five_loop_order_runner`; root integrates |67-unit canary cold-PASS/drained; corrected116-query physics arm live, session28054 | Measure recurrence/routing work and cold-check if completed; no descendant clipping |
-| Domain-growth mechanism and authority review | `r_primary_transfer_audit`; root | Census/monitor audits delivered; rank-zero scope census done | Audit pilot and trace genuine shifts versus routing over-approximation and broad helpers |
-| Independent theory/literature critique | `rule_quality_audit` | Helper/correlation critique delivered; Laporta/resurgence follow-up active | Reuse existing kernels; distinguish exact shortcut identities from analytic information |
+| Helper-free rank-zero controls | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Both controls cold-PASS and drained; physical116-query control587.902s inclusive | Delivered; use as a finite five-loop comparison workload, not full numerator coverage |
+| Domain-growth mechanism and dimensional identities | `r_primary_transfer_audit`; root | Physical input/coverage audit delivered; reviewing dimensional-recurrence authority and source options | Critique exact shortcut candidates; do not infer global termination from abstract cycle closure |
+| Selective coefficient-image falsifier | `rule_quality_audit`; independent `r_primary_transfer_audit` | Delivered: exact false-edge removal confirmed, partition adds local work | No broad split implementation or speed claim; reopen only with a net-work mechanism |
+| Exact combinations / hidden zeros / targeted Laporta | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Active research and real4L composition diagnostic design | Reuse Symbolica and existing native provenance; test real cancellations before engine integration |
+| Representative whole-work pilot design | `five_loop_order_runner` | Active source/binary inventory | Existing combined4L and finite5L controls; no production changes or uncoordinated heavy launches |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -38,6 +40,63 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 20:48 UTC — completed R0 control and radical-rule experiment plan
+
+- [M] Physical helper-free R0 control completes in587.901650s inclusive:
+  native preparation76.524542s, traversal221.211886s, and cold-All reinspection
+  266.187304s. The cold checker certifies116/116 query records (92 distinct
+  admitting roots plus24 absorbed); all1,685,449 native inspections are
+  rechecked, with zero errors/frontiers/uncovered obligations. The walk schedules
+  1,870,662 domains and records11,101,902 dependency edges. All four owned
+  phases drain; peak RSS6.839GB, actual150GB/142.5GB hard/soft limits throughout.
+  Runner report and independent receipt audit agree. Evidence:
+  `TMP/postlaunch-20261001/five-loop-rank0-v1/PHYSICS_RESULTS.md` and
+  `receipts/physics/{RESULT,cold-all}.json`.
+- [M/E] This result preserves positive-power bounds and never clips descendants
+  toR0. It does not cover the full physical numerator scope. The input contains
+  7,174,858 sector-labelled tuples and35 empty query intersections; those35
+  are unrelated to the24 absorbed query records. Cold verification reports
+  551,273 nodes on abstract cycles, not that many SCCs or concrete integral
+  cycles. Its sealed-graph coverage check is not a new global termination
+  theorem. Maximum reached rank is unavailable in these compact receipts.
+- [M] Source-partition diagnostic finishes in4.534894s inclusive, native3.781s,
+  with exact historical-baseline identity and zero problems/refusals. In the
+  real4L rule40/piece393 witness, splitting x8=0 versus x8>=1 removes the
+  n8-weighted edge from the zero face and gives the precise6-point nonzero
+  image rather than the baseline10-point envelope. However it increases local
+  native operations173→271, term visits58→88, predicates46→92 and emitted
+  successors37→59. This validates a precision mechanism, NOT a net performance
+  win or a reason to split every rule. Other RHS paths may reach the excluded
+  points. Independent audit passes; no follow-on walk was launched. Evidence:
+  `TMP/postlaunch-20261001/coefficient-face-split-v1/execution-r1/`.
+- [D] Latest user clarification replaces literal resurgence research with
+  dimensional recurrences. Root and independent auditor find genuine G(dp,...)
+  →G(dp-2,...) bubble relations in reference FMFT's drrG. Current RustRed's
+  two-mass bubble test instead uses fixed-d IBPs, and native momentum transport
+  explicitly rejects dimension mismatch. Epsilon-shifted powers from integrating
+  a massless subloop are a third distinct operation. No native dimensional-shift
+  engine is claimed or implemented by this audit.
+- [D] Three parallel lanes now target radical reductions of TOTAL work:
+  exact saved-rule combinations/hidden cancellations and targeted Laporta
+  (`rule_quality_audit`), dimensional-recurrence and authority critique
+  (`r_primary_transfer_audit`), and whole-work pilot/input inventory
+  (`five_loop_order_runner`). Root coordinates resources/integration. Existing
+  source preconditioning, GPLU and finite-case back-substitution already do
+  important elimination work; first identify what they miss before adding a
+  duplicate algorithm. The next small falsifier is a real4L two-step exact
+  composition, with all child guards pulled back and Symbolica doing algebra.
+  No replacement owner publication is permitted merely by this local witness.
+- [D] Candidate register: (1) short exact compositions, expected to skip
+  cancelling intermediates, falsified by no cancellation or greater whole-work
+  cost; (2) target-directed source combinations, useful only if (1) lacks a
+  helpful relation, falsified by unchanged rule/support or unhandled guards;
+  (3) dimensional/subgraph identities, potentially reducing rank/loop work but
+  requiring explicit dimension/normalization provenance, falsified by more
+  auxiliary work or incompatible applicability; (4) operator-level constrained
+  presolve, pending audit against the existing preconditioner. No new general
+  syzygy/CAS kernel, scheduler or master-evaluation work is authorized by these
+  experiments. Small pilot receipts precede any whole4L/5L promotion claim.
 
 ### October 1, 20:13 UTC — fresh closure scan and helper-free R0 controls
 
@@ -130,6 +189,47 @@ release nor input is edited.
   target-directed Laporta is a fallback for a missing useful relation. Literal
   resurgence is not established here as an algebraic closure mechanism.
   No implementation/performance success is claimed for these proposals.
+
+### October 1, 20:34 UTC — physical R0 work and next falsifier
+
+- [M] Previous turn made concrete progress: audited helper/Laporta research,
+  independently cold-verified67-point control, next scoped pilot launched and
+  documentation/goal amendment pushed as `668c73f9`. The broad goal remains active.
+- [M] Root independently confirms physical R0 native4013211 and its owned
+  supervisors live; production1504002 remains separate and untouched. Runner
+  verifies the corrected150GB/142.5GB outer envelope from actual phase receipts.
+  At265s native-run elapsed, the control has1,580,245 discovered domains,
+  1,335,856 native inspections and81,041 pending/reserved; no frontiers/errors.
+  Conservative recursive closure is363,834. The42/92 initial-record count is
+  not42/116 required-query closure; admission reuse/splitting changes record
+  counts, and the final cold query gate is still pending. Peak/current RSS is
+  about6.58GB. These are live, censored observations, not a completed timing.
+- [M/E] Saved checkpoint generation1 records489,632 native inspections,
+  314,506 routed inspections,5,355,436 successors and16,308 conditional ones.
+  Routing is64% of inspections; conditional successors are about0.3% of
+  successor events. Those proportions do not measure CPU cost or prove the
+  cause of growth, but they prevent assuming that coefficient-zero refinement
+  alone will deliver a decisive improvement.
+- [D] `rule_quality_audit` prepares a steering-only native falsifier for the
+  saved four-loop rule40/piece393: source partition x8=0 versus x8>=1, retaining
+  every guard, bound and RHS obligation. Independent audit precedes any launch;
+  the existing heavy-job lock serializes it after physical R0. Use current CLI
+  and owned lifecycle, no Rust build or custom CAS/geometry. Compare full unions
+  and extra partition cost where supported; a local missing event is not a
+  demonstrated global saving. Source audit also examines actual route/order
+  interactions and whether a small concrete dotted-input panel can distinguish
+  genuine recurrence work from symbolic overcover.
+- [M/E] The input census falsifies root's tentative "perhaps only a modest
+  number of dotted R0 tuples" hypothesis:98 exact-D9/D10 rows contain1,185
+  sector-labelled tuples (35 empty rows), while18 nested D>=9 rows retain
+  positive-power caps20–23 and contain7,173,673 tuples. Total7,174,858. The
+  auditor checks nonbinding per-axis uppers and disjoint A intervals for repeated
+  owners before using ordinary positive-composition counting; this is input
+  arithmetic, not native admission or coverage authority. Physical symmetry
+  equivalence is not deduplicated by that count. Millions of abstract nodes
+  alone therefore do not prove an unnecessary blow-up. Keep all18 nested rows;
+  a future exact-D-only diagnostic would be a deliberately narrower test, not
+  a replacement for the requested physical R0 control.
 
 ### October 1, 19:57 UTC — closure-directed selection, first cheap falsifier
 

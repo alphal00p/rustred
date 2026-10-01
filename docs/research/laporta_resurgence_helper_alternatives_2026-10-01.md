@@ -1,8 +1,11 @@
-# Target-directed Laporta identities and resurgence: scoped alternatives
+# Target-directed Laporta identities and dimensional recurrences: scoped alternatives
 
-Date: 2026-10-01. Read-only source/literature assessment at main `df059d8d`.
-No solver, build, campaign, or numerical experiment was run for this note.
-Only this document was written. Proposals below are not implementation grants.
+Date: 2026-10-01. Initial source/literature assessment at main `df059d8d` was
+read-only. A subsequent authorized, frozen-native coefficient-face diagnostic
+is recorded below; it changed no solver or production campaign. Experimental
+proposals are distinguished from measured results. The later user request
+authorizes bounded investigation of radical rule improvements, not deployment
+of an unqualified identity or silent relaxation of the existing proof gates.
 
 ## Recommendation
 
@@ -13,12 +16,13 @@ expansion, new linear-algebra kernel, or declaration that bounded misses are
 masters. A real MissingRule and a valid-but-expensive recurrence are different
 problems; the existing feedback path directly handles only the former.
 
-Literal resurgence is a different avenue: it can determine analytic solutions,
-asymptotic information or master-value boundary data under additional hypotheses.
-The sources reviewed do not supply a drop-in theorem converting that information
-into exact generic five-loop IBP dispatch rules or finite symbolic closure.
-Difference equations and dimensional recurrences are relevant alternatives, but
-must not silently be called resurgence.
+The user subsequently clarified that “resurgence” meant **dimensional recurrence
+relations**, such as shifts by `d±2` or their epsilon equivalents, not literal
+resurgent analysis. That is the intended alternative to investigate. The literal
+resurgence discussion below records the original terminology distinction only;
+it is not a proposed research lane. Dimensional identities may add useful exact
+relations, but neither their existence nor analytic master-value information
+establishes finite symbolic closure for the current dispatcher.
 
 ## Existing machinery: reuse before adding anything
 
@@ -55,6 +59,17 @@ must not silently be called resurgence.
 The existing numerical tests already exercise shared dependency lifting and the
 danger of erasing a direct-hit row before subsequent elimination. Those are
 regressions to retain, not functionality to implement anew.
+
+There are also two existing cancellation layers that must not be proposed as
+new work: [source preconditioning](/common/dev/rustred/crates/rustred-core/src/solver/precondition.rs:111)
+already does polynomial GCD-scaled forward/backward row elimination, with
+[optional original-source provenance](/common/dev/rustred/crates/rustred-core/src/solver/precondition/provenance.rs:48);
+and [applied-rule inspection](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/owners/domains/applied/engine.rs:647)
+already sums equal-shift coefficients and removes native exact zeros. By
+contrast, the [candidate trace contract](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/trace.rs:30)
+explicitly does not back-substitute coefficients across paths. That is a
+distinct seam for a measured, guarded composition experiment, not evidence
+that useful hidden cancellations must exist in this workload.
 
 ## What primary Laporta research adds
 
@@ -96,6 +111,59 @@ That is relevant to the mathematical objective, but its Mathematica/Singular/
 SpaSM implementation is not a small Symbolica-only addition to this codebase.
 Do not start a second CAS stack to test the immediate shortcut hypothesis.
 [Wu et al.](https://arxiv.org/abs/2305.08783)
+
+Smith and Zeng combine syzygy-constrained operators, operator-level row
+reduction, and small partly symbolic target-neighborhood systems. This is
+relevant to controlling unwanted shifts before seeding. RustRed already has
+the row-reduction ingredient above; reproducing it under another name adds
+nothing. What remains unestablished here is a measured advantage from a
+constrained operator basis or a new targeted source combination, including its
+exceptional cases. No second syzygy/CAS engine is proposed.
+[Smith and Zeng, section 3 and appendix A](https://arxiv.org/html/2507.11140v2)
+
+## Measured coefficient-face falsifier and next finite composition diagnostic
+
+The source-reviewed wrapper and independent receipt audit are under
+`TMP/postlaunch-20261001/coefficient-face-split-v1/`. Its
+[result](/common/dev/rustred/TMP/postlaunch-20261001/coefficient-face-split-v1/execution-r1/RESULT.json)
+completed in 4.535 seconds inclusive; the sole native phase took 3.781 seconds,
+with a 150,000,000,000-byte effective hard cap, 93,851,648-byte sampled tree RSS,
+CPU32, and all owned groups drained. No generation, build, walk, or new rule
+publication occurred.
+
+For saved A1 owner481 rule40 / ordered-piece393, the original native query
+report was reproduced exactly. Splitting only the source into `x8=0` and
+`x8>=1` removed the nominated `n8`-weighted successor from the zero face and
+made it uniformly nonzero on the other face, where native target lower axis8
+became 1. All original guards, 44 denominator obligations and RHS terms were
+retained; all three inspections finished with zero problems/refusals.
+
+| Native work | Original | Zero face + positive face |
+| --- | ---: | ---: |
+| Successor events | 37 | 22 + 37 |
+| Conditional successor events | 1 | 0 + 0 |
+| Native operations | 173 | 112 + 159 |
+| Term visits | 58 | 44 + 44 |
+| Predicates | 46 | 46 + 46 |
+
+The other 14 shift/owner groups absent on the zero face already had native
+baseline source lower axis8 equal to 1; they are not newly removed obligations.
+Only the nominated conditional group had the broader source. This confirms
+one loss of coefficient-support information, **not** a global saving: immediate
+work increases, and another RHS term may reach the excluded target points.
+No target-union comparison, complete-program equivalence, closure claim or
+speedup was inferred from these event counts.
+
+The next proposed falsifier is finite and algebraic: select one actual
+same-owner parent/child recurrence pair from the qualified four-loop program,
+use native applicability at fixed integer points, and substitute the child's
+entire RHS into the parent's entire RHS with Symbolica. Count exact zero sums
+at identical final integral keys, coefficient growth, and all retained
+denominator/exception conditions. A reduced local key count is only a witness
+worth investigating; a useful result must later survive the unchanged full
+four-loop cohort and a separately scoped five-loop test. No parametric lift
+or priority change follows from fixed-point success. At this update, that
+composition diagnostic is being prepared, not yet executed.
 
 ## Concrete proposed experiment and falsifiers
 
@@ -183,6 +251,43 @@ duplicated source/context work must be charged and no scaling claim follows.
 
 ## Resurgence, index recurrences and dimension shifts are distinct
 
+### Clarified intent and checked implementation boundary
+
+The requested subject is dimensional recurrence. Do not confuse the fact that
+existing coefficients depend symbolically on `d` with a relation between integrals
+at different dimensions. The present
+[native integral transport compiler](/common/dev/rustred/crates/rustred-core/src/sector/symmetry/integral_transport/compile.rs:44)
+rejects unequal source and target dimensions; its
+[explicit regression](/common/dev/rustred/crates/rustred-core/src/sector/symmetry/integral_transport/tests.rs:603)
+shows that a verified denominator map still does not authorize a `d→d+2`
+integral relation. A dimensional recurrence therefore needs its own exact
+identity/provenance and dimension-labelled obligations; it cannot be installed
+as an ordinary momentum-routing alias.
+
+There is already a
+[two-mass bubble Laporta test](/common/dev/rustred/crates/rustred-feynkit/tests/test_integral_expression.py:43),
+but the tested equation lowers `[2,1]` to the bubble and two tadpoles at the same
+symbolic dimension. That test is not a dimension-shift implementation. The
+reference FMFT implementation **does contain a genuine bubble dimensional
+recurrence**: [its function declarations](/common/dev/rustred/FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/fmft/fmft.frm:142)
+explicitly make the first argument of `G(dp,...)` a dimension shift, and
+[the `drrG` procedure](/common/dev/rustred/FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/fmft/fmft.frm:527)
+replaces positive-`dp` terms by `G(dp-2,...)` and, in its second case, tadpole
+`T1(dp-2,...)` terms. Its coefficients contain `d+dp`; case restrictions and
+denominators are explicit. This supports the user's recollection, but is
+reference FORM code, not an already installed RustRed dimensional dispatcher.
+
+The separate [epsilon-power derivation](/common/dev/rustred/EPSILON.md:160)
+integrates a massless bubble to a Gamma prefactor times a remaining propagator
+with an epsilon-dependent exponent. That lowers loop count without itself
+changing the ambient dimension of the remaining integral. It is distinct both
+from the fixed-d bubble IBP test and from FMFT's `dp` recurrence; a fully massive
+bubble cannot generally be replaced by that simple massless formula. For
+`d=4-2*epsilon`, a shift `d→d±2` changes epsilon by `∓1`, not by an infinitesimal
+expansion step. Any proposal must retain dimension labels, normalizations,
+case restrictions, denominator obligations and all shifted RHS terms. No new
+dimension-shift kernel or pilot is proposed here.
+
 **Literal resurgence.** The rigorous output can concern Borel summability,
 analytic continuation, Stokes data and selection of a physical solution among
 formal solutions. Clavier proves Borel-Ecalle summability for a specific
@@ -222,8 +327,9 @@ Lee's dimensional-recurrence-and-analyticity method uses analytic information to
 fix periodic-function ambiguities of the difference equation, sometimes leaving
 constants to determine separately. It is a strong master-evaluation route, not
 a proof that local recurrence identities alone uniquely determine the integral.
-Treat this as a separate longer-term proposal if the intended request was
-recurrences rather than literal resurgence.
+This is the dimensional-recurrence subject clarified by the user. Its analytic
+solution machinery and a new exact identity source for reduction remain
+separate implementation questions.
 [Lee](https://arxiv.org/html/0911.0252v2)
 
 Finally, a finite master dimension is not a termination or runtime theorem for
