@@ -84,6 +84,62 @@ input and result receipts are under
 
 ## Implications for the optimization plan
 
+A subsequent isolated neighborhood screen varied only the two inactive
+coordinates: `x[1]=a` for0..12 and `x[10]=b` for0..2, retaining every other
+coordinate of the frontier. Each of these39 singleton queries used its actual
+rank `a+b`, positive-power sum7 and exact difference `7-a-b`. It completed in
+3.033671s inclusive with26 selected rules,10 explicit terminals, three exact
+gaps and no unresolved predicate or error. No RHS was traversed.
+
+| Tested slice | Observed saved-rule classification |
+| --- | --- |
+| b=1, a=0 | Selected rule480 |
+| b=1, a=1..9 | Explicit terminals, ranks2..10 |
+| b=1, a=10..12 | Exact gaps, ranks11..13 |
+| b=0 or b=2 | Rules except the a=b=0 terminal; includes a covered rank14 point |
+
+This strengthens the rank-truncated exceptional-slice hypothesis. It does not
+prove an infinite residual ray, a missing IBP, required-query ancestry, or that
+extending the terminal table is the correct repair. In particular, rank>10 is
+not a global dispatch cutoff: neighboring points beyond it have valid saved
+rules. The run and inputs are in the same local evidence directory under
+`rank-neighborhood/`; independent review accepted its inputs, interpretation and
+process drainage.
+
+### The neighboring recurrence's exact exceptional condition
+
+A separate existing-CLI `owner-guarded-apply` diagnostic tested the three
+neighboring rules184,261 and480 at the original frontier point. It completed
+in3.004859s inclusive, with all three inspections complete and no errors.
+Rule261 and rule480 returned `EmptyFixedFace`. Rule184 reported the excluded
+conjunction consisting of `F=0` and `n0=0`, where
+
+```text
+F = 1+n12+n10-n1-n1*n12-n1*n10
+    +4*n0+2*n0*n12+2*n0*n10+2*n0*n1.
+```
+
+Here `n0`, `n1`, etc. are zero-based **physical integral indices**, not the
+nonnegative local coordinates `x`. On the tested slice `n0=n12=0`, this becomes
+`F=(1+n10)(1-n1)`. At `x[10]=1`, hence `n10=-1`, both members of the excluded
+conjunction vanish for every `n1`. The displayed denominator of the rule is
+`-F+2*d*n0`, which also vanishes identically on this slice, not just at a special
+dimension. Applying this generic recurrence by dividing by that denominator is
+therefore not a legitimate repair.
+
+This gives a concrete guard-level explanation for one adjacent rule's failure,
+alongside the complete saved-rule classification above. It does not show that
+no different IBP can reduce this case, that the slice is reached by a required
+physical input, or that every point of an infinite ray is uncovered. Retained
+diagnostic residuals alone are not asserted to be nonempty or disjoint; the
+point classification and explicit substitution establish the statement here.
+
+The unchanged owner was loaded once, with no production graph restore, source
+generation or successor walk. Inputs, exact guard output and guarded process
+receipt are under `guarded-neighbors/` beside the earlier probes. Independent
+review accepted the interpretation and confirmed both additional native process
+groups drained. No terminal or owner was added.
+
 1. Investigate actual missing point/face support using existing directed
    `SectorSolver::solve_domains_with_observer` or isolated-case search. Do not
    regenerate every owner merely to diagnose one point. Partial-domain output

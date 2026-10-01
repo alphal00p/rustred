@@ -38,6 +38,52 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Frontier exception identified; independent audit accepted, October1:**
+  root's three-rule guarded probe completed3.004859s inclusive with no errors,
+  no production writes and all process groups drained. Neighbor rule184 excludes
+  the joint zeros of F and n0; on physical n0=n12=0, F=(1+n10)(1−n1), hence
+  n10=−1 makes both zero. Its displayed denominator is −F+2*d*n0 and is likewise
+  zero on the slice. Neighbor261/480 have EmptyFixedFace. This is a real excluded
+  guard for the neighboring recurrence, not an Epoch scheduling error, a proof
+  of required ancestry or permission to add a master. The independent auditor
+  also accepted the39-point screen and its rank-truncated exceptional-slice
+  interpretation; explicit saved terminals do not prove master independence.
+  Evidence:`production-frontier-20261001/guarded-neighbors/{bound,queries,result,
+  receipt}.json`; report:`docs/research/five_loop_a1_frontier_2026-10-01.md`.
+  Next repair must use an independently derived relation on the exceptional
+  case or exact incoming-support evidence; never divide through this zero or
+  impose the original entry-rank bound on descendants. The core/app portfolio
+  implementations continue in separate agents and remain uncompiled.
+- [M/D] **Exceptional-slice neighborhood; source implementation active,06:58UTC:**
+  in response to the user's frontier question, root ran39 isolated fixed-point
+  classifications around the known point, with only inactive x[1]=0..12 and
+  x[10]=0..2 varying. Actual rank and exact A−R bounds were used for every point.
+  Same saved owner/new frozen CLI, CPU32/one worker, no successors/generation/
+  graph restore or production writes. Completed3.034s inclusive, all native
+  groups drained:26 selected rules,10 explicit terminals,3 ExactGap,0 unresolved
+  predicates/errors. For x[10]=1, x[1]=1..9 are stored terminals (R2..10),
+  while x[1]=10..12 are gaps (R11..13). Other nearby slices have rules through
+  testedR14. This narrows the hypothesis to a rank-truncated exceptional finite
+  slice, not a blanket inability to dispatch higher rank. No required-ancestry,
+  parametric-ray proof or new terminal declaration follows. Evidence:
+  `production-frontier-20261001/rank-neighborhood/`; independent audit requested.
+- [D] **Bounded portfolio implementation granted:** runtime owns core solver
+  policy/search/selection and bounded existing dependency tracing; S5 owns the
+  version2 discovery descriptor, native adapter and Python/CLI/persistence
+  integration. Independent auditor accepted the concrete design with explicit
+  safeguards. Original FirstValid/default path stays unchanged; enabled baseline
+  failures remain fatal; optional trials share one source basis/order/backend,
+  have deterministic row/depth/trace caps and a configurable structural trigger.
+  Only fully admitted exact rules compete; original-order exceptional children
+  are retained and enqueued only for the winner. Losing/refused work is charged,
+  broken descent/replay/algebra is never silently swallowed, and all winner-
+  affecting controls are generation-identity-bound. Source edits are underway,
+  NOT compiled/tested or recommended. No new CAS primitive is planned. Mechanism:
+  reduce downstream branching/rank excursions; falsifier: matched generation+
+  walk+cold cost outweighs work reduction or any authority gate changes. Fully
+  fixed numerical cases bypass this symbolic selection seam, so it is not itself
+  a repair of the committed singleton. Directed-case/publication work remains
+  separate. Full proposal: `production-frontier-20261001/CORE_PORTFOLIO_DESIGN.md`.
 - [M/D] **Both diagnostics independently accepted,06:42UTC:** the duplicate
   census finished in1,285.140s inclusive with clean generation2 save and
   structural cold-None INCOMPLETE/zero violations, no native reinspection.
