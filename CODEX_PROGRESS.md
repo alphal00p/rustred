@@ -38,6 +38,61 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Resumed pair accepted; one diagnostic running,06:17UTC:** S5
+  completed candidate in1284.921s inclusive with clean generation2 save and
+  cold-None INCOMPLETE/zero violations. All five candidate groups drained,
+  locks released and original source controls unchanged. Independent paired
+  audit accepted source/row−37.2165%, P2/row−25.2003%, native delta+5.9571%
+  (recorded-traversal throughput+5.9891%), added pending+3.9607%, CPU+4.7581%
+  and CPU/new-native−1.1316%. Mean native cores5.10→5.34; inclusive+1.2236%
+  chiefly from15.21s more cold work. Both graphs have13 oracle-closed roots,
+  zero independently native-verified roots.10% screen unmet; no switch/closure
+  or20-core claim. Tracked report/plan now include the full paired table.
+  Root granted only the already-reviewed cross-entry diagnostic to runtime
+  after drainage: outer2552345/supervisor2553288/native2553289 launched on
+  CPU0–31 with native profile1/cold0 and unchanged900/1800s limits, original
+  common checkpoint and full scope. It owns the heavy slot through cold/drain;
+  no extra run/repeat/build or production action. S5 finishes comparison prose.
+- [M] **Resumed candidate saved; cold pending,06:09UTC:** S5 reports clean
+  generation2 with+2,896,522 native inspections versus baseline+2,733,674
+  (~5.96% more). Root inspected emitted invocation-local source111.311s/P2
+ 197.125s over102,925,410 rows, versus162.485/241.526s over94,328,650 rows.
+  Preparation64.991s/runtime restore100.583s closely match the baseline;
+  traversal838.682s still includes restore/save overhead. P1, inspect/wait and
+  P3 costs rise alongside additional work, so the source gain is not the total
+  speedup. Pending delta1,495,933 versus1,438,941; final cold, CPU and drainage
+  remain pending. Independent paired-result review is assigned; no repeat,
+  diagnostic execution or production change granted yet.
+- [M] **Scheduled read-only observation,06:00UTC:** native3741792 confirmed
+  live; repaired A1 has48,525,616 local inspections/13,720,492 pending,
+  zero frontiers and72.81GB sampled tree RSS. CP6 generation7 is saved/resumable
+  without warnings.13/67 roots and10,767,992 closed domains are1204s old,
+  not fresh closure counts. Mean registered CPU3.29 cores, last-hour pending
+  growth+0.0859/completion; no ETA. LC2 native360092 is independently live at
+ 108,898,513 local inspections/70,835,765 pending/106.03GB, zero frontiers and
+  checkpoint17 saved. Candidate2218744 is live separately at7m29s. Both
+  production campaigns remain untouched; next ordinary observation06:30UTC.
+- [M/D] **Diagnostic adapter ready,05:59UTC:** runtime delivered the small
+  ignored `stale-negative-prefix/cross-entry-diagnostic/` derivative; root
+  independently reran14 pure/mock tests (PASS0.013s). Independent source audit
+  accepted frozen runner0cea449a/planb462a248 with no corrections. Full original
+  generation1/input scope, phase ownership and budgets are preserved. Profile1
+  reaches native at launch, while copy/cold use0 and restore the prior environment.
+  Missing/zero-sample output cannot count as measured zero repetition; prefixes,
+  censoring and three contexts stay explicit and non-authoritative. No native
+  run, checkpoint copy or new Rust build was performed. Execution remains
+  ungranted pending completion and interpretation of the profile-off candidate.
+- [M/D] **Candidate live; prebuilt diagnostic preparation active,05:53UTC:**
+  root confirmed outer2218377/supervisor2218743/native2218744 alive, candidate
+  preparing normally after its0.537s private copy. S5 retains the sole heavy
+  reservation through cold/drain. Runtime now owns a minimal ignored adapter
+  for a later exact cross-entry census using the existing frozen2cd observer;
+  final-requirements agent independently reviews it. Preserve the original
+  local checkpoint, full scope and budgets; native profile1/cold profile0 must
+  be explicit. Only Python/metadata/pure-test preparation is authorized, not a
+  diagnostic run, engine change, rebuild or production action. Existing matched
+  comparison files remain immutable. Prior turn was progress: resumed baseline
+  accepted and measured, candidate launched, findings pushed as53dbeb9f.
 - [D] **Paired resumed candidate granted,05:51UTC:** independent baseline
   review accepted all timer/delta/scope/cold boundaries. Root granted S5 only
   `new-r1`, using an independent copy of the original common generation1,
@@ -1667,7 +1722,7 @@ the same experiment after a handoff.
 | Source-weight reconstruction for the observed exact tail | deferred pending exact-case capture | Existing implementation, not a new CAS project. Earlier completed comparisons lost; new two-variable large frame is a distinct hypothesis. Need a precisely replayable completed-case/frame and matched full-cost comparison. |
 | P1 repeated exact-union evaluation | delivered source/native; combined optimized4L neutral | Private one-use local witness removes duplicate same-input evaluation;9 focused tests pass. Combined P1/compact four-loop cold-All passes, no decisive timing benefit; first full-input5L pair now granted. No relaxed cold/replay check. |
 | P2 preparation helpers | delivered negative deployment screen | h0/h2 both cold-structural valid; h2 gives3.13% more native work,4.64% more pending and5.27% more native CPU. P2 saves16.27%, but10% useful-work gate fails. No switch or sweep; reopening requires materially different measured workload/cost evidence. |
-| Cross-entry exact-image repetition | delivered observation; production measurement pending | Bounded optional census source-audited,8 focused and full native suite PASS. No cache/reuse authority; prefix truncation can hide repeats. Not enabled in user production. |
+| Cross-entry exact-image repetition | single reviewed diagnostic running; frequency unmeasured | Runtime owns the exclusive heavy slot after the matched pair drained; frozen2cd/profile1, original localCP6/full scope/900–1800s limits.14 pure/mock adapter tests and independent review PASS. Existing observer's8 focused and full native suites PASS. No cache/reuse authority; prefix truncation can hide repeats. Production remains unchanged. |
 | Compact P2 source-row transport | source/native and optimized4L cold-All PASS; timing neutral | Actual compact tag16B; resolver/ordered fold unchanged. Combined package4L primary−1.23% median but pairs disagree, source−1.57%; no demonstrated whole-run speed/memory gain. First full-input5L pair granted; candidate-heavy blocks remain a falsifier. |
 | Inspector containment-token transport | deferred after feasibility audit | Possible with stronger private process-local bindings, but crosses bytes-only pool/escrow and snapshot lifecycle. No lazy-summary bypass; reopen only after the Stored validation cost is isolated and a full boundary/cancellation design is justified. |
 | Repeated local P2 image digest | deferred pending current optimized comparison | Frozen23d/N15 disassembly confirms both calls survive, but the live sample emphasizes lookup instead. Reuse only locally checked values with identical error order if subsequent evidence justifies it; no new trusted-digest API or CAS primitive. |

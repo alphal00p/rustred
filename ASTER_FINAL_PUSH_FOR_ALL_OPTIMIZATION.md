@@ -51,6 +51,13 @@ performance-neutral. One full-input bounded five-loop pair reduced source
 cost per accepted row17.29% and P2 cost per row11.15%, but native throughput
 rose only about2.7% with2.31% more pending work; this misses its10% screening
 threshold and does not establish faster closure or a deployment win.
+The subsequent same-start local-checkpoint pair reduced source cost/row37.22%
+and P2/row25.20%; native throughput rose about6%, CPU rose4.76%, and added pending
+rose3.96%. Both saved and passed structural cold checks, not native reinspection
+or closure. Activity remained around five cores, below the utilization target;
+the10% useful-work screen remains unmet. A separately reviewed prebuilt
+duplicate-query diagnostic is now running to measure another possible source
+of redundant merge work without recompilation or production changes.
 Read-only mature production phase clocks now attribute87.7% of one ten-minute
 window to validation/preparation/publication, without identifying the precise
 P2 subphase or predicting any speedup. None of these results closes the Ready/Epoch four-loop

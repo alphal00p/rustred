@@ -1,13 +1,16 @@
 # Reusing stale snapshot-negative lookup prefixes
 
-Status, 2026-10-01 05:21 UTC: isolated implementation `c51926be` was integrated
+Status, 2026-10-01 06:16 UTC: isolated implementation `c51926be` was integrated
 as `f328844f` after independent source review. Native correctness passed:
 1,326 unique application/CLI tests, including the ten new targeted tests;
-12 pre-existing ignored tests remain ignored. No measured speedup or
-production change. The optimized four-loop ABBA passed correctness and was
+12 pre-existing ignored tests remain ignored. No qualified whole-campaign
+speedup or production change. The optimized four-loop ABBA passed correctness and was
 performance-neutral. One full-input bounded five-loop pair reduced source time
 per accepted row by 17.29%, but native throughput improved only about 2.7%:
 this is a local cost improvement, not a qualified campaign switch or closure.
+The local same-start continuation pair also passed structural cold checking:
+source cost/row fell 37.22%, but native throughput rose only about 6%, still
+below the screening threshold. Production remains untouched.
 
 ## Why investigate this
 
@@ -260,36 +263,63 @@ or reserved domains. Inputs, worker budget and policy match the fresh pair.
 Each arm includes copying, restoration, traversal, saving and structural cold
 checking within its 30-minute ceiling; the cooperative stop is at 900 seconds.
 
-The baseline completed in 1,269.389 seconds on October 1. This establishes
-that the chosen checkpoint can be resumed productively within the pilot
-budget, rather than inferring restore time from cold verification:
+Both arms completed on October 1, establishing actual productive continuation
+within the pilot budget. Baseline is `0f2536a7`, candidate is `2cd97ff7`:
 
-| Baseline component or outcome | Measured value |
-|---|---:|
-| Private checkpoint copy | 0.528 s |
-| Native process through drainage | 911.115 s |
-| Owner/routing preparation | 64.880 s |
-| Runtime restore phase | 100.758 s |
-| Checkpoint phase | 5.764 s |
-| Structural cold checking | 354.314 s |
-| Additional native inspections | 2,733,674 |
-| Additional committed domains | 3,959,308 |
-| Additional scheduled domains | 5,398,249 |
-| Additional pending/reserved domains | 1,438,941 |
+| Component or outcome | Baseline | Candidate |
+|---|---:|---:|
+| Whole arm, inclusive | 1,269.389 s | 1,284.921 s |
+| Private checkpoint copy | 0.528 s | 0.537 s |
+| Native process through drainage | 911.115 s | 911.413 s |
+| Owner/routing preparation | 64.880 s | 64.991 s |
+| Runtime restore phase | 100.758 s | 100.583 s |
+| Recorded traversal, restore/save included | 838.935 s | 838.682 s |
+| Checkpoint phase | 5.764 s | 5.583 s |
+| Structural cold checking | 354.314 s | 369.527 s |
+| Additional native inspections | 2,733,674 | 2,896,522 |
+| Additional committed domains | 3,959,308 | 4,214,789 |
+| Additional scheduled domains | 5,398,249 | 5,710,722 |
+| Additional pending/reserved domains | 1,438,941 | 1,495,933 |
+| Invocation-local P2 rows | 94,328,650 | 102,925,410 |
+| P2 wall time | 241.526 s | 197.125 s |
+| P2 source resolution | 162.485 s | 111.311 s |
+| Supervised native-tree CPU | 4,636.52 CPU s | 4,857.13 CPU s |
+| Mean sampled native cores | 5.10 | 5.34 |
+| Supervisor-reported sampled tree peak RSS | 18.174 GB | 18.488 GB |
 
 Native phases are nested within the native process time, not additive to it.
 Recorded `traversal_seconds` includes restore/reconstruction/save/report and
-is not a useful-walking-only timer. Invocation-local P2 prepared 94,328,650
-rows in 241.526 seconds, including 162.485 seconds of source resolution.
+is not a useful-walking-only timer. CPU excludes the outer adapter and cold
+checking. These are timed continuations, not completed five-loop workloads.
 
-The baseline saved a new resumable generation 2, with no errors, frontiers
-or abandoned obligations. Structural cold-None returned INCOMPLETE with zero
-violations, not native reinspection or closure. All owned processes drained;
-the original local checkpoint controls remained unchanged. The candidate is
-not yet measured, so this is resume feasibility, not a comparative speedup.
-Equal starting checkpoints also do not imply identical stopping graph prefixes.
+Source cost/row falls from 1,722.55 to 1,081.47 ns (**−37.22%**); P2/row
+falls from 2,560.47 to 1,915.22 ns (**−25.20%**). This is a stronger local
+signal than the fresh-start pair, consistent with avoiding more stale prefix
+work. It is not an isolated causal measurement: the two stopping prefixes
+and their row/work mixes differ despite the identical initial checkpoint.
 
-Evidence: `TMP/postlaunch-20260930/stale-negative-prefix/performance/resume/`.
+Additional native inspections rise **5.96%**, or **5.99%** per recorded
+traversal second (5.92% per native-through-drain second). Added pending rises
+3.96%, and CPU rises 4.76%; CPU per new inspection falls about 1.13%.
+Pending added per new inspection falls about 1.88%. The raw source phase saves
+51.17 seconds and P2 saves 44.40 seconds, while P1, inspection/wait, P3 and
+boundary time increase with the changed work. Mean activity remains about
+five cores, not twenty. The whole arm is 1.22% longer, chiefly because cold
+checking takes 15.21 seconds more. This does not pass the 10% useful-work
+screen or establish faster eventual closure. No production switch is advised.
+
+Both arms save resumable generation 2, with no errors, frontiers or abandoned
+obligations. Structural cold-None returns INCOMPLETE with zero violations and
+zero native reinspections. Both graphs report 13/67 oracle-closed starting
+roots, not independently native-verified roots or complete scoped closure.
+All owned processes drained and the original local checkpoint controls remained
+unchanged. Independent review accepted the arithmetic, lifecycle and these
+limits. Foreign-CPU contention was not independently measured; minimum sampled
+host availability was 585.63/592.00 GB. This is one pair, not a repeated result.
+
+Full table, formulas, raw receipts and process-drain evidence:
+`TMP/postlaunch-20260930/stale-negative-prefix/performance/resume/PAIR_RESULTS.{md,json}`
+and `PAIR_DRAIN.json` in the same directory.
 
 ### Mature production feedback
 
@@ -389,6 +419,27 @@ native run, build or production mutation was performed for these inquiries.
 Local reports: `SOURCE_WAVE_GRANULARITY_INTERPRETATION.md` and
 `NATIVE_POSITIVE_PROOF_REUSE_EVIDENCE.md` under
 `TMP/postlaunch-20260930/stale-negative-prefix/`.
+
+The existing frozen candidate already contains a bounded exact cross-entry
+query census, enabled by `RUSTRED_EPOCH_PROFILE=1`; no rebuild is needed.
+This is a distinct, still-unmeasured lane: the completed comparison arms kept
+profiling off, so omitted census output does not mean zero duplication.
+A separate local-checkpoint diagnostic adapter passed independent review and
+14 pure/mock tests, and its single diagnostic run is now underway. No duplicate
+frequency result is available yet. It preserves
+the full input and resource policy, enables profiling only for native traversal,
+and keeps structural cold checking unprofiled. Profiling enables additional
+inspection/wait diagnostics too, so it is not an isolated observer-overhead test.
+
+The census samples global epoch versions below eight or divisible by 64, with
+bounded source-order prefixes (16,384 rows, 262,144 exact comparisons, 8 MiB
+vector capacity per selected cut). Counts distinguish stored proposals,
+current-view misses and stale/unprobed misses, with geometry and same-context
+repeats reported separately. Truncation can conceal later repeats; neither
+counts nor matching context confer reusable proof authority or demonstrate
+saved time. The diagnostic is therefore a way to test an opportunity, not
+approval for a broad lookup cache. Details and the reviewed command are in
+`TMP/postlaunch-20260930/stale-negative-prefix/cross-entry-diagnostic/README.md`.
 
 ## Source and evidence pointers
 
