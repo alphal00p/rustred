@@ -87,6 +87,19 @@ class DiscoveryStrategyTests(unittest.TestCase):
         alternate["priorities"][0]["feature"]["weights"][0] = 7
         self.assertEqual(recipe["alternatives"][0]["priorities"][0]["feature"]["weights"], [1, 0])
 
+    def test_total_positive_excursion_is_a_named_runtime_quality_and_trigger(self):
+        name = "total-positive-shift-excursion"
+        recipe = rule_portfolio(alternatives=["input-order"],
+            quality=["max-numerator-shift-excursion", name, "total-numerator-shift-excursion"],
+            max_depth=0, max_rows=10, max_exact_trace_rows=10, max_exact_trace_terms=100,
+            trigger={"kind": "any-at-least", "thresholds": [{"feature": name, "minimum": 2}]})
+        descriptor = json.loads(discovery_strategy(rule_selection=recipe))
+        self.assertEqual(descriptor["rule_selection"], recipe)
+        self.assertEqual(recipe["quality"][1], {"feature": name, "descending": False})
+        with self.assertRaises(ValueError):
+            rule_portfolio(alternatives=["input-order"], quality=[name + "-unknown"],
+                max_depth=0, max_rows=10, max_exact_trace_rows=10, max_exact_trace_terms=100)
+
 
 if __name__ == "__main__":
     unittest.main()

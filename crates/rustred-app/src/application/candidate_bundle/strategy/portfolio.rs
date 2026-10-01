@@ -57,6 +57,7 @@ pub enum CandidateRuleQualityFeature {
     CoefficientMonomials,
     SourceRows,
     SearchRows,
+    TotalPositiveShiftExcursion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +185,7 @@ impl CandidateRuleQualityFeature {
             Self::CoefficientMonomials => RuleQualityFeature::CoefficientMonomials,
             Self::SourceRows => RuleQualityFeature::SourceRows,
             Self::SearchRows => RuleQualityFeature::SearchRows,
+            Self::TotalPositiveShiftExcursion => RuleQualityFeature::TotalPositiveShiftExcursion,
         }
     }
 }
@@ -239,6 +241,40 @@ mod tests {
             matches!(trigger, RulePortfolioTrigger::AnyAtLeast(ref values) if values.len() == 1 && values[0].minimum == 3)
         );
         assert!(matches!(quality[0].feature, RuleQualityFeature::RhsTerms));
+    }
+
+    #[test]
+    fn portfolio_total_positive_roundtrips_and_projects_quality_and_trigger() {
+        let mut encoded = serde_json::to_value(descriptor()).unwrap();
+        encoded["rule_selection"]["quality"][0]["feature"] =
+            "total-positive-shift-excursion".into();
+        encoded["rule_selection"]["trigger"]["thresholds"][0]["feature"] =
+            "total-positive-shift-excursion".into();
+        let value = CandidateDiscoveryStrategy::from_json(&encoded.to_string()).unwrap();
+        value.validate(2, &[vec![true, true]], 100).unwrap();
+        assert_eq!(serde_json::to_value(&value).unwrap(), encoded);
+        assert_eq!(
+            toml::from_str::<CandidateDiscoveryStrategy>(&toml::to_string(&value).unwrap())
+                .unwrap(),
+            value
+        );
+        let RuleSelectionPolicy::BoundedPortfolio {
+            quality, trigger, ..
+        } = value.rule_selection_for(&[true, true]).unwrap()
+        else {
+            panic!("missing opt-in")
+        };
+        assert_eq!(
+            quality[0].feature,
+            RuleQualityFeature::TotalPositiveShiftExcursion
+        );
+        assert!(
+            matches!(trigger, RulePortfolioTrigger::AnyAtLeast(ref values)
+            if values[0].feature == RuleQualityFeature::TotalPositiveShiftExcursion)
+        );
+        encoded["rule_selection"]["quality"][0]["feature"] =
+            "total-positive-shift-excursion-unknown".into();
+        assert!(CandidateDiscoveryStrategy::from_json(&encoded.to_string()).is_err());
     }
 
     #[test]

@@ -42,6 +42,10 @@ pub enum RuleQualityFeature {
     CoefficientMonomials,
     SourceRows,
     SearchRows,
+    /// Sum of per-RHS-term active-axis positive displacement proxies.
+    /// Unlike the maximum, this distinguishes repeated active-power increases
+    /// across children. It is neither net descent nor a physical power bound.
+    TotalPositiveShiftExcursion,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

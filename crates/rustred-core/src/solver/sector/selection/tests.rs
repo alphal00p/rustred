@@ -522,6 +522,130 @@ fn bounded_rule_portfolio_fixed_and_symbolic_excursions_use_actual_target_and_ax
     assert!(quality::excursion(p(true, 0), p(false, 0), true).is_err());
 }
 
+fn quality_candidate<const N: usize>(target: Integral<N>, rhs: Vec<Integral<N>>) -> Admitted<N> {
+    let context = CoefficientContext::new(["n"]);
+    Admitted {
+        rule: SectorRule {
+            candidate: RuleCandidate {
+                case: Case::generic(),
+                target,
+                rhs: rhs
+                    .into_iter()
+                    .map(|integral| Term {
+                        integral,
+                        coefficient: context.one(),
+                    })
+                    .collect(),
+                sources: Vec::new(),
+                stats: SearchStats::default(),
+            },
+            exceptions: ExceptionalConditions {
+                branches: Vec::new(),
+            },
+        },
+        children: Vec::new(),
+        discarded: 0,
+        features: Features::default(),
+    }
+}
+
+#[test]
+fn bounded_rule_portfolio_total_positive_distinguishes_repeated_symbolic_increases() {
+    let target = Integral::symbolic([2, -3, 5]).unwrap();
+    let repeated = quality_candidate(
+        target,
+        vec![
+            Integral::symbolic([3, -3, -9]).unwrap(),
+            Integral::symbolic([2, -2, 9]).unwrap(),
+            Integral::symbolic([1, -3, 5]).unwrap(),
+        ],
+    );
+    let once = quality_candidate(
+        target,
+        vec![
+            Integral::symbolic([3, -3, -9]).unwrap(),
+            Integral::symbolic([1, -3, 9]).unwrap(),
+            Integral::symbolic([2, -3, 5]).unwrap(),
+        ],
+    );
+    let active = [true, true, false];
+    let a = Features::read(&repeated, &active).unwrap();
+    let b = Features::read(&once, &active).unwrap();
+    assert_eq!(a.get(RuleQualityFeature::MaxPositiveShiftExcursion), 1);
+    assert_eq!(b.get(RuleQualityFeature::MaxPositiveShiftExcursion), 1);
+    assert_eq!(a.get(RuleQualityFeature::TotalPositiveShiftExcursion), 2);
+    assert_eq!(b.get(RuleQualityFeature::TotalPositiveShiftExcursion), 1);
+    assert_eq!(
+        b.compare(
+            &a,
+            &[RuleQualityPriority {
+                feature: RuleQualityFeature::TotalPositiveShiftExcursion,
+                descending: false,
+            }],
+        ),
+        Ordering::Less
+    );
+    assert_eq!(
+        Features::read(&repeated, &[false; 3])
+            .unwrap()
+            .get(RuleQualityFeature::TotalPositiveShiftExcursion),
+        0,
+        "inactive displacements never contribute"
+    );
+    assert_eq!(
+        Features::read(&repeated, &[true; 3])
+            .unwrap()
+            .get(RuleQualityFeature::TotalPositiveShiftExcursion),
+        6,
+        "all active axes contribute relative to the target, not zero"
+    );
+}
+
+#[test]
+fn bounded_rule_portfolio_total_positive_fixed_powers_use_positive_degree_difference() {
+    let candidate = quality_candidate(
+        Integral::numeric([2, -2, 5]).unwrap(),
+        vec![
+            Integral::numeric([-1, 1, 6]).unwrap(),
+            Integral::numeric([4, -4, -1]).unwrap(),
+        ],
+    );
+    let features = Features::read(&candidate, &[true, true, false]).unwrap();
+    assert_eq!(
+        features.get(RuleQualityFeature::MaxPositiveShiftExcursion),
+        2
+    );
+    assert_eq!(
+        features.get(RuleQualityFeature::TotalPositiveShiftExcursion),
+        3
+    );
+    // -2 -> 1 creates one positive degree, not three; 2 -> 4 adds two,
+    // not four. This score test is not a claim that the fixture is a rule.
+}
+
+#[test]
+fn bounded_rule_portfolio_total_positive_exact_tie_retains_baseline() {
+    let system = system();
+    let mut policy = policy();
+    let RuleSelectionPolicy::BoundedPortfolio { quality, .. } = &mut policy else {
+        unreachable!()
+    };
+    *quality = vec![RuleQualityPriority {
+        feature: RuleQualityFeature::TotalPositiveShiftExcursion,
+        descending: false,
+    }];
+    let (selected, stats, _) = select(&solver(&system, policy));
+    assert_eq!(selected.rule.candidate.sources[0].basis_row, 0);
+    assert_eq!(selected.rule.candidate.rhs.len(), 2);
+    assert_eq!(
+        selected
+            .features
+            .get(RuleQualityFeature::TotalPositiveShiftExcursion),
+        0
+    );
+    assert_eq!(stats.rule_selection.unwrap().selected_alternatives, 0);
+}
+
 #[test]
 fn bounded_rule_portfolio_unpruned_children_and_guard_priorities_remain_distinct_from_rhs() {
     let context = CoefficientContext::new(["n"]);

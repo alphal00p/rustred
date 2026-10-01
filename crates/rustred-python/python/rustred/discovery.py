@@ -59,7 +59,7 @@ _QUALITY_FEATURES = frozenset({
     "max-numerator-shift-excursion", "total-numerator-shift-excursion",
     "max-positive-shift-excursion", "exceptional-cases", "affine-exceptional-cases",
     "guard-branches", "guard-predicates", "rhs-terms", "coefficient-monomials",
-    "source-rows", "search-rows",
+    "source-rows", "search-rows", "total-positive-shift-excursion",
 })
 
 

@@ -37,6 +37,10 @@ impl Features {
                 .get(RuleQualityFeature::MaxPositiveShiftExcursion)
                 .max(positive);
             add(
+                &mut values.0[RuleQualityFeature::TotalPositiveShiftExcursion as usize],
+                positive,
+            )?;
+            add(
                 &mut values.0[RuleQualityFeature::CoefficientMonomials as usize],
                 count(term.coefficient.numerator.nterms())?,
             )?;

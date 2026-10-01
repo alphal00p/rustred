@@ -161,9 +161,16 @@ exposes the same control as `SectorConfig::rule_selection` with
 row features or validated materialized row-order plans. Neither interface
 changes the mathematical integral comparator during a solve.
 
-Quality keys also include total numerator-shift excursion, positive-shift
-excursion, affine exceptional cases, guard branches, source rows and search
-rows. Keys are lexicographic; ascending is the default, while an explicit
+Quality keys also include total numerator-shift excursion, maximum and total
+positive-shift excursion, affine exceptional cases, guard branches, source rows
+and search rows. `total-positive-shift-excursion` sums active-axis positive
+displacements over all RHS terms; `max-positive-shift-excursion` takes the
+largest such per-term sum. Both ignore inactive axes. Symbolic coordinates use
+target-relative offsets; fixed coordinates use differences of positive degrees,
+not the fixed value as a displacement. For example, raising one active power in
+four RHS terms has maximum one but total four. This is an opt-in preference,
+not a demonstrated campaign improvement or a change to existing recipes.
+Keys are lexicographic; ascending is the default, while an explicit
 `descending` flag reverses a key. Shift-excursion scores are structural proxies,
 not bounds on physical numerator rank, and exceptional-case counts are not
 counts of disjoint geometric regions. No score provides closure authority.

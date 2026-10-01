@@ -196,6 +196,40 @@ class CandidateApiTests(GeneratedProgramAssertions):
                     discovery_strategy=changed, checkpoint_dir=checkpoint, resume=True)
             self.assertEqual(before, {item.name: item.read_bytes() for item in checkpoint.iterdir()})
 
+    def test_total_positive_portfolio_native_cli_and_checkpoint_binding(self) -> None:
+        options = dict(alternatives=["terms"], max_depth=0, max_rows=32,
+                       max_exact_trace_rows=32, max_exact_trace_terms=1024)
+        descriptor = rustred.discovery_strategy(rule_selection=rustred.rule_portfolio(
+            **options, quality=["max-numerator-shift-excursion",
+                                "total-positive-shift-excursion",
+                                "total-numerator-shift-excursion", "rhs-terms"]))
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="positive-rule-portfolio-") as tmp:
+            path = Path(tmp)
+            recipe = path / "discovery.json"
+            recipe.write_text(descriptor)
+            checkpoint = path / "sectors"
+            initial = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                discovery_strategy=descriptor, checkpoint_dir=checkpoint)
+            self.assertEqual(tomllib.loads(initial.to_toml())["discovery_strategy"],
+                             json.loads(descriptor))
+            self.assertProgramEqual(initial.bundle, cli_bytes(
+                ["family-candidates", "--discovery-strategy", str(recipe)],
+                UNIT_MASS_PROJECT_K1.encode()))
+            before = {item.name: item.read_bytes() for item in checkpoint.iterdir()}
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                discovery_strategy=descriptor, checkpoint_dir=checkpoint, resume=True)
+            self.assertProgramEqual(initial.bundle, resumed.bundle)
+            changed = rustred.discovery_strategy(rule_selection=rustred.rule_portfolio(
+                **options, quality=["max-numerator-shift-excursion",
+                                    "max-positive-shift-excursion",
+                                    "total-numerator-shift-excursion", "rhs-terms"]))
+            with self.assertRaisesRegex(rustred.RustRedError, "manifest differs"):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                    discovery_strategy=changed, checkpoint_dir=checkpoint, resume=True)
+            self.assertEqual(before, {item.name: item.read_bytes() for item in checkpoint.iterdir()})
+
     def test_case_intersection_limits_are_strict_optional_and_match_cli(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         resources = {"case_max_work_items": 16384, "case_max_terms_per_conjunction": 400000,

@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 16:05 UTC (18:05 Zurich)
+## Current workboard — October 1, 16:23 UTC (18:23 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,19 +18,20 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Feature implemented, source audit GO, core 19/19 and app 9/9 pass; matching CLI build running | Matching CLI/wheel public checks, then same-binary full-cohort comparison |
-| Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Rule-mechanism research | `frontier_probe_runner` | Exact incoming matcher completed; real guard fallback but local partition totals still misleading | Independently review actual residual example; new-score full control still waits for tested binaries |
-| Independent authority/performance review | root; `rule_quality_audit` after its isolated UI slice | Feature/protocol source reviews passed; measurements pending | Check actual binary gates, cold/source receipts and whole-cohort work before any promotion |
-| Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered; independent 104-test pass, source/docs/render review | Commit current monitor only; frozen/live release unchanged |
+| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Implementation/public/full-cohort validity gates pass | Commit tested opt-in feature; no default/preset promotion |
+| Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Delivered; new pair fully qualified, no meaningful gain over A1 | Park recipe; no repeated sweep or five-loop transfer |
+| Rule-mechanism research | `frontier_probe_runner` | Changed-owner diagnostic delivered; early guard structure restored without a whole-cohort win | Narrow default-off pre-cut rejection implementation and independent audit next |
+| Independent authority/performance review | `rule_quality_audit`; root | Native/API/full-cohort/source gates audited | Audit final changed-owner interpretation, then new pre-cut implementation separately |
+| Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
 The earlier auditor could not be reactivated due to its thread limit; a fresh
 independent audit agent was started successfully. Optimized builds used CPUs
 0–15, at most eight build workers, the existing target cache and heavy/build0
-locks. The original portfolio's native and protocol gates have passed; the new
-total-positive-excursion feature still awaits its final native/API gates.
+locks. Both the original portfolio and new total-positive-excursion feature
+pass their native/API and full-cohort validity gates. The new score did not
+demonstrate a useful performance improvement and remains experimental.
 Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
@@ -140,6 +141,66 @@ release nor input is edited.
   roughly12.9 GB compiler RSS. Next tests are fully prepared, not awaiting new
   user authority. Core19/app9 gates passed; public wheel and campaign gates
   remain open. Do not restart or duplicate the build.
+- [M/D] Matching optimized CLI build subsequently passes in 761.439 seconds
+  and drains. Frozen executable:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/active-replenishment-frozen-bin/rustred`,
+  SHA256 `e32fcc634ffd018b3354aab986e55cfa321cf635f4e09947731a9e7ccacdc8b2`.
+  App test SHA256 is `47176fc0ec728226038ff74e9c2e5dee8d84e4816841efe016f4780db832d502`.
+  Author proceeds with the isolated wheel/public test gate. Runner and auditor
+  reactivated: bind the existing protocol to these actual binaries, then run
+  fresh A1 followed by the new score once the public gate passes and heavy
+  build lock is released. The grant includes independent source/cold checks,
+  and stops on default-identity disagreement. No production changes, recipe
+  sweeps or alternative corpus fallback are authorized.
+- [M] Investigation milestone `6e301095` is pushed to `main`. Its documentation
+  records the exact incoming-scope audit, retained negative results and pending
+  hypotheses. Native feature changes remain uncommitted until their final gates.
+- [M/D] Fresh wheel build passes in 16.160 seconds. Installed Python/native/CLI
+  gate passes both tests, zero skips, in 0.106 seconds (1.389-second guarded
+  lifecycle); exact imports come from isolated `active-replenishment-site1`.
+  Wheel SHA256 is `24bb2462c5204bc6e25c3e044836ad1c8b3849a8ae00144edb094e6a7e3d7ab8`.
+  All build/native groups drain and locks release. Root authorizes runner to
+  start the already-audited fresh A1/new-score pair on CPUs32–47, W16. A1's
+  cold/default identity and source replay precede candidate generation.
+  No new source change, production mutation or unregistered recipe is allowed.
+- [M/D] Both new-binary arms complete and pass independent cold-All 58/32 and
+  regenerated-source/guard replay. Fresh A1 also matches both old parent payloads
+  byte-for-byte. Candidate selects 23 alternatives and generates 519 rules/28
+  residuals versus 523/28, but domains rise 26,025→26,488 (+1.78%) while native
+  inspections fall only 17,957→17,890 (−0.37%). Traversal 4.193→4.166 seconds
+  and primary wall 29.503→29.076 seconds are one small noisy pair, not a win;
+  pipeline CPU rises 36.658→37.984 seconds. Keep A1. No repetition, default
+  promotion or five-loop transfer on this evidence.
+- [M] Separate source qualification passes 523/519 rules and 16,778/16,711
+  source entries in 42.089/41.903 seconds, all groups drained. All inputs,
+  executable hashes and both cold/replay receipts are independently audited.
+  Raw arm statuses retain their original pending-source label; successful
+  qualification is a separate receipt. Nested memory limits are 150 GB for
+  generation/walk and 600 GB for the outer pipeline/cold/replay controllers;
+  actual sampled pipeline peaks are 222.9/238.3 MB. No receipt is rewritten.
+- [D] Retain the validated generic named score as an opt-in experimental knob,
+  not a proven optimization. Runner receives only the preregistered follow-up:
+  inspect the genuinely changed new owner481 program and match the same three
+  exact G2 residuals, using existing native APIs and a 300-second owned bound.
+  Six owner payloads change; the other ten match A1. No new generation or
+  additional score recipe is authorized. Pre-cut rejection remains the next
+  independently concept-reviewed code candidate after this milestone.
+- [M/E] The bounded changed-program diagnostic finishes in 4.282 seconds and
+  drains. New owner481 has 146 rules, the same 11 ordered terminal keys, and
+  restores the first seven A1 coordinate-case/target/integer-RHS/guard shapes.
+  This is not a coefficient-equality claim. Its three actual G2 residuals have
+  768/26/5 pieces versus A1's 769/27/6, all fully applicable without gaps.
+  Six owner programs changed, so this is not an isolated causal intervention;
+  it does show that restoring these early shapes is insufficient as a recipe
+  acceptance criterion. No swap, repeated recipe or five-loop test is launched.
+- [D] Next implementation is restricted to the independently reviewed,
+  default-off pre-cut rejection mechanism: prove the current coordinate case's
+  first singleton exclusion uniformly zero on its normalized proper fixed
+  intersection before retaining an unnecessary partition. Otherwise preserve
+  ordinary dispatch. Author owns core/app; runner owns nonoverlapping Python
+  steering after the current feature commit; auditor independently checks
+  mathematical safety, accounting and generic regressions. No new CAS, guard
+  generalization, scheduler change or production mutation is authorized.
 
 - [M] Read-only production snapshot at336.6min remains running with fresh
   heartbeat,13/67 conservative closed roots,47,986,656 local completions,

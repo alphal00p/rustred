@@ -531,3 +531,63 @@ scope, receipt and finite-partition audit: `rule_quality_audit`. The new
 total-positive score now passes 19 focused core and 9 application tests; the
 matching CLI, installed-Python and complete new-score campaign gates remain
 pending. No production switch is recommended.
+
+### Total-positive-excursion result: valid, but no useful win over A1
+
+The fresh same-binary comparison is complete. Both arms used frozen optimized
+CLI `e32fcc63…`, W16 on CPUs32–47, the same 16-owner/508-route/58-query/32-root
+control, and unchanged integral order and terminal policy. Fresh A1's two
+parent payloads are byte-identical to the previously qualified A1 payloads.
+Both arms pass independent cold-All reinspection of every native record and
+all 58 queries/32 roots, with zero violations, pending work or frontiers.
+
+| Measurement | Fresh A1 | New total-positive preference |
+| --- | ---: | ---: |
+| Selected alternatives | 0 | 23 |
+| Generated rules / finite residuals | 523 / 28 | 519 / 28 |
+| Discovered domains | 26,025 | 26,488 |
+| Native inspections | 17,957 | 17,890 |
+| Dependency edges | 495,898 | 486,398 |
+| Native traversal, seconds | 4.193 | 4.166 |
+| Inclusive primary arm, seconds | 29.503 | 29.076 |
+| Waited pipeline CPU, seconds | 36.658 | 37.984 |
+| Sampled peak pipeline RSS, MB | 222.9 | 238.3 |
+| Separate source/guard replay, seconds | 42.089 | 41.903 |
+
+Exact source/guard replay independently passes 523 rules/16,778 source entries
+for A1 and 519 rules/16,711 entries for the candidate, across all 16 sectors.
+The primary raw receipts retain their original `SOURCE_REPLAY_PENDING` label;
+their separate successful qualification receipts complete that gate. Likewise
+the raw traversal exits with its stale cached closure snapshot; the successful
+full cold check is the authority for this bounded control's discharged queries.
+Neither raw observation was rewritten to look more favorable.
+
+The candidate makes a nontrivial change and largely avoids the earlier rank
+portfolio's regression, but domains still increase 1.78%, while native work
+decreases only 0.37%. One small timing difference is not a demonstrated gain,
+and pipeline CPU is higher. **Keep A1 as the recommendation.** Retain the
+tested generic feature as an opt-in research control, not a promoted preset;
+do not repeat this recipe or transfer it to five loops on these results.
+Six owner payloads differ from A1, including the earlier implicated lower owner.
+The registered diagnostic completes in 4.282 seconds: the new owner has 146
+rules and the same 11 ordered terminal keys. Its first seven coordinate cases,
+targets, integer RHS inventories and displayed guards match A1 (not a claim
+of coefficient equality). The three exact G2 residuals partition into 768/26/5
+pieces versus A1's 769/27/6, all fully applicable with no gaps. Restoring the
+early guard structure therefore does not suffice to select a successful whole
+recipe. Because five other owners also change, this is not an isolated causal
+test of that lower owner. No further recipe sweep is justified.
+
+Resource boundaries are nested: native generation/walk requests use a 150 GB
+hard ceiling; the existing outer process-tree controllers for pipeline, cold
+and source replay use 600 GB. Both arms use the same limits and a 150 GB host
+reserve; actual memory use is small as shown above. Compilation is separate.
+Independent implementation gates also passed: 19 focused core tests, 9 app
+portfolio tests, 7 pure Python descriptor tests and 2 fresh installed-wheel/
+CLI/checkpoint tests, with no skips in the native public gate.
+
+Evidence: `positive-shift-control/receipts/{a1-r1,positive-r1}/RESULT.json`
+together with each `qualification/RESULT.json`, baseline `DEFAULT_IDENTITY.json`,
+and `ACTIVE_REPLENISHMENT_VALIDATION.md`. Implementation:
+`frontier_replay_implementation`; execution: `frontier_probe_runner`;
+independent source, scope and measurement audit: `rule_quality_audit`.
