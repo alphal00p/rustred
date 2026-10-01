@@ -38,6 +38,15 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [D] **Launch-command correction:** the user's environment rejected implicit
+  `nix develop` inside the ignored frozen release because Nix discovered the
+  parent Git repository and required its nested flake to be tracked. Corrected
+  start and resume commands to `nix develop "path:$PWD"`, selecting the frozen
+  flake explicitly. No files under `TMP/` should be added to Git. This is an
+  environment-entry failure before Python/native startup, not a campaign or
+  checkpoint failure. The exact explicit-path environment-only check passed:
+  `Frozen Nix environment ready: 3.11.15` (exit0). It did not invoke the campaign.
+
 - [M/D] **Development consolidated onto `main`, October1 09:09 UTC.**
   Feature tip `c387ee61` fast-forwarded from old main `100e990f` through a clean
   temporary worktree and was pushed successfully. Root now works on `main`.

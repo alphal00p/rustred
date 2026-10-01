@@ -18,10 +18,14 @@ metadata-only; **the user runs the following command to start the calculation**:
 
 ```bash
 cd /common/dev/rustred/TMP/releases/20261001-frontier-repair
-nix develop --command python -B examples/python/production_saved_owner_campaign.py \
+nix develop "path:$PWD" --command python -B examples/python/production_saved_owner_campaign.py \
   --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-epoch-frontier-repaired-20261001 \
   --start
 ```
+
+The explicit `path:` is required: this frozen release is intentionally untracked
+inside the parent Git repository. Without it, Nix tries to resolve the release's
+flake through that repository and rejects it. Do not add `TMP/` to Git.
 
 Keep the current Symbolica license in the shell environment. No rebuild is
 needed. Frozen settings are 32 physical cores (64–95), 31 inspectors, a 600 GB
@@ -39,7 +43,7 @@ Use the same frozen release and directory, adding `--resume`:
 
 ```bash
 cd /common/dev/rustred/TMP/releases/20261001-frontier-repair
-nix develop --command python -B examples/python/production_saved_owner_campaign.py \
+nix develop "path:$PWD" --command python -B examples/python/production_saved_owner_campaign.py \
   --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-epoch-frontier-repaired-20261001 \
   --resume --start
 ```
