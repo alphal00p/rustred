@@ -1,11 +1,13 @@
 # Reusing stale snapshot-negative lookup prefixes
 
-Status, 2026-10-01 04:26 UTC: isolated implementation `c51926be` was integrated
+Status, 2026-10-01 05:21 UTC: isolated implementation `c51926be` was integrated
 as `f328844f` after independent source review. Native correctness passed:
 1,326 unique application/CLI tests, including the ten new targeted tests;
 12 pre-existing ignored tests remain ignored. No measured speedup or
 production change. The optimized four-loop ABBA passed correctness and was
-performance-neutral; the representative five-loop comparison is next.
+performance-neutral. One full-input bounded five-loop pair reduced source time
+per accepted row by 17.29%, but native throughput improved only about 2.7%:
+this is a local cost improvement, not a qualified campaign switch or closure.
 
 ## Why investigate this
 
@@ -141,8 +143,8 @@ unique passes, not ten additional unique tests.
 Evidence is under `TMP/postlaunch-20260930/stale-negative-prefix/` in
 `native-build/` and `native-tests/`. Both owned process groups fully drained.
 These checks establish the tested correctness boundary. The optimized
-four-loop results below add completed-work evidence; representative five-loop
-performance evidence remains pending.
+four-loop results below add completed-work evidence; the five-loop results
+remain different-prefix bounded screening, not completed-scope verification.
 
 ### Optimized four-loop comparison
 
@@ -189,6 +191,67 @@ under `TMP/postlaunch-20260930/stale-negative-prefix/performance/four/`.
 `ABBA_RESULTS.md` includes CPU, sampled RSS and inclusive-arm measurements.
 Independent ABBA review accepted both correctness and the neutral performance
 interpretation. Production is unchanged.
+
+### Bounded full-input five-loop comparison
+
+The same optimized old/new binaries were compared on all 67 A1 owners,
+8,246 routes and 183 declared queries (116 required, 67 auxiliary). Both
+fresh runs used 32 workers on CPUs 0–31 (31 inspectors, no preparation helpers,
+one coordinator), unchanged FIFO/oldest-prefix scheduling, profiling off and
+all 78 input pins checked. Neither rules nor inputs were regenerated or narrowed.
+
+Each arm had a 1,200-second cooperative stop and an 1,800-second inclusive
+budget covering setup, save, structural cold checking and process drainage.
+Both stopped cleanly, saved a resumable generation-1 checkpoint and passed
+structural cold checks with zero violations. They did **not** undergo full
+native reinspection: raw cold exit 9 / `INCOMPLETE` / reinspection `None` are
+retained. No root was independently verified closed by these checks.
+
+| Metric | Baseline 0f | Candidate 2cd |
+|---|---:|---:|
+| Inclusive arm, s | 1,428.792 | 1,439.186 |
+| Native launch through drain, s | 1,207.798 | 1,209.831 |
+| Preparation / traversal, s | 65.725 / 1,136.059 | 65.736 / 1,137.339 |
+| Structural cold check, s | 218.087 | 227.401 |
+| Native inspections | 3,691,024 | 3,796,448 |
+| Committed / scheduled domains | 6,619,452 / 9,583,667 | 6,789,442 / 9,822,219 |
+| Pending domains | 2,964,215 | 3,032,777 |
+| Accepted P2 rows | 183,317,557 | 188,630,476 |
+| P2 / source resolution, s | 320.754 / 224.940 | 293.245 / 191.430 |
+| P2 / source per row, ns | 1,749.718 / 1,227.053 | 1,554.602 / 1,014.842 |
+| Sampled native-plus-supervisor CPU, s | 6,444.43 | 6,600.43 |
+| Mean sampled native cores | 5.344 | 5.464 |
+| Native-guard sampled process-tree peak RSS, GB | 15.106 | 15.373 |
+
+Source time per accepted row falls **17.29%** and P2 time per row **11.15%**.
+The 33.51-second raw source-time reduction occurs despite 2.90% more rows,
+consistent with the intended prefix optimization. However, P1, reverse-index
+work, P3, boundary maintenance and publication waiting increase. Native
+inspections rise 2.86%, or 2.68% per native-launch-through-drain second
+(2.74% per recorded traversal second); committed domains rise 2.57% and
+pending work 2.31%. CPU rises 2.42%, and the reached graphs differ. This does
+not establish reduced total domain work, faster eventual closure or a useful
+twenty-core scaling result. The preregistered 10% throughput screen is not met.
+
+Global forward candidates per lookup classification decrease 13.19%; actual
+test callbacks per classification decrease only 0.64%. Those counters combine
+inspector, admission and coordinator work and include bulk-prefilter rejection.
+They cannot isolate P2 comparisons or measure suffix eligibility. The same
+native source tasks also encounter different geometry/work mixes, so per-row
+normalization is useful evidence, not fixed-work causal isolation.
+
+Minimum sampled host availability was 573.68 / 565.23 GB, with production and
+LC2 active on disjoint cores. Foreign-CPU contention was not independently
+measured. CPU excludes cold checking and the outer Python adapter; RSS is
+sampled, not an exact peak. All owned processes drained. This is one pair,
+with no actual checkpoint resume, repeat or unrestricted closure claim.
+
+Raw receipts and formulas are in
+`TMP/postlaunch-20260930/stale-negative-prefix/performance/five/FIRST_PAIR_RESULTS.{md,json}`.
+Independent review accepted the protocol, arithmetic and deliberately limited
+interpretation; no further correction remains. A narrow same-start resumed-pilot adapter is
+being prepared to examine a later stage without replaying the initial walk;
+its runtime feasibility and performance have not yet been demonstrated.
 
 ### Mature production feedback
 
@@ -274,6 +337,7 @@ Historical timing evidence is in ignored
 review was by `final_requirements_audit`; the independent source/lifecycle and
 cost assessment was by `runtime_order_pilots`. The latter implemented the
 isolated patch; the former independently reviewed the code and tests. Native
-correctness checks and optimized four-loop controls have passed; representative
-five-loop performance validation is pending. Root coordinates
+correctness checks and optimized four-loop controls have passed. Five-loop
+screening shows a local source-cost reduction, not a qualified whole-campaign
+gain. Root coordinates
 integration and final verification, without modifying production.

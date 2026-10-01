@@ -47,7 +47,10 @@ so it does not establish faster closure or a deployment win. The subsequent
 native-session stale-negative prefix optimization is implemented and passed
 1,326 unique application/CLI tests plus independent review. Its optimized
 four-loop ABBA also passed cold reinspection and state equivalence but was
-performance-neutral; a representative five-loop old/new comparison is running.
+performance-neutral. One full-input bounded five-loop pair reduced source
+cost per accepted row17.29% and P2 cost per row11.15%, but native throughput
+rose only about2.7% with2.31% more pending work; this misses its10% screening
+threshold and does not establish faster closure or a deployment win.
 Read-only mature production phase clocks now attribute87.7% of one ten-minute
 window to validation/preparation/publication, without identifying the precise
 P2 subphase or predicting any speedup. None of these results closes the Ready/Epoch four-loop

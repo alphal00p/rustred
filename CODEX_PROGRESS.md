@@ -38,6 +38,99 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Independent fresh5L review accepted,05:24UTC:** auditor verified
+  full scope/bindings, successful save/structural cold, all8 processes absent,
+  normalization and the corrected RSS measurement scope. Source/row−17.2944%,
+  P2/row−11.1513%, throughput+2.7405% per traversal second, pending+2.3130%
+  are independently confirmed. No substantive correction remains;10% screen
+  remains unmet, no native reinspection/verified-root/closure claim. Root is
+  pushing the coherent measured-results/progress update. Engine remains the
+  already frozen `f328844f`; only the ignored minimal resume adapter is being
+  prepared, with no actual resume/copy/native-run grant yet.
+- [M] **Fresh full-A1 pair measured,05:21UTC:** raw source/accepted-row cost
+  falls17.29% and P2/row11.15%; root independently recomputed these ratios.
+  Native inspections+2.86% (throughput+2.68% per native-guard second/+2.74%
+  per recorded traversal second), committed+2.57%, pending+2.31%, CPU+2.42%.
+  Mean native cores5.344→5.464; no scaling unlock or10% throughput-screen pass.
+  Different graph prefixes; source reduction is promising but neither a
+  fixed-work speedup nor faster eventual closure. All owned jobs drained;
+  structural cold-None remains incomplete, with zero violations. Tracked
+  stale-prefix report includes the table and exact boundaries. Raw report is
+  `performance/five/FIRST_PAIR_RESULTS.{md,json}`. Independent final audit is
+  active; root requested a narrow RSS-label clarification (supervisor samples
+  versus native-guard tree samples), not another run. No production change.
+- [M/D] **Fresh candidate saved/cold-valid; bounded resume adapter authorized,
+ 05:17UTC:** both fresh arms have valid paused checkpoints and structural cold
+  checks with zero violations; S5 independently confirmed all8 owned processes
+  absent and resource locks free. Source time224.94→191.43s despite more rows
+  is a real promising local signal, while native inspections rise only2.86%;
+  normalized report/independent review remains pending. Root authorizes runtime
+  to implement only the already-reviewed minimal same-start local CP6 adapter
+  under ignored `stale-negative-prefix/performance/resume/`, using existing
+  guards. Private supervised copies, unchanged full scope,900s cooperative/
+ 1800s inclusive budgets, cumulative-work deltas and honest restore overhead
+  are required. Python/metadata-only checks allowed; no copy, native run,
+  engine change or production access granted. Independent review follows;
+  actual execution will require a separate decision after current results.
+- [M/D] **Cross-entry batching concern rejected,05:10UTC:** runtime traced
+  source scheduling: all checked entries are already flattened before waves,
+  with256-row blocks and wave width `2 * max(helpers, 1)`. Thus h0 produces
+  roughly2 tasks/wave by configuration, not a per-entry concurrency ceiling;
+  existing h2 data gives3.918 tasks/wave. Only helper count is runtime-tunable;
+  block size/multiplier are fixed. A join/fold barrier exists, but no evidence
+  establishes it as the bottleneck. Park duplicate cross-entry implementation.
+  Details: `SOURCE_WAVE_GRANULARITY_INTERPRETATION.md` under stale-prefix.
+  No code or native experiment was added. Candidate1558842 remains live at
+ 1195s with3,769,920 inspections and3,025,085 pending; final save/cold follows.
+- [D] **Narrow S5 granularity check active,05:08UTC:** current baseline reports
+  roughly7.479M source tasks/3.769M waves (~1.98), similar to four-loop counters.
+  Root delegated read-only inspection of the definitions, batching scope and
+  barriers to runtime: determine whether this limits genuinely independent
+  parallel work or merely reflects counter semantics. No conclusion yet; no
+  source/build/benchmark grant. If a real limitation exists, request only a
+  minimal cut-wide preparation proposal preserving immutable lookup, canonical
+  fold/publication and exact selected IDs. Current candidate1558842 is still
+  healthy at1049s; it remains the sole heavy job.
+- [M] **Scheduled read-only production observation,04:59UTC:** repaired native
+  PID3741792 is live at22482.63s:43,763,200 local completions,72,553,174
+  scheduled domains,13,306,955 pending, zero frontiers and68.54GB sampled tree
+  RSS. CP6 generation6 is saved/resumable without warnings. Snapshot13/67 roots
+  and9,507,382 recursively closed domains is1544s old; no fresh-count claim.
+  Registered-tree mean3.37 cores; last-hour pending growth+0.159/completion and
+  observed conservative gap+1984.9/s remain positive. No ETA. LC2 independently
+  live at107,908,895 completions/70,167,944 pending/106.01GB and checkpoint16,
+  zero frontiers; its6-root snapshot is also stale. Candidate pilot1558842 is
+  separately live at8m29s. No production changes. Next ordinary check05:30UTC.
+- [M] **Fresh full-A1 baseline accepted; candidate live,04:51UTC:** S5 reports
+  baseline1428.79s inclusive/native1207.80s/structural cold218.09s, clean
+  cooperative save and zero violations. Cold remains None/exit9/INCOMPLETE,
+  not native reinspection or scoped closure. Baseline3,691,024 inspections,
+ 9,583,667 scheduled/6,619,452 committed/2,964,215 pending, mean5.344 native
+  cores, supervised CPU6444.43s and sampled tree peak15.083GB. All owned groups
+  drained. Candidate2cd now runs the identical reviewed full-A1 recipe under
+  outer1558525 on CPU0–31. No comparison result or extra run grant yet.
+- [E/D] **Local same-start resume feasibility reviewed,04:47UTC:** runtime
+  and independent reviewer identified a narrow future adapter change using the
+  existing public `--resume`, two private copies of the same completed3.29GB
+  local pilot checkpoint, and fresh dispatch sessions. No engine/schema change
+  is needed. Copy and actual runtime-restore durations remain unknown; owner
+  preparation is repeated. A proposed900s cooperative/1800s inclusive arm is
+  plausible, not yet demonstrated. Copy must be an owned bounded phase; resumed
+  `traversal_seconds` includes restore/save overhead, not pure useful walk.
+  Source counters need common-start subtraction. These audit clarifications
+  are recorded in `LOCAL_CP6_RESUME_COMPARISON_FEASIBILITY.md`; no copy, runner
+  change or additional native experiment has been authorized. Root waits for
+  the current fresh comparison before deciding whether to pursue it.
+- [D/M] **Follow-through after pushed milestone,04:40UTC:** `e5e7e63c` is
+  pushed and task-owned files were clean. The live baseline pilot PID1319434
+  remains healthy at840s,2,466,240 local completions/2,039,924 pending/12.75GB,
+  zero frontiers. No code or recipe change. Based on the newly measured
+  mature/fresh P2 balance, runtime has a narrow read-only task to assess reuse
+  of the existing completed local~3GB pilot checkpoint for future same-start
+  old/new comparisons. This is not the production~25GB checkpoint assessment:
+  no production checkpoint read/copy, new framework, native run or helper
+  sweep is authorized. Unknown restore/save time and mutable-reference issues
+  must be reported explicitly. Current pair remains the only heavy job.
 - [M/D] **Independent ABBA review accepted,04:32UTC:** auditor recomputed both
   pairs/medians and verified reverse cold-All, state comparison, source/control
   binding and drained phase groups. Neutral algorithmic interpretation accepted;
