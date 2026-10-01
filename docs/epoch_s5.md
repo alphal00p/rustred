@@ -409,3 +409,29 @@ throughput threshold on 2026-09-30. Deployment still requires a reproducible
 useful benefit, four-loop non-regression, honest work/memory accounting, and all
 required mathematical checks. An Epoch-versus-Epoch improvement alone cannot
 establish a preference over Ready, nor prove useful 20-core or 200-core scaling.
+
+### Live lookup profile: October 1
+
+A single 60.79-second, 19 Hz user-cycle capture of the unchanged repaired
+production executable provides a qualitative lead, not a timing comparison.
+Among 364 coordinator samples with visible P2-source ancestry, 218 include
+`Block::forward`, four include digest/BLAKE3, and six include native-summary
+construction. Worker stacks also prominently show forward-index traversal,
+snapshot lookup and envelope tests. These inclusive counts overlap; they are
+not a disjoint wall-time breakdown. Twelve further coordinator hash samples
+have unknown callers and are not assigned to P2.
+
+Independent review caught an offline rendering omission: decoding each thread
+separately recovered worker stacks from the same capture. All 5,372 samples and
+their recorded period sums reconcile. Zero reported lost samples does not prove
+unbiased coverage; throttle records likewise do not count known missed samples.
+Unresolved ancestry, optimized/inlined frames, stack-depth limits, unmeasured
+sampling perturbation and concurrent compilation remain limitations.
+
+Frozen-binary disassembly confirms two digest calls on the successful source-row
+path, but their existence does not establish a worthwhile optimization. Current
+evidence prioritizes inspecting lookup/index costs while the already-tested
+P1/compact-transport package undergoes optimized matched comparisons. It does
+not justify bypassing containment, quarantine or summary validation. Raw local
+evidence and the separate interpretation audit are retained under
+`TMP/postlaunch-20260930/digest-perf-tooling/`; no second capture was needed.

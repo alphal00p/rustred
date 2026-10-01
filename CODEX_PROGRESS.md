@@ -38,6 +38,109 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/E] **Read-only follow-up,01:15UTC October1:** repaired A1 remains running
+  with22,501,856 native inspections,41,677,790 scheduled domains,9,485,491
+  pending, zero frontiers and41.79GB sampled tree RSS. CP6 generation2 remains
+  saved/resumable; no stop/error/swap. The initial-root lower bound is13/67,
+  but its snapshot is792s old. The measured last-hour pending growth is+0.284
+  per completion and the conservative unresolved-gap trend is positive;
+  neither is evidence of convergence or a reliable ETA. Instantaneous8.51
+  observed cores is not sustained utilization. Production remains untouched.
+- [M/D] **Single-profile interpretation independently accepted:** corrected
+  per-TID offline extraction reconciles all5,372 samples and their period sum.
+  Of364 coordinator samples with visible P2-source ancestry,218 include
+  `Block::forward`, four digest/BLAKE3 and six native-summary construction.
+  Twelve other hash samples have unknown callers; recovered worker stacks
+  likewise prominently show lookup/index work. These are overlapping sample
+  counts, not wall-time fractions or an unbiased cost decomposition. Throttle
+  records do not themselves count missed samples; unknown ancestry and build
+  contention remain explicit. The duplicate optimized hash calls are real,
+  but a dominant-hash or speedup claim is unsupported. Evidence and independent
+  review: `TMP/postlaunch-20260930/digest-perf-tooling/{INTERPRETATION.txt,
+  INDEPENDENT_INTERPRETATION_AUDIT.txt}`. No recapture authorized.
+- [D] Next: runtime owns the still-active optimized build; on successful
+  immutable freeze and complete build drainage, S5 receives the previously
+  granted four-loop old/new Epoch ABBA. Source remains frozen and no five-loop
+  comparison is yet granted. In parallel, `final_requirements_audit` is doing
+  a bounded read-only review of the observed index/containment paths against
+  prior negative experiments, proposing at most two narrow mechanisms rather
+  than new proof bypasses or an open-ended optimization project. The mature
+  live workload will guide priorities, as the user requested.
+- [M/D] A single root-authorized low-rate **read-only CPU profile** of the live
+  repaired native completed:19Hz user cycles,8KiB DWARF stack capture, profiler
+  pinnedCPU32,60.792s,47,091,240B, exit0. TargetPID3741792/start229550195 and
+  executable23d were unchanged/live after detach; no target signals, input,
+  checkpoint or host setting changes. Concurrent optimized compilation on
+  CPU0–15 is recorded as contention. Capture quality is limited: zero lost
+  samples but5,372 throttle/5,324 unthrottle records for5,372 samples. Agents
+  are doing bounded offline interpretation; no retry/host tuning authorized,
+  no exact CPU/wall-time fraction or speedup claim from this capture. Raw data
+  remain in ignored `TMP/postlaunch-20260930/digest-perf-tooling/`.
+- [M] Frozen23d/N15 disassembly resolves one earlier uncertainty: source
+  preparation's successful row path does call `CompactDomain<15>::digest`
+  twice (at0x428c0b6 and0x428c1b4), with shipped-digest comparison and native
+  summary construction between them. A parallel helper has the same pair.
+  Thus this build did not coalesce those calls. Runtime importance remains
+  unestablished; no additional hash-removal patch entered the compiling source.
+- [E/D] The bounded batching review is negative for an immediate wider-wave
+  change: about49% of tasks are headers, but those headers themselves scan
+  lookup rows, and observed wave occupancy is already99.22%/97.94%. At h0
+  there is no Rayon pool, so its3.58M waves cannot be called pool-join overhead.
+  Per-row validation/callbacks remain regardless of wave width. Two outer
+  vector reservations per wave suggest invocation-local scratch reuse as a
+  possible later cleanup, but its exclusive cost is unmeasured. No implementation
+  or scheduling sweep authorized. Evidence: S5's
+  `TMP/postlaunch-20260930/compact-source-rows/BATCHING_ASSESSMENT.txt`.
+- [D/M] Read-only tool discovery found existing Nix-store `perf` and binutils
+  binaries despite their absence from PATH; kernel perf paranoia is2. Root
+  asked the independent auditor for bounded frozen-binary inspection and a
+  tiny self-owned permission/feature probe only. No package installation,
+  escalation, host setting change or production attachment is authorized at
+  this step. This may enable actual source-path attribution without a rebuild;
+  availability is not yet a successful profile.
+- [M] By00:47UTC repaired production naturally saved **CP6 generation2** and
+  continued: resumable=true, paused=false, no warnings, zero abandoned work,
+ 18,500,336 completed native inspections,27,056,045 committed domains,
+ 8,325,445 pending and762,242,688 committed events. This is the live save receipt,
+  not a performed restore or cold reinspection. No save was forced and no large
+  checkpoint content was read. Optimized development buildPG226781 remains live
+  and error-free; production is still on unchanged23d.
+- [M] **Scheduled read-only check,00:45UTC October1:** repaired nativePID3741792
+  is live at7267.48s, with18,462,192 native inspections,35,309,736 scheduled,
+ 8,300,165 pending, zero frontiers and37.09GB sampled tree RSS. Instantaneous
+  CPU3.20 cores is not a sustained mean. The conservative closure snapshot is
+ 13/67 starting roots and4,519,549 discovered domains closed,534.91s old; no
+  all116-required-query closure or ETA is inferred. CP6 generation1 remains
+  saved/resumable, not paused, no stop/error. LC2 nativePID360092 is also live:
+ 102,835,539 local completions,231,227,881 scheduled,67,095,687 pending,
+  zero frontiers,6/67 stale roots and97.51GB RSS; checkpoint generation15.
+  No lifecycle action, checkpoint decoding or production write occurred.
+- [E/D] Bounded read-only source review found a separate possible P2 cleanup:
+  `resolve_miss` hashes the canonical image to check the shipped digest, then
+  `QueryImage::new` hashes that unchanged image again after summary validation.
+  There is no stored digest cache; fat-LTO may nevertheless remove/cheapen the
+  second evaluation, so source alone does not establish a runtime cost. The
+  narrow safe alternative would reuse the locally computed digest while keeping
+  cancellation, digest-error precedence, summary validation and quarantine/target
+  checks unchanged; the inspector already constructs the same checked fields.
+  No trusted external digest or lazy-summary bypass is proposed. Auditor:
+  `final_requirements_audit`. **Deferred until current optimized comparisons**;
+  no source change or new job. Falsifier: negligible/negative matched source
+  cost per row or already-coalesced optimized code. Future focused tests would
+  explicitly cover bad digest plus bad summary, since shared-resolver serial/
+  parallel equality alone cannot expose a common validation-order regression.
+- [M/D] **Compact source milestone pushed,00:40UTC October1:** `58e63614`,
+  `Compact epoch source-row transport without changing resolution`. Four
+  explicit task-owned files only; unrelated FeynKit and untracked work remain
+  untouched. Runtime has started the fully optimized campaign CLI build,
+  exec40259/PG226781, CPU0–15/eight compiler jobs, cached optimized target,
+  profile0/opt3/fat-LTO. Evidence: `TMP/postlaunch-20260930/p1-compact-optimized-build/`.
+  It began at prior HEAD with the exact audited compact delta; the frozen output
+  will also bind committed58e63614. Root conditionally grants the prepared
+  four-loop old/new Epoch ABBA **after** successful optimized freeze and build
+  drainage, with resource ownership handed to S5. No five-loop pilot is yet
+  granted. Every arm receives cold-All; the second pair requires the first
+  pair's correctness acceptance. Existing production CLI23d is unchanged.
 - [M] **Compact transport native validation PASS,00:38UTC October1:** guarded
   build exit0 in1164.535s; full test guard exit0 in120.179s. Application1,291
   PASS/0 failed/12 existing ignored, candidate CLI19 PASS, routed CLI6 PASS.
@@ -914,7 +1017,7 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 | S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; repaired optimized four-loop cold-All PASS, about10% slower than Ready; full-input helper screen complete and negative | Prepare matched fully optimized P1/compact performance protocol; no native pilot granted yet |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
 | Independent mathematical/code/performance audit | `final_requirements_audit`; prior native/P4/lane reviewers | repaired ABBA and h0/h2 audits PASS; P1/observer native PASS; compact source independently audited and native tests PASS | Final compact receipt review; matched pilot driver conditionally approved |
-| Integration, resources, profiling and release | root | pushedecc822eb; frozen repair source d55cfb1c, optimized CLI23d836d7; both production campaigns observed read-only | Consolidate tests/evidence without changing user production |
+| Integration, resources, profiling and release | root | pushed58e63614; optimized compact build active, production CLI23d836d7 unchanged | Optimized freeze then conditionally granted four-loop ABBA; no five-loop pilot yet |
 
 ### Active decision register — refreshed 2026-10-01 00:38 UTC
 
@@ -949,6 +1052,8 @@ the same experiment after a handoff.
 | Cross-entry exact-image repetition | delivered observation; production measurement pending | Bounded optional census source-audited,8 focused and full native suite PASS. No cache/reuse authority; prefix truncation can hide repeats. Not enabled in user production. |
 | Compact P2 source-row transport | source-audited and native PASS; optimized measurement pending | Six new focused checks plus1,291 app/25 CLI tests PASS, no skipped worker panels. Actual compact tag16B; resolver and ordered fold unchanged. No optimized memory/speed gain yet; candidate-heavy blocks remain a falsifier. |
 | Inspector containment-token transport | deferred after feasibility audit | Possible with stronger private process-local bindings, but crosses bytes-only pool/escrow and snapshot lifecycle. No lazy-summary bypass; reopen only after the Stored validation cost is isolated and a full boundary/cancellation design is justified. |
+| Repeated local P2 image digest | deferred pending current optimized comparison | Frozen23d/N15 disassembly confirms both calls survive; runtime cost remains unestablished. Reuse only locally checked values with identical error order if subsequent evidence justifies it; no new trusted-digest API or CAS primitive. |
+| Wider P2 waves / header fusion | deferred after bounded source assessment | Current wave occupancy is already near full; h0 has no pool and headers scan rows. No measured exclusive wave-allocation/join cost. Scratch-buffer reuse is a smaller future candidate; do not infer speed from task counts. |
 
 **Earlier engine implementation milestone:** `56176df5`, committed and pushed to
 `origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent
