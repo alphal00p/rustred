@@ -3,6 +3,8 @@
 //! performs global digest/image deduplication and assigns candidate ordinals.
 use super::*;
 
+pub(in super::super) mod observation;
+
 const MISS_BLOCK: usize = 256;
 
 #[derive(Clone, Copy)]
@@ -91,6 +93,23 @@ pub(super) fn prepare<const N: usize>(
     let mut candidates: Vec<Candidate<N>> = Vec::new();
     let mut by_digest: HashMap<u64, Vec<u32>> = HashMap::new();
     let mut counters = P2Counters::default();
+    // Opt-in diagnostic only. All observations are made after the ordinary
+    // worker validation succeeds; no observation can supply a query or token.
+    let mut observation = if engine.observe_cross_entry {
+        observation::Observer::for_cut(
+            true,
+            state.k,
+            store.len(),
+            checked
+                .entries
+                .iter()
+                .filter(|entry| entry.class.merges() && !entry.recurring_panic)
+                .count(),
+            metrics.obligations,
+        )
+    } else {
+        None
+    };
     // Only a bounded wave of query descriptions is held besides the final
     // plan. Task/input ordinals, not completion order, define every reduction.
     let wave_size = engine.helpers.max(1).saturating_mul(2);
@@ -143,6 +162,22 @@ pub(super) fn prepare<const N: usize>(
             let slots = &mut slots_of[output.entry];
             for (offset, resolution) in output.rows.into_iter().enumerate() {
                 control().map_err(classify)?;
+                if let Some(observation) = &mut observation {
+                    let miss = &misses[output.first + offset];
+                    let lookup = entries[output.entry].result.lookup.as_ref();
+                    observation.record(
+                        output.entry,
+                        miss.image,
+                        miss.digest,
+                        observation::Context::new(
+                            miss.target,
+                            lookup.map(|work| (work.version, work.published_len)),
+                            version,
+                            store.len(),
+                        ),
+                        matches!(&resolution, MissResolution::Stored(_)),
+                    );
+                }
                 let (q, query) = match resolution {
                     MissResolution::Stored(token) => {
                         slots.push(Ok(token));
@@ -194,6 +229,7 @@ pub(super) fn prepare<const N: usize>(
         }
         metrics.canonical_dedup_seconds += started.elapsed().as_secs_f64();
     }
+    metrics.cross_entry_observation = observation.map(observation::Observer::finish);
     Ok(CandidateBatch {
         slots_of,
         candidates,

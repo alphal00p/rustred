@@ -29,6 +29,7 @@ mod admission;
 mod compact_images;
 mod rescue;
 mod snapshot;
+mod union_witness;
 
 const APPLY: [bool; 2] = [true, false];
 const OTHER: [bool; 2] = [false, true];

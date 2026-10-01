@@ -90,6 +90,8 @@ pub(in super::super) struct Metrics {
     pub representative_seconds: f64,
     pub reverse_seconds: f64,
     pub transfer_seconds: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cross_entry_observation: Option<source::observation::Sample>,
 }
 
 pub(in super::super) struct Prepared<const N: usize> {
@@ -114,6 +116,8 @@ pub(in super::super) struct Totals {
     pub representative_seconds: f64,
     pub reverse_seconds: f64,
     pub transfer_seconds: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cross_entry_observation: Option<source::observation::Totals>,
 }
 impl Totals {
     pub fn add(&mut self, m: &Metrics) {
@@ -130,6 +134,11 @@ impl Totals {
         self.representative_seconds += m.representative_seconds;
         self.reverse_seconds += m.reverse_seconds;
         self.transfer_seconds += m.transfer_seconds;
+        if let Some(sample) = &m.cross_entry_observation {
+            self.cross_entry_observation
+                .get_or_insert_with(Default::default)
+                .add(sample);
+        }
     }
 }
 
@@ -137,6 +146,7 @@ pub(in super::super) struct Engine {
     pool: Option<rayon::ThreadPool>,
     helpers: usize,
     limits: Limits,
+    observe_cross_entry: bool,
 }
 
 impl Engine {
@@ -158,6 +168,9 @@ impl Engine {
             pool,
             helpers,
             limits,
+            observe_cross_entry: std::env::var_os(super::super::inspector::profile::ENVIRONMENT)
+                .as_deref()
+                == Some(std::ffi::OsStr::new("1")),
         })
     }
 

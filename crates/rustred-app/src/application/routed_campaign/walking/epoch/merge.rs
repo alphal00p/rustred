@@ -14,7 +14,9 @@ use super::ledger6::{EPOCH_LIMIT, Entry6, MAX_ATTEMPTS, MAX_GUARD, Transition, e
 use super::records::typed::Record;
 use super::state::{EpochState, NODE_ANCHORED, NODE_INSPECTED, NODE_RESIDUAL, NODE_SEALED};
 use super::store::{LookupCounters, bucket_key};
-use super::verify::{Container, QueryImage, Verified, VerifyCounters, verify, verify_cover};
+use super::verify::{
+    Container, QueryImage, UnionCover, Verified, VerifyCounters, verify, verify_cover,
+};
 use std::collections::HashMap;
 
 pub(super) mod preparation;
@@ -277,26 +279,44 @@ pub(super) fn p1_anchors<const N: usize>(
             .and_then(AnchorRecord::d_band)
             .map(|(_, cut)| cut)
     };
-    let cover = |r: &AnchorRecord| union_cover(&node, domains, r, &cut_of);
     let visible = |id: u32, v0: u64| {
         merged_view.contains(id, v0)
             && !state.store.is_quarantined(id)
             && super::g2::eligible(domains, &state.ledger, anchor_map, id)
     };
-    let view = AnchorView {
-        p0: state.p0,
-        published_len,
-        arity: N,
-        ledger: &state.ledger,
-        same_bucket: &same_bucket,
-        record_of: &record_of,
-        edges_of: None,
-        merged_view: if config.g2 { Some(&visible) } else { None },
-        cover: &cover,
+    let union = {
+        let evaluated = std::cell::RefCell::new(None);
+        let cover = |r: &AnchorRecord| {
+            if !r.kind.is_g2() {
+                return union_cover(&node, domains, r, &cut_of);
+            }
+            // The view is local to this record. Bind the one-use evaluation to
+            // its captured borrow rather than extending the callback argument's
+            // lifetime. Structural checks still precede this exact oracle call.
+            if !std::ptr::eq(r, &record) {
+                return None;
+            }
+            let union = UnionCover::evaluate(&record, &node, domains, published_len, &cut_of);
+            let verdict = union.verdict();
+            evaluated.replace(Some(union));
+            verdict
+        };
+        let view = AnchorView {
+            p0: state.p0,
+            published_len,
+            arity: N,
+            ledger: &state.ledger,
+            same_bucket: &same_bucket,
+            record_of: &record_of,
+            edges_of: None,
+            merged_view: if config.g2 { Some(&visible) } else { None },
+            cover: &cover,
+        };
+        record
+            .validate(&view, state.k + 1)
+            .map_err(|v| fatal(format!("P1: {parent} anchors: {v:?}")))?;
+        evaluated.into_inner()
     };
-    record
-        .validate(&view, state.k + 1)
-        .map_err(|v| fatal(format!("P1: {parent} anchors: {v:?}")))?;
     let (tokens, q_digest) = match (record.d_band(), result.scope) {
         (Some((anchor, cut)), Some(scope)) => {
             let domain = node.expand();
@@ -326,15 +346,9 @@ pub(super) fn p1_anchors<const N: usize>(
         }
         _ => {
             let q = QueryImage::new(node).map_err(|e| fatal(format!("P1: {e}")))?;
-            let tokens = verify_cover(
-                &record,
-                &q,
-                domains,
-                published_len,
-                &cut_of,
-                &mut state.verify,
-            )
-            .ok_or_else(|| fatal(format!("P1: {parent}: G2' anchors do not cover the node")))?;
+            let tokens = union
+                .and_then(|union| verify_cover(&record, &q, union, &mut state.verify))
+                .ok_or_else(|| fatal(format!("P1: {parent}: G2' anchors do not cover the node")))?;
             (tokens, q.digest)
         }
     };

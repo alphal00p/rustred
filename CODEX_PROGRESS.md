@@ -38,6 +38,185 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Current-source native validation PASS,00:10UTC October1.** Build
+  exit0/no guard stop in1129.507s; test guard exit0/no stop in120.179s. Focused
+  union9/observer8/layout1 PASS; full app1,285 PASS/0 failed/12 pre-existing
+  ignored, candidate CLI19 and routed CLI6 PASS. The focused cases are subsets,
+  not additional unique passes. CPU0–49 comprised50 distinct physical cores;
+  strict license requirement/profile0 and no worker-availability SKIPPED markers.
+  Build PG4102483 and test PG/SID23246 are now absent. This validates the one-use
+  P1 witness and optional observer, **not** the isolated compact-buffer draft or
+  an optimized performance gain. Independent final receipt audit GO confirmed
+  all10 source hashes, newly built Cargo artifact bindings, test counts and
+  complete process drainage. Owner-side heavy/build/test locks are free.
+  Consolidated receipt: `TMP/postlaunch-20260930/P1_P2_NATIVE_ACCEPTANCE.md`.
+- [M/E] Layout diagnostic measured `(large row, payload, prospective tag)` bytes
+  at N2 `(592,592,16)`, N10 `(1056,1056,16)`, N15 `(1360,1360,16)`, N32
+  `(2352,2352,16)`. At N15,256 rows reserve348,160B currently, versus4,096B for
+  prospective all-Stored tags or352,256B for all-Candidate tags+payloads.
+  The target-less fraction8.83% in h0 supports landing/testing the smaller
+  transport hypothesis after this milestone. It does not measure RSS, touched
+  bytes, copying cost or wall gain. The draft's actual `Option<Verified>` layout
+  still receives its own diagnostic/native tests; no universal saving claimed.
+- [M/D] At00:08UTC October1 the consolidated correctness build finished
+  successfully (`release` app-opt1,18m46s compiler receipt); owned PG4102483 is
+  absent. Focused/full native tests remain pending with the runtime agent.
+  The compact transport draft has independent **source GO only** after fixing
+  a draft-only `Map::nth/last` payload-association bug with an owning iterator.
+  Patch `d72fadc0…3348c` remains isolated, unapplied and uncompiled. Six draft
+  tests include row/storage invariants, skip/last and actual Option-tag layout.
+  No current-source or production behavior changed due to that draft.
+- [D/E] At23:56UTC root granted `s5_fixed_work_pilots` an **isolated draft only**
+  of compact P2 row transport in `TMP/postlaunch-20260930/compact-source-rows/`.
+  `final_requirements_audit` independently reviews it. No tracked source edits,
+  native run or landing until the current frozen-source tests/layout diagnostic
+  complete. Keep the resolver and every row's authority check unchanged; compact
+  tag/token rows plus separate Candidate payloads, reserving both buffers before
+  resolution. `target=None` bounds payload capacity only, never proves anything.
+  Empty/stored/candidate/mixed/error panels and candidate-heavy regression risk
+  are required. This is implementation preparation, not a measured win.
+- [E/D] Independent review keeps inspector-to-coordinator containment-token
+  reuse **deferred**. A sound process-local witness is possible, but current
+  bytes-only transport discards tokens and drops the snapshot lease. Existing
+  tokens do not bind full image, arena identity, job/ordinal and snapshot epoch.
+  A future sidecar would cross resolver, pool/escrow, cancellation and merge
+  boundaries and retain current quarantine plus full cold/replay validation.
+  Holding snapshots can change publication backpressure. The91% Stored share
+  does not isolate repeated-summary/check cost, so it does not justify this
+  larger change yet. First test the smaller buffer-layout opportunity.
+- [M] The completed h0/h2 report and extracted arithmetic received independent
+  final GO. Report:
+  [epoch_preparation_screen_2026-09-30.md](docs/research/epoch_preparation_screen_2026-09-30.md).
+  Root updated the S5 technical status and authoritative plan with this negative
+  deployment result. No native work was needed for the report audit.
+- [M/D] **Full-input h0/h2 screen complete,23:47UTC.** Both bounded arms
+  saved clean CP6 checkpoints and fresh-process structural cold reads report
+  INCOMPLETE with zero violations; all183 queries/bindings retained. h0/h2
+  native windows1207.969/1209.858s, cold209.480/215.698s, inclusive1418.984/
+ 1427.234s; all owned groups drained. Two helpers delivered3.13% more native
+  inspections (3,503,792→3,613,632),2.52% more committed domains,4.64% more
+  pending domains,5.27% more sampled native-tree CPU and1.39% more peak RSS.
+  Both structural checks found8/67 closed starting roots; neither independently
+  rechecked native inspections or established required-query closure. P2 fell
+ 312.469→261.632s, mainly source221.497→178.353s, but extra P1/P3/boundary/wait
+  offset most savings. **The10% useful-work gate is not met**, and this is one
+  evolving-prefix pair, not fixed-work/repeated speed evidence. Keep production
+  h0 unchanged. `final_requirements_audit` independently confirmed receipts and
+  arithmetic; S5 owns the combined report. No additional helper sweep is granted.
+- [D/M] Resource release allowed `runtime_order_pilots` to start the consolidated
+  native correctness build (exec64721, owned PG4102483) onCPU0–15, using the
+  cached target, heavy/build locks and child-only `RUSTRED_EPOCH_PROFILE=0`.
+  All10 source hashes are checked; focused9 union+8 observer+1 layout tests
+  precede the full app/CLI suite. This app-opt1 build is not a performance binary.
+  Evidence: `TMP/postlaunch-20260930/p1-p2-native-build/`. Compilation is live,
+  so neither the new source nor its tests are yet claimed passed.
+- [M] At23:46UTC repaired production saved its first periodic CP6 generation1
+  and kept running. Live receipt: resumable=true, paused=false, zero abandoned
+  obligations,10,485,584 completed native inspections,16,210,614 committed
+  domains,6,111,918 pending and488,344,468 committed events. Path:
+  `campaigns/five-loop-a1-epoch-repaired-20260930/checkpoints/main`.
+  This is an observed save receipt, **not** a performed restore/cold reinspection.
+  Root and agents did not force the save or change production.
+- [M/D] The h2 pilot's outer ownership-monitor adapter used549.39 CPU seconds
+  by approximately1117s; this roughly half-core cost is **outside** the ARM
+  receipt's supervised native-tree CPU summary. Both arms used identical polling
+  code, but h0's exited adapter has no persisted CPU total. Do not manufacture an
+  all-process CPU comparison or call the pilot host uncontended. The live harness
+  remains unchanged to preserve the pair; future harness-cost work is separate.
+- [M] Previous goal turn made concrete progress: added an independently reviewed
+  layout-only diagnostic to the forthcoming native suite, reconciled the active
+  decision register, and observed repaired production progressing to13/67 roots.
+  Current h2 nativePID3976753 was revalidated live at23:40UTC; its remaining
+  execution/cold checking is a verified wait, not a reason to relaunch it.
+- [M/E] At23:37UTC repaired production remains healthy:8,833,376 native
+  inspections,19,545,831 scheduled domains,5,505,879 pending and zero frontiers.
+  Latest conservative closure snapshot reports13/67 starting roots,98.08s old;
+  this neither establishes all116 required queries nor provides an ETA.
+  Process-tree RSS23.89GB, recent utilization2.85/32 cores. A later283s interval
+  has P2=42.81%, P1=19.79%, P3=16.32%, boundary9.87%, inspect/wait11.21%;
+  coordinator costs are now important even when inspector waiting is small.
+  No production setting, binary, checkpoint or lifecycle action changed.
+- [D/E] Registered narrow structural hypothesis: compact P2 source-row
+  transport. `Vec<MissResolution<N>>` reserves the inline Candidate-sized stride
+  for every row, although h0's stored proposals comprise91.17% of178.475M rows.
+  Candidate contains two native summary copies; Stored needs only a proof token.
+  Independent source assessment (`final_requirements_audit`) confirms a possible
+  split tag/payload buffer but **no measured allocation/copy/wall-time benefit**.
+  Candidate-heavy blocks may regress. Root grants only a generic layout/capacity
+  diagnostic in the already planned native test build, not the optimization.
+  Preserve every resolver call, error order and ordered result fold if pursued.
+  Waves already bound live buffers; cumulative reserved capacity is not RSS or
+  bytes touched. Reopening condition: measured layout and representative block
+  mix support useful savings, followed by a separate audited implementation and
+  matched pilot. Existing deferred lazy-summary bypass remains deferred.
+- [M/D] At23:23UTC the h0 receipt is
+  `BOUNDED_CAUSAL_ARM_VALID_NOT_CLOSURE`:1418.984s inclusive, native1207.969s
+  plus structural cold209.480s. Cold exit9/INCOMPLETE is expected for its
+ 2,769,811 pending domains; zero violations, all183 query/input bindings retained,
+  no native reinspection or actual resume claimed. All owned processes drained.
+  The paired h2 is now active (adapter3976441/native3976753), same binary and
+  scope,29 inspectors+2 helpers+coordinator onCPU0–31. Its1200s cooperative stop
+  and1800s inclusive ceiling remain in force. S5 will explicitly reactivate
+  the build agent only after h2 and its cold reader fully drain; no compiler is
+  queued between arms. Consolidated native plan:
+  `TMP/postlaunch-20260930/P1_P2_NATIVE_VALIDATION_PLAN.json`.
+- [M] Repaired production at2329.94s remains running:6,742,816 native inspections,
+ 4,532,423 pending, zero frontiers,20.69GB RSS. Latest computed starting-root
+  closure snapshot is9/67,352.67s old, versus5 earlier; do not treat the stale
+  conservative count as an instantaneous fraction of the116 required queries.
+  This is encouraging progression, not a forecast or matched speed comparison.
+  LC2 remains untouched: at23:12UTC it had101,160,366 local completions,
+ 66,039,198 pending, zero frontiers and a6/67 snapshot2827.69s old.
+- [M/D] At23:19UTC both development slices are source-frozen and independently
+  cross-audited: P1 one-use union evaluation (nine focused tests added) and
+  optional P2 exact cross-entry observation (eight tests). Rustfmt/diff checks
+  pass; **neither has been compiled or run**. No CAS, artifact/checkpoint schema,
+  live binary or production setting changed. Runtime agent owns consolidated
+  app-opt1 native build, focused then full application/CLI tests only **after
+  both h0/h2 pilot arms drain**; it must not steal the build/heavy slot between
+  arms. Existing cached target/guard are reused; CPU0–15 build and0–49 tests
+  remain disjoint from production. Optimized timing needs a later explicit
+  build, not these correctness timings. P1 audit evidence:
+  `TMP/postlaunch-20260930/P1_UNION_WITNESS_INDEPENDENT_AUDIT.md`.
+- [M] h0 fresh full-input native screen saved cleanly at1207.969s (planned
+ 1200s cooperative stop), zero abandoned obligations/frontiers;3,503,792 native
+  inspections,9,110,510 scheduled,2,769,811 pending. Its independent structural
+  cold reader is running; **h0 acceptance and h2 remain pending**. Optimized P2
+  total312.469s: source resolution221.497, reverse47.518, canonical dedup20.115,
+  antichain7.784, representative4.435, transfer4.495. Work includes178.475M
+  obligations,7.114M source tasks/3.585M waves. P1=97.940s, P3=67.801s,
+  boundary115.626s, inspect/wait541.877s. Snapshot88.118s and prefix wait499.138s
+  are nested, not additional wall time. This is an incomplete-window baseline,
+  not closure or an h2 benefit. Later production intervals shifted P2 up to39.43%
+  and P1 between12.52–20.64%, so this first20min screen does not settle all
+  later-cut behavior. Evidence: `TMP/postlaunch-20260930/full-a1-preparation-h0-h2/h0/`.
+- [D] At23:04UTC root assigned `runtime_order_pilots` a narrowly scoped optional
+  P2 duplicate-observation implementation, with `final_requirements_audit` as
+  independent design/code reviewer. This reopens **measurement**, not caching:
+  bounded sampled-cut counts, explicit censored coverage and stored/current/stale
+  context separation; no changed plans, errors, proof tokens or publication.
+  Prefer the existing `RUSTRED_EPOCH_PROFILE` seam and invocation-only output,
+  with no map/timing construction when disabled. Defer intrusive fine timers if
+  necessary; repeated-image counts alone must not be called a performance win.
+  No new native run/build is granted until the active h0/h2 pair drains. Root
+  continues read-only production monitoring; frozen binary remains unchanged.
+- [M/E] A later live interval (native elapsed1203s) attributes P2=26.95%,
+  inspection/wait47.08%, boundary8.44%, P1=11.10%, P3=6.43%, with4.08 sampled
+  cores. P1 grew from4.08% in the first interval; do not assume stationary phase
+  costs. Root found two apparent exact-cover calls in `p1_anchors` (record
+  validation then token verification) and assigned the independent auditor a
+  narrow read-only check of whether they share identical immutable inputs. This
+  is a potential same-call common-computation removal, not permission to weaken
+  replay or pass trusted booleans as proof. No optimization is implemented or
+  measured yet; a complicated proof-API redesign would be deferred.
+- [D] The source audit confirmed identical immutable G2 union inputs in the two
+  P1 calls; InitialDBand's high-slice test is different and must remain. Root
+  authorized the small private one-use witness handoff, with no cached boolean
+  API, schema change or relaxed cold validation. `final_requirements_audit` is
+  now **implementer for this P1 slice**, while `runtime_order_pilots` independently
+  audits it; conversely the former audits the latter's optional observer. Neither
+  approves its own code. Both slices await native validation after h0/h2 drains,
+  and neither is claimed faster from the phase fraction alone.
 - [M] **Post-launch optimized ABBA complete, 22:54UTC (00:54 October1 Zurich).**
   Runtime agent used the actual repaired frozen CLI `23d836d7…`, W16/CPU32–47,
   unchanged selected-A1 payloads. All four arms independently cold-reinspect
@@ -650,13 +829,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | delivered; source-selection four-loop work gate qualified; fresh4L pipeline and full67 metadata preflight PASS | User launches frozen all67 generation; elapsed cost remains unknown |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; optimized four-/finite-five controls cold-All PASS; lower CPU/work but no general wall-time dominance | Collect full-scale feedback after user launch; no saturation promise |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | delivered; all67 improved owners generated and admitted; repaired user walk active | Keep saved rules unchanged; native validation of narrow P1/P2 development slices after h0/h2 drain |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; repaired optimized four-loop cold-All PASS, about10% slower than Ready; paired full-input helper screen active | Finish h2, structural cold checking and independent interpretation; no saturation promise |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `release_correctness_audit`; prior native/P4/lane reviewers | current source/native/interface audits, both lookahead causal pairs and E0 identity comparisons PASS | Review committed milestone and optimized freeze; audit subsequent matched qualification |
-| Integration, resources, profiling and release | root | frozen code b21e4522 pushed; all pilot groups drained; independent launch audit PASS; production untouched | User launch with32 physical cores/600GB; observe read-only afterward |
+| Independent mathematical/code/performance audit | `final_requirements_audit`; prior native/P4/lane reviewers | repaired ABBA receipt audit PASS; P1/P2 authors cross-audited source, native validation pending | Audit completed h2/h0 comparison; compact-row diagnostic is measurement only |
+| Integration, resources, profiling and release | root | pushed513befd6; frozen repair source d55cfb1c, optimized CLI23d836d7; both production campaigns observed read-only | Consolidate tests/evidence without changing user production |
 
-### Active decision register — refreshed 2026-09-30 20:20 UTC
+### Active decision register — refreshed 2026-09-30 23:40 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -664,11 +843,11 @@ the same experiment after a handoff.
 
 | Candidate | State | Evidence / reopening condition |
 |---|---|---|
-| A1 structural source visitation | delivered, integration active | Two four-loop pairs:40–44% fewer domains; limited5L depth2 and production-policy transfers positive. Full67-owner input regeneration and116-query outcome remain unmeasured. |
+| A1 structural source visitation | delivered, full-scope trial active | Two four-loop pairs:40–44% fewer domains; limited5L transfers positive. Full67 improved owners generated:3391.427s native generation sum plus12.161s admission;116-query closure remains unachieved. |
 | Persisted programmable integral order | delivered | Native/interface authority tests pass; B1 full comparator is not faster overall than A1. Degree-row ablation cold-PASS but no useful gain; parked. |
 | B2 support-density order | deferred | Diagnosed coupled-affine classification obstruction; missing IBPs not demonstrated. Reopen only with a separately justified exact geometry change. |
-| Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS. Full production preparation remains unmeasured. |
-| S5 typed merge/shared lookup/rolling prefix | delivered, trial-ready | Cold controls pass, smaller checkpoints; Ready remains competitive. Finaloptimized4L+5.16%wall, finite5L-2.61%wall (singlepair); CPU lower. |
+| Selected-sector public generation | delivered | Native/Python/stager tests and selected16-owner/508-route/58-query cold-All integration PASS; full67 improved owners generated and reused for repaired walk. |
+| S5 typed merge/shared lookup/rolling prefix | delivered, trial active | Repaired optimized4L ABBA cold-All PASS, Epoch+9.63%/+9.89%wall versus Ready. Earlier finite5L-2.61%wall is single-pair evidence; useful20-core scaling not demonstrated. |
 | Prefix wait / dispatch-credit diagnosis | delivered | Off/on cold-All and strict mathematical-state comparison PASS. Measured95.841/97.712s credit-blocked; bounded slow-job correlation has explicit limits. |
 | Bounded whole-result lookahead | delivered; optimized controls PASS | Native1229PASS/0failed/12intentionalignored; interfaces9/9PASS. Earlier app-opt1 E0/E1024 mechanism gain retained separately. Current optimized Ready comparison supports CPU/work tradeoff, not a universal wall win. |
 | A1 selected-owner programs with Epoch | delivered | Same16owner/508route/58query input passed CP6 cold-All;16,932inspections/25,945domains. Correctness integration, not qualified speed superiority. |
@@ -677,13 +856,18 @@ the same experiment after a handoff.
 | CP6 partial-source publication | deferred | Premature proposal withdrawn. Need measured early usable emission and a reviewed authority/restore model before any implementation. |
 | Ready bulk-edge-only optimization | deferred | Entire ordered commit is <8% of finite-control primary time; no profile of edge-only share and not a cure for80s Epoch waiting. |
 | Hot traversal-heavy saved-rule control | deferred until full-run feedback | Prepared/audited, no native grant; latest user prioritizes frozen release over more pilots. |
-| Production deployment | user-launched, read-only observation | Frozen A1→admission→Epoch pipeline is generating its third parent group; no all67 output or20-core demonstration yet. W32/600GB, CPUs64–95 remain reserved. |
+| Production deployment | user-launched, read-only observation | Repaired fresh walk on saved all67 improved owners is active, W32/CPU64–95; latest snapshot13/67 roots, not required-query completion or ETA. Original failed checkpoint is not reusable. |
 | Parallel exact route preparation | delivered, performance pending | Pushed2de21662; W1/W2/W4 exact-transport, cancellation/ordered-error tests and full1243-test application suite PASS. Startup/cold cost opportunity, not a demonstrated traversal gain. |
 | Allocation-free compact Epoch images | delivered, performance pending | Same2de21662 and native suite; wire/mutation/summary equivalence tests PASS. No timing gain attributed yet. |
-| Parallel parent preparation + separate dashboard | active validation | Runtime-agent supervisor54 pure tests plus3 real lifecycle controls PASS; independent audit approved. Native telemetry/renderer source approved; consolidated build pending. Same-work4L jobs1-vs2 ABBA preregistered, not run. |
-| Verified inactive-incidence envelopes / homogeneous upper-D | active research-only shadow | S5 agent owns unreferenced test; independent audit pending. Existing verified Symbolica maps and exact domain projection only. Production integration requires actual post-projection tightening, then an end-to-end benefit. |
-| Bounded alternative modular source-trace portfolio | active design | Runtime agent reviews smallest same-case falsifier and persistence boundary; no solver edits. Prior A1 sensitivity motivates it, but smaller traces alone do not prove better rules or less branching. |
+| Parallel parent preparation + separate dashboard | delivered, optimized timing pending | Pure/lifecycle/native source audits PASS; three4L generation→admission→walk→cold-All controls PASS with identical counts. App-opt1 phase sums29.291/30.283/29.290s are correctness evidence, not optimized speed qualification; actual-snapshot dashboard visually reviewed. |
+| Verified inactive-incidence envelopes / homogeneous upper-D | deferred at unreferenced probe | Source-only shadow is not compiled or run; urgent failure repair and measured coordinator costs took priority. Reopen with bounded post-projection tightening census, then end-to-end gain. |
+| Bounded alternative modular source-trace portfolio | deferred at unreferenced probe | No solver edits or native measurements; reopening needs exactly replayable case and full-cost comparison. Smaller traces alone do not prove better rules or less branching. |
 | Source-weight reconstruction for the observed exact tail | deferred pending exact-case capture | Existing implementation, not a new CAS project. Earlier completed comparisons lost; new two-variable large frame is a distinct hypothesis. Need a precisely replayable completed-case/frame and matched full-cost comparison. |
+| P1 repeated exact-union evaluation | delivered source/native; performance pending | Private one-use local witness removes duplicate same-input evaluation;9 focused tests and full1,285-app/25-CLI suite PASS. No relaxed cold/replay check or measured timing benefit. |
+| P2 preparation helpers | delivered negative deployment screen | h0/h2 both cold-structural valid; h2 gives3.13% more native work,4.64% more pending and5.27% more native CPU. P2 saves16.27%, but10% useful-work gate fails. No switch or sweep; reopening requires materially different measured workload/cost evidence. |
+| Cross-entry exact-image repetition | delivered observation; production measurement pending | Bounded optional census source-audited,8 focused and full native suite PASS. No cache/reuse authority; prefix truncation can hide repeats. Not enabled in user production. |
+| Compact P2 source-row transport | active isolated draft, landing pending evidence | S5 authors TMP-only patch; separate auditor reviews. Root source frozen for current build. Layout diagnostic precedes landing; no solver change or measured memory/speed gain yet. Candidate-heavy blocks are the falsifier. |
+| Inspector containment-token transport | deferred after feasibility audit | Possible with stronger private process-local bindings, but crosses bytes-only pool/escrow and snapshot lifecycle. No lazy-summary bypass; reopen only after the Stored validation cost is isolated and a full boundary/cancellation design is justified. |
 
 **Earlier engine implementation milestone:** `56176df5`, committed and pushed to
 `origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent

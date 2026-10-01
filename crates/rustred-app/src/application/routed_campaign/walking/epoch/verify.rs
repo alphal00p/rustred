@@ -227,22 +227,66 @@ pub(super) fn verify<const N: usize>(
     })
 }
 
+/// One local evaluation of the exact union predicate. Its inputs stay borrowed
+/// until token creation: it cannot be substituted for another record/arena or
+/// serialized, cloned, or reused by a later cut. A negative or undecided result
+/// is retained only to report the original validator verdict, never as proof.
+/// Construction always runs the same bounded oracle as restore and export.
+/// P1's cut callback reads only its immutably borrowed anchor map; the `Fn`
+/// bound alone does not promise purity for arbitrary diagnostic/test callbacks.
+pub(super) struct UnionCover<'a, const N: usize> {
+    record: &'a AnchorRecord,
+    node: &'a CompactDomain<N>,
+    domains: &'a [CompactDomain<N>],
+    published_len: usize,
+    _cut_of: &'a dyn Fn(u32) -> Option<i64>,
+    verdict: Option<bool>,
+}
+
+impl<'a, const N: usize> UnionCover<'a, N> {
+    pub fn evaluate(
+        record: &'a AnchorRecord,
+        node: &'a CompactDomain<N>,
+        domains: &'a [CompactDomain<N>],
+        published_len: usize,
+        cut_of: &'a dyn Fn(u32) -> Option<i64>,
+    ) -> Self {
+        Self {
+            record,
+            node,
+            domains,
+            published_len,
+            _cut_of: cut_of,
+            verdict: union_cover(node, domains, record, cut_of),
+        }
+    }
+
+    pub fn verdict(&self) -> Option<bool> {
+        self.verdict
+    }
+}
+
 /// G2' anchor edges (§5.3 "anchor edges: exact cover predicate"): one token
 /// per anchor of `record`, all naming the node's image `q`, iff every anchor
 /// is a stored container in range (`Stored`, id < `published_len`) of q's
 /// phase and owner (explicit) and `q ⊆ residual ∪ lent scopes` holds exactly
 /// (`lattice::Cell::covered_by_union`, the oracle's predicate; undecided is
-/// refused). `cut_of` gives an InitialDBand anchor's own cut (its lent
-/// low-D slice).
+/// refused). Consume the one-use union evaluation from P1's structural
+/// validator, after QueryImage construction in its original error order.
+/// Counter positions and the range/bucket checks are unchanged; no caller can
+/// supply a boolean in place of the bounded oracle's result.
 pub(super) fn verify_cover<const N: usize>(
     record: &AnchorRecord,
     q: &QueryImage<N>,
-    domains: &[CompactDomain<N>],
-    published_len: usize,
-    cut_of: &dyn Fn(u32) -> Option<i64>,
+    cover: UnionCover<'_, N>,
     counters: &mut VerifyCounters,
 ) -> Option<Vec<Verified>> {
     counters.calls += 1;
+    if !std::ptr::eq(record, cover.record) || q.image != *cover.node {
+        return None;
+    }
+    let domains = cover.domains;
+    let published_len = cover.published_len;
     for a in &record.anchors {
         if (a.anchor as usize) >= published_len.min(domains.len()) {
             counters.refused_range += 1;
@@ -255,7 +299,7 @@ pub(super) fn verify_cover<const N: usize>(
         }
     }
     counters.union_covers += 1;
-    if union_cover(&q.image, domains, record, cut_of) != Some(true) {
+    if cover.verdict != Some(true) {
         return None;
     }
     counters.accepted += 1;
@@ -270,3 +314,6 @@ pub(super) fn verify_cover<const N: usize>(
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod tests;

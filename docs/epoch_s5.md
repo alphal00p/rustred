@@ -10,12 +10,25 @@ obligations. A drained work queue alone is not a closure certificate.
 
 As of 2026-09-30, the previously completed core native suite reports 2,864
 passed and 32 ignored. Following the production union-preflight repair, the
-latest application suite reports **1,267 passed, zero failed and 12 ignored**;
+repair application suite reports **1,267 passed, zero failed and 12 ignored**;
 candidate and routed CLI suites add 19 and 6 passing tests. The earlier
 1,229-test milestone supplied 50 distinct physical cores and exercised all
 worker-availability subcases. These are separate receipts, not a claim that
 every later run repeated that allocation. Full receipts, fixture corrections
 and failed attempts remain in the progress log.
+
+The subsequent P1 local-union witness and optional P2 observation milestone
+passes1,285 application tests plus19 candidate and6 routed CLI tests, with
+zero failures and the same12 ignored research tests. That run supplies50
+distinct physical CPUs and emits no worker-availability skip markers. Focused
+union9/observer8/layout1 checks also pass; these are subsets of the full suite.
+The private one-use witness avoids evaluating the same immutable G2 union twice
+inside P1; inspector preflight and independent cold/replay checking remain
+unchanged. The bounded `RUSTRED_EPOCH_PROFILE=1` census observes exact image
+repetition without supplying proof or changing publication decisions. These
+changes are correctness-tested in an application-opt-level1 build; their
+optimized runtime effect has not yet been measured. The user's frozen repaired
+production executable predates them and is not changed by this development work.
 
 The first full-input trial exposed an optional G2 union-proof budget mismatch:
 the discovery procedure could succeed while P1's separate bounded proof was
@@ -33,6 +46,16 @@ ABBA controls are now complete: every arm passes independent cold-All for all
 This remains a correctness pass, not four-loop wall-time non-regression.
 The old failed checkpoint must not be resumed.
 
+The subsequent optimized full-input W32 h0/h2 causal screen compares31
+inspectors with29 inspectors plus2 preparation helpers. Both twenty-minute
+native windows save and pass structural cold checks with zero violations;
+neither closes the requested scope or repeats native inspections. Helpers cut
+P2 time312.469→261.632s but complete only3.13% more inspections, with4.64% more
+pending domains and5.27% more sampled supervised-tree CPU. That misses the
+preregistered useful-work threshold and does not justify changing the running
+default. The graph prefixes differ, so this is not fixed-work speedup evidence.
+See [the complete screen and measurement limits](research/epoch_preparation_screen_2026-09-30.md).
+
 The earlier fully optimized CLI (`38e0e763…`) passed correctness in the repeated
 four-loop Ready/Epoch comparison with 1,024 extra completed-result slots.
 Median native-launch-through-drain plus cold-All time is 15.494 s for Ready
@@ -48,8 +71,9 @@ The final optimized finite-five-loop single pair also cold-verifies: Ready
 Native CPU falls 545.133→482.216 s, while sampled RSS rises 6.233→6.582 GB.
 This control covers one bounded 1,324-point query and its reachable descendants,
 not the production 116-query scope. The user-selected launch reserves 32 physical
-cores/600 GB; all these final comparisons used 16 cores, so 32-core performance
-remains unmeasured. The user trial subsequently generated and admitted all 67
+cores/600 GB; those final comparisons used16 cores and did not measure32-core
+performance. The newer h0/h2 screen above supplies limited32-core evidence,
+not a whole-campaign completion time. The user trial generated and admitted all67
 owners (9,966 rules and 939 finite residual cases), then hit the reuse-check
 failure described above. Saved rules can be reused for recovery; full-scope
 completion remains unknown. See the runbook for the running repaired release

@@ -164,6 +164,82 @@ fn serial_parallel_plan_identity_across_buckets_and_index_threshold() {
     }
 }
 
+#[test]
+fn cross_entry_observation_preserves_plan_counters_and_serialization_off() {
+    for large in [false, true] {
+        let (state, _, checked) = fixture(large);
+        let reference = p2_plan(&state, &checked).unwrap();
+        for helpers in [0, 2] {
+            for enabled in [false, true] {
+                let mut engine = Engine::new(helpers, LIMITS).unwrap();
+                engine.observe_cross_entry = enabled;
+                let prepared = engine
+                    .prepare(&state, &checked, &AtomicBool::new(false))
+                    .unwrap();
+                assert_plan_eq(&reference, &prepared.plan);
+                let metrics = serde_json::to_value(&prepared.metrics).unwrap();
+                let mut totals = Totals::default();
+                totals.add(&prepared.metrics);
+                let totals = serde_json::to_value(totals).unwrap();
+                if enabled {
+                    let sample = &metrics["cross_entry_observation"];
+                    let extra = if large { 600 } else { 0 };
+                    assert_eq!(sample["observed_rows"], 8 + extra);
+                    assert_eq!(sample["unique_images"], 6 + extra);
+                    assert_eq!(sample["cross_entry_geometry_repeats"], 2);
+                    assert_eq!(sample["cross_entry_same_context_repeats"], 2);
+                    assert_eq!(sample["truncated"], false);
+                    assert_eq!(totals["cross_entry_observation"]["sampled_cuts"], 1);
+                } else {
+                    assert!(metrics.get("cross_entry_observation").is_none());
+                    assert!(totals.get("cross_entry_observation").is_none());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cross_entry_observation_preserves_failures_and_cancellation() {
+    for failure in 0..4 {
+        let (mut state, _, mut checked) = fixture(false);
+        match failure {
+            0 => checked.entries[0].result.misses[0].digest ^= 1,
+            1 => checked.entries[0].result.misses[0].target = Some(u32::MAX),
+            2 => {
+                checked.entries[0].result.lookup = Some(LookupReport {
+                    version: state.k,
+                    published_len: state.watermark(),
+                    lookup: LookupCounters::default(),
+                    verify: VerifyCounters::default(),
+                    seconds: 0.0,
+                });
+            }
+            _ => {
+                checked.entries[0].result.misses[0].target = Some(0);
+                state.store.enable_rescue_duplicates().unwrap();
+                state.store.install_quarantine(vec![1]).unwrap();
+            }
+        }
+        let reference = p2_plan(&state, &checked).err().unwrap().0;
+        for helpers in [0, 2] {
+            for enabled in [false, true] {
+                let mut engine = Engine::new(helpers, LIMITS).unwrap();
+                engine.observe_cross_entry = enabled;
+                let error = engine
+                    .prepare(&state, &checked, &AtomicBool::new(false))
+                    .err()
+                    .unwrap();
+                assert!(matches!(error, Error::Fatal(Fatal(ref message)) if message == &reference));
+                assert!(matches!(
+                    engine.prepare(&state, &checked, &AtomicBool::new(true)),
+                    Err(Error::Stopped)
+                ));
+            }
+        }
+    }
+}
+
 struct Rows(Vec<Value>);
 impl RecordOut for Rows {
     fn reserve(&mut self) -> Result<(), String> {
@@ -517,4 +593,71 @@ fn controlled_lookup_preserves_exact_winner_and_stops_inside_index_scan() {
         .unwrap_err();
     assert_eq!(error, CANCELLED);
     assert_eq!(calls, 2);
+}
+
+#[test]
+fn source_row_layout_diagnostic() {
+    // Prospective transport shapes only: no resolver/production layout change.
+    #[allow(dead_code)]
+    enum PackedTag {
+        Stored(Verified),
+        Candidate(u16),
+    }
+    type Payload<const N: usize> = (QueryImage<N>, Query<N>);
+
+    fn layout<T>() -> Value {
+        serde_json::json!({"size": std::mem::size_of::<T>(), "align": std::mem::align_of::<T>()})
+    }
+    fn reserved<T>(slots: usize) -> (usize, usize) {
+        let mut values = Vec::<T>::new();
+        values.try_reserve_exact(slots).unwrap();
+        // No values are initialized: report allocator-provided Vec capacity,
+        // not resident/touched bytes, copy traffic, allocation latency or speed.
+        (
+            values.capacity(),
+            values.capacity() * std::mem::size_of::<T>(),
+        )
+    }
+    fn report<const N: usize>() {
+        let current = reserved::<MissResolution<N>>(256);
+        let tags = reserved::<PackedTag>(256);
+        let no_payload = reserved::<Payload<N>>(0);
+        let full_payload = reserved::<Payload<N>>(256);
+        let break_even = (std::mem::size_of::<MissResolution<N>>() as f64
+            - std::mem::size_of::<PackedTag>() as f64)
+            / std::mem::size_of::<Payload<N>>() as f64;
+        println!(
+            "source_row_layout {}",
+            serde_json::json!({
+                "arity": N,
+                "scope": "generic type layout and reserve-only backing capacity; Vec lengths zero; excludes allocator overhead/Vec headers; not bytes touched, copy cost, RSS or speed",
+                "types": {
+                    "miss_resolution": layout::<MissResolution<N>>(),
+                    "verified": layout::<Verified>(),
+                    "query_image": layout::<QueryImage<N>>(),
+                    "query": layout::<Query<N>>(),
+                    "prospective_packed_tag": layout::<PackedTag>(),
+                    "prospective_candidate_payload": layout::<Payload<N>>()
+                },
+                "requested_rows": 256,
+                "reserved_capacity_slots_and_bytes": {
+                    "current_either_mix": current,
+                    "packed_tags_either_mix": tags,
+                    "all_stored_payload": no_payload,
+                    "all_candidate_payload": full_payload
+                },
+                "total_backing_bytes": {
+                    "current_either_mix": current.1,
+                    "packed_all_stored": tags.1 + no_payload.1,
+                    "packed_all_candidate": tags.1 + full_payload.1
+                },
+                "ideal_break_even_candidate_fraction": break_even,
+                "break_even_scope": "(enum stride - tag stride) / payload stride; ideal exact capacities, not a measured workload mix"
+            })
+        );
+    }
+    report::<2>();
+    report::<10>();
+    report::<15>();
+    report::<32>();
 }

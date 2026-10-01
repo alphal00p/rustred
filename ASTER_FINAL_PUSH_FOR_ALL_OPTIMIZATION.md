@@ -31,6 +31,14 @@ The deferred optimized four-loop ABBA controls have now completed: all58 queries
 and32 roots pass full native cold reinspection in every arm. Epoch is9.63% and
 9.89% slower on native+cold wall time in the two pairs; no performance pass is
 inferred from their correctness acceptance.
+The later optimized full-input W32 helper screen also completed. Two preparation
+helpers reduce P2 wall time16.27% but yield only3.13% more native inspections,
+with4.64% more pending domains and5.27% more sampled native-tree CPU. Both arms
+save and pass structural cold checks, not native reinspection or query closure.
+Their graph prefixes differ. This misses the preregistered useful-work threshold;
+retain the current production partition and prioritize reducing redundant merge
+work over a blind helper-count sweep. Details are in
+`docs/research/epoch_preparation_screen_2026-09-30.md`.
 Production lifecycle remains user-owned. Observe
 the repaired run to guide subsequent optimization rather than delaying it.
 
