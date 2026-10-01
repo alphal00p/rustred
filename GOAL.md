@@ -1,5 +1,27 @@
 # RustRed project goal
 
+## Current priority — October1, rule optimization on main
+
+The user directs all development resources to understanding and optimizing
+generated rules. Work on `main`, which already contains the merged parallel
+feature; that feature branch has been removed locally and remotely. Preserve
+unrelated and production worktrees. Keep production lifecycle user-controlled.
+
+Use the measured two-way lower-owner intervention to identify why some exact
+rules produce fragmented routed domains rather than shared pinch destinations.
+Inspect native case/guard/shift/terminal data with existing RustRed/Symbolica
+APIs, then implement and independently audit a generic, runtime-configurable
+selection improvement. Test fully closing four-loop controls before five-loop
+transfer. Do not narrow the116 required queries or67 helpers, drop exceptional
+conditions, or trade exactness for a favorable timing. Preparation cost is
+separately reported and can be amortized over the full production campaign.
+
+New scheduler/index/P2/P3 experiments are parked. Their existing evidence and
+unpromoted changes are retained without claiming acceptance. The detailed
+priority amendment and next tests are in
+`ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md`; continuous findings and decisions
+remain in `CODEX_PROGRESS.md`.
+
 ## Delivery and branch consolidation — October1
 
 The repaired, optimized binary and user-operated restart instructions are the

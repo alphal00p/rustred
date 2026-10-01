@@ -10,6 +10,74 @@ merge the tested feature into `main` and use `main` for subsequent work. Clean
 only merged, unneeded branches, preserving unrelated changes and frozen/live
 campaign state. The user retains production lifecycle control.
 
+### October1 11:10 UTC evidence update
+
+The frontier repair is delivered, merged into `main`, and the user has launched
+its fresh walk. It remains untouched by development. The runtime portfolio and
+ordering interfaces pass the focused native tests, full application suite and
+six fresh installed-wheel/CLI/checkpoint tests. Current tested branch-first and
+rank-first rule portfolios do not improve on A1; fewer immediate successors can
+produce more routed domains. The next selected investigation is a controlled
+whole-owner swap to isolate that downstream effect, not another blind ordering
+sweep. Shared graph/rule/helper structure remains the supported baseline;
+independent campaigns are not presumed optimal or inherently slower.
+
+The prepared-retirement S5 slice passes native and repeated four-loop cold
+controls, but its median traversal is1.29% slower on that small control. Ready
+remains about24% faster there. Two specific valid snapshot-provenance differences
+were independently reviewed; full checkpoint byte equality is not claimed.
+No new performance or deployment gate is passed. A representative large-index
+five-loop comparison is still needed before accepting that working-tree slice.
+Details: `docs/research/epoch_prepared_retirement_2026-10-01.md` and
+`docs/research/rule_selection_portfolio_2026-10-01.md`.
+
+The user's latest timing clarification prioritizes sustained traversal and
+total domain work: input preparation remains reported but can be amortized in
+the full campaign. Finite physical entry bounds do not by themselves prove
+that the broader symbolic helper/descendant traversal stabilizes. Improve the
+observed source of extra obligations without narrowing the116 required queries
+or67 helpers, and do not infer an ETA from zero frontiers or busy-core counts.
+
+### October1 priority amendment — concentrate all development on rule quality
+
+The user explicitly directs all resources to understanding and optimizing rules.
+Pause new scheduling, P2/P3, index and independent-campaign experiments; retain
+their existing code and evidence without promoting unqualified changes. Wind
+down only owned development pilots safely. Production remains user-controlled
+and untouched. This changes the immediate priority, not the frozen116-query/
+67-helper scope or the requirement for exact, generic algorithms.
+
+The two-way lower-owner program swap is the first causal foothold: it transfers
+3,036 Route inspections in either direction, accounting for92.8% of the excess
+Route work between the tested A1 and rank-first portfolios. This is whole-program
+influence, not yet the identification of one rule, terminal equality or a timing
+win. Next steps, delegated to independent implementation/research/audit lanes:
+
+1. Inspect the implicated programs through the existing native codec/Symbolica
+   APIs: compare terminal keys, ordered case guards, RHS shifts, support changes
+   and coefficient structure in original family coordinates. No parallel codec
+   or custom algebra is permitted.
+2. Attribute downstream fragmentation to actual changed rule cases and routed
+   regions. Preserve original-term validity, guards, exceptional obligations,
+   terminal policy and the current mathematical order. Do not infer beneficial
+   sharing from fewer terms, smaller local shifts or aggregate graph counts.
+3. Derive a generic, runtime-configurable structural selection criterion from
+   that mechanism, using pinch/routing incidence and reusable successor domains
+   where justified. Compare cheap structural proxies with bounded native
+   post-routing evaluation before choosing implementation. Avoid hard-coded
+   topology names, blind priority grids or gratuitous generation.
+4. Implement only the justified slice, with separate adversarial review and
+   existing exact admission/replay gates; test shared four-loop controls first,
+   then representative five-loop transfer. Charge preparation separately and
+   prioritize sustained traversal, work and memory. Never claim a global gain
+   from a single local metric or abandon guard obligations to simplify a rule.
+
+Keep Rust/CLI/Python steering flexible enough to reuse one compiled engine for
+the ensuing input experiments. Log all findings and rejected hypotheses in
+`CODEX_PROGRESS.md`; commit and push coherent audited milestones. The current
+unpromoted P3 patch is parked until the user restores that priority or rule work
+no longer provides a useful next step; do not silently accept it for neatness.
+
 ## October1 priority amendment: frontier repair before optimization pilots
 
 The user now explicitly prioritizes repair of the stopped local `ExactGap` and

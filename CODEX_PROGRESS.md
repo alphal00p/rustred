@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 10:38 UTC
+## Current workboard — October 1, 11:34 UTC (13:34 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -17,17 +17,150 @@ remains active; delivery does not satisfy the unpassed performance gates.
 
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
-| Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass | Fresh Python wheel/native parity; wider worker acceptance is separately qualified |
+| Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
+| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Both two-way whole-owner interventions pass | Native case/guard/shift/terminal comparison to isolate actual rule mechanism |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Independent authority/performance review | `rule_quality_audit` | Active, read-only | Review test coverage and pilot interpretation; identify a justified next S5 bottleneck without reopening rejected knobs blindly |
-| P3 exact-ID retirement application | `frontier_probe_runner`; independent review `rule_quality_audit` | Native tests pass; matching optimized CLI build active | Old/new Epoch and current Ready whole-work measurements after binary freeze |
+| Rule-mechanism research | `frontier_probe_runner` | Active after safely ending owned P3 pilot | Pinch/routing-aware successor reuse criteria; no new scheduler or broad sweep |
+| Independent authority/performance review | `rule_quality_audit` | Rule-quality audit active | Verify donor-only intervention, interpret conditional/routed work, critique proposed criterion |
+| P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
 The earlier auditor could not be reactivated due to its thread limit; a fresh
-independent audit agent was started successfully. The native core build uses
-CPUs 0–15, at most eight build workers, the existing target cache and heavy/build0
-locks. No native performance pilot is authorized until focused tests and protocol
-review pass. Neither the frozen release nor production input is edited.
+independent audit agent was started successfully. Optimized builds used CPUs
+0–15, at most eight build workers, the existing target cache and heavy/build0
+locks. The native and protocol gates have passed. Rule pilots use CPUs32–47 and
+the existing owned-process lifecycle. All scheduling/merge experiments are now
+parked by the user's rule-quality-only priority. Neither the frozen production
+release nor input is edited.
+
+### October 1, 13:34 Zurich — rule-quality-only priority, main confirmed
+
+- [D] User directs all development resources to understanding/optimizing rules.
+  `ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md` now records that immediate priority.
+  Implementation lane inspects the native program/case/guard differences;
+  research lane studies routed successor reuse; separate auditor checks causal
+  interpretation and the mathematical limits of proposed criteria. All algorithms
+  remain generic; family-specific evidence stays in inputs.
+- [M] Both two-way whole-owner interventions pass mixed native import and
+  cold-All58/58 queries,32/32 roots, no frontiers. Replacing A1 owner0111100001
+  with the rank-first program adds3,036 Route inspections; reverse replacement
+  removes exactly3,036. The full portfolio difference was3,271: this owner
+  accounts for92.8% of the extra Route work. Conditional successors transfer
+  exactly2,740 in either direction. It is not yet a rule-only cause: donor
+  terminal declarations travel with the saved program, and exact terminal-key
+  equality remains to be inspected through the native decoder. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/owner_swap_analysis.json` and
+  `receipts/owner-swap-{a1-with-rank,rank-with-a1}-r1/RESULT.json`.
+- [M] The mature P3 baseline had cooperatively saved at its900s bound before
+  the user's priority change. The runner then interrupted only its own cold
+  checking phase and drained all owned processes (948.853s inclusive, no hard
+  kill). Private generation2 is resumable with6,438,490 native inspections,
+  4,414,744 pending, zero frontiers and no checkpoint warnings. The cold check
+  is incomplete; candidate arm never started. No performance comparison or
+  closure is claimed. Original checkpoint and production remain untouched.
+- [M] Rechecked current branch and remote: root checkout is `main`, HEAD and
+  `origin/main` are080702cc; `git ls-remote --heads origin main fable_5_1_parallel`
+  returns only main. The merged feature branch is absent locally/remotely.
+  Older collaborator/production branches and worktrees remain deliberately
+  preserved; their deletion is not needed for development consolidation and
+  would risk unrelated work. All new integration/commits continue on main.
+
+### October 1, 10:59 UTC — current builds, live health and sharing question
+
+- [M] Matching optimized P3 CLI built successfully in814.508s and its fresh
+  Python wheel in27.217s, both with clean owned-process drainage. Compilation
+  is excluded from solver measurements. Frozen CLI SHA256`d7a21923…`, wheel
+  `bb917644…`; evidence: `TMP/postlaunch-20261001/portfolio-public-python/`
+  (`CLI_FROZEN.json`, `WHEEL_FROZEN.json`). Engine sources remained unchanged
+  across the build; commit080702cc only finalized reviewed tests/documentation.
+- [D] Granted the previously reviewed matched old-Epoch/new-Epoch/new-Ready
+  pilot trio and conditional counterbalanced repeat with the same A1 saved
+  programs. No rule regeneration. Preparation and cold verification remain
+  separately visible; sustained traversal and total work drive interpretation,
+  because preparation can be amortized in the full campaign. The six-test
+  installed Python gate is separately authorized and uses only a fresh TMP site.
+- [M] At104.6min the user-run frontier-repaired campaign is still live, with
+  13/67 recursively closed initial roots, about17.5million local inspections,
+  zero frontiers and36.2GB RSS. Current invocation phase-wall diagnostics:
+  inspection2169.7s, P1=715.8s, P2=1825.7s, P3=838.2s, boundary640.5s. These
+  are coordinator intervals, not exclusive worker CPU attribution or a proven
+  serial fraction. A sampled heartbeat showed76 finished-but-uncommitted
+  domains and no computing callbacks: consistent with publication pressure,
+  not a proof that all pending work is immediately independent.
+- [D/E] New user question reopens the *assessment* of shared versus independent
+  entry campaigns, not a production change. Shared execution is not proven
+  optimal. All shards can retain the same immutable rules/routes; what they
+  lose is shared descendant-coverage work and anchors. The old September25
+  all67 rank-zero comparison did finish both ways, but its independent process
+  variant repeated preparation heavily. Its 1.93x whole-command slowdown is
+  not proof that sharding a multi-hour current run loses. Conversely, measured
+  inspection inflation and missing-helper cover effects must not be ignored.
+  Independent reviewer is checking current code and exact historical scope.
+  No shard campaign, new scheduler or production restart has been authorized.
+- [M] Fresh installed Python acceptance passes6/6 with zero failures/errors/
+  skips (0.231s test,1.426s owned job). `acceptance-r2/RESULT.json` under the
+  public-Python evidence directory records the installed package/native paths
+  and matching CLI. The first wrapper-only attempt correctly reached no tests:
+  Nix normalizes `PYTHONNOUSERSITE=1` to `true`; the wrapper now checks Python's
+  effective `sys.flags.no_user_site`, without weakening any native assertion.
+- [M] First fixed-rule P3 pair cold-verifies58/58 queries and32/32 roots with
+  exactly26,025 domains,495,898 edges and17,957 inspections in both arms.
+  Traversal4.290s old versus4.332s new does not demonstrate a gain. Ready's
+  completed traversal3.236s was followed by a separately recorded successful
+  cold check after the harness's32MiB diagnostic-reader cap rejected its39.3MB
+  report; only that reader cap was raised to128MiB. The first report and timing
+  are preserved, not rerun or relabeled. No solver/resource failure occurred.
+  Counterbalanced repeats are active. The pair comparator finds the same
+  mathematical state/record/edge digests but13 shifted snapshot hit/miss counts;
+  independent diagnostic classification is pending, with raw mismatch retained.
+- [E/D] The user's priority is shared topology/pinch-informed descent, not
+  replacing useful sharing merely to raise utilization. The saved portfolio
+  comparison supports investigating that mechanism: fewer immediate successors
+  nevertheless produced more routed domains. Next proposed causal test exchanges
+  one already source-qualified owner payload in both directions, preserving all
+  other inputs. Compatibility/staging assessment only is authorized so far;
+  no new score, generation grid or experiment has been launched.
+- [M/E] Independent sharing audit confirms actual input distinction:116 required
+  queries are finitely bounded; among67 auxiliary helpers,13 lack a positive-
+  power cap. This count is not an identification of the13 currently CLOSED
+  roots. Their broader coverage can enable convergence/reuse but enlarges the
+  symbolic obligations. Past negative bounded-helper experiments remain valid;
+  this is not authority to cap/remove helpers or narrow the physical request.
+  The finite-concrete-input/finite-branching/well-founded-descent theorem does
+  not automatically establish finite convergence of symbolic over-covers.
+  The monitor's CLOSED predicate is scoped dependency coverage (including
+  sealed cycles), not a global routed termination certificate.
+- [M] All six P3 timing walks now pass58/58 query and32/32 root cold checks.
+  Old Epoch traversal4.290/4.255s, new4.332/4.323s, new Ready3.236/3.321s:
+  no P3 gain on this four-loop control. The first pair's13 hit/miss accounting
+  shifts were independently classified as diagnostic, with matching logical
+  graph/index/ledger and ID/tag/outdegree record digest (not full records).
+  The second pair differs additionally
+  in two G2 dispatch-version bytes; reviewer is checking their snapshot-validity
+  inequalities. Raw comparison differences are preserved; no unconditional
+  byte-identity or performance acceptance claimed.
+- [D] Root reviewed the whole-owner swap protocol and authorized its two arms
+  using the original4e76707b CLI, unchanged routes/queries and full cold checks.
+  Both source programs were already independently replayed. Donor terminal
+  declarations travel with that owner, so the result is owner-program causality,
+  not a rule-only intervention or evidence that terminal keys are equal.
+  Existing native mixed import validates Symbolica context/order compatibility;
+  no custom decoder, fresh rule generation or rebuild is needed. Evidence plan:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/OWNER_SWAP_PLAN.md`.
+- [M] P3 second-pair audit found only two distinct persisted dispatch versions,
+  not changed anchor scopes or selected geometry. Lender epoch664 precedes
+  both old/new dispatch versions, and recipient epochs815/817 follow them.
+  All49 anchor records otherwise match exactly. Native restore validation
+  binds this provenance to each recipient; it is not disposable telemetry.
+  Selected-state correctness is qualified with those explicit differences;
+  full checkpoint/typed-record equality remains unclaimed. Both raw comparator
+  failures remain intact. The completed six-arm report shows no four-loop gain,
+  so P3 is not a production-switch recommendation.
+- [D] Previous goal turn made concrete progress: completed the six native
+  Python checks, six matched performance walks/cold checks, independent state
+  difference audit, and registered the causal owner intervention. It was not
+  a no-progress wait. Goal remains active; broad performance delivery gates are
+  still open. Current branches/binaries are not rebuilt merely for doc commits.
 
 [M] User launched the corrected command: native PID1504002 was confirmed alive,
 run `20261001T091314.583624Z` under the repaired campaign. At32.1s telemetry
@@ -351,6 +484,25 @@ transitions are1→4→5→8→13 (13 first at2246s). There is no within-run reg
 Closure refresh is conservative and~13minutes stale; lag can cause a plateau,
 not justify a decrease of durable closed roots. No restart is recommended from
 this evidence. Healthy operation does not establish convergence or an ETA.
+
+[M/D] Validated rule-portfolio test/documentation milestone committed and pushed
+to `main` as `080702cc`, with the requested Git identity/coauthorship. The three
+P3 engine/test files remain unstaged pending matched performance; unrelated
+FeynKit and untracked work are preserved. CLI build session88369 continues from
+its recorded9477044d-plus-diff admission; the documentation/test commit does
+not change that engine source or justify a rebuild. Production was untouched.
+
+[D] Continuing from the pushed milestone, assigned a read-only diagnostic of
+the three completed candidate checkpoints. The new question is whether changed
+successor geometry, route fragmentation or sharing explains the extra rank-
+first domains, aligning exact query geometry rather than unstable numeric IDs.
+This is not permission for another priority sweep or a new engine feature.
+Root prepared the six-test fresh installed-Python gate
+`TMP/postlaunch-20261001/portfolio-public-python/accept.py` (SHA256559e1f8b…);
+independent source review passes. It rejects stale imports and all skips, and
+must run inside the existing bounded supervisor after the wheel exists. Native
+Python validation and P3 performance remain pending; compiler progress has been
+revalidated directly from PID3733674 rather than inferred from log files.
 
 **Latest user direction (2026-09-30 17:29UTC):** the mandatory1.5x deployment
 gate is relaxed. A smaller reproducible useful advantage is acceptable, with

@@ -1,8 +1,9 @@
 # Apply exact prepared retirement IDs once
 
 Status: source implemented and independently reviewed on October 1, 2026.
-Native differential and application tests pass; matched performance qualification
-is pending. Production is unchanged.
+Native differential and application tests pass. Repeated combined four-loop
+controls also pass, but show no traversal improvement. A representative
+large-index five-loop comparison remains pending. Production is unchanged.
 The implementation is currently an uncommitted, reviewed working-tree change;
 the documentation/test milestone does not deliver this engine change. Its
 commit and deployment decision wait for the fixed-rule performance comparison.
@@ -87,6 +88,11 @@ existing bounded five-loop control, charging complete preparation, publication,
 checkpoint and verification costs. Keep the generated-rule portfolio comparison
 separate: changing both rules and publication in the same pair would confound
 the result. Local mask timings or busier cores do not establish a campaign gain.
+Report preparation and cold verification separately from native traversal.
+For the long production campaign, a sustained traversal/work reduction may
+outweigh a one-off setup cost; setup alone is not a veto. A local phase speedup
+still cannot substitute for measured useful traversal or offset extra domain
+work without accounting for that tradeoff.
 
 Falsifiers are any changed semantic or physical checkpoint image, missing
 retirement, altered publication choice, or material whole-work regression.
@@ -97,4 +103,68 @@ from source approval alone.
 Implementation author: `frontier_probe_runner`. Independent source reviewer:
 `rule_quality_audit`. Root owns integration, resource coordination and acceptance.
 The isolated source is retained at `TMP/prepared-retirement-20261001/`;
-native evidence will be recorded in `CODEX_PROGRESS.md`.
+native evidence is recorded in `CODEX_PROGRESS.md`.
+
+## Completed matched four-loop comparison
+
+The six fixed-rule controls use the already source-replayed A1 programs:
+16 owners,508 routes,58 required queries and32 initial root domains. Both
+executables use Cargo's ordinary optimized release profile, with16 workers on
+CPUs32–47,15 inspectors and inner pools capped at1. Old CLI SHA256`4e76707b…`;
+new CLI`d7a21923…`. No rules were regenerated. The new optimized build took
+814.51s, excluded from solver timings. Foreign host contention was not measured.
+
+| Policy/build | Native traversal, seconds (two runs) | Domains | Native inspections |
+| --- | ---: | ---: | ---: |
+| Epoch, previous | 4.290 / 4.255 | 26,025 / 26,025 | 17,957 / 17,957 |
+| Epoch, prepared-ID retirement | 4.332 / 4.323 | 26,025 / 26,025 | 17,957 / 17,957 |
+| Ready, new build | 3.236 / 3.321 | 39,006 / 39,599 | 15,351 / 13,886 |
+
+Every arm subsequently cold-reinspected all natives and verified all58 queries
+and32 roots. Ready's first native run completed normally, but the diagnostic
+reader rejected its39.3MB result at a32MiB limit. A reader-only128MiB allowance
+and separate cold check qualified the existing result; the native run was not
+retimed. Its original failed harness receipt is retained. These are checks of
+scoped dependency coverage, not a global termination or unrestricted-family
+certificate.
+
+Native preparation was1.099–1.305s. Full arm wall, including staging, native
+execution, checkpoint/drain and cold checking, was16.30–18.66s; the first Ready
+arm's16.792s is segmented charged work, not a continuous stopwatch. Native walk
+phase CPU was22.64–27.13s, sampled peak memory219.1–247.6MiB. The full per-arm
+costs and boundaries are in the local `RESULTS.md` referenced below.
+
+Median-of-two traversal rises1.29% with the change (4.272→4.328s). P3 phase wall
+is0.10386/0.10052s old versus0.11640/0.10339s new. This supplies **no demonstrated
+speedup**, even locally. Lower inclusive wall for the new Epoch arms comes from
+the cold-verifier phase, not sustained traversal improvement. Ready is roughly
+24% faster on this control's median traversal, while selecting a different
+graph. Neither result forecasts performance on a mature five-loop index.
+
+### Precisely qualified state equivalence
+
+The unchanged checkpoint comparator retains raw differences. Both pairs have
+snapshot hit/miss accounting differences; in the first pair13 missing snapshot
+targets become13 additional current-store lookups. Existing differential tests
+already distinguish this accounting from selected mathematical work.
+
+The second pair also has two different persisted G2 dispatch versions: nodes
+21105/21126 change809→811 and809→812. All49 anchor records otherwise match byte
+for byte, including IDs, order, scopes, lender stamps and residuals. Both
+histories satisfy the authority inequality: latest lender664 precedes dispatch,
+which precedes the unchanged recipient merge epochs815/817. The reviewer checked
+the source validation and exact bytes; these are valid differing snapshot
+provenance, not changed selected coverage. They must not be broadly erased as
+irrelevant timing. All other compared graph/index/ledger/edge sections agree.
+
+Accordingly, selected mathematical state and anchor coverage are qualified;
+**full durable checkpoint or typed-record equality is not claimed**. The saved
+`records_digest` hashes ID/tag/outdegree, not whole record bodies, and alone
+would not resolve this difference. No comparator exemptions were introduced.
+
+Evidence:
+`TMP/postlaunch-20261001/prepared-retirement-performance/RESULTS.md`, its six
+arm receipts, and raw `receipts/compare-r1` / `compare-r2` reports. Runner:
+`frontier_probe_runner`; independent classification: `rule_quality_audit`.
+The change remains unpromoted pending a relevant large-index falsifier; no
+production restart follows from these four-loop results.

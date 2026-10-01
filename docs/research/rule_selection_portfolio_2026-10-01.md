@@ -125,5 +125,70 @@ tests, with separately documented external/scale and wide-worker exclusions.
 That native suite used `9477044d` plus the reviewed P3/test working-tree changes;
 it is not a clean-checkout test result for a later documentation/test commit.
 The added candidate replay tests themselves do not depend on the P3 code.
-Fresh installed Python parity and matched old/new Epoch-versus-Ready performance
-remain distinct outstanding checks. No running production campaign was changed.
+Fresh installed Python parity now passes all six targeted native API/CLI/
+checkpoint tests with no skips, using the matching new CLI and an isolated
+installed wheel (0.231s test execution). The gate is under
+`TMP/postlaunch-20261001/portfolio-public-python/acceptance-r2/`.
+Matched old/new Epoch-versus-Ready performance remains a distinct check.
+No running production campaign was changed.
+
+### Follow-up: downstream work, not just local rule size
+
+Read-only inspection of the saved three runs and their checkpoint metadata
+finds that rank-first adds3,271 Route inspections and removes29 Apply inspections.
+Its immediate successor events fall21.4%, but Route-emitted Apply obligations
+rise12.6%. Thus a smaller immediate expansion is not a reliable proxy for a
+smaller shared closure graph. Matching all32 starting-query geometries makes the
+root comparison valid; it does not match every reached descendant geometry.
+Root dependency cones overlap and their cost differences cannot be summed.
+
+Growth appears already in lower-owner cones and propagates through higher owners
+whose saved payloads are unchanged. This supports a targeted causal experiment,
+not an identified rule-level explanation or a new performance claim. The proposed
+smallest experiment swaps one already replayed lower-owner payload in both
+directions while preserving all other owners, routes and queries. Both arms
+have now completed with native mixed-load checks and full cold acceptance.
+
+Evidence and independent critique:
+`TMP/postlaunch-20261001/rule-quality-portfolio/SAVED_CANDIDATE_DIAGNOSTIC.md`.
+Both tested scoring recipes remain parked. The objective is to discover a
+generic criterion for reusable routed descendants, not a topology-name-specific
+score or another blind permutation sweep.
+
+### Two-way intervention: a lower-owner program accounts for most extra routing
+
+The single changed payload is owner`0111100001`, published sector481 in the
+input family, not a hard-coded solver choice. Native mixed import validates
+the family/order/Symbolica context. All other15 payloads, all508 route records
+and the complete query bytes are unchanged from the respective base. Every
+arm uses the same previous4e76707b CLI and native walk policies. Both full
+cold checks pass58/58 queries and32/32 roots with no frontiers or uncovered
+obligations. Original-source replay applies to the unchanged payload bytes.
+
+| Input program collection | Domains | Route inspections | Apply inspections | Conditional successors |
+| --- | ---: | ---: | ---: | ---: |
+| A1 | 26,025 | 16,438 | 1,519 | 2,911 |
+| A1 with this rank-first owner | 29,107 | 19,474 | 1,490 | 5,651 |
+| Rank-first | 29,768 | 19,709 | 1,490 | 5,651 |
+| Rank-first with this A1 owner | 26,666 | 16,673 | 1,519 | 2,911 |
+
+The substitution transfers exactly3,036 Route inspections in either direction,
+92.8% of the full portfolio's3,271 extra Route inspections. It transfers the
+entire2,740 conditional-successor difference. Routed Apply emissions change
+by47,816 in each direction,85.4% of the full difference. Stored domains change
+by3,082/3,102,about82–83% of that difference; overlapping root-cone totals are
+not summed.
+
+This strongly localizes *program-level influence*, but not the offending rule
+or predicate. Terminal declarations travel with the donor program; matching
+terminal counts/policy is not yet exact terminal-key equality. No new terminals
+were synthesized or promoted. Single traversal observations3.667s and4.193s
+do not establish a speedup, and the extra Route jobs may be cheaper than Apply
+jobs. The next test is native ordered-rule/guard/shift/terminal inspection,
+using existing Symbolica operations and the native binary reader—not another
+priority grid or a custom artifact decoder.
+
+Evidence: `owner_swap_analysis.json` and
+`receipts/owner-swap-{a1-with-rank,rank-with-a1}-r1/RESULT.json` under the same
+evidence root. Author:`frontier_replay_implementation`; independent donor-only
+input and authority audit:`rule_quality_audit`.
