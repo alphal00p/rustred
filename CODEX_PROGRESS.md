@@ -38,6 +38,62 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [D] **Next narrow implementation authorized,02:12UTC:** both independent
+  studies support reuse of an honest stale negative's append-only prefix within
+  the current fixed-quarantine worker session. Root assigned source-only work
+  in an isolated TMP worktree/unapplied patch to `runtime_order_pilots`, with
+  independent audit by `final_requirements_audit`. Main source, current frozen
+  benchmark dependencies and production remain unchanged; no build/native job
+  is authorized alongside the S5 pair. Retain whole-store exact/orthant lookup,
+  all positive verification, and full lookup for unbound results. No persisted
+  negative certificates or new authentication/CAS infrastructure. Mechanism,
+  proof boundary, measured opportunity and falsifiers are recorded in
+  `docs/research/epoch_stale_negative_prefix_2026-10-01.md`. The small forward-
+  filter draft remains parked rather than combining mechanisms prematurely.
+- [M] **Read-only production check,02:10UTC October1:** repaired A1 remains
+  running at12325.92s with27,548,384 local completions,49,375,282 scheduled
+  domains,10,479,874 pending and zero frontiers. Sampled tree RSS49.76GB,
+  no stop/error or own swap. The conservative closure snapshot reports13/67
+  roots and6,877,579 discovered domains closed,99s old. Last-hour pending
+  growth is+0.235 per completion; the unresolved-gap trend remains positive,
+  so no convergence or ETA is inferred. CP6 generation3 is saved/resumable,
+  with25,162,528 native inspections at the save,35,842,387 committed domains
+  and10,100,728 pending. No restore/reinspection is claimed. LC2 independently
+  remains live with104,765,418 completions,68,378,843 pending, zero frontiers,
+ 102.79GB RSS and its stale6/67 roots. No production mutation occurred.
+- [M/E] Read-only stale-lookup population study (`runtime_order_pilots`): the
+  completed historical full-A1 h0 control processed178,474,588 source rows,
+ 162,715,550 already-Stored hits and15,759,038 targetless rows. Of the latter,
+ 824,583 skipped current-view rechecks;14,934,455 still invoked the full current
+  store (stale or unprobed results). Source resolution221.497s is70.89% of P2
+  and18.42% of native wall, but also includes geometry/digest/positive checks:
+  it is not a lookup-only attribution or achievable saving. Preliminary
+  independent audit supports appended-prefix monotonicity within an honest
+  fixed-rescue worker session; metadata alone is not a negative certificate.
+  Narrow session binding and full-scan fallback are being reviewed; no new
+  implementation or native experiment started during the old/new timing pair.
+- [D/M] **Larger lookup hypothesis registered,02:03UTC:** live source stacks
+  emphasize index traversal, while Epoch's stale snapshot-negative path repeats
+  `Store::lookup_controlled` from ID0. The existing Ready preparation path and
+  `AggregateIndex::find_from` already support skipping a previously disproved
+  admitted-ID prefix. Root requests two independent bounded read-only studies:
+  `final_requirements_audit` checks exact/special-case priority, monotone
+  eligibility, snapshot binding, quarantine/rescue/restore, forged reports and
+  canonical winning IDs; `runtime_order_pilots` checks prior evidence and the
+  observed stale-miss population/cost. Mechanism: retain whole-store exact and
+  orthant checks but restrict general containment to new IDs if a legitimate
+  snapshot negative soundly excludes the older prefix. Falsifiers include old
+  IDs becoming eligible, insufficient snapshot/query binding, already-existing
+  optimization, or negligible stale-recheck cost. No negative authority,
+  implementation, new native job or production change is granted. This is
+  distinct from discarding inspector lookup in the earlier negative AllMiss
+  experiment. The already-audited small filter draft remains unlanded.
+- [M] The first full-A1 baseline is confirmed live at02:04UTC: adapter531855,
+  supervisor532188, native/PG532189, CPU0–31. At321s its observer reported
+ 899,488 native completions,3,206,136 scheduled,941,813 pending, zero frontiers
+  and9.11GB RSS; no stop/error. This is a new contemporaneous baseline, not a
+  comparison against the historical h0/h2 run. Both timed arms retain the same
+  frozen implementation/input/steering conditions. Paired results remain pending.
 - [M/D] **Optimized four-loop ABBA complete,01:50–01:55UTC:** all four arms
   cold-All PASS58 required queries/32 roots/17,957 natives, zero violations,
   with26,025 domains and identical canonical geometry/ledger/edges/anchors/flags.
@@ -1127,6 +1183,7 @@ the same experiment after a handoff.
 | Wider P2 waves / header fusion | deferred after bounded source assessment | Current wave occupancy is already near full; h0 has no pool and headers scan rows. No measured exclusive wave-allocation/join cost. Scratch-buffer reuse is a smaller future candidate; do not infer speed from task counts. |
 | Word/occupied-slot-aware lane early-out | deferred hypothesis after live profile | `Block::forward` initializes all slots active; irrelevant unoccupied, word-rejected or escape slots can keep later folds running. This does not test global liveness. Preserve both masks and visitation exactly. Reopen after current comparison with sparse/dense/escape differential and optimized panels; dense masks or mask-expansion overhead falsify the benefit. No implementation yet. |
 | Tiled narrow-envelope rejection | deferred lower-priority hypothesis | Preserve all historical-envelope inequalities and axis order but test after a small vectorizable tile. Benefit needs early rejects; positive/late rejects or lost vectorization may regress. Differential plus bounded optimized panels precede any campaign claim. Source reconciliation: `TMP/postlaunch-20260930/digest-perf-tooling/LOOKUP_FOLLOWUP.txt`. |
+| Epoch stale-negative prefix reuse | active read-only invariant/cost study | Ready already uses an admitted-ID watermark; Epoch currently rescans the whole store for stale misses. Independently establish monotone eligibility and bound snapshot/query context, retaining exact/orthant priority and positive verification. No source edit or performance claim; falsify before replacing full scans. |
 
 **Earlier engine implementation milestone:** `56176df5`, committed and pushed to
 `origin/fable_5_1_parallel` on2026-09-30 after native/interface tests, independent
