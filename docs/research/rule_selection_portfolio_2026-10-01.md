@@ -986,6 +986,19 @@ goal, but the added terminals are a real cost, and point-level counts do not
 establish less recursive work. A fixed-program comparison over the full original
 required domain is the next test; these diagnostic times are not traversal times.
 
+Full native case/target alignment further limits the point-level inference.
+Every233 A1 key is present in the candidate; it adds one affine and one fully
+fixed case. Of the matched rules,215 have identical displayed contents apart
+from ordinal, nine differ only in retained-source count, and nine have changed
+RHS displays (seven also change guards). Six of the latter have one free
+coordinate and no affine equation, so the change is not confined to fixed
+exceptions. In particular generic A1 rule217 becomes candidate218 with48→62
+stored RHS terms and an additional n2=3 exclusion, diverting the sample to the
+new fixed rule231. Other changed n2-ray rules grow49→68,44→58 and33→65 terms;
+two n1-ray rules shrink56→55 and58→56. This is structural diagnostic comparison,
+not a custom algebraic equivalence proof. It explains why the promising
+singleton result cannot be extrapolated to a shorter generic recurrence.
+
 The first wrapper attempt generated and replayed successfully but used an
 absolute manifest owner path where native admission requires a relative one.
 Its26.088s failed receipt is retained separately. The corrected fresh pair above
@@ -1032,3 +1045,52 @@ The optimization lead is generic, conditional RHS symmetry coalescing—not a
 hard-coded relation. Its applicability and likely frequency must be measured
 before implementation. No production rules, routing, or live campaign state
 were changed, and no campaign-switch recommendation follows from this example.
+
+### Original required-domain walk: the point-level benefit does not transfer
+
+The fixed-program follow-up retains all67 production owner payloads,8,246 routes
+and the repair overlay, replacing only17941 with the corresponding qualified
+fresh program. The sole starting query is **verbatim**
+`conv-d10-a16-r6-101010000110001`, not the sampled point. There are no auxiliary
+starts and no descendant clipping. Same frozen CLI, W16/CPUs32–47, admission and
+cold-All boundaries apply; generation is not repeated in these timings.
+
+| Original-query fixed-program control | A1 | R-primary |
+| --- | ---: | ---: |
+| Domains | 23,694 | 24,505 |
+| Native inspections, all reinspected | 16,317 | 16,985 |
+| Dependency edges | 251,398 | 263,954 |
+| Native traversal, seconds | 6.078498 | 6.555421 |
+| Native owner preparation, seconds | 75.753322 | 75.714354 |
+| Supervised walk, seconds | 86.698099 | 86.728339 |
+| Cold-All, seconds | 84.369531 | 84.819540 |
+| Full fixed-program arm, seconds | 190.497805 | 190.626419 |
+| Summed waited phase CPU, seconds | 1,682.774 | 1,717.400 |
+| Largest sampled phase-tree RSS, bytes | 5,258,321,920 | 5,306,863,616 |
+
+Both arms pass full native reinspection and independently rederived coverage
+for that one required query with zero pending/error/frontier/uncovered
+obligations, and every owned group drains. Sealed cycles occur in the domain
+graphs; as above this is not a global concrete-integral termination theorem.
+Production's remaining115 required and67 auxiliary starting queries are not
+part of this experiment. Host contention is sampled, not eliminated.
+
+R-primary increases domains3.42%, inspections4.09% and edges4.99%, despite its
+six extra terminals. Traversal is7.85% slower in this single short pair; the
+nearly identical inclusive time is dominated by fixed owner preparation and
+reinspection. This does not warrant a repeat or production promotion. The
+smaller exceptional-point recurrence was a misleading standalone predictor of
+recursive work. Evidence: `r-primary-17941-walk-v1/receipts/{a1,r-primary}/`.
+
+One mechanistically selected correction remains to test: replace the default
+degree rows `[E,R]` with **one** row `A_excess+3R`, preserving all support and
+coordinate ties. This also removes the default secondary R comparison; it is
+not literally a change to the first row alone. Three is the smallest
+integer weight which strictly rejects the observed ΔA=−2/ΔR=+1 step, while
+permitting sufficiently larger dot reductions; ΔA=−3/ΔR=+1 remains a tie for
+the existing coordinate priorities. This replaces absolute rank preference with
+a finite dot/rank tradeoff; neither order's descending steps contain the other's
+in general. Fewer terminals or less work are not guaranteed. Require a
+fresh exact program/terminal comparison before any further workload timing;
+do not repeat timing if the program only changes order metadata. No sweep or
+new mathematical kernel is needed.

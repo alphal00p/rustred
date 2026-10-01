@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 19:25 UTC (21:25 Zurich)
+## Current workboard — October 1, 19:40 UTC (21:40 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,8 +20,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` | Fresh233→235 rules,25→31 terminals; original point46→18 successors, no raw R-raising child | Prepare same original-query fixed-program walk; explicitly charge changed terminal basis |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Both generation arms and native point/symmetry checks pass; direct hits to3 added terminals identified | Audit fixed-program walk and cold coverage; no basis-neutral or global termination claim |
+| Rule-mechanism transfer | `five_loop_order_runner` | Full original-query pair cold-passes; R-primary increases work and terminals | One frozen weighted-order correction: fresh generation/inspection only first |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Generation, native symmetry and full-query receipts audited; R-primary not promoted | Audit weighted correction; assess conditional symmetry coalescing as next small falsifier |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -105,6 +105,66 @@ release nor input is edited.
   disappoints, not a priority grid. It is expressible through the existing
   runtime order API. Reopen only after the pending fixed-program result; require
   fresh source-replayed rules and terminal-key comparison before any timing.
+- [M/D] The audited recurrence/symmetry findings are committed and pushed to
+  `main` as `6a24d616`. This is an evidence milestone, not a new release/default.
+  The original-query fixed-program wrapper passes independent source review;
+  A1 baseline launches under session10599/wrapper2952217 and passes staging in
+  4.409s. Root confirms the wrapper live after launch; admission/walk/cold results
+  remain pending. Production and unrelated FeynKit changes remain untouched.
+- [M] Independent full native-view alignment finds all233 old case/target keys
+  retained, with two added cases. Of matched rules,215 are display-identical
+  apart from ordinal, nine change only retained-source counts, and nine change
+  RHS displays (six one-free-coordinate cases and three affine cases). Generic
+  rule217→218 grows48→62 RHS terms and excludes n2=3; the apparently shorter
+  fixed rule231 handles that new exception and uses new finite terminals.
+  This makes whole-domain comparison essential, not optional point extrapolation.
+- [M] A1 fixed-program baseline fully passes in190.497805s inclusive. It visits
+  23,694 domains/16,317 native inspections/251,398 edges; native preparation is
+  75.753322s and traversal6.078498s. Cold-All reinspects every native and finds
+  the one original required root covered, with zero uncovered/errors/frontiers.
+  All five phases/six owned process groups drain. Cold records8,992 nodes in
+  sealed cycles: this is reachable-obligation coverage, not a concrete-integral
+  global termination theorem. Candidate launches under session24452/wrapper
+  3008973; native3011757 is live after successful stage/admissions. No production
+  or full-scope coverage inference, and no basis-neutral performance claim.
+- [M/D] Candidate also cold-passes and drains,190.626419s inclusive versus
+  baseline190.497805s. Work worsens: domains23,694→24,505 (+3.42%), native
+  inspections16,317→16,985 (+4.09%), edges251,398→263,954 (+4.99%). Traversal
+  6.078498→6.555421s is7.85% slower in this short single pair, while preparation
+  stays75.75/75.71s. Cold-All covers the exact one required query, no pending/
+  uncovered/error/frontier obligations. No repeat or R-primary promotion.
+  The six extra terminals do not buy lower work on this domain. Root grants
+  the single conditional weighted correction registered above, frozen to ONE
+  degree row active1/inactive3 with original support/coordinate ties and no
+  secondary degree row. Generate/source-replay/admit/inspect only first, using
+  the existing qualified A1 baseline; no new walk unless native program contents
+  or exceptional/terminal behavior demonstrate a changed mechanism. One bounded
+  correction, not a grid. Production remains untouched.
+- [D] Independent source review clarifies the frozen weighted descriptor:
+  A1's default degree rows are `[E,R]`; selecting the one `[A_excess+3R]` row
+  also removes its secondary R comparison. Support and coordinate ties remain
+  unchanged. Record both changes rather than calling this a first-row-only
+  intervention; do not alter the frozen one-row experiment again.
+- [E/D] In response to the user's request for more radical ideas, root and
+  independent auditor prioritize two hypotheses, not implementations or gains:
+  **conditional sector-symmetry coalescing** is the nearest evidence-backed
+  experiment. Use existing verified maps/numerator transport and Symbolica sums
+  to count truly cancelled unique RHS obligations on admitted charts, charging
+  additional case splits and transport. Falsifier: rare cancellation or more
+  work than saved. Start with existing four-loop cases and the fixed five-loop
+  domain; the demonstrated singleton alone cannot justify a canonicalization
+  framework. Preserve symmetry/source provenance and all guards.
+- [E/D] **Closure-directed rule synthesis** is the more ambitious hypothesis:
+  rank alternate exact rules by routed successor novelty/guard fragmentation,
+  or try temporarily forbidding expensive columns during bounded GPLU discovery.
+  This changes which exact relation is sought, never deletes terms from one.
+  Use a frozen independent cost/coverage view, exact reconstruction/replay and
+  deterministic ordinary-descent fallback. Locally inspected is not closed;
+  cyclic coverage cannot justify removing its own supporting obligation.
+  Falsifier: no cheaper source-replayed alternative within the fixed search
+  budget, or cost/terminal inflation erases reduced work. Try a few existing
+  hard four-loop cases before any new five-loop workload. Neither hypothesis
+  changes production, scope116+67, or the current weighted pilot.
 
 ### October 1, 19:00 UTC — next recurrence-sensitive five-loop case
 
