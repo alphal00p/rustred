@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 22:02 UTC (00:02 Zurich)
+## Current workboard — October 1, 22:35 UTC (00:35 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -22,15 +22,16 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
 | Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected; native guarded-envelope probe prepared/source-reviewed, not run | Resume after the newly requested rank-zero control |
 | Helper-free rank-zero controls | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Both controls cold-PASS and drained; physical116-query control587.902s inclusive | Delivered; use as a finite five-loop comparison workload, not full numerator coverage |
-| Domain-growth mechanism and dimensional identities | `five_loop_order_runner`; independent `r_primary_transfer_audit`; root | Dimensional-recurrence note delivered; small native structural adapter in preparation | Native U/Gram determinant, L1 control and actual4L row size; not installed rules or benchmark |
+| Domain-growth mechanism and dimensional identities | `five_loop_order_runner`; independent `r_primary_transfer_audit`; root | Native structural and paired4L probes pass;4,157/4,195 terms and2,224/2,279 harder targets | Global paired shift parked for this target; localized subgraph use remains untested |
 | Selective coefficient-image falsifier | `rule_quality_audit`; independent `r_primary_transfer_audit` | Delivered: exact false-edge removal confirmed, partition adds local work | No broad split implementation or speed claim; reopen only with a net-work mechanism |
 | Exact combinations / hidden zeros | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Seven-child screen finds six new zeros but no fewer hard endpoints;439/433 union prepared, unrun | Actual5L symmetry cancellation takes priority; no macro publication |
 | Targeted finite Laporta | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered:17/17 fixed targets solved and source-replayed, no zero-RHS rule | Park unguided extra seeds; no demonstrated sparse or whole-work improvement |
 | Local reduction before symmetry routing | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered/cold-PASS but negative:4.73% more domains,6.29% more inspections | Park this intervention; no repeat/promotion without a new mechanism |
 | Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Censored cleanly after1,460.665s;10.668M domains/2.802M pending; no frontier | Paused checkpoint retained; no cold closure, extension or automatic resume |
 | Symmetry-aware RHS coalescing | `rule_quality_audit`; independent `r_primary_transfer_audit` | Exact cancellation and both cold checks pass, but272→277 domains: no useful work saving | Broad implementation parked; reopen on a demonstrated costly parametric case |
-| Target-local constrained rule search | `rule_quality_audit`; independent `r_primary_transfer_audit` | Public/native API feasibility active | Eliminate extra F-growing columns rather than just score hits; small4L source-weight diagnostic before engine changes |
-| Global absolute-degree-first order | root; separate code and literature critiques | Research-only; truly different from earlier sector-first E/R descriptors | Deferred behind cheaper symmetry/helper discriminators; no implementation/build grant |
+| Target-local constrained rule search | `rule_quality_audit`; independent `r_primary_transfer_audit` | Extra F constraint nondiscriminating; physical Euler7 is structurally dominated by saved4 | Delivered/parked; no endpoint-union run or new rule publication |
+| Exact-physical-D coefficient restriction | root; independent `r_primary_transfer_audit` | Pending witness: code confirms geometric D is retained but not generally used in coefficient zero recognition | Find an actual coefficient that vanishes on the exact D slice before implementing; no split-based overcoverage or new CAS |
+| Global absolute-degree-first order | root; API review `five_loop_order_runner`, independent mathematical critique `r_primary_transfer_audit` | Reopened read-only after cheap shortcut controls fail; different from earlier sector-first E/R descriptors | Check actual comparator/routing/bound interfaces and smallest falsifier; no implementation/build grant |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -45,6 +46,144 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 22:35 UTC — physical Euler control is not a useful replacement
+
+- [M] Native ordered matching and complete guarded application at the actual
+  required D7 point select owner481 batch0/rule2. Ten raw terms become four
+  uniform successors after six exact zeros, with no problems/refusals and all
+  original denominators retained. Every child has R1/F9 or10 versus parent
+  R2/F11; one is a strict pinch. The2.270316s diagnostic drains both groups.
+  Evidence: `TMP/postlaunch-20261001/rule-quality-portfolio/owner481-physical-point-v1/RESULTS.md`.
+- [M] Separate native four-diagonal-source multiplication verifies the Euler
+  identity at this same point:30 source nonzeros/16 physical columns, weights
+  −1/6, unit target and seven RHS terms, all strictly descending. The complete
+  typed product also equals the independently assembled homogeneity formula.
+  Five children retain R2, four retain F11 and none pinches. Successful cached
+  compile+probe25.336714s, native algebra0.205199s; retain the separate5.301629s
+  ownership-API compilation failure. All groups drain; no production changes.
+  Evidence: `TMP/postlaunch-20261001/target-local-forbidden-v1/physical-euler/`.
+- [D] Do not run the conditional endpoint-union pilot: Euler fails the proposed
+  structural improvement gate against the actual saved rule. This is NOT a
+  measured whole-campaign regression. The historical62-term diagnostic was a
+  misleading baseline for current saved-rule quality. No new Euler dispatcher,
+  corpus regeneration or campaign restart follows.
+- [E/D] The independent exact-D metadata screen found no credible witness in
+  owner17941: simple candidate factors are sign-definite, omit still-free
+  coordinates, or belong to cases disjoint from required D10. The earlier
+  rule217 restriction already becomes a singleton through projection. Keep the
+  source-confirmed coefficient-restriction seam pending; no corpus scan or
+  implementation is justified yet.
+- [D] Reopen the deferred global-F-first idea for READ-ONLY feasibility now
+  that the cheaper controls have not produced useful work savings. This must
+  mean F=sum(abs(n_i)) BEFORE sector priority, not the previously tested
+  sector-first E/R descriptor. Runner checks the persisted comparator API;
+  the independent auditor checks exact routing degree changes and abstract
+  domain-bound preservation. A finite exact-integral universe alone is not
+  automatically a finite symbolic-worklist proof. No new order, bound clipping,
+  source generation or pilot is yet implemented/launched.
+- [E/M] Two independent reviews now identify a concrete implementation path
+  and its limits. Current persisted descriptors cannot put F before support;
+  the shared wide-descent implementation also shortcuts changed supports
+  without physical-degree comparison. Both must change together. Admitted
+  exact momentum transport has active unit-factor bijections and affine
+  numerator expansion, giving A'<=A and R'<=R. Existing emitted Apply shifts
+  and routed caps may retain a coarse finite A_cap+R_cap, but this is not yet
+  an all-path theorem or implementation. Unbounded auxiliary starts, old
+  F-growing owner overlays and equal-F routing cycles remain explicit concerns.
+  Proposed first falsifier: complete owner481 regenerated under the new order,
+  then the full58-query control if qualified; five-loop owner17941 must compare
+  against both A1 and the already tested R-primary. Do not repeat a favorable
+  singleton or inflate terminals to claim success.
+
+### October 1, 22:20 UTC — paired dimensions dense; a simple Euler combination emerges
+
+- [M] Native paired4L composition completes in28.395356s including25.494117s
+  cached-adapter compilation. Both phases drain. UP retains4,157 nonzero shifts,
+  of which2,224 are harder than the target; PU retains4,195/2,279. F=A+R grows
+  on3,347/3,406 terms. Exact collection removes224/249 zero shifts; the target
+  coefficient is nonzero but is NOT leading in either identity. This is useful
+  negative structural evidence, not a certified dimensional reduction or
+  a recursive-work benchmark. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/dimensional-paired-v1/`.
+  Park global paired dimensions for this point; sparse subgraph identities are
+  a different, untested possibility.
+- [M] Constrained ordinary-source diagnostic passes exact weighted-product
+  checks. Both arms use336 rows/748 physical columns/3,588 nonzeros and find
+  the SAME7-term rule with4 source weights at prefix160, maximum F9/R2.
+  Additional forbidden columns429→539 do not improve this result; reducer
+  nonzeros grow2,773→3,231. Native diagnostic0.319s is not a released solver
+  performance comparison. Successful compile+probe26.392237s, plus the retained
+  failed setup compilation4.317146s. All groups drain. Evidence:
+  `TMP/postlaunch-20261001/target-local-forbidden-v1/probe-r2/RESULT.json`.
+- [E/M] Root identifies those4 weights as exactly−1/2 times the diagonal
+  ordinary IBPs0,5,10,15, each translated by−e9. The independent auditor
+  confirms this is the Euler/common-scale identity, not a new independent
+  relation. At unit mass it redistributes the last ordered dotted propagator
+  onto earlier ones without F growth; inactive negative indices can lower
+  numerator rank. Division requires the selected power not equal1 (and nonzero
+  mass). The actual saved comparator still controls applicability/descent.
+- [D] The historical62-term finite result is not the same source preparation
+  or chronology, so62→7 is NOT credited to the F constraint. Composer now
+  checks the actual saved rule at this same point and, only if meaningfully
+  different, its native endpoint-union work against the7-term identity. Runner
+  checks for an actual required five-loop analogue and existing preconditioned
+  Euler content. No production rule or certificate schema is changed.
+- [M/D] Follow-up scope audit: the original point has D5 and belongs to helper
+  anchors, not directly to the frozen physical requests. The replacement
+  `[-1,1,1,2,1,0,0,0,-1,4]` has A9/R2/D7 and lies in original required row8,
+  `conv-d7-a11-r4-0111100001`. Use this point for any physical work discriminator;
+  retain the completed D5 algebra control without claiming physical reachability.
+- [E/D] A registered five-loop Euler analogue has a worse tradeoff than its
+  raw count suggests:7 predicted terms versus8 saved-rule terms, but no useful
+  pinch present in the saved rule. The scalar neighbor predicts6 versus5.
+  These are read-only structural predictions, NOT native timing/selected-rule
+  receipts. Both are parked without a walk or broader point hunt. The original
+  actual rule217 witness has last-index power1, where the Euler pivot vanishes.
+- [E] One different hidden-zero candidate is now registered, pending an actual
+  witness. Applied coefficient classification receives the coordinate box and
+  rank but not the retained exact D power-difference equality. Geometric D
+  propagation is already implemented and tested: this is not a missing geometric
+  bound. Where projection does not fix all coordinates, exact Symbolica affine
+  substitution modulo `sum(n_i)-D0` could recognize numerator zeros without
+  splitting the source box. Expected benefit: remove genuinely zero obligations
+  with no face-partition multiplication. Falsifier: no relevant saved coefficient
+  vanishes on the physical slice, or algebra cost exceeds avoided work. The
+  smallest test is one native required-domain coefficient witness, retaining
+  every original denominator guard; exact-D equality only, not a D interval.
+  Reuse native affine restriction and Symbolica, not a new quotient-ring engine.
+
+### October 1, 22:15 UTC — native dimensional ingredients and production closure update
+
+- [M] Research milestone `f53b0e5f` is pushed to `origin/main`. Root's and the
+  separate auditor's native dimensional structural review pass. The small
+  cached-library adapter needs24.205540s to compile and2.180407s for the probe
+  invocation,26.385948s cumulative; both process groups drain, peak1.095GB.
+  This opt-level0 orchestration helper with optimized native dependencies is
+  NOT a performance comparison. Actual owner481 has U132 monomials of degree4
+  and Gram P395 monomials of degree0–4:52,140 uncollected pair products.
+  Both operator orders reproduce the native-sign one-loop tadpole identity.
+  Evidence: `TMP/postlaunch-20261001/rule-quality-portfolio/dimensional-structure-v1/RESULTS.md`.
+- [D] Paired composition at the fixed4L point
+  `[-1,1,1,2,1,0,0,0,-1,2]` is source-audited and waiting behind the constrained
+  Laporta adapter. Collect every exact term, record the actual saved comparator
+  and F=A+R versus E=A+R-support separately. No solve for a nonleading target,
+  source certificate, rule publication or recursive-work claim is authorized
+  by this structural test. Only small cached adapters are built, not the engine.
+- [M/D] The constrained Laporta adapter's first compilation failed in4.317s on
+  owned rational negation and an Arc receiver. These ordinary API setup issues
+  are corrected without changing the matrix, assertions or mathematical gates;
+  the failed receipt is retained. Both arms use the same336 translated ordinary
+  sources. Target normalization and every forbidden coefficient are checked
+  against the full exact weighted physical matrix, not just a projected row.
+  Evidence: `TMP/postlaunch-20261001/target-local-forbidden-v1/`.
+- [M] Production read-only telemetry sequence23283:133,121,077 discovered,
+  92,595,488 locally completed,15,746,624 pending, zero frontiers,13/67 starting
+  domains closed. A new recursive scan records18,652,486 closed domains,
+  +2,005,048 in the observed hour; scan age402s. This refutes an interpretation
+  that the recorded count is permanently frozen, not the possibility of later
+  stagnation. RSS117.59GB; observed3.32/32 cores; one-hour pending growth per
+  completion−0.03155. No production change or completion ETA follows.
 
 ### October 1, 22:02 UTC — symmetry work test negative; next rule-quality discriminator
 

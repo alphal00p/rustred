@@ -26,6 +26,58 @@ establishes finite symbolic closure for the current dispatcher.
 
 ## Existing machinery: reuse before adding anything
 
+### Next experiment after the negative local controls
+
+None of the measured local compositions, endpoint cancellations or Euler
+replacement screens below has established a useful campaign work saving.
+The next structural candidate is a genuinely **global absolute-degree-first**
+order, `F(n)=sum_i abs(n_i)`, ahead of sector priority. This is different from
+both the previously tested sector-first E/R orders and adding an extra forbidden
+set to the old order. Lower-F children in a formerly harder support may become
+admissible. That opportunity comes with a possible loss of easy pinch pivots,
+more source fill, exceptional cases or unresolved corners.
+
+In particular, the all-ones row of today's excess-degree descriptor is
+`E=F-support_count`. Merely moving it ahead of support would still not implement
+F. Absolute degree is also not translation invariant across zero crossings:
+the new comparison and descent proofs must use actual sign-refined cases, not
+assume an unchanged sector/Ore order theorem.
+
+The exact routing implementation gives a useful conditional motivation. Its
+active denominator transport requires unit factors and a bijection; writing
+the transported denominator exponents as B and an expanded numerator monomial
+as e gives the final key B−e. Here `sum(B)=A` and `sum(e)<=R`, hence both
+`A'<=A` and `R'<=R`. A new IBP order enforcing F-nonincreasing emitted terms
+would therefore also be compatible with these admitted routing maps. This is
+a code-derived inference, not a property of the existing sector-first rules.
+
+There is an important implementation gate: the existing wide-descent proof
+accepts a changed support using support comparison alone. A new descriptor or
+numerical column comparator is insufficient; that proof must compare physical
+degree on the sign-refined source cells too. Existing Apply power-bound shifts,
+route caps and G2 restrictions appear capable of retaining the coarse finite
+budget `A_cap+R_cap`, but every admission/reuse/serialization path needs tests.
+Unbounded auxiliary starting queries cannot be declared covered by a bound
+derived only from the finite required queries. Helper programs may still supply
+rules to demand-derived bounded descendants; they are not all automatically
+closed auxiliary roots.
+
+The smallest useful test is a fresh complete four-loop owner481 program,
+changing only this order, with all cases, exceptions, exact sources and terminal
+keys accounted for. Only a qualified structural change warrants the complete
+58-query four-loop work comparison. A five-loop test should then use complete
+owner17941 at the existing generation policy, comparing both A1 and R-primary:
+R-primary already removed the sampled rule217 growth at the price of six extra
+terminals, yet increased its full required-domain inspection count by4.09%.
+Another favorable singleton is not sufficient evidence. Higher-F source seeds
+must remain available to cancel intermediate columns; constrain the final
+identity, not the search's source universe.
+
+Finite exact-key bounds can still be enormous and do not themselves remove
+equal-F routing cycles or establish reusable symbolic closure. No global-F
+descriptor, bound clipping, new generation or production change is implemented
+by this research milestone.
+
 - [Shared numerical-case search](/common/dev/rustred/crates/rustred-core/src/solver/numeric.rs:1)
   already shares a modular reducer, seed deduplication and accepted source rows
   across fully fixed targets of one sector. Winning dependency traces are united
@@ -474,6 +526,96 @@ exceptional branches or the number of targets subsequently discovered. Exact
 symbolic arithmetic and a reusable parametric macro-rule can cost much more
 than a finite-field solve. Independent target batches can be parallelized, but
 duplicated source/context work must be charged and no scaling claim follows.
+
+## Same-frame target-local forbidden-column diagnostic
+
+The [bounded exact result](/common/dev/rustred/TMP/postlaunch-20261001/target-local-forbidden-v1/probe-r2/RESULT.json)
+used target `[-1,1,1,2,1,0,0,0,-1,2]` (`A=7`, `R=2`, `F=A+R=9`),
+with dimension `d` exact. Both arms used the same 336 translated ordinary
+IBPs: 16 sources at each of 21 signed-L1-radius-one offsets. The full matrix
+had 748 physical columns and 3,588 nonzero entries. Baseline prohibited old-order
+non-descenders; treatment additionally prohibited `F>9`, increasing forbidden
+columns from 429 to 539. The target was a separate column, never forbidden.
+
+Both arms found the same exported seven-term RHS and four source weights at
+prefix 160, with maximum RHS `F=9`, `R=2`. Native Symbolica multiplication of
+those weights by the **entire original matrix** independently checked target
+coefficient one and every forbidden coefficient zero. The extra constraint was
+therefore **nondiscriminating**. The earlier 62-term fixed-point search result
+used different source preparation/search chronology: seven versus 62 cannot
+be attributed to the new `F` gate.
+
+The four weights are exactly `-1/2` on ordinary diagonal IBPs `(0,0)`, `(1,1)`,
+`(2,2)`, `(3,3)`, all translated by `-e9` in zero-based original axes. This is
+the Euler/common-scale homogeneity combination, not a newly discovered
+independent identity class. It suggests testing purposeful source ordering or
+this known aggregate, but no parametric extension or production rule has been
+published. Every original/specialization condition, conservative pivot
+condition and exact weight denominator is retained. This fixed-point weighted
+identity is not claimed to pass the existing canonical forward-pivot replay.
+
+The cached-library helper took 0.319 seconds natively; successful compile and
+probe invocations took 24.197 and 2.195 seconds. A preceding 4.317-second API
+setup failure is preserved, for 30.709 seconds total effort. These are diagnostic
+costs, not an optimized solver benchmark. This point has `D=A-R=5`: it belongs
+to helper anchors, not the frozen physical `D=7/8` input slices. Its prepared
+endpoint-union experiment was not run. The following physical-point check
+replaced it; no whole-cohort gain has been shown.
+
+This is a finite specialized row-span calculation over rational functions of
+`d`, **not** a full polynomial syzygy-module implementation. Gram-logarithmic
+generators and module intersections can constrain raised propagator powers,
+but that objective is not identical to forbidding `A+R` growth.
+[Böhm et al., section 4](https://arxiv.org/abs/1712.09737)
+Polynomial-vector IBP identities can themselves be represented by ordinary
+translated-source combinations; that does not establish bounded-frame
+completeness or a generic symbolic lift here.
+[Smith and Zeng, section 2.3](https://arxiv.org/html/2507.11140v2)
+
+### Physical-point Euler check: the saved rule is already stronger locally
+
+The single replacement point `[-1,1,1,2,1,0,0,0,-1,4]` has `A=9`, `R=2`,
+`D=7`, `F=11`. It lies exactly in the frozen required query
+`conv-d7-a11-r4-0111100001`, including its coordinate limits, `A<=11`, `R<=4`
+and exact `D=7` band. The
+[native four-source check](/common/dev/rustred/TMP/postlaunch-20261001/target-local-forbidden-v1/physical-euler/execution-r2/RESULT.json)
+used only the diagonal ordinary IBPs at `-e9`, each weighted `-1/6`. Their full
+30-entry original matrix product passed unit-target, strict saved-order descent,
+`F<=11`, and exact typed equality to the Euler expression. Dimension stays
+symbolic. It gives seven nonzero RHS terms, five retaining rank two, all retaining
+the original support; no source/specialization conditions were lost and the
+constant normalization/weight denominators are exported.
+
+The independent [saved native inspection](/common/dev/rustred/TMP/postlaunch-20261001/rule-quality-portfolio/owner481-physical-point-v1/receipts/RESULT.json)
+selects batch0/rule2. Its ten raw terms yield six exact zeros and only four
+uniform nonzero successors: all have rank one and `F<=10`, with one proper
+pinch. All ten original denominator obligations and both exclusions remain
+recorded, with zero problems/refusals. Thus the predeclared condition for an
+endpoint-union walk was not met: **no union run, work saving, or measured work
+regression is claimed**. This controlled physical point gives no reason to
+replace the existing rule by the Euler relation.
+
+The exact Euler helper took 0.205 seconds natively; its successful cached
+compile/probe lifecycle took 25.337 seconds. A preceding 5.302-second Rust
+ownership setup failure is preserved (30.638 seconds total). The saved-point
+inspection took 2.270 seconds on a separately authorized CPU48, overlapping
+the CPU32 correctness build; these are not isolated performance measurements.
+All processes drained under 150GB caps. No broader point scan was launched.
+
+For a vacuum family with unit-mass inverse propagators `D_i=q_i^2-1`, summing
+the `L` diagonal IBPs at `m=n-e_j` gives the familiar identity
+
+`I(n) = [(L*d/2 - sum_i n_i + 1) I(m) - sum_{i!=j} n_i I(m+e_i)] / (n_j-1)`.
+
+This is fixed-d homogeneity, not a dimensional recurrence. For `n_j>=2` and
+`j` last in the relevant active-index priority, the redistribution can descend
+in the saved order without increasing `A+R`; the actual finite native check
+above established that here. It does not immediately pinch the sector, and
+other comparators/family mass conventions require their own checks. No generic
+parametric rule was validated or published. Existing original-source
+certificates already represent weighted translated rows, but the public
+canonical forward-pivot replay seam still cannot simply be relabelled as
+arbitrary row-span replay.
 
 ## Resurgence, index recurrences and dimension shifts are distinct
 
