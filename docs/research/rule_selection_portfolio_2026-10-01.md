@@ -351,3 +351,78 @@ Evidence: `native-inspection-run1/RESULT.json`,
 `owner-481-six-panel-routing/execution/RESULT.json` beneath the same evidence
 root. Separate source, coordinate, receipt and interpretation audits passed.
 Both candidate scoring recipes remain parked; no campaign restart is recommended.
+
+### Early-dispatch panels and selective-trial ablation
+
+The earlier rule2 difference is real, but its local cost still does not predict
+the complete shared campaign. Five disjoint finite R5 panels contain37 concrete
+entry tuples. Native matching checks the expected first-rule pairs2/2,2/9,5/2,
+2/5 and1/1 before ordinary recursive traversal. They keep the same saved owner
+collection and routes; they are not the original58-query acceptance workload.
+Both walks exhaust their work with no frontiers/errors in13.870s inclusive.
+
+| Early-panel measurement | A1 | Rank-first donor |
+| --- | ---: | ---: |
+| Complete panel walk domains | 3,379 | 2,590 |
+| Native inspections | 3,068 | 2,512 |
+| Route inspections | 2,126 | 1,781 |
+| Both-rule2 root: native successors | 4 | 8 |
+| Both-rule2 root: depth-two graph domains | 28 | 128 |
+
+The local rule2 expansion grows while total panel work shrinks. Furthermore,
+the unchanged-rule1 control emits exactly6 native successors on both sides but
+has graph outdegree6 versus4. Graph edges include containment/sharing effects;
+they must not be read as raw rule fanout. These results disqualify the tested
+shallow panel as a sufficient predictor of the full-cohort regression.
+
+Inspection of integer shifts also explains one rank-first preference: the two
+early changed rules tie on maximum numerator excursion but reduce the summed
+excursion2→1, before their larger RHS counts10→13 and11→12 are compared.
+All nine uniquely coordinate-case-matched pairs with different RHS inventories
+retain one seeded **preconditioned** basis row. That is not necessarily one
+ordinary IBP: preconditioning can combine sources.
+
+One generic, input-only ablation therefore activated the existing rank portfolio
+only when the mandatory baseline retained at least two such rows. The trigger
+does not restrict the eventual alternative's row count. The full unchanged
+four-loop control, not just the panels, was regenerated and checked:
+
+- Zero alternatives selected;249 trigger skips.
+- Both parent program payloads are byte-identical to A1:523rules and28residuals.
+- The same26,025domains,17,957native inspections and495,898edges.
+- Cold-All passes58queries/32roots with no uncovered obligations or frontiers.
+- Separate exact source/guard replay passes523rules across16sectors and
+  16,778source entries in43.140s. The primary arm is29.688s; the combined
+  charged boundary is72.828s. All owned processes drained.
+
+This is a **negative optimization result**. Disabling trials on single-seed
+baselines removes the program changes on the resulting A1 case path; it does
+not reconstruct all25 original winner decisions, because earlier choices alter
+later visited cases. Equal payloads/work counts do not imply identical checkpoint
+graphs: the edge digests differ. No performance improvement or five-loop transfer
+is claimed, and no default changes.
+
+Evidence beneath the same local root: `owner-481-early-dispatch/`,
+`OWNER_481_GEOMETRY_DIAGNOSTIC.md`, `MULTISEED_ABLATION_RESULTS.md`, and
+`EARLY_RULE_SELECTION_DIAGNOSIS.md`. Runner:`frontier_probe_runner`;
+independent authority/interpretation audit:`rule_quality_audit`.
+
+### Next mechanism: shared exception geometry, not topology-only pinch counts
+
+All five edges of the implicated circuit pinch to the same lower owner. Thus a
+topology-only destination count cannot distinguish the two early choices. The
+numerator coordinate chart and routing witnesses are asymmetric, but their raw
+matrix density is not an exact prediction of cancellation support or domain
+reuse. Prior independent per-route support minimization already reduced local
+edges while increasing total campaign work, so it is not reopened blindly.
+
+The current rank-only diagnostic also has a precision caveat: with unconstrained
+A/D predicates and joint-support pruning off, the route cover does not construct
+the per-axis `NumeratorDegrees` service. One cannot claim that a particular
+inactive-coordinate boundary survives transport precisely on that path.
+Adding a mathematically redundant D lower bound would activate the constrained
+path, but also disables initial-full-orthant reuse. Independent review caught
+this confound before execution; that experiment is held rather than interpreted
+as an isolated support test. Existing runtime options and coherent source/rule
+preferences are being evaluated first. No new scoring default, CAS implementation
+or production modification follows from these observations.

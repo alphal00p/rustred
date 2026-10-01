@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 12:07 UTC (14:07 Zurich)
+## Current workboard — October 1, 14:58 UTC (16:58 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,10 +18,11 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Native inspection2/2 and installed Python/CLI3/3 pass; exact terminal keys identical; earliest rule2 RHS differs | Examine earlier exceptional/dispatch partition, not late unchanged shift inventories |
+| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Narrow total-active-excursion feature authorized after independent conceptual review | Implement/test opt-in feature; full unchanged four-loop candidate and contemporary baseline before any gain claim |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Rule-mechanism research | `frontier_probe_runner` | Broad R5 fragmentation measured; six finite panels reject proposed local adverse-direction predictor | Prepare targeted earlier rule2/boundary diagnostic; no new score accepted |
+| Rule-mechanism research | `frontier_probe_runner` | Early five-panel and full-cohort trigger ablation complete; no gain | Prepare only an independently approved, scope-preserving support/rule interaction test; no blind sweep |
 | Independent authority/performance review | `rule_quality_audit` | Rule-quality audit active | Verify donor-only intervention, interpret conditional/routed work, critique proposed criterion |
+| Dashboard ratio/color amendment | root; implementation deferred to next monitoring slice | Pending at user's request for later | Closure metric Δdiscovered/Δrecursively_closed over1h; both colors >2 red, >1 yellow, otherwise green; pending formula unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
@@ -32,6 +33,108 @@ locks. The native and protocol gates have passed. Rule pilots use CPUs32–47 an
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 14:50 UTC — rule-mechanism follow-through
+
+- [M] Read-only production snapshot at336.6min remains running with fresh
+  heartbeat,13/67 conservative closed roots,47,986,656 local completions,
+  78,208,666 discovered domains,13,683,648 pending,zero frontiers and72.5GB
+  process-tree RSS. Closure scan age is2,023s, so this does not establish current
+  exact closed-domain counts, convergence or an ETA. No production mutation.
+- [M/D] Independent review rejects the redundant-D representation experiment
+  before execution: although `D >= sum_active(lower+1)-R` follows from the
+  actual domain definitions, representing it explicitly disables32 existing
+  full-orthant reuse anchors. It is not an isolated numerator-support test.
+- [D] Runner instead receives exactly two frozen-program joint-support-ON
+  diagnostic arms: A1 and the existing A1+owner481 donor. Preserve query bytes,
+  all58/32 scope, routes and programs. Compare the donor-minus-A1 excess with
+  saved OFF measurements; keep the stronger cold-OFF check. This only tests
+  simultaneous-pinch support, not individual inactive-coordinate precision.
+  Prior five-loop pruning removed many masks without a speedup; no repeat gain
+  is presumed. No generation/build or new routing implementation is authorized.
+- [D] Implementer investigates one generic, runtime-steerable rule preference
+  using coherent active/numerator shifts or native low-rank guard applicability.
+  Reject presumed derivative labels, raw routing-matrix density, and another
+  blind priority grid. A new feature requires concrete rationale and independent
+  review before implementation. Work remains rule-quality-first on main.
+- [M/D] A concrete candidate passes independent conceptual review: append
+  `total-positive-shift-excursion`, the checked sum of existing active-axis
+  positive displacements over RHS terms. It is integer-key bookkeeping, not
+  new algebra or an exact rank/route bound. For the two early changed rules,
+  the existing maximum ties1/1 while this total is1/4 and1/2 (A1/donor).
+  Proposed priorities maxNumerator→totalPositive→totalNumerator→RHS preserve
+  those two A1 comparisons but still prefer the donor in the other seven
+  matched cases because maximum numerator excursion improves1→0 first.
+  Changed case queues can alter which candidates are encountered: these are
+  saved-pair predictions, not an asserted new generation outcome.
+- [D] Author now implements just that opt-in feature plus Rust/JSON/Python
+  surface tests, preserving existing discriminants, descriptors, FirstValid,
+  exact admission and exceptional publication. Auditor reviews independently;
+  root owns guarded release compilation. Runner prepares one unchanged full
+  four-loop candidate and a contemporary new-binary A1 control. No score grid,
+  default change or five-loop transfer before meaningful whole-cohort evidence.
+- [M] Joint-support diagnostic initially fails before traversal because its
+  derivative harness omitted the fresh checkpoint parent directory. Receipt
+  retained, all process groups drained in4.709s, no mathematical failure or
+  result. Independent review approves only the staging-directory correction;
+  retry uses a fresh evidence directory and unchanged scope/policies.
+
+### October 1, 14:31 UTC — resume after an orchestration stop
+
+- [M/D] Milestone e055d7a6 was committed/pushed to main with the requested
+  identity; no task edits remained pending. Root then ended the turn and left
+  the agents at completed checkpoints despite the continuing optimization
+  directive. That was a premature orchestration stop, not a scientific or
+  technical blocker, and not a request for new user approval.
+- [M] Tool-managed goal inspection still reports historical `blocked` state
+  (last updated11:15:41UTC), despite successful work after that time. Available
+  goal tools do not expose resume. This is distinct from the current task's
+  executable state; explicit user continuation authorizes the work below.
+- [D] Reassigned all three lanes: runner executes the prepared five finite
+  R5 early-rule/boundary panels with unchanged frozen solver and bounded owned
+  lifecycle; implementer traces the selector decision using saved native
+  program/trial evidence; independent auditor checks inputs and interpretation.
+  No production change, new scheduler work or speculative scorer is authorized.
+  The next panels test native dispatch2/2,2/9,5/2,2/5,1/1; they are diagnostic,
+  not substitutes for the complete four-loop control or five-loop acceptance.
+- [M/D] User resumed the tool-managed goal; a subsequent tool read confirms
+  `active`. No blocked-state action or new goal is needed. Root continues the
+  current rule-quality priority on main; historical branch/S5 wording in the
+  tool objective is superseded by the current top-level goal/plan amendments.
+- [M] Five-panel diagnostic finishes in13.870s with all37 concrete entry tuples
+  retained and no pending/frontiers/errors. The shared rule2 region emits4→8
+  native successors and grows its depth-two graph28→128, but the complete tiny
+  donor walk still uses fewer domains (3,379→2,590). The same-rule1 control emits
+  exactly6 native successors on both sides while graph outdegree changes6→4:
+  a direct demonstration that graph edges also reflect sharing/containment.
+  These panels cannot substitute for the original full-cohort comparison.
+- [D] One input-only full-four-loop ablation is being prepared: keep existing
+  rank-portfolio policies/limits but activate trials only when source-rows≥2.
+  The nine matched coordinate RHS divergences each retain a single seeded
+  **preconditioned** basis row. This is not necessarily a single original
+  ordinary IBP, nor proof of simplicity. The generic trigger preserves those
+  baseline single-seed choices while testing alternatives elsewhere. No rebuild,
+  hard-coded topology/loop test or new CAS is required. Whole-cohort generation,
+  cold checks and original-source qualification remain mandatory; no gain is
+  claimed and no five-loop transfer is authorized without useful evidence.
+- [M] Full-cohort single-seed-baseline preservation is a qualified negative
+  result:0 alternative winners/249 trigger skips; both generated parent bundles
+  are byte-identical to A1. Work remains26,025 domains,17,957 inspections and
+  495,898 edges; cold-All58/32 passes. Separate source/guard replay passes all
+  523rules/16,778sourceentries in43.140s after the29.688s primary arm. The edge
+  digest differs despite equal counts, so checkpoint graph-byte identity is
+  NOT claimed. All groups drained. Independent audit passed. Do not promote
+  the trigger as an optimization or claim all25 historical winners individually
+  had single-seed baselines: visited case queues can change.
+- [D] User's monitoring amendment is recorded for a later monitoring slice,
+  without displacing rule-quality work. Replace normalized closure balance
+  `(D-C)/(D+C)` with one-hour `Δdiscovered/Δrecursively_closed`. Keep the current
+  pending-growth-per-completion formula/name unchanged; change colors for BOTH
+  displayed quantities to red strictly above2, yellow strictly above1, green
+  otherwise. Preserve scan-batched/stale-window/reset diagnostics. No closures
+  with positive discoveries must not display a finite green ratio; an empty or
+  invalid window must remain explicitly unavailable. Add boundary/zero-window
+  tests when implementing. No live monitor or production executable is changed.
 
 ### October 1, 12:07 UTC — tested inspector and an informative failed predictor
 
