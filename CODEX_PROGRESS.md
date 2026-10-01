@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 20:05 UTC (22:05 Zurich)
+## Current workboard — October 1, 20:25 UTC (22:25 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,9 +20,11 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected by executed census | Prepare native guarded-event containment diagnostic; productive new domains remain allowed |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Census receipts and monitor correction audited | Audit native event/control design and implementation before its pilot |
-| Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | D/C delivered; stale-window correction passes64 tests and review | Commit presentation-only correction; frozen/live release unchanged |
+| Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected; native guarded-envelope probe prepared/source-reviewed, not run | Resume after the newly requested rank-zero control |
+| Helper-free rank-zero controls | `five_loop_order_runner`; root integrates |67-unit canary cold-PASS/drained; corrected116-query physics arm live, session28054 | Measure recurrence/routing work and cold-check if completed; no descendant clipping |
+| Domain-growth mechanism and authority review | `r_primary_transfer_audit`; root | Census/monitor audits delivered; rank-zero scope census done | Audit pilot and trace genuine shifts versus routing over-approximation and broad helpers |
+| Independent theory/literature critique | `rule_quality_audit` | Helper/correlation critique delivered; Laporta/resurgence follow-up active | Reuse existing kernels; distinguish exact shortcut identities from analytic information |
+| Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
@@ -36,6 +38,98 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 20:13 UTC — fresh closure scan and helper-free R0 controls
+
+- [M] The next production scan actually completes: scan30 reports16,647,438
+  closed domains versus14,864,861 in scan29, an increase of1,782,577. It takes
+  70.011s; the top-level count remains13/67. This disproves a frozen domain
+  count but establishes neither remaining-root convergence nor an ETA. Root's
+  ten-minute read-only observer exits successfully on this new measurement;
+  native production1504002 stays live and unchanged.
+- [D] The user requests a separate numerator1/R0 five-loop campaign and deep
+  investigation of domain expansion, then challenges eager broad helpers as
+  an unnecessary surrogate for better sharing. Prioritize two helper-free
+  controls over the prepared native cost probe (source-reviewed, never launched).
+  First use67 bare unit-index inputs, then all116 physical required queries
+  intersected with R0; retain original A/D/active-axis bounds, no auxiliary starts,
+  all67 owner programs/8,246 routes and the repair overlay. Never clip descendants.
+  These are explicit experiments, not changes to the live116+67 production scope.
+- [M/E] Independent input census finds35 of116 physical queries empty atR0 and
+  81 nonempty across56 owners. Some higher-line sectors need a numerator to
+  satisfy the original D9/D10 constraints. Report that honestly; the67-point
+  canary separately exercises every saved owner. Thirteen original helpers have
+  no finite positive-power cap, an important possible source of avoidable work.
+  A proposed183-row finite-helper experiment was never written/launched and is
+  superseded by the user's helper-free investigation.
+- [D] Runner prepares the controls under
+  `TMP/postlaunch-20261001/five-loop-rank0-v1`, W16/CPUs48–63, existing owned-job
+  lifecycle, at most1,800s inclusive per pilot and cooperative checkpoint/drain.
+  This is disjoint from production64–95; unrestricted other-user jobs can still
+  contend and must be reported. The independent auditor verifies scope/safety
+  before launch. A reactivated third agent researches generic demand-driven
+  sharing/correlation alternatives; it performs no implementation/native work.
+- [M] Independent auditor gives unit-arm source GO after checking both query
+  files against production and all cumulative stop/drain/cold boundaries.
+  Runner launches pinned wrapper `ba3cc4bb`/protocol `40bca675`, session6480,
+  wrapper3859379, walk supervisor3862471/native3862601. Staging completes in
+  4.070s and67-owner admission in11.956s, both drained. Evidence:
+  `TMP/postlaunch-20261001/five-loop-rank0-v1/receipts/unit/`.
+  The physics arm and the tiny closure-cost probe are not launched.
+- [E/D] The helper audit finds a specific confound in old bounded-helper
+  measurements: adding A/D constraints disables the existing initial-orthant
+  scheduling index. Their3.93–15.73x slowdown does not prove unbounded helpers
+  necessary. G2 already does residual inspection against published anchors;
+  another generic memoization layer would duplicate existing functionality.
+  Prioritize a demonstrated lost correlation or unnecessary extra obligation.
+- [M/E] Source audit identifies a four-loop conditional edge whose rectangular
+  successor includes10 integer tuples although its nonzero coefficient permits
+  only6. This is one-edge over-approximation, not four globally unnecessary
+  graph nodes: other RHS terms can reach the same tuples. Existing total-excess
+  audit machinery proves envelopes for a compatible complete single-root
+  ordering, not for arbitrary routed multi-owner walks. Neither finding yet
+  proves a five-loop infinite cycle or a global finite bound.
+- [D] The user adds Laporta-style rules and resurgence to the investigation.
+  `rule_quality_audit` owns the focused literature/code report; the independent
+  transfer auditor owns the domain-growth witness report. Root confirms an
+  existing shared finite-corner exact solver, but its dynamic convenience
+  bridge currently dispatches only arities1..12. The native const-generic
+  solver can be studied at15; do not falsely report a ready5L bridge. No new
+  solver/CAS or production mutation is undertaken in this research slice.
+- [M] The unit canary finishes in182.421s inclusive (staging, admission, walk,
+  cold-All verification), with all four phases drained. Native walking takes
+  0.0565s after77.891s preparation; cold verification is81.863s. All67 points
+  are independently verified closed, with67 native inspections and zero
+  successors/edges. This checks already covered base cases; it exercises no
+  recurrence chain and is not a result for arbitrary dotted R0 inputs. The
+  saved live engine counter is stale at16 while fresh cold verification finds
+  all67; use the latter, not the stale monitoring snapshot, for this result.
+- [M/D] Root catches a pilot-resource disclosure mismatch: the inner walk
+  correctly enforces150GB with150GB host reserve, but the reused outer lifecycle
+  harness admits600GB/570GB for staging/admission/cold phases. Actual observed
+  peak is5.265GB; no intended usage ceiling was approached. Preserve unit
+  receipts honestly. Physics launch waits for a narrow pilot-local150GB outer
+  clamp and independent source audit; no production supervisor is edited.
+- [D] Corrected physics-only wrapper `run-physics.py` (`e1fb42a6`) and
+  `PROTOCOL-physics.md` (`c715f801`) preserve original unit evidence and clamp
+  only the pilot-local outer admission to150GB. The native walk remains150GB;
+  source audit confirms identical mathematics, commands and cumulative deadlines.
+  Root releases the next arm after that GO; runner alone owns its lifecycle.
+  Runner launches session28054 with
+  `python -B TMP/postlaunch-20261001/five-loop-rank0-v1/run-physics.py --arm physics --grant root-approved-rank0-physics`.
+  The original unit command was
+  `python -B TMP/postlaunch-20261001/five-loop-rank0-v1/run.py --arm unit --grant root-approved-rank0-unit`.
+  Both use the pinned Nix Python recorded in each receipt. Production is unchanged.
+- [M/D] Both research notes are delivered and root-reviewed:
+  `docs/research/finite_physics_domain_growth_2026-10-01.md` (transfer auditor)
+  and `docs/research/laporta_resurgence_helper_alternatives_2026-10-01.md`
+  (theory/literature agent). Transfer auditor independently approves the latter's
+  guard pullback, exact lifting, descent and nonclosure qualifications. Root
+  checks the existing native APIs and primary literature. First candidates are
+  selective coefficient-zero image refinement and exact short-rule composition;
+  target-directed Laporta is a fallback for a missing useful relation. Literal
+  resurgence is not established here as an algebraic closure mechanism.
+  No implementation/performance success is claimed for these proposals.
 
 ### October 1, 19:57 UTC — closure-directed selection, first cheap falsifier
 

@@ -32,6 +32,30 @@ checks. Start with existing four-loop alternatives and a small controlled
 five-loop query before a larger implementation. Refresh monitoring through the
 separate read-only D/C dashboard, without restarting production.
 
+October1 rank-zero/helper investigation: the user authorizes an independent
+five-loop control with numerator1, plus deep investigation of why finite
+physical inputs can induce growing symbolic-domain work. Run helper-free
+controls with the existing exact rule pool: first67 unit-index scalar inputs
+(a canary, not arbitrary-power R0 closure), then the116 physical required
+queries intersected with R0, retaining their positive-power/A/D constraints.
+Do not clip descendants to R0. Empty intersections must be reported, not counted
+as nontrivial solved topologies. Existing production remains untouched.
+Audit the mechanism by which eager broad helpers improve sharing and domain
+fragmentation, and investigate demand-driven substitutes that retain those
+benefits without solving unnecessary or unbounded regions. Distinguish actual
+IBP growth, routing over-approximation and discarded input correlations; propose
+generic, independently reviewed fixes grounded in the renormalizable-gauge
+input scope, not arbitrary rank cutoffs or omitted successor obligations.
+
+October1 supplemental research: assess target-directed Laporta elimination as
+a source of exact shortcut rules at demonstrated expensive transitions, reusing
+the existing shared numerical-case solver and Symbolica arithmetic. A relation
+proved only at fixed indices is not a parametric identity: wider publication
+requires exact symbolic source replay, guards and descent. Investigate resurgence
+separately and distinguish analytic boundary/master-evaluation information from
+algebraic reduction identities; do not assume it supplies missing IBPs. Preserve
+the current focus on symbolic closure rather than numerical master evaluation.
+
 ## Delivery and branch consolidation — October1
 
 The repaired, optimized binary and user-operated restart instructions are the
