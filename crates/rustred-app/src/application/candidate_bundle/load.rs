@@ -11,7 +11,7 @@ use crate::application::AppError;
 use super::{CandidateBundleLimits, codec, model::CandidateBundleInspection, preparation};
 
 mod checkpoint;
-mod ingress;
+pub(super) mod ingress;
 mod owners;
 pub use checkpoint::load_generated_candidate_checkpoint;
 pub use owners::{CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners};

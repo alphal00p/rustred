@@ -299,6 +299,39 @@ impl<const N: usize> Discovery<N> {
     /// only ancestors at or left of its own pivot, as in C++ optimizeSystem.
     /// This operation is performed after discovery, never per streamed row.
     pub fn trace_many(&self, roots: &[usize]) -> Vec<usize> {
+        self.trace_many_checked(roots, |_| Ok::<_, std::convert::Infallible>(()))
+            .unwrap_or_else(|never| match never {})
+    }
+
+    /// Optional search-input cap, using the same exact dependency walk and
+    /// pivot order as `trace`. Refusal never truncates a trace used for lifting.
+    pub(super) fn trace_bounded(
+        &self,
+        root: usize,
+        max_rows: usize,
+        max_terms: usize,
+        mut terms: impl FnMut(usize) -> usize,
+    ) -> Result<Vec<usize>, super::RuleTrialBudget> {
+        let mut rows = 0usize;
+        let mut total_terms = 0usize;
+        self.trace_many_checked(&[root], |row| {
+            if rows >= max_rows {
+                return Err(super::RuleTrialBudget::ExactTraceRows);
+            }
+            rows += 1;
+            total_terms = total_terms
+                .checked_add(terms(row))
+                .filter(|&value| value <= max_terms)
+                .ok_or(super::RuleTrialBudget::ExactTraceTerms)?;
+            Ok(())
+        })
+    }
+
+    fn trace_many_checked<E>(
+        &self,
+        roots: &[usize],
+        mut admit: impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<Vec<usize>, E> {
         assert!(roots.iter().all(|&root| root < self.basis_len()));
         let u = self.reducer.u();
         let l = self.reducer.l();
@@ -314,6 +347,9 @@ impl<const N: usize> Discovery<N> {
                 }
                 visited[row] = visit;
                 if u.col_idcs()[u.row_ptrs()[row]] <= root_column {
+                    if !needed[row] {
+                        admit(row)?;
+                    }
                     needed[row] = true;
                 }
                 let l_row = self.accepted_l_rows[row];
@@ -325,12 +361,13 @@ impl<const N: usize> Discovery<N> {
                 }
             }
         }
-        self.reducer
+        Ok(self
+            .reducer
             .pivots()
             .iter()
             .filter_map(|&row| row.map(|row| row as usize))
             .filter(|&row| needed[row])
-            .collect()
+            .collect())
     }
 
     fn register_columns(&mut self, terms: &[Term<N, NumericalCoefficient>]) {

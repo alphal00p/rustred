@@ -80,9 +80,13 @@ impl PyCandidateBundleResult {
 /// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
 /// not a RAM limit. Checkpoints do not certify rules or family closure.
 /// discovery_strategy is optional bounded JSON from rustred.discovery_strategy
-/// or the native version-1 descriptor. It chooses finite row/job arrival only,
-/// not integral order; exact descriptor and materialized callbacks are bound
-/// into the generation checkpoint. Resume requires the same descriptor.
+/// or the native descriptor. Version 1 chooses finite row/job arrival; version
+/// 2 adds an explicit rustred.rule_portfolio recipe with bounded alternatives.
+/// Neither changes integral order or overrides exact rule/exception admission.
+/// Full recipes (quality version/order, budgets and trigger included) bind the
+/// generation checkpoint; resume requires the same descriptor. Portfolio report
+/// costs cover newly solved sectors only, include losers, and sum worker time;
+/// exact materialization time is included in search time, not additional to it.
 /// integral_order is optional version-1 JSON for the mathematical integral
 /// comparison, distinct from discovery scheduling. It requires an uncut family,
 /// is incompatible with permutation, and is persisted in every saved shard.

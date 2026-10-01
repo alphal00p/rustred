@@ -163,6 +163,25 @@ pub(crate) enum StageDetail {
     GuardExtraction,
     ExceptionalGeometry,
     FiniteRetention,
+    RuleTrialFinished {
+        trial: usize,
+        outcome: String,
+        search_seeds: usize,
+        search_rows: usize,
+        independent_rows: usize,
+        exact_trace_rows: usize,
+        exact_trace_terms: usize,
+        exact_lifts: usize,
+        guard_branches: usize,
+        geometry_calls: usize,
+        // Internally tagged serde values cannot roundtrip u128. Saturate only
+        // this diagnostic wire representation and mark any lost range.
+        search_us: u64,
+        exact_materialization_us: u64,
+        guard_extraction_us: u64,
+        geometry_us: u64,
+        duration_micros_saturated: bool,
+    },
     RuleFound {
         pending: usize,
     },

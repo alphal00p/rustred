@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use rustred::foundry::artifact::{SourcePortInstallEvent, SourcePortSuccessorSnapshot};
 use rustred::solver::{
-    MaterializationEvent, SearchEvent, SectorEvent, SectorExecutionError, SectorPhase,
+    MaterializationEvent, RuleTrialBudget, RuleTrialOutcome, SearchEvent, SectorEvent,
+    SectorExecutionError, SectorPhase,
 };
 
 pub(in crate::application) type Observer<'a> =
@@ -109,6 +110,25 @@ pub enum FamilyCloseGenerationStage {
     GuardExtraction,
     ExceptionalGeometry,
     FiniteRetention,
+    /// An admitted trial is not necessarily selected, and is not a rule/sector
+    /// completion. Trial zero is the mandatory baseline.
+    RuleTrialFinished {
+        trial: usize,
+        outcome: &'static str,
+        search_seeds: usize,
+        search_rows: usize,
+        independent_rows: usize,
+        exact_trace_rows: usize,
+        exact_trace_terms: usize,
+        exact_lifts: usize,
+        guard_branches: usize,
+        geometry_calls: usize,
+        /// Exact materialization is a sub-duration of search, not additive.
+        search_us: u128,
+        exact_materialization_us: u128,
+        guard_extraction_us: u128,
+        geometry_us: u128,
+    },
     RuleFound {
         pending: usize,
     },
@@ -259,6 +279,39 @@ pub(in crate::application) fn generation_stage<const N: usize>(
     event: SectorEvent<'_, N>,
 ) -> FamilyCloseGenerationStage {
     match event {
+        SectorEvent::RuleTrialFinished { summary, .. } => {
+            FamilyCloseGenerationStage::RuleTrialFinished {
+                trial: summary.trial,
+                outcome: match summary.outcome {
+                    RuleTrialOutcome::Admitted => "admitted",
+                    RuleTrialOutcome::SearchExhausted => "search-exhausted",
+                    RuleTrialOutcome::WorkLimit(RuleTrialBudget::SourceRows) => "source-row-limit",
+                    RuleTrialOutcome::WorkLimit(RuleTrialBudget::ExactTraceRows) => {
+                        "exact-trace-row-limit"
+                    }
+                    RuleTrialOutcome::WorkLimit(RuleTrialBudget::ExactTraceTerms) => {
+                        "exact-trace-term-limit"
+                    }
+                    RuleTrialOutcome::UnluckySample => "unlucky-sample",
+                    RuleTrialOutcome::UnsupportedGeometry => "unsupported-geometry",
+                    RuleTrialOutcome::GeometryBudget => "geometry-budget",
+                    RuleTrialOutcome::NonProgress => "non-progress",
+                    RuleTrialOutcome::Fatal => "fatal",
+                },
+                search_seeds: summary.stats.search.seeds,
+                search_rows: summary.stats.search.rows,
+                independent_rows: summary.stats.search.independent_rows,
+                exact_trace_rows: summary.stats.search.exact_trace_rows,
+                exact_trace_terms: summary.stats.exact_trace_terms,
+                exact_lifts: summary.stats.exact_lifts,
+                guard_branches: summary.stats.guard_branches,
+                geometry_calls: summary.stats.geometry_calls,
+                search_us: summary.stats.search.elapsed.as_micros(),
+                exact_materialization_us: summary.stats.search.exact_materialization.as_micros(),
+                guard_extraction_us: summary.stats.guard_extraction.as_micros(),
+                geometry_us: summary.stats.geometry.as_micros(),
+            }
+        }
         SectorEvent::CaseStarted { pending, .. } => FamilyCloseGenerationStage::Case { pending },
         SectorEvent::Search { event, .. } => match event {
             SearchEvent::DiscoveryProgress {
@@ -476,6 +529,51 @@ pub(in crate::application) fn installation_event<const N: usize>(
 mod tests {
     use super::*;
     use rustred::foundry::artifact::{SourcePortSuccessorCounts, SourcePortSuccessorStage};
+
+    #[test]
+    fn trial_summary_projects_loser_cost_without_rule_found_authority() {
+        use rustred::solver::{Case, CoordinateCase, RuleTrialStats, RuleTrialSummary};
+        let case = Case::from(CoordinateCase::<2>::generic());
+        let mut stats = RuleTrialStats::default();
+        stats.search.rows = 8;
+        stats.search.seeds = 2;
+        stats.search.independent_rows = 3;
+        stats.search.exact_trace_rows = 3;
+        stats.exact_trace_terms = 11;
+        stats.exact_lifts = 1;
+        stats.guard_branches = 4;
+        stats.geometry_calls = 4;
+        stats.search.elapsed = Duration::from_micros(100);
+        stats.search.exact_materialization = Duration::from_micros(70);
+        stats.guard_extraction = Duration::from_micros(5);
+        stats.geometry = Duration::from_micros(15);
+        assert_eq!(
+            generation_stage(SectorEvent::RuleTrialFinished {
+                case: &case,
+                summary: RuleTrialSummary {
+                    trial: 1,
+                    outcome: RuleTrialOutcome::GeometryBudget,
+                    stats
+                },
+            }),
+            FamilyCloseGenerationStage::RuleTrialFinished {
+                trial: 1,
+                outcome: "geometry-budget",
+                search_seeds: 2,
+                search_rows: 8,
+                independent_rows: 3,
+                exact_trace_rows: 3,
+                exact_trace_terms: 11,
+                exact_lifts: 1,
+                guard_branches: 4,
+                geometry_calls: 4,
+                search_us: 100,
+                exact_materialization_us: 70,
+                guard_extraction_us: 5,
+                geometry_us: 15,
+            }
+        );
+    }
 
     #[test]
     fn exact_materialization_projects_every_scalar_without_copying_integrals() {

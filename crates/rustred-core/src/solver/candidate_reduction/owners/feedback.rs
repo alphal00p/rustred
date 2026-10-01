@@ -14,6 +14,8 @@ use crate::solver::{
 };
 
 mod limits;
+mod replay;
+mod restore;
 pub(super) use limits::OwnerOverlayUsage as OverlayUsage;
 pub use limits::{OwnerOverlayLimits, OwnerOverlayUsage};
 
@@ -67,6 +69,7 @@ impl Default for OwnerDomainAttemptLimits {
 pub enum OwnerFeedbackError<const N: usize> {
     Candidate(CandidateReductionError),
     Source(SolverError),
+    Replay(crate::foundry::artifact::SourcePortAuditError),
     Search(Box<SectorSolveError<N>>),
     InvalidInput(String),
     ResourceLimit {
@@ -85,6 +88,7 @@ impl<const N: usize> fmt::Display for OwnerFeedbackError<N> {
         match self {
             Self::Candidate(error) => error.fmt(f),
             Self::Source(error) => error.fmt(f),
+            Self::Replay(error) => error.fmt(f),
             Self::Search(error) => error.fmt(f),
             Self::InvalidInput(error) => write!(f, "invalid owner feedback: {error}"),
             Self::ResourceLimit {
@@ -135,6 +139,12 @@ pub struct BoundOwnerOverlay<const N: usize> {
 impl<const N: usize> BoundOwnerOverlay<N> {
     pub fn owner_sector(&self) -> &[bool; N] {
         &self.sector
+    }
+    pub fn owner_root(&self) -> &[bool; N] {
+        &self.root
+    }
+    pub fn attempt_limits(&self) -> OwnerDomainAttemptLimits {
+        self.attempt_limits
     }
     pub fn requested_cases(&self) -> &[Case<N>] {
         &self.solution.requested_cases
@@ -202,6 +212,30 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             policy,
             order,
         })
+    }
+
+    /// Append rules without adding any newly searched finite residual terminals.
+    ///
+    /// Every overlay must have an empty residual list. A residual-bearing member
+    /// rejects the entire batch before preparation or publication; residuals are
+    /// never silently discarded. This narrow repair path leaves all RHS coverage
+    /// obligations to subsequent routing, using only already installed terminals.
+    /// It shares the ordinary append's source-lineage and order checks but does
+    /// not itself run independent source replay or assert that a domain is closed.
+    pub fn append_residual_free_domain_overlays(
+        self: &Arc<Self>,
+        overlays: Vec<BoundOwnerOverlay<N>>,
+        limits: OwnerOverlayLimits,
+    ) -> Result<Arc<Self>, OwnerFeedbackError<N>> {
+        if overlays
+            .iter()
+            .any(|overlay| !overlay.solution.finite_residuals.is_empty())
+        {
+            return Err(OwnerFeedbackError::InvalidInput(
+                "rules-only owner overlays must not retain finite residual terminals".into(),
+            ));
+        }
+        self.append_domain_overlays(overlays, limits)
     }
 
     /// Atomically append partial results in caller-supplied deterministic order.
@@ -303,6 +337,12 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
 impl<const N: usize> BoundOwnerSearch<N> {
     pub fn owner_sector(&self) -> &[bool; N] {
         &self.sector
+    }
+    pub fn owner_root(&self) -> &[bool; N] {
+        &self.owner.root
+    }
+    pub fn owner_ordering(&self) -> &OrderingPolicy {
+        &self.owner.ordering
     }
     pub fn policy(&self) -> OwnerFeedbackPolicy {
         self.policy

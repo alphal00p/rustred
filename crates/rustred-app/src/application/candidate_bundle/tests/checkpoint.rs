@@ -123,6 +123,72 @@ fn materialized_callback_plan_is_persisted_and_resumed_without_callback() {
 }
 
 #[test]
+fn bounded_portfolio_report_checkpoint_and_complete_resume_keep_exact_recipe() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K1);
+    request.discovery_strategy = Some(CandidateDiscoveryStrategy::from_json(r#"{
+        "version":2,"sectors":{"kind":"active-first"},"rows":{"kind":"input-order"},
+        "rule_selection":{"kind":"bounded-portfolio","version":1,
+            "alternatives":[{"kind":"features","priorities":[{"feature":{"kind":"terms"},"descending":true}]}],
+            "limits":{"max_depth":0,"max_rows":32,"max_exact_trace_rows":32,"max_exact_trace_terms":1024},
+            "quality":[{"feature":"rhs-terms","descending":false}],
+            "trigger":{"kind":"always"}}
+    }"#).unwrap());
+    request.checkpoint = Some(directory.options());
+    let (original, _) = observed(request.clone());
+    let report: toml::Value = toml::from_str(original.to_toml()).unwrap();
+    let saved_strategy: CandidateDiscoveryStrategy =
+        report["discovery_strategy"].clone().try_into().unwrap();
+    assert_eq!(Some(saved_strategy), request.discovery_strategy);
+    assert_eq!(
+        report["rule_selection"]["newly_solved_sectors"].as_integer(),
+        Some(1)
+    );
+    assert!(report["rule_selection"]["attempted"].as_integer().unwrap() > 0);
+    let path = request
+        .checkpoint
+        .as_ref()
+        .unwrap()
+        .directory
+        .join("checkpoint.toml");
+    let before = fs::read(&path).unwrap();
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let (resumed, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), resumed.bundle());
+    let resumed_report: toml::Value = toml::from_str(resumed.to_toml()).unwrap();
+    assert_eq!(
+        resumed_report["rule_selection"]["newly_solved_sectors"].as_integer(),
+        Some(0)
+    );
+    assert_eq!(
+        resumed_report["rule_selection"]["attempted"].as_integer(),
+        Some(0)
+    );
+    assert_eq!(before, fs::read(&path).unwrap());
+    let crate::CandidateRulePortfolio::BoundedPortfolio { trigger, .. } = request
+        .discovery_strategy
+        .as_mut()
+        .unwrap()
+        .rule_selection
+        .as_mut()
+        .unwrap();
+    *trigger = crate::CandidateRulePortfolioTrigger::AnyAtLeast {
+        thresholds: vec![crate::CandidateRuleQualityThreshold {
+            feature: crate::CandidateRuleQualityFeature::RhsTerms,
+            minimum: 2,
+        }],
+    };
+    assert!(
+        family_candidates(request)
+            .unwrap_err()
+            .message()
+            .contains("manifest differs")
+    );
+    assert_eq!(before, fs::read(&path).unwrap());
+}
+
+#[test]
 fn explicit_default_discovery_preserves_default_candidates() {
     let ordinary = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
     let mut explicit = FamilyCandidatesRequest::new(K1);

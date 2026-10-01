@@ -547,7 +547,12 @@ prove global coverage, or emit a closing artifact. `certify-candidates`
 independently reconstructs and replays that bundle through the existing complete
 publication pipeline without running search again; incomplete inputs fail.
 Finite row/job discovery can be selected with `--discovery-strategy <JSON_FILE>`;
-that scheduling option does not change the mathematical integral order.
+version 1 selects discovery order; version 2 also requires an explicit bounded
+rule-selection portfolio. Its one or two alternate source recipes, quality-key
+order/version, per-trial budgets and deterministic trigger are checkpoint-bound.
+The first valid baseline remains mandatory; optional trials cannot override exact
+rule/exception eligibility. Shift-excursion scores are heuristics, not rank bounds.
+Neither discovery version changes the mathematical integral order.
 `--selected-sectors 011,111` selects exact generation jobs in the original family
 axes. The full zero census is retained; omitted nonzero sectors remain uncovered.
 `--integral-order <JSON_FILE>` selects a persisted uncut mathematical order
@@ -557,7 +562,7 @@ Neither option grants closure authority.
 Optional --report-output records phase timings separately from bundle/artifact
 bytes. Data is written before its report; destinations must differ.
 Optional --checkpoint-dir stores completed sectors without certifying them.
-Use --resume with the same source/root/selection/order/backend/depth/rank; worker count may
+Use --resume with the same source/root/selection/order/discovery/backend/depth/rank; worker count may
 change. Input, final bundle and report paths must be outside that dedicated
 directory. Its byte budget includes retained/staging payloads and pending writes,
 not peak RAM or filesystem overhead; final bundle limits remain unchanged.

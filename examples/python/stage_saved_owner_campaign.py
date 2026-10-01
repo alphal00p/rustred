@@ -4,8 +4,8 @@
 No native loading, rule generation, or campaign launch. By default the supplied
 query document is copied byte for byte. Optional rank/power-bounded owner
 orthants are additional native query obligations, not certified coverage: every
-original query is retained and no descendant is clipped. Only owner payload
-paths in the copied selection are changed to relative paths in the new folder.
+original query is retained and no descendant is clipped. Only owner and partial
+rule payload paths are changed to relative paths in the new folder.
 Optional helpers-first ordering changes only query order, not query objects or
 native coverage authority; the owner-anchor- ID prefix is merely a heuristic.
 """
@@ -168,7 +168,7 @@ def plan_query_order(query_bytes, query_order):
 
 
 RESERVED_INPUT_NAMES = frozenset({"selection.json", "queries.json", "queries-original.json",
-                                  "input-receipt.json", "STAGING_INCOMPLETE", "owners"})
+                                  "input-receipt.json", "STAGING_INCOMPLETE", "owners", "overlays"})
 
 
 def check_attachments(attachments):
@@ -213,6 +213,12 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
     masks = [row.get("mask") for row in owners]
     if any(not isinstance(mask, str) or not mask or set(mask) - {"0", "1"} for mask in masks) or len(set(masks)) != len(masks):
         raise ValueError("owner masks must be unique binary strings")
+    overlays = selection.get("domain_rule_overlays", [])
+    if not isinstance(overlays, list) or any(
+            not isinstance(row, dict) or row.get("owner_mask") not in masks
+            or type(row.get("bytes")) is not int or row["bytes"] <= 0
+            or not isinstance(row.get("path"), str) or not row["path"] for row in overlays):
+        raise ValueError("partial rule overlays need a selected owner, positive size and payload path")
     if anchor_max_positive_power is not None and anchor_max_numerator_rank is None:
         raise ValueError("anchor positive power requires an explicit anchor rank")
     if anchor_positive_power_owners is not None and anchor_max_positive_power is None:
@@ -247,6 +253,20 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
         receipts.append({"mask": row["mask"], "source": str(source), "path": str(relative),
                          "bytes": before.st_size, "sha256": source_hash})
         row["path"] = str(relative)
+    overlay_receipts = []
+    if overlays:
+        (destination / "overlays").mkdir()
+    for index, row in enumerate(overlays):
+        source = (owner_base / row["path"]).resolve()
+        if source.stat().st_size != row["bytes"]:
+            raise ValueError(f"declared partial rule payload size mismatch: {source}")
+        relative = Path("overlays") / f"{index:04d}-{row['owner_mask']}.rrbin"
+        size, source_hash = copy_read_only(source, destination / relative)
+        if size != row["bytes"]:
+            raise ValueError(f"partial rule payload changed during staging: {source}")
+        overlay_receipts.append({"owner_mask": row["owner_mask"], "source": str(source),
+                                 "path": str(relative), "bytes": size, "sha256": source_hash})
+        row["path"] = str(relative)
     attachment_receipts = []
     for path in attachments:
         size, attachment_hash = copy_read_only(path, destination / path.name)
@@ -277,6 +297,9 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
                "owners": receipts, "query_bytes_unchanged": staged_query_bytes == original_bytes,
                "query_order": query_order,
                "manifest_changes": "owner payload paths only", "family_closure_claim": False}
+    if overlay_receipts:
+        receipt["domain_rule_overlays"] = overlay_receipts
+        receipt["manifest_changes"] = "owner and partial rule payload paths only"
     if attachment_receipts:
         receipt["attachments"] = attachment_receipts
     if anchor_plan is not None:

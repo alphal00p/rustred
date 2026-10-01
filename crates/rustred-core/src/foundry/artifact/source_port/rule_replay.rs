@@ -8,7 +8,9 @@
 use std::time::{Duration, Instant};
 
 use crate::sector::{Mask, OrderingPolicy};
-use crate::solver::{SectorConfig, SectorSolution, SectorSolver};
+use crate::solver::{
+    IntegralOrder, SectorConfig, SectorDomainSolution, SectorRule, SectorSolution, SectorSolver,
+};
 
 use super::{SourcePortAudit, SourcePortAuditError, error, geometry, replay};
 
@@ -53,9 +55,9 @@ impl<const N: usize> SourcePortAudit<N> {
         self.replay_sector_rule_iter(
             sector,
             permutation,
-            solution,
+            &solution.order,
+            &solution.rules,
             0..solution.rules.len(),
-            solution.rules.len(),
         )
     }
 
@@ -70,21 +72,56 @@ impl<const N: usize> SourcePortAudit<N> {
         solution: &SectorSolution<N>,
         ordinals: &[usize],
     ) -> Result<SourcePortRuleReplayAudit<N>, SourcePortAuditError> {
-        if ordinals.windows(2).any(|pair| pair[0] >= pair[1])
-            || ordinals
-                .last()
-                .is_some_and(|&ordinal| ordinal >= solution.rules.len())
-        {
-            return Err(error(
-                "rule-replay ordinals must be strictly increasing and in range",
-            ));
-        }
+        validate_ordinals(ordinals, solution.rules.len())?;
         self.replay_sector_rule_iter(
             sector,
             permutation,
-            solution,
+            &solution.order,
+            &solution.rules,
             ordinals.iter().copied(),
-            ordinals.len(),
+        )
+    }
+
+    /// Replay every rule in a genuine partial, nominated-domain search result.
+    ///
+    /// This performs exactly the same original-source identity and guard
+    /// checks as [`Self::replay_sector_rules`], without converting a partial
+    /// result into a completed sector. It neither certifies coverage of the
+    /// requested cases nor accepts finite residuals as terminal integrals.
+    /// Descent and recursive successor coverage remain separate obligations.
+    pub fn replay_domain_rules(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorDomainSolution<N>,
+    ) -> Result<SourcePortRuleReplayAudit<N>, SourcePortAuditError> {
+        self.replay_sector_rule_iter(
+            sector,
+            permutation,
+            &solution.order,
+            &solution.rules,
+            0..solution.rules.len(),
+        )
+    }
+
+    /// Replay a strictly increasing subset of rules from a partial search.
+    ///
+    /// Ordinals are local to `solution.rules`. Omitted rules, requested-case
+    /// coverage and finite residuals acquire no authority from this report.
+    pub fn replay_domain_rule_batch(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorDomainSolution<N>,
+        ordinals: &[usize],
+    ) -> Result<SourcePortRuleReplayAudit<N>, SourcePortAuditError> {
+        validate_ordinals(ordinals, solution.rules.len())?;
+        self.replay_sector_rule_iter(
+            sector,
+            permutation,
+            &solution.order,
+            &solution.rules,
+            ordinals.iter().copied(),
         )
     }
 
@@ -92,9 +129,9 @@ impl<const N: usize> SourcePortAudit<N> {
         &self,
         sector: [bool; N],
         permutation: Option<[usize; N]>,
-        solution: &SectorSolution<N>,
-        ordinals: impl IntoIterator<Item = usize>,
-        ordinal_count: usize,
+        order: &IntegralOrder<N>,
+        source_rules: &[SectorRule<N>],
+        ordinals: impl ExactSizeIterator<Item = usize>,
     ) -> Result<SourcePortRuleReplayAudit<N>, SourcePortAuditError> {
         self.limits.validate()?;
         let started = Instant::now();
@@ -111,23 +148,21 @@ impl<const N: usize> SourcePortAudit<N> {
             return Err(error("a rule-replay sector was also declared zero"));
         }
 
-        let ordering = super::solution_ordering(sector, permutation, solution)?;
+        let ordering = super::replay_ordering(sector, permutation, order)?;
         let config = SectorConfig {
             permutation,
-            integral_order: solution.order.program().cloned(),
+            integral_order: order.program().cloned(),
             zero_sectors: self.zero_sectors.clone(),
             ..SectorConfig::default()
         };
         let (solver, preconditioner) =
             SectorSolver::new_with_provenance(&self.sources, sector, config).map_err(error)?;
-        let order = &solution.order;
-
         let mut rules = Vec::new();
         rules
-            .try_reserve_exact(ordinal_count)
+            .try_reserve_exact(ordinals.len())
             .map_err(|_| error("rule-replay report allocation failed"))?;
         for ordinal in ordinals {
-            let rule = &solution.rules[ordinal];
+            let rule = &source_rules[ordinal];
             let stored =
                 geometry::application_partition(rule, self.sources.index_variables(), &sector, &[])
                     .map_err(|issue| {
@@ -143,7 +178,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 &self.original_row_ids,
                 &self.original_sources,
                 solver.basis(),
-                &order,
+                order,
                 &self.zero_sectors,
                 rule,
                 &stored.boxes,
@@ -172,9 +207,51 @@ impl<const N: usize> SourcePortAudit<N> {
     }
 }
 
+fn validate_ordinals(ordinals: &[usize], rule_count: usize) -> Result<(), SourcePortAuditError> {
+    if ordinals.windows(2).any(|pair| pair[0] >= pair[1])
+        || ordinals
+            .last()
+            .is_some_and(|&ordinal| ordinal >= rule_count)
+    {
+        return Err(error(
+            "rule-replay ordinals must be strictly increasing and in range",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::tests::solved_tadpole;
+    use std::sync::Arc;
+
+    use super::super::tests::{solved_tadpole, tadpole};
+    use super::*;
+    use crate::solver::{Case, CoordinateCase, SectorSolveOptions, SourceSystem};
+
+    fn partial_tadpole(case: Case<1>, depth: u32) -> (SourcePortAudit<1>, SectorDomainSolution<1>) {
+        let family = tadpole();
+        let zeros: Arc<[[bool; 1]]> = Arc::from([[false]]);
+        let source = SourceSystem::from_family(&family).unwrap();
+        let solver = SectorSolver::new(
+            &source,
+            [true],
+            SectorConfig {
+                zero_sectors: zeros.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let solution = solver
+            .solve_domains(
+                vec![case],
+                SectorSolveOptions {
+                    numerical_depth: depth,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        (SourcePortAudit::try_new(&family, zeros).unwrap(), solution)
+    }
 
     #[test]
     fn finite_rule_batch_replays_exact_identity_and_rejects_mutated_rhs() {
@@ -219,6 +296,92 @@ mod tests {
                 .to_string()
                 .contains("omits 1 exceptional guard branches"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn partial_domain_rules_share_exact_replay_without_whole_sector_conversion() {
+        let (audit, solution) = partial_tadpole(Case::generic(), 0);
+        assert_eq!(solution.requested_cases, [Case::generic()]);
+        // A residual is deliberately present: identity-only replay must not
+        // depend on accepting it as a master or proving requested-case cover.
+        assert_eq!(solution.finite_residuals.len(), 1);
+        let report = audit.replay_domain_rules([true], None, &solution).unwrap();
+        assert_eq!(report.rules.len(), 1);
+        assert!(report.rules[0].original_source_entries > 0);
+        let batch = audit
+            .replay_domain_rule_batch([true], None, &solution, &[0])
+            .unwrap();
+        assert_eq!(batch.rules, report.rules);
+        let empty = audit
+            .replay_domain_rule_batch([true], None, &solution, &[])
+            .unwrap();
+        assert!(empty.rules.is_empty());
+        for invalid in [vec![0, 0], vec![1], vec![1, 0]] {
+            assert!(
+                audit
+                    .replay_domain_rule_batch([true], None, &solution, &invalid)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("ordinals must be strictly increasing and in range")
+            );
+        }
+    }
+
+    #[test]
+    fn partial_fixed_case_replays_a_shared_numerical_source_trace() {
+        let case = CoordinateCase::new([Some(2)]).unwrap().into();
+        let (audit, solution) = partial_tadpole(case, 1);
+        assert_eq!(solution.stats.symbolic_cases, 0);
+        assert_eq!(solution.stats.numerical_cases, 1);
+        assert!(!solution.rules.is_empty());
+        let report = audit.replay_domain_rules([true], None, &solution).unwrap();
+        assert_eq!(report.rules.len(), solution.rules.len());
+        assert!(
+            report
+                .rules
+                .iter()
+                .all(|rule| rule.original_source_entries > 0)
+        );
+    }
+
+    #[test]
+    fn partial_domain_replay_rejects_mutated_rhs_and_missing_guards() {
+        let (audit, mut solution) = partial_tadpole(Case::generic(), 0);
+        solution.rules[0].candidate.rhs[0].coefficient =
+            -solution.rules[0].candidate.rhs[0].coefficient.clone();
+        let issue = audit
+            .replay_domain_rules([true], None, &solution)
+            .unwrap_err();
+        assert!(issue.to_string().contains("rule 0 original-source replay"));
+
+        let (audit, mut solution) = partial_tadpole(Case::generic(), 0);
+        solution.rules[0].exceptions = Default::default();
+        let issue = audit
+            .replay_domain_rule_batch([true], None, &solution, &[0])
+            .unwrap_err();
+        assert!(
+            issue
+                .to_string()
+                .contains("omits 1 exceptional guard branches")
+        );
+    }
+
+    #[test]
+    fn partial_domain_replay_keeps_sector_zero_and_order_validation() {
+        let (audit, mut solution) = partial_tadpole(Case::generic(), 0);
+        let issue = audit
+            .replay_domain_rules([false], None, &solution)
+            .unwrap_err();
+        assert!(issue.to_string().contains("declared zero"));
+        solution.order = IntegralOrder::new([false], [false]);
+        let issue = audit
+            .replay_domain_rules([true], None, &solution)
+            .unwrap_err();
+        assert!(
+            issue
+                .to_string()
+                .contains("differs from the solved mathematical order")
         );
     }
 }

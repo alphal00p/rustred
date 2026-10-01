@@ -191,6 +191,60 @@ fn manifest_identity_excludes_workers_budgets_but_includes_every_recipe_binding(
 }
 
 #[test]
+fn portfolio_manifest_binds_ordered_alternatives_quality_trigger_and_trial_budgets() {
+    let descriptor = serde_json::json!({
+        "version":2,"sectors":{"kind":"active-first"},"rows":{"kind":"input-order"},
+        "rule_selection":{"kind":"bounded-portfolio","version":1,
+            "alternatives":[{"kind":"input-order"},{"kind":"features","priorities":[
+                {"feature":{"kind":"terms"},"descending":false}]}],
+            "limits":{"max_depth":0,"max_rows":8,"max_exact_trace_rows":8,"max_exact_trace_terms":64},
+            "quality":[{"feature":"rhs-terms","descending":false},{"feature":"source-rows","descending":false}],
+            "trigger":{"kind":"any-at-least","thresholds":[{"feature":"rhs-terms","minimum":3}]}}
+    });
+    let mut request = FamilyCandidatesRequest::new(SOURCE);
+    request.discovery_strategy =
+        Some(crate::CandidateDiscoveryStrategy::from_json(&descriptor.to_string()).unwrap());
+    let expected = manifest(&request);
+    let saved = expected.encode(usize::MAX).unwrap();
+    expected
+        .admit_manifest(&saved, request.bundle_limits)
+        .unwrap();
+    for mutation in 0..11 {
+        let mut changed = descriptor.clone();
+        let portfolio = &mut changed["rule_selection"];
+        match mutation {
+            0 => portfolio["alternatives"].as_array_mut().unwrap().reverse(),
+            1 => portfolio["alternatives"][1]["priorities"][0]["descending"] = true.into(),
+            2 => portfolio["limits"]["max_depth"] = 1.into(),
+            3 => portfolio["limits"]["max_rows"] = 9.into(),
+            4 => portfolio["limits"]["max_exact_trace_rows"] = 9.into(),
+            5 => portfolio["limits"]["max_exact_trace_terms"] = 65.into(),
+            6 => portfolio["quality"].as_array_mut().unwrap().reverse(),
+            7 => portfolio["quality"][0]["descending"] = true.into(),
+            8 => portfolio["trigger"]["thresholds"][0]["minimum"] = 4.into(),
+            9 => portfolio["trigger"]["thresholds"][0]["feature"] = "guard-branches".into(),
+            _ => portfolio["trigger"] = serde_json::json!({"kind":"always"}),
+        }
+        let mut altered = request.clone();
+        altered.discovery_strategy =
+            Some(crate::CandidateDiscoveryStrategy::from_json(&changed.to_string()).unwrap());
+        assert!(
+            manifest(&altered)
+                .admit_manifest(&saved, request.bundle_limits)
+                .is_err(),
+            "mutation {mutation}"
+        );
+    }
+    // The existing envelope still binds the descriptor: no owner/CP6 format or
+    // mathematical order identity needs a new schema merely for search choice.
+    assert!(
+        std::str::from_utf8(&saved)
+            .unwrap()
+            .contains("bounded-portfolio")
+    );
+}
+
+#[test]
 fn manifest_rejects_invalid_masks_order_roots_and_bounded_collections() {
     let mut request = FamilyCandidatesRequest::new(SOURCE);
     for sectors in [

@@ -1,7 +1,7 @@
 """Python frontend for RustRed's shared application API."""
 
 from enum import StrEnum
-from .discovery import discovery_strategy
+from .discovery import discovery_strategy, rule_portfolio
 from .ordering import integral_order
 
 from ._rustred import (
@@ -68,6 +68,7 @@ class ClosingFamily(StrEnum):
 
 __all__ = [
     "discovery_strategy",
+    "rule_portfolio",
     "integral_order",
     "CandidateBundleResult",
     "CampaignPlanResult",

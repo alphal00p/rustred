@@ -14,6 +14,7 @@ use super::checkpoint::{CheckpointManifest, CheckpointStore};
 use super::{codec, model::*, policy, preparation, save};
 
 mod checkpoint;
+mod portfolio;
 
 pub fn family_candidates(
     request: FamilyCandidatesRequest,
@@ -176,6 +177,16 @@ fn generate<const N: usize>(
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
+        let rule_selection_plans = request
+            .discovery_strategy
+            .as_ref()
+            .filter(|strategy| strategy.rule_selection.is_some())
+            .map(|strategy| {
+                jobs.iter()
+                    .map(|sector| strategy.rule_selection_for(sector))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
         executor
             .map_configured_with_error_observer(
                 &prepared.sources,
@@ -187,6 +198,10 @@ fn generate<const N: usize>(
                     symbolic_exact_backend: request.exact_backend.solver_backend(),
                     numerical_exact_backend: request.exact_backend.numerical_backend(),
                     source_discovery: source_plans
+                        .as_ref()
+                        .map(|plans| plans[ordinal].clone())
+                        .unwrap_or_default(),
+                    rule_selection: rule_selection_plans
                         .as_ref()
                         .map(|plans| plans[ordinal].clone())
                         .unwrap_or_default(),
@@ -214,6 +229,9 @@ fn generate<const N: usize>(
                     })
                 },
                 |done| {
+                    // Keep the default result receipt small; only opt-in
+                    // portfolios allocate a per-sector diagnostic summary.
+                    let selection_stats = done.solution.stats.rule_selection.map(Box::new);
                     if done.solution.max_numerator_rank != request.max_numerator_rank {
                         return Err(AppError::internal_invariant(
                             "generated sector numerator-rank scope differs from its request",
@@ -246,14 +264,27 @@ fn generate<const N: usize>(
                             bytes: receipt.bytes,
                             elapsed: started.elapsed(),
                         });
-                        Ok::<_, AppError>(None)
+                        Ok::<_, AppError>((None, selection_stats))
                     } else {
-                        Ok(Some((done.sector, done.solution)))
+                        Ok((Some((done.sector, done.solution)), selection_stats))
                     }
                 },
             )
             .map_err(|e| execution_error(e, &pending))?
     };
+    let mut rule_selection = request
+        .discovery_strategy
+        .as_ref()
+        .and_then(|strategy| strategy.rule_selection.as_ref())
+        .map(|_| portfolio::Report::new());
+    if let Some(report) = &mut rule_selection {
+        for (_, stats) in &solved {
+            report.newly_solved_sectors += 1;
+            if let Some(stats) = stats {
+                report.add(**stats);
+            }
+        }
+    }
     let solved_at = started.elapsed();
     emit(observe, || FamilyCloseProgress::Encoding {
         elapsed: solved_at,
@@ -268,6 +299,7 @@ fn generate<const N: usize>(
             // keeping all solutions alive until report writing doubles up
             // their storage with the completed native output unnecessarily.
             .into_iter()
+            .map(|(solution, _)| solution)
             .flatten()
             .map(|(sector, solution)| codec::sector_record(sector, &solution, &mut coefficients))
             .collect::<Result<Vec<_>, _>>()?
@@ -312,6 +344,8 @@ fn generate<const N: usize>(
         integral_order: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         discovery_strategy: Option<&'a super::CandidateDiscoveryStrategy>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rule_selection: Option<portfolio::Report>,
         numerical_depth: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         max_numerator_rank: Option<u32>,
@@ -357,6 +391,7 @@ fn generate<const N: usize>(
             .stable_id()
             .to_string(),
         discovery_strategy: request.discovery_strategy.as_ref(),
+        rule_selection,
         numerical_depth: request.numerical_depth,
         max_numerator_rank: request.max_numerator_rank,
         finite_case_policy: request.finite_case_policy.as_str(),

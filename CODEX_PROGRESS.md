@@ -38,6 +38,239 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Repair integration gate passes, October1 09:00 UTC:** all five public
+  app tests pass (0.04 s execution; 149.211 s target-only release rebuild/run).
+  They cover cold replay, unchanged terminals, malformed/binding/resource
+  refusal, real routed installation, unchanged Epoch resume, and refusal of a
+  different valid same-length repair payload without checkpoint mutation.
+  Evidence:`TMP/postlaunch-20260930/frontier-app-public-tests2/`; build locks
+  released and processes drained. Core public tests remain4/4; Python staging
+  and upgrade tests39/39. No production source changed after the frozen build.
+  The final bounded symbolic-band campaign-path smoke is now running. User
+  restart preparation will reuse old owners and add the checked partial rules,
+  not regenerate owners or attempt an incompatible checkpoint migration.
+
+- [M] **Transport diagnostic resolves the apparent downstream failure:** the
+  existing optimized CLI reports `aggregate routed endpoints`, requested4059436,
+  limit4000000. This is an explicit finite diagnostic expansion budget, not a
+  bad source identity, invalid transport or newly observed missing rule. Exact
+  failing target:`[0,-11,0,0,1,0,0,0,1,0,-1,1,0,2,1]`, Route phase. The same
+  819606 scheduled/4956 completed counts reproduce; zero missing-rule/owner
+  frontiers. Inclusive134.659s, trace3.355s, peak5.279GB; process group drained.
+  Native exit4 is the documented incomplete result; the diagnostic wrapper
+  originally expected2, so its failed-wrapper receipt is preserved with a
+  separate interpretation (not rewritten into success). No larger expansion
+  chase is needed for this local repair delivery. One bounded symbolic-band
+  campaign-path smoke and the corrected public checkpoint test remain pending.
+
+- [D] **October1 delivery/branch instruction:** the user requests the repaired
+  optimized binary next, followed by merging the feature into `main`, future
+  work on `main`, and safe merged-branch cleanup. Production remains user-run.
+  Preserve the unrelated FeynKit edits and old frozen campaigns. No branch
+  switch or deletion has yet occurred. New rule-selection pilots remain deferred.
+- [M] **Three-root follow with1M nodes remains incomplete.** Optimized native
+  execution cold-installed the sidecar and followed the same R11–13 roots with
+  all67 owners/8246 routes. Inclusive132.453s; preparation109.486s, cold replay
+  13.858s, trace3.445s, sampled peak5.361GB. It scheduled819606 nodes, completed
+  4956, left814649 pending and recorded one transport error (1679 rule uses,
+  474 transports, zero reported frontiers). The research output omits its
+  nested cause; transport errors also wrap resource limits, so this is not yet
+  evidence of a mathematical defect or missing rule. All processes drained.
+  Evidence:`nominated-ray-full-follow-1m/` under the frontier evidence directory.
+  Root granted an existing-CLI diagnostic with detailed failure/work output,
+  same finite roots and no engine rebuild. Agent `frontier_probe_runner` runs
+  it; `final_requirements_audit` independently approved the diagnostic driver.
+  Agent `frontier_replay_implementation` owns the corrected public checkpoint
+  test rerun after that diagnostic releases the heavy-job lock. No restart
+  recommendation until these remaining checks are resolved.
+
+- [M] **Actual native repair persists and cold-loads.** Optimized export took
+  24.883s inclusive: preparation1.711s, generation7.953s, independent replay
+  14.085s. Two rules, zero residuals,220735bytes; sidecar SHA256
+  `77941434f7d2bd6d161edce32946d5e70608b80fec518c543eee9020a6787e7a`.
+  Fresh-process cold load passed in16.736s, including source/guard replay and
+  strict descent; zero new generation. Both runs reproduce all12 exact ray
+  pieces with83 terminals unchanged. Independent evidence audit passed.
+  Evidence:`nominated-ray-export/` and `nominated-ray-cold/` under the frontier
+  evidence directory. Full67-owner/8246-route R11–13 follow then passed cold
+  installation (939 global terminals unchanged), and each first hop has83
+  successors with no problems. However, the diagnostic20,000 operational-node
+  allowance was exhausted after0.258s:348 completed,19651 pending, zero recorded
+  frontiers. This is **incomplete**, not closure. Inclusive126.229s mainly came
+  from108.696s owner/route preparation and13.959s cold validation; peak5.172GB.
+  All process groups drained. Root authorized the identical finite follow with
+  a1,000,000-node allowance, same300s inclusive pilot ceiling; source unchanged.
+- [M/D] **October1 optimized repair binaries are frozen.** Full release core
+  and app build passed in1077.608s inclusive, minimum available689.3GB, no
+  resource stop and all owned build processes drained. Evidence:
+  `TMP/postlaunch-20260930/frontier-repair-release1/`. Frozen CLI SHA256:
+  `4e76707baf8419b4b072ea58af0091272446138b33e0390fe23c10ce2f6e1f58`;
+  generic repair probe SHA256:
+  `bc6e2301d4864c91f3c240fffc5b398addb7cd53096dab5420b217f7ec343fcb`.
+  Native public app tests passed4/5: cold replay/rebinding/terminal invariance,
+  invalid payload and binding/resource rejection, residual refusal, and routed
+  cold installation. The Epoch checkpoint test stopped before its assertions
+  because its request omitted required TransferUnreserved scheduling; the
+  setup is corrected without weakening assertions and rerun remains pending.
+  Only test-source changes postdate the frozen production binaries. Actual
+  ray export, separate-process cold validation and full-route finite follow
+  are now authorized sequentially; no production changes or restart advice yet.
+- [M] **Native partial-owner core regression gate passes:**4/4 public tests,
+  0.01s native execution;305.254s inclusive optimized build/test. Exact real1L
+  identity replay, missing-target installation reaching the existing terminal,
+  corrupted RHS refusal, residual refusal and foreign lineage refusal all pass.
+  Evidence:`TMP/postlaunch-20260930/frontier-core-public-tests1/` (exit0,
+  no resource stop, minimum host available730.8GB). Corrected integrated app
+  metadata check2 also passes (30.158s inclusive, Cargo26.87s), including the
+  cold-load and concrete-follow research interface. Independent staging/upgrade
+  audit ran39 Python tests, all passing (2.133s). These are implementation
+  checks, not full-production closure or performance claims.
+- [M/D] **October1 durable-repair validation:** first integrated metadata check
+  finished with three compile errors (52.162s): two persisted-order Display
+  conversions and a test using `CoefficientContext::new` instead of `try_new`.
+  All are corrected; native core public regression tests are compiling now.
+  Independent source audit accepted routed cold installation, aggregate input
+  admission and checkpoint byte binding. A separate public app integration
+  target avoids recompiling the large library unit-test target. The staging
+  utility now portably copies ordered partial-rule payloads and validates their
+  receipt on fresh-copy/resume;26 focused Python tests pass. No mathematics is
+  implemented in the staging adapter. Production CP6 counts these digests as
+  immutable input payloads, not additional topology owners. Native cold replay
+  and successor tests remain pending; no production restart is recommended yet.
+- [M] **October1 08:12UTC: exceptional ray repaired in memory.** The actual
+  frontier's n1 coordinate was left parametric over all nonpositive integers;
+  other fourteen coordinates were fixed and no rank cutoff was applied. Original
+  sources produced two rules with zero residuals. Independent source/guard replay
+  passed (80+823 original-source entries); existing native lookup completely
+  partitions the ray into12 pieces, using the old nine terminals and boundary
+  rule plus the new rule for x1=10 and x1>=11. Zero gaps/unresolved predicates;
+  terminal count remains83. Preparation1.714432s, search10.260562s, independent
+  replay18.262132s, installed inspection0.000983s, inclusive30.865645s;
+  sampled process-tree peak472,768,512bytes. This is **local applicability**,
+  not recursive successor closure or permission to resume production. Evidence:
+  `TMP/postlaunch-20260930/production-frontier-20261001/nominated-ray-replayed/`.
+  The independently replayed fixed R11 point also passes installed lookup
+  (inclusive3.757804s); its112 RHS targets still need downstream inspection.
+  Both owned process groups drained. Frozen diagnostic executable SHA256:
+  `ed647e9c897e76f977016416aed63dcfd32a1c1f546b3c620fa453d7ee877afb`.
+- [D] **Durable repair source is now frozen for validation.** Implementation
+  agent: `frontier_replay_implementation`; independent source reviewer:
+  `final_requirements_audit`; probe/export and successor checks:
+  `frontier_probe_runner`; root: routed selection/checkpoint binding and final
+  integration. Distinct DomainRules binary payloads reuse the existing Symbolica
+  codec, bind the immutable base owner and exact domain, replay original sources
+  and prove descent once on cold load. Residuals cannot become new terminals.
+  Selection overlays are ordered and included in checkpoint input identity;
+  a fresh walk is intended, with original owner payloads and116 required/67
+  auxiliary queries unchanged. Core/codec source audit passed; routed wiring,
+  native tests, cold transport and downstream walk remain acceptance gates.
+  No production files/processes changed and no optimization pilot was started.
+- [M/D] **Partial replay/installation slice typechecks:** integrated optimized
+  metadata check of core/app test targets plus `probe_owner_case` passed in
+  53.156s (Cargo49.78s). Independent source review accepted genuine partial
+  source replay, bound-lineage replay, residual-free append and the extended
+  fixed/ray probe. The follow-up native example build is live in
+  `TMP/postlaunch-20260930/nominated-owner-probe-build2/`; it will run the fixed
+  relation through independent replay and installed guard lookup, then test
+  the unbounded n1 ray using the same executable. A small public integration
+  test target covers real1L replay/append, corruption, residual refusal and
+  foreign lineage without recompiling the full core unit-test suite.
+  Durable transport is being implemented separately: a distinct partial-rule
+  RRbin payload using the existing Symbolica table, checked source/guard replay
+  and existing descent proof on cold load. Root owns the optional selection
+  and checkpoint-input binding; no existing CP migration or production mutation
+  is underway. New source after the diagnostic build's core compilation is
+  deliberately not claimed to be included in that frozen diagnostic executable.
+- [M] **Depth2 derives a real local repair candidate:** reusing the same frozen
+  binary/input/order, the original-source search found one direct strictly
+  descending rule for the frontier, with112 RHS terms,156 source-trace rows,
+  zero exceptional branches and **zero retained residuals**. Preparation1.721655s,
+  search0.344215s, guarded inclusive2.940293s, sampled tree peak472,420,352bytes;
+  no errors/stops and all owned processes drained. Depth3 was unnecessary and
+  was not run. This is not yet independent replay, successor closure, durable
+  repair or a resume recommendation. Evidence:`nominated-point-depth2/` under
+  the frontier evidence directory. The companion slice is **already covered**
+  by saved rule261 (classification3.104368s, zero gaps/unresolved); this confirms
+  why one rule's zero guard is not sufficient to diagnose a whole-owner gap.
+  Probe extension now targets the symbolic inactive-index ray and uses the new
+  genuine partial-domain original-source replay API; an independent reviewer
+  has accepted the API source, but native replay/tests have not run yet.
+- [M] **Actual frontier source-search depth1 completed, not repaired:** the
+  frozen release research executable `b7f4b9f7fea6f527` searched the exact R11
+  point from the real owner's original sources. Preparation1.698925s,
+  search0.114708s, guarded inclusive2.746143s, sampled process-tree peak
+  472,784,896bytes; zero errors/stops and all owned processes drained. Result:
+  **zero rules, one unresolved residual (the target)**. This is a bounded
+  search miss, not evidence for a new independent master. Evidence:
+  `TMP/postlaunch-20260930/production-frontier-20261001/nominated-point/`.
+  The same binary will test depths2/3 before another build. The native build
+  itself took773.420s inclusive (app opt-level1, core release), excluded from
+  search measurements; it is a diagnostic binary, not a full campaign release.
+  Independent algebra audit also identifies the companion inactive-index
+  slice `(n10,n12)=(0,-1)` next to the observed `(-1,0)`: at n0=0, the guard
+  factor is `(1-n1)(1+n10+n12)`. That suggests a second classification test,
+  not a claim that another saved rule cannot already cover the companion.
+- [D] **October1 repair lanes resumed:** root coordinates the frozen actual-point
+  native probe and persistence design; `frontier_probe_runner` owns its bounded
+  driver; `frontier_replay_implementation` adds a genuine partial-domain entry
+  point to the existing original-source replay service; `final_requirements_audit`
+  independently audits both. The probe build is still compiling the app library,
+  not running a search. A newly confirmed installation hazard is that ordinary
+  `append_domain_overlays` installs returned finite residuals as terminals.
+  Therefore a repair must have no retained residuals, or use an explicit
+  rules-only installation path which leaves residuals unresolved. No new master
+  declarations are authorized. Original entry-rank10 owner payloads and all
+  116 required/67 auxiliary queries remain unchanged; an actual-rank11 or
+  unbounded-ray repair has separate prospective scope. Old checkpoint identity
+  must not be bypassed: a fresh walk with the existing rules plus a checked
+  repair is acceptable if continuation cannot be supported simply and safely.
+- [M/D] **Repair probe source accepted; build reprioritized:** S5 delivered the
+  generic `probe_owner_case` research example; independent review is GO. It
+  loads exactly one real owner, computes rank from physical indices and calls
+  existing source-bound search at explicit positive numerical depth. Its bounded
+  output distinguishes a direct target rule from retained residuals and errors;
+  it performs no append, checkpoint mutation or independent source replay.
+  Root deliberately stopped only the owned portfolio core-test build through
+  its guard after428.348s (operator signal15, drained), before any native tests.
+  Reusable dependency output remains cached. The repair-example release build
+  is now live at `TMP/postlaunch-20260930/nominated-owner-probe-build1/`, session
+  recorded by the tool. No production process was signalled. The existing CP6
+  format binds unchanged owner payloads and its rescue amendments cannot add
+  new rules: safe continuation will need a tested explicit repair input path
+  or a fresh walk, not bypassing those checks. Design remains contingent on
+  actually deriving a relation for this case.
+- [D] **User priority amendment: repair first, October1:** exact frontier repair
+  and anticipated similar failures now precede any new rule-selection pilots.
+  GOAL.md and the active plan carry the directive. The core-only native test
+  build (`rule-portfolio-core-native-build`, session82163) was subsequently
+  cancelled as recorded above; no performance campaign is authorized.
+  S5 owns a thin, input-driven nominated-owner-case research example using the
+  existing native loader and BoundOwnerSearch. It requests the actual fixed
+  rank11 case at explicit numerical depth1 and emits partial diagnostics only:
+  no append, terminal declaration, owner replacement or production writes.
+  Root owns repair integration/continuation design; independent auditor checks
+  rank scope, provenance, exact gates and output claims. Runtime implementation
+  agent delivered its core slice; reopening that agent hit a thread limit, so
+  the two still-active agents retain implementation and independent audit lanes.
+  Portfolio source review is GO after the diagnostic u64 duration-wire fix;
+  metadata recheck/native tests remain required. No new optimized-input
+  campaign or resume recommendation exists yet.
+- [M/D] **First integrated portfolio compile gate passed, October1:**
+  the frozen new core/app/PyO3 source, including all test targets, passes the
+  warm optimized metadata check in54.165771s (Cargo50.54s), exit0/no stop,
+  peak single-child RSS2,457,892KiB. Existing guarded cache, CPUs0–15/eight
+  build workers, heavy/build0 locks; no production cores or files touched.
+  Command:`cargo check --release --tests --locked --offline --message-format=json
+  --config profile.release.package.rustred-app.opt-level=1 -j8 -p rustred
+  -p rustred-app -p rustred-python`; receipt:
+  `TMP/postlaunch-20260930/rule-portfolio-check1/`. This is typechecking, not
+  native test execution or a performance result. Core has16 portfolio tests
+  and one bounded-trace test prepared; Python descriptor tests pass6/6.
+  Independent implementation review is active. One app review correction was
+  accepted: retain all scalar trial-cost counters in progress events so fatal
+  generation cannot lose attempted-work evidence merely because no final report
+  is written. The corrected source requires a follow-up check before native
+  tests. Default first-valid and numerical fixed-case behavior remain unchanged.
 - [M/D] **Frontier exception identified; independent audit accepted, October1:**
   root's three-rule guarded probe completed3.004859s inclusive with no errors,
   no production writes and all process groups drained. Neighbor rule184 excludes

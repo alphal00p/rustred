@@ -22,6 +22,8 @@ pub enum BinaryProgramKind {
     /// Source-replayed closure on an explicit total-excess entry domain.
     /// Distinct from an unrestricted Certified promise.
     BoundedCertified = 5,
+    /// Rules for explicitly nominated partial domains, never sector closure.
+    DomainRules = 6,
 }
 
 /// Structural sections shared by independently admitted program payloads.
@@ -133,6 +135,7 @@ pub fn inspect_program(
         3 => BinaryProgramKind::TerminalValues,
         4 => BinaryProgramKind::TerminalNormalization,
         5 => BinaryProgramKind::BoundedCertified,
+        6 => BinaryProgramKind::DomainRules,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
     require_native_word_size(usize::from(cursor.take(1)?[0]))?;

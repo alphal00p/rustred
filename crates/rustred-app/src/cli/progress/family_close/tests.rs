@@ -58,6 +58,58 @@ impl Buffer {
 }
 
 #[test]
+fn portfolio_trial_completion_does_not_count_a_rule_or_sector() {
+    let now = Instant::now();
+    let mut tracker = Tracker::default();
+    let stage = FamilyCloseGenerationStage::RuleTrialFinished {
+        trial: 1,
+        outcome: "source-row-limit",
+        search_seeds: 2,
+        search_rows: 17,
+        independent_rows: 3,
+        exact_trace_rows: 0,
+        exact_trace_terms: 0,
+        exact_lifts: 0,
+        guard_branches: 0,
+        geometry_calls: 0,
+        search_us: 150,
+        exact_materialization_us: 0,
+        guard_extraction_us: 0,
+        geometry_us: 0,
+    };
+    let snapshot = tracker.observe(generating(0, 1, stage), now);
+    assert_eq!(snapshot.counts.observed_rules, 0);
+    assert_eq!(snapshot.counts.generated, 0);
+    let text = format_event(snapshot.event, snapshot.frame);
+    assert!(text.contains("source-row-limit"));
+    assert!(text.contains("not rule publication"));
+    let detail = super::telemetry::StageDetail::from(stage);
+    let value = serde_json::to_value(&detail).unwrap();
+    assert_eq!(value["kind"], "rule_trial_finished");
+    assert_eq!(value["trial"], 1);
+    assert_eq!(value["search_rows"], 17);
+    assert_eq!(value["search_seeds"], 2);
+    assert_eq!(value["independent_rows"], 3);
+    assert_eq!(value["search_us"], 150);
+    assert_eq!(value["exact_materialization_us"], 0);
+    assert_eq!(value["duration_micros_saturated"], false);
+    let decoded: super::telemetry::StageDetail = serde_json::from_value(value).unwrap();
+    assert!(matches!(
+        decoded,
+        super::telemetry::StageDetail::RuleTrialFinished { trial: 1, .. }
+    ));
+    let mut extreme = stage;
+    if let FamilyCloseGenerationStage::RuleTrialFinished { search_us, .. } = &mut extreme {
+        *search_us = u128::MAX;
+    }
+    let extreme = super::telemetry::StageDetail::from(extreme);
+    let value = serde_json::to_value(extreme).unwrap();
+    assert_eq!(value["search_us"], u64::MAX);
+    assert_eq!(value["duration_micros_saturated"], true);
+    serde_json::from_value::<super::telemetry::StageDetail>(value).unwrap();
+}
+
+#[test]
 fn every_exact_stage_has_plain_scalar_details_without_certification_claims() {
     use FamilyCloseGenerationStage::*;
     let frame = Some(ExactFrame {

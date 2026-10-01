@@ -94,6 +94,11 @@ pub use sector::{
     FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, SectorDomainSolution, SectorEvent,
     SectorPhase, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
 };
+pub use sector::{
+    RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
+    RuleTrialStats, RuleTrialSummary,
+};
 pub use seed::{Seed, Seeds};
 pub use source::SourceSystem;
 

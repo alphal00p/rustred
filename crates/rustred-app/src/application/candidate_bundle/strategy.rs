@@ -1,12 +1,18 @@
 //! Discovery recipe only. Candidate source IDs and mathematical policy do not change.
 
 use rustred::solver::{
-    SectorVisitOrder, SourceDiscoveryStrategy, SourceRowFeature, SourceRowPriority,
-    SourceVisitOrder,
+    RuleSelectionPolicy, SectorVisitOrder, SourceDiscoveryStrategy, SourceRowFeature,
+    SourceRowPriority, SourceVisitOrder,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
+
+mod portfolio;
+pub use portfolio::{
+    CandidateRulePortfolio, CandidateRulePortfolioTrigger, CandidateRuleQualityFeature,
+    CandidateRuleQualityPriority, CandidateRuleQualityThreshold, CandidateRuleTrialLimits,
+};
 
 /// Runtime interpreter input. Typed descriptor identity (including materialized
 /// callback output) belongs in the generation manifest, not `solver_policy`.
@@ -17,6 +23,9 @@ pub struct CandidateDiscoveryStrategy {
     pub version: u32,
     pub sectors: CandidateSectorPriority,
     pub rows: CandidateSourcePriority,
+    /// Version 2 only; absence preserves the version-1 first-valid representation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_selection: Option<CandidateRulePortfolio>,
 }
 
 impl Default for CandidateDiscoveryStrategy {
@@ -25,6 +34,7 @@ impl Default for CandidateDiscoveryStrategy {
             version: 1,
             sectors: CandidateSectorPriority::ActiveFirst,
             rows: CandidateSourcePriority::InputOrder,
+            rule_selection: None,
         }
     }
 }
@@ -103,8 +113,13 @@ impl CandidateDiscoveryStrategy {
         sectors: &[Vec<bool>],
         limit: usize,
     ) -> Result<(), AppError> {
-        if self.version != 1 {
-            return Err(AppError::input("unsupported discovery strategy version"));
+        if !matches!(
+            (self.version, self.rule_selection.is_some()),
+            (1, false) | (2, true)
+        ) {
+            return Err(AppError::input(
+                "discovery version 1 requires no rule portfolio; version 2 requires one",
+            ));
         }
         match &self.sectors {
             CandidateSectorPriority::WeightedSupport { weights, .. } => {
@@ -118,78 +133,27 @@ impl CandidateDiscoveryStrategy {
             }
             _ => (),
         }
-        match &self.rows {
-            CandidateSourcePriority::InputOrder => (),
-            CandidateSourcePriority::Features { .. } => self
-                .source_for(&[])?
-                .validate(arity)
-                .map_err(strategy_error)?,
-            CandidateSourcePriority::Materialized { sectors: plans } => {
-                if plans.len() != sectors.len()
-                    || plans
-                        .iter()
-                        .zip(sectors)
-                        .any(|(plan, sector)| &plan.sector != sector)
-                {
-                    return Err(AppError::input(
-                        "materialized row plans must match every canonical prepared sector in order",
-                    ));
-                }
-                let mut entries = 0usize;
-                for plan in plans {
-                    entries = entries
-                        .checked_add(plan.sector.len())
-                        .and_then(|n| n.checked_add(plan.ordinals.len()))
-                        .ok_or_else(|| AppError::limit("source plan count overflow"))?;
-                    if entries > limit {
-                        return Err(AppError::limit("source plans exceed collection limit"));
-                    }
-                    // Exact row count is checked against the newly prepared
-                    // basis before solving; here reject malformed permutations.
-                    SourceVisitOrder::new(plan.ordinals.clone(), plan.ordinals.len())
-                        .map_err(strategy_error)?;
-                }
-            }
+        let mut entries = 0;
+        self.rows.validate(arity, sectors, limit, &mut entries)?;
+        if let Some(portfolio) = &self.rule_selection {
+            portfolio.validate(arity, sectors, limit, &mut entries)?;
         }
         Ok(())
     }
 
     pub(super) fn source_for(&self, sector: &[bool]) -> Result<SourceDiscoveryStrategy, AppError> {
-        Ok(match &self.rows {
-            CandidateSourcePriority::InputOrder => SourceDiscoveryStrategy::InputOrder,
-            CandidateSourcePriority::Features { priorities } => SourceDiscoveryStrategy::Features(
-                priorities
-                    .iter()
-                    .map(|p| SourceRowPriority {
-                        descending: p.descending,
-                        feature: match &p.feature {
-                            CandidateRowFeature::Terms => SourceRowFeature::Terms,
-                            CandidateRowFeature::CoefficientMonomials => {
-                                SourceRowFeature::CoefficientMonomials
-                            }
-                            CandidateRowFeature::AbsoluteShifts { weights } => {
-                                SourceRowFeature::AbsoluteShifts(weights.clone())
-                            }
-                            CandidateRowFeature::PositiveShifts { weights } => {
-                                SourceRowFeature::PositiveShifts(weights.clone())
-                            }
-                            CandidateRowFeature::NegativeShifts { weights } => {
-                                SourceRowFeature::NegativeShifts(weights.clone())
-                            }
-                        },
-                    })
-                    .collect(),
-            ),
-            CandidateSourcePriority::Materialized { sectors } => {
-                let i = sectors
-                    .binary_search_by(|p| p.sector.as_slice().cmp(sector))
-                    .map_err(|_| AppError::input("missing materialized source plan"))?;
-                SourceDiscoveryStrategy::Materialized(
-                    SourceVisitOrder::new(sectors[i].ordinals.clone(), sectors[i].ordinals.len())
-                        .map_err(strategy_error)?,
-                )
-            }
-        })
+        self.rows.source_for(sector)
+    }
+
+    pub(super) fn rule_selection_for(
+        &self,
+        sector: &[bool],
+    ) -> Result<RuleSelectionPolicy, AppError> {
+        self.rule_selection
+            .as_ref()
+            .map_or(Ok(RuleSelectionPolicy::FirstValid), |p| {
+                p.native_for(sector)
+            })
     }
 
     /// Restrict a full plan to pending work without changing original sector
@@ -233,6 +197,88 @@ impl CandidateDiscoveryStrategy {
                 }))
             }
         }
+    }
+}
+
+impl CandidateSourcePriority {
+    fn validate(
+        &self,
+        arity: usize,
+        sectors: &[Vec<bool>],
+        limit: usize,
+        entries: &mut usize,
+    ) -> Result<(), AppError> {
+        match self {
+            CandidateSourcePriority::InputOrder => (),
+            CandidateSourcePriority::Features { .. } => self
+                .source_for(&[])?
+                .validate(arity)
+                .map_err(strategy_error)?,
+            CandidateSourcePriority::Materialized { sectors: plans } => {
+                if plans.len() != sectors.len()
+                    || plans
+                        .iter()
+                        .zip(sectors)
+                        .any(|(plan, sector)| &plan.sector != sector)
+                {
+                    return Err(AppError::input(
+                        "materialized row plans must match every canonical prepared sector in order",
+                    ));
+                }
+                for plan in plans {
+                    *entries = entries
+                        .checked_add(plan.sector.len())
+                        .and_then(|n| n.checked_add(plan.ordinals.len()))
+                        .ok_or_else(|| AppError::limit("source plan count overflow"))?;
+                    if *entries > limit {
+                        return Err(AppError::limit("source plans exceed collection limit"));
+                    }
+                    // Exact row count is checked against the newly prepared
+                    // basis before solving; here reject malformed permutations.
+                    SourceVisitOrder::new(plan.ordinals.clone(), plan.ordinals.len())
+                        .map_err(strategy_error)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn source_for(&self, sector: &[bool]) -> Result<SourceDiscoveryStrategy, AppError> {
+        Ok(match self {
+            CandidateSourcePriority::InputOrder => SourceDiscoveryStrategy::InputOrder,
+            CandidateSourcePriority::Features { priorities } => SourceDiscoveryStrategy::Features(
+                priorities
+                    .iter()
+                    .map(|p| SourceRowPriority {
+                        descending: p.descending,
+                        feature: match &p.feature {
+                            CandidateRowFeature::Terms => SourceRowFeature::Terms,
+                            CandidateRowFeature::CoefficientMonomials => {
+                                SourceRowFeature::CoefficientMonomials
+                            }
+                            CandidateRowFeature::AbsoluteShifts { weights } => {
+                                SourceRowFeature::AbsoluteShifts(weights.clone())
+                            }
+                            CandidateRowFeature::PositiveShifts { weights } => {
+                                SourceRowFeature::PositiveShifts(weights.clone())
+                            }
+                            CandidateRowFeature::NegativeShifts { weights } => {
+                                SourceRowFeature::NegativeShifts(weights.clone())
+                            }
+                        },
+                    })
+                    .collect(),
+            ),
+            CandidateSourcePriority::Materialized { sectors } => {
+                let i = sectors
+                    .binary_search_by(|p| p.sector.as_slice().cmp(sector))
+                    .map_err(|_| AppError::input("missing materialized source plan"))?;
+                SourceDiscoveryStrategy::Materialized(
+                    SourceVisitOrder::new(sectors[i].ordinals.clone(), sectors[i].ordinals.len())
+                        .map_err(strategy_error)?,
+                )
+            }
+        })
     }
 }
 

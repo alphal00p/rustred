@@ -6,12 +6,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
 
+mod overlays;
 mod routes;
 
 use super::{
     RoutedCampaignRequest,
     input::{Selection, mask},
 };
+use crate::application::candidate_bundle::validate_domain_overlay_ingress;
 use crate::{
     AppError, CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
 };
@@ -68,11 +70,25 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
         bytes.push(payload);
         masks.push(mask(&owner.mask, N)?);
     }
+    let Some(overlay_payloads) = overlays::read(request, selection, cancellation, observer)? else {
+        return Ok(None);
+    };
+    // Hash each immutable input at most once. Default, non-checkpoint loads
+    // without repairs retain their previous no-digest path.
+    let owner_digests: Vec<[u8; 32]> = if fingerprints.is_some() || !overlay_payloads.is_empty() {
+        bytes
+            .iter()
+            .map(|payload| *blake3::hash(payload).as_bytes())
+            .collect()
+    } else {
+        Vec::new()
+    };
     if let Some(bind) = fingerprints.as_mut() {
         bind(
-            bytes
+            owner_digests
                 .iter()
-                .map(|payload| blake3::hash(payload).to_hex().to_string())
+                .chain(overlay_payloads.iter().map(|payload| &payload.digest))
+                .map(|digest| blake3::Hash::from_bytes(*digest).to_hex().to_string())
                 .collect(),
         )
         .map_err(AppError::input)?;
@@ -89,6 +105,14 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             owner_sector,
         })
         .collect::<Vec<_>>();
+    if !overlay_payloads.is_empty() {
+        let patches = overlay_payloads
+            .iter()
+            .map(|payload| payload.bytes.as_slice())
+            .collect::<Vec<_>>();
+        // Whole-collection admission precedes the first Symbolica state import.
+        validate_domain_overlay_ingress(&inputs, &patches, limits)?;
+    }
     let (family, programs) =
         load_generated_candidate_owners::<N>(&inputs, limits, request.reduction_limits)?;
     if family.fingerprint() != selection.family_fingerprint {
@@ -101,10 +125,23 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             "this signed loop-map selection format requires a vacuum family",
         ));
     }
-    let owner_count = programs.owner_count();
-    let terminal_count = programs.terminal_count();
     drop(inputs);
     drop(bytes);
+    let Some(programs) = overlays::install(
+        Arc::new(programs),
+        selection,
+        &overlay_payloads,
+        &owner_digests,
+        limits,
+        cancellation,
+        observer,
+    )?
+    else {
+        return Ok(None);
+    };
+    drop(overlay_payloads);
+    let owner_count = programs.owner_count();
+    let terminal_count = programs.terminal_count();
     observer(
         json!({"event":"loaded", "owners":owner_count, "saved_terminals":terminal_count,
         "family_fingerprint":family.fingerprint(), "rank_bound":programs.context().scope().max_numerator_rank,
@@ -124,7 +161,7 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     if cancellation.load(Ordering::Relaxed) {
         return Ok(None);
     }
-    RoutedCandidateReducer::try_new(Arc::new(programs), routes, request.trace_limits)
+    RoutedCandidateReducer::try_new(programs, routes, request.trace_limits)
         .map(Some)
         .map_err(|e| AppError::input(format!("routed programs: {e:?}")))
 }

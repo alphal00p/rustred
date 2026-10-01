@@ -108,6 +108,73 @@ compile the caller, not another monomorphization of the full elimination engine.
 Core/application code changes still rebuild those crates; module separation is
 not a claim of automatic crate-level reuse.
 
+## Opt-in exact-rule portfolio
+
+Implementation status (2026-10-01): source-audited and typechecked; native
+regressions and matched campaign performance qualification are pending. This
+is not yet a recommended production recipe.
+
+An optional `rule_selection` inside the discovery descriptor compares a baseline
+rule against at most two alternate source-visitation plans. All trials use the
+same mathematical integral order, preconditioned source basis, exact backend
+and probe settings. Only a rule whose exact descent, guards and exceptional
+geometry pass admission can compete. The winner's exceptional children enter
+the existing queue once, in their original order. Equal scores retain the
+baseline or earlier trial.
+
+For example, this data-only Python recipe asks for alternatives only when the
+baseline has exceptional children or at least eight RHS terms:
+
+```python
+selection = rustred.rule_portfolio(
+    alternatives=["input-order", "coefficient-monomials"],
+    quality=["exceptional-cases", "max-numerator-shift-excursion",
+             "guard-predicates", "rhs-terms", "coefficient-monomials"],
+    max_depth=1,
+    max_rows=256,
+    max_exact_trace_rows=64,
+    max_exact_trace_terms=4096,
+    trigger={"kind": "any-at-least", "thresholds": [
+        {"feature": "exceptional-cases", "minimum": 1},
+        {"feature": "rhs-terms", "minimum": 8},
+    ]},
+)
+strategy = rustred.discovery_strategy(rows="terms", rule_selection=selection)
+Path("discovery.json").write_text(strategy)
+# Pass discovery_strategy=strategy to rustred.family_candidates, or use
+# --discovery-strategy discovery.json with the existing family-candidates CLI.
+```
+
+These illustrative limits are not a measured optimal setting. The Rust API
+exposes the same control as `SectorConfig::rule_selection` with
+`RuleSelectionPolicy::BoundedPortfolio`. Alternatives may use existing generic
+row features or validated materialized row-order plans. Neither interface
+changes the mathematical integral comparator during a solve.
+
+Quality keys also include total numerator-shift excursion, positive-shift
+excursion, affine exceptional cases, guard branches, source rows and search
+rows. Keys are lexicographic; ascending is the default, while an explicit
+`descending` flag reverses a key. Shift-excursion scores are structural proxies,
+not bounds on physical numerator rank, and exceptional-case counts are not
+counts of disjoint geometric regions. No score provides closure authority.
+
+The optional-trial caps limit search depth, generated rows and the exact source
+trace before lifting. They do not interrupt an individual Symbolica algebra
+operation or cap wall time. Budget exhaustion and recognized unsupported
+optional geometry discard that alternative; malformed input, exact replay or
+descent failures remain errors. A failed baseline is not rescued by this
+portfolio. Fully fixed numerical cases keep their existing solver path.
+
+Omitting the portfolio preserves the version-1 first-valid discovery descriptor.
+Enabling it uses version2 and binds all alternatives, limits, quality priorities
+and triggers into generation checkpoint identity. A changed recipe cannot
+silently resume that generation. Candidate/owner binary rule encodings are
+unchanged. The generation report's `rule_selection` section and distinct
+trial-finished progress events account for attempted and rejected work; resumed
+sectors contribute no invented historical timing. Worker-summed durations are
+not whole-campaign wall time, and exact-materialization time is included in
+search time rather than added twice.
+
 ## Persistence, routing and proof boundaries
 
 Generated candidate structure is version2, generation checkpoints version4.

@@ -244,6 +244,7 @@ impl Tracker {
                     | GuardExtraction
                     | ExceptionalGeometry
                     | FiniteRetention
+                    | RuleTrialFinished { .. }
                     | RuleFound { .. }
                     | Numerical { .. } => {
                         if let Some(job) = self.jobs.get_mut(&key) {
@@ -314,6 +315,7 @@ fn phase(event: &FamilyCloseProgress) -> &'static str {
             G::GuardExtraction => "guard extraction",
             G::ExceptionalGeometry => "exceptional geometry",
             G::FiniteRetention => "finite terminal enumeration",
+            G::RuleTrialFinished { .. } => "rule trial finished",
             G::RuleFound { .. } => "rule found",
             G::Numerical { .. } => "numerical cases",
         },

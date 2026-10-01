@@ -8,6 +8,7 @@
 mod certify;
 mod checkpoint;
 mod codec;
+mod domain_overlay;
 mod generate;
 mod load;
 mod model;
@@ -23,12 +24,18 @@ pub use order::{
 };
 
 pub use strategy::{
-    CandidateDiscoveryStrategy, CandidateRowFeature, CandidateRowPriority, CandidateSectorPriority,
+    CandidateDiscoveryStrategy, CandidateRowFeature, CandidateRowPriority, CandidateRulePortfolio,
+    CandidateRulePortfolioTrigger, CandidateRuleQualityFeature, CandidateRuleQualityPriority,
+    CandidateRuleQualityThreshold, CandidateRuleTrialLimits, CandidateSectorPriority,
     CandidateSourcePriority, CandidateSourceVisitPlan,
 };
 
 pub use certify::{certify_candidates, certify_candidates_with_progress};
 pub use checkpoint::CandidateCheckpointOptions;
+pub use domain_overlay::{
+    CandidateDomainOverlayLoadLimits, encode_generated_domain_overlay,
+    load_generated_domain_overlay, validate_domain_overlay_ingress,
+};
 pub use generate::{family_candidates, family_candidates_with_progress};
 pub use load::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,

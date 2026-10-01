@@ -4,6 +4,25 @@ Status: authorized on 2026-09-30; implementation follows this plan.
 Branch: `fable_5_1_parallel`. Starting committed milestone: `297be07f`.
 Continuous evidence and task ownership: `CODEX_PROGRESS.md`.
 
+October1 delivery amendment: deliver the repaired optimized build first, then
+merge the tested feature into `main` and use `main` for subsequent work. Clean
+only merged, unneeded branches, preserving unrelated changes and frozen/live
+campaign state. The user retains production lifecycle control.
+
+## October1 priority amendment: frontier repair before optimization pilots
+
+The user now explicitly prioritizes repair of the stopped local `ExactGap` and
+similar failures that the repair may expose, before further rule-selection
+optimization. Preserve the complete existing request. First demonstrate an exact
+relation for the actual nominated exceptional case with source-bound partial
+search, then integrate durable repair/continuation and neighboring regression
+coverage. Do not substitute larger entry bounds, arbitrary terminal insertion,
+or a faster unchanged dispatcher for that repair. No production lifecycle action
+is authorized: the user will continue the campaign after delivery. A fresh
+campaign from improved inputs is acceptable; old checkpoint compatibility must
+not become an elaborate side project. Existing portfolio implementation can be
+stabilized, but its performance pilots are deferred until repair is delivered.
+
 ## Current completion state — 2026-09-30 post-release audit
 
 The frozen generation-first release is delivered at `d93e64ad` (source checkout
@@ -56,8 +75,10 @@ and P2/row25.20%; native throughput rose about6%, CPU rose4.76%, and added pendi
 rose3.96%. Both saved and passed structural cold checks, not native reinspection
 or closure. Activity remained around five cores, below the utilization target;
 the10% useful-work screen remains unmet. A separately reviewed prebuilt
-duplicate-query diagnostic is now running to measure another possible source
-of redundant merge work without recompilation or production changes.
+duplicate-query diagnostic has completed: among1,404,321 observed rows across
+2,829 sampled cuts,9.86% repeat an exact image and9.05% repeat that image in the
+same lookup context. This unweighted, prefix-limited census is not a cache-hit
+or speed estimate; it does not currently justify a duplicate-only cache project.
 Read-only mature production phase clocks now attribute87.7% of one ten-minute
 window to validation/preparation/publication, without identifying the precise
 P2 subphase or predicting any speedup. None of these results closes the Ready/Epoch four-loop

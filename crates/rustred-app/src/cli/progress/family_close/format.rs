@@ -181,6 +181,20 @@ fn format_generation_stage(stage: FamilyCloseGenerationStage, frame: Option<Exac
         GuardExtraction => return "guards".into(),
         ExceptionalGeometry => return "exceptional geometry".into(),
         FiniteRetention => return "finite terminal enumeration".into(),
+        RuleTrialFinished {
+            trial,
+            outcome,
+            search_rows,
+            exact_trace_rows,
+            exact_trace_terms,
+            search_us,
+            geometry_us,
+            ..
+        } => {
+            return format!(
+                "rule trial={trial} {outcome}; search_rows={search_rows} trace_rows={exact_trace_rows} trace_terms={exact_trace_terms} search_us={search_us} geometry_us={geometry_us}; not rule publication"
+            );
+        }
         RuleFound { pending } => return format!("rule found; {pending} pending"),
         Numerical { cases } => return format!("finite search; {cases} cases"),
         ExactMaterialization => "lift".into(),

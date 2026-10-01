@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -106,6 +107,38 @@ class CandidateApiTests(GeneratedProgramAssertions):
         self.assertEqual(report["discovery_strategy"]["rows"]["kind"], "features")
         with self.assertRaises(rustred.RustRedInputError):
             rustred.family_candidates(UNIT_MASS_PROJECT_K1, discovery_strategy="{not-json}")
+
+    def test_rule_portfolio_native_report_cli_and_checkpoint_recipe(self) -> None:
+        options = dict(alternatives=["terms"], quality=["rhs-terms"], max_depth=0,
+                       max_rows=32, max_exact_trace_rows=32, max_exact_trace_terms=1024)
+        descriptor = rustred.discovery_strategy(rule_selection=rustred.rule_portfolio(**options))
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-rule-portfolio-") as tmp:
+            path = Path(tmp)
+            recipe = path / "discovery.json"
+            recipe.write_text(descriptor)
+            checkpoint = path / "sectors"
+            initial = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                discovery_strategy=descriptor, checkpoint_dir=checkpoint)
+            report = tomllib.loads(initial.to_toml())
+            self.assertEqual(report["discovery_strategy"], json.loads(descriptor))
+            self.assertEqual(report["rule_selection"]["newly_solved_sectors"], 1)
+            self.assertGreater(report["rule_selection"]["attempted"], 0)
+            self.assertProgramEqual(initial.bundle, cli_bytes(
+                ["family-candidates", "--discovery-strategy", str(recipe)],
+                UNIT_MASS_PROJECT_K1.encode()))
+            before = {item.name: item.read_bytes() for item in checkpoint.iterdir()}
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                discovery_strategy=descriptor, checkpoint_dir=checkpoint, resume=True)
+            self.assertProgramEqual(initial.bundle, resumed.bundle)
+            self.assertEqual(tomllib.loads(resumed.to_toml())["rule_selection"]["attempted"], 0)
+            changed = rustred.discovery_strategy(rule_selection=rustred.rule_portfolio(**options,
+                trigger={"kind": "any-at-least", "thresholds": [{"feature": "rhs-terms", "minimum": 3}]}))
+            with self.assertRaisesRegex(rustred.RustRedError, "manifest differs"):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K1,
+                    discovery_strategy=changed, checkpoint_dir=checkpoint, resume=True)
+            self.assertEqual(before, {item.name: item.read_bytes() for item in checkpoint.iterdir()})
 
     def test_case_intersection_limits_are_strict_optional_and_match_cli(self) -> None:
         signature = inspect.signature(rustred.family_candidates)

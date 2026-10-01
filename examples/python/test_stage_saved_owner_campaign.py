@@ -128,6 +128,56 @@ class AnchorPlanningTests(unittest.TestCase):
             self.assertNotIn("anchor_plan", receipt)
             self.assertFalse((staged / "queries-original.json").exists())
 
+    def test_partial_rules_are_portable_ordered_and_verified_without_native_work(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, queries = self.fixture(root)
+            patch = root / "partial.rrbin"
+            patch.write_bytes(b"opaque partial rules; native validation happens on load")
+            selection = json.loads(manifest.read_bytes())
+            selection["domain_rule_overlays"] = [
+                {"owner_mask": mask, "path": str(patch), "bytes": patch.stat().st_size}
+                for mask in ("01", "10")]
+            manifest.write_text(json.dumps(selection))
+            campaign = root / "old"
+            staged = campaign / "inputs"
+            receipt = STAGE.stage(manifest, queries, staged, root)
+            self.assertEqual(receipt["owner_count"], 2)
+            self.assertEqual([row["owner_mask"] for row in receipt["domain_rule_overlays"]], ["01", "10"])
+            for row in receipt["domain_rule_overlays"]:
+                self.assertFalse(Path(row["path"]).is_absolute())
+                self.assertEqual((staged / row["path"]).read_bytes(), patch.read_bytes())
+            self.assertEqual(PRODUCTION.verify_inputs(staged)[0], 1)
+            copied = root / "fresh"
+            second = PRODUCTION.prepare_from(campaign, copied, "preserve")
+            self.assertEqual(PRODUCTION.verify_inputs(copied / "inputs")[0], 1)
+            self.assertEqual(second["domain_rule_overlays"][0]["sha256"], STAGE.digest(patch))
+            target = staged / receipt["domain_rule_overlays"][0]["path"]
+            target.chmod(0o644)
+            target.write_bytes(b"corrupted partial rules")
+            with self.assertRaisesRegex(ValueError, "partial rule identity changed"):
+                PRODUCTION.verify_inputs(staged)
+
+    def test_partial_rule_owner_and_receipt_cannot_be_omitted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, queries = self.fixture(root)
+            selection = json.loads(manifest.read_bytes())
+            selection["domain_rule_overlays"] = [{"owner_mask": "11", "path": "missing", "bytes": 1}]
+            manifest.write_text(json.dumps(selection))
+            with self.assertRaisesRegex(ValueError, "selected owner"):
+                STAGE.stage(manifest, queries, root / "invalid", root)
+            self.assertFalse((root / "invalid").exists())
+            selection["domain_rule_overlays"] = [{"owner_mask": "10", "path": "owner.rrbin",
+                "bytes": (root / "owner.rrbin").stat().st_size}]
+            manifest.write_text(json.dumps(selection))
+            staged = root / "inputs"
+            receipt = STAGE.stage(manifest, queries, staged, root)
+            del receipt["domain_rule_overlays"]
+            (staged / "input-receipt.json").write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError, "partial rule inventory differs"):
+                PRODUCTION.verify_inputs(staged)
+
     def test_staging_preserves_original_bytes_and_all_payloads(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

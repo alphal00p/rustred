@@ -140,6 +140,112 @@ receipt are under `guarded-neighbors/` beside the earlier probes. Independent
 review accepted the interpretation and confirmed both additional native process
 groups drained. No terminal or owner was added.
 
+### A source-derived local relation is now found
+
+The generic `probe_owner_case` research example loads this same owner and
+searches the nominated physical case against its original source system. The
+search uses the saved mathematical ordering, prospective default source
+visitation, and the actual descendant rank11, not the entry-rank10 bound.
+No saved rules or terminal table are used as equations in this search.
+
+| Source depth | Search time | Inclusive diagnostic time | Result |
+| --- | ---: | ---: | --- |
+| 1 | 0.114708 s | 2.746143 s | No rule; target remains unresolved |
+| 2 | 0.344215 s | 2.940293 s | One direct descending rule; no residuals |
+
+The depth2 rule has112 RHS terms,156 retained source-trace rows and no index
+exception branches. Both runs completed without errors or resource stops, and
+all owned processes drained. These are local diagnostic timings, not timings
+for the full campaign or its closure. The release research build (core release,
+app opt-level1) took773.420s separately; neither table entry includes compilation.
+Evidence is in `nominated-point/` and `nominated-point-depth2/` under the same
+local frontier evidence directory; the frozen executable digest begins
+`b7f4b9f7fea6f527`.
+
+The fixed relation subsequently passed independent original-source replay and
+installed lookup (3.757804s inclusive, terminal count unchanged). It is **not
+yet a delivered repair**: RHS obligations, durable transport and continuation
+still need validation. Depth3 was not run because depth2 already found the
+target relation. The depth1 miss does not establish that the integral is a
+master, and it was not installed as one.
+
+For anticipation, leaving n12 unfixed gives
+`F=(1-n1)(1+n10+n12)` at n0=0. Since these three indices are inactive,
+`1-n1` cannot vanish and the two integer possibilities for the other factor
+are `(n10,n12)=(-1,0)` and `(0,-1)`. The latter companion point at n1=-10
+is already covered by saved rule261 (3.104368s inclusive classification;
+zero gaps or unresolved predicates). One recurrence's exceptional condition
+therefore does not itself imply a gap in the full installed rule collection.
+
+The next source-driven probe left n1 genuinely parametric, with no rank cutoff,
+keeping the other fourteen physical coordinates fixed. **It succeeded:** two
+rules, zero residuals, and independent original-source/guard replay passed.
+The symbolic rule has83 RHS terms and80 retained trace rows; the exceptional
+fixed boundary has601 RHS terms and956 trace rows. Existing lookup still uses
+the old boundary rule and old terminals where they already apply. The new rule
+covers x1=10 and the entire interval x1>=11. A complete12-piece ray census has
+zero gaps or unresolved predicates, and the83 existing terminals are unchanged.
+
+| Phase | Seconds |
+| --- | ---: |
+| Owner preparation | 1.714432 |
+| Symbolic/numerical source search | 10.260562 |
+| Independent source replay, including source preparation | 18.262132 |
+| Installed whole-ray inspection | 0.000983 |
+| Inclusive guarded run | 30.865645 |
+
+Evidence: `nominated-ray-replayed/` in the same local evidence directory;
+sampled tree peak472,768,512bytes and all owned processes drained. These are
+local repair measurements, not full-campaign timings. The result proves local
+applicability on this exceptional slice, **not recursive closure of every RHS**,
+coverage of other faces, or full five-loop closure. New replay methods accept
+the real partial-domain result type; residual-free installation rejects any
+returned unresolved integrals. Durable native transport, cold source/descent
+validation and downstream checks were the next delivery gates at that point.
+No required query or master declaration is changed.
+
+### Persisted repair and downstream diagnostics
+
+The fully optimized binary subsequently exported the two replayed rules as a
+220,735-byte native `DomainRules` payload (SHA256
+`77941434f7d2bd6d161edce32946d5e70608b80fec518c543eee9020a6787e7a`).
+Export took24.883s inclusive, including7.953s source search and14.085s replay.
+A separate process cold-loaded it in16.736s, regenerated the source identities,
+checked guards and strict descent, and reproduced the complete12-piece local
+ray census with83 old terminals unchanged. It performed no new generation.
+This is now a durable partial repair, not just an in-memory candidate.
+
+Using all67 owners and8246 verified routes, three neighboring exact roots
+at n1=-10,-11,-12 all have83 immediate successors, no conditional problems
+and no new terminals (939 global saved terminals unchanged). Their deeper
+finite trace has **not completed**:
+
+| Diagnostic | Inclusive time | Result |
+| --- | ---: | --- |
+| 20,000 operational nodes |126.229s| Node allowance exhausted;348 completed |
+| 1,000,000 operational nodes |132.453s| Routed expansion budget exhausted;4956 completed |
+| Existing CLI, detailed cause |134.659s| Same finite expansion-budget failure |
+
+The last trace reports4059436 projected aggregate routed endpoints against a
+4000000 allowance. Its failed Route target is
+`[0,-11,0,0,1,0,0,0,1,0,-1,1,0,2,1]`. There are819606 scheduled operational
+nodes,814649 pending and one failed node, with zero recorded missing-rule or
+missing-owner frontiers. Owner/route preparation takes roughly109s and cold
+replay14s; the trace itself takes3.4s. Peak sampled process-tree memory is about
+5.4GB. These are diagnostic costs, not a controlled production speed comparison.
+
+The transport error wrapper includes resource-limit failures; it does **not**
+indicate a bad momentum map or invalid repair here. The CLI's native exit4
+correctly denotes incomplete tracing. The first diagnostic wrapper incorrectly
+expected exit2; its original receipt is retained alongside an interpretation,
+not relabeled successful closure. All owned process groups drained. This finite
+test neither establishes recursive closure of the ray nor justifies changing
+the production scope. Evidence is under `nominated-ray-export/`,
+`nominated-ray-cold/`, `nominated-ray-full-follow/`,
+`nominated-ray-full-follow-1m/` and the CLI diagnostic directory beside them.
+
+### Follow-up, separate from repair delivery
+
 1. Investigate actual missing point/face support using existing directed
    `SectorSolver::solve_domains_with_observer` or isolated-case search. Do not
    regenerate every owner merely to diagnose one point. Partial-domain output

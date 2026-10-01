@@ -4,9 +4,12 @@ use rustred::persistence::{ProgramEnvelope, SectionTag};
 
 use crate::application::AppError;
 
-use super::super::{CandidateBundleLimits, codec, model::ProgramRecord};
+use super::super::{
+    CandidateBundleLimits, codec,
+    model::{CaseRecord, ProgramRecord, RuleRecord},
+};
 
-pub(super) struct IngressBudget {
+pub(in crate::application::candidate_bundle) struct IngressBudget {
     limits: CandidateBundleLimits,
     collections: codec::CollectionBudget,
     coefficient_entries: usize,
@@ -14,7 +17,10 @@ pub(super) struct IngressBudget {
 }
 
 impl IngressBudget {
-    pub(super) fn new(limits: CandidateBundleLimits, sectors: usize) -> Result<Self, AppError> {
+    pub(in crate::application::candidate_bundle) fn new(
+        limits: CandidateBundleLimits,
+        sectors: usize,
+    ) -> Result<Self, AppError> {
         Ok(Self {
             limits,
             collections: codec::CollectionBudget::new(limits, sectors)?,
@@ -28,7 +34,7 @@ impl IngressBudget {
         self.admit_structure(&envelope, &record)
     }
 
-    pub(super) fn admit_structure(
+    pub(in crate::application::candidate_bundle) fn admit_structure(
         &mut self,
         envelope: &ProgramEnvelope<'_>,
         record: &ProgramRecord,
@@ -36,6 +42,21 @@ impl IngressBudget {
         for sector in &record.sectors {
             self.collections.admit_sector(sector)?;
         }
+        self.admit_coefficients(envelope)
+    }
+
+    pub(in crate::application::candidate_bundle) fn admit_domain_rules(
+        &mut self,
+        envelope: &ProgramEnvelope<'_>,
+        cases: &[CaseRecord],
+        rules: &[RuleRecord],
+    ) -> Result<(), AppError> {
+        self.collections.admit_rules(rules, 0)?;
+        self.collections.admit_cases(cases)?;
+        self.admit_coefficients(envelope)
+    }
+
+    fn admit_coefficients(&mut self, envelope: &ProgramEnvelope<'_>) -> Result<(), AppError> {
         let table = envelope
             .section(SectionTag::COEFFICIENTS)
             .expect("checked section");
@@ -61,7 +82,7 @@ impl IngressBudget {
     }
 }
 
-pub(super) fn charge(
+pub(in crate::application::candidate_bundle) fn charge(
     total: &mut usize,
     amount: usize,
     limit: usize,

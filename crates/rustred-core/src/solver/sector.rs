@@ -13,8 +13,14 @@ use super::{
 
 mod domains;
 mod finite;
+mod selection;
 pub use domains::SectorDomainSolution;
 pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
+pub use selection::{
+    RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
+    RuleTrialStats, RuleTrialSummary,
+};
 
 /// A solved equation together with the exact exceptional index conditions
 /// on which it must NOT be applied. Coefficient parameters remain generic.
@@ -71,9 +77,21 @@ impl<const N: usize> SectorRule<N> {
         max_numerator_rank: Option<u32>,
         limits: CaseIntersectionLimits,
     ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+        self.admit_exceptional_cases_counted(indices, sector, max_numerator_rank, limits, || {})
+    }
+
+    fn admit_exceptional_cases_counted(
+        &self,
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+        limits: CaseIntersectionLimits,
+        mut before_branch: impl FnMut(),
+    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
         let mut cases = Vec::new();
         let mut discarded = 0;
         for branch in &self.exceptions.branches {
+            before_branch();
             let intersection = match max_numerator_rank {
                 None => self
                     .candidate
@@ -130,6 +148,8 @@ impl Default for SectorSolveOptions {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SectorStats {
+    /// Present only for opt-in exact portfolios; includes refused/losing work.
+    pub rule_selection: Option<RuleSelectionStats>,
     pub symbolic_cases: usize,
     pub numerical_cases: usize,
     pub discarded_cases: usize,
@@ -169,6 +189,12 @@ pub struct SectorSolution<const N: usize> {
 /// Borrowed progress events; no output, synchronization, or exact-row copies
 /// are introduced when the default no-op observer is used.
 pub enum SectorEvent<'a, const N: usize> {
+    /// A trial is admitted only after exact guards and complete geometry pass;
+    /// admission is not publication or a family-closure claim.
+    RuleTrialFinished {
+        case: &'a Case<N>,
+        summary: RuleTrialSummary,
+    },
     CaseStarted {
         case: Case<N>,
         pending: usize,
@@ -361,6 +387,30 @@ impl<const N: usize> SectorSolver<'_, N> {
                 case: current.clone(),
                 pending: pending.len(),
             });
+            if !matches!(self.config.rule_selection, RuleSelectionPolicy::FirstValid) {
+                let selected = self.select_rule(&current, options, &mut stats, &mut observe)?;
+                stats.symbolic_cases += 1;
+                stats.discarded_cases += selected.discarded;
+                let geometry_start = Instant::now();
+                for child in selected.children {
+                    if !self.enqueue(
+                        child,
+                        &mut pending,
+                        &mut numerical,
+                        &rules,
+                        options.case_intersection_limits,
+                    )? {
+                        stats.discarded_cases += 1;
+                    }
+                }
+                stats.geometry += geometry_start.elapsed();
+                observe(SectorEvent::RuleFound {
+                    rule: &selected.rule,
+                    pending: pending.len(),
+                });
+                rules.push(selected.rule);
+                continue;
+            }
             let candidate = self
                 .solve_case_with_observer(current.clone(), options.symbolic, |event| {
                     observe(SectorEvent::Search {

@@ -12,7 +12,8 @@ use super::precondition::{
     PreconditionProvenance, precondition_with_provenance, precondition_with_variable_order,
 };
 use super::{
-    Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds,
+    Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow,
+    RuleSelectionPolicy, RuleTrialBudget, RuleTrialLimits, RuleTrialStats, Seed, Seeds,
     SolverError, SourceDiscoveryStrategy, SourceSystem, SourceVisitOrder, SymbolicExactBackend,
     Term,
 };
@@ -42,6 +43,8 @@ pub struct SectorConfig<const N: usize> {
     pub coefficient_variable_order: CoefficientVariableOrder,
     /// Finite row visiting only; original basis IDs and proof order stay fixed.
     pub source_discovery: SourceDiscoveryStrategy,
+    /// Optional exact candidate selection; the default retains first-valid search.
+    pub rule_selection: RuleSelectionPolicy,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -56,6 +59,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             numerical_exact_backend: super::NumericalExactBackend::Sparse,
             coefficient_variable_order: CoefficientVariableOrder::Original,
             source_discovery: SourceDiscoveryStrategy::default(),
+            rule_selection: RuleSelectionPolicy::default(),
         }
     }
 }
@@ -133,6 +137,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         if let Some(plan) = config.source_discovery.materialize(&basis)? {
             config.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
         }
+        config.rule_selection.materialize(&basis)?;
         Ok(Self {
             system,
             basis,
@@ -153,6 +158,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         if let Some(plan) = config.source_discovery.materialize(&basis)? {
             config.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
         }
+        config.rule_selection.materialize(&basis)?;
         Ok((
             Self {
                 system,
@@ -170,6 +176,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         config: &SectorConfig<N>,
     ) -> Result<(IntegralOrder<N>, Vec<PolynomialRow<N>>), SolverError> {
         config.source_discovery.validate(N)?;
+        config.rule_selection.validate(N)?;
         if config.integral_order.is_some()
             && (config.deltas.iter().any(|&cut| cut)
                 || config.removed_deltas.iter().any(|&cut| cut)
@@ -296,13 +303,22 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         source_order: Option<&[usize]>,
         mut observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
-        self.validate_case(&case)?;
+        self.validate_search(&case, options)?;
+        self.search_validated_case(case, options, source_order, &mut observe)
+    }
+
+    pub(super) fn validate_search(
+        &self,
+        case: &Case<N>,
+        options: SearchOptions,
+    ) -> Result<(), SolverError> {
+        self.validate_case(case)?;
         if options.prime < 3 || !Integer::from(options.prime).is_prime(0) {
             return Err(SolverError::InvalidInput(
                 "modular probe requires an odd prime".into(),
             ));
         }
-        self.search_validated_case(case, options, source_order, &mut observe)
+        Ok(())
     }
 
     /// Bind a queued case to this source system before any work or publication.
@@ -344,10 +360,65 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         case: Case<N>,
         options: SearchOptions,
         source_order: Option<&[usize]>,
-        mut observe: impl FnMut(SearchEvent<N>),
+        observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
+        match self
+            .search_attempt(case, options, source_order, None, false, observe)
+            .0
+        {
+            Ok(candidate) => Ok(candidate),
+            Err(TrialSearchError::Solver(error)) => Err(error),
+            Err(TrialSearchError::Limit(_)) => unreachable!("unlimited search has no trial cap"),
+        }
+    }
+
+    /// Already-validated queued case. The caller validates the same case/prime
+    /// before the baseline, so optional attempts cannot bypass those checks.
+    pub(super) fn search_attempt(
+        &self,
+        case: Case<N>,
+        mut options: SearchOptions,
+        source_order: Option<&[usize]>,
+        limits: Option<RuleTrialLimits>,
+        account_trace: bool,
+        observe: impl FnMut(SearchEvent<N>),
+    ) -> (Result<RuleCandidate<N>, TrialSearchError>, RuleTrialStats) {
+        if let Some(limits) = limits {
+            options.max_depth = Some(
+                options
+                    .max_depth
+                    .map_or(limits.max_depth, |d| d.min(limits.max_depth)),
+            );
+        }
         let start = Instant::now();
-        let mut stats = SearchStats::default();
+        let mut work = RuleTrialStats::default();
+        let mut result = self.search_attempt_inner(
+            case,
+            options,
+            source_order,
+            limits,
+            account_trace,
+            &mut work,
+            observe,
+        );
+        work.search.elapsed = start.elapsed();
+        if let Ok(candidate) = &mut result {
+            candidate.stats = work.search;
+        }
+        (result, work)
+    }
+
+    fn search_attempt_inner(
+        &self,
+        case: Case<N>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+        limits: Option<RuleTrialLimits>,
+        account_trace: bool,
+        work: &mut RuleTrialStats,
+        mut observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, TrialSearchError> {
+        let stats = &mut work.search;
         let mut probe = None;
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
@@ -373,7 +444,8 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 return Err(SolverError::SearchExhausted {
                     depth: depth - 1,
                     rows: stats.rows,
-                });
+                }
+                .into());
             }
             let seed = seed?;
             stats.seeds += 1;
@@ -387,8 +459,14 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 });
             }
             for position in 0..self.basis.len() {
+                if limits.is_some_and(|limit| stats.rows >= limit.max_rows) {
+                    return Err(TrialSearchError::Limit(RuleTrialBudget::SourceRows));
+                }
                 let ordinal = source_order.map_or(position, |order| order[position]);
                 let source = &self.basis[ordinal];
+                if account_trace {
+                    stats.rows += 1;
+                }
                 let row = instantiate(
                     source,
                     &seed,
@@ -398,7 +476,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     discovery_zero_sectors,
                     case.affine(),
                 )?;
-                stats.rows += 1;
+                if !account_trace {
+                    stats.rows += 1;
+                }
                 let Some(leading) = row.first() else { continue };
                 let source = SeedSource {
                     basis_row: ordinal,
@@ -407,19 +487,22 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 if case.matches(&leading.integral) {
                     stats.direct_hit = true;
                     stats.exact_trace_rows = 1;
+                    work.exact_trace_terms = row.len();
+                    if limits.is_some_and(|limit| row.len() > limit.max_exact_trace_terms) {
+                        return Err(TrialSearchError::Limit(RuleTrialBudget::ExactTraceTerms));
+                    }
                     observe(SearchEvent::CanonicalizationStarted {
                         terms: row.len(),
                         direct_hit: true,
                     });
                     let (target, rhs) = canonicalize(row, &self.system.indices)?;
-                    stats.elapsed = start.elapsed();
                     stats.discovery = probe.as_ref().map(|p: &Probe<N>| p.discovery.stats());
                     return Ok(RuleCandidate {
                         case,
                         target,
                         rhs,
                         sources: vec![source],
-                        stats,
+                        stats: *stats,
                     });
                 }
                 if case.is_numerical()
@@ -436,9 +519,32 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     original_sources.push(source);
                     stats.independent_rows += 1;
                     if case.matches(&pivot) {
-                        let trace = active_probe.discovery.trace(original_rows.len() - 1);
+                        let trace = if let Some(limit) = limits {
+                            active_probe
+                                .discovery
+                                .trace_bounded(
+                                    original_rows.len() - 1,
+                                    limit.max_exact_trace_rows,
+                                    limit.max_exact_trace_terms,
+                                    |row| {
+                                        let terms = original_rows[row].len();
+                                        stats.exact_trace_rows += 1;
+                                        work.exact_trace_terms =
+                                            work.exact_trace_terms.saturating_add(terms);
+                                        terms
+                                    },
+                                )
+                                .map_err(TrialSearchError::Limit)?
+                        } else {
+                            active_probe.discovery.trace(original_rows.len() - 1)
+                        };
                         let discovery = active_probe.discovery.stats();
+                        stats.discovery = Some(discovery);
                         stats.exact_trace_rows = trace.len();
+                        if account_trace && limits.is_none() {
+                            work.exact_trace_terms =
+                                trace.iter().map(|&row| original_rows[row].len()).sum();
+                        }
                         let selected = trace
                             .iter()
                             .map(|i| std::mem::take(&mut original_rows[*i]))
@@ -457,6 +563,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             discovery,
                         });
                         let exact_start = Instant::now();
+                        work.exact_lifts += 1;
                         let exact = exact_materialize_using_with_observer(
                             &selected,
                             &self.order,
@@ -465,22 +572,23 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             self.config.coefficient_variable_order,
                             self.system.coefficient_order(),
                             |event| observe(SearchEvent::ExactProgress(event)),
-                        )
-                        .map_err(|error| SolverError::ExactReplay(error.to_string()))?;
+                        );
+                        stats.exact_materialization = exact_start.elapsed();
+                        let exact =
+                            exact.map_err(|error| SolverError::ExactReplay(error.to_string()))?;
                         observe(SearchEvent::CanonicalizationStarted {
                             terms: exact.len(),
                             direct_hit: false,
                         });
                         let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                         stats.exact_materialization = exact_start.elapsed();
-                        stats.elapsed = start.elapsed();
                         stats.discovery = Some(discovery);
                         return Ok(RuleCandidate {
                             case,
                             target,
                             rhs,
                             sources,
-                            stats,
+                            stats: *stats,
                         });
                     }
                 }
@@ -489,7 +597,25 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         Err(SolverError::SearchExhausted {
             depth: seeds.depth() as u32,
             rows: stats.rows,
-        })
+        }
+        .into())
+    }
+}
+
+pub(super) enum TrialSearchError {
+    Solver(SolverError),
+    Limit(RuleTrialBudget),
+}
+
+impl From<SolverError> for TrialSearchError {
+    fn from(error: SolverError) -> Self {
+        Self::Solver(error)
+    }
+}
+
+impl From<super::PowerError> for TrialSearchError {
+    fn from(error: super::PowerError) -> Self {
+        Self::Solver(error.into())
     }
 }
 

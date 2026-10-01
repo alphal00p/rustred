@@ -18,6 +18,9 @@ pub(super) const MAX_ROUTES: usize = 100_000;
 pub(super) struct Selection {
     pub family_fingerprint: String,
     pub owners: Vec<Owner>,
+    /// Ordered source-replayed partial rules. Original owners stay immutable.
+    #[serde(default)]
+    pub domain_rule_overlays: Vec<DomainRuleOverlay>,
     pub initial_frontier_routes: Vec<Route>,
     #[serde(default, deserialize_with = "unique_limits")]
     pub load_limits: BTreeMap<String, usize>,
@@ -53,6 +56,13 @@ pub(super) struct Owner {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct DomainRuleOverlay {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub owner_mask: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct Route {
     pub source_mask: String,
     pub owner_mask: String,
@@ -85,7 +95,11 @@ impl Selection {
         if !(1..=16).contains(&n) {
             return Err(AppError::input("owner arity outside supported 1..=16"));
         }
-        if selection.owners.len() > limits.bundle.max_collection_entries
+        if selection
+            .owners
+            .len()
+            .checked_add(selection.domain_rule_overlays.len())
+            .is_none_or(|count| count > limits.bundle.max_collection_entries)
             || selection.initial_frontier_routes.len() > MAX_ROUTES
         {
             return Err(AppError::limit(
@@ -107,6 +121,25 @@ impl Selection {
             if size > limits.bundle.max_bundle_bytes || total > limits.max_total_input_bytes {
                 return Err(AppError::limit(
                     "owner bytes exceed declared ingress limits",
+                ));
+            }
+        }
+        for overlay in &selection.domain_rule_overlays {
+            mask(&overlay.owner_mask, n)?;
+            if !owners.contains(&overlay.owner_mask) {
+                return Err(AppError::input("domain-rule overlay owner is missing"));
+            }
+            let size = usize::try_from(overlay.bytes)
+                .map_err(|_| AppError::limit("domain-rule overlay size overflow"))?;
+            total = total
+                .checked_add(size)
+                .ok_or_else(|| AppError::limit("input size overflow"))?;
+            if size == 0 {
+                return Err(AppError::input("domain-rule overlay payload is empty"));
+            }
+            if size > limits.bundle.max_bundle_bytes || total > limits.max_total_input_bytes {
+                return Err(AppError::limit(
+                    "owner and overlay bytes exceed declared ingress limits",
                 ));
             }
         }
@@ -165,6 +198,76 @@ impl Selection {
             ));
         }
         Ok(limits)
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn selection() -> serde_json::Value {
+        json!({"family_fingerprint":"fixture", "owners":[{"path":"owner.rrbin",
+            "bytes":100,"mask":"1"}], "initial_frontier_routes":[]})
+    }
+
+    #[test]
+    fn no_overlay_preserves_the_existing_selection_shape() {
+        let (parsed, n, _) = Selection::parse(&selection().to_string()).unwrap();
+        assert_eq!(n, 1);
+        assert!(parsed.domain_rule_overlays.is_empty());
+    }
+
+    #[test]
+    fn overlay_order_and_owner_binding_are_explicit() {
+        let mut input = selection();
+        input["domain_rule_overlays"] = json!([
+            {"path":"repair/first.rrbin", "bytes":12, "owner_mask":"1"},
+            {"path":"repair/second.rrbin", "bytes":13, "owner_mask":"1"}
+        ]);
+        let (parsed, _, _) = Selection::parse(&input.to_string()).unwrap();
+        assert_eq!(
+            parsed.domain_rule_overlays[0].path,
+            PathBuf::from("repair/first.rrbin")
+        );
+        assert_eq!(
+            parsed.domain_rule_overlays[1].path,
+            PathBuf::from("repair/second.rrbin")
+        );
+        input["domain_rule_overlays"][0]["owner_mask"] = "0".into();
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .to_string()
+                .contains("owner is missing")
+        );
+    }
+
+    #[test]
+    fn overlays_share_the_aggregate_byte_and_collection_admission() {
+        let mut input = selection();
+        input["domain_rule_overlays"] = json!([
+            {"path":"repair.rrbin", "bytes":10, "owner_mask":"1"}
+        ]);
+        input["load_limits"] = json!({"max_total_input_bytes":109});
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .to_string()
+                .contains("ingress limits")
+        );
+        input["load_limits"] = json!({"max_total_input_bytes":110});
+        assert!(Selection::parse(&input.to_string()).is_ok());
+        input["load_limits"] = json!({"max_collection_entries":1});
+        assert!(Selection::parse(&input.to_string()).is_err());
+        input["load_limits"] = json!({});
+        input["domain_rule_overlays"][0]["bytes"] = 0.into();
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .to_string()
+                .contains("payload is empty")
+        );
     }
 }
 

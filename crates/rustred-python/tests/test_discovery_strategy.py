@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import copy
 from pathlib import Path
 import unittest
 
@@ -10,6 +11,7 @@ _spec = importlib.util.spec_from_file_location("discovery_descriptor", _path)
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 discovery_strategy = _module.discovery_strategy
+rule_portfolio = _module.rule_portfolio
 
 
 class DiscoveryStrategyTests(unittest.TestCase):
@@ -38,6 +40,52 @@ class DiscoveryStrategyTests(unittest.TestCase):
         for weights in (None, [], [0], [True], [-1], [1.5], [1_000_001]):
             with self.subTest(weights=weights), self.assertRaises(ValueError):
                 discovery_strategy(rows="positive-shifts", weights=weights)
+
+    def test_portfolio_is_opt_in_and_preserves_inputs_and_default_bytes(self):
+        self.assertEqual(discovery_strategy(),
+            '{"rows":{"kind":"input-order"},"sectors":{"kind":"active-first"},"version":1}')
+        recipe = rule_portfolio(alternatives=["terms", "coefficient-monomials"],
+            quality=["rhs-terms", {"feature": "source-rows", "descending": True}],
+            max_depth=0, max_rows=64, max_exact_trace_rows=32, max_exact_trace_terms=512,
+            trigger={"kind": "any-at-least", "thresholds": [{"feature": "rhs-terms", "minimum": 3}]})
+        before = copy.deepcopy(recipe)
+        descriptor = json.loads(discovery_strategy(rows="terms", rule_selection=recipe))
+        self.assertEqual(descriptor["version"], 2)
+        self.assertEqual(descriptor["rule_selection"], recipe)
+        self.assertEqual(recipe, before)
+        self.assertEqual(descriptor["rule_selection"]["alternatives"][0]["priorities"][0]["feature"]["kind"], "terms")
+        descriptor["rule_selection"]["trigger"]["thresholds"][0]["minimum"] = 5
+        self.assertEqual(recipe, before)
+
+    def test_portfolio_rejects_ambiguous_policy_parameters(self):
+        base = dict(alternatives=["input-order"], quality=["rhs-terms"],
+                    max_depth=0, max_rows=1, max_exact_trace_rows=1, max_exact_trace_terms=1)
+        changes = [dict(alternatives=[]), dict(alternatives=["terms"] * 3),
+                   dict(quality=[]), dict(quality=["rhs-terms"] * 2),
+                   dict(quality=["made-up"]), dict(max_depth=-1), dict(max_depth=True),
+                   dict(max_rows=0), dict(max_exact_trace_rows=0), dict(max_exact_trace_terms=1.5),
+                   dict(trigger={"kind": "any-at-least", "thresholds": []}),
+                   dict(trigger={"kind": "always", "extra": 1}),
+                   dict(trigger={"kind": "any-at-least", "thresholds": [
+                       {"feature": "rhs-terms", "minimum": True}]}),
+                   dict(trigger={"kind": "any-at-least", "thresholds": [
+                       {"feature": "rhs-terms", "minimum": 0}] * 2})]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises((ValueError, TypeError)):
+                rule_portfolio(**(base | change))
+        recipe = rule_portfolio(**base)
+        for change in ({"version": 2}, {"version": True}, {"kind": "first-valid"}, {"unknown": 0}):
+            with self.subTest(change=change), self.assertRaises((ValueError, TypeError)):
+                discovery_strategy(rule_selection=recipe | change)
+
+    def test_explicit_alternate_descriptor_is_copied_not_reinterpreted(self):
+        alternate = {"kind": "features", "priorities": [
+            {"feature": {"kind": "positive-shifts", "weights": [1, 0]}, "descending": True}]}
+        recipe = rule_portfolio(alternatives=[alternate], quality=["max-numerator-shift-excursion"],
+            max_depth=0, max_rows=10, max_exact_trace_rows=10, max_exact_trace_terms=100)
+        self.assertEqual(recipe["alternatives"], [alternate])
+        alternate["priorities"][0]["feature"]["weights"][0] = 7
+        self.assertEqual(recipe["alternatives"][0]["priorities"][0]["feature"]["weights"], [1, 0])
 
 
 if __name__ == "__main__":

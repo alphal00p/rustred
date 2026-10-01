@@ -156,6 +156,211 @@ fn real(programs: &Arc<CandidateOwnerPrograms<1>>) -> BoundOwnerOverlay<1> {
         .solve_domains_with_observer(vec![Case::generic()], scope(10), Default::default(), |_| {})
         .unwrap()
 }
+
+#[test]
+fn bound_overlay_replay_regenerates_sources_without_install_or_terminal_authority() {
+    let base = tadpole(vec![], &[], Default::default());
+    let result = real(&base);
+    assert_eq!(result.terminal_count(), 1);
+    let report = search(&base, [true])
+        .replay_overlay_rules(&result, Default::default())
+        .unwrap();
+    assert_eq!(report.rules.len(), result.rule_count());
+    assert!(
+        report
+            .rules
+            .iter()
+            .all(|rule| rule.original_source_entries > 0)
+    );
+    assert_eq!(base.overlays(&[true]).count(), 0);
+    assert_eq!(base.terminal_count(), 0);
+}
+
+#[test]
+fn bound_overlay_replay_rejects_an_unrelated_lineage_before_source_audit() {
+    let base = tadpole(vec![], &[], Default::default());
+    let foreign = tadpole(vec![], &[], Default::default());
+    let result = real(&foreign);
+    let issue = search(&base, [true])
+        .replay_overlay_rules(&result, Default::default())
+        .unwrap_err();
+    assert!(
+        issue
+            .to_string()
+            .contains("another program lineage or owner order")
+    );
+}
+
+#[test]
+fn residual_free_append_repairs_a_fixed_target_without_adding_terminals() {
+    let base = tadpole(vec![], &[[1]], Default::default());
+    let result = base
+        .bind_owner_search(
+            [true],
+            OwnerFeedbackPolicy {
+                numerical_depth: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .solve_domains_with_observer(
+            vec![CoordinateCase::new([Some(2)]).unwrap().into()],
+            scope(0),
+            Default::default(),
+            |_| {},
+        )
+        .unwrap();
+    assert!(!result.partial_solution().rules.is_empty());
+    assert_eq!(result.terminal_count(), 0);
+    let next = base
+        .append_residual_free_domain_overlays(vec![result], Default::default())
+        .unwrap();
+    assert_eq!(next.terminal_count(), base.terminal_count());
+    let trace = reducer(next).trace_targets([key([2])]).unwrap();
+    assert!(trace.frontier().is_empty());
+    assert_eq!(trace.rule_applications(), 1);
+    assert!(trace.declared_terminals().contains(&key([1])));
+    assert_eq!(base.overlays(&[true]).count(), 0);
+}
+
+#[test]
+fn residual_free_append_rejects_the_whole_mixed_batch_without_changing_legacy_append() {
+    let base = tadpole(vec![], &[], Default::default());
+    let make_empty = || synthetic(&base, [true], vec![], &[]);
+    let result = real(&base);
+    assert_eq!(result.terminal_count(), 1);
+    let issue = base
+        .append_residual_free_domain_overlays(vec![make_empty(), result], Default::default())
+        .unwrap_err();
+    assert!(
+        issue
+            .to_string()
+            .contains("must not retain finite residual terminals")
+    );
+    assert_eq!(base.overlays(&[true]).count(), 0);
+    assert_eq!(base.terminal_count(), 0);
+    // Existing opt-in residual admission keeps its exact previous semantics.
+    let next = base
+        .append_domain_overlays(vec![real(&base)], Default::default())
+        .unwrap();
+    assert_eq!(next.terminal_count(), 1);
+}
+
+fn fixed_overlay(programs: &Arc<CandidateOwnerPrograms<1>>) -> BoundOwnerOverlay<1> {
+    programs
+        .bind_owner_search(
+            [true],
+            OwnerFeedbackPolicy {
+                numerical_depth: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .solve_domains_with_observer(
+            vec![CoordinateCase::new([Some(2)]).unwrap().into()],
+            scope(0),
+            Default::default(),
+            |_| {},
+        )
+        .unwrap()
+}
+
+#[test]
+fn cold_partial_restore_rebinds_only_after_exact_replay_and_descent() {
+    let old = tadpole(vec![], &[[1]], Default::default());
+    let new = tadpole(vec![], &[[1]], Default::default());
+    let original = fixed_overlay(&old);
+    let search = new.bind_owner_search([true], original.policy).unwrap();
+    let (restored, report) = search
+        .restore_replayed_residual_free_overlay(
+            original.solution,
+            original.attempt_limits,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(restored.terminal_count(), 0);
+    assert_eq!(report.rules.len(), restored.rule_count());
+    assert!(new.owns_domain_overlay(&restored));
+    assert!(!old.owns_domain_overlay(&restored));
+    let next = new
+        .append_residual_free_domain_overlays(vec![restored], Default::default())
+        .unwrap();
+    assert_eq!(next.terminal_count(), 1);
+    assert!(
+        reducer(next)
+            .trace_targets([key([2])])
+            .unwrap()
+            .frontier()
+            .is_empty()
+    );
+}
+
+#[test]
+fn cold_partial_restore_rejects_residual_order_equation_and_resource_mutations() {
+    let base = tadpole(vec![], &[], Default::default());
+    let make_search = || {
+        base.bind_owner_search(
+            [true],
+            OwnerFeedbackPolicy {
+                numerical_depth: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let residual = real(&base);
+    assert!(
+        make_search()
+            .restore_replayed_residual_free_overlay(
+                residual.solution,
+                residual.attempt_limits,
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("must not retain finite residual terminals")
+    );
+    let mut wrong_order = fixed_overlay(&base);
+    wrong_order.solution.order = IntegralOrder::new([false], [false]);
+    assert!(
+        make_search()
+            .restore_replayed_residual_free_overlay(
+                wrong_order.solution,
+                wrong_order.attempt_limits,
+                Default::default(),
+                Default::default(),
+            )
+            .is_err()
+    );
+    let mut wrong_equation = fixed_overlay(&base);
+    wrong_equation.solution.rules[0].candidate.rhs.clear();
+    assert!(matches!(
+        make_search().restore_replayed_residual_free_overlay(
+            wrong_equation.solution,
+            wrong_equation.attempt_limits,
+            Default::default(),
+            Default::default(),
+        ),
+        Err(OwnerFeedbackError::Replay(_))
+    ));
+    let result = fixed_overlay(&base);
+    assert!(matches!(
+        make_search().restore_replayed_residual_free_overlay(
+            result.solution,
+            result.attempt_limits,
+            OwnerOverlayLimits {
+                max_rules: 0,
+                ..Default::default()
+            },
+            Default::default(),
+        ),
+        Err(OwnerFeedbackError::ResourceLimit { .. })
+    ));
+    assert_eq!(base.overlays(&[true]).count(), 0);
+}
+
 // Private synthetic partial records test dispatch/admission mechanics ONLY.
 // Production callers cannot construct this result or attach arbitrary sources.
 fn synthetic<const N: usize>(

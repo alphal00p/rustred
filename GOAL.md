@@ -1,5 +1,37 @@
 # RustRed project goal
 
+## Delivery and branch consolidation — October1
+
+The repaired, optimized binary and user-operated restart instructions are the
+immediate delivery priority. After validation and a clean feature-branch push,
+merge `fable_5_1_parallel` into `main` and continue subsequent rule-selection
+work on `main`, as requested by the user. Clean up only branches confirmed
+merged and no longer needed; preserve unrelated edits, frozen releases and all
+existing campaign inputs/checkpoints. Do not force-push or let branch cleanup
+interrupt a live calculation. Report remaining validation blockers honestly
+rather than promising a restart time before their cause is known.
+
+## First priority: repair the stopped frontier — October1
+
+The latest user instruction is authoritative:
+
+> Continue as planned, but first priority is to repair the frontier and any other similar failure you may anticipate from bringing in this fix. Then I'll continue the campaign and you can work on further optimization on the rule selection (and also ok to require a whole new campaign from optimized inputs).
+
+The current walk stopped on a saved-rule coverage gap at a rank11 exceptional
+point, while the saved generation's exceptional traversal used rank10. Derive
+an exact source-based repair and test neighboring/similar exceptional failures
+before conducting further rule-selection performance experiments. Do not clip
+descendants to the input rank, divide through a vanishing guard, silently declare
+unsearched terminals, or narrow the116 required queries/67 helpers. Reuse the
+existing Symbolica search and partial-domain APIs; preserve exact provenance,
+guards and descent. A targeted local success alone is not scoped closure.
+
+Deliver a tested build and explicit user-operated continuation instructions;
+checkpoint continuation is preferred only if it can be made correct and tested.
+A fresh campaign from repaired/optimized inputs is allowed. Leave both existing
+campaigns and checkpoints untouched. The broader optimization goal remains
+active, but its new rule-selection experiments wait until this repair delivery.
+
 ## Current recovery and observation directive — October1, Europe/Zurich
 
 The user has launched the recovery command and explicitly waived additional

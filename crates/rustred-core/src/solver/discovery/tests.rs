@@ -55,6 +55,26 @@ fn dynamic_columns_keep_live_pivots_and_trace_in_integral_order() {
 }
 
 #[test]
+fn bounded_trace_matches_exact_trace_and_refuses_without_partial_output() {
+    let field = Zp64::new(101);
+    let mut discovery = Discovery::new(order(), field.clone());
+    discovery.add_row(&numerical(&field, &[(3, 1), (1, 1)]));
+    discovery.add_row(&numerical(&field, &[(3, 1), (0, 1)]));
+    let trace = discovery.trace(1);
+    assert_eq!(trace.len(), 2);
+    assert_eq!(discovery.trace_bounded(1, 2, 4, |_| 2).unwrap(), trace);
+    assert_eq!(
+        discovery.trace_bounded(1, 1, 4, |_| 2),
+        Err(crate::solver::RuleTrialBudget::ExactTraceRows)
+    );
+    assert_eq!(
+        discovery.trace_bounded(1, 2, 3, |_| 2),
+        Err(crate::solver::RuleTrialBudget::ExactTraceTerms)
+    );
+    assert_eq!(discovery.trace(1), trace, "refusal cannot mutate discovery");
+}
+
+#[test]
 fn dependent_and_empty_inputs_do_not_shift_accepted_dependency_ids() {
     let field = Zp64::new(101);
     let mut discovery = Discovery::new(order(), field.clone());

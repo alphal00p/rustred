@@ -22,6 +22,7 @@ pub use progress::{
     SourcePortInstallEvent, SourcePortSuccessorAttempt, SourcePortSuccessorCounts,
     SourcePortSuccessorSnapshot, SourcePortSuccessorStage,
 };
+mod domain_replay;
 mod replay;
 mod rule_replay;
 pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};
@@ -192,7 +193,17 @@ fn solution_ordering<const N: usize>(
     permutation: Option<[usize; N]>,
     solution: &SectorSolution<N>,
 ) -> Result<OrderingPolicy, SourcePortAuditError> {
-    if solution.order.program().is_some() && permutation.is_some() {
+    replay_ordering(sector, permutation, &solution.order)
+}
+
+/// Validate a borrowed mathematical order without assigning complete-sector
+/// meaning to the rules that use it.
+fn replay_ordering<const N: usize>(
+    sector: [bool; N],
+    permutation: Option<[usize; N]>,
+    order: &crate::solver::IntegralOrder<N>,
+) -> Result<OrderingPolicy, SourcePortAuditError> {
+    if order.program().is_some() && permutation.is_some() {
         return Err(error(
             "programmed integral order cannot also declare a legacy tie priority",
         ));
@@ -205,13 +216,12 @@ fn solution_ordering<const N: usize>(
             .map_err(error)?,
         None => crate::solver::IntegralOrder::new(sector, [false; N]),
     };
-    if solution.order.sector() != &sector || solution.order.permutation() != declared.permutation()
-    {
+    if order.sector() != &sector || order.permutation() != declared.permutation() {
         return Err(error(
             "declared sector/tie priority differs from the solved mathematical order",
         ));
     }
-    solution.order.persisted_policy().map_err(error)
+    order.persisted_policy().map_err(error)
 }
 
 /// One non-authoritative exact rule/coverage report. The optional degree

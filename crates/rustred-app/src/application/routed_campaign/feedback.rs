@@ -249,6 +249,12 @@ impl<const N: usize> RoutedFeedbackSession<N> {
     pub fn programs(&self) -> &Arc<CandidateOwnerPrograms<N>> {
         self.reducer.programs()
     }
+    /// Read-only access to the already verified routing snapshot. Research
+    /// callers may attach an append-only program extension through the core
+    /// reducer's `with_programs` method; no session state or memo is mutated.
+    pub fn routed_reducer(&self) -> &RoutedCandidateReducer<N> {
+        &self.reducer
+    }
     pub fn installed_jobs(&self) -> usize {
         self.installed.len()
     }
@@ -449,6 +455,7 @@ impl<const N: usize> RoutedFeedbackSession<N> {
                     SectorEvent::CaseStarted {..} => ("case_started",true),
                     SectorEvent::PhaseStarted {..} => ("phase_started",true),
                     SectorEvent::RuleFound {..} => ("rule_found",true),
+                    SectorEvent::RuleTrialFinished {..} => ("rule_trial_finished",true),
                     SectorEvent::NumericalStarted {..} => ("numerical_started",true),
                     SectorEvent::Search {..} => ("search",false),
                 };
@@ -775,6 +782,7 @@ fn feedback_error<const N: usize>(error: &OwnerFeedbackError<N>, cap: usize) -> 
         OwnerFeedbackError::Candidate(_) => "candidate",
         OwnerFeedbackError::Source(_) => "source",
         OwnerFeedbackError::Search(_) => "search",
+        OwnerFeedbackError::Replay(_) => "source_replay",
         OwnerFeedbackError::InvalidInput(_) => "invalid_input",
         OwnerFeedbackError::ResourceLimit { .. } => "resource_limit",
     };

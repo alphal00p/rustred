@@ -259,6 +259,9 @@ fn sector_observation_forwards_case_and_preserves_phase_order() {
             }
             SectorEvent::RuleFound { .. } => phases.push("rule"),
             SectorEvent::NumericalStarted { .. } => phases.push("numerical"),
+            SectorEvent::RuleTrialFinished { .. } => {
+                panic!("default policy must not run a portfolio")
+            }
         })
         .unwrap();
     assert_eq!(

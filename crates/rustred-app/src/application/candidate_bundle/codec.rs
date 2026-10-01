@@ -3,19 +3,20 @@ use std::sync::Arc;
 
 use rustred::algebra::{Coefficient, CoefficientPolynomial, IndexedCoefficientContext};
 use rustred::persistence::{
-    BinaryIoError, BinaryProgramKind, BinarySection, CoefficientId, CoefficientTableBuilder,
+    BinaryIoError, BinaryProgramKind, BinarySection, CoefficientTableBuilder,
     DecodedCoefficientTable, EncodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
     SectionTag, encode_program, inspect_program,
 };
-use rustred::solver::{
-    AffineCase, AffineIntersection, Case, CoordinateCase, ExceptionalConditions, Integral, Power,
-    RuleCandidate, SearchStats, SectorRule, SectorSolution, SectorStats, Seed, SeedSource, Term,
-};
-use symbolica::prelude::PolyVariable;
+use rustred::solver::{Integral, Power, SectorSolution, SectorStats};
+
+pub(super) mod rules;
 
 use crate::application::{AppError, MAX_INPUT_BYTES};
 
 use super::model::*;
+
+#[cfg(test)]
+use rustred::persistence::CoefficientId;
 
 pub(super) fn read(bytes: &[u8], limits: CandidateBundleLimits) -> Result<Bundle, AppError> {
     read_with_budget(bytes, limits, None)
@@ -218,18 +219,7 @@ pub(super) fn binary_error(error: BinaryIoError) -> AppError {
 fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
     for sector in &records.sectors {
         for rule in &sector.rules {
-            if rule
-                .case
-                .equations
-                .iter()
-                .chain(rule.rhs.iter().map(|term| &term.coefficient))
-                .chain(rule.exclusions.iter().flatten())
-                .any(|&id| id as usize >= count)
-            {
-                return Err(AppError::input(
-                    "candidate coefficient ID is outside its table",
-                ));
-            }
+            rules::validate_rule_ids(rule, count)?;
         }
     }
     Ok(())
@@ -288,32 +278,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
             }
         }
         for rule in &sector.rules {
-            validate_integral(&rule.target, n)?;
-            let case = &rule.case;
-            if case.fixed_axes.len() != case.fixed_values.len()
-                || case.fixed_axes.iter().any(|&axis| axis >= n)
-                || case.fixed_axes.windows(2).any(|axes| axes[0] >= axes[1])
-                || !matches!(case.kind.as_str(), "coordinate" | "affine")
-                || (case.kind == "coordinate") != case.equations.is_empty()
-            {
-                return Err(AppError::input("invalid candidate case shape"));
-            }
-            for term in &rule.rhs {
-                validate_integral(&term.integral, n)?;
-                if term.integral.symbolic != rule.target.symbolic {
-                    return Err(AppError::input(
-                        "candidate RHS symbolic layout differs from target",
-                    ));
-                }
-            }
-            for source in &rule.sources {
-                validate_integral(&source.integral, n)?;
-                if source.shifts.len() != n {
-                    return Err(AppError::input(
-                        "candidate seed shift arity differs from root",
-                    ));
-                }
-            }
+            rules::validate_rule(rule, n)?;
         }
     }
     Ok(())
@@ -340,9 +305,25 @@ impl CollectionBudget {
     }
 
     pub(super) fn admit_sector(&mut self, sector: &SectorRecord) -> Result<(), AppError> {
-        self.entries(sector.rules.len())?;
-        self.entries(sector.finite_residuals.len())?;
-        for rule in &sector.rules {
+        self.admit_rules(&sector.rules, sector.finite_residuals.len())
+    }
+
+    pub(super) fn admit_cases(&mut self, cases: &[CaseRecord]) -> Result<(), AppError> {
+        self.entries(cases.len())?;
+        for case in cases {
+            self.entries(case.equations.len())?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn admit_rules(
+        &mut self,
+        rules: &[RuleRecord],
+        residuals: usize,
+    ) -> Result<(), AppError> {
+        self.entries(rules.len())?;
+        self.entries(residuals)?;
+        for rule in rules {
             self.entries(rule.case.equations.len())?;
             self.entries(rule.rhs.len())?;
             self.entries(rule.sources.len())?;
@@ -502,70 +483,7 @@ pub(super) fn sector_record<const N: usize>(
         rules: solution
             .rules
             .iter()
-            .map(|rule| {
-                let candidate = &rule.candidate;
-                let fixed: Vec<_> = candidate
-                    .case
-                    .fixed()
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(axis, value)| value.map(|v| (axis, v)))
-                    .collect();
-                Ok(RuleRecord {
-                    case: CaseRecord {
-                        kind: if candidate.case.affine().is_some() {
-                            "affine"
-                        } else {
-                            "coordinate"
-                        }
-                        .into(),
-                        fixed_axes: fixed.iter().map(|(axis, _)| *axis).collect(),
-                        fixed_values: fixed.iter().map(|(_, value)| *value).collect(),
-                        equations: candidate
-                            .case
-                            .affine()
-                            .map(|case| {
-                                case.equations()
-                                    .iter()
-                                    .map(|p| intern_polynomial(table, p))
-                                    .collect::<Result<Vec<_>, _>>()
-                            })
-                            .transpose()?
-                            .unwrap_or_default(),
-                    },
-                    target: integral_record(&candidate.target),
-                    rhs: candidate
-                        .rhs
-                        .iter()
-                        .map(|term| {
-                            Ok(TermRecord {
-                                integral: integral_record(&term.integral),
-                                coefficient: intern_coefficient(table, &term.coefficient)?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, AppError>>()?,
-                    sources: candidate
-                        .sources
-                        .iter()
-                        .map(|source| SeedRecord {
-                            basis_row: source.basis_row,
-                            integral: integral_record(&source.seed.integral),
-                            shifts: source.seed.shifts.to_vec(),
-                        })
-                        .collect(),
-                    exclusions: rule
-                        .exceptions
-                        .branches
-                        .iter()
-                        .map(|branch| {
-                            branch
-                                .iter()
-                                .map(|p| intern_polynomial(table, p))
-                                .collect::<Result<Vec<_>, _>>()
-                        })
-                        .collect::<Result<Vec<_>, AppError>>()?,
-                })
-            })
+            .map(|rule| rules::rule_record(rule, table))
             .collect::<Result<Vec<_>, AppError>>()?,
     })
 }
@@ -602,76 +520,41 @@ pub(super) fn solutions<const N: usize>(
     }
     let identity = context.one();
     let variables = identity.raw().get_variables().as_slice();
-    bundle.sectors.iter().map(|record| {
-        let sector: [bool; N] = record.sector.as_slice().try_into().expect("validated arity");
-        let rules = record.rules.iter().map(|record| {
-            let mut fixed = [None; N];
-            for (&axis, &value) in record.case.fixed_axes.iter().zip(&record.case.fixed_values) {
-                fixed[axis] = Some(value);
-            }
-            let face = CoordinateCase::new(fixed).map_err(|e| AppError::input(e.to_string()))?;
-            if !face.is_in_sector(&sector) { return Err(AppError::input("candidate fixed face is outside sector")); }
-            let case: Case<N> = if record.case.kind == "coordinate" { face.into() } else {
-                let equations = record.case.equations.iter()
-                    .map(|&id| polynomial(bundle, variables, id)).collect::<Result<Vec<_>, _>>()?;
-                match AffineCase::from_coordinate(&face, &equations, indices, &sector)
-                    .map_err(|e| AppError::input(e.to_string()))?
-                {
-                    AffineIntersection::Affine(case) if case.face().fixed() == &fixed => case.into(),
-                    _ => return Err(AppError::input("saved affine case does not reconstruct its declared fixed face")),
-                }
-            };
-            let target = integral(&record.target)?;
-            if target != case.integral() { return Err(AppError::input("candidate target is not canonical for its case")); }
-            let rhs = record.rhs.iter().map(|term| Ok(Term {
-                integral: integral(&term.integral)?, coefficient: coefficient(bundle, variables, term.coefficient)?.clone(),
-            })).collect::<Result<Vec<_>, AppError>>()?;
-            let sources = record.sources.iter().map(|source| Ok(SeedSource {
-                basis_row: source.basis_row,
-                seed: Seed {
-                    integral: integral(&source.integral)?,
-                    shifts: source.shifts.as_slice().try_into().expect("validated seed arity"),
+    bundle
+        .sectors
+        .iter()
+        .map(|record| {
+            let sector: [bool; N] = record
+                .sector
+                .as_slice()
+                .try_into()
+                .expect("validated arity");
+            let rules = record
+                .rules
+                .iter()
+                .map(|record| {
+                    rules::restore_rule(record, &bundle.coefficients, variables, indices, &sector)
+                })
+                .collect::<Result<Vec<_>, AppError>>()?;
+            let finite_residuals = record
+                .finite_residuals
+                .iter()
+                .map(integral)
+                .collect::<Result<Vec<_>, _>>()?;
+            let order =
+                rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order)
+                    .map_err(|error| AppError::input(error.to_string()))?;
+            Ok((
+                sector,
+                SectorSolution {
+                    order,
+                    rules,
+                    finite_residuals,
+                    stats: SectorStats::default(),
+                    max_numerator_rank,
+                    finite_case_policy,
                 },
-            })).collect::<Result<Vec<_>, AppError>>()?;
-            let branches = record.exclusions.iter().map(|branch| branch.iter()
-                .map(|&id| polynomial(bundle, variables, id)).collect())
-                .collect::<Result<Vec<Vec<_>>, _>>()?;
-            Ok(SectorRule {
-                candidate: RuleCandidate { case, target, rhs, sources, stats: SearchStats::default() },
-                exceptions: ExceptionalConditions { branches },
-            })
-        }).collect::<Result<Vec<_>, AppError>>()?;
-        let finite_residuals = record.finite_residuals.iter().map(integral).collect::<Result<Vec<_>, _>>()?;
-        let order = rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order).map_err(|error| AppError::input(error.to_string()))?;
-        Ok((sector, SectorSolution { order, rules, finite_residuals, stats: SectorStats::default(), max_numerator_rank, finite_case_policy }))
-    }).collect()
-}
-
-fn coefficient<'a>(
-    bundle: &'a Bundle,
-    variables: &[PolyVariable],
-    id: u32,
-) -> Result<&'a Coefficient, AppError> {
-    let id = CoefficientId::try_from_index(id as usize).map_err(binary_error)?;
-    let value = bundle.coefficients.coefficient(id).map_err(binary_error)?;
-    // The table validates sparse shape once. Bind each use to the indexed
-    // family map without parsing expressions, changing order, or recomputing GCDs.
-    if value.get_variables().as_slice() != variables {
-        return Err(AppError::input(
-            "candidate coefficient has the wrong indexed variable map",
-        ));
-    }
-    Ok(value)
-}
-
-fn polynomial(
-    bundle: &Bundle,
-    variables: &[PolyVariable],
-    id: u32,
-) -> Result<CoefficientPolynomial, AppError> {
-    let value = coefficient(bundle, variables, id)?;
-    if !value.denominator.is_one() {
-        return Err(AppError::input("candidate equation is not a polynomial"));
-    }
-    Ok(value.numerator.clone())
+            ))
+        })
+        .collect()
 }
