@@ -39,6 +39,17 @@ Their graph prefixes differ. This misses the preregistered useful-work threshold
 retain the current production partition and prioritize reducing redundant merge
 work over a blind helper-count sweep. Details are in
 `docs/research/epoch_preparation_screen_2026-09-30.md`.
+Post-launch follow-through, October1: P1 single-use validation and compact row
+transport passed native tests and optimized four-loop controls, but the latter
+were performance-neutral. One bounded full-input five-loop pair reduced P1
+wall time35.17%; inspection throughput rose8.39% while pending work rose11.17%,
+so it does not establish faster closure or a deployment win. The subsequent
+native-session stale-negative prefix optimization is implemented and passed
+1,326 unique application/CLI tests plus independent review; its optimized
+comparison remains pending. Neither result closes the Ready/Epoch four-loop
+non-regression gap or demonstrates twenty useful cores. Details:
+`docs/research/epoch_p1_compact_2026-10-01.md` and
+`docs/research/epoch_stale_negative_prefix_2026-10-01.md`.
 Production lifecycle remains user-owned. Observe
 the repaired run to guide subsequent optimization rather than delaying it.
 

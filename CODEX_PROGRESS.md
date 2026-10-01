@@ -38,6 +38,135 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Independent correctness milestone GO,03:12UTC:** reviewer confirmed
+  all8 integrated file hashes exactly match the audited source, fresh Cargo
+  artifacts match the executed tests, and actual restore/rolling/rescue tests
+  pass with the counts above. No authority drift or unexpected skip. Root is
+  committing/pushing `f328844f` with these reports; this is correctness approval,
+  not performance qualification. Runtime may next receive the sole heavy slot
+  for the unchanged fully optimized campaign build after its final test drain
+  receipt. No further code change is needed for the comparison.
+- [M] **Stale-prefix native suite passed,03:10UTC:** all10 focused tests,
+  full application1301 passes/12 existing ignores, and CLI19+6 pass under
+  strict license mode. This is1326 unique passing tests; focus is a subset.
+  The suite includes actual snapshot equivalence, rolling interruption/resume,
+  escrow/quarantine/replay and cancellation. Test guard exit0/no stop in
+ 120.175s; root independently confirmed PG862353 absent and read the results.
+  No source fix was needed. Independent final receipt/source-binding review
+  is requested before the correctness milestone push. Optimized comparison
+  remains pending; no test-profile speed or production recommendation claimed.
+- [M] **Correctness build passed; tests live,03:08UTC:** guarded app/CLI
+  compilation finished with exit0/no stop in1057.516s; PG776404 is absent.
+  Runtime started the previously granted strict-license runner in PG862353,
+  CPU0–49. All10 new focused tests pass (0.0183s); full-app then CLI checks
+  remain running. Root independently read the successful build receipt and
+  verified the actual full-app test process. This app-opt1 build is correctness
+  evidence only, not eligible for performance comparison. No source fixes.
+- [M/D] **Comparison recipe prepared and reviewed,03:06UTC:** S5 reused
+  existing optimized0f baseline, combined-four-loop cold-All control and full-A1
+  bounded runner; no new benchmark infrastructure or native execution.
+  `TMP/postlaunch-20260930/stale-negative-prefix/PERFORMANCE_RECIPE.md` records
+  commands, scopes and falsifiers. Independent reviewer corrected two points:
+  local honest selected-ID equivalence does not guarantee identical rolling
+  full-run graphs; global lookup counters include inspector/admission work and
+  are not per-P2-recheck costs. Root applied those exact corrections. No current
+  public CLI stop gives an exact cumulative cut/native prefix; equal inspection
+  counts do not imply equal graphs. Existing finite1324-point control remains
+  available but is narrower than the full A1 request. The new source is still
+  awaiting correctness: actualPG776404 reached final linking at03:06UTC, no
+  compiler error. No performance execution has been granted.
+- [M] **Live campaign checkpoint4 observed,03:01UTC:** repaired native
+  PID3741792 is live at15398.97s, with33,018,400 local completions,
+ 57,361,982 scheduled domains,11,583,569 pending, zero frontiers and54.81GB
+  sampled process-tree RSS. CP6 generation4 is saved/resumable with no
+  warnings; no restore or independent reinspection was attempted. The closure
+  snapshot reports13/67 initial roots and7,605,272 recursively closed domains,
+ 710s old. Last-hour pending growth+0.189 per completion and conservative
+  discovery-minus-closure gap+2020.6/s remain positive: no convergence/ETA
+  inference. Recent2.77 observed cores is instantaneous, not sustained scaling.
+  LC2's native process is also live. Production was read only; next ordinary
+  observation around03:30UTC unless a failure or user request intervenes.
+- [M/D] **Independent five-loop interpretation accepted,02:59UTC:** final
+  auditor accepted the arithmetic, corrected CPU/RSS scope, incomplete cold
+  checks and complete process drainage. Receipt:
+  `TMP/postlaunch-20260930/compact-source-rows/performance/INDEPENDENT_FIVE_AUDIT.txt`.
+  The exploratory throughput/P2 screen remains unpassed. Root independently
+  checked the next correctness build's actual PG776404: both rustc children
+  are active at roughly10 minutes with no compiler error. Runtime retains
+  the existing build→test allocation; no new heavy job or production action.
+  The live campaign remains the evidence source for subsequent optimization,
+  not a reason to equate more inspections with faster eventual closure.
+- [M/E] **First full-A1 old/new pair analyzed,02:54UTC:** P1 wall97.796→63.404s
+  (−35.17%), despite about11.5% more logged G2 records. This is the strongest
+  positive signal, not a compact-transport-only causal claim. Local inspections
+ 3,423,280→3,718,128 (+8.61%), committed+7.01%, scheduled+8.27%, pending+11.17%.
+  Registered native+supervisor CPU6417.74→6432.85s (+0.24%), native-only mean
+  cores5.322→5.325, guarded-tree peak RSS14.893→15.170GB. P2/source cost per
+  accepted row+0.24%/−1.29%, so no clear compact-row timing win or utilization
+  breakthrough. Different graph prefixes, one pair, rawNone cold checking:
+  no completion speedup, actual resume or scoped closure claim. The carried
+  exploratory10% throughput/lower-P2-per-row screen is not met; no repetition
+  or switch recommendation follows. Independent audit confirmed arithmetic,
+  scope and drainage, with CPU/RSS labeling clarified. Tracked report updated:
+  `docs/research/epoch_p1_compact_2026-10-01.md`; raw `performance/FIVE_RESULTS.md`
+  under `TMP/postlaunch-20260930/compact-source-rows/`.
+- [M/D] **Pair drained; next source integrated and compiling,02:48UTC:** S5
+  released its exclusive heavy slot after both old/new arms saved and finished
+  rawNone cold checks (exit9/INCOMPLETE, zero violations). Root independently
+  found all eight owned identities absent. No further pilot was granted.
+  Reviewed private prefix commit was cherry-picked as `f328844f` on main;
+  **unpublished pending native correctness**. Runtime now owns the heavy slot
+  for the existing guarded app/CLI no-run build, CPU0–15/eight compiler jobs,
+  cached target-native, app opt1 strictly for correctness. Build session52515,
+  ownedPG776404, evidence `TMP/postlaunch-20260930/stale-negative-prefix/native-build/`.
+  Main engine sources are frozen during compilation. On successful build and
+  process drain, the reviewed focused/full/CLI runner is granted CPU0–49 with
+  existing locks/strict license/900s test guard. No performance build or
+  production change is implied. Do not push this source milestone before tests.
+- [M] **Scheduled production observation,02:40UTC:** actual repaired native
+  PID3741792 remains live at14113.07s:31,370,784 local completions,
+ 55,083,321 scheduled domains,11,439,808 pending, zero frontiers and53.03GB
+  sampled tree RSS, no own swap or stop/error. CP6 generation3 remains saved/
+  resumable. Initial roots13/67 and6,877,579 closed discovered domains are
+  **1886s old**, so no new closure count is inferred. Last-hour pending growth
+  remains+0.217 per completion; no ETA/convergence claim. LC2 is also verified
+  live,105,345,924 completions/68,611,278 pending/103.30GB RSS, zero frontiers,
+  its stale6/67 roots and checkpoint generation16. Only small status files
+  and process identities were read; no production writes or checkpoint decode.
+- [M/E] **Outstanding four-loop gap decomposed,02:37UTC:** independent review
+  of existing receipts confirms the failed Ready/Epoch primary gate is not
+  simply guard overhead. Mean difference+1.386618s comprises+1.316925s actual
+  traversal,−0.079670s preparation,+0.529294s internal cold checking and
+  −0.379930s combined external/untimed residual. Epoch's entire source-resolution
+  phase is0.534137s; prefix reuse removes only a subset. Thus direct savings
+  there alone cannot close the measured fixed-work gap. Changed overlap/work
+  can only be assessed by new matched evidence, not assumed. No timing boundary
+  or acceptance gate is changed. Detail:
+  `TMP/postlaunch-20260930/FOUR_LOOP_GAP_COST_BUDGET.txt`.
+- [M/D] Root prepared and independently sanity-reviewed the small correctness
+  runner `TMP/postlaunch-20260930/stale-negative-prefix/run_native_tests.py`.
+  It resolves three test executables from the new successful Cargo receipt,
+  requires the inherited license/strict mode and50 disjoint physical cores,
+  rejects skipped/missing tests and expects10 focused,1301 full-app plus25 CLI
+  passes (1326 unique; focus is a subset), with12 existing ignores. Python
+  syntax check only; no native execution. Existing guarded build/test resource
+  and process-drain mechanism is reused, not replaced by a new harness.
+- [M/D] **Prefix source audit GO; private commit ready,02:33UTC:** independent
+  reviewer rechecked session provenance, stale fallback, global exact/orthant
+  priority, positive verification and the two added tests. Ten focused tests
+  now cover the new path, including layered-snapshot P3 records/edges/ledger
+  equality and a bound false negative creating only Pending, nonclosed work.
+  Immutable eligibility selection is hoisted per entry/source block. Private
+  commit `c51926bedc273db00eb7262c2025daf24c514b1c` changes exactly eight files;
+  isolated worktree is clean. **Uncompiled/unexecuted:** source GO does not
+  grant performance/deployment approval. Main integration and cached native
+  correctness build wait for the current S5 pair's complete process drainage.
+  No new CAS primitive, persisted schema or production mutation.
+- [D] Independent auditor is also doing a bounded receipt-only decomposition
+  of the existing four-loop Ready/Epoch gap. This may establish which measured
+  components can be improved by prefix reuse; it cannot redefine the primary
+  wall-time boundary or convert the unpassed gate into a pass. No extra native
+  experiment or profile is authorized.
 - [M/D] **Draft review,02:27UTC:** independent reviewer found no production-
   code authority blocker, but requested an eligible layered/multi-cut path
   through actual P3 records and an explicit bound stale forged-negative test

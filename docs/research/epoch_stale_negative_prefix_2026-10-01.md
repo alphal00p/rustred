@@ -1,7 +1,10 @@
 # Reusing stale snapshot-negative lookup prefixes
 
-Status, 2026-10-01: independently reviewed design; isolated implementation
-and tests being prepared. No measured speedup or production change.
+Status, 2026-10-01 03:10 UTC: isolated implementation `c51926be` was integrated
+as `f328844f` after independent source review. Native correctness passed:
+1,326 unique application/CLI tests, including the ten new targeted tests;
+12 pre-existing ignored tests remain ignored. No measured speedup or
+production change. The optimized performance build/comparison is still pending.
 
 ## Why investigate this
 
@@ -108,8 +111,65 @@ session binding is insufficient, or canonical positive selection changes for
 legitimate results. Park it if saved scans do not improve total campaign cost.
 CPU utilization alone is not a success criterion.
 
-The ongoing frozen old/new compact-row benchmark must finish independently;
-its results cannot validate this later implementation.
+The earlier frozen old/new compact-row benchmark finished independently;
+its results do not validate this later implementation.
+
+### Executed correctness checks
+
+The cached release test build completed in 1,057.516 seconds with the
+application package at opt-level 1, followed by 120.175 seconds for the guarded
+test sequence. This is a correctness profile, not a performance comparison.
+The strict inherited Symbolica license setting was enabled; there were no
+license-related skips, compiler errors or guard stops.
+
+| Test group | Passed | Existing ignored |
+|---|---:|---:|
+| Targeted stale-prefix tests (also included below) | 10 | 0 |
+| Full application library | 1,301 | 12 |
+| Candidate CLI | 19 | 0 |
+| Routed-campaign CLI | 6 | 0 |
+
+The full suite includes real native snapshot-versus-AllMiss equivalence,
+rolling interruption/resume in both width directions, durable result-escrow
+restore, quarantine refusal, saved-sequence replay and cancellation checks.
+The new layered-snapshot test compares actual P3 records, dependencies and
+ledger output. The forged-negative test verifies that missing reuse creates
+pending work, not false closure. The focused ten are a subset of the 1,326
+unique passes, not ten additional unique tests.
+
+Evidence is under `TMP/postlaunch-20260930/stale-negative-prefix/` in
+`native-build/` and `native-tests/`. Both owned process groups fully drained.
+These checks establish the tested correctness boundary; optimized combined
+four-loop and representative five-loop performance evidence remains required.
+
+### Four-loop opportunity limit
+
+The earlier optimized Ready/Epoch ABBA still fails its primary non-regression
+gate: Epoch is 9.63% and 9.89% slower. A receipt-only decomposition of the mean
+1.386618-second gap is:
+
+| Component | Epoch minus Ready, seconds |
+|---|---:|
+| Recorded native traversal | +1.316925 |
+| Recorded preparation | -0.079670 |
+| Internal cold-verifier total | +0.529294 |
+| Combined external/untimed residual | -0.379930 |
+
+The residual combines startup, untimed finalization and completion detection;
+it is not a measurement of removable polling overhead. The primary boundary
+is unchanged, and the consistent traversal penalty is real in these receipts.
+
+Epoch's entire four-loop source-resolution phase averages 0.534137 seconds.
+Prefix reuse targets a subset, so its direct savings alone cannot close the
+measured fixed-trace gap. The roughly 2.668-second inspect/wait phase includes
+oldest-prefix waiting and overlaps worker activity; it is not all removable
+overhead. Changed timing might change overlap or the reached work, but that
+requires whole-campaign evidence, not an assumed multiplier. The larger
+five-loop opportunity must therefore be evaluated separately.
+
+The later P1/compact-row comparison is neutral and is not a replacement for
+the Ready control. Local detailed accounting is in
+`TMP/postlaunch-20260930/FOUR_LOOP_GAP_COST_BUDGET.txt`.
 
 ## Source and evidence pointers
 
@@ -126,6 +186,7 @@ Historical timing evidence is in ignored
 `TMP/postlaunch-20260930/full-a1-preparation-h0-h2/`; profiling evidence is in
 `TMP/postlaunch-20260930/digest-perf-tooling/`. The independent mathematical
 review was by `final_requirements_audit`; the independent source/lifecycle and
-cost assessment was by `runtime_order_pilots`. The isolated implementation is
-assigned to the latter; its separate code audit is pending. Root coordinates
+cost assessment was by `runtime_order_pilots`. The latter implemented the
+isolated patch; the former independently reviewed the code and tests. Native
+correctness checks have passed; optimized performance validation is pending. Root coordinates
 integration and final verification, without modifying production.

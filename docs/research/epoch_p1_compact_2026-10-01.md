@@ -1,8 +1,9 @@
 # Epoch P1 witness and compact source-row comparison
 
 The optimized four-loop ABBA control passes all native cold checks but is
-performance-neutral. A matched five-loop comparison is authorized separately;
-it has no result yet. These are **old Epoch versus new Epoch** measurements,
+performance-neutral. The first matched, bounded five-loop pair also completed:
+P1 validation is cheaper, but larger pending work and unchanged utilization
+prevent a closure-speed claim. These are **old Epoch versus new Epoch** measurements,
 not evidence of superiority over Ready or of five-loop closure.
 
 ## Intervention and controls
@@ -77,20 +78,64 @@ therefore unknown, not zero. Both production campaigns continued on disjoint
 cores; no concurrent root build ran. This is not a quiet-host measurement.
 Peak pending and full outer-adapter CPU are unavailable in these receipts.
 
-## Next measurement and evidence
+## First bounded five-loop pair
 
-Root authorized only the first fresh old/new five-loop h0 pair, using the same
+The first fresh old/new five-loop h0 pair finished its bounded protocol, using the same
 67 owners, 8,246 routes and 183 ordered queries (116 required, 67 auxiliary),
-W32 on CPUs 0–31. It uses the existing 20-minute cooperative native window
+W32 on CPUs 0–31. It used the existing 20-minute cooperative native window
 inside a 30-minute inclusive setup/checkpoint/cold-check/drain ceiling.
-Its structural cold check is deliberately not full native reinspection or
-scoped closure. Rolling timing can change the reached graph prefix, so work,
-pending pressure and phase-normalized costs must accompany elapsed time.
-No repeated pair, observer-on run or production switch is implied by this grant.
+No hard stop occurred. The reached graph prefixes differ; these are not
+completion times for the same finished solve.
+
+| Metric | Old | New | Change |
+|---|---:|---:|---:|
+| Inclusive stopped-run/check/cold protocol, s | 1,419.26 | 1,429.54 | +0.72% |
+| Native traversal, s | 1,136.37 | 1,138.67 | +0.20% |
+| Native inspections | 3,423,280 | 3,718,128 | +8.61% |
+| Committed domains, including aliases | 6,224,002 | 6,660,448 | +7.01% |
+| Scheduled domains | 8,910,219 | 9,646,709 | +8.27% |
+| Pending domains | 2,686,217 | 2,986,261 | +11.17% |
+| Registered native + supervisor CPU, s | 6,417.74 | 6,432.85 | +0.24% |
+| Mean observed native cores | 5.322 | 5.325 | essentially unchanged |
+| Sampled guarded-tree peak RSS, decimal GB | 14.893 | 15.170 | +1.86% |
+| P1 validation, s | 97.796 | 63.404 | -35.17% |
+| P2 total, s | 307.351 | 323.098 | +5.12% |
+| P2 source resolution, s | 217.878 | 225.528 | +3.51% |
+| P2 cost per accepted row, ns | 1,746.78 | 1,751.05 | +0.24% |
+| Source cost per accepted row, ns | 1,238.27 | 1,222.26 | -1.29% |
+
+The P1 reduction is the strongest positive signal: its wall time fell despite
+about 11.5% more logged G2 records. Per-record/covered-point proxies improve
+about 42%, but neither is an identical-work denominator or isolates all P1
+work. This combined-build comparison does not isolate each change causally.
+Compact P2 transport has no clear timing win here. Inspection throughput per
+traversal second improves 8.39%, but the larger pending graph prevents treating
+this as reduced total work or faster closure. The carried exploratory screen
+of at least 10% more throughput together with lower P2 cost per row is not met.
+There is no utilization breakthrough, repeated-pair evidence or switch advice.
+
+Both arms saved resumable CP6 generation 1, admitted all 183 queries, and had
+zero errors/frontiers/abandoned obligations. Both exercised ten safe
+undecided-union fallbacks. Their fresh-process cold checks deliberately used
+**None**: zero native reinspection and zero independently verified roots,
+raw `INCOMPLETE`/exit 9, with no reported structural violations. No actual
+resume, scoped closure or completed-family claim is made. All eight recorded
+owned process groups and outer adapters drained before the next build.
+
+CPU totals above exclude the outer adapters; there is no all-process CPU
+comparison. Production continued on disjoint cores but still represents host
+contention. Both effective RAM guards stayed far above measured use. This is
+one old/new pair, not a quiet-host confidence interval. The next suffix-lookup
+implementation is not part of either binary or these results.
+
+## Evidence
 
 Local raw receipts, exact commands, input hashes, per-arm clocks, frozen build
 identity and the independent review are retained under
 `TMP/postlaunch-20260930/compact-source-rows/performance/` and
 `TMP/postlaunch-20260930/p1-compact-optimized-bin/`. The complete local table is
 `FOUR_RESULTS.md`; raw state comparisons are `four/pair-r{1,2}-state.json`.
-Campaign outputs and executables remain untracked.
+The five-loop report, arithmetic and drain receipts are `FIVE_RESULTS.md`,
+`FIVE_PAIR_RESULTS.json` and `FIVE_DRAIN.json`. Its raw arm results are under
+`five/{old-r1,new-r1}/h0/`; the independent interpretation audit accompanies
+the report. Campaign outputs and executables remain untracked.
