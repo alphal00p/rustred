@@ -810,3 +810,50 @@ Evidence: `r-primary-five-loop-transfer-v1/RESULTS.md` and
 `receipts/{a1-r1,r-primary-r1}/RESULT.json` under the study directory.
 Execution: `five_loop_order_runner`; independent actual-receipt review:
 `r_primary_transfer_audit`. No production input, process or checkpoint changed.
+
+### Avoiding a non-informative larger root-only comparison
+
+The original production required query for the same root has R≤13, A≤22 and
+A−R≥9. Its fourteen downset masks are present in production, but thirteen route
+through nonidentity witnesses into three canonical lower owners. Thus merely
+increasing the tiny identity-route control's starting rank would not reproduce
+that shared-routing mechanism. The native loader supports a more focused
+intervention: retain the production owner/route pool and change only the root's
+saved program, with independent native admission of each owner's actual order.
+
+Before running that larger test, inspect the two small root shards using the
+existing public native API. The complete ordered diagnostic contents match:
+22 rules, 900 RHS terms, 469 coefficient records and one terminal in each.
+Every coefficient reference is resolved within its own payload; all cases,
+guards, targets, RHS coefficient displays and terminal keys match, without
+omissions. Only the mathematical-order metadata differs. This is not a new
+semantic equality certificate, but it supplies no changed root rule whose
+downstream work would be worth measuring. Native matching consumes the saved
+rule sequence; the stored order also supplies admission/descent checks.
+
+The two inspections finish and drain in 1.838854 seconds on one pilot core.
+Both proposed larger R13 walk designs are therefore parked **without running**.
+Next examine the actual canonical lower-owner programs, where a genuine
+changed-rule intervention could exercise production routing. Do not claim that
+the original R13 query was tested merely because its smaller diagnostic closed.
+Evidence: `r-primary-five-loop-transfer-v1/root-shard-inspection-v1/`, including
+the raw native views, `COMPARISON.json`, `RESULT.json` and independent review.
+
+The read-only destination census identifies the next meaningful cohort:
+
+| Actual production lower owner | Incoming downset masks | Saved parent / ordinal | Payload bytes |
+| --- | ---: | ---: | ---: |
+| `000010011001001` | 8 | 30699 / 0 | 204,095 |
+| `001100101110000` | 1 | 31740 / 0 | 469,554 |
+| `010100101110000` | 4 | 31740 / 1 | 156,668 |
+
+None is among the fourteen literal pilot owners and none carries the frontier
+repair overlay. The existing selected-sector API can generate exactly these
+three jobs under their original two parents. The planned comparison changes
+only this cohort between fresh A1 and R-primary, retaining the remaining 64
+production owners, all 8,246 routes and the separate overlay. It tests the one
+unchanged required R13 query, not the full required/helper request. A useful
+result requires source-qualified changed programs, cold coverage and reduced
+whole-walk work/cost; no benefit follows merely from a lower-rank preference.
+The selected jobs' preparation cost is not known from aggregate whole-parent
+timings. No such generation or walk has run yet.

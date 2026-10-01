@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 18:06 UTC (20:06 Zurich)
+## Current workboard — October 1, 18:20 UTC (20:20 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,7 +20,7 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` (takes over completed runner preparation) | Both limited-five arms fully accepted; no useful work/time gain | Assess an unchanged actual production required query as the next bounded screen; no launch yet |
+| Rule-mechanism transfer | `five_loop_order_runner` (takes over completed runner preparation) | Both limited-five arms accepted; no gain; larger root-only swap parked after diagnostic sameness | Map the three canonical lower owners where changed rules could affect actual routing |
 | Independent authority/performance review | `r_primary_transfer_audit`; root | Actual limited-five receipts and recoverable removal independently accepted | Preserve narrow scope, larger setup cost and lack of production performance qualification |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -39,6 +39,43 @@ release nor input is edited.
 
 ### October 1, 17:58 UTC — limited-five transfer and source cleanup
 
+- [M/D] A cheap native inspection prevents a non-informative larger campaign:
+  both fresh donor roots have identical complete ordered diagnostic contents
+  after resolving every payload-local coefficient ID. Each has 22 rules,
+  900 RHS terms, 469 coefficient records and one terminal; no omissions and
+  full RHS coefficient details. Cases, targets, guards, RHS displays and
+  terminal keys match; only the stored integral-order metadata differs.
+  Independent raw comparison confirms the result. Two CPU32/W1 inspections
+  finish and drain in 1.838854 seconds, with no new generation or full walk.
+  This is diagnostic sameness, not a new algebraic equivalence certificate.
+  Both proposed R13 identity/root-only walk variants remain unrun and parked:
+  no promising root-rule intervention was found. Next read-only census targets
+  the three actual canonical lower owners rather than another arbitrary order.
+  Evidence: `r-primary-five-loop-transfer-v1/root-shard-inspection-v1/`.
+- [M/D] The actual lower-owner census has no intersection with the fourteen
+  already qualified literal owners, so none can be substituted without fresh
+  generation. Production destinations are `000010011001001` (eight routes,
+  parent30699/ordinal0, 204,095-byte shard), `001100101110000` (one route,
+  parent31740/ordinal0, 469,554 bytes) and `010100101110000` (four routes,
+  parent31740/ordinal1, 156,668 bytes). None owns the separate 220,735-byte
+  frontier-repair overlay. The selected next hypothesis is one three-owner
+  cohort: generate just these 1+2 selected sectors under their original roots,
+  fresh A1 versus R-primary, and retain the other 64 production owners,
+  all 8,246 routes and the overlay during the isolated exact-R13-query walk.
+  No unchanged root/67-owner regeneration, one-owner grid, new codec or
+  descendant clipping. Existing source replay and per-owner native admission
+  remain mandatory. Runner prepares minimal steering for independent review;
+  no native generation or walk is yet authorized. Whole original parent-batch
+  times (559.836 and 2,561.094 seconds) do not estimate these three selected
+  jobs; their generation cost is unmeasured.
+- [D] Execution is conditionally delegated to avoid an idle extra approval
+  round: once `r_primary_transfer_audit` explicitly accepts the pinned minimal
+  protocol/wrapper, the runner may execute this exact three-owner A1 baseline.
+  Only a fully source-qualified, natively admitted, cold-verified and drained
+  baseline permits its candidate arm. Any failed/censored gate stops for root
+  assessment; no automatic budget expansion, alternative corpus or extra grid.
+  W16/CPUs32–47 and each 1,800-second inclusive boundary remain unchanged.
+  This conditional grant does not mean a native job has started.
 - [M] Both fresh arms finish and pass all registered gates, independently
   audited: fourteen sectors/zero reused, fourteen owner admissions, all 696
   source identities and guards replayed, one required query/root cold-verified
@@ -91,6 +128,23 @@ release nor input is edited.
   helper substitution, no regeneration or arbitrary rank grid. Its identity
   routes do not reproduce the production shared transport/helper network;
   this remains an isolated required-domain test, not full-scope qualification.
+- [M/D] Milestone `a26d9a2c` is pushed to `main`, containing only this progress
+  record, the measured rule-selection study and runtime-order documentation.
+  Unrelated FeynKit edits and untracked work remain unstaged and preserved.
+  Independent review accepts the new measured statements against actual
+  receipts. No production switch is recommended.
+- [M/E/D] A further read-only routing check sharpens the next test: production
+  sends thirteen of the fourteen downset masks through nonidentity transports
+  into three canonical lower owners; the identity pilot lacks that mechanism.
+  Before launching, runner and auditor assess the existing four-loop
+  whole-owner intervention pattern: keep the production owner/route pool,
+  replace only this root's program with its already-qualified fresh A1 versus
+  R-primary payload, and use the exact required query alone. This would test
+  actual transports without regenerating rules. Per-owner order/coordinate/
+  ordinal bindings must use existing native services; do not invent a codec
+  or proof framework. If that is not straightforward, retain the narrower
+  diagnostic with its limitation explicitly stated. Neither alternative has
+  received a native launch grant; the full production request is untouched.
 - [D] The previous user-question turn verified that production uses A1, but
   did not advance an optimization experiment. Resume the next executable
   action: independent audit accepts `r-primary-five-loop-transfer-v1/run_arm.py`
