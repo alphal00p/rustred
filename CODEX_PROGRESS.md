@@ -20,8 +20,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` | Full original-query pair cold-passes; R-primary increases work and terminals | One frozen weighted-order correction: fresh generation/inspection only first |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Generation, native symmetry and full-query receipts audited; R-primary not promoted | Audit weighted correction; assess conditional symmetry coalescing as next small falsifier |
+| Rule-mechanism transfer | `five_loop_order_runner` | R-primary increases work; weighted correction reproduces same rules/terminals and is parked | Minimal closure-directed selection design using existing four-loop alternatives |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Generation/symmetry/full-query/weighted receipts audited; no promotion | Critique cost model and controlled small falsifier; keep exploration profitable, not forbidden |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -165,6 +165,26 @@ release nor input is edited.
   budget, or cost/terminal inflation erases reduced work. Try a few existing
   hard four-loop cases before any new five-loop workload. Neither hypothesis
   changes production, scope116+67, or the current weighted pilot.
+- [M/D] Weighted correction passes in37.005632s inclusive but its complete
+  native235-rule/31-terminal sector equals R-primary exactly after removing
+  order metadata. Independent audit confirms all source/admission/point gates
+  and drain. No weighted walk is run; park this direction after the one
+  evidence-backed correction. The next user-endorsed lane is closure-directed
+  rule selection, allowing and valuing productive new domains rather than
+  requiring every RHS region already closed. Runner studies the smallest
+  existing portfolio/routing seam; independent auditor critiques it before
+  implementation. No new experiments are launched yet.
+- [M/D] User requests the D/C display immediately. It was already implemented
+  in `cc5f449b`, but the frozen supervisor still has its old presenter imported.
+  Current standalone monitor reads that live status correctly, displaying
+  `Discovery/closure ∞ · D/C` from paired trailing-hour deltas, with the stale
+  closure snapshot explicit; pending arithmetic is unchanged. Re-ran all61
+  `test_campaign_*.py` tests successfully using workspace TMP and CPUs48–55.
+  Independent monitor source/live-output review passes. No new code is needed;
+  add the exact separate-viewer command to the frontier-repair runbook. Do not
+  patch/restart/signal production to change presentation. A new monitor agent
+  could not start (thread limit), so root verified and the existing independent
+  auditor reviewed this orthogonal task.
 
 ### October 1, 19:00 UTC — next recurrence-sensitive five-loop case
 

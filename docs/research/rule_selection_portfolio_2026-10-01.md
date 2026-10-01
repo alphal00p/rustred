@@ -1094,3 +1094,12 @@ in general. Fewer terminals or less work are not guaranteed. Require a
 fresh exact program/terminal comparison before any further workload timing;
 do not repeat timing if the program only changes order metadata. No sweep or
 new mathematical kernel is needed.
+
+The one-row correction has now completed generation, all235-rule source
+replay, native admission, full inspection and exact point application in
+37.005632s inclusive. Its entire ordered native sector content is identical
+to the R-primary result, including235 rules,31 terminals,7,126 RHS terms and
+2,107 coefficient entries; only the integral-order metadata differs. Independent
+audit confirms the result and process drain. The structural falsifier therefore
+fires: do not run another walk or priority sweep. This local ordering direction
+is parked. Evidence: `weighted-17941-generation-v1/receipts/` and `RESULTS.md`.

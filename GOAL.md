@@ -22,6 +22,16 @@ priority amendment and next tests are in
 `ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md`; continuous findings and decisions
 remain in `CODEX_PROGRESS.md`.
 
+October1 follow-up: after the current ordering correction, investigate
+closure-directed rule selection. Favor successors in reusable or independently
+closed regions, but do not require every successor already closed: productive
+new domains are essential. Balance their estimated downstream cost, pinch/routing
+sharing and exceptional splits against reuse. These scores guide discovery;
+they never suppress a valid RHS obligation or replace source/guard/descent
+checks. Start with existing four-loop alternatives and a small controlled
+five-loop query before a larger implementation. Refresh monitoring through the
+separate read-only D/C dashboard, without restarting production.
+
 ## Delivery and branch consolidation — October1
 
 The repaired, optimized binary and user-operated restart instructions are the

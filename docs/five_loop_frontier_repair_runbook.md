@@ -52,6 +52,34 @@ Rollback means returning to the original campaign with its original frozen
 binary, inputs and checkpoint—not substituting an old binary into the repaired
 campaign. Moving development to `main` does not change this frozen release.
 
+## Updated dashboard without restarting the calculation
+
+The frozen supervisor retains its originally imported presentation code. To
+see the updated discoveries-per-recursive-closure ratio now, run the current
+read-only monitor in a **separate terminal or Zellij pane**:
+
+```bash
+cd /common/dev/rustred
+nix develop --command python -B examples/python/campaign_monitor.py \
+  campaigns/five-loop-a1-epoch-frontier-repaired-20261001/runs/20261001T091314.583624Z
+```
+
+This reads the live status and process identities only; it does not launch,
+stop, resume, signal or modify the calculation. No Rust compilation is needed.
+Ctrl-C in this **separate monitor** exits only that viewer. Do not press Ctrl-C
+in the existing calculation's terminal merely to refresh its display. After
+a future user-operated resume, use the new run directory instead.
+
+`Discovery/closure` is `D/C`, discoveries divided by recursively closed domains
+observed over the same trailing hour, not `(D-C)/(D+C)`. Both this indicator and
+the unchanged pending-per-completion metric are red above2, yellow above1
+through2, and green at1 or below. Positive discoveries with zero observed
+closures show red `∞`;0/0 or unavailable data show neutral `unknown`.
+Closure scans are batched, so check the separate snapshot age/staleness line:
+`∞` during a stale scan does not prove that no additional domains have closed.
+The new monitor derives the ratio from the old supervisor's raw paired counts;
+it does not reinterpret the old normalized-balance value.
+
 ## Validation and exact release identities
 
 - Core public regression tests: 4/4 pass.
