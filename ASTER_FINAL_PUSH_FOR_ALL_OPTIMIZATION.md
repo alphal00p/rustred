@@ -1,7 +1,8 @@
 # Final optimization push: generated rules and the complete S5 merge path
 
 Status: authorized on 2026-09-30; implementation follows this plan.
-Branch: `fable_5_1_parallel`. Starting committed milestone: `297be07f`.
+Current development branch: `main` (feature fast-forwarded on October1).
+Original feature: `fable_5_1_parallel`; starting milestone: `297be07f`.
 Continuous evidence and task ownership: `CODEX_PROGRESS.md`.
 
 October1 delivery amendment: deliver the repaired optimized build first, then

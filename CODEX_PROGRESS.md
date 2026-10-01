@@ -38,6 +38,21 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Development consolidated onto `main`, October1 09:09 UTC.**
+  Feature tip `c387ee61` fast-forwarded from old main `100e990f` through a clean
+  temporary worktree and was pushed successfully. Root now works on `main`.
+  User's unstaged FeynKit changes and all unrelated files are preserved; frozen
+  releases and old campaign/checkpoint state were not changed. Deleted the
+  merged local `fable_5_1_parallel` and scratch `codex/g2-lc2-integration` refs;
+  requested remote feature-ref deletion after confirming remote main contains
+  the complete history. Old production branches and occupied worktree branches
+  are intentionally retained. Deleted refs are recoverable from main's history.
+  Repair delivery is complete; no further pre-launch tests are pending. The
+  next optimization work is the already-audited opt-in rule-quality portfolio:
+  run its focused native tests, then compare same-case exact outcomes and
+  downstream obligations before launching new generation/performance pilots.
+  This work is separate from the frozen user launch and cannot mutate it.
+
 - [M/D] **Fresh repaired campaign is prepared, not started (09:07 UTC).**
   `campaigns/five-loop-a1-epoch-frontier-repaired-20261001/` contains67 original
   owners,8246 unchanged routes, all183 byte-identical queries and one220735-byte

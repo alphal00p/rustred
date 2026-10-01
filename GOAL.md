@@ -11,6 +11,12 @@ existing campaign inputs/checkpoints. Do not force-push or let branch cleanup
 interrupt a live calculation. Report remaining validation blockers honestly
 rather than promising a restart time before their cause is known.
 
+Delivered on October1: the checked partial repair, optimized binary and fresh
+saved-owner walk are ready; see `docs/five_loop_frontier_repair_runbook.md`.
+The feature was fast-forwarded to `main`, which is now the development branch.
+Subsequent rule-selection studies may resume independently of the frozen
+release. This delivery does not claim full five-loop scoped closure.
+
 ## First priority: repair the stopped frontier — October1
 
 The latest user instruction is authoritative:
