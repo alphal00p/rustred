@@ -1,8 +1,8 @@
 # Target-directed Laporta identities and dimensional recurrences: scoped alternatives
 
 Date: 2026-10-01. Initial source/literature assessment at main `df059d8d` was
-read-only. A subsequent authorized, frozen-native coefficient-face diagnostic
-is recorded below; it changed no solver or production campaign. Experimental
+read-only. Subsequent authorized finite native/algebra diagnostics are recorded
+below; they changed no solver or production campaign. Experimental
 proposals are distinguished from measured results. The later user request
 authorizes bounded investigation of radical rule improvements, not deployment
 of an unqualified identity or silent relaxation of the existing proof gates.
@@ -154,16 +154,136 @@ work increases, and another RHS term may reach the excluded target points.
 No target-union comparison, complete-program equivalence, closure claim or
 speedup was inferred from these event counts.
 
-The next proposed falsifier is finite and algebraic: select one actual
-same-owner parent/child recurrence pair from the qualified four-loop program,
-use native applicability at fixed integer points, and substitute the child's
-entire RHS into the parent's entire RHS with Symbolica. Count exact zero sums
-at identical final integral keys, coefficient growth, and all retained
-denominator/exception conditions. A reduced local key count is only a witness
-worth investigating; a useful result must later survive the unchanged full
-four-loop cohort and a separately scoped five-loop test. No parametric lift
-or priority change follows from fixed-point success. At this update, that
-composition diagnostic is being prepared, not yet executed.
+### Subsequent finite composition: a genuine zero and a different work graph
+
+The separately source-reviewed and authorized
+[finite composition result](/common/dev/rustred/TMP/postlaunch-20261001/exact-rule-composition-v1/execution-r1/RESULT.json)
+completed in 6.441 seconds inclusive. Native ordered matching and complete
+guarded inspection selected owner481 rule61 at
+`P=[0,1,1,1,1,-1,-4,0,0,1]` and rule41 at the nominated RHS key
+`B=[0,1,1,1,1,-2,-2,0,-1,1]`. Both are actual rank5 points. P has positive-power
+sum A=5 and D=A−R=0. It is a real saved-rule case, but its reachability from
+the frozen physical QCD query cohort has not been demonstrated. Sharing the
+same owner pool does not establish physical-cohort coverage. All original
+94 parent and 81 child denominator obligations, exclusions, siblings and
+child RHS terms were retained; native inspections had no problems or
+conditional successors. All three process groups drained under the same
+150-GB hard cap and CPU32 restriction.
+
+After replacing only B by its whole child RHS, exact Symbolica arithmetic
+found one genuinely zero coefficient sum, at
+`J=[-1,0,1,1,1,-1,-2,0,0,1]`:
+
+```text
+untouched parent sibling:  (4 - 6*d)/(3 + 3*d)
+weighted child successor: (-4 + 6*d)/(3 + 3*d)
+sum:                      0
+```
+
+This is a real saved-program, two-step hidden cancellation, distinct from the
+mere disappearance of the substituted intermediate B. Its original poles
+remain excluded; the cancellation does not remove those obligations.
+
+| Diagnostic quantity | Original parent | Composed RHS |
+| --- | ---: | ---: |
+| Distinct endpoint keys | 81 | 123 |
+| Same-parent-support keys | 24 | 30 |
+| Same-support, rank5 keys | 7 | 11 |
+| Maximum numerator rank / positive-power sum | 5 / 6 | 5 / 6 |
+| Total numerator polynomial terms | 133 | 219 |
+| Total denominator polynomial terms | 147 | 231 |
+| Serialized coefficient bytes | 1,079 | 1,751 |
+
+The raw two-step expansion had 145 contributions and 124 distinct keys before
+the one zero sum. The cancelled J has rank4 and four active propagators. The
+81-to-123 comparison is a change in immediate fanout and coefficient size,
+**not an observed work regression**: the appropriate two-step counterfactual
+has 124 endpoint keys plus the intermediate B, versus 123 after composition.
+Avoiding B and J could avoid useful descendant work, while other paths or
+shared covers may already need all of it. Rank4 does not establish that J's
+cone is cheap. These counts alone prove neither a useful shortcut nor its
+failure; the subsequent descendant-union measurement is recorded below.
+
+The available copied Python module was **Symbolica
+`v2.2.0-86-g1f38ba9e`**, explicitly recorded in the result. Python3.11 import
+failed its ABI preflight; existing Python3.13 imported it successfully without
+a build or install. This is exact rational algebra on complete native diagnostic
+expressions, not a current RustRed/Symbolica3.0 performance comparison,
+authenticated coefficient import, original-source replay, parametric lift or
+new saved-rule authority. A useful witness must be reproduced through typed
+native3.0 APIs before a publication proposal. Original rules were untouched.
+
+### Measured successor union: the zero saves no marginal work here
+
+The [124-versus-123 endpoint-union pair](/common/dev/rustred/TMP/postlaunch-20261001/composition-successor-union-v1/execution-r1/RESULT.json)
+completed in 14.795 seconds inclusive, with every phase under the 150-GB hard
+cap and all four owned groups drained. Both used the same qualified 16-owner,
+508-route pool, Ready/W1, and no extra starts. The common singleton query rows
+were identical; only the cancelled J was removed. All 124 and 123 respective
+queries/roots passed complete cold-All reinspection with no uncovered successors,
+frontiers or errors.
+
+Both walks produced exactly **3,043 domains, 2,883 native inspections
+(839 Apply and 2,044 Route), 18,046 successors, 25,191 route masks and 36,807
+edges**. Traversal was 0.6048 versus 0.6065 seconds; this is not a useful timing
+difference. There were 11 zero-successor inspected Apply records in each arm;
+the report does not export terminal labels, so these are not labelled masters
+or declared terminals. Identical aggregate counts do not assert byte-identical
+graphs, and absence of an exact J record would not prove avoidance under wider
+covers. The tested cancellation provides **no marginal union-work benefit**
+under this policy and pool. Neither arm includes B, so its elimination remains
+unmeasured; no physical-cohort or published-macro conclusion follows.
+
+### Completed diagnostic summary
+
+| Diagnostic | Exact/local result | Total-work conclusion |
+| --- | --- | --- |
+| Coefficient-face split | Conditional n8 term vanishes on its zero face; all obligations retained | Local inspection operations increase 173→271; no descendant-union test |
+| [17-point target-directed Laporta](/common/dev/rustred/TMP/postlaunch-20261001/rule-quality-portfolio/finite-owner481-search-v1/RESULTS.md) | 17/17 solved and source/guard replayed, no residuals or zero-RHS; 780 panel plus 36 control raw RHS terms | No useful witness; no typed baseline or whole-work comparison. 231.357s including 228.201s adapter compile/static work |
+| Two-rule composition | One real sibling coefficient zero; 175 original-term denominator obligations retained, not 175 unique poles | 81→123 immediate keys alone proves neither improvement nor regression; 6.441s diagnostic setup, not a Symbolica3 implementation benchmark |
+| Cancelled-endpoint union | 124/124 and 123/123 cold-verified | Exactly unchanged domain/native/successor/edge counts; no marginal work benefit |
+
+### What this changes about the next experiment
+
+Do not integrate this one-child shortcut merely because a zero was found, and
+do not reject it merely because its immediate RHS is longer. The next smaller
+discriminator was the matched native descendant-work comparison of the 124-key
+two-step endpoint union against the same 123 keys after removing J. The
+existing ingress can route uninstalled raw supports without external
+canonicalization. This isolates J's marginal union cost; both arms have already
+substituted B, so neither measures eliminating B itself. Initial-root treatment
+can differ from admitting a macro-rule RHS. These are distinct root scopes,
+not automatically equivalent closure proofs or an implementation-equivalent
+macro benchmark. The input-to-output algebra would still require typed native
+authentication. Absence of a literal J record would not establish semantic
+avoidance, because a wider admitted domain might cover it.
+
+With that negative discriminator retained, the one authorized stronger screen is **joint
+elimination of a small, predeclared
+set of costly intermediates**, allowing cancellation among sibling paths before
+their expansion is committed. For this finite parent, a natural bounded set is
+its seven original same-support rank5 immediate keys; this is prepared next,
+not yet executed or a promise that seven is optimal. A substituted intermediate
+reintroduced by another child must remain in the output. Only a genuinely new
+cancellation or reduction in difficult endpoints can justify another union
+walk; otherwise park this composition sequence rather than sweep depths. Existing
+native matching/application must supply their actual identities, with every
+unresolved child left explicit. Existing Symbolica reduction and original-source
+bookkeeping must own the algebra; no new polynomial or elimination kernel is
+needed. Measure full endpoint degree distributions and coefficient growth,
+not merely the number of eliminated intermediate names.
+
+There is an additional publication seam: the current
+[source replay](/common/dev/rustred/crates/rustred-core/src/foundry/artifact/source_port/replay.rs:189)
+compares a regenerated canonical RHS, not arbitrary row-span membership.
+Concatenating parent/child source lists does not automatically authenticate a
+composed RHS. A future implementation needs an explicit checked arithmetic
+composition/guard-pullback derivation or the existing original-combination
+machinery, without weakening that replay contract. Only then is a matched
+whole-four-loop work/cold experiment interpretable; a separately scoped
+five-loop transfer remains necessary. The independent finite-target Laporta
+lane can provide genuinely different relations where composition only makes
+the current recurrences denser.
 
 ## Concrete proposed experiment and falsifiers
 

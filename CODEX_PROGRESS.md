@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 20:48 UTC (22:48 Zurich)
+## Current workboard — October 1, 21:22 UTC (23:22 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -22,10 +22,12 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
 | Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected; native guarded-envelope probe prepared/source-reviewed, not run | Resume after the newly requested rank-zero control |
 | Helper-free rank-zero controls | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Both controls cold-PASS and drained; physical116-query control587.902s inclusive | Delivered; use as a finite five-loop comparison workload, not full numerator coverage |
-| Domain-growth mechanism and dimensional identities | `r_primary_transfer_audit`; root | Physical input/coverage audit delivered; reviewing dimensional-recurrence authority and source options | Critique exact shortcut candidates; do not infer global termination from abstract cycle closure |
+| Domain-growth mechanism and dimensional identities | `r_primary_transfer_audit`; root | Dimensional-recurrence/source-authority note delivered and root-reviewed | Paired shifts are prospective fixed-d source proposals, not installed rules or a speedup |
 | Selective coefficient-image falsifier | `rule_quality_audit`; independent `r_primary_transfer_audit` | Delivered: exact false-edge removal confirmed, partition adds local work | No broad split implementation or speed claim; reopen only with a net-work mechanism |
-| Exact combinations / hidden zeros / targeted Laporta | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Active research and real4L composition diagnostic design | Reuse Symbolica and existing native provenance; test real cancellations before engine integration |
-| Representative whole-work pilot design | `five_loop_order_runner` | Active source/binary inventory | Existing combined4L and finite5L controls; no production changes or uncoordinated heavy launches |
+| Exact combinations / hidden zeros | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Two-rule cancellation has zero marginal descendant-work benefit in completed124/123 control | One bounded seven-child joint algebra screen; park unless genuinely new cancellation/hard-endpoint benefit |
+| Targeted finite Laporta | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered:17/17 fixed targets solved and source-replayed, no zero-RHS rule | Park unguided extra seeds; no demonstrated sparse or whole-work improvement |
+| Local reduction before symmetry routing | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered/cold-PASS but negative:4.73% more domains,6.29% more inspections | Park this intervention; no repeat/promotion without a new mechanism |
+| Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Active narrow steering adaptation, run grant issued | All116 required rows verbatim; same67 programs/8246 routes; omit only auxiliary starts; bounded pilot/cold gate |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -40,6 +42,135 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 21:22 UTC — hidden-zero marginal work unchanged; literal-owner arm
+
+- [M] Exact cancellation's endpoint-union test cold-PASSes in14.794594s
+  inclusive, all four owned phases drained at150GB. Naive124 and composed123
+  both schedule3,043 domains, inspect2,883 natives (839 Apply/2,044 Route),
+  emit18,046 successors and record36,807 edges. Traversal0.604785s versus
+  0.606481s; all124/123 queries are independently rechecked, no errors/frontiers.
+  Removing the cancelled endpoint provides NO marginal domain-work benefit in
+  this pool. This does not time a native macro, skip its intermediate B, or prove
+  physical-cohort reachability. Evidence:
+  `TMP/postlaunch-20261001/composition-successor-union-v1/execution-r1/RESULT.json`.
+- [D] Preserve that negative result. Composer may perform one joint algebra
+  screen of the seven ORIGINAL same-support rank5 parent children, retaining
+  full identities and guards. Freeze naive endpoints before cross-child
+  coalescing; a substituted child reintroduced by another RHS cannot be dropped.
+  No further union walk without a genuinely new cancellation/hard-endpoint
+  signal, and no blanket composition engine from this diagnostic.
+- [M] Literal449 baseline completes in17.031395s inclusive, native
+  preparation1.098703s/traversal4.174834s:26,025 domains/17,957 native
+  reinspections, all58 required queries and32 distinct roots independently
+  verified. Candidate first attempt stops in2.213s after successful admission:
+  old frozen CLI lacks `candidate-inspect`. This is a wrapper failure before
+  candidate traversal, not a mathematical or performance result.
+- [D] One narrow correction uses the successful native admission census
+  (11 donor rules,1 finite terminal), retains full donor source/guard replay,
+  and explicitly reports the exact terminal key unavailable. No second binary
+  or invented decoder. Original baseline and failure receipts are preserved;
+  corrected `run-r2.py`/`PROTOCOL-r2.md` SHA prefixes851db327/1b7cbcdb pass
+  independent delta audit and launch after composer drain (handle76908).
+  Same frozen walk/cold executable, same58 query bytes, same17/507 candidate.
+- [E/D] Root asks for a steering-only feasibility check of a further five-loop
+  control: all116 ORIGINAL physical query rows unchanged, same owner/route/repair
+  pool, no auxiliary starts. The R0 success does not establish that larger scope.
+  No such full-physics helper-free run is launched or qualified at this update.
+  Resource/timing bounds and input audit precede any isolated pilot; production
+  remains user-controlled and untouched.
+- [M/D] The corrected literal449 replay passes all11 rules/89 original-source
+  entries and guards, but its older diagnostic schema omits `finite_residuals`;
+  a redundant wrapper cross-check stops the arm before traversal. Native
+  admission already proves the payload's1 finite residual. Preserve that
+  second setup failure; root authorizes deleting only the unsupported-field
+  assertion and proceeding. Harmless wrapper/schema corrections do not require
+  more permission loops; native/math/scope/resource failures still stop the test.
+- [E/D] Independent code critique rejects a proposed generic macro-precision
+  benefit: ordinary constant-shift Apply→Apply already has exact refined
+  images with sign crossings and A/R/D bounds retained. Combining shifts alone
+  cannot improve those images. Real precision opportunities are conditional
+  coefficient filtering and nonliteral routing. Guarded pullback machinery
+  exists, but generic correlated A/D pullbacks are explicitly unsupported there;
+  the campaign queue does not carry arbitrary coefficient predicates. No new
+  geometry kernel or unfounded box-composition optimization is implemented.
+- [D] Root subsequently releases the full116-required helper-free five-loop
+  pilot: remove only the two R0 input transformations from the existing harness,
+  retain original required rows verbatim and the full67-owner/8,246-route repair
+  pool, omit auxiliary starts deliberately. CPU48–63/W16,150GB cap+150GB host
+  reserve, at most1,800s inclusive preparation/checkpoint/cold/drain. Runner
+  performs the narrow steering adaptation, auditor checks scope concurrently;
+  composer gets the first short slot. No full183-start parity or closure claim
+  without actual completion and cold-All. No production lifecycle changes.
+- [M] Literal449 final corrected arm cold-PASSes in19.013768s inclusive.
+  All11 donor rules/89 source entries replay; all58 original queries/32 roots
+  are independently checked with19,087/19,087 native reinspections. Compared
+  with baseline:26,025→27,256 domains (+4.73%),17,957→19,087 inspections
+  (+6.29%), traversal4.174834→4.231316s (+1.35%). Routed admissions decrease
+  443,631→427,168 but successor admissions rise410,681→427,487; edges decrease
+  495,898→488,623. This is NOT a useful whole-work improvement. One added
+  labelled terminal is admitted; its exact key is not exported by this census.
+  Independent source/receipt audit passes, all owned groups drain. Park this
+  intervention, without concluding local reduction can never help. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/local-owner449-v1/receipts/local449-r3/RESULT.json`.
+
+### October 1, 21:10 UTC — exact hidden zero, finite Laporta and local-owner test
+
+- [M] Previous milestone `6e2db688` is committed and pushed to `origin/main`.
+  It records the completed physical R0 control and research directions; no
+  production binary, input or checkpoint changed. The current goal stays active.
+- [M] A native fixed-target Laporta probe solves and regenerates/replays all17
+  nominated owner481 points:16-point panel plus a separate control, no residuals
+  or zero-RHS rules. Native load/search/replay is2.158541s; compilation of the
+  small helper linked against cached release libraries is228.201s, explicitly
+  excluded from solver time. Panel search0.244654s versus source replay1.727681s;
+  its16 RHSs contain780 terms. This demonstrates a usable exact finite-source
+  probe, not a better recurrence or faster campaign. Comparing raw RHS terms to
+  routed/merged successor envelopes would be invalid. Search uses the saved
+  family/root/order but default source visitation, not A1 chronology. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/finite-owner481-search-v1/RESULTS.md`.
+- [M/E] The actual saved4L rule61 at
+  `[0,1,1,1,1,-1,-4,0,0,1]` and rule41 at its child
+  `[0,1,1,1,1,-2,-2,0,-1,1]` have a genuine cross-path cancellation:
+  `(4-6*d)/(3+3*d)` plus its negative at
+  `[-1,0,1,1,1,-1,-2,0,0,1]`. All original parent/child guards,175 denominator
+  obligations and remaining terms are retained. Diagnostic6.441156s inclusive,
+  all process groups drained. The appropriate two-step comparison is124
+  endpoint keys plus the intermediate, versus123 coalesced endpoints, not
+  simply original81 versus123. We have not established that avoiding the
+  cancelled key avoids its cone, or that this fixed point is reached by the
+  frozen physical queries. A native124-versus123 descendant-union discriminator
+  is approved, pending protocol audit; no replacement rule is published.
+- [D] That diagnostic uses a copied, existing Symbolica2.2 Python module for
+  exact rational algebra on native rendered expressions only. The recorded
+  Python3.11 ABI failure precedes a successful Python3.13 preflight. It is NOT
+  a Symbolica3 performance comparison, typed coefficient import or source
+  authority. A production composition must use native3 APIs and authenticate
+  arithmetic/guard pullback; merely concatenating source traces does not meet
+  today's canonical-forward-row replay contract. Evidence:
+  `TMP/postlaunch-20261001/exact-rule-composition-v1/execution-r1/`.
+- [D/E] Primary-literature review of Kira3 suggests testing local reduction
+  before symmetry routing. Native4L witness domain7 routes missing literal449
+  through16 masks (3 pruned), turning a16-point source into13 successor images;
+  its route itself costs only0.1ms, so it is a fanout witness, not a measured
+  hot spot. An existing full-root511 A1 checkpoint contains a compatible449
+  program (46,439bytes, SHA prefix3ed44ad8), independently checked for identical
+  family/root/order/source strategy/backend. Test17 owners/507 routes against
+  baseline16/508, with all58 required query bytes unchanged and no new helper
+  start. Remove only449's now-incompatible outgoing nonliteral redirect.
+  Native admission/source replay and cold whole-query coverage remain required;
+  any added labelled terminals are part of the representation/cost tradeoff.
+- [D] Runner owns that first heavy slot. Composer prepares the endpoint-union
+  discriminator; independent auditor reviews both protocols and outcomes.
+  Pilot locks and CPU allocations remain disjoint from production. No broad
+  source generation, engine rebuild, custom CAS or scheduler work is started.
+- [D] New root-reviewed note:
+  `docs/research/dimensional_recurrence_shortcuts_2026-10-01.md`.
+  Correctly ordered up/down operators can propose a fixed-d relation; at one
+  loop it is just the ordinary tadpole IBP. At five loops, d-4 factors forbid
+  treating four-dimensional Gram zeros as exact in dimensional regularization.
+  No dimensional-source proof type or speedup is claimed. This lane remains
+  a scoped source-proposal opportunity after the two cheap discriminators.
 
 ### October 1, 20:48 UTC — completed R0 control and radical-rule experiment plan
 
