@@ -38,6 +38,54 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Draft review,02:27UTC:** independent reviewer found no production-
+  code authority blocker, but requested an eligible layered/multi-cut path
+  through actual P3 records and an explicit bound stale forged-negative test
+  showing extra unresolved work rather than closure. Author is adding these
+  and hoisting immutable prefix selection out of per-miss loops. These are
+  source review findings, not executed tests. The new0f timing arm is verified
+  live at347s with1,044,896 native completions,1,007,008 pending, zero frontiers,
+ 9.29GB RSS and no stop/error; no unequal-prefix speed claim is made.
+- [M/D] **Isolated prefix source draft ready,02:26UTC:** six production files
+  and two test files, reusing the existing snapshot/Resolver fixture. Eight
+  new focused tests cover honest stale lookup equivalence, physical prefix
+  pruning, unbound/wrong-session/AllMiss fallback, exact/orthant/minimum-ID
+  priorities, modeled rescue/session transitions, malformed inputs, cooperative
+  cancellation and unchanged same-view policy. Formatting/diff checks pass;
+  **no compilation or test execution yet**. Existing actual native restore/
+  interrupted-controller equivalence tests are also part of the later gate;
+  the small synthetic rescue test is not presented as actual restore evidence.
+  Draft receipt and source hashes are in
+  `TMP/postlaunch-20260930/stale-negative-prefix/DRAFT_RECEIPT.md`.
+  Independent source audit is active. The ongoing old/new
+  five-loop pair still owns the only heavy measurement slot.
+- [M] Root corrected a timing label in the new lookup design note: historical
+  h0 native elapsed1202.645s includes preparation; traversal alone1138.826s.
+  Source resolution221.497s is18.42% of elapsed or19.45% of traversal. The
+  original18.42% ratio was numerically right but labeled traversal incorrectly
+  in that note; neither fraction is lookup-only cost or a promised saving.
+- [M] **Baseline arm fully drained; new arm live,02:24UTC:** old inclusive
+  lifecycle1419.262s, cold structural rawINCOMPLETE/exit9, zero violations,
+  no native reinspection. Its four owned process groups and adapter are gone.
+  The approved new0f arm is independently confirmed live: adapter648429,
+  supervisor648582, native/PG648587; CPU0–31, sameW32, inputs and steering.
+  Main engine source remains frozen and the isolated prefix draft is not in
+  either measured binary. No additional pilot or production action occurred.
+- [M] **Old arm completed native stop,02:17UTC:** the current matched baseline
+  stopped cooperatively and saved CP6 generation1, with3,423,280 native
+  inspections,6,224,002 committed domains and2,686,217 pending. No abandoned
+  obligations, frontiers or errors;10 undecided-union cases safely fell back
+  to ordinary inspection. P1/P2/source-resolution wall97.80/307.35/217.88s.
+  Native groups532189/532188 have drained; its owned cold structural process
+ 626081 is independently verified live at02:18UTC under adapter531855. The
+  arm is not fully complete until cold checking and process drainage finish.
+- [D] Isolated source draft is in
+  `TMP/postlaunch-20260930/stale-negative-prefix/worktree`, branch
+  `codex/epoch-stale-negative-prefix`, based on14933f8b (same engine source as
+  main). Runtime owns the small private session-bound prefix seam and tests;
+  independent mathematical/code auditor is separate. No build is authorized
+  during S5's heavy reservation. Clarified that unbound **stale** results retain
+  full lookup; the existing same-view exact-only shortcut remains unchanged.
 - [D] **Next narrow implementation authorized,02:12UTC:** both independent
   studies support reuse of an honest stale negative's append-only prefix within
   the current fixed-quarantine worker session. Root assigned source-only work

@@ -21,11 +21,13 @@ In the completed historical full-A1 h0 pilot:
 | Remaining stale or unprobed full-store searches | 14,934,455 |
 | Source-resolution wall time | 221.497 s |
 | Entire P2 preparation wall time | 312.469 s |
-| Native traversal wall time | 1,202.645 s |
+| Native elapsed wall time, including preparation | 1,202.645 s |
+| Traversal wall time alone | 1,138.826 s |
 
-Source resolution is 18.42% of traversal, but includes query construction,
-hashes, and positive verification as well as lookup. This is not a lookup-only
-timer or an achievable speedup. The rows above do not measure snapshot lag.
+Source resolution is 18.42% of native elapsed time (19.45% of traversal), but
+includes query construction, hashes, and positive verification as well as
+lookup. This is not a lookup-only timer or an achievable speedup. The rows
+above do not measure snapshot lag.
 
 Currently, a negative inspector result from an older snapshot causes P2 to
 search the current store from ID zero. The Ready implementation already has
@@ -71,9 +73,11 @@ snapshot publication and dispatch session. After existing P1 job checks, carry
 an optional eligible negative-prefix bound into P2. Do not reconstruct this
 eligibility merely from deserialized `LookupReport` fields.
 
-Unbound, reference, synthetic AllMiss and raw restored results use full lookup.
-Resume reissues unfinished jobs with new session/sequence/version/watermark
-bindings; only freshly dispatched jobs may acquire the new eligibility.
+Unbound, reference, synthetic AllMiss and raw restored stale results do not
+receive the new suffix shortcut and retain full lookup. The existing same-view
+exact-only shortcut and its validation contract remain unchanged. Resume
+reissues unfinished jobs with new session/sequence/version/watermark bindings;
+only freshly dispatched jobs may acquire the new eligibility.
 No checkpoint schema change, retained per-query proof, extra snapshot-root pin
 or authentication framework is intended.
 
