@@ -67,6 +67,25 @@ non-regression gap or demonstrates twenty useful cores. Details:
 Production lifecycle remains user-owned. Observe
 the repaired run to guide subsequent optimization rather than delaying it.
 
+**October1 06:20UTC production update:** the repaired walk has now stopped
+with one committed local-dispatch `ExactGap`, zero native errors and49,917,808
+inspections. CP6 generation8 saved successfully. Bounded indexed extraction
+locates a rank11 singleton descendant of owner`000011001001011`; no saved rule
+or terminal dispatches it. This does not establish that a required integral
+lacks an IBP: descendants can overapproximate support, and ancestry is not yet
+determined. The newer performance build leaves this dispatch code unchanged.
+Do not recommend resume as a repair. Reproduce the isolated owner/point using
+existing interfaces, then distinguish a genuine rule-coverage omission from
+an unnecessary descendant before selecting the fix. No production mutation.
+
+Keep generated-rule quality as the main structural opportunity alongside S5:
+A1's repeated four-loop work reductions are measured; a bounded portfolio
+scoring downstream fanout, rank excursions, guard fragmentation and exact-lift
+cost remains pending. Full programmable integral ordering is already implemented,
+but its tested nondefault policies have not beaten A1 overall. Existing recipes
+can be varied without rebuilding; changes to generated algebra require new owner
+payloads and validation, not reinterpretation of existing checkpoint rules.
+
 | Requirement | State and evidence |
 |---|---|
 | Persisted runtime integral order and interfaces | Implemented, tested and independently audited; non-default comparators tested, without a useful advantage over A1 source selection |

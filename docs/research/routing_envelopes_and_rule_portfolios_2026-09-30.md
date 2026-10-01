@@ -344,7 +344,9 @@ missing; aggregate counts cannot identify the worst recurrence reliably.
 A1's measured four-loop required-domain counts fell 69,315→38,680 and
 64,231→38,681 in two historical pairs; total times 97.286→84.538 s and
 102.024→82.553 s. Limited-five source-policy evidence also improved, but full
-67-owner A1 generation/traversal has not yet completed. These establish genuine
+67-owner A1 traversal has not yet completed. Generation/admission subsequently
+completed for all67 owners; the October1 walk stopped on a local saved-rule
+coverage gap after49.918M inspections (see `CODEX_PROGRESS.md`). These establish genuine
 sensitivity to generated rules, not a promise that a further portfolio closes the
 five-loop scope or wins by the same factor.
 

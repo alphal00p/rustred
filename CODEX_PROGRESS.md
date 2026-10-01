@@ -38,6 +38,55 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Frontier located; rule-selection priorities reconciled,06:31UTC:**
+  S5 decoded only the36-byte frontier inventory, one indexed97-byte geometry
+  record and a64KiB final record tail. Node64,952,600 is a singleton Apply
+  `ExactGap` for owner`000011001001011`, physical indices
+  `[0,-10,0,0,1,2,0,0,1,0,-1,1,0,1,1]`: numerator rank11,
+  positive-power sum7, difference−4. Saved owner dispatch exhausts its rules
+  and terminals at this point. This is neither another P1 error nor proof
+  that an IBP does not exist; conditional/overapproximated descendants can
+  include extra points, and required-versus-helper ancestry is not yet known.
+  A separate optional guard-work refusal is not the frontier disposition.
+  New-versus-production dispatch/applicability/rescue source is unchanged;
+  a faster build or resume is not a rule repair. CP6 generation8 stays untouched.
+  Evidence: `TMP/postlaunch-20260930/production-frontier-20261001/TRIAGE.md`.
+- [D] **Active lanes and next executable steps,06:31UTC:** runtime owns the
+  already-running single duplicate-query diagnostic through save/cold/drain;
+  S5 prepares an existing-CLI, one-owner singleton reproduction without loading
+  the production graph (execution waits for that resource release and root's
+  command review). Independent auditor reconciled the rule-selection evidence
+  and now reviews the unlinked saved-case probe before any linkage/build.
+  No source implementation, native probe or production action was started here.
+- [M/E] **Largest-gain direction remains generated-rule quality:** the latest
+  matched four-loop A1 source-visitation pairs reduce domains44.20%/39.78%
+  and generation+staging/admission+walk+cold time13.10%/19.08%. Limited14-owner
+  five-loop transfer improves the same total25.70% under production generation
+  policy, not a full-five-loop comparison. Persisted programmable integral
+  order is implemented, but tested B1/B2 choices did not improve A1 overall.
+  Current production search still accepts its first valid rule. A bounded
+  downstream-aware portfolio (RHS/routing fanout, rank excursions, exceptional
+  guard fragmentation, exact materialization cost) is pending, not a measured
+  improvement. The actual frontier is now a concrete case for that investigation.
+  Do not confuse this with input-query scheduling or the~6% resumed traversal gain.
+- [M] **Whole stopped-run phase evidence:** production accumulated P1
+ 5,123.222s, P2 11,633.243s, P3 4,515.145s, inspection/wait4,061.344s,
+  boundary1,681.942s and checkpoint212.767s. Within P2, source resolution
+  takes6,145.600s and reverse lookup5,078.339s over1,362,969,016 accepted rows.
+  These final invocation clocks replace the earlier short-window estimate for
+  whole-run attribution; they are not CPU times or an isolated speedup bound.
+  Both lookup directions matter. Cross-entry duplicate frequency is still
+  pending the diagnostic result; current high repetition is a hypothesis.
+- [M/D] **New production frontier; do not blindly resume,06:20UTC:** responding
+  to the user's resume question, root found native3741792 no longer present.
+  Final status is `stopped/frontier_stop`, with1 native frontier,0 native errors,
+ 49,917,808 local inspections and13,808,105 pending. CP6 generation8 is saved,
+  resumable and has0 abandoned obligations/warnings. This supersedes the earlier
+  healthy06:00 observation; it is not another P1 fatal error. The new optimized
+  build has not been shown to resolve this frontier. S5 is assigned read-only
+  small-log/source/index triage for its exact domain/reason; no giant checkpoint
+  decode/copy or production restart/mutation is authorized. The existing local
+  duplicate-query diagnostic continues unchanged under runtime ownership.
 - [M/D] **Resumed pair accepted; one diagnostic running,06:17UTC:** S5
   completed candidate in1284.921s inclusive with clean generation2 save and
   cold-None INCOMPLETE/zero violations. All five candidate groups drained,
