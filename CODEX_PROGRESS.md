@@ -38,6 +38,29 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Fresh repaired campaign is prepared, not started (09:07 UTC).**
+  `campaigns/five-loop-a1-epoch-frontier-repaired-20261001/` contains67 original
+  owners,8246 unchanged routes, all183 byte-identical queries and one220735-byte
+  partial-rule payload. Original/staged query SHA256 both
+  `42a0c62771b6e7c53cc937d46ad9505e33c282db31a8d6f64846ecbca749ef64`.
+  Native executable and steering are frozen in `bin/`; there is no run or
+  checkpoint yet. Metadata-only preparation exit0; user retains launch control.
+  Same32 physical cores64–95,31 inspectors,600GB RAM/5% margin,150GB reserve,
+  hourly checkpoints and prior Epoch/G2 settings. Exact start/resume/rollback
+  instructions:`docs/five_loop_frontier_repair_runbook.md`. The user was given
+  the start command; branch consolidation cannot affect the frozen release.
+
+- [M/D] **Repair milestone pushed as `4753995f`, October1 09:04 UTC.**
+  Independent staged-source audit passed. The final real-CLI symbolic band
+  smoke also passes cold installation and initial application:166 successors,
+  zero problems,2067 completed inspections and no frontiers before the requested
+  20000-domain diagnostic allowance. Inclusive135.957s, walk3.966s, peak5.113GB;
+  process group drained. This is partial-repair readiness, not scoped closure.
+  Frozen committed release tree:`TMP/releases/20261001-frontier-repair/`;
+  executable and patch match the previously recorded exact SHA256 identities.
+  Root is preparing portable fresh-run metadata, then fast-forwarding `main`.
+  No production run has been started, stopped or modified.
+
 - [M] **Repair integration gate passes, October1 09:00 UTC:** all five public
   app tests pass (0.04 s execution; 149.211 s target-only release rebuild/run).
   They cover cold replay, unchanged terminals, malformed/binding/resource

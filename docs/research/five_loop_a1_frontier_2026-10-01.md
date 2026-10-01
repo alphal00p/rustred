@@ -163,9 +163,9 @@ local frontier evidence directory; the frozen executable digest begins
 `b7f4b9f7fea6f527`.
 
 The fixed relation subsequently passed independent original-source replay and
-installed lookup (3.757804s inclusive, terminal count unchanged). It is **not
-yet a delivered repair**: RHS obligations, durable transport and continuation
-still need validation. Depth3 was not run because depth2 already found the
+installed lookup (3.757804s inclusive, terminal count unchanged). At that point
+it was **not yet a delivered repair**: RHS obligations, durable transport and
+continuation still needed validation. Depth3 was not run because depth2 already found the
 target relation. The depth1 miss does not establish that the integral is a
 master, and it was not installed as one.
 
@@ -243,6 +243,16 @@ test neither establishes recursive closure of the ray nor justifies changing
 the production scope. Evidence is under `nominated-ray-export/`,
 `nominated-ray-cold/`, `nominated-ray-full-follow/`,
 `nominated-ray-full-follow-1m/` and the CLI diagnostic directory beside them.
+
+The final real-CLI symbolic campaign check used the bounded band x1=10..12,
+the same fourteen fixed coordinates and full saved routing. Cold installation
+passed; initial application produced166 successor domains and zero problems.
+The walk completed2067 inspections with zero frontiers before its requested
+20000-domain diagnostic allowance (17932 pending, one budget-failed record).
+Inclusive135.957s, walk3.966s, peak5.113GB; all processes drained. Evidence:
+`nominated-band-cli-walk/`. This exercises the actual campaign path and is not
+recursive closure of that band. Combined with exact cold replay and the public
+checkpoint tests, it supports shipping this partial repair in a fresh walk.
 
 ### Follow-up, separate from repair delivery
 

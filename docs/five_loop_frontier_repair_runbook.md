@@ -1,0 +1,73 @@
+# Restart with the October 1 source-derived frontier repair
+
+The optimized repair build is frozen from commit `4753995f`. It reuses the
+existing 67 owner payloads and 8,246 routes, adds two independently replayed
+rules, and preserves all 116 required queries, 67 auxiliary queries and 939
+saved terminals. It does **not** regenerate owners or claim five-loop closure.
+
+The new rules cover the exceptional ray containing the stopped rank-eleven
+point. Cold loading checks original-source identities, guards and strict
+descent. Neighboring concrete and symbolic campaign-path checks found no new
+frontier before their diagnostic resource allowances. Future gaps remain
+possible; the production policy still saves and stops at a frontier.
+
+## Start the prepared fresh walk
+
+Use the `codex_astra` tab of the `rustred` Zellij session. The preparation is
+metadata-only; **the user runs the following command to start the calculation**:
+
+```bash
+cd /common/dev/rustred/TMP/releases/20261001-frontier-repair
+nix develop --command python -B examples/python/production_saved_owner_campaign.py \
+  --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-epoch-frontier-repaired-20261001 \
+  --start
+```
+
+Keep the current Symbolica license in the shell environment. No rebuild is
+needed. Frozen settings are 32 physical cores (64–95), 31 inspectors, a 600 GB
+RAM ceiling with a 5% save/stop margin, 150 GB host-memory reserve and hourly
+checkpoints. The other Epoch, G2 and publication settings are unchanged.
+
+The added rules change the immutable inputs bound to a checkpoint, so the old
+walk cannot resume with this repair. This is a **fresh traversal of saved
+rules**, not a fresh IBP-generation campaign. Both old campaign directories and
+their checkpoints remain untouched.
+
+## Resume the new walk after an interruption
+
+Use the same frozen release and directory, adding `--resume`:
+
+```bash
+cd /common/dev/rustred/TMP/releases/20261001-frontier-repair
+nix develop --command python -B examples/python/production_saved_owner_campaign.py \
+  --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-epoch-frontier-repaired-20261001 \
+  --resume --start
+```
+
+Rollback means returning to the original campaign with its original frozen
+binary, inputs and checkpoint—not substituting an old binary into the repaired
+campaign. Moving development to `main` does not change this frozen release.
+
+## Validation and exact release identities
+
+- Core public regression tests: 4/4 pass.
+- App public integration tests: 5/5 pass, including same-input Epoch resume and
+  rejection of a different valid same-length repair payload.
+- Python staging and upgrade tests: 39/39 pass.
+- Actual ray export: 24.883 s; independent cold load: 16.736 s. No added masters.
+- Full-routing symbolic band: 2,067 completed inspections, zero frontiers before
+  the explicit 20,000-domain diagnostic allowance. This is not completed
+  recursive closure.
+
+CLI SHA256:
+`4e76707baf8419b4b072ea58af0091272446138b33e0390fe23c10ce2f6e1f58`.
+Partial-rule payload (220,735 bytes) SHA256:
+`77941434f7d2bd6d161edce32946d5e70608b80fec518c543eee9020a6787e7a`.
+
+The preparation receipt and frozen executable are under the new campaign's
+`inputs/` and `bin/`; the release manifest is beside the frozen release.
+Local diagnostic evidence is under
+`TMP/postlaunch-20260930/production-frontier-20261001/`. See the
+[mathematical investigation](research/five_loop_a1_frontier_2026-10-01.md) for
+the actual exceptional guard and the distinction between local applicability
+and full reachable-obligation closure.
