@@ -943,3 +943,92 @@ No new certification framework is introduced for this performance screen.
 Relevant source: `owners/domains/applied/engine.rs`,
 `owners/domains/applied/tests/support_transitions.rs` and
 `routed/campaign/worker.rs` under `crates/rustred-core/src/solver/candidate_reduction/`.
+
+## A genuinely changed five-loop recurrence: owner17941
+
+After the unchanged-formula controls, a native preflight identifies a different
+case in owner`101010000110001` (17941), generated under parent30527. At physical
+powers `[1,0,3,0,2,0,0,0,0,2,1,0,0,0,1]`, the current A1 program selects rule217.
+This point has A=10/R=0/D=10 and lies in the original required
+`conv-d10-a16-r6-101010000110001` domain. Exact guarded application produces
+46 successor events with no reported problems. Two same-support children have
+A=8/R=1: the legacy E=A+R−6 order permits this step, whereas R-primary does not.
+The rule fixes n1=0 but its two children have n1=−1, so it cannot immediately
+repeat on them. This is not evidence of an infinite rank-growth ray.
+
+A fresh one-sector pair changes only the integral-order descriptor; original
+source visitation, parent, exact backend, numerical depth0/rank10 generation
+policy and other limits remain fixed. Both arms use the same frozen release
+CLI, W16/CPUs32–47, and pass all-rule source replay, native order/family/sector
+admission, complete diagnostic inspection, ordered point matching and guarded
+application. All owned processes drain.
+
+| One-owner generation/point diagnostic | A1 | R-primary |
+| --- | ---: | ---: |
+| Rules | 233 | 235 |
+| Finite terminals | 25 | 31 |
+| Stored RHS terms | 6,928 | 7,126 |
+| Stored coefficient entries | 1,964 | 2,107 |
+| Generation phase, seconds | 16.169678 | 22.432643 |
+| Source replay phase, seconds | 8.560112 | 10.179049 |
+| Inclusive diagnostic, seconds | 30.593377 | 39.678782 |
+| Selected rule at the point | 217 | 231 |
+| Immediate guarded successor events | 46 | 18 |
+| Uniform same-support rank-raising events | 2 | 0 |
+
+Unlike the preceding controls, the complete native rule contents really change.
+The fresh A1 shard is byte-identical to production. The R-primary program adds
+six finite terminal keys and removes none. Its rule231 is fully fixed at this
+point and directly uses three of those new terminals with nonzero coefficients;
+the point itself is not a terminal. Thus18 versus46 events is **not** a stronger
+reduction to the same basis. A finite nonminimal basis is allowed by the project
+goal, but the added terminals are a real cost, and point-level counts do not
+establish less recursive work. A fixed-program comparison over the full original
+required domain is the next test; these diagnostic times are not traversal times.
+
+The first wrapper attempt generated and replayed successfully but used an
+absolute manifest owner path where native admission requires a relative one.
+Its26.088s failed receipt is retained separately. The corrected fresh pair above
+does not reuse that failed run's timing or count it as a successful full arm.
+Evidence: `r-primary-17941-generation-v1/receipts/{a1-r2,r-primary-r2}/` under
+the study directory, including complete terminal-key and native-content diffs.
+
+### Why the raw rank-raising pair is not unavoidable physical work
+
+There is a sector-specific symmetry which is not a permutation of all15 input
+denominators. With all other loop momenta fixed, make the substitution
+
+```text
+k3 -> k2 - k4
+k4 -> k2 - k3
+```
+
+It exchanges active zero-based axes2/9 (D3/D10), preserves the other active
+denominators and preserves numerator axis1 (D2). RustRed's existing Symbolica-backed input
+compiler, exact momentum-map verifier and integral transporter verify determinant
+−1, a unit Jacobian, and the two concrete identities in both directions:
+
+```text
+I(1,-1,1,0,2,0,0,0,0,2,1,0,0,0,1)
+ = I(1,-1,2,0,2,0,0,0,0,1,1,0,0,0,1).
+```
+
+The corresponding guarded coefficients are opposite signs of
+`(-23+17*d-3*d^2)/24`, so these two terms cancel at the audited singleton.
+The adjacent n2=4 test does **not** identify its two children under this supplied
+map; it does not exclude another identity. This cannot justify deleting these
+terms along the entire symbolic ray or narrowing its exceptional conditions.
+
+A tiny external JSON-fed adapter linked to the cached optimized core tests the
+supplied map and physical powers without rebuilding the engine or introducing
+any CAS implementation. The input family equals the original production family
+and its emitted fingerprint agrees. Independent source and receipt audit pass.
+Linking took7.165s; the guarded W1/CPU0 diagnostic took1.143s inclusive, with
+0.038s waited child CPU and12,320KiB maximum child RSS. These are proof-probe
+costs, not generation benchmarks. Evidence: `sector-map-point/{verify.rs,
+request.json,build/,run/}` under the study directory.
+
+The optimization lead is generic, conditional RHS symmetry coalescing—not a
+hard-coded relation. Its applicability and likely frequency must be measured
+before implementation. No production rules, routing, or live campaign state
+were changed, and no campaign-switch recommendation follows from this example.

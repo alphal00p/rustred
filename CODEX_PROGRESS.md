@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 18:54 UTC (20:54 Zurich)
+## Current workboard — October 1, 19:25 UTC (21:25 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,8 +20,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` | Both cohort arms accepted; six native views show no changed formulas; all jobs drained | Read-only nomination of one evidence-backed recurrence-sensitive five-loop case; no native launch or grid authorized |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Both arm receipts, measured docs and six raw native views independently accepted | Critique next case for actual pivot sensitivity, relevance and required repair bindings |
+| Rule-mechanism transfer | `five_loop_order_runner` | Fresh233→235 rules,25→31 terminals; original point46→18 successors, no raw R-raising child | Prepare same original-query fixed-program walk; explicitly charge changed terminal basis |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Both generation arms and native point/symmetry checks pass; direct hits to3 added terminals identified | Audit fixed-program walk and cold coverage; no basis-neutral or global termination claim |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -36,6 +36,124 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 19:20 UTC — generation pair and sector-symmetry falsifier
+
+- [D] The immediately preceding user-question turn only reconfirmed production
+  A1 provenance; it did not advance optimization. Resume the reviewed one-owner
+  generation experiment rather than repeating that status. The live campaign
+  remains untouched, and the full goal remains active.
+- [M] Fresh A1 generation finishes in16.113s, producing the same233-rule native
+  shard byte-for-byte as production. All-rule source replay passes in8.505s.
+  Admission then rejects the wrapper's absolute manifest path: this is a
+  harness error, not a native rule failure. The26.088s failed attempt and its
+  drained process receipts remain under `r-primary-17941-generation-v1/receipts/a1-r1`.
+  One narrow correction makes only the manifest path relative while keeping the
+  inspection input resolved. Independent audit accepts `run-r2.py`; a wholly
+  fresh baseline starts under session21536, wrapper2835969/native2835972.
+  The candidate still requires accepted/drained baseline; same W16/CPU32–47,
+  original mathematical inputs and1,800s inclusive boundary. No recursive walk.
+- [E/D] Root identifies a possible sector-specific equivalence of the two raw
+  rank-raising children: `k3 -> k2-k4`, `k4 -> k2-k3`, other loop momenta fixed.
+  This swaps active axes2/9, preserves numerator axis1, and might cancel the two
+  opposite coefficients at physical n2=3. It is not a permutation of all15
+  denominators and does not establish cancellation along the whole n2 ray.
+  Therefore raw rank-raising edges are not yet unavoidable physical work.
+- [D] To test that mechanism without rebuilding the engine, root writes a tiny
+  external JSON-fed research adapter in `sector-map-point/verify.rs`, linked
+  to the existing optimized RustRed rlib. All algebra uses the existing compiler,
+  exact momentum-map verification and integral transport, backed by Symbolica;
+  no new CAS or campaign behavior. Independent auditor checks family equality,
+  both transport directions and a neighboring non-match control. Metadata-only
+  compilation passes; linking and an isolated point check remain pending. This
+  cannot establish general rule simplification, a runtime gain or closure.
+- [M] Corrected fresh pair completes: A1/rank-primary30.593377/39.678782s
+  inclusive, generation16.169678/22.432643s, source replay8.560112/10.179049s.
+  All six phases per arm pass and drain. A1 equals the production native view.
+  R-primary genuinely changes rules233→235, RHS terms6,928→7,126 and coefficient
+  entries1,964→2,107. At the original point it selects rule231, which has18
+  successors rather than46 and no uniform same-support R-raising child.
+  However finite terminals rise25→31 (six added/none removed); independent audit
+  identifies direct nonzero hits to three added terminals. The new rule is fully
+  fixed at this point and is not a stronger same-basis reduction.
+- [M] Existing core symmetry verification and exact transport prove both
+  directions of the proposed singleton identity with coefficient1, determinant
+  −1 and unit Jacobian; the emitted family fingerprint equals production. The
+  n2=4 non-match control passes for this supplied map, without excluding other
+  identities. Thus the original two opposite terms cancel at the singleton.
+  Source/receipt audit passes. Build7.165s, guarded W1/CPU0 run1.143s inclusive,
+  0.038s child CPU,12,320KiB maximum child RSS; no engine rebuild. This proof
+  probe used the build lock and spare CPU0, disjoint from the W16 pilot.
+- [D] Root grants a minimal fixed-program comparison over the **verbatim**
+  original required `conv-d10-a16-r6-101010000110001` domain, retaining all67
+  owners/8,246 routes and the unchanged repair overlay, replacing only this
+  owner with each qualified fresh program. No regeneration, descendant clipping
+  or additional starting requirements. Use existing lifecycle/stager/cold-All,
+  W16/CPU32–47 and1,800s inclusive per arm. Baseline must pass/drain before
+  candidate. Explicitly report the six extra terminals as a work/basis tradeoff,
+  not a free improvement, and do not infer global mixed-order termination.
+- [M] Read-only production at19:25UTC is live (PID1504002), roughly114.0million
+  discovered domains,76.4million local completions,15.5million pending and zero
+  frontiers; RSS100.2GB. The13/67 conservative root count is over an hour stale.
+  No convergence estimate or lifecycle action follows from this observation.
+- [E/D] Pending, conditional follow-up only: a first degree row
+  `A_excess+3R` is the smallest integer rank weight strictly rejecting the
+  observed raw ΔA=−2/ΔR=+1, while allowing sufficiently larger dot decreases.
+  This may be less restrictive than lexicographic R-primary, but neither fewer
+  terminals nor lower recursive work follows mathematically. Independent audit
+  accepts it as one mechanistic correction if the current full-domain tradeoff
+  disappoints, not a priority grid. It is expressible through the existing
+  runtime order API. Reopen only after the pending fixed-program result; require
+  fresh source-replayed rules and terminal-key comparison before any timing.
+
+### October 1, 19:00 UTC — next recurrence-sensitive five-loop case
+
+- [M/D] Previous goal turn made concrete progress: the real-routing R13 pair
+  passed its registered gates but did not improve traversal; complete native
+  views ruled out changed formulas. Three audited documentation files were
+  committed and pushed to `main` as `eff0b63a`. Unrelated FeynKit and untracked
+  work remain preserved. The active optimization goal is not complete.
+- [M/E] Runner and independent auditor nominate owner`101010000110001` from
+  existing historical native evidence, not from a blind ordering sweep. It
+  accounted for7.6% of Apply CPU in an older hot-owner pilot, which is not a
+  current-production dominance measurement. The old scan contains a potential
+  same-support shift `[0,-1,-2,0,0,0,0,0,0,0,0,0,0,0,0]`, lowering A by2 while
+  raising R by1. Its minimum physical source is
+  `[1,0,3,0,2,0,0,0,0,2,1,0,0,0,1]` (A10/R0/D10), inside every bound of the
+  current required `conv-d10-a16-r6-101010000110001` query. If selected with
+  nonzero coefficient, E-first admits the orientation while R-primary forbids
+  it. Historical evidence alone does not establish current priority/nonzero.
+- [D] Current A1 payload has233 rules versus482 historically: never reuse old
+  ordinal467. Root conditionally grants a current complete native inspection,
+  then exact-point ordered matching and guarded application of its actual
+  selected rule, under existing W1/CPU32/300-second owned lifecycle after
+  narrow independent review. Stop on a terminal, gap or absence of the proposed
+  nonzero rank-raising edge. No generation, recursive walk, new decoder/CAS or
+  production change. The unchanged input is1,007,361 bytes at saved parent30527,
+  ordinal6, SHA256 `046a15ab40b96da21b33057547c64348761cb51a685affb13c022f55fa43f763`;
+  no repair overlay belongs to this owner. Exact current native evidence must
+  precede any new regeneration/performance proposal.
+- [M] Native preflight completes and drains in5.834194 seconds. Current A1
+  selects batch0/rule217 at the specified point; guarded application finishes
+  with46 successors and zero problems. Events4 and6 are uniform-nonzero
+  same-support children with A8/R1: actual ΔA=−2, ΔR=+1 and ΔE=−1. Their
+  restricted coefficients are opposite signs of `(-23+17*d-3*d^2)/24`.
+  This is real raw-successor numerator-rank growth, not merely cap6→7. Independent
+  audit confirms query containment, first priority, coefficients and drain.
+  Rule217 fixes physical n1=0, whereas both children have n1=−1, so this is
+  not an immediately repeatable rank-growth ray or a full-campaign cost proof.
+  Evidence: `r-primary-17941-preflight-v1/receipts/`; current full233-rule view,
+  `ordered.json`, `guarded.json`, `RESULT.json` (session64764).
+- [D] Root conditionally grants the next minimal fresh-generation pair after
+  independent review: generate only owner`101010000110001` under original
+  parent30527/root`111011100111111`, fresh legacy A1 then R-primary, using the
+  same frozen CLI, A1 source order, depth0/R10 finite policy and original limits.
+  W16/CPU32–47,1,800 seconds inclusive per arm, source replay plus complete native
+  view and the same ordered/guarded point diagnostic; no recursive walk yet.
+  Candidate requires fully accepted/drained baseline. Require actual changed
+  formulas/point fate before another performance experiment. Record finite
+  terminal counts/keys and any newly terminal source point; do not call terminal
+  inflation a free rule-quality gain. No overlay rebind or production mutation.
 
 ### October 1, 18:38 UTC — canonical lower-owner experiment running
 
