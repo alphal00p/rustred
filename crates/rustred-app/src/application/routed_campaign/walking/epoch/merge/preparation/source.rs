@@ -214,10 +214,19 @@ pub(super) fn prepare<const N: usize>(
                     Task::Misses { entry, first, end } => {
                         let result = &entries[entry].result;
                         let mut rows = ResolvedRows::new(&result.misses[first..end])?;
+                        let negative_prefix = checked.negative_prefix(result);
                         for miss in &result.misses[first..end] {
                             rows.push(
-                                resolve_miss(store, version, result, miss, &mut work, &mut *poll)
-                                    .map_err(source_error)?,
+                                resolve_miss(
+                                    store,
+                                    version,
+                                    result,
+                                    miss,
+                                    negative_prefix,
+                                    &mut work,
+                                    &mut *poll,
+                                )
+                                .map_err(source_error)?,
                             );
                         }
                         Ok(Output {

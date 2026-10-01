@@ -657,7 +657,12 @@ pub(super) fn run<const N: usize>(
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
                     pool.activity()
                 });
-                let checked = merge::p1_check(&mut restored.state, bytes, config)?;
+                let checked = merge::p1_check_bound(
+                    &mut restored.state,
+                    bytes,
+                    config,
+                    snapshots.and_then(Publication::native_session),
+                )?;
                 let reason = if let Some(reason) = checked.stop {
                     merge::discard_cut(&mut restored.state, &checked, &mut |id, attempts| {
                         restored.dispatch.requeue(id, attempts)

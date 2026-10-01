@@ -149,6 +149,22 @@ pub(super) struct Checked<const N: usize> {
     /// A merge-level stop decided in P1 (allowances): every result of the
     /// cut is then discarded without counter changes.
     pub stop: Option<StopReason>,
+    /// Private invocation context only; never part of a result/checkpoint.
+    native_session: Option<super::snapshot::NativeSession>,
+}
+
+impl<const N: usize> Checked<N> {
+    /// Existing P1 checks have already bound this result's version and
+    /// watermark to its current reservation. A native-session mismatch or
+    /// absent lookup report simply retains the canonical full scan.
+    fn negative_prefix(&self, result: &JobResult<N>) -> Option<usize> {
+        self.native_session
+            .filter(|session| session.matches(result.seq))?;
+        result
+            .lookup
+            .as_ref()
+            .map(|work| work.published_len as usize)
+    }
 }
 
 /// Merge-level settings.
@@ -367,6 +383,17 @@ pub(super) fn p1_check<const N: usize>(
     cut: Vec<Vec<u8>>,
     config: MergeConfig,
 ) -> Result<Checked<N>, Fatal> {
+    p1_check_bound(state, cut, config, None)
+}
+
+/// Native controllers supply an invocation-local binding. Generic/synthetic
+/// callers keep p1_check; merely shipping snapshot metadata is not opt-in.
+pub(super) fn p1_check_bound<const N: usize>(
+    state: &mut EpochState<N>,
+    cut: Vec<Vec<u8>>,
+    config: MergeConfig,
+    native_session: Option<super::snapshot::NativeSession>,
+) -> Result<Checked<N>, Fatal> {
     state.store.ensure_unique().map_err(fatal)?;
     let mut entries = Vec::with_capacity(cut.len());
     let mut seen = std::collections::BTreeSet::new();
@@ -464,7 +491,11 @@ pub(super) fn p1_check<const N: usize>(
     } else {
         None
     };
-    Ok(Checked { entries, stop })
+    Ok(Checked {
+        entries,
+        stop,
+        native_session,
+    })
 }
 
 /// §9.1: the class of one result from its error kind, break reason, panic
@@ -880,14 +911,16 @@ enum MissResolution<const N: usize> {
 }
 
 /// No authority is gained from a negative. Stored positives are independently
-/// reverified; current-view misses still check exact uniqueness, stale misses
-/// use the canonical current store. The controlled and reference paths share
-/// these checks and differ only by cooperative stop callbacks.
+/// reverified; current-view misses still check exact uniqueness. Bound native
+/// stale negatives can skip their previously searched aggregate prefix only;
+/// exact/orthant priorities stay global. Unbound stale/AllMiss rows scan all.
+/// The controlled and reference paths share these checks.
 fn resolve_miss<const N: usize>(
     store: &super::store::Store<N>,
     version: u64,
     result: &JobResult<N>,
     miss: &super::job::Miss<N>,
+    negative_prefix: Option<usize>,
     counters: &mut P2Counters,
     mut checkpoint: impl FnMut() -> Result<(), &'static str>,
 ) -> Result<MissResolution<N>, Fatal> {
@@ -940,10 +973,11 @@ fn resolve_miss<const N: usize>(
         }
         counters.inspector.coordinator_miss_rechecks_skipped += 1;
     } else if let Some((_, token, _)) = store
-        .lookup_controlled(
+        .lookup_suffix_controlled(
             &q,
             &query,
             published_len,
+            negative_prefix.unwrap_or(0),
             &mut counters.lookup,
             &mut counters.verify,
             checkpoint,
@@ -967,12 +1001,14 @@ fn resolve_misses<const N: usize>(
         let mut entry_slots = Vec::new();
         if entry.class.merges() && !entry.recurring_panic {
             lookup_accounting(&entry.result, state.store.len(), &mut counters, || Ok(()))?;
+            let negative_prefix = checked.negative_prefix(&entry.result);
             for miss in &entry.result.misses {
                 let (q, query) = match resolve_miss(
                     &state.store,
                     state.k,
                     &entry.result,
                     miss,
+                    negative_prefix,
                     &mut counters,
                     || Ok(()),
                 )? {

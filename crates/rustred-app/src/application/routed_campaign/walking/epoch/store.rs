@@ -412,9 +412,38 @@ impl<const N: usize> Store<N> {
         published_len: usize,
         counters: &mut LookupCounters,
         verify_counters: &mut VerifyCounters,
+        checkpoint: impl FnMut() -> Result<(), &'static str>,
+    ) -> Result<Option<(u32, Verified, Hit)>, String> {
+        self.lookup_suffix_controlled(
+            q,
+            query,
+            published_len,
+            0,
+            counters,
+            verify_counters,
+            checkpoint,
+        )
+    }
+
+    /// The caller may skip an aggregate prefix disproved by a native negative
+    /// in this invocation. Old geometry never changes, live IDs only retire,
+    /// and quarantine cannot change during the native controller session.
+    /// Exact and dominant-orthant lookup remain global and keep their priority;
+    /// every positive is verified as before. An unbound caller must pass zero.
+    pub fn lookup_suffix_controlled(
+        &self,
+        q: &QueryImage<N>,
+        query: &Query<N>,
+        published_len: usize,
+        first_id: usize,
+        counters: &mut LookupCounters,
+        verify_counters: &mut VerifyCounters,
         mut checkpoint: impl FnMut() -> Result<(), &'static str>,
     ) -> Result<Option<(u32, Verified, Hit)>, String> {
         checkpoint().map_err(str::to_owned)?;
+        if first_id > published_len {
+            return Err("lookup prefix beyond published length".into());
+        }
         let container = |id: u32| Container::Stored {
             id,
             domains: &self.domains,
@@ -449,7 +478,7 @@ impl<const N: usize> Store<N> {
             .find_controlled(
                 Signature::of(&q.core),
                 &probe,
-                0,
+                first_id,
                 checkpoint,
                 &mut Forward {
                     stored: self.stored(),

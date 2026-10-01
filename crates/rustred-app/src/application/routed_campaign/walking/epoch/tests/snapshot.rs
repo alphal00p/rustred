@@ -9,6 +9,8 @@ use crate::application::routed_campaign::walking::inspection::{
 use crate::application::routed_campaign::walking::queue::Query;
 use std::ops::ControlFlow;
 
+mod stale_prefix;
+
 fn resolved(job: &Job<2>, queries: &[Domain<2>], view: Option<&Snapshot<2>>) -> JobResult<2> {
     let mut resolver = view.map_or_else(Resolver::new, Resolver::with_snapshot);
     for domain in queries {

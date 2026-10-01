@@ -445,17 +445,51 @@ impl<const N: usize> Snapshot<N> {
 /// Legacy single-cut publication plus per-sequence rolling leases. Queued
 /// descriptors hold a lease here before enqueue; a worker takes that exact
 /// lease once. Refresh can never change a queued job's historical view.
+///
+/// Only the real native Snapshot controller binds a session. Synthetic
+/// callbacks and decoded result bytes cannot opt into negative-prefix reuse.
 pub(super) struct Publication<const N: usize> {
     slot: Mutex<Option<Snapshot<N>>>,
     jobs: Mutex<BTreeMap<u64, Snapshot<N>>>,
+    native_session: Option<NativeSession>,
 }
+
+/// Invocation-local routing context, not a proof of a returned negative.
+/// Rescue runs before this context exists; replay uses a new durable session.
+/// This marker is never serialized or reconstructed from a LookupReport.
+#[derive(Clone, Copy)]
+pub(super) struct NativeSession {
+    session: u64,
+}
+
+impl NativeSession {
+    pub fn matches(self, seq: u64) -> bool {
+        self.session != 0 && seq >> 40 == self.session
+    }
+}
+
 impl<const N: usize> Publication<N> {
     pub fn new() -> Self {
         Self {
             slot: Mutex::new(None),
             jobs: Mutex::new(BTreeMap::new()),
+            native_session: None,
         }
     }
+
+    /// Called only by run_native_observed in Snapshot mode, after any
+    /// resume-boundary amendments and replay sequence reassignment.
+    pub fn native(session: u64) -> Self {
+        Self {
+            native_session: Some(NativeSession { session }),
+            ..Self::new()
+        }
+    }
+
+    pub fn native_session(&self) -> Option<NativeSession> {
+        self.native_session
+    }
+
     pub fn publish(&self, snapshot: Snapshot<N>) -> Result<(), &'static str> {
         let mut slot = self
             .slot

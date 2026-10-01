@@ -696,7 +696,12 @@ pub(super) fn run_observed<const N: usize>(
                 progress(&restored.state, &restored.dispatch, "p1", &|| {
                     pool.activity()
                 });
-                let checked = merge::p1_check(&mut restored.state, results, config)?;
+                let checked = merge::p1_check_bound(
+                    &mut restored.state,
+                    results,
+                    config,
+                    snapshots.and_then(Publication::native_session),
+                )?;
                 let reason = if let Some(reason) = checked.stop {
                     merge::discard_cut(&mut restored.state, &checked, &mut |id, attempts| {
                         restored.dispatch.requeue(id, attempts)
@@ -909,7 +914,11 @@ pub(super) fn run_native_observed<const N: usize>(
         }
         Ok(())
     };
-    let snapshots = Publication::new();
+    let snapshots = if mode == LookupMode::Snapshot {
+        Publication::native(restored.dispatch.checkpoint_snapshot().session)
+    } else {
+        Publication::new()
+    };
     let profiling = profile::Collector::from_environment();
     restored.rolling_diagnostics.wait_profile = profiling
         .as_ref()
