@@ -234,6 +234,39 @@ covers. The tested cancellation provides **no marginal union-work benefit**
 under this policy and pool. Neither arm includes B, so its elimination remains
 unmeasured; no physical-cohort or published-macro conclusion follows.
 
+### Joint seven-child screen: six new zeros, no hard-endpoint reduction
+
+The [single joint screen](/common/dev/rustred/TMP/postlaunch-20261001/joint-rule-composition-v1/execution-r1/RESULT.json)
+completed in 6.926 seconds inclusive, with all three native/algebra groups
+drained under the 150-GB hard cap. Selection was frozen before inspection:
+all seven **original** same-support rank5 successors of P. Actual native
+ordered selection chose rules 61, 61, 113, 23, 41, 61 and 41. Every whole RHS
+and all **824 original-term denominator obligations**, including duplicates,
+were retained along with source conditions and exclusions.
+
+The simultaneous one-level substitution produced 706 weighted contributions,
+439 distinct naïve endpoints and 433 nonzero endpoints after six exact zero
+sums. All six are between weighted outputs of original children0 and3, not
+untouched parent siblings. All six cancellations are different from the earlier J; the earlier
+zero is not automatically a zero after the other substitutions. Five nominated
+intermediates were reintroduced by other children and correctly survive.
+
+Two cancelled keys have the parent support and rank4; the other four have
+smaller support (two rank4 and two rank5). Consequently the same-support
+rank-at-least5 count is **27 before and 27 after coalescing**, versus seven in
+the original parent. Maximum rank stays5; maximum positive-power sum grows
+from6 to7. Coefficient display bytes are 14,843 for the 706 weighted
+contributions and 10,526 after coalescing, compared with 1,079 for the parent;
+the largest coefficient display grows from20 to65 bytes. These remain the
+explicitly versioned Symbolica2.2 diagnostic, not a native3 macro benchmark.
+
+The new zero keys meet the preregistered *algebraic* condition for considering
+one further union comparison. They do not establish a work improvement.
+Likewise 81→433 immediate endpoints is not itself a measured regression: the
+relevant cancellation counterfactual is the same 439-key two-step union versus
+433 surviving keys. That pair is preparation-only behind the five-loop pilot;
+no new search, depth sweep or automatic integration follows.
+
 ### Completed diagnostic summary
 
 | Diagnostic | Exact/local result | Total-work conclusion |
@@ -242,6 +275,78 @@ unmeasured; no physical-cohort or published-macro conclusion follows.
 | [17-point target-directed Laporta](/common/dev/rustred/TMP/postlaunch-20261001/rule-quality-portfolio/finite-owner481-search-v1/RESULTS.md) | 17/17 solved and source/guard replayed, no residuals or zero-RHS; 780 panel plus 36 control raw RHS terms | No useful witness; no typed baseline or whole-work comparison. 231.357s including 228.201s adapter compile/static work |
 | Two-rule composition | One real sibling coefficient zero; 175 original-term denominator obligations retained, not 175 unique poles | 81→123 immediate keys alone proves neither improvement nor regression; 6.441s diagnostic setup, not a Symbolica3 implementation benchmark |
 | Cancelled-endpoint union | 124/124 and 123/123 cold-verified | Exactly unchanged domain/native/successor/edge counts; no marginal work benefit |
+| Joint seven-child composition | 439→433 keys via six new zeros; five reintroduced intermediates retained; 824 denominator obligations | No union walk yet; difficult same-support rank≥5 count stays27, coefficient cost explicit; no gain/regression inferred from 81→433 fanout |
+| Five-loop physical-point symmetry | Four native unit transports prove two opposite-sign pairs cancel, removing all four F=A+R-raising contributions at the checked point; all48 denominator obligations retained | Both46/46 and42/42 cold-verified; native work272→277, no useful union saving. Pair320.072s dominated by preparation; no parametric or campaign gain claim |
+
+### Five-loop physical-point symmetry: all four degree-raising terms cancel
+
+The [native transport diagnostic](/common/dev/rustred/TMP/postlaunch-20261001/five-loop-symmetry-four-term-v1/execution-r1/RESULT.json)
+checks actual A1 owner17941 rule217 at
+`[1,0,3,0,2,0,0,0,0,2,1,0,0,0,1]`, with A=10,R=0.
+This is a genuine point of required query `conv-d10-a16-r6-101010000110001`,
+not the earlier four-loop point whose physical-cohort reachability was unknown.
+The saved native rule case fixes every coordinate except array-axis2
+(displayed `n2`), excludes `n2=1,2`, and has A=n2+7,R=0. Intersecting
+that case directly with the required D=A−R=10 slice forces n2=3.
+The rule is parametric, but the following cancellations are established only
+at this checked point, not along its whole ray.
+
+The complete successful guarded application has46 nonzero uniform successors.
+Exactly four have F=A+R=11, versus parent F=10: saved event indices2,3,5,10,
+with coefficients `1/12,-1/12,-1/12,1/12`. Their supports drop6→5 and
+their A/R change10/0→9/2. The unchanged native RustRed/Symbolica3 adapter
+independently verifies the momentum substitution
+`k3'=k2−k4, k4'=k2−k3`, fixing k1,k2,k5, and transports each endpoint.
+All four directed checks2↔3 and5↔10 return exactly the opposite endpoint
+with coefficient one. Thus both weighted pairs cancel exactly. These are
+verified integral identities, not a guessed denominator permutation or
+coefficient-string comparison. The map has determinant−1 and unit Jacobian;
+its existing native nonzero conditions remain recorded.
+
+All48 original-term denominator obligations, both excluded conjunctions and
+the full original RHS remain in evidence. They are not48 distinct poles,
+and cancellation does not remove their validity obligations. The single
+CPU32 diagnostic completed in0.816512s, with its owned process drained and
+150GB memory guard. It overlapped a disjoint-CPU five-loop pilot by explicit
+authorization, so its timing is not a performance measurement. No new rule,
+symmetry dispatcher, descent order, source replay claim or production mutation
+was introduced.
+
+The current [walker admission boundary](/common/dev/rustred/crates/rustred-app/src/application/routed_campaign/walking/inspection.rs:538)
+turns each applied successor into a domain plus its conditional/nonzero status;
+the sibling coefficient is not part of the admitted Route work item. Local
+same-key coalescing already exists, but it cannot establish these equalities
+between different raw keys after this information has been discarded. A
+future exact sibling-coalescing step would need the existing verified native
+transport and guard obligations; using the already admitted representative
+does not itself require inventing a new reduction order. It is not implemented
+or justified by this local result alone.
+
+The [completed matched work discriminator](/common/dev/rustred/TMP/postlaunch-20261001/five-loop-symmetry-union-v1/RESULTS.md)
+uses all46 distinct raw endpoint keys versus the same42 common keys after only
+these four contributions are removed. Both use the unchanged67-owner/8246-route
+pool and repair overlay, all-required singleton roots, no helper starts or
+descendant rank cap, and independent cold-All checks. It measures whether the
+four obligations add any marginal descendant-union work; it is not a published
+macro benchmark or qualification of the entire116-query physical cohort.
+Both arms passed full cold-All verification,46/46 and42/42 roots, with zero
+errors, frontiers, uncovered successors or count mismatches. Native/domain work
+increased272→277 (Apply93→96, Route179→181), successor events3099→3261,
+while route masks fell719→661 and recorded edges1084→1073. All42 common
+roots have identical native local geometry, statistics and successful status
+after joining through query IDs; the complete graphs are not equal. Removing
+roots makes the mathematical endpoint set smaller, but does not guarantee less
+abstract domain work: admission order, cover selection and shared reuse can
+change. This result does not isolate one internal cause or measure an in-place
+macro implementation.
+
+Preparation was75.289/74.851s and traversal0.048874/0.047891s; the roughly1ms
+traversal difference is not a speed claim. The entire pair, including both cold
+checks, completed in320.072s and all four owned groups drained. This is a
+negative marginal-work result despite the exact cancellation at a real physical
+point. It does not qualify the full116-query cohort or justify a broad symmetry
+coalescer. Further all-key mapping and parametric-case leads are parked; no
+automatic follow-up was launched.
 
 ### What this changes about the next experiment
 
@@ -258,15 +363,16 @@ macro benchmark. The input-to-output algebra would still require typed native
 authentication. Absence of a literal J record would not establish semantic
 avoidance, because a wider admitted domain might cover it.
 
-With that negative discriminator retained, the one authorized stronger screen is **joint
+With that negative discriminator retained, the one authorized stronger screen was **joint
 elimination of a small, predeclared
 set of costly intermediates**, allowing cancellation among sibling paths before
 their expansion is committed. For this finite parent, a natural bounded set is
-its seven original same-support rank5 immediate keys; this is prepared next,
-not yet executed or a promise that seven is optimal. A substituted intermediate
+its seven original same-support rank5 immediate keys; it has now run once,
+not as a sweep or a claim that seven is optimal. A substituted intermediate
 reintroduced by another child must remain in the output. Only a genuinely new
 cancellation or reduction in difficult endpoints can justify another union
-walk; otherwise park this composition sequence rather than sweep depths. Existing
+walk; otherwise park this composition sequence rather than sweep depths. The
+six new cancellations meet this screening condition, not the whole-work gate. Existing
 native matching/application must supply their actual identities, with every
 unresolved child left explicit. Existing Symbolica reduction and original-source
 bookkeeping must own the algebra; no new polynomial or elimination kernel is

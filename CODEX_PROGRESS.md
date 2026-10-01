@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 21:22 UTC (23:22 Zurich)
+## Current workboard — October 1, 22:02 UTC (00:02 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -22,12 +22,15 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
 | Rule-mechanism transfer | `five_loop_order_runner` | Exact-key cost proxy rejected; native guarded-envelope probe prepared/source-reviewed, not run | Resume after the newly requested rank-zero control |
 | Helper-free rank-zero controls | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Both controls cold-PASS and drained; physical116-query control587.902s inclusive | Delivered; use as a finite five-loop comparison workload, not full numerator coverage |
-| Domain-growth mechanism and dimensional identities | `r_primary_transfer_audit`; root | Dimensional-recurrence/source-authority note delivered and root-reviewed | Paired shifts are prospective fixed-d source proposals, not installed rules or a speedup |
+| Domain-growth mechanism and dimensional identities | `five_loop_order_runner`; independent `r_primary_transfer_audit`; root | Dimensional-recurrence note delivered; small native structural adapter in preparation | Native U/Gram determinant, L1 control and actual4L row size; not installed rules or benchmark |
 | Selective coefficient-image falsifier | `rule_quality_audit`; independent `r_primary_transfer_audit` | Delivered: exact false-edge removal confirmed, partition adds local work | No broad split implementation or speed claim; reopen only with a net-work mechanism |
-| Exact combinations / hidden zeros | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Two-rule cancellation has zero marginal descendant-work benefit in completed124/123 control | One bounded seven-child joint algebra screen; park unless genuinely new cancellation/hard-endpoint benefit |
+| Exact combinations / hidden zeros | `rule_quality_audit`; independent `r_primary_transfer_audit`; root integrates | Seven-child screen finds six new zeros but no fewer hard endpoints;439/433 union prepared, unrun | Actual5L symmetry cancellation takes priority; no macro publication |
 | Targeted finite Laporta | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered:17/17 fixed targets solved and source-replayed, no zero-RHS rule | Park unguided extra seeds; no demonstrated sparse or whole-work improvement |
 | Local reduction before symmetry routing | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Delivered/cold-PASS but negative:4.73% more domains,6.29% more inspections | Park this intervention; no repeat/promotion without a new mechanism |
-| Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Active narrow steering adaptation, run grant issued | All116 required rows verbatim; same67 programs/8246 routes; omit only auxiliary starts; bounded pilot/cold gate |
+| Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Censored cleanly after1,460.665s;10.668M domains/2.802M pending; no frontier | Paused checkpoint retained; no cold closure, extension or automatic resume |
+| Symmetry-aware RHS coalescing | `rule_quality_audit`; independent `r_primary_transfer_audit` | Exact cancellation and both cold checks pass, but272→277 domains: no useful work saving | Broad implementation parked; reopen on a demonstrated costly parametric case |
+| Target-local constrained rule search | `rule_quality_audit`; independent `r_primary_transfer_audit` | Public/native API feasibility active | Eliminate extra F-growing columns rather than just score hits; small4L source-weight diagnostic before engine changes |
+| Global absolute-degree-first order | root; separate code and literature critiques | Research-only; truly different from earlier sector-first E/R descriptors | Deferred behind cheaper symmetry/helper discriminators; no implementation/build grant |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -43,6 +46,165 @@ the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
 
+### October 1, 22:02 UTC — symmetry work test negative; next rule-quality discriminator
+
+- [M] The46/42 actual-five-loop endpoint-union pair completes in320.072467s
+  inclusive. All four process groups drain. Both native cold-All passes verify
+  every46/42 requested root, with zero errors/frontiers/uncovered branches or
+  count mismatches. The42 common roots have identical locally inspected
+  geometry, statistics and success fields. Evidence:
+  `TMP/postlaunch-20261001/five-loop-symmetry-union-v1/RESULTS.md`,
+  `execution-r1/RESULT.json` (SHA prefix `9c2ffdef`) and
+  `execution-r1/COMMON_ROOT_CHECK.json`.
+- [M/E] Exact cancellation does NOT deliver a useful work saving here:
+  domains/native inspections272→277, Apply93→96, Route179→181,
+  successors3,099→3,261, route masks719→661, edges1,084→1,073. Preparation
+  is75.289→74.851s; traversal0.048874→0.047891s is too short/noisy for a speed
+  claim. Different initial admissions and reuse can change the abstract work
+  graph despite the smaller required endpoint set. Common-root agreement does
+  not assert whole-graph equivalence or time an implemented runtime coalescer.
+  This point's descendant union was cheap; it was not a measured hot cone.
+- [D] Park broad symmetry-coalescer implementation, the optional all46-map
+  screen and the metadata-only parametric case224–226 leads. The verified
+  cancellation remains a concrete correctness/mechanism example, not a
+  campaign-switch recommendation. No production change or restart is justified.
+- [E/D] Next narrow candidate: seek a combination of ordinary sources that
+  eliminates both old-order non-descending columns and explicitly unwanted
+  F=A+R-growing columns. This changes the solve constraint, unlike the already
+  tested post-hit excursion score. Keep the distinguished target nonzero,
+  retain exact weighted-source replay/guards and fall back on ordinary search
+  if the constrained search misses. Existing internal stratum/SpIReD code has
+  Target/Allowed/Forbidden partitioning and native dual sparse reduction;
+  current public solver/source-port replay instead reproduces one canonical
+  old-order forward row. A numerical-only column reorder is insufficient.
+  Composer checks a small fixed4L diagnostic using public source generation
+  and Symbolica, not a new CAS or broad production materializer rewrite.
+- [D] The dimensional lane separately prepares a small cached-library adapter
+  for authenticated U and native Gram determinant P, using the actual owner481
+  family and a one-loop normalization control. An opt-level0 adapter linked
+  to optimized native libraries is a structural/correctness probe ONLY, not a
+  solver timing comparison. No full engine rebuild, new dimensional source
+  authority or generated artifact is part of this probe.
+- [E] Re-examining a proposed global F+C*support-count cap reproduced an
+  already documented obstruction, not a new theorem: the domain walker admits
+  same-cardinality support changes that the concrete routed trace forbids.
+  Canonical routing can reset sector-lex priority. Do not cap the campaign from
+  the concrete trace's stronger restriction. The existing single-root total-
+  excess audit is not a routed mixed-owner bound. No implementation follows.
+
+### October 1, 21:54 UTC — full physical helper-free pilot cleanly censored
+
+- [M] The registered1,450s cooperative boundary stops the pilot; total measured
+  inclusive time1,460.664666s. No hard kill, memory stop or mathematical failure.
+  All owned process groups662044/662619/672602/672603 are independently absent;
+  workers joined and the heavy/pilot locks are released. Production is untouched.
+- [M] Final durable state:10,668,310 scheduled domains,3,233,456 native
+  inspections,2,801,524 pending obligations (2,801,256 queued plus268 reserved),
+  zero frontiers/errors. The338,966 recursively closed /0of116 query-root counts
+  are316.204s old and `refreshed_for_result=false`: conservative stale lower
+  bounds, NOT a final recursive-closure scan. No cold-All closure test ran.
+- [M/D] Paused CP6 generation22 is retained at
+  `TMP/postlaunch-20261001/five-loop-full-physics-nohelpers-v1/campaigns/physics/checkpoints/main`.
+  There is no extension/resume. This failure to finish a short pilot neither
+  proves an infinite worklist nor establishes that helpers are beneficial:
+  the183-start production campaign is not a matched timing comparator.
+  It does show that the earlier helper-free physical R0 completion cannot be
+  generalized to the unchanged full numerator scope without further work.
+- [D] The46/42 five-loop symmetry endpoint comparison receives the released
+  CPU48–63 slot. Runner now prepares the existing-native-API dimensional-shift
+  structural diagnostic read-only; no new build/heavy run overlaps this pair.
+
+### October 1, 21:49 UTC — native five-loop symmetry cancellation confirmed
+
+- [M] Four directed native momentum transports independently pass in0.816512s
+  inclusive (native owned phase0.567135s;25.2MB sampled RSS). Each returns
+  exactly the expected partner integral with coefficient1; the map has unit
+  Jacobian. Opposite1/12 coefficients therefore cancel all four A9,R2 terms
+  from the A10,R0 parent. No new IBP was guessed or imported. All48 original
+  pole obligations and the full remaining RHS are retained. Evidence:
+  `TMP/postlaunch-20261001/five-loop-symmetry-four-term-v1/execution-r1/RESULT.json`
+  (SHA prefix `d79ad6c5`); exact invocation is in `native/command.json`.
+  Group969333 is drained; the explicitly allowed overlap with the full pilot
+  is recorded and this is not an isolated performance benchmark.
+- [M] Applicability matters: saved rule217 has only n2 free. The original
+  required `conv-d10-a16-r6` row imposes exact D10; on this rule case R=0 and
+  A=n2+7, forcing n2=3. The cancellation is thus at an actual required physical
+  input, not an arbitrary diagnostic point, but it does NOT hold on the entire
+  parametric ray. The rule's n2=1,2 exclusions and all original poles remain.
+- [M/E] Independent code audit finds the missing mechanism: applied inspection
+  combines only identical literal shifts, then application converts each term
+  to a coefficient-free domain obligation. Subsequent symmetry routing cannot
+  cancel sibling terms. A generic optional rule-local coalescer could use
+  existing verified momentum maps and Symbolica arithmetic before this boundary.
+  For surviving classes, choose an original already-descending member rather
+  than a new canonical key; otherwise fresh descent checks are required.
+  Begin with fixed cells or maps fixing all genuinely free coordinates, retain
+  all guards, and fall back for unsupported symbolic transformations. This is
+  a prospective native semantic extension, not app-level event deletion.
+- [D] Prepare a46-original/42-coalesced endpoint-union comparison using the
+  same67-owner/8,246-route repaired pool. Cold preparation alone previously
+  needed roughly80s per process; the former300s allowance would predictably
+  censor four phases. Root authorizes900s inclusive after the full physical
+  pilot drains, W16/CPUs48–63/150GB, unbounded descendant work subject to that
+  pilot's time/memory stop. Keep all common queries identical and perform both
+  cold checks. No build, input-scope relaxation or production mutation. This
+  measures avoided descendant work, not the overhead of an implemented macro.
+- [M] Full helper-free116-query physical pilot is still incomplete at~1,151s:
+  ~8.954M scheduled,~2.592M native,~2.268M pending, zero frontiers; the last
+  scan reports338,966 recursively closed (31s old). Its existing stop/checkpoint
+  boundaries are unchanged. No completion estimate follows from these counts.
+
+### October 1, 21:40 UTC — full physical pilot live; symmetry-aware shortcut lead
+
+- [M] Research/measurement milestone `83fd9a92` is committed and pushed to
+  `origin/main`. No core or production change is included. The workboard remains
+  open; neither negative four-loop experiment is promoted.
+- [M] Seven-child simultaneous composition completes in6.925637s, with
+  independent source/math/receipt audit and all three phases drained.706 weighted
+  contributions give439 distinct naive keys and433 after six exact zeros.
+  Five substituted children reappear through other children and correctly
+  remain. All824 original-term denominator obligations are retained. Same-support
+  rank>=5 endpoints stay27→27 (parent7); maximum A6→7, maximum R5 unchanged.
+  Coefficient bytes are14,843 before joint collection and10,526 after (original
+  parent1,079); these are not an implementation-equivalent whole-work comparison.
+  Six new cancellations alone do not establish a speedup. A439/433 union
+  discriminator is prepared but unrun behind the five-loop work.
+- [M] Full helper-free physical pilot passes exact input/scope audit and native
+  admission. All116 original required rows remain unchanged across all67 owners;
+  entry rank caps range1–14, A cap at most23 and every coordinate upper bound
+  is finite. These are entry bounds, never imposed on descendants. Stage4.102593s
+  and admission12.410544s complete. Native672603/owned supervisor672602 run on
+  CPUs48–63/W16,150GB, with original1,800s inclusive deadline and checkpointing.
+  Evidence: `TMP/postlaunch-20261001/five-loop-full-physics-nohelpers-v1/`;
+  audited wrapper/query/protocol prefixes0aeeb861/1fa81b63/97080fd3.
+- [M/E] At481s native-run elapsed:4,731,652 scheduled domains,966,576 native
+  inspections,1,265,738 pending, zero frontiers, RSS8.903GB and4.59 observed
+  cores. Last recursive scan reports197,940 closed, zero of116 initial records,
+  scan age31s. The queue still grows; this is censored progress, not convergence
+  or a timing comparison against the183-start production campaign.
+- [E/D] A new global F=A+R comparator BEFORE support/count/lex would be
+  materially different from earlier sector-first E-primary/R-primary choices.
+  Existing APIs cannot express it by merely moving a degree row: those rows
+  use excess E=F-support_count. Separate code/literature critiques find a
+  plausible finite-state mechanism, but sector reactivation, mixed-symbolic
+  signs, source visitation and every descent shortcut need an explicit new
+  implementation. Equal-F routing can reset ties; finite concrete degree is
+  not a termination theorem. No comparator change or build is authorized here.
+  A previously tested R-primary rule already removes the known singleton's
+  F growth, so that point would not establish a new comparator's benefit.
+- [E/D] The more immediate candidate uses the actual A1 five-loop rule217 at
+  `[1,0,3,0,2,0,0,0,0,2,1,0,0,0,1]` (A10,R0). Four nonzero RHS terms have
+  A9,R2 and coefficients in opposite1/12 pairs. The previously native-verified
+  map k3'=k2-k4, k4'=k2-k3 fixes k1,k2,k5 and exchanges D3/D10 and D4/D9;
+  it predicts cancellation of all four degree-growing terms after symmetry
+  transport. Index swapping alone is not proof. Composer prepares four exact
+  native transport calls through the existing API, with independent map/case
+  review and original guards retained. Fixed versus parametric applicability
+  and physical-query reachability must be stated, not inferred.
+- [D] That transport check is a tiny correctness diagnostic, CPU32/W1<=60s,
+  explicitly permitted alongside the full pilot on disjoint CPUs48–63. Record
+  overlap; do not use its wall time as an isolated benchmark. No heavy solve,
+  compilation, new rule, terminal, walk or production mutation is part of it.
 ### October 1, 21:22 UTC — hidden-zero marginal work unchanged; literal-owner arm
 
 - [M] Exact cancellation's endpoint-union test cold-PASSes in14.794594s
