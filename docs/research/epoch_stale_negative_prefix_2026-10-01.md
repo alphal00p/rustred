@@ -249,9 +249,47 @@ with no actual checkpoint resume, repeat or unrestricted closure claim.
 Raw receipts and formulas are in
 `TMP/postlaunch-20260930/stale-negative-prefix/performance/five/FIRST_PAIR_RESULTS.{md,json}`.
 Independent review accepted the protocol, arithmetic and deliberately limited
-interpretation; no further correction remains. A narrow same-start resumed-pilot adapter is
-being prepared to examine a later stage without replaying the initial walk;
-its runtime feasibility and performance have not yet been demonstrated.
+interpretation; no further correction remains.
+
+### Same-start local checkpoint continuation
+
+A separate comparison uses two private copies of the same completed local
+pilot checkpoint, not a production checkpoint. The starting state has
+3,718,128 native inspections, 9,646,709 scheduled domains and 2,986,261 pending
+or reserved domains. Inputs, worker budget and policy match the fresh pair.
+Each arm includes copying, restoration, traversal, saving and structural cold
+checking within its 30-minute ceiling; the cooperative stop is at 900 seconds.
+
+The baseline completed in 1,269.389 seconds on October 1. This establishes
+that the chosen checkpoint can be resumed productively within the pilot
+budget, rather than inferring restore time from cold verification:
+
+| Baseline component or outcome | Measured value |
+|---|---:|
+| Private checkpoint copy | 0.528 s |
+| Native process through drainage | 911.115 s |
+| Owner/routing preparation | 64.880 s |
+| Runtime restore phase | 100.758 s |
+| Checkpoint phase | 5.764 s |
+| Structural cold checking | 354.314 s |
+| Additional native inspections | 2,733,674 |
+| Additional committed domains | 3,959,308 |
+| Additional scheduled domains | 5,398,249 |
+| Additional pending/reserved domains | 1,438,941 |
+
+Native phases are nested within the native process time, not additive to it.
+Recorded `traversal_seconds` includes restore/reconstruction/save/report and
+is not a useful-walking-only timer. Invocation-local P2 prepared 94,328,650
+rows in 241.526 seconds, including 162.485 seconds of source resolution.
+
+The baseline saved a new resumable generation 2, with no errors, frontiers
+or abandoned obligations. Structural cold-None returned INCOMPLETE with zero
+violations, not native reinspection or closure. All owned processes drained;
+the original local checkpoint controls remained unchanged. The candidate is
+not yet measured, so this is resume feasibility, not a comparative speedup.
+Equal starting checkpoints also do not imply identical stopping graph prefixes.
+
+Evidence: `TMP/postlaunch-20260930/stale-negative-prefix/performance/resume/`.
 
 ### Mature production feedback
 
@@ -319,6 +357,38 @@ five-loop opportunity must therefore be evaluated separately.
 The later P1/compact-row comparison is neutral and is not a replacement for
 the Ready control. Local detailed accounting is in
 `TMP/postlaunch-20260930/FOUR_LOOP_GAP_COST_BUDGET.txt`.
+
+### Follow-up candidates not justified by the current evidence
+
+Two inexpensive source/report investigations prevent reopening speculative
+optimizations from ambiguous counters:
+
+- Source preparation already flattens tasks across all checked entries in a
+  publication cut. Roughly two tasks per wave with zero preparation helpers
+  follows the existing `2 * max(helpers, 1)` wave width, not a per-entry
+  barrier. Existing two-helper data gives about 3.92 tasks per wave. A join
+  and ordered fold remain, but no measurement establishes wave granularity
+  as the bottleneck. Do not implement duplicate cross-entry batching.
+- In the measured fresh full-A1 prefix arm, about 91.15% of accepted source
+  rows carry stored targets, but their second exact containment check is not
+  separately timed. The retained sampled
+  profile highlights index-forward/envelope work, which the stored-positive
+  branch does not execute. Neither that count nor aggregate source time
+  establishes the cost of positive revalidation. Native positive-proof reuse
+  remains parked pending attribution; a negative-prefix eligibility marker
+  cannot authorize a positive that discharges a mathematical obligation.
+
+The source does discard the inspector's checked positive token before byte
+transport and reverify it during merge. Removing this check safely would need
+native result/proof ownership bound to the exact query, target, snapshot and
+session, with unchanged untrusted/restored fallback and quarantine handling.
+Its transport/memory cost is unmeasured. These are reopening conditions, not
+an approved implementation or a predicted speedup. No additional capture,
+native run, build or production mutation was performed for these inquiries.
+
+Local reports: `SOURCE_WAVE_GRANULARITY_INTERPRETATION.md` and
+`NATIVE_POSITIVE_PROOF_REUSE_EVIDENCE.md` under
+`TMP/postlaunch-20260930/stale-negative-prefix/`.
 
 ## Source and evidence pointers
 

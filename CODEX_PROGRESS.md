@@ -38,7 +38,70 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
-- [M/D] **Independent fresh5L review accepted,05:24UTC:** auditor verified
+- [D] **Paired resumed candidate granted,05:51UTC:** independent baseline
+  review accepted all timer/delta/scope/cold boundaries. Root granted S5 only
+  `new-r1`, using an independent copy of the original common generation1,
+  frozen2cd and unchanged profile-off/W32 CPU0–31 policy. The900s cooperative/
+ 1800s inclusive limits and complete drainage remain; no repeat, profiling arm
+  or production change. Comparison remains pending actual candidate results.
+- [M/D] **Local resumed baseline accepted,05:50UTC:** S5 reports1269.389s
+  inclusive, copy0.528s/native911.115s/cold354.314s. Generation2 saved and
+  structural cold-None is INCOMPLETE with zero violations; no native
+  reinspection/closure claim. Additional native2,733,674/committed3,959,308/
+  scheduled5,398,249/pending1,438,941; supervisor-sampled tree peak18.174GB.
+  All five owned groups drained, resource locks free and source checkpoint
+  controls unchanged. Root requested independent final receipt review before
+  granting the candidate. Same-start continuation feasibility is now measured.
+  Runtime also reconciled a missing backlog outcome: the exact cross-entry
+  observer is already built/tested in2cd, but all relevant campaign measurements
+  had profiling disabled. Representative duplicate frequency remains pending,
+  not rejected. A future isolated diagnostic needs no Rust rebuild; profiling
+  also adds other diagnostics and cannot replace a profile-off timing arm.
+- [M] **Production healthy and local resume saved,05:45UTC:** read-only A1
+  status25206.31s shows47,490,416 local inspections/13,624,413 pending,
+  zero frontiers,71.67GB sampled tree RSS and606.52GB host available. The
+  refreshed recursive snapshot has13/67 starting roots and10,767,992 closed
+  domains,305s old. Last-hour pending growth+0.066/completion has slowed but
+  remains positive; mean registered-tree CPU3.32 cores, no ETA. Local baseline
+  separately saved generation2 after+2,733,674 native inspections: preparation
+ 64.880s, runtime restore100.758s, checkpoint phase5.764s. P2/source take
+ 241.526/162.485s for94.329M invocation-local rows. Cold-None and final drainage
+  remain in progress; do not treat this as accepted closure or a speed result.
+- [M/D] **Actual resumed work confirmed,05:41UTC:** local baseline native
+  PID1955480 has advanced from3,718,128 to5,840,922 cumulative inspections
+  (+2,122,794), with13,736,742 scheduled/3,989,238 pending at752s and no
+  frontier or error. The private-copy/restore path has therefore reached useful
+  traversal, not merely adopted a checkpoint. Cooperative stop remains900s;
+  save/cold completion and final timing are still pending. Independent review
+  is assigned to the receipt, separately from S5's execution ownership.
+  Runtime's offline positive-proof-reuse assessment finds no branch-specific
+  cost evidence in the existing profile: keep that proposed optimization
+  parked rather than infer expense from the high positive-hit count. No new
+  profile capture, source edit, rebuild or production action was authorized.
+- [M] **Local resumed baseline actually running,05:29UTC:** outer1955078,
+  supervisor1955479/native1955480 confirmed live. The private checkpoint copy
+  completed in0.528s (3.377s inclusive with setup), exit0/no stop and complete
+  copy-process drainage. Independent-file validation passed; original source
+  controls recorded for final unchanged-source checking. Native is currently
+  preparing owners/maps, not yet demonstrated useful resumed traversal. S5
+  retains the sole heavy reservation; candidate is not queued or authorized.
+  Evidence: `stale-negative-prefix/performance/resume/old-r1/`. No production
+  checkpoint or source engine file was modified.
+- [M/D] **Resume adapter accepted; baseline-only pilot granted,05:27UTC:**
+  independent review accepted final runner `bd92bf79` and unchanged plan
+  `aa7cc757` after10 pure/mock tests. Final validity includes resource-summary
+  time; work deltas use the exact native/committed ledger categories, excluding
+  Exhausted. S5 is awakened for only the local same-start **old0f baseline**
+  with private guarded copy and unchanged full scope/W32 CPU0–31. It owns
+  heavy resources through copy/native/cold drainage.900s cooperative/1800s
+  inclusive; no retry, candidate, extended deadline or production action
+  authorized. Actual restore feasibility and useful work remain unmeasured.
+  Separately, read-only production PID3741792 is live at24187.58s with
+ 46,028,544 completions/13,588,505 pending/70.39GB RSS, zero frontiers and
+  CP6 generation6 saved.13 roots/9,507,382 closed snapshot3248s old; mean
+ 3.33 cores and positive pending growth+0.135/completion, no ETA. LC2 remains
+  live and untouched. Next ordinary production check around06:00UTC.
+- [M/D] **Independent fresh5L review accepted,05:22UTC:** auditor verified
   full scope/bindings, successful save/structural cold, all8 processes absent,
   normalization and the corrected RSS measurement scope. Source/row−17.2944%,
   P2/row−11.1513%, throughput+2.7405% per traversal second, pending+2.3130%
