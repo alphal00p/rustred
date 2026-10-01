@@ -374,6 +374,12 @@ and the last independently valid durable boundary.
 
 ## Measurements and acceptance
 
+The subsequent optimized P1-witness/compact-source package passes the repeated
+four-loop cold-All controls but is performance-neutral: old/new primary medians
+15.792/15.598 seconds, with pair changes of −2.40% and +0.08%. This comparison
+is Epoch versus Epoch and does not satisfy the outstanding Ready comparison
+by substitution. See [the measured result and limits](research/epoch_p1_compact_2026-10-01.md).
+
 Preparation reports sequential wall phases for source resolution, canonical
 deduplication, antichain construction, representative selection, reverse
 retirement lookup, and transfer work. It also reports source tasks/waves,
@@ -427,6 +433,15 @@ their recorded period sums reconcile. Zero reported lost samples does not prove
 unbiased coverage; throttle records likewise do not count known missed samples.
 Unresolved ancestry, optimized/inlined frames, stack-depth limits, unmeasured
 sampling perturbation and concurrent compilation remain limitations.
+
+The 337 coordinator samples labelled `Tracker::scan` initially lacked phase
+markers. Subsequent caller-address and frozen-disassembly inspection places
+all of them in post-commit periodic closure monitoring, with `force=false`.
+They cluster in one 17.8166-second interval, consistent with the reported
+17.833-second refresh. At the later 01:15 UTC status check, cumulative refresh
+wall time was 98.417 seconds out of 9,052.275 seconds elapsed, about 1.09%.
+This is not queue lookup or evidence of a sustained 30% monitoring cost; the
+short profile happened to include an infrequent refresh.
 
 Frozen-binary disassembly confirms two digest calls on the successful source-row
 path, but their existence does not establish a worthwhile optimization. Current
