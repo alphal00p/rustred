@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 16:23 UTC (18:23 Zurich)
+## Current workboard — October 1, 18:06 UTC (20:06 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,10 +18,10 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Implementation/public/full-cohort validity gates pass | Commit tested opt-in feature; no default/preset promotion |
-| Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Delivered; new pair fully qualified, no meaningful gain over A1 | Park recipe; no repeated sweep or five-loop transfer |
-| Rule-mechanism research | `frontier_probe_runner` | Changed-owner diagnostic delivered; early guard structure restored without a whole-cohort win | Narrow default-off pre-cut rejection implementation and independent audit next |
-| Independent authority/performance review | `rule_quality_audit`; root | Native/API/full-cohort/source gates audited | Audit final changed-owner interpretation, then new pre-cut implementation separately |
+| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
+| Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
+| Rule-mechanism transfer | `five_loop_order_runner` (takes over completed runner preparation) | Both limited-five arms fully accepted; no useful work/time gain | Assess an unchanged actual production required query as the next bounded screen; no launch yet |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Actual limited-five receipts and recoverable removal independently accepted | Preserve narrow scope, larger setup cost and lack of production performance qualification |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -36,6 +36,79 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 17:58 UTC — limited-five transfer and source cleanup
+
+- [M] Both fresh arms finish and pass all registered gates, independently
+  audited: fourteen sectors/zero reused, fourteen owner admissions, all 696
+  source identities and guards replayed, one required query/root cold-verified
+  with every native reinspected and zero uncovered images/errors/frontiers or
+  unfinished admission. A1/R-primary inclusive times are 31.788/40.309 seconds;
+  generation 13.782/17.806 and source replay 11.068/15.601 seconds. Native
+  traversal is only 0.097717/0.100990 seconds, with domains 1,647/1,648,
+  inspections 1,504/1,506 and edges 8,669/8,673. This is compatibility evidence,
+  not a five-loop work or speed benefit. Do not repeat this tiny timing pair.
+  Exact evidence and per-phase CPU/RSS are in
+  `r-primary-five-loop-transfer-v1/RESULTS.md` and its two arm receipts.
+- [M/D] All fourteen recorded native/phase groups and both wrappers are
+  confirmed absent; every phase reports drained, no failure or censor. After
+  a fresh eighteen-file hash check, root applies the independently audited
+  `pre-cut-parking/rollback.apply_patch` through apply_patch. Fifteen tracked
+  files now match their committed base hashes exactly; three new files from
+  that experiment alone are removed, recoverable from the saved full patch.
+  All frozen evidence/binaries and protected FeynKit/progress/research/order
+  docs remain byte-identical across this operation. No native rebuild is
+  necessary merely to restore these exact previously committed source bytes;
+  CLI2072 measurements retain their original OFF-experiment build provenance.
+- [M/D] Source inspection finds one future convenience gap: native CLI and
+  generic `stage.py` support programmed orders, but `prepare_selected.py`
+  deliberately restricts the generation-first pipeline to legacy order.
+  Independent review finds no new mathematical obstruction. A later extension
+  must freeze the explicit descriptor, bind the common identity emitted by
+  every native parent, and avoid rewriting its already-hashed pre-generation
+  stage plan. Keep `--integral-order` reserved against free-form overrides.
+  No extension, production change or full-generation job is implemented here.
+- [M] The first post-restoration Python invocation passed 62 tests but had
+  four module-import errors because sibling test directories were absent from
+  PYTHONPATH. No assertions or code changed; rerun the same eight modules with
+  both existing test directories on PYTHONPATH, using CPUs48–55 and workspace
+  TMPDIR. This check concerns restored steering, not a fresh native build.
+- [M] Corrected invocation passes all 115 tests, zero skips, in 8.429 seconds
+  (exec session1919). Exact invocation: `TMPDIR=/common/dev/rustred/TMP
+  PYTHONPATH=/common/dev/rustred/examples/python:/common/dev/rustred/tools/research/runtime_order
+  taskset -c 48-55 /nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python
+  -B -m unittest examples.python.test_match_shared_owner_domains
+  examples.python.test_shared_owner_campaign examples.python.test_production_upgrade
+  examples.python.test_owner_query_roles examples.python.test_epoch_checkpoint_steering
+  examples.python.test_g2_campaign_steering tools.research.runtime_order.test_stage
+  tools.research.runtime_order.test_pipeline`. These pure steering tests use
+  synthetic/fake children where applicable, not actual five-loop solving.
+- [D] The next selected mechanism screen is the unchanged original required
+  `nested-d9p-a22-r13-101101100101000` query, R≤13/A≤22/D≥9, using both already
+  source-qualified fourteen-owner payload sets. Runner prepares a small
+  data-only fixed-program wrapper for root review; no native launch grant yet.
+  Retain the exact query and fresh graphs, no descendant clipping, no unbounded
+  helper substitution, no regeneration or arbitrary rank grid. Its identity
+  routes do not reproduce the production shared transport/helper network;
+  this remains an isolated required-domain test, not full-scope qualification.
+- [D] The previous user-question turn verified that production uses A1, but
+  did not advance an optimization experiment. Resume the next executable
+  action: independent audit accepts `r-primary-five-loop-transfer-v1/run_arm.py`
+  SHA256 `2655a0581d77a7ceebadf2df12f60a17945a38a796002869778c1a1090c842a2`.
+  Root grants a fresh A1 baseline and, only if fully accepted, the R-primary
+  candidate, W16 on CPUs32–47. The inclusive 1,800-second per-arm limit,
+  original-source replay, full native cold checks, exact fourteen-sector
+  downset and unchanged one-query scope remain mandatory. Both experimental
+  pruning flags are OFF. No production or source mutation is authorized.
+- [M] Separate audit accepts the recoverable pre-cut removal inventory:
+  exactly fifteen tracked paths and three experiment-owned new files;
+  forward/reverse patch checks and in-memory rollback reproduce base bytes.
+  Recovery patch SHA256 is
+  `87ecfeeca02f46a56ed13c36de0b9f716f9e2f7bf88f4948403ff4b544a13ee3`;
+  plan and manifest live under the ignored `pre-cut-parking/` evidence folder.
+  Removal still awaits all native pilot jobs draining and a fresh file-hash
+  check. Unrelated FeynKit changes, runtime-order/research/progress docs and
+  frozen experiment binaries/results are explicitly excluded.
 
 ### October 1, 14:50 UTC — rule-mechanism follow-through
 
@@ -201,6 +274,261 @@ release nor input is edited.
   steering after the current feature commit; auditor independently checks
   mathematical safety, accounting and generic regressions. No new CAS, guard
   generalization, scheduler change or production mutation is authorized.
+- [M] Milestone `20da94db` is pushed to `main`: validated opt-in total-positive
+  score, Rust/CLI/Python tests and the negative complete four-loop comparison.
+  The unrelated FeynKit edit, campaign outputs and reference material remain
+  unstaged. Core/app and Python pre-cut work start only after that commit;
+  final source audit precedes a new optimized build. The live A1 campaign
+  remains on its frozen executable and unchanged inputs.
+- [M] Root independently reviews the Python opt-in/frozen-policy changes and
+  runs the new steering, G2, frontier-rescue and shared-owner suites together:
+  55/55 pass, zero skips, in 16.085 seconds on CPUs48–55 (session1115). Native
+  algebra is not exercised by these fake-child tests. Missing/false mode keeps
+  the native argv identical; Ready/Epoch and rescue restarts retain enabled
+  mode; mismatched or ambiguous resume activation is rejected before launch.
+- [D] The new flag is also a reference lever: cold verification with
+  `--reference-levers off` must disable pre-cut rejection and use the original
+  dispatcher. Keep as-run verification separate; do not weaken inclusion or
+  source gates if the reference partition differs. Source audit requires a
+  nonempty A/D-correlated normalization regression in addition to empty cuts.
+- [M] Read-only production at elapsed 433.4 minutes remains running, fresh
+  heartbeat, 13/67 conservative closed roots, 58,572,896 local completions,
+  92,034,026 discovered domains, 14,643,901 pending, zero frontiers and 83.02 GB
+  RSS. Closure scan age is 3,377 seconds. No convergence or ETA inference.
+- [M] Pre-cut independent source GO covers all nine new core regressions,
+  explicit CLI parsing, Ready/Epoch request identity and cold reference reset.
+  Release/locked/offline metadata check of core/app libraries, tests and CLI
+  passes in 55.167 seconds. Optimized combined core/app lib-test build starts
+  under `pre-cut-native-build1`, using the existing cache, CPU0–15/j8 and
+  build/heavy locks. Native execution and performance remain pending; source
+  is frozen during compilation. Evidence root is the existing rule-quality
+  portfolio directory under `TMP/postlaunch-20261001/`.
+- [M] Direct Python owner-match/walk wrapper also forwards the opt-in. Root
+  independently reruns expanded steering plus direct-wrapper tests: 27/27
+  pass, zero skips (session46266). This complements the earlier 55-test
+  campaign/rescue run; neither is a native algebra pass.
+- [D] The next protocol is frozen in `pre-cut-case-rejection/PROTOCOL.md`:
+  saved donor residual30569 OFF/ON, exact 2,380-point priority/coverage check,
+  then full frozen A1/donor OFF/ON with original-dispatch cold-All. No rule
+  regeneration, changed queries, source weakening or production action.
+  Respect the existing bounded pilot windows and disjoint CPU allocations;
+  record other host jobs rather than presuming an idle machine.
+- [M/D] Independent protocol review passes boundary wrapper SHA256
+  `506356cbc2732be4f9088bac4677292e22d6e1ea06022e0428f52b3deb57bf83`.
+  The full-control gate requires both exact dispatch on all 2,380 tuples and
+  removal of the predicted rule5 split. Merely finishing or passing parity
+  cannot silently advance to Stage2. New CLI identity is bound only after its
+  tested optimized build exists. No native boundary run has started.
+- [M] Build is authoritatively live at 16:41 UTC: cargo PID496330 and rustc
+  children496978/529707 are compiling core/app on CPUs0–15. This is a verified
+  build wait, not a stalled or missing handle. Root grants only a tiny early
+  core-test exception on CPU32 once Cargo emits the new executable: focused
+  nine tests, owned 300-second lifecycle and dedicated lock, no performance
+  interpretation while compilation runs. Full suites/pilots still wait for
+  build drain; the default shared locking policy is unchanged.
+- [E/D] Independent review identifies whole-owner cohort selection as a
+  possible later alternative to scalar local scores, not an evidenced win.
+  It would need fixed full input/route scope, a bounded candidate budget,
+  tie-to-A1, an untouched validation cohort and final assembled-program
+  validation; owner interactions prevent composing standalone local wins.
+  Deferred until pre-cut evidence is available and a specific non-blind
+  candidate intervention is justified. Do not launch a recipe grid now.
+- [M/E] Runner confirms saved A1/new-score programs can be mixed through the
+  existing native admission path with identical family/routes/query scope,
+  but finds no supported improving mixture. Overlapping cold cones can gain
+  aliases while losing native inspections and are not additive owner costs.
+  The negative assessment, six-owner table and possible later provenance
+  investigation are retained in `pre-cut-case-rejection/OWNER_COMBINATION_ASSESSMENT.md`.
+  No further swap or mixture campaign is launched.
+- [M/E] While the optimized build continues, separate agents audit a genuinely
+  different mathematical comparator: R first, then active excess, leaving
+  support/ties and A1 source selection fixed. Prior rank-first quality trials
+  did not change the E-first comparator. An existing native A1 rule117 witness
+  at ordered piece364 increases actual R0→1 while lowering A by2 and E by1,
+  within the same support. It cannot repeat unchanged on its own child; no
+  infinite growth or live-five-loop attribution is inferred. The detailed
+  derivation and countervailing infinite-downset/search risks are now in the
+  permanent rule-selection study. This is a prospective rule-generation
+  experiment, not a new authority mechanism or a proven global rank bound.
+- [D] Independent mathematical review supports one unchanged full four-loop
+  R-primary candidate after the pre-cut gate, with a fresh same-binary A1
+  control, exact source/order binding and cold-All. No executed instance was
+  found in the audited prior pilot set. Native runtime expressivity already
+  suffices; runner checks the historical generic order staging because the
+  current selected driver deliberately rejects nonlegacy descriptors. No
+  bypass, native source change, new generation or campaign run is authorized
+  until the minimal steering/protocol path is reviewed. Frozen physical scope
+  and helpers remain unchanged; no automatic search-budget rescue.
+- [M] Early optimized native gate passes all nine pre-cut tests, zero ignored
+  or failed, in 0.02 seconds (not a workload benchmark). Core artifact SHA256
+  `c79471f7db93cce67e1b4654a93f1093b1fbf1971c6b6199f829231c4c753c3a`
+  is bound to the actual fresh Cargo output and independently checked by the
+  auditor. Owned test process group813232 drains and the guard exits0;
+  application compilation continues unchanged. Evidence: `pre-cut-core-tests1/`
+  plus `pre-cut-core-test-guard1/`, under the shared rule-quality evidence root.
+- [M/D] Auditor opens all four historical comparator descriptors and confirms
+  E-first in each; R-primary is not the previously tested score. Saved native
+  diagnostics contain 53 uniform same-owner R+1/A−2 successor occurrences
+  across 12 rules for both A1 and the old rank-owner program. These are observed
+  report occurrences, not independent probabilities or proof of repeated rank
+  escalation. Existing direct generation plus generic runtime-order staging can
+  test the new comparator without a Rust rebuild or selected-driver bypass.
+  Runner now prepares that one descriptor/protocol for independent review;
+  full native pre-cut validation remains first in the execution queue.
+- [M/D] At 17:06 UTC the combined native build completes successfully in
+  1,873.800 seconds and drains. Full matching regression filter passes 97/97
+  (including the earlier nine), and focused app/CLI/reference/shard gates pass
+  47/47, with zero ignored. Evidence: `pre-cut-{native-build1,matcher-tests1,
+  app-tests1}`. Core SHA256 remains `c79471f7...`; actual app executable is
+  `24f1162d2765b4ec54b1a5a77459293db1042a273bbeeaabf2db759acbf762ea`.
+  Author starts the matching optimized CLI build with the same package set
+  and cache. Compilation is not included in solver timings. Runner and auditor
+  are explicitly reactivated to prepare/audit the data-only R-primary wrapper
+  while that build runs; no native experiment or production action yet.
+- [M/E] Independent follow-through clarifies the rank witness: the raw stored
+  cap can rise 5→6, but `DomainPowerSummary::try_new` projects the actual child
+  geometry to attainable R=1. Ready/Epoch semantic containment lookups already
+  use that tighter summary, so they may reuse an R5 container. If reuse misses,
+  raw geometry may still be admitted; nonliteral unconstrained routing does
+  not universally replace it with the tight summary. Rule117's first child
+  stays in the installed owner and goes to Apply, not Route. Thus the witness
+  proves a rank-increasing recurrence, not extra admission, routing growth or
+  a missing normalization optimization. Raw maximum-rank telemetry is not the
+  attainable maximum. No geometry change is justified by this observation.
+- [M] Read-only production at 16:57 UTC (464.0 minutes) is running, with fresh
+  heartbeat, 13/67 conservative closed roots, 61,623,952 local completions,
+  95,796,650 discovered domains, 14,794,155 pending, zero frontiers and 85.29 GB
+  RSS. Closure scan age is 423 seconds. Neither this snapshot nor the rank
+  diagnostic establishes an ETA or eventual scoped closure.
+- [M/D] At 17:22 UTC both ignored steering wrappers pass independent source
+  review and pure-data/syntax checks. Pre-cut full-control runner is
+  `pre-cut-case-rejection/run_control.py` (`14deb8e2...`); one audit correction
+  compares the stager's already computed payload inventory to the manifest.
+  It retains full scope, original-dispatch cold-All and separate OFF/ON runs.
+  R-primary runner is `r-primary-order-v1/run_arm.py` (`a4469f11...`), with
+  `DRY_CHECKS.md`. It uses direct public generation plus existing generic order
+  staging, actual emitted order identity, native admission, cold-All and source
+  replay, all inside a single 1,800-second clock per arm. Candidate requires a
+  fully qualified fresh A1 on identical binaries. No old rules are relabelled.
+  Both wrappers await the frozen CLI and explicit execution grant. Pre-cut
+  remains first. Direct R-primary generation uses the existing outer 600 GB
+  guard; the saved walk retains its inner 150 GB guard in both arms. Neither
+  source approval nor wrapper preparation is a successful workload result.
+- [M/D] Matching optimized CLI build finishes in 867.133 seconds, exit0,
+  drained, minimum host-available memory 804 GB. Root independently verifies
+  frozen executable SHA256
+  `2072cbf532060fb7c1dbbd1d3caeede0e8746147b071cffbb4313ff6374d0230`
+  at `pre-cut-frozen-bin/rustred`. Grant runner the audited boundary, followed
+  conditionally by sequential A1 OFF/ON and donor OFF/ON controls only if its
+  exact 2,380-point dispatch and predicted-boundary-removal gates both pass.
+  Independent auditor is reactivated for the actual receipts. No R-primary
+  execution, production action or inferred workload gain is included in this
+  grant. The build is from the recorded working tree, not a claimed clean-tag
+  build; the unrelated FeynKit edit remains untouched and unstaged.
+- [M] Native boundary gate passes in 5.778 seconds inclusive, both groups
+  drained. All 2,380 concrete-point dispatch labels are unchanged; the predicted
+  rule5 partition coalesces from two pieces to one. Total pieces fall 9→8,
+  predicate work 117→98, split operations 88→66, and charged cells 480→416.
+  This confirms the specific mechanism, not campaign speed or closure. The
+  conditional full-control grant now applies; runner starts sequential A1
+  OFF/ON and donor OFF/ON with no regenerated rules. Evidence:
+  `pre-cut-case-rejection/boundary-r1/RESULT.json`.
+- [M/D] Full pre-cut A1 OFF passes all 58 queries/32 roots with all 17,957
+  native records independently reinspected. ON finishes the worklist but fails
+  the stronger reference-Off check: all 16,730 natives reinspected, zero native
+  errors/frontiers, **557 uncovered successor images**, and zero independently
+  verified roots. Its 44 count mismatches are informational; uncovered images
+  are the acceptance failure. All groups drain. Runner correctly stops before
+  the donor arms and does not substitute as-run verification. Raw failed cold
+  output exists even though the parent `RESULT.cold` is null after exit1.
+  `pre-cut-case-rejection/RESULTS.md` preserves all results. This is not proof
+  of invalid IBPs; source kind cannot be inferred from the printed successor's
+  `Route` phase. Author/auditor investigate the exact coverage discrepancy
+  read-only, without building a new certification mechanism or relaxing gates.
+- [M/E] In that unqualified single A1 pair, domains decrease 26,025→24,158
+  (7.17%), natives 17,957→16,730 (6.83%) and edges 495,898→457,336. Traversal
+  nevertheless rises 4.128843→4.274225 seconds (3.52%), waited walk CPU
+  22.350→22.547 seconds and sampled RSS 244.4→294.9 MB. It is neither an
+  accepted correctness result nor a demonstrated speed win. Keep the feature
+  default-off and do not recommend a production switch.
+- [D] Separate R-primary comparison receives execution grant on frozen CLI
+  `2072cbf5...` and app-test binary `24f1162d...`: fresh A1 first, then candidate
+  only after full A1 admission/cold/source qualification. Both explicitly omit
+  pre-cut and joint-support pruning. The freshly tested CLI's OFF baseline is
+  accepted; the failed ON experiment does not contaminate this isolated study.
+  Same audited data-only wrapper, CPU32–47/W16, unchanged 16/508/58/32 scope and
+  1,800-second inclusive per-arm limit. No new compile, depth expansion, input
+  narrowing or production mutation. Independent auditor covers actual receipts.
+- [M] Read-only production at 17:25 UTC remains running, heartbeat current,
+  13/67 conservative roots, 65,047,360 local completions, 99,930,463 discovered
+  domains, 14,885,844 pending, zero frontiers and 89.97 GB RSS. The closed-domain
+  lower bound is stale by 2,128 seconds; do not use it as an instantaneous
+  convergence measure or infer an ETA.
+- [M] In response to the user's A1 question, root verifies saved generation
+  metadata rather than relying on the campaign name: original five-loop
+  `shared/discovery.json` and frozen pipeline recipe use active-first sectors,
+  ascending term count then coefficient-monomial count. All 67 saved owner
+  identities are retained in the live repaired selection; one targeted repair
+  overlay is added. This already uses A1 and needs no restart to obtain it.
+  The 40–44% improvement remains a four-loop measurement, not a measured
+  five-loop percentage. These are read-only provenance checks.
+- [M] R-primary full four-loop pilot completes and passes independent audit:
+  all 16 sectors freshly generated with the actual programmed order, all 58
+  queries/32 roots cold-verified, and all 524 rules source/guard-replayed.
+  Both new levers remain OFF. The contemporary A1 also passes every gate and
+  retains the prior generated parent bytes. Evidence:
+  `r-primary-order-v1/receipts/{a1-r1,r-primary-r1}/RESULT.json`. Both complete
+  inside their inclusive limits (66.166 and 111.867 seconds), all groups drained.
+- [M/E] Candidate work improves: domains 26,025→24,971 (−4.05%), natives
+  17,957→16,877 (−6.01%), and successor admissions 410,681→384,039 (−6.49%).
+  Single-pair traversal 4.305161→3.897588 seconds (−9.47%), while waited walk
+  CPU only falls 21.906→21.222 seconds (−3.13%). Costs also rise: native solving
+  5.141→7.339 seconds, payload 4.912→6.168 MB, source replay 41.062→86.401
+  seconds. Both report 28 finite residuals with unchanged terminal policy;
+  no equality of terminal keys or master bases has been checked. Setup cost can
+  be amortized but is not omitted from the full measured boundary. This is a
+  positive first traversal result, not a repeated or five-loop gain.
+- [D] Prepare one counterbalanced fixed-program repeat (candidate then A1),
+  using the already source-qualified programs, fresh graphs and cold-All, no
+  needless regeneration. Wrapper audit and explicit grant precede execution.
+  Author also checks one historical limited five-loop transfer's exact inputs
+  for possible later reuse; no five-loop native grant yet. The weighted
+  A-excess+2R fallback stays deferred because R-primary actually completed;
+  its proposed generation-failure reopening condition is not met.
+- [M] Counterbalanced fixed-program candidate→A1 repeat passes every cold gate,
+  with all groups drained. Domain/native/edge counts exactly reproduce. Candidate
+  traversal 3.947239 versus A1 4.141971 seconds (−4.70%); supervised walk
+  6.529515 versus 6.642619 seconds (−1.70%); waited walk CPU 21.851772 versus
+  22.582122 seconds (−3.23%). Candidate sampled RSS is 256.7 versus 248.6 MB.
+  These are sustained fixed-rule measurements, not another generation-inclusive
+  benchmark. They support a modest repeated control benefit, not a universal
+  9.47% speedup. Runner's `r-primary-order-v1/RESULTS.md` and both r2 receipts
+  are independently audited. All setup/replay penalties remain recorded.
+- [M/D] A historical limited five-loop compatibility screen is prepared and
+  independently audited: full fourteen-sector downset, fourteen identity route
+  witnesses, one unchanged 784-point query (R≤1, A≤10, D≥9). Descendants are
+  not clipped. Both fresh arms will use production-like depth0/R10/
+  sparse-factorized generation; only the mathematical order changes. Its
+  historical ~20-second measured phase sum excluded original-source replay,
+  which the new 1,800-second inclusive boundary must include. This control
+  cannot establish transfer to all67 owners/116-required+67-helper live scope
+  or nontrivial shared routing. Protocol/descriptor are under
+  `r-primary-five-loop-transfer-v1/`; native execution still awaits reviewed
+  steering and a grant.
+- [M] The public installed `import rustred` helper independently reproduces
+  the exact tested K10 and prepared K15 R-primary descriptors from the same
+  arity-generic two-row input. Root's single-core pure-data smoke passes both;
+  no native generation is claimed by that check. Document the compact public
+  Python/CLI recipe in `docs/runtime_integral_order.md`, including regeneration
+  and support-priority caveats.
+- [D] Root and auditor agree not to retain an exposed, unqualified pre-cut
+  option merely because its pointwise tests pass. Author prepares an exact
+  recoverable ignored patch and per-file restoration inventory first. Only
+  after all granted native jobs drain may our opt-in core/app/Python/API-doc
+  changes be removed; unrelated edits, current runtime-order docs and research
+  findings stay. Current successful R-primary evidence remains explicitly
+  tied to frozen2072, where pre-cut code exists but is OFF—not retroactively a
+  clean-build receipt for the later cleanup commit. No production change.
 
 - [M] Read-only production snapshot at336.6min remains running with fresh
   heartbeat,13/67 conservative closed roots,47,986,656 local completions,

@@ -591,3 +591,222 @@ together with each `qualification/RESULT.json`, baseline `DEFAULT_IDENTITY.json`
 and `ACTIVE_REPLENISHMENT_VALIDATION.md`. Implementation:
 `frontier_replay_implementation`; execution: `frontier_probe_runner`;
 independent source, scope and measurement audit: `rule_quality_audit`.
+
+### Parked experiment: avoid a cut from an impossible earlier rule
+
+The exact residual example exposes a concrete dispatcher mechanism: a rule's
+fixed coordinate case can partition an incoming domain before its first guard
+proves the rule inapplicable everywhere on that intersection. Both fragments
+then reach later rules, preserving a boundary that had no mathematical effect.
+The donor's `n8=0` split on residual30569 is the smallest retained falsifier.
+
+The implemented default-off `pre-cut-case-rejection` experiment was not a new rule
+order or algebra kernel. On a proper normalized fixed-coordinate intersection,
+with no affine case equalities, test only the first singleton excluded-zero
+condition using the existing exact native guard resolver and Symbolica
+specialization. Only uniform zero permits advancing the original unsplit cell
+to the next saved rule. Other results retain ordinary dispatch. Source and
+terminal precedence, selected-rule denominators, exact rank/A/D constraints,
+cancellation and strict operational errors remain mandatory. Multi-atom,
+later-guard and general affine lookahead are deliberately not part of this slice.
+
+The expected benefit is fewer inherited boundaries and therefore fewer redundant
+successor obligations; the extra guard probe may instead cost more than it
+saves. First test generic pointwise dispatch and the saved smallest residual.
+Then compare complete frozen A1 and donor controls with flag-off identity,
+independent cold reinspection and unchanged source replay. Stop or park the
+experiment if it fails these checks or does not improve whole-cohort work/cost.
+Local piece counts alone do not justify a five-loop recommendation. No result
+or deployment gain is claimed before those tests finish.
+
+The first native boundary test now passes: all 2,380 concrete-point dispatch
+labels remain identical, while the predicted later-rule region coalesces from
+two pieces to one. Total pieces decrease 9→8, predicate work 117→98, splits
+88→66 and charged cells 480→416. The owned diagnostic completes in 5.778 seconds
+including both preparations and drainage. This establishes the local mechanism
+only; full-control performance and independent recursive reinspection remain
+the acceptance gates. Evidence: `pre-cut-case-rejection/boundary-r1/RESULT.json`.
+
+The first full A1 pair **does not pass acceptance**. OFF cold-verifies all
+58 queries/32 roots. ON exhausts its worklist and reduces domains from 26,025
+to 24,158 and native inspections from 17,957 to 16,730, but reference-Off
+reinspection finds 557 uncovered successor images. Every native was reinspected
+with zero native errors/frontiers; the failed coverage test still verifies zero
+roots. Forty-four count mismatches are separate informational diagnostics.
+The printed `Route successor` denotes the destination phase, not necessarily
+the phase of the inspected source node. This result alone neither proves
+concrete algebraic unsoundness nor establishes a harmless union-cover mismatch.
+Preserve the failure; no as-run substitute or donor continuation is accepted.
+
+Even before that failure, traversal increases 4.128843→4.274225 seconds in this
+single pair, with waited walk CPU 22.350→22.547 seconds and sampled RSS
+244.4→294.9 MB. Fewer domains therefore are not an accepted performance gain.
+Do not retain this unqualified option in the main implementation. Evidence and raw cold output:
+`pre-cut-case-rejection/RESULTS.md` and `a1-on-r1/cold-all.json` below that study.
+Read-only diagnosis is separate from the next mathematical-order experiment;
+no new certification framework is authorized by this failed pilot.
+
+After the remaining native pilots drained, its fifteen modified implementation,
+steering and API-documentation files were restored byte-for-byte to their
+previous committed versions; only its three new implementation/test files were
+removed. The complete recoverable patch, manifest and restoration plan remain
+in `pre-cut-parking/` (patch SHA256
+`87ecfeeca02f46a56ed13c36de0b9f716f9e2f7bf88f4948403ff4b544a13ee3`).
+Independent review checked exact scope and recovery before removal. Reopen only
+with evidence resolving the full-control discrepancy and a plausible net gain.
+The frozen experiment binaries remain intact; subsequent ordering measurements
+using CLI2072 keep that provenance, with the option OFF. They are not relabelled
+as measurements of a new clean build.
+
+### Numerator-primary mathematical order: first qualified four-loop pilot
+
+This is distinct from the unsuccessful **rank-first rule-quality score** above:
+that score still generated and admitted rules under the original E-then-R
+mathematical comparator. A new data-only comparator experiment is justified by
+a concrete native witness, after the current pre-cut test.
+
+In the saved A1 lower-owner program, ordered piece364 selects rule117 and its
+guarded native output contains the nonzero same-support successor
+
+```text
+I( 0, n1,   2, 2, 1, 0, 0, 0, 0, 1)
+  -> I(-1, n1-2, 2, 2, 1, 0, 0, 0, 0, 1),  n1 >= 4.
+```
+
+Thus actual numerator rank R rises from 0 to 1 while total positive power A
+falls by two; total excess E=A−number_of_positive_indices+R falls by one.
+This is lawful under E-first and would be forbidden within the same support
+under R-first. It is not evidence of an indefinitely repeating recurrence:
+the child no longer satisfies this particular rule's `n0=0` case. Nor does
+this four-loop observation identify the cause of live five-loop growth.
+Evidence: `owner-481-ordered-geometry-r3/a1-r1/{ordered,guarded}.json` under the
+local study directory, independently checked against native shift convention,
+piece geometry, nonzero coefficient status and successful error-free finish.
+
+The raw domain rank cap is not the attainable rank used by every lookup. In
+this example a stored cap can increase from 5 to 6, while existing exact power
+projection tightens the child's attainable maximum to R=1. Ready/Epoch semantic
+containment already uses that summary and may reuse a containing R5 result.
+If reuse misses, the raw cap may remain in an admitted domain; nonliteral routing
+does not universally replace it with the projected bound. This particular first
+child stays in its owner and goes to Apply. Consequently the witness proves a
+rank-increasing rule, not additional queued work or a missing normalization
+service. Keep raw-cap telemetry separate from actual rank and measure the full
+campaign before attributing any benefit to the proposed comparator.
+
+The proposed descriptor retains support ordering and coordinate ties and uses
+two degree rows: first active weights zero/inactive weights one (R), then
+active weights one/inactive weights zero (A-excess). Existing runtime order
+APIs can express it without changing or rebuilding the Rust solver. Within a
+fixed support, exact descent then forbids R growth, and tied R cannot increase
+A-excess. This could reduce unnecessary excursions from rank-capped helpers.
+
+There are important countervailing effects. The order is well-founded but has
+infinite initial segments when R is positive: smaller R permits arbitrarily
+large dot powers. Search depth, exact expression size or guard complexity may
+increase. Earlier support priorities still permit degree changes at pinches or
+other lower supports, and routing changes coordinates. Neither global rank
+boundedness nor finite symbolic closure follows. In the live input, only 13
+of the 183 queries have no A upper bound; all 116 required queries and 67
+auxiliary declarations must remain untouched. Their relation to current closed
+root counts is not established. The optional E-primary envelope certificate
+does not apply to this comparator and must not be claimed.
+
+No executed R-primary comparator was found in the audited earlier pilot set;
+this is not a claim about every historical scratch run. The registered complete
+four-loop test uses A1 source visitation/FirstValid, original
+16 owners/508 routes/58 queries/32 roots, unchanged backend and budgets, pre-cut
+OFF, fresh generation of both parent programs and a contemporaneous A1 control.
+Every new rule needs native order binding and exact source/guard replay, and
+the whole control must cold-verify. Old saved rules cannot simply be relabelled
+with the new order. Failure to finish under the existing pilot budget, new
+unresolved guards, or greater total work/dot/route inflation is negative evidence;
+do not automatically enlarge limits or promote the order. The existing selected
+preparation driver rejects nonlegacy orders, so use the earlier audited generic
+order-pilot path or a separately reviewed small steering extension, not a
+reserved-argument bypass.
+
+That test now completes with every gate passed in both arms. Fresh reports,
+checkpoints and decoded owners retain the actual programmed order; source replay
+checks the new rules rather than relabelling the old programs. Independent
+review confirms exact scope and order binding, all-native cold reinspection,
+58/32 discharged queries/roots and zero uncovered/errors/frontiers. Both pre-cut
+and joint-support pruning are OFF throughout.
+
+| Matched four-loop workload | Fresh A1 | R-primary |
+| --- | ---: | ---: |
+| Rules / finite residuals | 523 / 28 | 524 / 28 |
+| Scheduled domains | 26,025 | 24,971 |
+| Native inspections | 17,957 | 16,877 |
+| Successor admissions | 410,681 | 384,039 |
+| Traversal, seconds | 4.305 | 3.898 |
+| Waited walk CPU, seconds | 21.906 | 21.222 |
+| Native generation solve, seconds | 5.141 | 7.339 |
+| Parent payloads, MB | 4.912 | 6.168 |
+| Original-source replay phase, seconds | 41.062 | 86.401 |
+| Full inclusive run, seconds | 66.166 | 111.867 |
+
+This first pair reduces domain work 4.05%, native inspections 6.01% and traversal
+wall time 9.47%, with a smaller 3.13% walk-CPU reduction. It also increases
+generation, payload size and source-replay cost. Retain those costs; do not
+present it as an overall logical-cold speedup. The unchanged finite-residual
+count is not a comparison of terminal integer-key sets or master bases.
+One counterbalanced fixed-program repeat is justified to check sustained
+performance without regenerating identical rules. No production/default switch
+or five-loop gain follows from this one pair. Evidence:
+`r-primary-order-v1/receipts/{a1-r1,r-primary-r1}/RESULT.json` below the study
+directory; independently reviewed by `rule_quality_audit`.
+
+That reverse-order repeat now also passes strict cold-All for every native and
+all 58/32 queries/roots. Existing qualified programs are restaged unchanged;
+generation and source replay are deliberately not repeated or retimed. Exact
+domain, native and edge counts reproduce. Candidate-then-A1 traversal is
+3.947239 versus4.141971 seconds (4.70% lower), supervised walk6.529515 versus
+6.642619 seconds (1.70% lower), and waited walk CPU21.851772 versus22.582122
+seconds (3.23% lower). Sampled RSS is256.7 versus248.6 MB. This supports a modest
+work/traversal benefit on this control, not a universal9.47% speedup. Retain the
+larger one-time generation/replay costs above. Evidence:
+`r-primary-order-v1/RESULTS.md` and `receipts/{r-primary-r2,a1-r2}/RESULT.json`.
+
+### Limited five-loop transfer: compatible, no useful work reduction
+
+Both freshly generated orders also pass one five-loop transfer control: the
+entire fourteen-sector downset of the seven-line input root
+`101101100101000`, fourteen identity routes, and one fixed 784-point starting
+query with R≤1, A≤10 and A−R≥9. Descendants are not clipped. This small query is
+not the original production query with R≤13 and A≤22, nor the full frozen
+116-required/67-helper scope. In particular, this control does not test
+nonidentity cross-family routing or establish production scaling.
+
+| Matched limited five-loop workload | Fresh A1 | R-primary |
+| --- | ---: | ---: |
+| Fresh sectors / reused sectors | 14 / 0 | 14 / 0 |
+| Rules / finite residual declarations | 696 / 16 | 696 / 16 |
+| Scheduled domains | 1,647 | 1,648 |
+| Native inspections, all reinspected | 1,504 | 1,506 |
+| Dependency edges | 8,669 | 8,673 |
+| Native traversal, seconds | 0.097717 | 0.100990 |
+| Supervised walk, seconds | 2.705 | 2.684 |
+| Generation phase, seconds | 13.782 | 17.806 |
+| Original-source replay phase, seconds | 11.068 | 15.601 |
+| Full inclusive run, seconds | 31.788 | 40.309 |
+
+All 696 source identities and guards replay in each arm. Native order admission
+accepts every fresh shard, and cold-All verifies the sole required query/root
+with zero uncovered images, errors, frontiers or unfinished admission. Both
+owned process trees fully drain. W16, CPUs32–47, identical A1 source visitation
+and generation/walk policies; both pruning experiments are OFF. These are new
+Epoch-versus-Epoch measurements, not a comparison with old Ready timings.
+
+There is no useful work reduction, and approximately 0.1-second traversal
+times are too short for a stable speed claim. Generation and replay increase,
+so do not repeat this tiny timing pair or recommend production migration on it.
+The modest four-loop result remains valid but has not demonstrated a five-loop
+gain. The next useful transfer question concerns an unchanged actual required
+production domain, using the already qualified rules rather than regenerating
+them or testing a blind ordering grid.
+
+Evidence: `r-primary-five-loop-transfer-v1/RESULTS.md` and
+`receipts/{a1-r1,r-primary-r1}/RESULT.json` under the study directory.
+Execution: `five_loop_order_runner`; independent actual-receipt review:
+`r_primary_transfer_audit`. No production input, process or checkpoint changed.

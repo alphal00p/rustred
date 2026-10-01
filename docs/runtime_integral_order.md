@@ -1,11 +1,18 @@
 # Runtime mathematical integral orders
 
-Status (2026-09-30): native core/application, CLI, installed Python API and
-cold-load/checkpoint tests pass on `fable_5_1_parallel`. Optimized matched pilots
-qualify a source-visitation strategy with40–44% less four-loop domain work;
-the tested non-default mathematical comparators have not beaten that strategy
-overall. See [the measured controls](research/final_order_s5_pilots_2026-09-30.md).
-Do not treat API flexibility alone as a campaign-switch recommendation.
+Status (2026-10-01): native core/application, CLI, installed Python API and
+cold-load/checkpoint tests pass; the feature is merged into `main`. Optimized
+matched pilots qualify a source-visitation strategy with40–44% less four-loop
+domain work. A later R-primary mathematical order reduces that strategy's work
+a further4.05%, with4.70–9.47% lower traversal time in two counterbalanced short
+pairs, but increases generation, file size and source replay cost. See the
+[original controls](research/final_order_s5_pilots_2026-09-30.md) and
+[current rule-order study](research/rule_selection_portfolio_2026-10-01.md).
+This is not a full five-loop benefit or campaign-switch recommendation.
+The subsequent fourteen-sector five-loop compatibility control also passes
+source replay and cold reinspection, but has essentially unchanged domain work
+(1,647→1,648) and higher generation/replay cost. Its small starting query is
+not the full production scope.
 
 Two independent controls select generated rules:
 
@@ -87,6 +94,28 @@ the mathematical admission boundary. Manually supplied version-1 JSON permits
 the same fields and rejects unknown fields. Existing source-discovery JSON is
 separate and can be combined with a mathematical order.
 
+The tested R-primary experiment is expressible using that same public helper:
+
+```python
+def rank_primary_order(arity):
+    return rustred.integral_order(arity, degree_rows=[
+        {"active": [0] * arity, "inactive": [1] * arity},
+        {"active": [1] * arity, "inactive": [0] * arity},
+    ])
+```
+
+It compares numerator rank before positive-index excess within a fixed support;
+the earlier support priorities and default coordinate ties are unchanged. This
+is a data-only research choice, not a new default or a bound on rank across
+pinches/routing. Regenerate rules with it; do not relabel an existing artifact.
+The helper reproduces the exact K10 and K15 study descriptors. Both pass their
+registered generation/replay/walk gates: the combined four-loop control and a
+limited fourteen-sector five-loop control, respectively. The latter supplies
+compatibility evidence, not a five-loop performance improvement. The generic
+CLI and `stage.py` accept this order; the generation-first selected-owner
+`pipeline.py` still accepts only the legacy order. Do not bypass its reserved
+arguments or substitute old payloads to work around that steering limitation.
+
 ## Rust and compilation boundaries
 
 `rustred::order::{OrderDescriptor, CompiledOrder, DegreeRow, CoordinateGroups,
@@ -110,19 +139,21 @@ not a claim of automatic crate-level reuse.
 
 ## Opt-in exact-rule portfolio
 
-Implementation status (2026-10-01): independent source review, all 16 focused
-native core tests and eight focused application tests pass. These include
-checkpoint recipe binding and K3 worker-count equality with source replay.
-The application suite passes 1,320 tests, with explicit external/scale exclusions
-and a 16-core test allocation. Installed Python and matched campaign performance
-qualification remain open. The baseline and two portfolio candidates pass full
-cold reinspection and original-source/guard replay on the combined four-loop
-control, but neither candidate demonstrates a useful performance gain. These
-tested recipes are not recommended for production; see
+Implementation status (2026-10-01): the original portfolio passed independent
+review, focused native tests, six installed Python/CLI/checkpoint tests and
+1,320 application tests (with explicit external/scale exclusions and a 16-core
+test allocation). These cover recipe binding and K3 worker-count equality with
+source replay. The later total-positive-shift score passes 19 focused core,
+nine application and two fresh installed Python/CLI tests. Baseline,
+branch-first, rank-first and total-positive candidates pass full cold
+reinspection and original-source/guard replay on the combined four-loop
+control, but none demonstrates a useful improvement over A1. These
+tested alternatives are not recommended for production; see
 `docs/research/rule_selection_portfolio_2026-10-01.md` for measured results.
-The native suite was built from `9477044d` plus the reviewed P3/test working-tree
-changes, not from a clean later milestone commit. Current receipts and remaining
-gates are recorded in `CODEX_PROGRESS.md`.
+Build provenance and exact binary/test boundaries are recorded in
+`CODEX_PROGRESS.md`; the original full application run predates the later
+focused score tests. No subsequent untested experiment inherits that full-suite
+pass merely by sharing the same checkout.
 
 An optional `rule_selection` inside the discovery descriptor compares a baseline
 rule against at most two alternate source-visitation plans. All trials use the
