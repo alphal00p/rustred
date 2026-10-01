@@ -1,6 +1,7 @@
 //! Source-ordered validation/resolution in bounded immutable blocks. Helpers
 //! return tokens or unresolved canonical query descriptions; only the caller
 //! performs global digest/image deduplication and assigns candidate ordinals.
+use super::super::super::job::Miss;
 use super::*;
 
 pub(in super::super) mod observation;
@@ -20,9 +21,86 @@ enum Task {
 struct Output<const N: usize> {
     entry: usize,
     first: usize,
-    rows: Vec<MissResolution<N>>,
+    rows: ResolvedRows<N>,
     counters: P2Counters,
 }
+
+/// Transport verified Stored tokens without reserving a full query payload
+/// for every row. None denotes exactly one payload, in source order. These
+/// private buffers are populated together only after resolve_miss succeeds.
+struct ResolvedRows<const N: usize> {
+    tags: Vec<Option<Verified>>,
+    candidates: Vec<(QueryImage<N>, Query<N>)>,
+}
+
+impl<const N: usize> ResolvedRows<N> {
+    fn new(misses: &[Miss<N>]) -> Result<Self, Error> {
+        let mut tags = Vec::new();
+        let mut candidates = Vec::new();
+        // Every supplied positive still passes resolve_miss. Its successful
+        // result must be Stored; target-less rows may resolve either way.
+        // This is an allocation upper bound, never a containment decision.
+        // Reserve both buffers before the first resolver call: no row push
+        // grows either allocation, including an entirely candidate-only block.
+        reserve(&mut tags, misses.len())?;
+        reserve(
+            &mut candidates,
+            misses.iter().filter(|miss| miss.target.is_none()).count(),
+        )?;
+        Ok(Self { tags, candidates })
+    }
+
+    fn push(&mut self, resolution: MissResolution<N>) {
+        debug_assert!(self.tags.len() < self.tags.capacity());
+        match resolution {
+            MissResolution::Stored(token) => self.tags.push(Some(token)),
+            MissResolution::Candidate { q, query } => {
+                debug_assert!(self.candidates.len() < self.candidates.capacity());
+                self.candidates.push((q, query));
+                self.tags.push(None);
+            }
+        }
+    }
+
+    fn into_iter(self) -> ResolvedRowsIter<N> {
+        ResolvedRowsIter {
+            tags: self.tags.into_iter(),
+            candidates: self.candidates.into_iter(),
+        }
+    }
+}
+
+struct ResolvedRowsIter<const N: usize> {
+    tags: std::vec::IntoIter<Option<Verified>>,
+    candidates: std::vec::IntoIter<(QueryImage<N>, Query<N>)>,
+}
+
+impl<const N: usize> Iterator for ResolvedRowsIter<N> {
+    type Item = MissResolution<N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(match self.tags.next()? {
+            Some(token) => MissResolution::Stored(token),
+            None => {
+                // One None is written with each payload by push. Never zip:
+                // a missing internal payload must not truncate obligations.
+                let (q, query) = self.candidates.next().expect("source candidate payload");
+                MissResolution::Candidate { q, query }
+            }
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.tags.size_hint()
+    }
+}
+
+// Keep the default nth/last implementations: skipping a tag must also consume
+// its candidate payload. A Map over tags alone would not preserve that pairing.
+impl<const N: usize> ExactSizeIterator for ResolvedRowsIter<N> {}
+
+#[cfg(test)]
+mod compact_rows_tests;
 
 fn source_error(error: Fatal) -> Error {
     let detail = error.0.strip_prefix("P2: ").unwrap_or(&error.0);
@@ -129,14 +207,13 @@ pub(super) fn prepare<const N: usize>(
                         Ok(Output {
                             entry,
                             first: 0,
-                            rows: Vec::new(),
+                            rows: ResolvedRows::new(&[])?,
                             counters: work,
                         })
                     }
                     Task::Misses { entry, first, end } => {
                         let result = &entries[entry].result;
-                        let mut rows = Vec::new();
-                        reserve(&mut rows, end - first)?;
+                        let mut rows = ResolvedRows::new(&result.misses[first..end])?;
                         for miss in &result.misses[first..end] {
                             rows.push(
                                 resolve_miss(store, version, result, miss, &mut work, &mut *poll)

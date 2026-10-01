@@ -38,6 +38,87 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M] **Compact transport native validation PASS,00:38UTC October1:** guarded
+  build exit0 in1164.535s; full test guard exit0 in120.179s. Application1,291
+  PASS/0 failed/12 existing ignored, candidate CLI19 PASS, routed CLI6 PASS.
+  Focused compact6/P1-union9/observer8 also pass and are subsets, not additional
+  unique tests. Fifty distinct physical CPUs, strict license/profile0, no skip
+  markers. Both owned groups93477/176390 have drained. Actual Option-token
+  stride is16B at arities2/10/15/32: a256-row N15 all-Stored block reserves4096B
+  rather than348160B; all-Candidate reserves352256B. This is backing capacity,
+  not campaign RSS or wall-time savings. Evidence:
+  `TMP/postlaunch-20260930/compact-rows-native-{build,tests}/`.
+  Independent final receipt audit is GO: source/artifact bindings, all test
+  results and process drainage were checked. Runtime's authorized next action
+  is one optimized build, not a native benchmark or production change.
+- [D/M] Four-loop measurement driver review is **conditional GO**: the
+  ignored-TMP adapter now reuses the existing owned-process controller with
+  absolute deadlines from before setup and propagates profile0 to all children.
+  Six metadata/mocked checks pass; no native pilot has run. Root retains an
+  exclusive logical heavy-work reservation until every owned/adopted process
+  group drains, including on failure or loss of an inner OS lock. No agent may
+  launch another build/test/pilot solely because a lock becomes available.
+  This bounded operational control avoids a new lock architecture and makes
+  no claim of generic protection against unrelated external lock users. A
+  hard-stopped or incompletely drained arm is censored, never a successful
+  timing. S5 owns the adapter; `final_requirements_audit` independently reviewed
+  the clock, process ownership, profile and measurement boundaries.
+- [D] Next performance protocol is prepared in
+  `TMP/postlaunch-20260930/compact-source-rows/PERFORMANCE_PROTOCOL.txt`:
+  combined P1/compact package versus frozen23d, same optimized profile, first
+  four-loop Epoch ABBA with cold-All, then a separately granted full-A1 h0 pair.
+  No individual-change attribution or fixed-prefix claim. Independent audit
+  found one concrete pre-launch gap: the four-loop command chain's lock/setup
+  waits lack an arm-wide inclusive deadline. S5 will reuse scoped lifecycle
+  controls to enforce the30-minute total and explicitly propagate profile0 to
+  cold children; no native pilot starts before that review passes. The five-loop
+  adapter already enforces the inclusive window. Runtime has conditional grant
+  for one cached fully optimized build **only after** compact native tests and
+  independent receipt review pass. Compilation is separate from pilot timing;
+  preserve the frozen production binary. Manifest review confirms unrelated
+  FeynKit source lies outside the selected application executable's dependency
+  chain and remains untouched.
+- [M/E] **Independent read-only live audit,00:20UTC October1:** repaired
+  production at5722.49s has15,580,432 native inspections,30,698,554 scheduled,
+ 7,625,632 pending, zero frontiers/errors/abandoned work and33.47GB RSS. The
+  conservative initial-root snapshot remains13/67,211s old; it is not closure
+  of all116 required queries. No guard stop/swap; CP6 generation1 remains the
+  earlier observed resumable save, not a performed restore. Over bounded
+ 300.19/600.50s windows, P2 accounts for46.16%/49.40% elapsed, P1 for7.42%/9.48%,
+  P3 for14.72%/14.45%, inspect/wait18.48%/16.28%, boundary12.45%/10.00%.
+  Sampled CPU means3.86/3.95 cores; brief peaks do not demonstrate sustained
+  utilization. These measurements support prioritizing coordinator preparation,
+  but expose no transport-specific timing and therefore do not prove a compact
+  buffer win. P1's smaller recent share also limits extrapolating its potential
+  savings from earlier intervals. Auditor: `final_requirements_audit`; no
+  campaign mutation, native launch or large checkpoint read occurred.
+- [M/D] **Compact transport native build underway,00:16UTC October1:**
+  the independently audited draft landed exactly (`source.rs` SHA256
+  `9a3842858187f9eec4ccb49dc7b80cae92d63f39d91687ecde5be25bb5da1d85`,
+  private tests `f4b4e92ad9ef6aa60e6c66ecc759d35438a45f57c5c8d82feccfe54972aa3917`).
+  Runtime owns guarded exec63263/PG93477, CPU0–15, the cached app-opt1 release
+  correctness build with eight compiler jobs. Evidence:
+  `TMP/postlaunch-20260930/compact-rows-native-build/`. Source is frozen until
+  focused/full app and both CLI suites finish; no optimized speed claim yet.
+  S5 prepares, but does not launch, a matched fully optimized performance
+  protocol. The independent auditor observes production read-only to check
+  whether its sustained phase costs support the buffer/P1 hypotheses.
+  Neither the frozen production executable nor either campaign is modified.
+- [M/D] **Tested-source milestone pushed,00:14UTC October1:** `ecc822eb`,
+  `Reuse local union checks and instrument merge-query repetition`, on
+  `origin/fable_5_1_parallel`. Exactly14 task-owned source/test/docs files;
+  unrelated FeynKit work, research probes, reference/vendor material and campaigns
+  remain unstaged. No license or campaign output committed. Frozen production
+  CLI23d836d7 remains unchanged. This is a correctness-tested source milestone,
+  not an optimized speed qualification or campaign-switch recommendation.
+- [D] The independent-source-approved compact transport draft may now land as
+  the next slice, after the measured layout and completed predecessor tests.
+  S5 owns only `source.rs` and private `source/compact_rows_tests.rs`; the auditor
+  confirms landed files match its approved draft. Runtime prepares a new guarded
+  cached-target correctness build but waits for the root grant after that
+  confirmation. No optimized build or new pilot is yet authorized. Expected
+  coverage: six compact tests including actual Option layout, prior focused
+  gates, full app and both CLI suites under the unchanged50-core test allocation.
 - [M] **Current-source native validation PASS,00:10UTC October1.** Build
   exit0/no guard stop in1129.507s; test guard exit0/no stop in120.179s. Focused
   union9/observer8/layout1 PASS; full app1,285 PASS/0 failed/12 pre-existing
@@ -829,13 +910,13 @@ rebuild the engine. Bounded pilots and resource isolation still apply.
 
 | Track | Owner | State | Next executable step |
 |---|---|---|---|
-| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | delivered; all67 improved owners generated and admitted; repaired user walk active | Keep saved rules unchanged; native validation of narrow P1/P2 development slices after h0/h2 drain |
-| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; repaired optimized four-loop cold-All PASS, about10% slower than Ready; paired full-input helper screen active | Finish h2, structural cold checking and independent interpretation; no saturation promise |
+| O: generated-rule selection and full persisted integral order | implementation `order_integration_resume`; follow-through `runtime_order_pilots` | delivered; all67 improved owners generated and admitted; repaired user walk active | Keep saved rules unchanged; compact transport native PASS, independent receipt audit then optimized build |
+| S: original S5 merge architecture | implementation `s5_typed_resume`/root; follow-through `s5_fixed_work_pilots` | delivered; repaired optimized four-loop cold-All PASS, about10% slower than Ready; full-input helper screen complete and negative | Prepare matched fully optimized P1/compact performance protocol; no native pilot granted yet |
 | P4 shared immutable lookup publication | root | native shared-layer differential, quarantine, compaction and cancellation tests PASS; independent source review complete | Measure whole-campaign impact, not just isolated lookup costs |
-| Independent mathematical/code/performance audit | `final_requirements_audit`; prior native/P4/lane reviewers | repaired ABBA receipt audit PASS; P1/P2 authors cross-audited source, native validation pending | Audit completed h2/h0 comparison; compact-row diagnostic is measurement only |
-| Integration, resources, profiling and release | root | pushed513befd6; frozen repair source d55cfb1c, optimized CLI23d836d7; both production campaigns observed read-only | Consolidate tests/evidence without changing user production |
+| Independent mathematical/code/performance audit | `final_requirements_audit`; prior native/P4/lane reviewers | repaired ABBA and h0/h2 audits PASS; P1/observer native PASS; compact source independently audited and native tests PASS | Final compact receipt review; matched pilot driver conditionally approved |
+| Integration, resources, profiling and release | root | pushedecc822eb; frozen repair source d55cfb1c, optimized CLI23d836d7; both production campaigns observed read-only | Consolidate tests/evidence without changing user production |
 
-### Active decision register — refreshed 2026-09-30 23:40 UTC
+### Active decision register — refreshed 2026-10-01 00:38 UTC
 
 This compact register takes precedence over stale provisional next steps in the
 chronological history. It records negative results explicitly to avoid reopening
@@ -866,7 +947,7 @@ the same experiment after a handoff.
 | P1 repeated exact-union evaluation | delivered source/native; performance pending | Private one-use local witness removes duplicate same-input evaluation;9 focused tests and full1,285-app/25-CLI suite PASS. No relaxed cold/replay check or measured timing benefit. |
 | P2 preparation helpers | delivered negative deployment screen | h0/h2 both cold-structural valid; h2 gives3.13% more native work,4.64% more pending and5.27% more native CPU. P2 saves16.27%, but10% useful-work gate fails. No switch or sweep; reopening requires materially different measured workload/cost evidence. |
 | Cross-entry exact-image repetition | delivered observation; production measurement pending | Bounded optional census source-audited,8 focused and full native suite PASS. No cache/reuse authority; prefix truncation can hide repeats. Not enabled in user production. |
-| Compact P2 source-row transport | active isolated draft, landing pending evidence | S5 authors TMP-only patch; separate auditor reviews. Root source frozen for current build. Layout diagnostic precedes landing; no solver change or measured memory/speed gain yet. Candidate-heavy blocks are the falsifier. |
+| Compact P2 source-row transport | source-audited and native PASS; optimized measurement pending | Six new focused checks plus1,291 app/25 CLI tests PASS, no skipped worker panels. Actual compact tag16B; resolver and ordered fold unchanged. No optimized memory/speed gain yet; candidate-heavy blocks remain a falsifier. |
 | Inspector containment-token transport | deferred after feasibility audit | Possible with stronger private process-local bindings, but crosses bytes-only pool/escrow and snapshot lifecycle. No lazy-summary bypass; reopen only after the Stored validation cost is isolated and a full boundary/cancellation design is justified. |
 
 **Earlier engine implementation milestone:** `56176df5`, committed and pushed to

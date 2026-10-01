@@ -30,6 +30,14 @@ changes are correctness-tested in an application-opt-level1 build; their
 optimized runtime effect has not yet been measured. The user's frozen repaired
 production executable predates them and is not changed by this development work.
 
+The compact source-row transport then passes1,291 application and25 CLI tests
+(zero failures, the same12 ignored), including six new layout/iterator tests.
+The actual token tag is16 bytes: at arity15,256 all-Stored rows reserve4,096
+bytes instead of348,160; the all-Candidate case reserves352,256. These are vector
+backing capacities, not RSS or a runtime benchmark. This later test also uses
+50 physical cores and application opt-level1; fully optimized measurement is
+pending, and the production binary remains unchanged.
+
 The first full-input trial exposed an optional G2 union-proof budget mismatch:
 the discovery procedure could succeed while P1's separate bounded proof was
 inconclusive. The repair conservatively inspects the whole domain in that case;
@@ -186,6 +194,18 @@ Successful serial and parallel preparation must agree on the canonical plan,
 IDs, dependencies, ledger transitions, and deterministic lookup accounting.
 Parallelism is not permission to omit an obligation or accept a partial
 retirement list.
+
+Source-block transport keeps verified existing-domain tokens in a compact
+tag vector and new-candidate query payloads in a separate, source-ordered
+vector. Both capacities are reserved before resolving the first row. An input
+with a supplied target still goes through the unchanged full resolver; target
+presence bounds allocation only and is not proof of containment. The owning
+iterator preserves tag/payload pairing when advancing or skipping, and a missing
+payload cannot silently truncate the output. Candidate-heavy blocks can cost
+more than the old inline-enum layout, so this change requires matched runtime
+measurement rather than a speed claim from type sizes. Native validation and
+optimized comparison status are tracked in the progress log; the running frozen
+production build does not contain this change.
 
 ### Typed records and bulk dependencies
 
