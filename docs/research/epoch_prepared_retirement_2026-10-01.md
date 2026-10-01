@@ -1,0 +1,100 @@
+# Apply exact prepared retirement IDs once
+
+Status: source implemented and independently reviewed on October 1, 2026.
+Native differential and application tests pass; matched performance qualification
+is pending. Production is unchanged.
+The implementation is currently an uncommitted, reviewed working-tree change;
+the documentation/test milestone does not deliver this engine change. Its
+commit and deployment decision wait for the fixed-rule performance comparison.
+
+## Repeated work being removed
+
+Epoch P2 computes the sorted set of live domain IDs contained by each proposed
+survivor. P3 previously traversed the containment index again, applying coordinate,
+word and lane filters before asking whether each surviving ID was in that set.
+The second pass does not discover a new relation: its final predicate is simply
+membership in P2's already prepared set.
+
+The saved same-start five-loop continuation attributed 73.44 seconds to P3 out
+of 838.68 seconds of restore-inclusive traversal. A later production window
+attributed 19.19% of coordinator wall time to P3. An earlier sampled profile
+contained reverse-index ancestry in 38 of 86 P3 samples. These different
+observations motivate investigation; they are not interchangeable timing scopes
+or a predicted speedup. Even eliminating all of P3 could save no more than its
+share of the relevant whole run.
+
+## Implementation and invariant
+
+`AggregateIndex::retire_with` owns the existing group traversal, slot retention,
+stable block compaction, insertion-tail pinning, group removal and accounting.
+There are two private ways to select the slots it removes:
+
+- The existing geometric path retains its filters and predicate callbacks.
+- Epoch's new `retire_ids` intersects a sorted prepared set with the **current
+  live IDs** in each block. It uses ID bounds, not another containment test.
+
+Let `R` be the exact P2 retirement set and `L` the IDs still live when P3 reaches
+this survivor. The required removals are precisely `R ∩ L`. Earlier publication
+within the same cut may have removed some overlapping IDs; those no longer
+occur in a live block prefix. Newly inserted survivor IDs are outside `R`.
+The new path never retains a snapshot's physical block or slot addresses.
+
+Every ID in `R` passed the original exact P2 containment check against the same
+immutable domain image. Therefore the old necessary geometric filters cannot
+exclude any still-live member of `R`; all other IDs fail its final membership
+test. Both paths must consequently produce identical slot masks. Applying them
+through the shared mutation code must preserve full index layout and storage
+accounting, not merely the final set of live IDs.
+
+Important boundaries:
+
+- The prepared sets are private current-P2 plans, not an external assertion or
+  reusable certificate. This adds no containment or algebra primitive.
+- P3 retains its old-ID bound, current-live expected count and poison-on-count-
+  mismatch checks, as well as the existing verified transfer targets.
+- Every signature-eligible group is still traversed even for an empty set.
+  Restored empty blocks must be removed as before; a reserved insertion tail
+  must remain. An empty set is not permission to return early.
+- Group ID ranges can interleave. Each block searches the sorted set separately;
+  no monotone cursor is carried between groups. Only live slots participate.
+- Ready and initial admission retain the geometric path. Epoch's legacy lookup
+  restore also calls the survivor path with an empty set and is in test scope.
+- Index diagnostic filter counts can differ. Canonical IDs, dependency edges,
+  retirement counts, checkpoint images and publication decisions must not.
+
+## Validation before acceptance
+
+The existing 8,000-operation historical-layout test, 6,000-operation storage
+test, native-summary reuse test and restored-empty-block test now run both
+paths. They compare full serialized checkpoint index images (including stale
+tail slots, envelopes and physical order), runtime kernel images, positions,
+IDs and storage totals after mutations. An additional test exercises overlapping
+sets, shifted live slots, interleaved groups and newly appended IDs.
+
+These tests supplement, not replace, the existing independent historical layout
+model. Full queue, Epoch publication, admission, cancellation and restore tests
+must pass, including fixed-publication/helper-budget graph equivalence.
+Independent source review passed. The optimized application suite passes
+1,320 tests (14 explicit external/scale tests ignored), including all five
+modified index controls, lookup restoration and native CP6 publication/replay
+controls. Its 16-core allocation skipped ten genuine 50-worker test arms;
+those wider runs remain unvalidated by this receipt. Focused passes are subsets
+of that suite, not additional test coverage. Evidence:
+`TMP/postlaunch-20260930/rule-quality-native-20261001/app-full/`.
+
+Then compare optimized binaries on identical saved four-loop inputs and the
+existing bounded five-loop control, charging complete preparation, publication,
+checkpoint and verification costs. Keep the generated-rule portfolio comparison
+separate: changing both rules and publication in the same pair would confound
+the result. Local mask timings or busier cores do not establish a campaign gain.
+
+Falsifiers are any changed semantic or physical checkpoint image, missing
+retirement, altered publication choice, or material whole-work regression.
+Sorted-set lookup may lose to cheap geometric rejection on some distributions;
+that possibility must be measured, not dismissed. No production switch follows
+from source approval alone.
+
+Implementation author: `frontier_probe_runner`. Independent source reviewer:
+`rule_quality_audit`. Root owns integration, resource coordination and acceptance.
+The isolated source is retained at `TMP/prepared-retirement-20261001/`;
+native evidence will be recorded in `CODEX_PROGRESS.md`.

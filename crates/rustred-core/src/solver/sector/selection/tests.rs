@@ -575,7 +575,9 @@ fn bounded_rule_portfolio_retains_exact_admitted_or_order_without_geometry_repla
     let context = CoefficientContext::new(["n"]);
     let system = SourceSystem::new(
         vec![
-            row(&context, &[(0, "1"), (-1, "1"), (-2, "1")]),
+            // The pivot coefficient must have a genuine zero to exercise
+            // exceptional-case retention; a constant pivot has no such face.
+            row(&context, &[(0, "n-2"), (-1, "1"), (-2, "1")]),
             row(&context, &[(0, "1"), (-1, "n-1")]),
         ],
         [0],

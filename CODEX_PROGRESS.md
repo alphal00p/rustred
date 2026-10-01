@@ -8,6 +8,350 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
+## Current workboard — October 1, 10:38 UTC
+
+The preceding delivery turn made concrete progress: source-derived frontier
+repair, native validation, frozen user launch, fast-forward to `main`, and a
+verified explicit-path Nix correction (`9477044d`). The broad optimization goal
+remains active; delivery does not satisfy the unpassed performance gates.
+
+| Lane | Responsible agent | State | Next evidence |
+| --- | --- | --- | --- |
+| Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass | Fresh Python wheel/native parity; wider worker acceptance is separately qualified |
+| Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
+| Independent authority/performance review | `rule_quality_audit` | Active, read-only | Review test coverage and pilot interpretation; identify a justified next S5 bottleneck without reopening rejected knobs blindly |
+| P3 exact-ID retirement application | `frontier_probe_runner`; independent review `rule_quality_audit` | Native tests pass; matching optimized CLI build active | Old/new Epoch and current Ready whole-work measurements after binary freeze |
+| Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
+
+The earlier auditor could not be reactivated due to its thread limit; a fresh
+independent audit agent was started successfully. The native core build uses
+CPUs 0–15, at most eight build workers, the existing target cache and heavy/build0
+locks. No native performance pilot is authorized until focused tests and protocol
+review pass. Neither the frozen release nor production input is edited.
+
+[M] User launched the corrected command: native PID1504002 was confirmed alive,
+run `20261001T091314.583624Z` under the repaired campaign. At32.1s telemetry
+reports native-map verification,31.1 observed cores/32 reserved and4.25GB RSS;
+this is preparation activity, not traversal scaling or closure evidence.
+Old LC2 remains alive separately. Foreign GammaLoop/Symbolica jobs are present;
+future timing claims must record contention rather than treating this as an
+idle dedicated machine. Native test compilation is not solver performance.
+
+### Current validation and negative-result receipts
+
+- [M] The preceding Nix-help turn was a launch-error explanation, not new
+  optimization progress. This continuation revalidated the actual ongoing
+  native build (session47824, rustc PID1463023, guard1462103) rather than
+  restarting it. At09:26UTC compilation had used about43 CPU-minutes and12GB
+  RSS; there is no native selection-test result yet. Compilation is excluded
+  from future solver timings. App portfolio/checkpoint tests follow this build.
+- [M] Python discovery-strategy descriptor tests pass6/6 using the pinned
+  Python: `python -B -m unittest discover -s crates/rustred-python/tests
+  -p test_discovery_strategy.py -v`. These are interface tests, not native
+  generation or performance evidence.
+- [D] Added an input-driven test-only saved-program adapter, independently
+  reviewed by `rule_quality_audit`. It uses the existing binary decoder and
+  `SourcePortAudit` to replay original IBP identities and guards, independently
+  of whole-family coverage certification. A separate decoded-program comparison
+  checks coefficients, variable maps and complete records, not merely counts or
+  binary hashes. Receipts bind actual input bytes with BLAKE3. K1 is the ordinary
+  sanity test; external programs require explicitly requested ignored tests and
+  `RUSTRED_SAVED_PROGRAM_CHECKS`. No new algebra or publication authority is
+  introduced. Native execution remains pending; descent and closure are not
+  claims of the adapter.
+- [M/D] **Parked index-mask initialization experiments.** The auditor tested
+  two standalone, optimized integer-filter variants against29,568 scalar mask
+  cases each, covering live/dead tails, retirement, escapes and endpoint lanes.
+  Both are equivalent on this synthetic corpus. Eligible-mask seeding improves
+  deliberately adverse dead/word-rejected cases49–50%, but regresses ordinary
+  all-survive/random cases11–16%. One authorized live-only correction removes
+  the full-live penalty but still regresses partial random/retired cases16–22%.
+  Neither is an unconditional improvement; neither was put in the engine.
+  Inclusive probe times7.806s and7.382s; owned process groups drained. These are
+  synthetic filter measurements, not campaign gains. Evidence:
+  `TMP/mask-filter-microprobe.JeoFo7/AUDIT_AND_RESULT.txt` and
+  `TMP/mask-filter-live.lnvqwn/`. Reopen only with a measured production query
+  distribution showing that avoided folds repay initialization cost.
+- [D] First portfolio comparison protocol is ready, with native launch still
+  gated on focused tests. Reuses all16 combined four-loop owners,508 routes,
+  58 required queries and32 cold roots, W16 on CPUs32–47. Both arms use the same
+  optimized CLI and sparse backend; the only recipe difference is an opt-in
+  bounded alternative source order. Full fresh generation, admission, traversal
+  and cold-All are timed together; original-source replay is a separately
+  bounded qualification cost. Trial work, losers, selected alternatives and
+  generation-inclusive waited-descendant CPU are retained. Foreign CPU
+  contention is unknown, not assumed absent. Each arm has an inclusive30min
+  lifecycle bound and owned-process drainage. This four-loop backend/depth is
+  not the production five-loop sparse-factorized/depth0 workload; transfer
+  remains to be measured. Evidence/protocol:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/PLAN.json`.
+- [M/D] Core selection tests completed15/16 passing (0.01s execution;
+  1002.545s build/run). The remaining test required a nonempty exceptional face
+  from a row with constant pivot1 and constant RHS coefficients: the fixture
+  had no such face. The implementation agent changed only that fixture's pivot
+  to `n-2`, retaining every assertion. Root and the independent auditor approved
+  the correction; the optimized rerun is now live as session58608. Original
+  failure evidence remains in `rule-quality-native-20261001/core-selection/`;
+  corrected evidence goes to its `core-selection-rerun/` sibling under
+  `TMP/postlaunch-20260930/`. No engine change or native pass is inferred yet.
+- [D] Audit identified and root added an app-level K3 portfolio worker1/2
+  determinism test: compare complete decoded programs and independently replay
+  original sources/guards in both. Source review passes; native execution is
+  pending the core rerun. A real selected alternative is still required by the
+  performance pilot, not assumed from nonzero trial counts. The test adapter is
+  frozen for the app build at SHA256
+  `3022eb5f94d1abd659d6350411fe1b6f112bc8352649aaffae4bbbc7e5934bb6`.
+  The native lane will also execute the loser-cost progress projection test,
+  which the simple `portfolio` filter does not select.
+- [M] Public Python pipeline metadata-only preflight of the version2 portfolio
+  recipe passes in0.678s, preserving16owners/508routes/58required queries. It
+  invoked no native solver and generated no payloads; evidence is
+  `TMP/postlaunch-20261001/rule-quality-portfolio/metadata-smoke-branch/`.
+  Independent review approves the one-arm runner (SHA256`303a2749…`), subject to
+  the focused native regression gate and root's launch grant. No performance
+  arm has started.
+- [D/E] **Next S5 slice selected by independent source/profile review:** P2
+  already computes exact sorted retirement IDs, but Epoch P3 passes them
+  through the full reverse geometry filter again merely to perform membership
+  checks. Existing sampled P3 profiles contain reverse-index ancestry (38 of86
+  samples); that is motivation, not an attributable time fraction or speedup.
+  Approved one isolated implementation: share the existing retirement
+  traversal/compaction shell, with an Epoch-only hit-mask producer matching the
+  prepared IDs to current live block IDs. Retain signature eligibility, empty
+  restored row cleanup, pinned tails, group order and storage totals. Never
+  retain stale slot addresses or accept external ID lists as proof. Keep Ready
+  and initial admission on the old path. No CAS, schema, new cache or production
+  change. The author uses an isolated workspace branch; root remains free to
+  run the already-frozen portfolio comparisons. Differential layout/count,
+  repeated-retirement, restore and fixed-publication tests plus independent
+  review are required before integration. A matched whole-work pilot must
+  establish benefit; fewer filters alone cannot qualify this change.
+
+### Root-closure counter question — October 1, 09:49 UTC
+
+[M] The user's observed13→8 is a comparison between two distinct traversals,
+not a reload regression. The stopped September30 repaired campaign reports
+13/67 after27320.025s, with CP6 generation8 preserved. The October1
+frontier-repaired campaign's actual request has `resume_requested:false` and
+its status is still `awaiting_first_save`. It is the fresh traversal delivered
+with the changed rule inputs, not a continuation of that older checkpoint.
+Across all1030 current telemetry samples, initial-root closure transitions are
+`0 → 1 → 4 → 5 → 8`, never13. The new walk has run about36minutes.
+
+[M/D] Independent code audit confirms that a true restore of the same durable
+graph preserves closure flags and counters; the stale-snapshot `≥` marker
+cannot justify a decrease. An older saved generation can trail later unsaved
+progress, but that is not what happened here. The old rules were reused and two
+source-derived rules added; graph traversal progress was deliberately not
+migrated across changed immutable rule inputs. All67 starting domains and
+116required/67auxiliary queries remain. No campaign was changed during this
+diagnosis. Evidence: both runs' `status.json`, the new `request.json`, and its
+complete `telemetry.jsonl` history.
+
+[M] Corrected core selection suite now passes16/16 (0ignored,0.01s execution;
+1024.553s build/run). Session58608 completed and locks released. Next slot is
+the already-tested FirstValid A1 baseline; candidate portfolio qualification
+still waits app tests and independent source/cold checks. This advances the
+previous verified compile wait; no performance outcome is inferred.
+
+### First matched-input baseline and P3 integration — October 1
+
+- [M] `a1-r1` completed29.2775s inclusive. Fresh preparation/generation/admission/
+  traversal19.9287s and independent cold-All7.6515s (primary phase sum27.5802s).
+  Fresh generation produced523rules/28finite residuals in16selected sectors,
+  with zero reuse; source-replay qualification remains pending. Native traversal
+  was4.17665s,17,957inspections,26,025domains,495,898edges and zero pending.
+  Cold-All passes all58required queries and32roots, with all17,957 native
+  inspections replayed and zero errors/frontiers/uncovered obligations. This is
+  the declared bounded control, not unrestricted four-loop closure.
+  Waited descendant CPU73.2399s includes generation, walking, cold checking and
+  their supervisors, excluding the outer harness. Sampled peak tree RSS246.8MB;
+  foreign contention is not independently quantified. Raw pipeline exit4 is
+  retained; the independent cold-All pass supplies scoped coverage acceptance.
+  All owned groups drained and locks released. Exact command:
+  `python -B TMP/postlaunch-20261001/rule-quality-portfolio/run_arm.py
+  --arm a1-r1 --grant root-approved-one-portfolio-arm`. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/receipts/a1-r1/RESULT.json`.
+  `QUALIFICATION_REQUEST.json` also defines original-source replay and a full
+  decoded comparison with historical matching A1 outputs. No portfolio
+  candidate has been measured, so this is not a speedup result.
+- [D] Integrated the independently audited P3 change from isolated branch
+  `codex/prepared-retirement-20261001` using exact patches to three task files.
+  Source hashes: index`a42a48f3…`,store`2fbf4b08…`,tests`daf43045…`.
+  The user's FeynKit file remains byte-identical to its recorded digest.
+  The scope includes Epoch lookup restore's empty-set insertion, not just fresh
+  survivor publication; Ready and initial admission remain geometric.
+  Design and explicit pending gates:
+  `docs/research/epoch_prepared_retirement_2026-10-01.md`.
+- [D] With the baseline fully drained, granted the app release test build and
+  full library suite. One build covers new portfolio/replay tests and P3 tests;
+  focused passes will be reported as subsets of the full suite, not added twice.
+  All portfolio timings continue to use the original same frozen CLI, excluding
+  this unmeasured P3 patch from that comparison. No production files or processes
+  were changed. Current goal remains active: performance qualification is open.
+
+[M] Follow-up production observation: the new traversal itself reached13/67
+initial roots at about2582seconds (43minutes), still with zero frontiers. This
+supports the different-traversal diagnosis above; it is not a timing comparison
+against when the older campaign first reached13.
+
+[D] Benchmark build boundary checked against the actual frozen release receipt:
+CLI`4e76707b…` used ordinary `cargo build --release --locked --offline -j8`, not
+the distinct `campaign` profile with fat LTO. The new P3 comparison must use
+the same ordinary release profile, compiler/environment and allocator settings.
+Historical campaign-profile Ready/Epoch timings are not its comparator. Root
+assigned preparation of a small existing-harness wrapper for old/new Epoch and
+a contemporaneous Ready control; there is no native run grant until tests and
+the matching optimized binary exist.
+
+[D] Independent review of the P3 benchmark harness passes as preparation only.
+It compares old Epoch, changed Epoch and current Ready with identical saved
+rules; no regeneration is hidden in that timing boundary. Durable-state
+comparison is a separate bounded read-only job, not full typed-record or
+checkpoint equality. Its exclusions remain explicit. Evidence:
+`TMP/postlaunch-20261001/prepared-retirement-performance/PLAN.json` and
+`run_arm.py` (SHA256 `6199767d…`). Candidate binary is not bound yet.
+
+[D] Public-API qualification also needs the existing native Python test
+`CandidateApiTests.test_rule_portfolio_native_report_cli_and_checkpoint_recipe`;
+the six already-passing pure descriptor tests do not replace it. Assigned
+`rule_quality_audit` to identify the matching extension/build requirements,
+without starting a competing compilation. Assigned `frontier_probe_runner`
+the separately bounded original-source/decoded-baseline qualification harness,
+reusing the existing owned-process controller. No new supervisor or production
+operation is authorized. The application compiler was revalidated live at
+about16minutes elapsed, with no errors; the existing build continues unchanged.
+
+[D] Native Python audit found no matching portfolio extension: the available
+shared libraries predate the new API. Do not load current Python helpers over
+one of those stale binaries. The next guarded build will use ordinary release
+for the CLI and a fresh Maturin wheel, sharing the existing cache; install only
+inside fresh `TMP/`, verify imported module paths, and require six selected
+native CLI/Python/checkpoint tests to pass with zero skips. This is local Nix
+wheel qualification, not a redistributable-wheel claim.
+
+[D] Independently reviewed baseline qualifier is frozen at
+`TMP/postlaunch-20261001/rule-quality-portfolio/qualify_baseline.py`, SHA256
+`e4f258ad66a285392923b70560d03fa75bb46dd00dd7c940478ee0164dd23a0f`.
+It reuses the existing bounded process controller and records separate original-
+source replay and decoded-equality costs for all523rules/16sectors. Native
+digests connect the two phases; no repeated final authentication scan was added.
+Root granted `frontier_probe_runner` execution only after the focused and full
+application suites pass and their exact test binary is frozen. Candidate rule
+generation is not yet granted. At21minutes the original app compiler PID2590258
+was still live (about106CPU-minutes,24GB RSS), not stalled or restarted.
+
+[M] Read-only production update at10:16UTC: the repaired traversal saved its
+own first checkpoint (generation1,10,708,800 completed native inspections,
+6,157,442 pending domains; `resumable:true`, no warnings). Live root closure
+remains13/67 with zero frontiers. This confirms successful writing, not an
+executed restore test or a scoped-closure claim. Old checkpoints remain intact.
+
+[M] Application release build completed in1597.744s (compilation, not solver
+time). All8 focused portfolio tests pass,0ignored,0.03s test execution. This
+includes native checkpoint/recipe binding, report accounting and K3 worker1/2
+decoded equality plus original-source replay. Existing binary
+`rustred_app-497daf22b0b4763e` is reused for K1 replay, loser-cost projection and
+the complete application library suite; those are not yet reported passed.
+The unrelated FeynKit file remains at its original recorded SHA256.
+
+[D/E] `rule_quality_audit` identified the existing production-policy five-loop
+transfer control for a conditional follow-up, without creating a new fixture:
+`TMP/aster-integration-20260930-resumed/order-pilot-plans/five-transfer-production-policy/`.
+It has14owners/14routes and one784-point required query, no helpers; entry
+A<=10,R<=1,D>=9, descendants unclipped. Generation is sparse-factorized/depth0/
+rank10/search, unlike the sparse/depth2 four-loop control. Historical A1 measured
+14.157s generation and20.235s charged phases,696rules/16residuals,2191domains;
+all1947natives and its single query/root passed cold-All. These are sizing
+evidence only, not today's baseline and not all116 production queries. A positive
+four-loop portfolio may be tested unchanged on fresh matched arms of this exact
+control, including full source/guard replay. No five-loop pilot is launched or
+granted yet; no new ordering grid is planned.
+
+[M] Native application gate completed:1320pass/0fail/14explicitlyignored,
+118.91s test execution (119.239s guarded). Focused portfolio8, K1 replay1 and
+loser projection1 are subsets, not additional coverage. Independent receipt
+audit confirms all5 modified P3 differential tests actually ran and passed,
+including exact stored-index/kernel comparisons, plus lookup-restore and CP6
+publication/replay controls. Twelve W50 skip notices under16CPU affinity mean
+ten genuinely missing W50 arms: two availability probes precede an intentional
+W<=6 filter and would not execute W50 under any affinity. No license skips.
+W50 execution is therefore not claimed. Frozen test executable SHA256
+`b5b49b6c5c769da03bded9b34a29ab4b9a3140e1e9e8b2464a64d4a6572eda34`
+at `rule-quality-native-20261001/frozen-bin/rustred-app-tests` under the same
+September30 evidence root. Baseline external qualification is now running as
+owned session95019, not another compiler; no portfolio candidate launched yet.
+
+[M] Baseline source qualification passes:44.200s inclusive,42.010s original-
+source/guard phase and0.696s decoded-equality phase. All523rules in16sectors,
+16,778 original-source entries, and both historical/current decoded-program
+pairs pass. Actual native BLAKE3s connect both checks. Source phase CPU40.696s,
+sampled peak tree RSS110.2MB. This cost is separate from the29.278s primary
+generation/walk/cold boundary; combined qualification cost is73.477s. Owned
+groups drained and locks released. Evidence:`a1-r1/qualification/RESULT.json`
+under `TMP/postlaunch-20261001/rule-quality-portfolio/receipts/`.
+
+[M/D] First portfolio arm `portfolio-branch-r1` passes full cold-All58queries/
+32roots in29.949s inclusive (28.031s primary phase sum). Eleven alternate rules
+won; resulting rules511 versus523, residuals28 unchanged. However discovered
+domains25982 versus26025 (-0.17%), reinspection candidates17914 versus17957,
+and traversal4.203s versus4.177s do not demonstrate a useful benefit. Overall
+time is2.29% higher; one pair with unknown contention is not a regression proof
+or speed claim. Source replay of the changed candidate remains pending. Preserve
+this negative result. Root granted one previously registered rank-first recipe
+as an evidence-backed correction: prioritize maximum/total numerator-shift
+excursion and RHS size before exception count, keeping the alternative source
+plan, budgets, frozen engine and full control inputs unchanged. The rationale
+is that fewer exception branches/rules barely reduced reachable work. No broad
+ordering sweep or five-loop transfer is authorized from this result.
+
+[M/D] The single rank-first correction also cold-verifies58queries/32roots,
+but does not improve the control:25alternate winners,530rules/28residuals,
+29,768domains (+14.38%),21,199reinspection candidates (+18.05%),558,153edges,
+30.370s inclusive. Successor events decrease21.38% while routed admissions rise
+12.63%; local fanout/excursion scores do not guarantee better global reuse.
+The small measured traversal/CPU reductions are not an end-to-end win. Both
+recipes are parked after independent interpretation audit; no five-loop transfer
+or additional priority sweep is granted. Detailed boundaries/table/negative
+results: `docs/research/rule_selection_portfolio_2026-10-01.md`.
+
+[D] Independently reviewed generic source-only qualifier
+`qualify_candidate.py` (SHA256 `20abe5bd…`) is granted for two sequential jobs,
+branch-first then rank-first. It reuses the same frozen native adapter and
+owned lifecycle; no hardcoded loop count or historical equality. Source counts,
+arity and sector inventories come from each actual bound generation report.
+These checks remain separate from the completed cold controls and from the
+pending optimized P3 CLI/Python build. A source failure stops that sequence.
+
+[M] Both candidate source checks now pass: branch-first511rules/16sectors/
+16,623source entries in42.971s inclusive; rank-first530rules/16sectors/
+16,728entries in42.921s. Both owned process groups drained without failure;
+qualification is separate from cold closure and from solver timings. No native
+descent or unrestricted-family authority is added by this adapter.
+
+[D/M] Matching optimized CLI build started as session88369, evidence
+`TMP/postlaunch-20261001/portfolio-public-python/cli-build/`. Actual admission
+source is9477044d plus the reviewed engine/test diff. Old4e comparator and
+production remain frozen. Root also grants the audited fresh Maturin wheel
+build sequentially after CLI success/freeze/drain, using the same warm target
+and default release profile. Installation and native Python tests are separate
+bounded gates; no stale extension will be overwritten.
+
+[D] User clarification: do not let one-off input preparation dominate the
+full-campaign decision; report it separately, emphasizing sustained traversal
+and total work that cannot be amortized. Current portfolio screening still
+does not justify a switch: branch-first has no traversal gain and rank-first's
+small one-shot traversal decrease accompanies much more domain work. Do not
+discard a future sustained win merely for higher initial setup cost.
+
+[M] Read-only health check at~84minutes: native process alive and advancing,
+14,748,176inspections,7,274,070pending,zero frontiers,31.86GB RSS,zero swap,
+generation1 checkpoint resumable with no warnings. Complete telemetry root
+transitions are1→4→5→8→13 (13 first at2246s). There is no within-run regression.
+Closure refresh is conservative and~13minutes stale; lag can cause a plateau,
+not justify a decrease of durable closed roots. No restart is recommended from
+this evidence. Healthy operation does not establish convergence or an ETA.
+
 **Latest user direction (2026-09-30 17:29UTC):** the mandatory1.5x deployment
 gate is relaxed. A smaller reproducible useful advantage is acceptable, with
 work/memory tradeoffs reported. Matched same-build Ready controls, repeated

@@ -110,9 +110,19 @@ not a claim of automatic crate-level reuse.
 
 ## Opt-in exact-rule portfolio
 
-Implementation status (2026-10-01): source-audited and typechecked; native
-regressions and matched campaign performance qualification are pending. This
-is not yet a recommended production recipe.
+Implementation status (2026-10-01): independent source review, all 16 focused
+native core tests and eight focused application tests pass. These include
+checkpoint recipe binding and K3 worker-count equality with source replay.
+The application suite passes 1,320 tests, with explicit external/scale exclusions
+and a 16-core test allocation. Installed Python and matched campaign performance
+qualification remain open. The baseline and two portfolio candidates pass full
+cold reinspection and original-source/guard replay on the combined four-loop
+control, but neither candidate demonstrates a useful performance gain. These
+tested recipes are not recommended for production; see
+`docs/research/rule_selection_portfolio_2026-10-01.md` for measured results.
+The native suite was built from `9477044d` plus the reviewed P3/test working-tree
+changes, not from a clean later milestone commit. Current receipts and remaining
+gates are recorded in `CODEX_PROGRESS.md`.
 
 An optional `rule_selection` inside the discovery descriptor compares a baseline
 rule against at most two alternate source-visitation plans. All trials use the
