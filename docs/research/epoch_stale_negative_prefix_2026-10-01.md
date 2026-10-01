@@ -422,12 +422,13 @@ Local reports: `SOURCE_WAVE_GRANULARITY_INTERPRETATION.md` and
 
 The existing frozen candidate already contains a bounded exact cross-entry
 query census, enabled by `RUSTRED_EPOCH_PROFILE=1`; no rebuild is needed.
-This is a distinct, still-unmeasured lane: the completed comparison arms kept
-profiling off, so omitted census output does not mean zero duplication.
-A separate local-checkpoint diagnostic adapter passed independent review and
-14 pure/mock tests, and its single diagnostic run is now underway. No duplicate
-frequency result is available yet. It preserves
-the full input and resource policy, enables profiling only for native traversal,
+The completed performance comparison arms kept profiling off, so omitted
+census output there does not mean zero duplication. A separate local-checkpoint
+diagnostic adapter passed independent review and14 pure/mock tests. Its single
+diagnostic run has now completed and passed independent interpretation/lifecycle
+audit; the results below are observations, not an additional performance pair.
+It preserved
+the full input and resource policy, enables profiling only for the native resume invocation,
 and keeps structural cold checking unprofiled. Profiling enables additional
 inspection/wait diagnostics too, so it is not an isolated observer-overhead test.
 
@@ -440,6 +441,39 @@ counts nor matching context confer reusable proof authority or demonstrate
 saved time. The diagnostic is therefore a way to test an opportunity, not
 approval for a broad lookup cache. Details and the reviewed command are in
 `TMP/postlaunch-20260930/stale-negative-prefix/cross-entry-diagnostic/README.md`.
+
+### Completed duplicate-query diagnostic
+
+The full-scope, same-original-checkpoint W32/h0 diagnostic completed in
+1,285.140 s inclusive, including private copy, cooperative native save and
+structural cold read. All183 queries and the67 owners/8,246 routes remain bound.
+Native saved generation2 without a frontier or error; cold-None returned
+INCOMPLETE with zero violations and no native reinspection. All owned process
+groups drained and resource locks were released. This is not scoped closure.
+
+| Observed source stratum | Rows | Cross-entry identical image | Identical image and target/snapshot context |
+| --- | ---: | ---: | ---: |
+| Stored proposals | 1,295,568 | 134,638 (10.3922%) | 123,454 (9.5289%) |
+| Stale/unprobed misses | 108,753 | 3,895 (3.5815%) | 3,583 (3.2946%) |
+| Current-view misses | 0 | No denominator | No denominator |
+| All observed rows | 1,404,321 | 138,533 (9.8648%) | 127,037 (9.0462%) |
+
+The observer sampled2,829 of181,036 successful P2 preparations. Of1,473,324
+eligible rows in sampled cuts,95.3165% were observed; four truncated cuts
+skipped69,003 rows. Periodic cut sampling and source-order prefixes can bias
+these rates. Failed P2 is excluded; observed successful preparation need not
+have reached publication. The last16 detailed samples are retained, not the
+full sample history. Counts are not weighted by operation cost.
+
+Decision: this does not establish a large duplicate-only scaling opportunity.
+Stored positives dominate repetition; safe positive-proof reuse still needs
+separate cost evidence and correct authority transport. Expensive repeats or
+later censored rows could differ, so this is not a universal rejection either.
+Do not multiply the observed frequency by P2 wall share and call it a speedup.
+No new cache or additional diagnostic run is justified by these counts alone.
+Prioritize downstream-aware generated rules alongside measured source/reverse
+lookup costs. Full local receipt: `cross-entry-diagnostic/RESULTS.md`; independent
+audit: `TMP/postlaunch-20260930/DIAGNOSTIC_AND_SINGLETON_INDEPENDENT_AUDIT.txt`.
 
 ## Source and evidence pointers
 

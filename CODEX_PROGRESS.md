@@ -38,6 +38,45 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Both diagnostics independently accepted,06:42UTC:** the duplicate
+  census finished in1,285.140s inclusive with clean generation2 save and
+  structural cold-None INCOMPLETE/zero violations, no native reinspection.
+  It observed1,404,321 rows over2,829 sampled cuts:9.8648% exact-image repeats,
+ 9.0462% same-context repeats; four truncated cuts skipped69,003 rows. This is
+  unweighted sampled frequency, not cache authority or a speed estimate.
+  No duplicate-only cache implementation or further capture is justified yet.
+  Runtime delivered final `cross-entry-diagnostic/RESULTS.md` and all groups
+  drained. S5 then reproduced the unchanged rank11 owner gap in3.021s inclusive:
+  exact_gap1, unresolved0, no errors, complete classification but NOT applicability.
+  Independent auditor checked both receipts and all seven owned process groups
+  absent. Both resource locks are free; production remained untouched.
+- [D] **Next implementation coordination,06:42UTC:** runtime prepares the core
+  bounded-rule-portfolio seam; S5 maps app/CLI/Python/persistence integration
+  and the separate minimal directed-generator diagnostic. Both are design-only
+  until root review; no engine edit/build started. The independent auditor is
+  separate from both implementers. Default first-valid remains unchanged;
+  alternate trials must be deterministically bounded, exactly validated and
+  fully charged. No topology-specific code, new CAS, silent exception dropping
+  or partial-as-complete artifact publication. This directly pursues the main
+  generated-rule-quality objective rather than another speculative cache.
+- [M/D] **Documentation pushed; isolated probe conditionally granted,06:35UTC:**
+  independently reviewed frontier/rule-priority update is pushed as`9a27a9c5`.
+  S5 confirms the saved parent policy has generation rank10; omission of an
+  exceptional rank11 branch is now supported as a hypothesis, not yet proven.
+  Root reviewed `production-frontier-20261001/SINGLETON_PLAN.json` and granted
+  exactly one existing-CLI singleton match after runtime's actual cold/adapter
+  drainage and lock release: unchanged owner, CPU32/one worker, no successors,
+  no production graph restore/writes, at most300s inclusive. No regeneration,
+  artifact amendment or resume is authorized by this diagnostic grant.
+- [M/D] **Saved-case harness independent audit:** exact A1 rule identity is
+  bound, but the unlinked probe is not a workload-equality/timing certificate
+  or rank11 repair interface. Fail-fast descent/geometry replay is needed before
+  alternative trials; in-process trial order and logging confound timings;
+  saved-rank10 exceptional replay cannot cover this rank11 point. Existing
+  `SectorSolver::solve_domains_with_observer` is the later directed-generation
+  seam, with partial-output publication still separate. No harness linkage/build
+  started. Auditor now independently reviews duplicate census and singleton
+  results; runtime/S5 retain exclusive sequential heavy-job ownership.
 - [M/D] **Frontier located; rule-selection priorities reconciled,06:31UTC:**
   S5 decoded only the36-byte frontier inventory, one indexed97-byte geometry
   record and a64KiB final record tail. Node64,952,600 is a singleton Apply
