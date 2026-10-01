@@ -855,5 +855,91 @@ production owners, all 8,246 routes and the separate overlay. It tests the one
 unchanged required R13 query, not the full required/helper request. A useful
 result requires source-qualified changed programs, cold coverage and reduced
 whole-walk work/cost; no benefit follows merely from a lower-rank preference.
-The selected jobs' preparation cost is not known from aggregate whole-parent
-timings. No such generation or walk has run yet.
+The selected jobs' preparation cost could not be inferred from aggregate
+whole-parent timings. The fresh comparison below now measures those jobs.
+
+### Actual routed R13 query: a small work change, not a deployment win
+
+The three-owner cohort comparison completed on the same frozen release CLI
+(`2072cbf5…`), W16/CPUs32–47. Both arms regenerate just the three sectors above,
+keeping A1 source visitation, original parent roots, exact backend, finite-case
+policy and numerical search limits fixed. The other64 production owner payloads,
+all8,246 routes and the separate frontier-repair overlay are unchanged. The
+single starting query is the verbatim required
+`nested-d9p-a22-r13-101101100101000`, with R≤13/A≤22/A−R≥9. No descendants are
+clipped. All other required and auxiliary starting queries are absent from this
+isolated test, so its sharing and cost are not those of the full campaign.
+
+| Routed five-loop mechanism control | Fresh A1 lower owners | R-primary lower owners |
+| --- | ---: | ---: |
+| Regenerated sectors / rules / finite declarations | 3 / 246 / 3 | 3 / 246 / 3 |
+| Discovered domains | 63,755 | 62,932 |
+| Native inspections, all reinspected | 49,904 | 49,808 |
+| Dependency edges | 666,848 | 662,904 |
+| Native traversal, seconds | 7.257398 | 7.233848 |
+| Native owner preparation, seconds | 75.939 | 76.091 |
+| Supervised walk phase, seconds | 86.906 | 87.012 |
+| Two supervised generation phases, seconds | 16.276 | 20.840 |
+| Original-source replay, seconds | 11.650 | 12.673 |
+| Cold-All phase, seconds | 83.692 | 83.206 |
+| Full inclusive generation-to-cold result, seconds | 218.783 | 224.862 |
+
+Each arm passes replay of all246 fresh rules, native admission of the64 unchanged
+plus3 fresh owners, and cold-All coverage of the exact one-query reachable
+obligation graph. No uncovered obligations, native errors, frontiers or pending
+domains remain, and all owned phases drain. Equal rule/terminal counts are not
+a claim of identical symbolic rules or terminal keys. The other64 unchanged
+owners are not freshly source-replayed in this comparison.
+
+Domains fall1.29%, inspections0.19% and edges0.59%; traversal is effectively
+flat in this single pair (0.32% lower), while inclusive cost rises2.78%.
+The owner-load/preparation cost is reported separately and may amortize in a
+long campaign; it does not turn the nearly unchanged traversal into a gain.
+Do not repeat this pair just to obtain a more favorable timing. There is no
+production-switch recommendation. The larger four-loop benefit has not
+transferred convincingly to either tested five-loop workload.
+
+A subsequent cheap native-content check sharpens that conclusion: all three
+fresh owner pairs have identical complete ordered diagnostic rule contents
+after every coefficient reference is resolved within its own table. Cases,
+targets, RHS displays, guard conjunctions, terminal keys and retained-source
+counts match. The three owners contain51/174/21 rules and1,868/4,500/704 RHS
+terms respectively, with no omissions. Only the integral-order metadata differs.
+The six W1 inspections finish and drain in5.991405 seconds. This diagnostic does
+not add a semantic equivalence certificate, but it rules out a demonstrated
+changed-formula mechanism for the observed domain delta. Execution can still
+differ through order-dependent descent/refinement or snapshot/reuse timing;
+their individual contributions are not identified here. Inspect a genuinely
+recurrence-sensitive sector before running another workload comparison.
+Raw views and comparison are under `native-content/receipts/` in this cohort's
+evidence directory. No further sweep or repeated timing is warranted here.
+
+Evidence: `r-primary-five-loop-lower-cohort-v1/PROTOCOL.md`, `run_arm.py` and
+`receipts/{a1-r1,r-primary-r1}/RESULT.json` under the study directory. Wrapper
+SHA256 is `0ca96424864ab44322710aaeab7b6757e46d32dc57579ee758c69f0e0ab769d5`;
+protocol SHA256 is `87919bcd3fb5219ee970e827ed2351232e54281269f03a5f0c5ea7a6e421a6c7`.
+The frozen CLI includes the now-removed pre-cut experiment, explicitly OFF in
+both arms; these measurements are not a fresh-build receipt for later cleanup.
+
+#### Coverage evidence is not a global mixed-order termination proof
+
+Independent source review distinguishes the experiment's measured coverage from
+a stronger mathematical claim. Different per-owner orders can be combined using
+an active-support-count/owner-local lexicographic measure if each application
+stays within its literal support or strictly loses support. Installed literal
+owners cannot be redirected (`candidate_reduction/routed/prepare.rs`). However,
+the domain walker checks descent under the **current owner's** order, and its
+support-transition tests explicitly admit some support swaps/reactivations that
+the concrete routed evaluator rejects. Cold verification permits sealed domain
+cycles; it does not prove a common globally decreasing concrete-integral order.
+
+Therefore native loader acceptance plus cold-All PASS is not proof that an
+arbitrary mixed-order collection terminates. That stronger property is unknown
+for this cohort and has not newly been proved for uniform legacy order either.
+The present results establish the stated exact-query obligation coverage and
+observed work only, not global concrete reduction termination, unrestricted
+family closure, master minimality or production mathematical qualification.
+No new certification framework is introduced for this performance screen.
+Relevant source: `owners/domains/applied/engine.rs`,
+`owners/domains/applied/tests/support_transitions.rs` and
+`routed/campaign/worker.rs` under `crates/rustred-core/src/solver/candidate_reduction/`.

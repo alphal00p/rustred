@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 18:20 UTC (20:20 Zurich)
+## Current workboard — October 1, 18:54 UTC (20:54 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -20,8 +20,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
 | Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `r_primary_transfer_audit` and root | Pre-cut experiment parked; exact restoration completed after all jobs drained | Reopen only on new evidence resolving failed coverage and showing useful net cost |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Shift-score recipe has no useful gain; R-primary passes two counterbalanced four-loop pairs | Preserve modest work/traversal benefit and higher setup/replay costs |
-| Rule-mechanism transfer | `five_loop_order_runner` (takes over completed runner preparation) | Both limited-five arms accepted; no gain; larger root-only swap parked after diagnostic sameness | Map the three canonical lower owners where changed rules could affect actual routing |
-| Independent authority/performance review | `r_primary_transfer_audit`; root | Actual limited-five receipts and recoverable removal independently accepted | Preserve narrow scope, larger setup cost and lack of production performance qualification |
+| Rule-mechanism transfer | `five_loop_order_runner` | Both cohort arms accepted; six native views show no changed formulas; all jobs drained | Read-only nomination of one evidence-backed recurrence-sensitive five-loop case; no native launch or grid authorized |
+| Independent authority/performance review | `r_primary_transfer_audit`; root | Both arm receipts, measured docs and six raw native views independently accepted | Critique next case for actual pivot sensitivity, relevance and required repair bindings |
 | Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered and pushed in cc5f449b; independent 104-test pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -36,6 +36,107 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 18:38 UTC — canonical lower-owner experiment running
+
+- [D] The preceding user-question turn reconfirmed the already established A1
+  production settings; it did not advance optimization. Continue the already
+  launched, independently reviewed three-owner experiment rather than starting
+  another plan or repeating that provenance check.
+- [M] Independent auditor `r_primary_transfer_audit` explicitly accepts wrapper
+  `r-primary-five-loop-lower-cohort-v1/run_arm.py`, SHA256
+  `0ca96424864ab44322710aaeab7b6757e46d32dc57579ee758c69f0e0ab769d5`, and protocol
+  SHA256 `87919bcd3fb5219ee970e827ed2351232e54281269f03a5f0c5ea7a6e421a6c7`.
+  Runner launches the conditional A1 baseline under exec session80123,
+  wrapper PID2211847/start236693549. Original W16/CPU32–47 resource limits and
+  1,800-second inclusive boundary are unchanged. No production writes.
+- [M] Exactly three requested sectors generate 246 rules and three finite
+  declarations. Source replay passes for every new rule; native admission
+  passes separately for the 64 unchanged and three new owners. The full
+  67-owner/8,246-route mixed pool and unchanged repair overlay are staged.
+  The walk drains cleanly in 86.906 seconds (checkpoint-only exit4), with
+  49,904 reported local completions, no pending work and no frontiers. These
+  reports alone are not the independent closure check.
+- [M] Root verifies cold-All PID2255805 live at18:38 UTC (51 seconds elapsed,
+  443 CPU seconds, approximately4.63GB RSS). Candidate is not yet launched;
+  source/admission/walk results do not bypass this final acceptance barrier.
+  Evidence is under `r-primary-five-loop-lower-cohort-v1/receipts/a1-r1/`.
+  This is the original rank13 required entry only, not all116 production
+  requirements or the absent67 auxiliary starting queries.
+- [M] Baseline subsequently passes cold-All: all63,755 domains and the one
+  required root independently closed, 49,904 native records reinspected,
+  zero uncovered/error/frontier obligations. All eight owned phases drain.
+  Inclusive generation/replay/admission/walk/cold time is218.783 seconds;
+  traversal alone is7.257398 seconds, whereas the86.906-second supervised walk
+  includes75.939 seconds of native owner preparation. Do not attribute that
+  whole walk time to traversal. Auditor independently accepts actual receipts.
+- [M] Candidate launches through existing conditional grant under session64004,
+  wrapper PID2286407/start236721235. Its three newly generated sectors also
+  total246 rules/three finite declarations, with source replay passing. Equal
+  counts do not prove equal rules or terminal keys. Pending candidate results
+  cannot support a speed or closure claim. No Rust rebuild or production change.
+- [M/D] Candidate finishes PASS in224.862 seconds inclusive. Domains are62,932
+  versus63,755, native inspections49,808 versus49,904, and edges662,904 versus
+  666,848. Traversal7.233848 versus7.257398 seconds is effectively flat in one
+  pair; the modest1.29% domain reduction is not a deployment win. Generation
+  and replay cost rise. All candidate natives are cold-reinspected, with one
+  required root covered and zero uncovered/error/frontier/pending obligations.
+  Runner verifies every owned process group absent and both locks released.
+  No repeat is authorized; preserve this negative transfer finding. Next assess
+  existing census tooling for a mechanistic attribution, without a custom
+  parser, new native launch or arbitrary recipe sweep.
+- [M/D] Independent mathematical source review finds an important limit to
+  interpretation: per-owner descent plus mixed-order loader acceptance is not
+  a common global concrete-integral termination proof. Domain applications can
+  admit support swaps/reactivations, while the concrete routed evaluator rejects
+  them. Cold-All allows sealed domain cycles. The active-count/owner-local-order
+  argument needs a support-monotonicity premise not established for this cohort.
+  This also does not newly prove global route-invariance for uniform legacy
+  order. Keep the exact-query coverage/work experiment, but do not promote it
+  as global termination or full production mathematical qualification. Source
+  refs and the precise caveat are in the research report; no certification
+  framework or implementation change is authorized by this finding alone.
+- [M] Read-only production at approximately18:46 UTC is running with a current
+  heartbeat,13/67 conservative initial roots,109.94 million discovered domains,
+  72.93 million local completions,15.46 million pending and zero frontiers.
+  RSS is96.89GB; a two-second sample observes5.33 busy cores of32 reserved.
+  The closure scan is about23 minutes old; this is not an ETA/convergence claim.
+- [M/D] Auditor independently accepts both actual arm receipts and the research
+  table. Stored checkpoint JSON exposes aggregate counters but no per-owner
+  attribution; existing research census/lens readers target CP5 rather than
+  these CP6 envelopes. Do not build a second decoder for this small result.
+  Each R-primary shard is exactly1,746 bytes larger, consistent with descriptor
+  overhead but not proof of identical rules. Before inferring a rule mechanism,
+  conditionally authorize six existing native `candidate-inspect` calls on the
+  three qualified pairs, W1/CPU32 and300 seconds inclusive, after narrow source
+  review of the reused driver. Resolve every payload-local coefficient ID and
+  require complete ordered cases/RHS/guards/terminals; no new CAS or generation.
+  Equal views would rule out demonstrated formula changes, not prove identical
+  execution: descent/refinement and snapshot/reuse decisions can still differ.
+- [M/D] All six native views complete in5.991405 seconds and fully drain.
+  Complete ordered cases, targets, RHS coefficient displays, guards and terminal
+  keys match for every pair after dereferencing all local coefficient IDs.
+  Counts are51/174/21 rules,1,868/4,500/704 RHS terms,452/812/369 coefficient
+  records and one terminal per owner. No omitted fields or unaccounted
+  coefficients; only integral-order metadata differs. This is diagnostic
+  sameness, not a new algebraic certificate. The1.29% domain delta is therefore
+  not evidence for a changed generated-rule mechanism. Do not repeat this
+  cohort; inspect a genuinely recurrence-sensitive sector before paying for
+  another traversal comparison. Do not attribute the delta exclusively to
+  scheduling: order-dependent descent/refinement is also possible.
+  Evidence: `r-primary-five-loop-lower-cohort-v1/native-content/receipts/`;
+  driver SHA256 `d2dececb83d357cea538d767d7d55799effb52cf0762d664b2f22f8be9cd89dd`.
+  Independent audit covers the raw views and final receipts. No production
+  switch, implementation promotion or generic closure claim follows.
+- [D] Root delegates the next read-only step to runner and separate auditor:
+  identify one actual five-loop same-support rank-raising recurrence (using
+  existing source/frontier/pilot evidence) before another regeneration/walk.
+  Require an explicit applicable case and frozen required query, not a tiny
+  convenient owner or a blind permutation. If the repair-overlay owner is
+  needed, regenerate its repair under the new base/order; never relabel the
+  old overlay. No native launch, Rust build, custom decoder or new proof
+  framework is authorized yet. This successful falsifier is concrete progress,
+  not completion of the broader rule-quality optimization goal.
 
 ### October 1, 17:58 UTC — limited-five transfer and source cleanup
 

@@ -13,6 +13,13 @@ The subsequent fourteen-sector five-loop compatibility control also passes
 source replay and cold reinspection, but has essentially unchanged domain work
 (1,647→1,648) and higher generation/replay cost. Its small starting query is
 not the full production scope.
+An additional real-routing R≤13 control regenerates three lower-owner payloads
+under the alternate order in the full67-owner pool: domains fall1.29%, but
+inspections and traversal are essentially unchanged. This also does not justify
+a production switch.
+Complete native diagnostic views subsequently find no changed formulas in
+those three owners, only order metadata. The small work delta is therefore
+not evidence of improved generated rules.
 
 Two independent controls select generated rules:
 
@@ -25,6 +32,13 @@ Two independent controls select generated rules:
 The order is fixed for each generated owner. Runtime steering can select new
 weights and priorities without recompiling RustRed, but must regenerate the
 affected owner rules. A walking flag cannot change the meaning of saved rules.
+
+An individual descriptor's well-foundedness is not, by itself, a proof of global
+termination after mixing owner orders and routing between supports. The current
+domain walker validates local descent and cold verification checks reachable
+obligation coverage; neither supplies that stronger route-global theorem. See
+the mixed-order caveat in the current rule-order study before interpreting a
+successful mixed-owner pilot as a complete concrete reduction guarantee.
 
 ## Admissible descriptor
 
@@ -231,9 +245,12 @@ their exact legacy permutation order; it cannot introduce programmed metadata
 or silently migrate a campaign. Unknown/inconsistent versions are rejected
 before native Symbolica payload import.
 
-Different independently valid routed owners may use different orders: ordinary
-same-support applications remain within one owner, while owner rerouting after
-entry requires strict support-count decrease. Reusing an already proved rule in
+For the concrete routed evaluator, different independently valid owners may use
+different orders: ordinary same-support applications remain within one owner,
+while owner rerouting after entry requires strict support-count decrease.
+The domain walker also permits some support swaps/reactivations, so its
+coverage checks alone do not establish that same global termination argument.
+Reusing an already proved rule in
 a permuted coordinate frame is different: transport its full descriptor with
 `CompiledOrder::transport` and prove comparison commutation. Equal names are
 not an equivariance proof. Generation, metadata loading, modular evidence and
