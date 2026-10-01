@@ -199,16 +199,19 @@ estimates; absent fields print `unknown`, and no line carries an ETA.
 numbers offline for any elapsed window, so a pilot can be compared with the
 live run at matched elapsed time.
 
-`Discovery−closure` adds the signed change in discovered domains minus
-recursively closed domains, divided by the observed seconds over the last
-hour. For example, `-12.400/s` means the recorded unresolved-domain gap shrank
-by 12.4 domains per second over that window. The display includes actual sample
+`Discovery/closure` shows `D/C`: newly discovered domains divided by newly
+recursively closed domains in the same trailing-hour window. For example,
+`2.000` means two discoveries per observed recursive closure. Positive
+discoveries with zero closures display `∞` in red; an empty `0/0` window,
+unavailable telemetry, invalid endpoints or resets display `unknown` neutrally.
+Both this ratio and the unchanged `pending ... per completion` metric are red
+strictly above 2, yellow strictly above 1 through 2, and green at 1 or below.
+CPU colors are unchanged: red below 50% of reserved cores, yellow from 50% to
+below 75%, green at 75% or more. The display includes actual sample
 span and startup warm-up; `Closure snapshot` shows age, staleness and whether
 the closure scan advanced. Closure counts update in batches and are conservative
-lower bounds, so a sustained negative value is encouraging, not proof of
-convergence or an ETA. Missing telemetry and resume/counter resets are marked
-rather than turned into an invented rate. The existing `pending ... per
-completion` metric is unchanged. Epoch supplies these snapshots through its
+lower bounds: the ratio and its colors are observations, not convergence proof,
+a bound on closure throughput, or an ETA. Epoch supplies these snapshots through its
 existing duty-throttled, cancellable scan at complete merge boundaries, never
 by forcing a graph scan for each heartbeat or checkpoint.
 The rolling window restarts on each launcher invocation, including resume or
@@ -219,6 +222,12 @@ with `--no-progress`. It records raw local-completion and recursive-closure
 counts, their distinct measured rates/deltas, actual window endpoints, warm-up,
 scan age and reset/missing-data state. Frames are bounded to 64 KiB; recording
 also preserves checkpoint milestones for consumers reading only this stream.
+The new `rates.discovery_per_recursive_closure_1h` object records a finite
+`value` or null, an explicit `infinite` boolean, and window/state metadata.
+Null with `infinite: false` means unavailable; infinity is never written as a
+nonstandard JSON number. Displays derive the ratio from raw paired deltas,
+never reinterpret historical `discovery_closure_balance` values. The raw
+signed discovery-minus-closure rate remains in `rates.discovery_minus_closure`.
 Local-completion warm-up begins at the first usable heartbeat, not at the
 start of a potentially long preparation phase. The normalized
 recording
@@ -227,18 +236,20 @@ is exposed under `status.json.telemetry_stream`). A normalized data producer
 (`campaign_telemetry.py`) is independent of the terminal/JSON consumer
 (`campaign_dashboard.py`), so future dashboards need not change the producer.
 
-Plot the two rates without installing any plotting package:
+Plot unresolved domains and their raw net rate without a plotting package:
 
 ```sh
 nix develop --command python examples/python/plot_campaign_rates.py \
   campaigns/NAME/runs/RUN_NAME/telemetry.jsonl --output campaign-rates.svg
 ```
 
-The SVG shows observed local completions and conservative, scan-batched
-recursive closure in domains/second, including shorter warm-up windows.
+The SVG is unchanged: its left axis shows total discovered-but-not-recursively-
+closed domains; its right axis shows the raw signed discovery-minus-closure
+rate in domains/second, not the dimensionless D/C dashboard ratio. A negative
+raw rate means the recorded unresolved gap shrank over that sampled window.
 Exact sampled endpoints, covered spans and warm-up flags remain in the JSON
 stream; the plot does not label each point's window.
-Graph-dirty snapshots stay visible as dashed lines/hollow markers; larger
+Graph-dirty snapshots stay visible as hollow markers; larger
 markers identify an advanced scan. Missing/invalid observations and stale
 heartbeats are gaps, never fabricated zeros. `--start S --end E` selects run
 elapsed seconds; the default bounded extrema envelope keeps at most 20,000

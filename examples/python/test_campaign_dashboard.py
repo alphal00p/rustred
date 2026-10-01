@@ -63,38 +63,63 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
-    def test_balance_uses_paired_deltas_and_preserves_raw_rates(self):
+    def test_ratio_uses_paired_deltas_and_preserves_raw_rates(self):
         status = sample_status()
         frame = TELEMETRY.normalize_status(status)
-        balance = frame["rates"]["discovery_closure_balance"]
-        self.assertAlmostEqual(balance["value"], -7200 / 247200)
-        self.assertEqual(balance["covered_seconds"], 600)
-        self.assertTrue(balance["warmup"])
+        ratio = frame["rates"]["discovery_per_recursive_closure_1h"]
+        self.assertAlmostEqual(ratio["value"], 120000 / 127200)
+        self.assertFalse(ratio["infinite"])
+        self.assertEqual(ratio["covered_seconds"], 600)
+        self.assertTrue(ratio["warmup"])
+        self.assertNotIn("discovery_closure_balance", frame["rates"])
         self.assertEqual(frame["rates"]["discovery_minus_closure"]["per_second"], -12)
         # Independent local completions may have a different sampled window.
         status["derived"]["window_wall_seconds"] = 500
-        self.assertEqual(TELEMETRY.normalize_status(status)["rates"]["discovery_closure_balance"], balance)
+        self.assertEqual(TELEMETRY.normalize_status(status)["rates"]["discovery_per_recursive_closure_1h"], ratio)
 
-    def test_balance_refuses_missing_reset_zero_and_mismatched_windows(self):
+    def test_ratio_refuses_missing_reset_empty_and_mismatched_windows(self):
         original = sample_status()["derived"]["discovery_closure_net_1h"]
         for changes in ({"discovered_delta": None}, {"closed_delta": -1},
                         {"closed_delta": float("inf")}, {"per_second": float("nan")},
                         {"state": "counter_reset"}, {"state": "missing_current"},
+                        {"state": "snapshot_reset"}, {"state": "invalid_counts"},
                         {"covered_seconds": 599}, {"first_elapsed_seconds": None},
                         {"last_elapsed_seconds": 600}, {"window_seconds": 500},
                         {"closed_per_second": 211},
                         {"discovered_delta": 0, "closed_delta": 0, "discovered_per_second": 0,
                          "closed_per_second": 0, "per_second": 0}):
             with self.subTest(changes=changes):
-                self.assertIsNone(TELEMETRY.discovery_closure_balance({**original, **changes})["value"])
-        for discovered, closed, expected in ((30, 10, .5), (10, 10, 0), (0, 10, -1), (10, 0, 1)):
+                ratio = TELEMETRY.discovery_per_recursive_closure_1h({**original, **changes})
+                self.assertIsNone(ratio["value"])
+                self.assertFalse(ratio["infinite"])
+        for discovered, closed, expected in ((30, 10, 3), (10, 10, 1), (0, 10, 0), (10, 0, None)):
             gap = {**original, "discovered_delta": discovered, "closed_delta": closed,
                    "discovered_per_second": discovered / 600, "closed_per_second": closed / 600,
                    "per_second": (discovered - closed) / 600}
-            self.assertEqual(TELEMETRY.discovery_closure_balance(gap)["value"], expected)
+            ratio = TELEMETRY.discovery_per_recursive_closure_1h(gap)
+            self.assertEqual(ratio["value"], expected)
+            self.assertEqual(ratio["infinite"], closed == 0)
+            json.dumps(ratio, allow_nan=False)
         status = sample_status()
         status["progress"]["descendant_closure"]["available"] = False
-        self.assertIsNone(TELEMETRY.normalize_status(status)["rates"]["discovery_closure_balance"]["value"])
+        ratio = TELEMETRY.normalize_status(status)["rates"]["discovery_per_recursive_closure_1h"]
+        self.assertIsNone(ratio["value"])
+        self.assertFalse(ratio["infinite"])
+        # Explicitly unavailable current telemetry suppresses even an otherwise
+        # infinite historical ratio, but preserves its aged snapshot diagnostic.
+        status["heartbeat_age_seconds"] = 7
+        status["progress"]["descendant_closure"]["snapshot_age_seconds"] = 99
+        status["derived"]["discovery_closure_net_1h"].update(
+            discovered_delta=1200, closed_delta=0, per_second=2,
+            discovered_per_second=2, closed_per_second=0)
+        lines = DASHBOARD.derived_lines(status)
+        self.assertIn("Discovery/closure unknown", "\n".join(lines))
+        self.assertIn("closure_unavailable", "\n".join(lines))
+        self.assertNotIn("∞", "\n".join(lines))
+        self.assertIn("Closure snapshot stale · age 00:00:09 · scan advanced", lines)
+        ratio = TELEMETRY.normalize_status(status)["rates"]["discovery_per_recursive_closure_1h"]
+        self.assertIsNone(ratio["value"])
+        self.assertFalse(ratio["infinite"])
 
     def test_two_rates_preserve_distinct_meanings_and_raw_deltas(self):
         frame = TELEMETRY.normalize_status(sample_status())
@@ -123,6 +148,7 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(frame["rates"]["recursive_closure"]["delta"], 40)
         self.assertEqual(frame["rates"]["recursive_closure"]["per_second"], 4)
         self.assertEqual(frame["rates"]["discovery_minus_closure"]["per_second"], -1)
+        self.assertEqual(frame["rates"]["discovery_per_recursive_closure_1h"]["value"], .75)
 
     def test_delayed_completion_samples_have_segment_aware_warmup(self):
         metrics = METRICS.HeartbeatWindow()
@@ -190,6 +216,7 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual([event["event"] for event in events], ["checkpoint", "campaign_status"])
         self.assertIn("/run/checkpoint/state-4", events[0]["message"])
         self.assertIn("pending +0.22 per completion", events[1]["message"])
+        self.assertIn("Discovery/closure 0.943", events[1]["message"])
         # Epoch checkpoint milestones supply a directory, not a state_path.
         frame["checkpoint_milestones"][0]["state_path"] = ""
         frame["checkpoint_milestones"][0]["directory"] = "/run/epoch/checkpoints/main"
@@ -224,15 +251,15 @@ class DashboardTests(unittest.TestCase):
     def test_exact_indicator_thresholds_and_unknown_neutral(self):
         for kind, cases in {
             "cpu": ((0, "31"), (.4999, "31"), (.5, "33"), (.7499, "33"), (.75, "32"), (1, "32")),
-            "pending": ((-1, "32"), (0, "32"), (.0001, "33"), (1, "33"), (1.0001, "31")),
-            "balance": ((-1, "32"), (0, "32"), (.0001, "33"), (.5, "33"), (.5001, "31")),
+            "pending": ((-1, "32"), (0, "32"), (1, "32"), (1.0001, "33"), (2, "33"), (2.0001, "31")),
+            "closure": ((0, "32"), (1, "32"), (1.0001, "33"), (2, "33"), (2.0001, "31")),
         }.items():
             for value, expected in cases:
                 self.assertEqual(DASHBOARD.indicator_color(value, kind), expected, (kind, value))
             for unknown in (None, float("nan"), float("inf")):
                 self.assertIsNone(DASHBOARD.indicator_color(unknown, kind))
 
-    def test_cpu_pending_and_balance_colours_at_real_widths_and_no_color(self):
+    def test_cpu_colours_at_real_widths_and_no_color(self):
         for width in (80, 100, 140):
             for busy, tint in ((24.9, "31"), (25, "33"), (37.5, "32"), (None, None)):
                 status = sample_status()
@@ -257,6 +284,53 @@ class DashboardTests(unittest.TestCase):
             presenter.render(sample_status(), now=0)
         self.assertNotRegex(output.getvalue(), r"\x1b\[[0-9;]+m")
 
+    def test_pending_and_ratio_colours_infinity_and_unknown_at_real_widths(self):
+        for value, closed, tint in ((0, 10, "32"), (1, 10, "32"), (1.0001, 10, "33"),
+                                    (2, 10, "33"), (2.0001, 10, "31"), (3, 0, "31"),
+                                    (0, 0, None)):
+            status = sample_status()
+            status["derived"]["pending_growth_per_completion_1h"] = value
+            gap = status["derived"]["discovery_closure_net_1h"]
+            discovered = value * 10
+            gap.update(discovered_delta=discovered, closed_delta=closed,
+                       discovered_per_second=discovered / 600, closed_per_second=closed / 600,
+                       per_second=(discovered - closed) / 600)
+            frame = TELEMETRY.normalize_status(status)
+            # Infinity remains valid strict JSON, including the non-TTY path.
+            json.dumps(frame, allow_nan=False)
+            expected = "∞" if closed == 0 and discovered else "unknown" if closed == 0 else f"{value:.3f}"
+            for width in (80, 100, 140):
+                for color in (True, False):
+                    with self.subTest(value=value, closed=closed, width=width, color=color):
+                        lines = DASHBOARD.render_table(frame, width, 32, color)
+                        ratio_line = next(line for line in lines if "Discovery/closure" in line)
+                        self.assertIn(f"Discovery/closure {expected}", ratio_line)
+                        pending_line = next(line for line in lines if "pending " in line and "per completion" in line)
+                        for line, expected_tint in ((ratio_line, tint), (pending_line, DASHBOARD.indicator_color(value, "pending"))):
+                            if color and expected_tint:
+                                self.assertIn(f"\x1b[{expected_tint}m", line)
+                            else:
+                                self.assertNotIn("\x1b", line)
+            output = io.StringIO()
+            DASHBOARD.Presenter(output).render_frame(frame, now=0)
+            event = json.loads(output.getvalue())
+            self.assertIn(f"Discovery/closure {expected}", event["message"])
+            self.assertNotIn("\x1b", output.getvalue())
+            self.assertNotIn("Infinity", output.getvalue())
+            self.assertIn(f"Discovery/closure {expected}", "\n".join(DASHBOARD.derived_lines(status)))
+
+    def test_saved_normalized_balance_is_never_reinterpreted_as_ratio(self):
+        frame = TELEMETRY.normalize_status(sample_status())
+        del frame["rates"]["discovery_per_recursive_closure_1h"]
+        frame["rates"]["discovery_closure_balance"] = {"value": -.029, "state": "valid"}
+        for render in (DASHBOARD.plain_summary, lambda value: DASHBOARD.render_table(value, 140, 32, False)):
+            self.assertIn("Discovery/closure 0.943", "\n".join(render(frame)))
+            frame["rates"]["discovery_minus_closure"]["state"] = "counter_reset"
+            self.assertIn("Discovery/closure unknown", "\n".join(render(frame)))
+            frame["rates"]["discovery_minus_closure"]["state"] = "valid"
+        frame["closure_snapshot"]["available"] = False
+        self.assertIn("Discovery/closure unknown", "\n".join(DASHBOARD.plain_summary(frame)))
+
     def test_aligned_responsive_colour_table(self):
         frame = TELEMETRY.normalize_status(sample_status())
         for width, height in ((40, 12), (79, 23), (99, 23), (139, 35)):
@@ -268,7 +342,7 @@ class DashboardTests(unittest.TestCase):
                     self.assertEqual(any("\x1b" in line for line in lines), color)
         lines = "\n".join(DASHBOARD.render_table(frame, 139, 35, False))
         for label in ("Local completions", "Recursive closure", "pending +0.22 per completion",
-                      "Closure balance -0.029", "Closure snapshot stale", "scan advanced", "warm-up"):
+                      "Discovery/closure 0.943", "Closure snapshot stale", "scan advanced", "warm-up"):
             self.assertIn(label, lines)
 
     def test_real_width_rate_labels_and_warmup_do_not_clip(self):
@@ -376,7 +450,7 @@ class PlotTests(unittest.TestCase):
             self.assertIn("no interpolation", svg)
             self.assertNotIn("<path", svg)
 
-    def test_zero_balance_denominator_keeps_a_real_zero_raw_net_rate(self):
+    def test_empty_ratio_window_keeps_a_real_zero_raw_net_rate(self):
         frame = TELEMETRY.normalize_status(sample_status())
         gap = frame["rates"]["discovery_minus_closure"]
         gap.update(discovered_delta=0, closed_delta=0, per_second=0,
@@ -385,6 +459,17 @@ class PlotTests(unittest.TestCase):
             point = next(PLOT.observations("unused"))
         self.assertEqual(point["gap"], 0)
         self.assertEqual(point["unresolved"], 5_060_000)
+
+    def test_infinite_ratio_keeps_a_real_positive_raw_net_rate(self):
+        frame = TELEMETRY.normalize_status(sample_status())
+        gap = frame["rates"]["discovery_minus_closure"]
+        gap.update(discovered_delta=1200, closed_delta=0, per_second=2,
+                   discovered_per_second=2, closed_per_second=0)
+        # Plotting is derived from the raw window, not either cached ratio.
+        frame["rates"]["discovery_closure_balance"] = {"value": 1}
+        with patch.object(PLOT, "records", return_value=iter([frame])):
+            point = next(PLOT.observations("unused"))
+        self.assertEqual(point["gap"], 2)
 
     def test_plot_keeps_negative_net_and_gaps_on_mismatch_reset_and_counter_restart(self):
         frames = [TELEMETRY.normalize_status(sample_status()) for _ in range(4)]

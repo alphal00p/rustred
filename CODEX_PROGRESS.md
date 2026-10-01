@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 14:58 UTC (16:58 Zurich)
+## Current workboard — October 1, 15:47 UTC (17:47 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,23 +18,69 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Narrow total-active-excursion feature authorized after independent conceptual review | Implement/test opt-in feature; full unchanged four-loop candidate and contemporary baseline before any gain claim |
+| Explain portfolio downstream work | `frontier_replay_implementation`; independent source review by `rule_quality_audit` and root | Feature implemented, source audit GO, app 9/9 pass; corrected core test build running | Corrected core tests, matching CLI/wheel, then same-binary full-cohort comparison |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Rule-mechanism research | `frontier_probe_runner` | Early five-panel and full-cohort trigger ablation complete; no gain | Prepare only an independently approved, scope-preserving support/rule interaction test; no blind sweep |
-| Independent authority/performance review | `rule_quality_audit` | Rule-quality audit active | Verify donor-only intervention, interpret conditional/routed work, critique proposed criterion |
-| Dashboard ratio/color amendment | root; implementation deferred to next monitoring slice | Pending at user's request for later | Closure metric Δdiscovered/Δrecursively_closed over1h; both colors >2 red, >1 yellow, otherwise green; pending formula unchanged |
+| Rule-mechanism research | `frontier_probe_runner` | Joint-support pair stopped at required reference failure; exact incoming-domain matcher granted | Small CPU32 no-follow diagnostic during CPU0–15 compilation; new-score full control still waits for tested binaries |
+| Independent authority/performance review | root; `rule_quality_audit` after its isolated UI slice | Feature/protocol source reviews passed; measurements pending | Check actual binary gates, cold/source receipts and whole-cohort work before any promotion |
+| Dashboard ratio/color amendment | `rule_quality_audit` implements; root independently reviews | Delivered; independent 104-test pass, source/docs/render review | Commit current monitor only; frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
 
 The earlier auditor could not be reactivated due to its thread limit; a fresh
 independent audit agent was started successfully. Optimized builds used CPUs
 0–15, at most eight build workers, the existing target cache and heavy/build0
-locks. The native and protocol gates have passed. Rule pilots use CPUs32–47 and
+locks. The original portfolio's native and protocol gates have passed; the new
+total-positive-excursion feature still awaits its final native/API gates.
+Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
 
 ### October 1, 14:50 UTC — rule-mechanism follow-through
+
+- [M/D] At 15:47 UTC the tool-managed goal is confirmed active, with current
+  rule-quality-on-main amendments authoritative. All three agents have active
+  assignments; completed agents are explicitly reactivated rather than only
+  sent messages. The corrected core build is live and must not be duplicated.
+- [M] A fresh read-only production snapshot at 392.2 minutes reports 13/67
+  conservative closed roots, 55,081,984 local completions, 87,807,599 discovered
+  domains, 14,738,294 pending, zero frontiers and 79.50 GB RSS. The paired hour
+  observes 10,259,268 discoveries and 1,599,361 recursive closures (D/C about
+  6.41), with a 906-second-old closure scan. This is observed scan-batched
+  progress, not a convergence claim, instantaneous rate or ETA.
+- [D] Grant the prepared eight-domain native first-match diagnostic on CPU32,
+  W1 while compilation stays on CPUs0–15. It has no recursive traversal or
+  generation, preserves all saved A/D/rank constraints, and is not a timing
+  comparison. Three historical G2 residual scopes may be inspected separately
+  if cheap within the same 300-second inclusive budget. Do not bypass a lock
+  required by the existing harness. The full new-score comparison remains
+  gated on the actual tested build and fresh same-binary A1 identity.
+- [D] The diagnostic's blanket heavy-lock admission conflicts with compilation,
+  despite disjoint CPUs and ample host memory. Approve one explicit exception
+  in its ignored derivative wrapper: retain the CPU32 pilot lock, dedicated
+  diagnostic lock, owned process tree, memory guards and 300-second inclusive
+  deadline, but omit the heavy lock for this no-follow read-only job only.
+  Default/shared harness policy is unchanged. Record concurrent compilation;
+  do not use its elapsed time as a solver-performance comparison.
+- [M/D] The separate monitoring slice passes 78 targeted Python tests before
+  root review. Root requests one additional consistency regression: the legacy
+  `derived_lines` consumer must also suppress the ratio when closure telemetry
+  is explicitly unavailable. Current monitoring docs and sample renders are
+  being updated; historical measurements and the live release stay unchanged.
+  A broader single-CPU suite had two unrelated affinity-validation failures and
+  two multi-CPU skips; these are not reported as a full-suite pass.
+- [M] The monitoring correction and current documentation are independently
+  accepted. Root runs all four modules together on CPUs48–55 with workspace
+  TMPDIR: `python -B -m unittest examples.python.test_campaign_dashboard
+  examples.python.test_campaign_monitor examples.python.test_heartbeat_metrics
+  examples.python.test_shared_owner_campaign`. All 104 tests pass, zero skips,
+  in 5.535 seconds. The broader fixture failures disappear with its required
+  multi-CPU affinity, without editing those tests. Source and 80/100/140-column
+  sample renders reviewed. Evidence: `TMP/monitoring-ratio-20261001/`; root
+  execution is session44207. Finite D/C, explicit JSON-safe infinity, unknown
+  invalid/empty/reset/unavailable cases and exact threshold boundaries tested;
+  pending arithmetic, CPU thresholds and raw net-rate plot remain unchanged.
+  The auditor returns to independent rule-quality review after this UI slice.
 
 - [M] Read-only production snapshot at336.6min remains running with fresh
   heartbeat,13/67 conservative closed roots,47,986,656 local completions,
@@ -78,6 +124,72 @@ release nor input is edited.
   retained, all process groups drained in4.709s, no mathematical failure or
   result. Independent review approves only the staging-directory correction;
   retry uses a fresh evidence directory and unchanged scope/policies.
+- [M] Corrected joint-ON A1 traversal exhausts24,185domains/17,898native
+  inspections withzero frontiers/errors, pruning70,778 masks. Required cold
+  verification with reference levers OFF rejects exactly70,778 conservative
+  Route covers (all17,898records reinspected,zero native errors). This does
+  not by itself prove invalid pruning/IBPs, but it fails the preregistered
+  acceptance check. Stop before the donor arm; no as-run fallback or accepted
+  performance/interaction claim. All groups drain in16.470s; locks released.
+  Evidence:`rule-quality-portfolio/joint-support-on-pair/execution-r2` under
+  the current TMP root; independent receipt audit passed. No more routing
+  experiments are queued; runner prepares the single new rule-feature pilot.
+- [D] Documentation milestone524f9157 is pushed to main. Independent review
+  confirms the early-panel/trigger receipts and negative conclusions. The
+  total-active-excursion implementation remains separate, under development;
+  no untested code was included in that push.
+- [M/D] The new score slice is source-frozen. Seven pure-Python descriptor
+  tests pass. Release/locked/offline metadata checks of core, app, Python and
+  their tests pass in54.171s. Native core/app test compilation is running under
+  the existing guarded build locks onCPUs0–15; execution and the new same-binary
+  four-loop pair remain pending. No native pass or speedup is implied by type
+  checking. Evidence:`active-replenishment-check1` and
+  `active-replenishment-native-build1` in the rule-quality TMP root.
+- [M] Independent source audit gives GO: append-only feature slot11, existing
+  checked active-only excursion arithmetic, unchanged old features/defaults and
+  all exact admission/queue behavior. Three core regressions, app mapping and
+  public Python/CLI/checkpoint tests are present; native execution is pending.
+- [D] At15:19UTC the author takes over the already-running guarded native
+  compilation (root session79152; do not duplicate or terminate). On completion:
+  run core `bounded_rule_portfolio` and app `portfolio` filters, build the CLI
+  with the same release/locked/offline cache, freeze actual executables, then
+  build an isolated wheel for the public test. Runner waits for those actual
+  tested paths; auditor remains separate. A1 must be freshly generated on the
+  same new binary and checked against qualified old A1 before attribution.
+- [M/E] Existing Ready-control evidence supplies a more contextual lead. Its
+  ordered16-owner corpus,508routes and query bytes match A1, but its39,006-node
+  graph is NOT the26,025-node Epoch graph. Eight stored Apply responsibilities
+  for owner481 are reached from other owners: active n9=1 is fixed on7, n3=1
+  on4; no inactive n0/n8 asymmetry. Broad-anchor reuse dominates, and three G2
+  records inspect narrower D bands than their stored domains; two are aliases.
+  These counts are not arrival frequencies, volumes or a demonstrated cause.
+  Report:`OWNER_481_INCOMING_ANISOTROPY.md` in the same TMP root. Independently
+  reproduced using existing JSON/CP5 readers, without a new decoder or native
+  invocation. Exact no-follow native-matcher inputs are prepared separately for
+  the eight stored responsibilities and three saved residuals; not yet run.
+- [M/D] The already-emitted core test binary was run as a small single-thread
+  check on CPU32 while the app test compilation continued, without restarting
+  the build. Result:18/19 pass; one new symbolic-score fixture fails before
+  scoring because its ±99 offsets exceed the existing Power range[-64,63].
+  Approved correction uses ±9 and changes only the corresponding all-active
+  expected total96→6; mixed-active2/1 and all-inactive0 assertions stay intact.
+  No engine range or assertion property is weakened. Failure evidence retained;
+  a corrected release core rebuild/rerun is required before acceptance.
+  Dep-info confirms the changed cfg(test) file is absent from normal-core and
+  app-test dependencies, so it does not invalidate their current compilation.
+- [M] Initial native core/app release build completes in1,885.852s, with23.3GiB
+  peak single-child RSS. App portfolio filter passes9/9, zero ignored, in0.14s
+  test time (1.183s guarded boundary). Corrected core release test rebuild/run
+  is now active at `active-replenishment-core-tests2` (agent session35872), using
+  the same source/cache/build profile. Matching CLI/wheel and campaign pair are
+  still pending; original test-fixture failure remains preserved.
+- [D] During that compile wait, the otherwise idle auditor takes the separate
+  implementation role for the user's queued Python-only monitoring change;
+  root is its independent reviewer. No frozen rule-source or Rust file may be
+  edited for this slice. It must not alter the production release, checkpoint,
+  pending-growth calculation, CPU color policy or raw numerical work counters.
+  New rate naming must distinguish discoveries/closure from historical
+  normalized balance; zero/reset/stale cases and non-TTY output get tests.
 
 ### October 1, 14:31 UTC — resume after an orchestration stop
 

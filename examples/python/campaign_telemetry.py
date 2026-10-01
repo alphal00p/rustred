@@ -37,15 +37,17 @@ def _numbers(source, keys):
     return {key: number(source.get(key)) for key in keys}
 
 
-def discovery_closure_balance(gap):
-    """Dimensionless balance of two deltas from the SAME closure window.
+def discovery_per_recursive_closure_1h(gap):
+    """New discoveries / recursive closures in the SAME trailing-hour window.
 
-    This is an observed scan-batched balance, not convergence or a bound.
+    This is an observed scan-batched ratio, not convergence or a bound.
     Never substitute the independently sampled local-completion window.
+    An explicit infinity flag keeps the serialized frame valid JSON; null
+    without that flag means unavailable, including an empty (0/0) window.
     """
     gap = mapping(gap)
     result = {**_numbers(gap, ("covered_seconds", "window_seconds", "first_elapsed_seconds",
-                               "last_elapsed_seconds")), "value": None,
+                               "last_elapsed_seconds")), "value": None, "infinite": False,
               "warmup": gap.get("warmup") is True,
               "state": clean(gap.get("state", "missing"), 100)}
     if result["state"] not in ("valid", "warmup"):
@@ -71,11 +73,15 @@ def discovery_closure_balance(gap):
         if key in gap and (number(gap[key]) is None or not math.isclose(gap[key], expected, rel_tol=1e-9, abs_tol=1e-9)):
             result["state"] = "window_mismatch"
             return result
-    denominator = discovered + closed
-    if number(denominator) is None or denominator == 0:
-        result["state"] = "zero_denominator" if denominator == 0 else "invalid_deltas"
+    if closed == 0:
+        if discovered > 0:
+            result["infinite"] = True
+        else:
+            result["state"] = "empty_window"
         return result
-    result["value"] = (discovered - closed) / denominator
+    result["value"] = number(discovered / closed)
+    if result["value"] is None:
+        result["state"] = "invalid_deltas"
     return result
 
 
@@ -133,9 +139,9 @@ def normalize_status(status, sequence=None):
     if closure_counts["total_domains"] is None:
         closure_counts["total_domains"] = number(work.get("scheduled"))
     available = closure.get("available") is True
-    balance = discovery_closure_balance(net)
+    ratio = discovery_per_recursive_closure_1h(net)
     if not available:
-        balance.update(value=None, state="closure_unavailable")
+        ratio.update(value=None, infinite=False, state="closure_unavailable")
     if not available:
         for key in ("initial_closed", "total_closed", "unresolved_domains"):
             closure_counts[key] = None
@@ -197,7 +203,7 @@ def normalize_status(status, sequence=None):
                       "coordinator_duty_1h": number(derived.get("coordinator_duty_1h")),
                       "stall_share_5s": number(derived.get("stall_share_5s"))},
         "rates": {"local_completion": completion, "recursive_closure": recursive,
-                  "discovery_closure_balance": balance,
+                  "discovery_per_recursive_closure_1h": ratio,
                   "completions_per_hour_1h": number(derived.get("completions_per_hour_1h")),
                   "discovery_minus_closure": {**_numbers(net, (
                       "per_second", "covered_seconds", "window_seconds",

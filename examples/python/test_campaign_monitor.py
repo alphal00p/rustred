@@ -571,12 +571,12 @@ class DerivedDashboardTests(unittest.TestCase):
             tail.poll(2.0)
             self.assertEqual(seen[-1], {"event": "partial"})
 
-    def test_signed_balance_window_and_freshness_in_plain_and_tty(self):
+    def test_discovery_closure_ratio_window_and_freshness_in_plain_and_tty(self):
         class TtyStream(io.StringIO):
             def isatty(self):
                 return True
 
-        for rate, text in ((1.25, "+0.238"), (-0.25, "-0.067"), (0.0, "+0.000")):
+        for rate, text in ((1.25, "1.625"), (-0.25, "0.875"), (0.0, "1.000")):
             status = {"state": "running", "heartbeat_age_seconds": 3,
                 "progress": {"descendant_closure": MonitorTests.closure(snapshot_age_seconds=20, snapshot_stale=True)}, "derived": {
                 "pending_growth_per_completion_1h": -0.5,
@@ -591,7 +591,7 @@ class DerivedDashboardTests(unittest.TestCase):
                         patch.object(MONITOR.shutil, "get_terminal_size", return_value=os.terminal_size((100, 24))):
                     MONITOR.Presenter(stream).render(status, now=0)
                     output = stream.getvalue()
-                    self.assertIn(f"Closure balance {text}", output)
+                    self.assertIn(f"Discovery/closure {text}", output)
                     self.assertIn("00:10:00/01:00:00 warm-up", output)
                     self.assertIn("Closure snapshot stale · age 00:00:20 · no new closure scan", output)
                     self.assertIn("pending -0.50 per completion", output)
@@ -600,7 +600,7 @@ class DerivedDashboardTests(unittest.TestCase):
     def test_gap_missing_and_epoch_unknown_age_are_explicit(self):
         for value in (None, {}, {"state": "invalid_counts", "warmup": True}):
             lines = MONITOR.derived_lines({"derived": {"discovery_closure_net_1h": value}})
-            self.assertIn("Discovery−closure unknown observed gap", "\n".join(lines))
+            self.assertIn("Discovery/closure unknown observed scan-batched", "\n".join(lines))
             self.assertIn("Closure snapshot unknown · age unknown · scan update unknown", lines)
         lines = MONITOR.derived_lines({"derived": {"discovery_closure_net_1h": {
             "per_second": 2, "snapshot_stale": True, "snapshot_advanced": False}}})

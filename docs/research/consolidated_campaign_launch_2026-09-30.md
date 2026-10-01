@@ -212,9 +212,17 @@ python -B /common/dev/rustred/TMP/codex-stage-a.2RU3AX/repo/examples/python/prod
 
 ## Monitoring and final mathematical acceptance
 
-The terminal dashboard shows measured busy cores, not just reservations; the
-two requested rate colours and normalized closure balance use their established
-formulas. Generic data production and dashboard rendering are separate modules.
+The terminal dashboard shows measured busy cores, not just reservations.
+The current standalone monitor shows `Discovery/closure` as newly discovered
+divided by newly recursively closed domains in the same trailing-hour window,
+recorded under the new `rates.discovery_per_recursive_closure_1h` field.
+This ratio and unchanged pending growth per completion are red strictly above
+2, yellow strictly above 1 through 2, and green otherwise; CPU colors are
+unchanged. Positive discoveries with no closures show `∞`/red; empty, invalid,
+unavailable or reset windows show `unknown`. Scan-batched and stale-snapshot
+qualifications remain visible. Historical normalized balance values and frozen
+launchers are not rewritten. Generic data production and dashboard rendering
+are separate modules.
 Each actual run prints its directory, containing `status.json` and
 `telemetry.jsonl`. The read-only monitor accepts that directory with
 `campaign_monitor.py DIRECTORY --once --json`; the optional plotting utility is

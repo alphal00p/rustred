@@ -65,9 +65,10 @@ def derived_lines(status: dict) -> list[str]:
     seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
     net = derived.get("discovery_closure_net_1h")
     net = net if isinstance(net, dict) else {}
-    net_rate = number(net.get("per_second"))
-    net_text = "unknown" if net_rate is None else f"{net_rate:+.3f}/s"
+    ratio = TELEMETRY.discovery_per_recursive_closure_1h(net)
     closure = progress.get("descendant_closure")
+    if isinstance(closure, dict) and closure.get("available") is False:
+        ratio.update(value=None, infinite=False, state="closure_unavailable")
     closure = closure if isinstance(closure, dict) and closure.get("available") is True else None
     stale = closure.get("snapshot_stale") if closure else net.get("snapshot_stale")
     freshness = "stale" if stale is True else "fresh" if stale is False else "unknown"
@@ -77,10 +78,10 @@ def derived_lines(status: dict) -> list[str]:
     # the fallback sampled endpoint needs the status-file heartbeat age added.
     if closure is None and age is not None:
         age += max(0, number(status.get("heartbeat_age_seconds")) or 0)
-    net_line = (f"Discovery−closure {net_text} observed gap · window {duration(net.get('covered_seconds'))}"
+    net_line = (f"Discovery/closure {_ratio_text(ratio)} observed scan-batched · window {duration(net.get('covered_seconds'))}"
                 f"/{duration(net.get('window_seconds'))}" + (" warm-up" if net.get("warmup") is True else ""))
-    if net.get("state") not in (None, "valid", "warmup"):
-        net_line += f" · {clean(net['state'])}"
+    if ratio["state"] not in ("valid", "warmup"):
+        net_line += f" · {clean(ratio['state'])}"
     return [
         f"Inspectors {computing_text} computing / {count(reservations.get('inspectors'))} reserved"
         f" · stall >=5 s {percent(derived.get('stall_share_5s'))} · coordinator duty {percent(derived.get('coordinator_duty_1h'))}",
@@ -215,6 +216,22 @@ def _rate(value):
     return "unknown" if number(value) is None else f"{value:,.3f}/s"
 
 
+def _ratio_text(ratio):
+    if ratio["infinite"]:
+        return "∞"
+    value = number(ratio["value"])
+    return "unknown" if value is None else f"{value:.3f}"
+
+
+def _closure_ratio(frame):
+    # Recompute from raw paired deltas, including for saved frames that still
+    # contain the old (D-C)/(D+C) field. Never reinterpret that stored value.
+    ratio = TELEMETRY.discovery_per_recursive_closure_1h(frame["rates"]["discovery_minus_closure"])
+    if frame["closure_snapshot"].get("available") is not True:
+        ratio.update(value=None, infinite=False, state="closure_unavailable")
+    return ratio
+
+
 def indicator_color(value, kind):
     """Exact requested thresholds; unknown observations have no alarm colour."""
     value = number(value)
@@ -222,8 +239,7 @@ def indicator_color(value, kind):
         return None
     if kind == "cpu":
         return "31" if value < .5 else "33" if value < .75 else "32"
-    boundary = 1 if kind == "pending" else .5
-    return "31" if value > boundary else "33" if value > 0 else "32"
+    return "31" if value > 2 else "33" if value > 1 else "32"
 
 
 def render_table(frame, width=100, height=24, color=True):
@@ -289,15 +305,14 @@ def render_table(frame, width=100, height=24, color=True):
     root = f"{conservative}{count(counts['initial_closed'])} / {count(counts['initial_total'])}"
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
-    balance = rates.get("discovery_closure_balance") or TELEMETRY.discovery_closure_balance(gap)
-    balance_value = number(balance.get("value"))
-    balance_text = "unknown" if balance_value is None else f"{balance_value:+.3f}"
+    ratio = _closure_ratio(frame)
+    ratio_color = "31" if ratio["infinite"] else indicator_color(ratio["value"], "closure")
     freshness = "stale" if snap["stale"] is True else "fresh" if snap["stale"] is False else "unknown"
     scan = "scan advanced" if snap["advanced"] is True else "no new closure scan" if snap["advanced"] is False else "scan update unknown"
     freshness_text = f"Closure snapshot {freshness} · age {duration(snap['snapshot_age_seconds'])} · {scan}"
     if stale_heartbeat:
         freshness_text += " · heartbeat stale"
-    gap_state = balance.get("state")
+    gap_state = ratio["state"]
     gap_detail = window(gap) + (f" · {clean(gap_state)}" if gap_state not in (None, "valid", "warmup") else "")
     published = f"published {count(counts['initial_published'])}/{count(counts['initial_entries'])}; not closure"
     cpu = number(resource["native_busy_cores"])
@@ -330,7 +345,7 @@ def render_table(frame, width=100, height=24, color=True):
         (-2, row("Local completions", _rate(completion["per_second"]), rate_window(completion), "36")),
         (-2, row("Recursive closure", _rate(closure["per_second"]), rate_window(closure, scan_batched=True), "35")),
         (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure", indicator_color(growth, "pending"))),
-        (0, full(f"Closure balance {balance_text} · (D−C)/(D+C) · observed scan-batched", indicator_color(balance_value, "balance"))),
+        (0, full(f"Discovery/closure {_ratio_text(ratio)} · D/C · observed scan-batched", ratio_color)),
         (0, full(gap_detail)),
         (-2, full(freshness_text, "33" if snap["stale"] is not False else "2")),
         (3, full("Initial " + published)),
@@ -361,13 +376,11 @@ def plain_summary(frame):
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
     gap = rates["discovery_minus_closure"]
-    balance = rates.get("discovery_closure_balance") or TELEMETRY.discovery_closure_balance(gap)
-    value = number(balance.get("value"))
-    balance_text = "unknown" if value is None else f"{value:+.3f}"
-    net_line = (f"Closure balance {balance_text} (D−C)/(D+C) observed scan-batched · window {duration(gap['covered_seconds'])}"
+    ratio = _closure_ratio(frame)
+    net_line = (f"Discovery/closure {_ratio_text(ratio)} D/C observed scan-batched · window {duration(gap['covered_seconds'])}"
                 f"/{duration(gap['window_seconds'])}" + (" warm-up" if gap["warmup"] else ""))
-    if balance["state"] not in (None, "valid", "warmup"):
-        net_line += " · " + clean(balance["state"])
+    if ratio["state"] not in ("valid", "warmup"):
+        net_line += " · " + clean(ratio["state"])
     freshness = "stale" if snapshot["stale"] is True else "fresh" if snapshot["stale"] is False else "unknown"
     scan = "scan advanced" if snapshot["advanced"] is True else "no new closure scan" if snapshot["advanced"] is False else "scan update unknown"
     checkpoint = frame["checkpoint"]

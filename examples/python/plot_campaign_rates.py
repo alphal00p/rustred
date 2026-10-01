@@ -3,7 +3,7 @@
 
 Left axis: observed unresolved-domain total (discovered minus recursively
 closed). Right axis: RAW trailing-window discovery-minus-closure rate in
-domains/second, not the dimensionless dashboard balance. No interpolation or
+domains/second, not the dimensionless dashboard D/C ratio. No interpolation or
 extrapolation, missing values stay missing, and scan-batched closure is not
 instantaneous throughput. This utility never controls a running campaign.
 """
@@ -87,8 +87,8 @@ def observations(path, start=0.0, end=None):
             values["completion"] = None
         if closure.get("state") not in ("valid", "warmup"):
             values["closure"] = None
-        paired = TELEMETRY.discovery_closure_balance(gap)
-        if snapshot.get("available") is not True or paired["state"] not in ("valid", "warmup", "zero_denominator"):
+        paired = TELEMETRY.discovery_per_recursive_closure_1h(gap)
+        if snapshot.get("available") is not True or paired["state"] not in ("valid", "warmup", "empty_window"):
             values["gap"] = None
         if frame.get("heartbeat_stale") is True:
             values = dict.fromkeys(values)
@@ -173,7 +173,7 @@ def make_svg(points, metadata, title="RustRed unresolved domains and net rate"):
            '<rect width="100%" height="100%" fill="#0e1726"/>',
            '<style>text{font-family:system-ui,sans-serif;fill:#dae4f0} .small{font-size:13px} .axis{font-size:14px;fill:#a8b8cd}</style>',
            f'<text x="42" y="42" font-size="24" font-weight="600">{esc(title)}</text>',
-           '<text x="42" y="68" class="small">Left: unresolved domains · Right: RAW discovery − recursive closure (domains/s), not normalized balance</text>',
+           '<text x="42" y="68" class="small">Left: unresolved domains · Right: RAW discovery − recursive closure (domains/s), not the D/C ratio</text>',
            '<text x="42" y="91" class="small">Observed samples only; no interpolation · trailing-hour rate uses actual sampled windows during warm-up · no ETA</text>']
     x = lambda seconds: left + (seconds - origin) / span * (right - left)
     y_total = lambda value: bottom - (value / total_scale) / 1.08 * (bottom - top)

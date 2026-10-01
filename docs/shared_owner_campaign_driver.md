@@ -422,23 +422,30 @@ window of any `events.jsonl`, tolerating a partially written last line.
 The additive `discovery_closure_net_1h` object reports
 `delta(total_domains - total_closed) / observed_seconds` over the trailing
 hour, with actual span, warm-up, reset state and closure-snapshot freshness.
-`Closure balance` renders `(D-C)/(D+C)`, where `D` and `C` are newly discovered
+`Discovery/closure` renders `D/C`, where `D` and `C` are newly discovered
 and newly recursively closed counts from the **same** trailing-hour window
 (the actual shorter interval during warm-up). The raw signed domains/second
-rate remains in telemetry. Zero denominator, missing endpoints, resets or
-inconsistent windows produce `unknown`, not an inferred zero. `Closure snapshot`
+rate remains in telemetry. Positive discoveries with zero closures display
+`∞` in red; an empty `0/0` window, unavailable telemetry, missing endpoints,
+resets or inconsistent windows produce `unknown`, not an inferred zero.
+The normalized frame uses the new `rates.discovery_per_recursive_closure_1h`
+object: finite `value` or null, explicit `infinite` boolean, and window/state
+metadata. Null without the infinity flag means unavailable; the frame never
+serializes a nonstandard JSON infinity. Displays derive D/C from raw paired
+deltas, never reinterpret the historical `discovery_closure_balance` field.
+`Closure snapshot`
 reports scan age and whether a scan advanced. It is an observed trend in the
 conservative unresolved count, not instantaneous closure throughput: batching
-can cause jumps, and negative does not certify eventual termination. Missing
+can cause jumps, and a low ratio does not certify eventual termination. Missing
 optional telemetry is labelled; invalid or reset counters start a new segment.
 It does not alter `pending_growth_per_completion_1h` or its name. Dashboard
 colours follow these thresholds; missing observations stay neutral:
 
 | Indicator | Red | Yellow | Green |
 | --- | --- | --- | --- |
-| Observed CPU cores / reserved cores | below50% |50% to below75% |75% or more |
-| Pending growth per completion | above1 | above0 through1 |0 or below |
-| Closure balance | above0.5 | above0 through0.5 |0 or below |
+| Observed CPU cores / reserved cores | below 50% | 50% to below 75% | 75% or more |
+| Pending growth per completion | strictly above 2 | strictly above 1 through 2 | 1 or below |
+| Discovery / recursive closure | strictly above 2, including ∞ | strictly above 1 through 2 | 1 or below |
 
 The CPU row retains both observed cores and total reserved cores. Colours are
 diagnostics, not closure evidence. In particular, differences of stale lower-
@@ -491,7 +498,7 @@ visible in `status.json.telemetry_stream`; each frame is at most 64 KiB.
 renders a dual-axis standalone SVG using the Python standard library: the
 left axis is the total discovered-but-not-recursively-closed count, and the
 right axis is the raw signed discovery-minus-closure rate in domains/second
-(not the dimensionless dashboard balance).
+(not the dimensionless dashboard D/C ratio).
 The read-only utility streams its input twice with bounded memory, preserving
 an extrema envelope when downsampling. Only measured points are plotted, with
 no interpolation; missing/invalid samples and stale heartbeats stay missing.
