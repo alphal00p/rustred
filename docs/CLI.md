@@ -242,6 +242,52 @@ Python's existing `rustred.family_close` still provides the same generation,
 artifact and timing-report result; Python callbacks are deferred until their
 interaction with the detached coordinator and GIL is designed and tested.
 
+## Inspect saved candidate programs
+
+Read trusted native candidate bundles without another generation or coverage
+run:
+
+```bash
+rustred candidate-inspect --input saved.candidates.rrbin --output inspection.json
+rustred candidate-inspect --input saved.candidates.rrbin \
+  --options inspection-options.json --output detailed-inspection.json
+```
+
+For example, `inspection-options.json` can contain:
+
+```json
+{
+  "rule_ordinals": [0, 1],
+  "include_rhs_coefficients": true,
+  "max_output_bytes": 16777216
+}
+```
+
+Omit `rule_ordinals` to retain every rule. Optional `sectors` is a list of
+original-coordinate Boolean masks. Rule ordinals are zero-based within each
+selected sector; saved ordering is preserved. Invalid, empty or duplicate
+filters fail explicitly. The report states omitted rule/sector/terminal counts.
+By default it includes guard expressions and RHS coefficient IDs, but not RHS
+coefficient expressions. IDs are local to one payload, never cross-file
+algebraic identities. `max_output_bytes` bounds the diagnostic JSON, not import
+peak memory; overflow fails instead of silently truncating a successful report.
+
+The same operation is available as
+`rustred_app::inspect_generated_candidate_program` in Rust and
+`rustred.inspect_candidate_program(bundle_bytes, options_json=...)` in Python
+(returning a JSON string). The small Rust example can be built separately with
+`cargo build --release --locked -p rustred-app --example inspect_candidate_program`.
+
+Integral coordinates always refer to the original denominators. Saved
+`priority_slots` affect ordering, not coordinate labels. Applicability exclusions
+are an OR of AND-branches: a rule is excluded if every polynomial in any one
+branch vanishes. Ordered candidate cases are not disjoint dispatch cells;
+earlier rules, source conditions, denominator poles, zero sectors and terminals
+still govern application. Terminal keys are exact saved integers, not a claim
+of a minimal basis. Symbolica expression strings here are for diagnosis only;
+native binary persistence remains unchanged. No source-replay or closure claim
+is established by inspection, and native bundles must be trusted inputs.
+
 ## Save candidates, certify independently
 
 Use `family-candidates` when you want the solver's formulas even before global

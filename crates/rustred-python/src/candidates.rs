@@ -359,9 +359,48 @@ fn indices(label: &str, values: Vec<PythonInteger>) -> PyResult<Vec<usize>> {
         .collect()
 }
 
+/// Bounded native diagnostic JSON for trusted matching candidate bundles.
+/// options_json accepts sectors, rule_ordinals, include_rhs_coefficients and
+/// max_output_bytes. Saved rule order and original physical axes are retained.
+/// This is not an artifact format, algebraic equality, replay or closure proof.
+#[pyfunction]
+#[pyo3(signature=(bundle, *, options_json=None))]
+fn inspect_candidate_program(
+    py: Python<'_>,
+    bundle: &Bound<'_, PyBytes>,
+    options_json: Option<&str>,
+) -> PyResult<String> {
+    let options = options_json
+        .map(|text| {
+            if text.len() > rustred_app::MAX_INPUT_BYTES {
+                return Err(RustRedLimitError::new_err(
+                    "inspection options exceed input budget",
+                ));
+            }
+            rustred_app::CandidateProgramInspectionOptions::from_json(text).map_err(map_app_error)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let limits = rustred_app::CandidateBundleLimits::default();
+    if bundle.as_bytes().len() > limits.max_bundle_bytes {
+        return Err(RustRedLimitError::new_err(
+            "candidate bundle exceeds inspection input budget",
+        ));
+    }
+    let bytes = bundle.as_bytes().to_vec();
+    py.detach(move || {
+        execute(move || {
+            rustred_app::inspect_generated_candidate_program(&bytes, limits, options)?.to_json()
+        })
+    })
+    .map_err(map_coordinator_error)?
+    .map_err(map_app_error)
+}
+
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyCandidateBundleResult>()?;
     module.add_function(wrap_pyfunction!(family_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(certify_candidates, module)?)?;
+    module.add_function(wrap_pyfunction!(inspect_candidate_program, module)?)?;
     Ok(())
 }

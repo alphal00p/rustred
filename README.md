@@ -279,6 +279,14 @@ without another solve or any checkpoint mutation. A one-sector export remains
 partial: absent successor sectors are uncovered, not inferred terminals. See
 [saving an isolated sector](docs/rank_scoped_generation.md#saving-an-isolated-sector).
 
+To inspect saved candidate rules without generating them again, use
+`rustred candidate-inspect --input rules.rrbin --output rules.json`, or
+`rustred.inspect_candidate_program(bundle_bytes)` in Python. The Rust function is
+`rustred_app::inspect_generated_candidate_program`. These diagnostic views expose
+ordered cases, guards, shifts and exact terminal keys in original family
+coordinates. They are not a new persistence format or a closure certificate;
+see [candidate inspection](docs/CLI.md#inspect-saved-candidate-programs).
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

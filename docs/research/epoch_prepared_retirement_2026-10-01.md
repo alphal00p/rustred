@@ -4,9 +4,11 @@ Status: source implemented and independently reviewed on October 1, 2026.
 Native differential and application tests pass. Repeated combined four-loop
 controls also pass, but show no traversal improvement. A representative
 large-index five-loop comparison remains pending. Production is unchanged.
-The implementation is currently an uncommitted, reviewed working-tree change;
-the documentation/test milestone does not deliver this engine change. Its
-commit and deployment decision wait for the fixed-rule performance comparison.
+The implementation is parked in the isolated
+`TMP/prepared-retirement-20261001` worktree. Its three files were confirmed
+byte-identical before removing only this unpromoted patch from the `main`
+working tree, so new rule-selection experiments use the unchanged scheduler.
+The documentation/test milestone does not deliver this engine change.
 
 ## Repeated work being removed
 
@@ -166,5 +168,9 @@ Evidence:
 `TMP/postlaunch-20261001/prepared-retirement-performance/RESULTS.md`, its six
 arm receipts, and raw `receipts/compare-r1` / `compare-r2` reports. Runner:
 `frontier_probe_runner`; independent classification: `rule_quality_audit`.
-The change remains unpromoted pending a relevant large-index falsifier; no
-production restart follows from these four-loop results.
+The change remains unpromoted; no production restart follows from these
+four-loop results. A later private five-loop baseline saved successfully after
+900s; the user then prioritized all resources for rule optimization, and its
+owned cold check was interrupted cooperatively. The candidate was never run.
+This incomplete pair supplies no performance acceptance. Original checkpoints
+and production were untouched; raw evidence remains under `five-resume/`.

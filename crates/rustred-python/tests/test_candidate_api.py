@@ -23,6 +23,62 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_saved_candidate_inspection_native_cli_parity(self) -> None:
+        bundle = rustred.family_candidates(UNIT_MASS_PROJECT_K1).bundle
+        report = json.loads(rustred.inspect_candidate_program(bundle))
+        self.assertEqual(report["schema"], "rustred.candidate-program-inspection.json.v1")
+        self.assertFalse(report["source_replay_claim"])
+        self.assertFalse(report["closure_claim"])
+        self.assertEqual(report["arity"], 1)
+        self.assertEqual(report["sectors"][0]["terminals"], [[1]])
+        self.assertGreater(report["total_rules"], 0)
+        self.assertEqual(report["omitted_rules"], 0)
+        # Adapter parity on the same native bytes, not algebraic string equality
+        # between independently generated programs or a certification check.
+        self.assertEqual(report, json.loads(cli_bytes(
+            ["candidate-inspect", "--input", "-"], bundle)))
+        options = json.dumps({"rule_ordinals": [0], "include_rhs_coefficients": True})
+        selected = json.loads(rustred.inspect_candidate_program(bundle, options_json=options))
+        self.assertEqual(len(selected["sectors"][0]["rules"]), 1)
+        self.assertEqual(selected["omitted_rules"], selected["total_rules"] - 1)
+        coefficient_ids = {entry["id"] for entry in selected["coefficients"]}
+        self.assertTrue(selected["rhs_coefficient_details_included"])
+        for term in selected["sectors"][0]["rules"][0]["rhs"]:
+            self.assertIn(term["coefficient_id"], coefficient_ids)
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="candidate-inspect-") as tmp:
+            options_file = Path(tmp) / "options.json"
+            options_file.write_text(options)
+            self.assertEqual(selected, json.loads(cli_bytes(
+                ["candidate-inspect", "--input", "-", "--options", str(options_file)],
+                bundle)))
+
+    def test_saved_candidate_inspection_rejects_invalid_options_and_limits(self) -> None:
+        bundle = rustred.family_candidates(UNIT_MASS_PROJECT_K1).bundle
+        for options in ({"max_output_bytes": 0}, {"max_output_bytes": 1},
+                        {"rule_ordinals": []}, {"rule_ordinals": [0, 0]},
+                        {"sectors": [[False]]}, {"unknown_option": True}):
+            with self.subTest(options=options), self.assertRaises(rustred.RustRedError):
+                rustred.inspect_candidate_program(bundle, options_json=json.dumps(options))
+        with self.assertRaises(rustred.RustRedError):
+            rustred.inspect_candidate_program(bundle, options_json="{")
+        with self.assertRaises(rustred.RustRedError):
+            rustred.inspect_candidate_program(b"not a native candidate")
+
+    def test_saved_candidate_inspection_keeps_original_coordinates(self) -> None:
+        bundle = rustred.family_candidates(UNIT_MASS_PROJECT_K3,
+            permutation=[2, 0, 1], selected_sectors=["110"]).bundle
+        report = json.loads(rustred.inspect_candidate_program(bundle))
+        self.assertEqual(report["priority_slots"], [2, 0, 1])
+        self.assertEqual(report["sectors"][0]["sector"], [True, True, False])
+        self.assertTrue(report["sectors"][0]["rules"])
+        self.assertTrue(report["sectors"][0]["terminals"])
+        for key in report["sectors"][0]["terminals"]:
+            self.assertGreater(key[0], 0)
+            self.assertGreater(key[1], 0)
+            self.assertLessEqual(key[2], 0)
+
     def test_selected_sectors_match_cli_and_keep_partial_checkpoint_scope(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertIsNone(signature.parameters["selected_sectors"].default)

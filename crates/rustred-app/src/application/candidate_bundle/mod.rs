@@ -10,6 +10,7 @@ mod checkpoint;
 mod codec;
 mod domain_overlay;
 mod generate;
+mod inspection;
 mod load;
 mod model;
 mod order;
@@ -37,6 +38,7 @@ pub use domain_overlay::{
     load_generated_domain_overlay, validate_domain_overlay_ingress,
 };
 pub use generate::{family_candidates, family_candidates_with_progress};
+pub use inspection::*;
 pub use load::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,
     load_generated_candidate_bundle, load_generated_candidate_checkpoint,

@@ -193,6 +193,10 @@ def family_candidates(
     selected_sectors: list[str] | None = None,
 ) -> CandidateBundleResult: ...
 
+def inspect_candidate_program(bundle: bytes, *, options_json: str | None = None) -> str:
+    """Native read-only diagnostic JSON; not an artifact or proof."""
+    ...
+
 def certify_candidates(
     bundle: bytes,
     *,

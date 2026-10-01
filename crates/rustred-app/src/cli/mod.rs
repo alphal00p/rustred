@@ -1,4 +1,5 @@
 pub(crate) mod args;
+mod candidate_inspect;
 mod candidates;
 mod entry_domain;
 pub(crate) mod error;
@@ -72,6 +73,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::FamilySolve(arguments) => family_solve_cli(arguments),
         Command::FamilyClose(arguments) => family_close_cli(arguments),
         Command::FamilyCandidates(arguments) => candidates::generate(arguments),
+        Command::CandidateInspect(arguments) => candidate_inspect::run(arguments),
         Command::CertifyCandidates(arguments) => candidates::certify(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),
         Command::CampaignPreflight(arguments) => preflight_campaign(arguments),

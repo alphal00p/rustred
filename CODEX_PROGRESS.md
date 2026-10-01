@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 11:34 UTC (13:34 Zurich)
+## Current workboard — October 1, 12:07 UTC (14:07 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -18,9 +18,9 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Lane | Responsible agent | State | Next evidence |
 | --- | --- | --- | --- |
 | Rule-quality portfolio native validation | `frontier_replay_implementation` | Core16/16, focused app10/10, full app1320 pass; installed-wheel/CLI gate6/6 pass | Delivered; wider worker acceptance separately qualified |
-| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Both two-way whole-owner interventions pass | Native case/guard/shift/terminal comparison to isolate actual rule mechanism |
+| Explain portfolio downstream work | `frontier_replay_implementation`; critique `rule_quality_audit` | Native inspection2/2 and installed Python/CLI3/3 pass; exact terminal keys identical; earliest rule2 RHS differs | Examine earlier exceptional/dispatch partition, not late unchanged shift inventories |
 | Matched runtime-configured rule-selection pilot | root; runner `frontier_probe_runner` | Three arms cold/source qualified; both portfolios parked | Reopen only with evidence connecting selection to downstream sharing; no five-loop transfer on current results |
-| Rule-mechanism research | `frontier_probe_runner` | Active after safely ending owned P3 pilot | Pinch/routing-aware successor reuse criteria; no new scheduler or broad sweep |
+| Rule-mechanism research | `frontier_probe_runner` | Broad R5 fragmentation measured; six finite panels reject proposed local adverse-direction predictor | Prepare targeted earlier rule2/boundary diagnostic; no new score accepted |
 | Independent authority/performance review | `rule_quality_audit` | Rule-quality audit active | Verify donor-only intervention, interpret conditional/routed work, critique proposed criterion |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -32,6 +32,109 @@ locks. The native and protocol gates have passed. Rule pilots use CPUs32–47 an
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 12:07 UTC — tested inspector and an informative failed predictor
+
+- [M] Release native inspection build completed in760.434s, including build
+  only, with13.47GiB maximum child RSS. The two public Rust tests pass; four
+  structural/selected-coefficient exports complete and drain in16.887s inclusive
+  with the tests. Fresh wheel build takes16.159s; installed Python/CLI parity
+  passes3/3 with zero skips in1.293s inclusive. CLI options-file parity, malformed
+  inputs, output limits and non-involutive original-coordinate handling are
+  covered. Native internal structural/writer/parser tests are typechecked but
+  their full lib-test harness was not rebuilt/run in this slice. Existing pure
+  discovery descriptor tests also pass6/6. Evidence under the same rule-quality
+  root: `native-inspection-{build1,run1,wheel-build1,python-run1}`.
+- [M] Native reports establish identical ordered lists of all11 terminal keys,
+  as well as common family/order/priority metadata. The earlier whole-owner
+  swap therefore does not change terminal keys. It still does not isolate a
+  single equation. The three later nominated rule pairs have identical cases,
+  targets and RHS integral-key inventories: conditional/image count differences
+  on their differently partitioned inputs must not be interpreted as changed
+  shifts in those rules. Coefficient algebra equality is not claimed.
+- [M] The six finite matched-source diagnostic walks both finish with zero
+  pending/frontiers/errors in14.990s inclusive. A1→donor domains4,371→4,275,
+  native inspections3,592→3,516, Route inspections2,552→2,489 and conditional
+  successors365→352. All six depth1 phase/count summaries agree; depth2 is
+  mixed. This FAILS the preregistered adverse-direction prediction. The six
+  post-hoc roots lack the full58-query initial-anchor context, so it rejects
+  this specific sufficient local predictor, not every route-aware strategy.
+  No new score/default is implemented. Evidence:
+  `owner-481-six-panel-routing/execution/RESULT.json`; independent audit passed.
+- [M/D] Earliest integer structural divergence is saved rule2 on both sides:
+  same fixed physical-axis4 power1 case and target, but10 versus13 RHS keys,
+  with none shared. Saved case order diverges immediately after. Diagnostic
+  guard displays involve n3−1/n0 versus n9−1/n8; these are not parsed-string
+  algebraic authority. This earlier choice/exception tree is the next stronger
+  lead. Affine20/19 cases remain unmatched without native exact comparison.
+  Runner prepares a narrow earlier-case/boundary diagnostic; no extra native
+  campaign or new scoring implementation is authorized for this checkpoint.
+- [D] Independent implementation, source-coordinate, diagnostic/provenance and
+  interpretation audits passed. Root is consolidating the tested inspection
+  interface and findings on main; no production build/input was changed. The
+  native thin-example output now uses ordinary buffered diagnostic I/O. Its
+  incremental build takes6.151s; repeated two tests/four exports pass in3.901s
+  with byte-identical outputs. A closed-pipe negative also passes. These are
+  I/O checks, not solver-performance claims. Implementation receipt and next
+  earlier-case leads: `NATIVE_PROGRAM_INSPECTION_RESULTS.md` in the evidence root.
+
+### October 1, 11:46 UTC — first same-domain rule-fragmentation evidence
+
+- [M] Native ordered matching plus guarded RHS application to the identical
+  R5 convenience anchor completed in12.479s, CPU32/W1, unchanged4e76707b
+  executable, no production mutation or new generation. The A1 and donor
+  programs select500 versus544 disjoint rule pieces, emit14,499 versus14,536
+  successors, and yield9,565 versus10,167 distinct literal target-image keys.
+  Conditional successors are240 versus285. Both have zero matcher gaps,
+  unresolved pieces, application problems or optional refusals under the same
+  finite-axis refinement and degree64 guard policy as the successful campaign.
+- [M/E] Exact zero terms increase3,366→3,735. Thus counting coefficient factors
+  or conditionality as unconditional costs would miss beneficial cancellations.
+  This panel demonstrates increased local fragmentation, not the downstream
+  routing cost of each image, exact containment novelty, or a timing gain.
+  Per-rule attribution and native guard/terminal comparison are next. Evidence:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/owner-481-ordered-geometry-r3/RESULT.json`.
+  Two earlier diagnostic-policy mismatches are retained; bare CLI defaults did
+  not reproduce the campaign's refinement policy. They were not solver defects.
+- [M] The read-only native inspection slice uses the existing binary reader,
+  dynamic records and Symbolica diagnostic display. It exposes exact terminal
+  integer keys, original-coordinate cases/shifts, ordered exclusions and explicit
+  omissions through Rust, CLI and Python. Release metadata checks for app/Python,
+  tests and example pass in31.161s. Native execution and independent source audit
+  remain pending; no new algebraic authority or artifact schema was added.
+- [M] Reconfirmed `main` and remote `main` at00684e03, with no local/remote
+  `fable_5_1_parallel`. Work proceeds directly on main. Only the merged task
+  branch was cleaned; active, unrelated and backup work remains preserved.
+- [M] Read-only live snapshot at151.6min:13/67 closed roots,24,714,432 local
+  completions,45,262,598 discovered domains,10,019,487 pending,44.9GB RSS and
+  fresh heartbeat. The conservative closure snapshot is stale; positive net
+  discovery and pending growth do not support an ETA or a convergence claim.
+  This observation does not change production or reopen scheduler work.
+- [M/D] Independent source audit approves the native inspection build after
+  adding nonempty assertions to the non-involutive K3 fixture. The R5 diagnostic
+  counts and physical panel conversions also pass separate review. Existing
+  literal image keys are not canonical routed geometry or cache-hit evidence.
+  Six-panel native routing remains a post-hoc mechanism test, not a qualification
+  workload. The runner is preparing a bounded native Ready/serial walk because
+  the current CLI has no single-hop route-preview endpoint; no Python transport
+  emulation or new routing implementation will be introduced.
+- [D] Architecture review favors complete-program cohort selection in steering
+  as the next experiment boundary, if the mechanism yields a promising candidate.
+  The private per-rule trial path has no simple routed-score hook, and active-first
+  generation does not imply an available lower-owner snapshot. Reusing native
+  mixed-program import and measured shared traversal avoids premature engine
+  coupling. Cohorts, not independently chosen owner winners, must be qualified
+  because interaction costs are non-additive. No new scorer/default is selected.
+- [M/E] Separate structural review identifies owner481 as one connected
+  five-line momentum circuit: all five one-pinches map to owner480, not five
+  different canonical topologies. The native admitted route preserves root
+  actual rank, so its rank≤7 Apply image fits existing unconstrained R9/R12
+  lower helpers. This does not erase the pre-route/source-validity/further-pinch
+  obligations. Broad route-helper ideas have prior mixed/negative evidence;
+  only a targeted future falsifier is recorded, not implemented. Source rows
+  are sector-preconditioned before feature ordering, so raw derivative labels
+  cannot be inferred from visit ordinals. No block-factorization/source-locality
+  implementation is justified for this connected owner.
 
 ### October 1, 13:34 Zurich — rule-quality-only priority, main confirmed
 
@@ -64,6 +167,14 @@ release nor input is edited.
   Older collaborator/production branches and worktrees remain deliberately
   preserved; their deletion is not needed for development consolidation and
   would risk unrelated work. All new integration/commits continue on main.
+- [M/D] Documentation and the user priority amendment committed/pushed to
+  `main` as00684e03. The unqualified P3 engine patch was not included. To avoid
+  confounding future rule comparisons, root removed only its own three P3
+  working-tree diffs via `apply_patch`, after confirming each byte-identical
+  source is retained in `TMP/prepared-retirement-20261001`. Walking source now
+  matches main. All earlier binaries/evidence remain available; unrelated
+  FeynKit modifications are untouched. Native rule-inspection implementation
+  proceeds on main, with separate coordinate/authority review before build.
 
 ### October 1, 10:59 UTC — current builds, live health and sharing question
 

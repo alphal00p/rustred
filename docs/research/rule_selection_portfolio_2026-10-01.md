@@ -192,3 +192,162 @@ Evidence: `owner_swap_analysis.json` and
 `receipts/owner-swap-{a1-with-rank,rank-with-a1}-r1/RESULT.json` under the same
 evidence root. Author:`frontier_replay_implementation`; independent donor-only
 input and authority audit:`rule_quality_audit`.
+
+### Identical-domain follow-up: ordered rule selection and RHS geometry
+
+The next diagnostic holds one original R5 convenience domain fixed, including
+all original coordinate bounds. It first uses the native ordered matcher, then
+applies each selected rule only on the piece assigned to it. This avoids treating
+a nominated rule as the actual dispatcher winner. It uses the successful
+campaign's finite-axis refinement and degree64 guard policy, rather than the
+more restrictive bare-command defaults. No positive-power/total-degree bounds
+are dropped: this particular anchor has neither. No rules are regenerated.
+
+| Same source anchor | A1 | A1 with rank-first owner |
+| --- | ---: | ---: |
+| Selected source pieces | 500 | 544 |
+| Immediate successor events | 14,499 | 14,536 |
+| Distinct literal target-image keys | 9,565 | 10,167 |
+| Duplicate image events | 4,934 | 4,369 |
+| Conditional successor events | 240 | 285 |
+| Exact zero terms | 3,366 | 3,735 |
+
+Both sides have zero gaps/unresolved pieces, application problems or optional
+refusals; each matches11 terminal pieces. Terminal-piece counts do not establish
+equality of all declared terminal keys. Image keys include sector, endpoints and
+rank, but are not canonical routed images, algebraic equivalence or containment
+proofs. The diagnostic completes in12.479s inclusive onCPU32/W1 with the same
+4e76707b executable and fully drained owned processes. This is not a timing
+comparison or a family-closure claim.
+
+The result shows8.8% more selected source pieces and6.3% more literal successor
+images despite almost identical immediate successor counts. Extra fragmentation
+is visible before recursive traversal, but the exact changed guards and routing
+mechanism are not yet isolated. More zero terms also prevent interpreting
+coefficient factors or conditionality as uniformly harmful. Next compare native
+saved cases and align actual overlapping source pieces, rather than matching
+rule ordinals across different programs or inventing a weighted score now.
+
+Evidence: `owner-481-ordered-geometry-r3/RESULT.json` in the same local evidence
+root. Earlier r1/r2 receipts retain the diagnostic-policy mismatches, not hidden
+failed solver runs. Author:`frontier_probe_runner`; independent review by
+`rule_quality_audit` confirms the reported scope and counts.
+
+### Implementation boundary for the next selection experiment
+
+The independent architecture review favors selection among complete saved
+owner-program **cohorts** in the steering layer as the first experiment. Existing
+native mixed-program loading already keeps each program's ordered cases, guards,
+exceptional descendants and terminal declarations intact. A shared native walk
+can measure their interaction without coupling the core sector solver to global
+application routing state. Choosing each owner independently and combining the
+winners is not justified: the two-way swap has already shown non-additive domain
+costs. The combined cohort must be tested.
+
+The current per-rule portfolio only exposes trial summaries externally; it
+compares private fully admitted candidates and discards losers before publishing
+the winner. A routed per-rule callback would therefore be a new API, not just
+another cheap feature enum. It would also require an explicit frozen downstream
+snapshot: active-first generation does not guarantee that lower owners have
+already been generated. This added engine coupling is premature while the
+useful scoring mechanism is unproven.
+
+A cohort experiment must bind its saved program bytes, unchanged routes, query
+scope, mathematical order and matching limits. Ties, unsupported probes and
+censored runs keep the baseline; incomplete work must never score as cheap.
+Local diagnostic panels were chosen after observing this regression, so success
+there supports a mechanism but does not validate a general heuristic. Any new
+candidate still needs a full unchanged four-loop comparison, followed by a
+representative five-loop transfer test. This is an architecture decision, not
+a newly successful strategy or a production-switch recommendation.
+
+### Structural interpretation of the implicated input
+
+The five active momenta of this supplied four-loop owner are
+`k2, k3, k4, k1-k4, k1-k2-k3`. Their unique linear dependence has nonzero
+coefficients on all five:
+`k2 + k3 - k4 - (k1-k4) + (k1-k2-k3) = 0`.
+Thus this is a connected five-line momentum circuit, not a two-loop component
+times two one-loop factors. Removing any one line leaves four independent
+unit-Jacobian propagator momenta. This explains why all five one-pinches map
+to the same installed lower owner: four through explicit routing and one
+already in its coordinates. Nontrivial numerators can still couple these
+one-loop factors tensorially; arbitrary numerator integrals are not simply
+scalar products of tadpoles.
+
+The lower owner has both R9 and R12 unconstrained orthant helpers. In the
+existing admitted transport path, the root image preserves actual numerator
+rank and maps active coordinates bijectively; proper pinches decrease rank.
+Consequently a natively validated root Apply image of rank at most7 fits those
+helpers. This does not cover the preceding different-mask Route obligation,
+source-validity checks or every further-pinch output. It explains why repeatedly
+transporting fragmented boxes may cost work even when their common destination
+is already represented.
+
+Explicit pre-routing helpers are a possible input-only falsifier, not a proven
+optimization. Historical broad Apply+Route anchoring experiments had mixed or
+negative results; a broader helper can create more work and dependencies than
+it removes. Test saved transport work against the complete extra helper/pinch
+cost before recommending any such change.
+
+The native source-order audit also rules out a shortcut based on row ordinals.
+All ordinary vacuum sources are initially differentiated-loop-major, but
+sector specialization/preconditioning occurs before the current terms/monomial
+sort. A visited row need not be a raw single-loop derivative identity. Any new
+locality criterion must inspect prepared-row structure or retained exact source
+provenance; it must not label rows by presumed derivative positions. These
+observations concern this input and existing generic code, not new hard-coded
+topology logic.
+
+### Native program inspection and the six-panel falsifier
+
+The new read-only native inspector and its Rust/CLI/Python adapters pass two
+public native tests and three fresh-installed Python/CLI tests (zero skips).
+The release build takes760.434s separately from execution. Test plus four
+bounded program exports takes16.887s. No identities are generated by inspection;
+the K1/K3 test fixtures themselves are generated normally. Internal structural,
+writer and parser unit tests were typechecked but not executed in a new full
+library harness. All structural reports use existing native import and Symbolica
+display, not an alternative coefficient format or algebra implementation.
+
+Exact terminal inspection now resolves the earlier caveat: both implicated
+programs contain the **same ordered eleven integer keys**, not just equal counts.
+Three later candidate pairs61/62,23/25,41/42 also have identical coordinate cases,
+targets and ordered RHS integral keys. This does not assert equality of their
+exact coefficients, and affine cases remain unmatched without native comparison.
+
+Six small, identical finite source panels were selected around those late pairs.
+Native ordered matching first rechecked their dispatch. Each side then ran an
+ordinary serial Ready walk with the same complete routing/owner collection.
+These six diagnostic roots are not the full58-query control, and do not inherit
+its entire initial-helper context. Both finish with zero pending/frontiers/errors;
+all owned processes drain in14.990s inclusive.
+
+| Six-panel diagnostic | A1 | Rank-first donor |
+| --- | ---: | ---: |
+| Discovered domains | 4,371 | 4,275 |
+| Native inspections | 3,592 | 3,516 |
+| Route inspections | 2,552 | 2,489 |
+| Conditional successors | 365 | 352 |
+
+Every root has identical depth-one phase/count summaries; depth-two differences
+are small and mixed. The prediction that these panels would reproduce the
+donor's adverse whole-campaign direction is falsified. Do not implement a
+conditional-term or local-image score from this result. Conversely it does not
+disprove every route-aware approach: the panels were post-hoc, and both reached
+geometry and shared helper context differ from the original full campaign.
+
+The native saved-rule comparison finds a much earlier structural difference:
+rule2 on both sides has the same case (physical index4 fixed to1) and target,
+but10 versus13 RHS integral keys with no common key. Its displayed exceptional
+predicates involve different axes; saved case order diverges immediately after.
+This earlier rule/exception tree is the next diagnostic lead, not an established
+cause for all extra cost. The terminal-set confound is removed, while coefficient
+equivalence and affine-case identification are not inferred from local IDs or
+display strings.
+
+Evidence: `native-inspection-run1/RESULT.json`,
+`native-inspection-python-run1/RESULT.json`, and
+`owner-481-six-panel-routing/execution/RESULT.json` beneath the same evidence
+root. Separate source, coordinate, receipt and interpretation audits passed.
+Both candidate scoring recipes remain parked; no campaign restart is recommended.
