@@ -45,8 +45,12 @@ were performance-neutral. One bounded full-input five-loop pair reduced P1
 wall time35.17%; inspection throughput rose8.39% while pending work rose11.17%,
 so it does not establish faster closure or a deployment win. The subsequent
 native-session stale-negative prefix optimization is implemented and passed
-1,326 unique application/CLI tests plus independent review; its optimized
-comparison remains pending. Neither result closes the Ready/Epoch four-loop
+1,326 unique application/CLI tests plus independent review. Its optimized
+four-loop ABBA also passed cold reinspection and state equivalence but was
+performance-neutral; a representative five-loop old/new comparison is running.
+Read-only mature production phase clocks now attribute87.7% of one ten-minute
+window to validation/preparation/publication, without identifying the precise
+P2 subphase or predicting any speedup. None of these results closes the Ready/Epoch four-loop
 non-regression gap or demonstrates twenty useful cores. Details:
 `docs/research/epoch_p1_compact_2026-10-01.md` and
 `docs/research/epoch_stale_negative_prefix_2026-10-01.md`.

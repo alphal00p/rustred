@@ -1,10 +1,11 @@
 # Reusing stale snapshot-negative lookup prefixes
 
-Status, 2026-10-01 03:10 UTC: isolated implementation `c51926be` was integrated
+Status, 2026-10-01 04:26 UTC: isolated implementation `c51926be` was integrated
 as `f328844f` after independent source review. Native correctness passed:
 1,326 unique application/CLI tests, including the ten new targeted tests;
 12 pre-existing ignored tests remain ignored. No measured speedup or
-production change. The optimized performance build/comparison is still pending.
+production change. The optimized four-loop ABBA passed correctness and was
+performance-neutral; the representative five-loop comparison is next.
 
 ## Why investigate this
 
@@ -139,8 +140,93 @@ unique passes, not ten additional unique tests.
 
 Evidence is under `TMP/postlaunch-20260930/stale-negative-prefix/` in
 `native-build/` and `native-tests/`. Both owned process groups fully drained.
-These checks establish the tested correctness boundary; optimized combined
-four-loop and representative five-loop performance evidence remains required.
+These checks establish the tested correctness boundary. The optimized
+four-loop results below add completed-work evidence; representative five-loop
+performance evidence remains pending.
+
+### Optimized four-loop comparison
+
+The campaign-profile build (opt-level 3, fat LTO, one codegen unit, no package
+override) finished in 3,702.453 seconds, excluded from all run timings. The
+frozen candidate is `2cd97ff7`, source `f328844f`; the contemporaneous baseline
+is P1+compact `0f2536a7`, source `58e63614`. This is **not** a Ready comparison.
+
+Both builds used the same 16 owners, 508 routes, 58 required queries and 32
+roots, with 16 workers on CPUs 32–47, 15 inspectors, no preparation helpers,
+and profiling disabled. Each arm completed, passed cold-All reinspection of
+all 17,957 native inspections, and had zero violations, frontiers or pending
+work. Both pairwise CP6 mathematical-state comparisons were equal, including
+canonical record/edge digests. Full typed-record bytes were not compared.
+
+| Run order | Native launch through drain, s | Cold-All, s | Primary total, s | Traversal, s | P2 source, s |
+|---|---:|---:|---:|---:|---:|
+| Baseline 1 | 7.551 | 8.140664 | 15.691664 | 3.755685 | 0.519947 |
+| Candidate 1 | 6.754 | 8.141529 | 14.895529 | 3.748644 | 0.523784 |
+| Candidate 2 | 7.154 | 9.137257 | 16.291257 | 3.756996 | 0.523804 |
+| Baseline 2 | 6.755 | 8.141198 | 14.896198 | 3.797546 | 0.519761 |
+
+Primary medians are 15.293931 seconds baseline and 15.593393 candidate
+(candidate +1.96%). Pairwise changes are −5.07% and +9.37%; native traversal
+and P2 remain effectively flat. Source resolution is slightly higher in both
+candidate arms. This is **no demonstrated four-loop speedup**, not reliable
+evidence of a two-percent regression. Launcher/finalization and cold timing
+variation matter at this short duration; retain the original timing boundary.
+
+All arms produce the same 26,025 domains, 495,898 edges, 872,486 events,
+731,181 P2 rows and 1,123 cuts. Reported global forward candidates decrease
+about 6.38%, while actual test callbacks remain approximately 375,102. These
+are aggregate diagnostics, not isolated coordinator cost or unique predicates.
+Reduced candidate counts have not translated into reduced measured source time.
+
+Every owned process drained. Host available memory remained above 593 GB;
+the short native arms do not establish steady-state utilization or foreign-CPU
+contention. Native summary exit 4 and the secondary Python `INCOMPLETE` label
+are preserved; independent native cold-All provides the stated scoped
+acceptance, not an unrestricted five-loop closure claim.
+
+Raw receipts, both state comparisons and the independent first-pair/ABBA audits are
+under `TMP/postlaunch-20260930/stale-negative-prefix/performance/four/`.
+`ABBA_RESULTS.md` includes CPU, sampled RSS and inclusive-arm measurements.
+Independent ABBA review accepted both correctness and the neutral performance
+interpretation. Production is unchanged.
+
+### Mature production feedback
+
+A read-only sample from the unchanged repaired production run spans October 1,
+04:13:13–04:23:15 UTC (300 telemetry frames, sequences 9805–10104). Mean native
+CPU use is 3.33 cores of 32 reserved. Mean active inspector callbacks is 1.81;
+225 frames report none. Returned results awaiting publication average 324.22.
+These returned results include recycled reservations and the current uncommitted
+cut; they are not independently publishable proofs or recursively closed domains.
+
+Actual accumulated coordinator phase clocks over the nearly identical native
+interval, rather than dashboard-label frequencies, show:
+
+| Coordinator phase | Seconds | Share |
+|---|---:|---:|
+| P1 validation | 58.23 | 9.69% |
+| P2 preparation | 353.24 | 58.80% |
+| P3 publication | 115.27 | 19.19% |
+| Inspection/prefix/publication waiting | 45.00 | 7.49% |
+| Boundary maintenance/refill | 28.96 | 4.82% |
+
+This supports a coordinator/merge bottleneck in that interval, rather than
+primarily an expensive inspector straggler. The clocks are coordinator wall
+occupancy, not thread CPU; worker activity can overlap them. Dashboard activity
+samples are up to five seconds old, while the recursive-closure snapshot is
+much older. An unchanged closure count therefore does not prove no progress.
+
+P2 occupies a larger share than in the fresh bounded pilot (roughly 27–28%).
+However, live events do not export P2 source/reverse/dedup subphase clocks.
+Neither the stale-negative frequency nor the source-only mature share can be
+deduced. Do not transfer the earlier source/P2 ratio or predict a speedup from
+these totals. Existing preparation helpers and prefix reuse target relevant
+work, but their mature benefit remains unmeasured. The prior fresh helper
+screen's weak overall gain remains a valid negative result, not superseded by
+these observations. No new profiler attachment or production change was made.
+
+Definitions, bounded evidence windows and source references are in
+`TMP/postlaunch-20260930/stale-negative-prefix/MATURE_POOL_TELEMETRY_INTERPRETATION.md`.
 
 ### Four-loop opportunity limit
 
@@ -188,5 +274,6 @@ Historical timing evidence is in ignored
 review was by `final_requirements_audit`; the independent source/lifecycle and
 cost assessment was by `runtime_order_pilots`. The latter implemented the
 isolated patch; the former independently reviewed the code and tests. Native
-correctness checks have passed; optimized performance validation is pending. Root coordinates
+correctness checks and optimized four-loop controls have passed; representative
+five-loop performance validation is pending. Root coordinates
 integration and final verification, without modifying production.

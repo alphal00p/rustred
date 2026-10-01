@@ -38,6 +38,129 @@ release receipt below. On 2026-09-30 the user selected **32 physical cores and
 
 ### Production failure and validation update — 20:41 UTC
 
+- [M/D] **Independent ABBA review accepted,04:32UTC:** auditor recomputed both
+  pairs/medians and verified reverse cold-All, state comparison, source/control
+  binding and drained phase groups. Neutral algorithmic interpretation accepted;
+  no meaningful speedup or definite2% regression claimed. Tracked research and
+  current plan now reflect the completed build/4L checks and mature bottleneck
+  evidence. Root is committing/pushing this coherent documentation milestone;
+  engine source remains `f328844f`. The separately granted5L pair continues
+  under S5, with no production intervention or additional benchmark gate.
+- [M/E] **Mature coordinator bottleneck confirmed narrowly,04:29UTC:** runtime
+  agent checked counter definitions and the exact300-frame interval. Mean
+ 1.81 active callbacks/324.22 returned reservations is not a CPU or closure
+  count. Actual accumulated coordinator clocks over600.70s show P2=353.24s
+  (58.80%), P3=115.27s, P1=58.23s, inspect/wait=45.00s and boundary=28.96s.
+  P1–P3 occupy87.69%, supporting merge-side limitation in this mature window.
+  Sampled phase-label frequency alone overstated P2 share. Live events lack
+  source/reverse/dedup subphase clocks, so mature source share and prospective
+  prefix speedup remain unknown. This does not erase the weak fresh-helper
+  result. Tracked stale-prefix report includes the finding; ignored detailed
+  evidence is `MATURE_POOL_TELEMETRY_INTERPRETATION.md`. No capture/native work.
+  Production04:27 observation:41,479,264 completions/12,986,288 pending/64.87GB,
+  zero frontiers, CP5 saved.13-root closure snapshot2986s old; no ETA. Next
+  ordinary status around05:00UTC. Full-A1 baseline1319434 is separately live
+  on CPU0–31 with the unchanged reviewed controller.
+- [M] **Stale-prefix4L ABBA complete,04:26UTC:** all four cold-All checks pass
+ 58 queries/32 roots/17,957 inspections, both mathematical-state comparisons
+  are true and all32 owned phase groups drained. Primary old/new medians
+ 15.293931/15.593393s (+1.96% candidate), opposing pair changes−5.07%/+9.37%,
+  effectively flat traversal/P2 and slightly higher source time. No four-loop
+  algorithmic speedup established. Identical26,025-domain/495,898-edge graphs;
+  forward candidate counters fall6.38% without fewer exact test callbacks.
+  Independent reverse review requested. Tracked report updated; detailed raw
+  `ABBA_RESULTS.md`/`ABBA_DRAIN.json` are under stale-prefix/performance/four.
+  S5 has validated the existing full-A1 runner and plans, retaining all78 input
+  pins, and is proceeding with the conditionally granted old→new five-loop
+  pair. No new code, harness or production mutation.
+- [M/D] **Mature wait pattern and next measurement,04:24UTC:** a bounded
+  read-only tail of300 production telemetry frames (sequences9805–10104,
+ 601.758s) reports mean1.81 active slots,324.22 finished-awaiting-publication
+  jobs and3.325 native cores.225 frames report zero active slots; phase labels
+  are221 P2/74 boundary/3 P1/2 inspect. These sampled labels are not a wall-time
+  profile; runtime agent is checking counter meanings/freshness before stronger
+  attribution. No new capture, production change or implementation was started.
+  Independent first4L audit accepts correctness and the neutral algorithmic
+  interpretation. Root additionally grants the existing full-A1 old0f→new2cd
+  pair after reverse4L validation/drain and unchanged-plan binding, W32 CPU0–31,
+ 1200s cooperative/1800s inclusive per arm, profile0, structural cold-None.
+  It retains all116 required+67 auxiliary queries. No repeat/profile/production
+  grant; unexpected guard/scope/cold/drain issues stop the lane.
+- [M/D] **First optimized stale-prefix4L pair accepted,04:20UTC:** old0f and
+  new2cd both pass cold-All for58 queries/32 roots and17,957 native inspections,
+  with zero violations/frontiers. The raw CP6 mathematical-state comparison is
+  true (full typed-record bytes remain NOT_COMPARED). Primary native+cold wall
+ 15.6917→14.8955s is5.07% lower, but traversal3.7557→3.7486s and P2
+ 0.81265→0.81122s are effectively flat; do not attribute the outer timing
+  difference to saved lookup work. Forward candidates9,476,526→8,872,000,
+  actual tests375,102 unchanged. Both runs/groups drained. Root read receipts
+  and granted the reverse pair with unchanged settings; independent review is
+  requested in parallel. S5 may stage existing full-A1 old/new plans, but a5L
+  launch awaits the next grant. No production changes or speedup claim.
+- [M] **Optimized stale-prefix executable frozen,04:16UTC:** campaign-profile
+  build completed successfully in3702.453s, with no guard stop. Root read the
+  successful receipt and independently confirmed PG917522 absent. New immutable
+  binary SHA256 `2cd97ff73c143aebed75f1fe79f44a7dd815b65a1aa770054b2d53f7c1533264`
+  is at `TMP/postlaunch-20260930/stale-negative-prefix/optimized-bin/rustred`;
+  source `f328844f`, opt3/fatLTO/CGU1, no app override. Previous frozen binaries
+  and both campaigns are untouched. The existing first4L-pair handoff can now
+  proceed; compilation is not performance evidence.
+- [M] **Scheduled read-only observation,04:03UTC:** actual repaired native
+  PID3741792 remains live at19151.77s, with38,536,608 local completions,
+ 65,211,624 scheduled domains,12,373,934 pending, zero frontiers and61.79GB
+  sampled process-tree RSS. CP6 generation5 is saved/resumable without warnings.
+  The13/67 roots and8,713,919 closed-domain snapshot is1546s old, so this is not
+  a fresh closure count. Registered-tree average CPU is3.37 cores; last-hour
+  pending growth+0.137/completion and observed conservative gap+1793.0/s remain
+  positive despite declining since the previous observation. No ETA or
+  convergence claim. LC2 is independently live at107,121,900 local completions,
+ 69,260,410 pending and104.98GB RSS, with saved checkpoint16. Both production
+  campaigns remain untouched. Next ordinary observation around04:30UTC.
+  Optimized buildPG917522/CLI compiler1051721 remains CPU-active at50 minutes;
+  no error or terminal receipt. The already authorized freeze/drain→first4L
+  comparison handoff remains unchanged.
+- [M] **Optimized build advanced,03:50UTC:** library rustc918340 drained;
+  CLI/LTO compiler1051721 is active under the same ownedPG917522. No compiler
+  error or terminal build receipt. This is a verified continuing build, not a
+  restart or benchmark result. Runtime will wake idle S5 with `followup_task`
+  only after the previously specified successful freeze and full drainage.
+- [D] **Direct build→comparison handoff granted,03:39UTC:** after runtime
+  explicitly reports successful optimized freeze and full build-group drainage,
+  it may transfer the sole logical heavy reservation directly to S5. S5 must
+  independently inspect the receipt and actualPG/SID917522 absence, bind the
+  staged candidate identity, then may run only first matched combined4L
+  old0f/newprefix pair (W16 CPU32–47, unchanged58 queries/32 roots, profile0,
+  native+cold-All,30-minute inclusive arm bounds). Root will not run competing
+  heavy work. Failure/scope/drain issues stop the lane; reverse pair, five-loop,
+  profiling and production actions remain ungranted. Same frozen source and
+  runner; only identity binding changes. Runtime remains build owner until
+  explicit successful handoff. Root verified compiler918340 live at25m48s.
+- [M] **Scheduled read-only observation,03:29UTC:** actual repaired native
+  PID3741792 remains live at17075.14s,35,584,224 local completions,
+ 61,053,476 scheduled,11,947,308 pending, zero frontiers and59.27GB tree RSS.
+  CP6 generation4 is saved/resumable without warnings. The13/67 roots and
+ 7,605,272 closed-domain snapshot is2386s old; no fresh closure inference.
+  Registered process-tree CPU averages3.45 cores so far (instantaneous4.61),
+  not32-core utilization. Last-hour pending growth+0.184/completion and observed
+  conservative gap+2094.1/s remain positive; no ETA. LC2 independently live:
+ 106,355,036 completions/69,164,063 pending/104.33GB RSS, zero frontiers,
+  stale6/67 roots and saved generation16. Only small status files and actual
+  process identities were read. Next ordinary check around04:00UTC. Optimized
+  buildPG917522/rustc918340 is still live at15m53s with no compiler errors.
+- [M/E] **Mature lookup counters interpreted,03:28UTC:** read-only scalar
+  comparison found broadly stable exact/orthant/general/miss mix. Cumulative
+  reported forward candidates per lookup classification rise from180.46 in
+  fresh23d to922.16 in generation4, while actual test callbacks per
+  classification fall1.36→1.19. Root checked both mutable-store and snapshot
+  `Forward::rejected`: they add whole rejected-run lengths without one exact
+  predicate per candidate. Thus968B reported mature candidates do not mean
+ 968B containment tests or proportional cost. These are different graph
+  prefixes and aggregate inspector/admission/coordinator counters, not an
+  incremental or fixed-work comparison. The fields expose neither cohort
+  age/live population nor per-P2 suffix eligibility. No new optimization or
+  CPU-attribution claim follows; the evidence supports the already planned
+  prefix test. Report:
+  `TMP/postlaunch-20260930/stale-negative-prefix/MATURE_LOOKUP_COUNTS.md`.
 - [M] **Four-loop comparisons staged offline,03:21UTC:** S5 prepared the
   four fresh old1/new1/new2/old2 plans/templates and byte-identical runner under
   `TMP/postlaunch-20260930/stale-negative-prefix/performance/four/`.
