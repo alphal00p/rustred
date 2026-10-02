@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 02:23 UTC (04:23 Zurich)
+## Current workboard — October 2, 03:42 UTC (05:42 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -35,7 +35,7 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Global absolute-degree-first order | `five_loop_order_runner` comparator/runner; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Four-loop cold-All pass; domains−3.64%, no timing win. Expanded-basis5L pair cold-All passes: domains−0.75%, arm time+0.40%, terminals25→28 | Delivered negative promotion gate; no campaign restart recommendation or robust/equal-basis speedup claim |
 | Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | 4L ABBA cold-All unions pass. Exact outer-index lifts pass in4L and5L. Both5L pairs cold-All PASS: domains−23.65–26.18%, successor admissions−30.37–33.53%, traversal−29.68–37.02% | Positive local work gate; whole walk+cold mixed (+0.71%/−6.38%). No installed macro or full58/full116 gain claim |
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
-| Affine operator components / local tangent sources | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Automatic tangent diagnostic and independent actual-result audit PASS:42 ordinary translations prove symbolic numerator/bubble-power identity;46 RHS at registered5L point, rank-one control passes | Integrate through existing original-source/descent path before whole-cohort tests.46-RHS work is unmeasured; prior37-RHS gains cannot be reused. Affine-component comparison remains pending |
+| Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic constructor6/6, public integration2/2, five-check bridge smoke PASS; real owner export486cells PASS. Whole58 both cold-All PASS but domains+2.44%, traversal+0.53% | Broad46-RHS priority not promoted; no reverse repeat. Diagnose actual integrated effect; independent logarithmic-vector proposal and affine-component comparison pending. Private unit-suite reruns remain qualified |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -50,6 +50,143 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 03:42 UTC — installed broad tangent rule: valid, no whole58 gain
+
+- [M] Actual native saved-owner export succeeds:16→17 rules, terminal count1
+  unchanged,49,027→51,196 bytes. It uses42 translated ordinary sources,
+  46 broad RHS terms and486 exact sign cells, with all eight positive powers
+  free, selected numerator index<=−1 and the other inactive index fixed0.
+  Source/guard/descent and native suffix/codec checks pass. Owned export3.529s,
+  adapter compilation123.732s separately; `owner-pilot-v1/{compile-r1,probe-r1}/`.
+  Independent source/result audit passes. No full-owner certification claim.
+- [M] The unchanged whole58 forward pair completes in31.031s atW16/CPU32–47.
+  Both arms cold-load and pass full native reinspection for all32 distinct
+  initial roots representing58 required queries.16 owners and508 routes remain;
+  only the checked priority payload differs. Queue/frontier counts both0.
+  The cold checker includes sealed dependency cycles; this is not a general
+  termination or unrestricted-family proof.
+
+  | Metric | Original pool | Checked priority rule |
+  | --- | ---: | ---: |
+  | Scheduled domains | 26,025 | 26,659 |
+  | Native inspections | 17,957 | 18,007 |
+  | Events | 872,486 | 874,615 |
+  | Preparation, seconds | 1.085758 | 1.079235 |
+  | Native traversal, seconds | 4.108112 | 4.130033 |
+  | Cold checking, seconds | 7.610162 | 7.661685 |
+  | Complete arm, seconds | 15.271476 | 15.315056 |
+  | Sampled walk peak RSS, bytes | 253,517,824 | 296,136,704 |
+
+- [D] Negative promotion gate:domains+2.436%,inspections+0.278%,traversal+0.534%,
+  complete arm+0.285%. No reverse repeat, broad rollout or production restart.
+  The earlier positive37-RHS local endpoint result does not transfer to this
+  different46-RHS recurrence or to combined workload. Runner investigates the
+  actual hit/fragmentation evidence; independent auditor checks interpretation.
+  Evidence: `TMP/postlaunch-20261002/tangent-integration/whole58-v1/forward/`.
+- [D] Next distinct bounded research candidate: logarithmic vectors satisfying
+  V(D_i)=D_i*h_i rather than the stronger current V(D_i)=0. Proposed first case
+  is a loop incident on three active lines in the unchanged four-loop scope;
+  perform a cheap analytic/native feasibility veto before any engine change.
+  Native Symbolica solves the coefficient system. No all-sector syzygy engine
+  or new CAS is authorized by this pilot preparation.
+- [M] Corrected-test release metadata check passes for core/app libraries and
+  tests in48.163s (`check-corrected-tests2/`). Native private unit tests remain
+  unrerun and are not relabeled passed. Production untouched.
+- [M/E] Read-only comparison separates the634 extra scheduled domains into
+  584 aliases and50 native inspections. RHS admissions rise1,520, routed
+  admissions516; G2 coverage/plans are unchanged. Existing reports lack a
+  successful-rule histogram, so the exact number of new-rule hits and causal
+  attribution are unknown. Do not invent a fragmentation/anchor explanation.
+- [D] The earlier147-source/37-RHS lift is not immediately installable by this
+  deliberately narrow bridge: its proof retains poles such as d−2 which cancel
+  from the final RHS. The bridge refuses proof guards absent from surviving
+  runtime denominators. Review the exact generic-base-field semantics before
+  changing this; never erase exceptional conditions merely to pass a pilot.
+
+### October 2, 03:32 UTC — native priority bridge passes; real-owner export next
+
+- [M] Optimized app/core library build completed in795.461s; cached optimized
+  public bridge client compilation completed in118.182s. These are compilation
+  times, not rule generation. Evidence: `TMP/postlaunch-20261002/
+  tangent-integration/{build-app-lib1,build-public-smoke1}/`.
+- [M] Public bridge execution passes all five checks: native roundtrip/priority,
+  fixed-face fallback and unchanged terminals, unpersisted-guard refusal,
+  unsupported-geometry refusal, and source/root/budget refusals. Owned elapsed
+  1.138696s,12,344KiB peak child RSS; receipt `test-public-bridge1/`. This is
+  public-API smoke coverage, not execution of the five private app unit tests.
+  `rule_quality_audit` independently checked source, actual receipts and drain.
+- [D] Root launched only the small input-driven owner adapter compilation,
+  reusing the actual optimized app/core libraries, under existing locks and
+  CPU0–7. The adapter then requires a separate native export invocation. The
+  whole58 comparison will reuse one frozen CLI in both arms: the existing
+  binary format is unchanged. No full-engine rebuild is needed for that test.
+- [D] The experiment changes only one of16 owners, preserves508 routes and all
+  58 original required queries, old fallback rules and terminals. A successful
+  checked export alone is not a workload win or whole-family closure. Root owns
+  the native queue; agents prepare/analyze and the independent auditor verifies.
+- [D] Local tangent/syzygy and subgraph dimension-return research continues
+  read-only alongside these tests. No competing heavy job or production change.
+
+### October 2, 02:49 UTC — generic tangent construction compiles; native tests next
+
+- [M] Optimized library-only check passes in46.154s under the existing heavy/
+  build0 locks, CPUs0–15, eight build workers. Evidence:
+  `TMP/postlaunch-20261002/tangent-integration/check-lib1/`. This is compilation,
+  not a rule-generation or campaign timing.
+- [M] Separate implementation/source audits approve the generic native-Symbolica
+  tangent constructor (six focused tests), explicit original-source-combination
+  admission (eleven tests), and public four-loop integration fixture (two tests).
+  The first all-test check fails on two root-owned fixture setup mistakes:
+  a private IndexShift constructor and ambiguous integer inference. Corrected by
+  selecting the actual generated zero-shift key and explicitly using i64;
+  no engine API/expectation was weakened. Failure receipt `check-tests1/` is kept.
+- [D] Root owns the optimized focused test build and execution; implementation
+  agents do not launch competing jobs. Generic source construction does not
+  confer owner installation or full-family closure. Next app bridge must retain
+  one broad checked RHS, exact applicability, original fallback/terminals and
+  every relevant guard; canceled parameter poles cannot be hidden in numerical
+  index exceptions. Independent review of this boundary is in progress.
+- [M] Read-only production at02:49UTC is running with fresh heartbeat:
+  159,393,543 discovered,115,303,744 local completions,15,876,990 pending,
+  zero reported frontiers,138.40GB RSS. Last-hour computing-inspector mean3.19.
+  Recorded recursive closure remains13/67 and20,405,752 domains, but the scan
+  is8,175s old; it cannot establish an absence of actual closures or an ETA.
+  No production process, input, checkpoint or executable has been changed.
+- [D/M] The release integration binary became available before the much larger
+  core unit-test binary. A lightweight one-core,12MB smoke check on disjoint
+  CPU32 ran concurrently with compilation (not a performance measurement),
+  under the pilot CPU lock. It rejected the root fixture's hyphenated text
+  label before any algebra; changed that label to `tangent_rule_integration`.
+  Receipt `smoke-public1/` retains this setup failure. Core source remained
+  frozen throughout code generation. The corrected public test is rebuilt next.
+- [D] `five_loop_order_runner` implemented the separate candidate-owner priority
+  bridge and five tests; `rule_quality_audit` reviews its actual guard and codec
+  binding. `r_primary_transfer_audit` prepared the input-driven owner adapter in
+  `owner-pilot-v1/`, without a native run. Data-only checks preserve16 owners,
+  508 routes and58 queries; the actual donor's root is1111111110, enclosing its
+  owner1111111100 exactly as in the public fixture. No root widening is proposed.
+- [D] The next discovery candidate is explicitly pending: nominate a loop
+  touching exactly two active denominators, derive its two momentum partners
+  from native family incidence, and target one demanded numerator with the
+  same tangent constructor. This is a basis-dependent sufficient heuristic,
+  not a complete syzygy search. No discovery implementation or speed claim yet.
+- [M] Native release results now available: tangent unit tests6/6 PASS;
+  public integration2/2 PASS. The latter checks the exact original-source
+  identity and uniform descent on486 sign cells covering all declared positive
+  bubble/outer powers and numerator ranks. Admission takes0.256s (test
+  diagnostic, not a campaign timing); full public test body0.31s,82,944KiB RSS.
+  Producer tests10/11 PASS: the remaining raising-identity test correctly rejects
+  its upward shift but its expected error substring was wrong. The assertion
+  alone is corrected to the actual uniform-descent refusal; a rerun is pending.
+  Independent source and actual-receipt audit passes with that qualification.
+- [M] Release unit compilation took983.504s, reported separately. A new app
+  metadata check passes its non-test body and finds one private-constructor call
+  in its test fixture; replaced with a shift obtained from a genuine translated
+  ordinary row. No core API or algebra changed. All app sources are frozen;
+  root's `build-app-lib1/` builds its optimized library for the input-driven
+  owner adapter and independent public-API smoke checks. No runtime insertion
+  or unchanged58 comparison has executed yet.
 
 ### October 2, 01:38 UTC — local identity lifts beyond one numerical point
 
@@ -227,6 +364,30 @@ release nor input is edited.
   6665s old, not a current no-closure observation. RSS136.72GB; no ETA or
   mathematical closure inferred. Production state and frozen executables remain
   untouched.
+
+### October 2, 02:30 UTC — integrate the source mechanism, not another search kernel
+
+- [D] Previous goal turn is **progress**: both5L endpoint pairs completed,
+  an input-directed source constructor passed an exact symbolic test, and
+  independently audited findings were committed/pushed on `main` as31d10e40.
+  This changes the next action from speculative source searches to checked
+  integration. The full objective remains open; no scoped/full5L closure is
+  claimed and production is user-controlled.
+- [D] `r_primary_transfer_audit` owns a new semantic `identity::tangent`
+  module: family-derived polynomial coefficients, native Symbolica minors,
+  explicit original translations and weights, bounded typed errors. No
+  loop-count restrictions, topology names, fixture dispatch or installed-rule
+  authority. `five_loop_order_runner` separately owns an original-combination
+  producer around existing `PreparedOriginalDomain` and mutation/descent tests.
+  `rule_quality_audit` is independent reviewer of both; root integrates,
+  coordinates builds and performs final native checks. No overlapping edits.
+- [D] Preserve all old owner rules and terminals as fallback. The eventual
+  priority insertion is into a fresh candidate program, not an append-only
+  mutation of live lineage. Existing codecs and proof services are reused;
+  no second CAS, decoder or certification framework. First pass constructor and
+  full-domain cell tests, then test runtime case/guard selection and unchanged
+  combined58 four-loop requests before the next5L pilot. Full declaration of
+  conditions and descendants remains mandatory.
 
 ### October 1, 22:50 UTC — implement a genuinely global degree order
 

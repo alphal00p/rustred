@@ -16,6 +16,7 @@ mod model;
 mod order;
 mod policy;
 pub(super) mod preparation;
+mod priority;
 mod save;
 mod selection;
 mod strategy;
@@ -51,6 +52,7 @@ pub use model::{
     FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy,
     MAX_CANDIDATE_BUNDLE_BYTES,
 };
+pub use priority::{CheckedPriorityOwnerExport, encode_checked_priority_owner};
 pub use save::encode_generated_candidate_sector;
 
 /// Test support: split a generated multi-sector bundle into the single-sector

@@ -219,7 +219,7 @@ impl PreparedOriginalDomain {
 
     /// One affine-aware zero proof for early RHS pruning and final cold
     /// replay. The chart is prepared once with the original-source parent.
-    pub(super) fn coefficient_vanishes(
+    pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
         &self,
         context: &IndexedCoefficientContext,
         coefficient: &IndexedCoefficient,

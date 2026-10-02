@@ -706,3 +706,85 @@ injecting this independently valid combination there is not legitimate.
 The next performance gate is unchanged whole-cohort coverage with an installed
 checked rule, not another claim from fewer immediate successors. Until that
 gate, production and its owner pool remain unchanged.
+
+### Generic implementation and exact local-domain gate
+
+The prototype has now become `identity::TangentSourcePlan`: a family-derived,
+loop-count-independent two-protected-denominator/three-contraction capability.
+Its signed minors, polynomial arithmetic and exact tangency checks use native
+Symbolica operations. The nominated geometry is input, not a topology-name
+dispatch. It retains unprotected denominator derivatives, external contractions,
+unequal masses, native power shifts and all original source conditions.
+
+`foundry::artifact::check_original_source_combination` supplies the complementary
+admission path. It regenerates the explicitly weighted ordinary rows and checks
+the entire requested coordinate box, using the existing original-source and
+sign-cell machinery. It does not ask canonical elimination to rediscover the
+combination, import a guessed zero sector, install an owner or claim closure.
+Unsupported geometry/order capabilities and any failing cell reject the request.
+
+The public four-loop integration test passes on the common input basis. It fixes
+only the other inactive index to zero, allows arbitrary positive bubble and
+outer powers, and allows the selected numerator index to range over all negative
+integers. Exact native admission covers486 sign cells in0.256s; the complete
+two-test body takes0.31s, with82,944KiB peak single-child RSS. These are local
+correctness diagnostics, not a timed generation campaign. The six construction
+tests also pass, including external momenta, unequal masses, nonzero power
+shifts, optional multipliers, full product-rule comparison and invalid inputs.
+
+The separate producer suite currently records10/11 passing: the raising-rule
+case correctly rejects its non-descending shift, but its error-text assertion
+needed correction. That corrected assertion is reviewed; execution is pending.
+Earlier private-constructor and text-label mistakes in root's public fixture
+are retained in the receipts and were fixed without changing the identities.
+Evidence: `TMP/postlaunch-20261002/tangent-integration/`.
+
+The app priority bridge now passes independent source review and a five-check
+public-API smoke test, including guard refusal and unchanged fallback/terminals.
+It exports the same checked broad row into a fresh owner and rejects any source/
+normalization guard the runtime cannot retain. Original-row proof is distinct
+from canonical seeded-source replay: this is an experimental candidate owner,
+not a certified closing artifact. The private app unit suite has not executed.
+
+### Integrated four-loop result: useful capability, unsuccessful priority policy
+
+The actual donor export adds one rule (16 to17), keeps its one finite terminal,
+and grows the binary from49,027 to51,196 bytes. The complete declared box passes
+486 original-source/descent cells. Export costs3.529s inclusive, after123.732s
+adapter compilation. Existing app candidate transport supports1..16 indices;
+this inherited codec/loader limit is not a mathematical loop-count restriction
+of the new family-generic source constructor.
+
+A fresh, matched W16/CPU32–47 comparison uses the same frozen CLI,16 owners,
+508 routes and all58 historical required queries, replacing only the one owner.
+Both arms exhaust their worklists with zero frontiers and pass cold full native
+reinspection for32 distinct initial roots. The checker permits sealed dependency
+cycles; its PASS is not a new global descent/termination theorem.
+
+| Metric | Saved pool | Broad tangent priority |
+| --- | ---: | ---: |
+| Scheduled domains | 26,025 | 26,659 |
+| Native inspections | 17,957 | 18,007 |
+| Events | 872,486 | 874,615 |
+| Preparation, seconds | 1.085758 | 1.079235 |
+| Native traversal, seconds | 4.108112 | 4.130033 |
+| Cold verification, seconds | 7.610162 | 7.661685 |
+| Complete arm, seconds | 15.271476 | 15.315056 |
+
+This fails the registered work/performance gate:2.44% more domains and no timing
+improvement. No reverse repetition or production promotion follows. The earlier
+37-RHS fixed-numerator identity's positive endpoint-union results must not be
+assigned to this broader46-RHS rule. A lower numerator or fewer immediate terms
+does not itself guarantee less joint routed-domain work. Evidence is in
+`TMP/postlaunch-20261002/tangent-integration/whole58-v1/forward/`; all native
+phases drained, total comparison31.031s, with prior compilation/export separate.
+
+The next distinct algebraic candidate is a weaker constraint: require
+`V(D_i)=D_i*h_i`, not `V(D_i)=0`. Differentiation still does not raise protected
+propagator powers, but a loop touching three active lines may admit new vectors.
+The bounded proposed test has affine vector/h coefficients (77 unknowns for the
+selected four-loop input), solved using Symbolica, followed by full original-row
+replay and actual descendant comparison. This is pending, not a discovered rule
+or a completeness claim. The mathematical motivation is the additional
+no-doubled-propagator constraint in
+[Böhm et al., section IV](https://arxiv.org/html/1712.09737v2#S4.SS1).

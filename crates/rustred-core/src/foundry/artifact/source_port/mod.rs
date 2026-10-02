@@ -15,6 +15,12 @@ pub use limits::SourcePortLimits;
 pub(crate) use limits::{DEFAULT_PREDICATE_ATOMS, DEFAULT_PREDICATE_CONSISTENCY_WORK};
 mod normalization;
 mod ordinary;
+mod original_producer;
+pub use original_producer::{
+    CheckedOriginalSourceCombination, OriginalSourceCombinationLimits,
+    OriginalSourceCombinationRequest, OriginalSourceContribution,
+    check_original_source_combination,
+};
 pub(in crate::foundry::artifact) mod predicate_cover;
 mod program;
 mod progress;
