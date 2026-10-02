@@ -8,7 +8,36 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 08:14 UTC (10:14 Zurich), requested stopping checkpoint
+## Current workboard — October 2, separate new-rule campaign preparation
+
+The user requests a new full five-loop comparison campaign, to be launched by
+the user in `codex_astra_new_rules`. Root integrates and independently checks
+the exact priority-owner export; `five_loop_shortcut_export` prepares the
+N15/147-source exporter; `new_rules_launch_prep` prepares portable inputs and
+the frozen launcher. Preserve the116 required queries,67 helpers,67 owners,
+8,246 routes and existing repair overlay; replace only owner18910 with its
+checked37-term priority rule plus unchanged fallback rules/terminals. Use32
+physical cores96–127, disjoint from the existing campaign. No production is
+launched or modified by these tasks. Full-scope performance is unmeasured.
+Initial audit-agent activation failed the thread limit; reactivating
+`reflection_rule_probe` subsequently succeeded. Its independent static audit
+passes the source replay, full chart/descent authority, fallback retention,
+query scope, isolation and resource setup. Native export and staging now PASS:
+147 sources/2,694 terms,36 sign cells,72→73 rules with all6 terminals retained;
+actual required-point activation64→37 and outside-chart fallback pass. Only
+owner18910 changes; unchanged query and overlay receipts are checked against
+the source campaign after staging. Native export2.022s, owned wrapper4.380s,
+adapter compile135.028s. No engine rebuild or production launch occurred.
+The frozen full-scope launch is documented in
+[five_loop_new_rules_campaign_2026-10-02.md](docs/research/five_loop_new_rules_campaign_2026-10-02.md).
+Next step belongs to the user: launch the new campaign in `codex_astra_new_rules`.
+Do not infer full-campaign gain or eventual closure from the local work result.
+Independent final receipt/staging audit PASS confirms production inputs are
+unchanged and no solver was launched. New candidate SHA256 begins `faa34c23`.
+Old production executable `4e76707b` differs from new tested `8ef80b52`, so
+future side-by-side timings cannot be attributed solely to the rule addition.
+
+### Previous stopping checkpoint — October 2, 08:14 UTC
 
 The user requests that the current experiments be completed and documented,
 the tested checkpoint pushed, and the agent stop. No further implementation or

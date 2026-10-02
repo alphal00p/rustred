@@ -1,5 +1,8 @@
 # New-rules study and stopping checkpoint
 
+Later update: a separate full-scope campaign is now prepared at the user's
+request; see the October2 follow-up at the end and its linked launch note.
+
 Date: 2026-10-02. Development branch: `main`. This report supersedes older
 suggestions to launch additional rule experiments immediately. The user asks
 that the current experiments finish, findings and tested work be pushed, and
@@ -277,3 +280,16 @@ successful local tests do not establish compatibility with the large live
 checkpoint, and no such live resume rehearsal was performed here. Any future
 rule-payload change must respect checkpoint input identity rather than silently
 reusing decisions made with different rules.
+
+## October2 follow-up: separate full-scope launch prepared
+
+At the user's subsequent request, the37-term rank-two identity has now been
+exported into the actual five-loop owner and checked for native activation,
+not merely tested from its descendants. All147 sources replay over seven free
+positive outer powers; all36 descent cells pass, and the old fallback rules
+and terminals remain. A separate full116-required-query/67-helper campaign is
+prepared, **not started**. See the
+[launch and validation note](docs/research/five_loop_new_rules_campaign_2026-10-02.md).
+The local24–26% domain saving remains promising but is not a measured full-run
+gain. The earlier stopping checkpoint and uninstalled-status statements above
+describe the preceding experiments, not this later preparation.

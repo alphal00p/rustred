@@ -1,5 +1,17 @@
 # RustRed project goal
 
+## October2 separate new-rule campaign preparation
+
+The user now requests an independent full-scope five-loop campaign incorporating
+the exact 37-term rank-two shortcut behind the measured local work reduction.
+Prepare and validate separate inputs, preserve all116 required queries and67
+auxiliary helpers, retain the existing rule fallback and repair overlay, and
+provide launch commands for `codex_astra_new_rules` in Zellij session `rustred`.
+The user alone launches production. Neither the existing campaign nor its
+checkpoint is changed. This scoped preparation supersedes the stopping
+instruction below; it does not authorize restarting parked research. The
+integrated full-campaign benefit remains experimental, not an established gain.
+
 ## October2 requested stopping checkpoint
 
 The user requests completion of the current rule experiments, an audited report
