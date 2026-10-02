@@ -127,5 +127,6 @@ pub(super) fn program_record(
             .stable_id()
             .to_string(),
         sectors,
+        rule_dispatch: Vec::new(),
     })
 }

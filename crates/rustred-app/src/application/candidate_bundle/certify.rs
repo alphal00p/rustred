@@ -56,6 +56,11 @@ fn certify_request(
         .validate()
         .map_err(publication_error)?;
     let bundle = codec::read(&request.bundle, request.input_limits)?;
+    if !bundle.rule_dispatch.is_empty() {
+        return Err(AppError::execution(
+            "candidate certification does not preserve nondefault dispatch policy; refusing policy erasure",
+        ));
+    }
     if super::policy::parse(&bundle.solver_policy)?
         .max_numerator_rank
         .is_some()

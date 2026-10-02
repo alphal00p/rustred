@@ -82,6 +82,9 @@ pub struct CandidateSectorInspection {
 #[derive(Clone, Debug, Serialize)]
 pub struct CandidateRuleInspection {
     pub ordinal: usize,
+    /// Absence is ordinary Partition; old diagnostic JSON stays unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_policy: Option<&'static str>,
     pub case: CandidateCaseInspection,
     pub target: CandidateIntegralInspection,
     pub rhs: Vec<CandidateTermInspection>,

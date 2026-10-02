@@ -106,7 +106,7 @@ fn rank_scope_policy_rejects_malformed_shape_before_symbolica_import() {
     let (envelope, mut records, _) = codec::read_structure(generated.bundle(), limits).unwrap();
     records.solver_policy =
         "ordinary-source-port-numerical-depth-2-max-numerator-rank-00-v1".into();
-    let program = bincode::encode_to_vec(&records, bincode::config::standard()).unwrap();
+    let program = codec::dispatch::encode(&records).unwrap();
     let sections = envelope
         .sections()
         .iter()

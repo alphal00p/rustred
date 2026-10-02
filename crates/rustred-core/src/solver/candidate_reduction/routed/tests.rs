@@ -699,6 +699,7 @@ fn declared_affine_chart_and_saved_order_match_the_existing_evaluator() {
         };
         let target = case.face().integral();
         let rule = SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 case: case.into(),
                 target,

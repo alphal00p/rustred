@@ -241,6 +241,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
         }
         prepared.push(PreparedRule {
             ordinal: *ordinal,
+            dispatch_policy: rule.dispatch_policy,
             fixed: *candidate.case.fixed(),
             case: candidate.case,
             equalities,

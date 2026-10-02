@@ -94,6 +94,7 @@ fn fixture() -> (FamilyCandidatesRequest, CheckpointManifest, Vec<Vec<u8>>) {
         .into_iter()
         .map(|sector| {
             let record = ProgramRecord {
+                rule_dispatch: Vec::new(),
                 schema: CANDIDATE_BUNDLE_SCHEMA.into(),
                 status: STATUS.into(),
                 solver_policy: policy::encode(request.numerical_depth),

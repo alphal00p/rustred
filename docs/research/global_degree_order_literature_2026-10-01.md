@@ -939,3 +939,176 @@ Evidence: `TMP/postlaunch-20261002/tangent-integration/component-precondition-v1
 The experiment is parked without solver integration or another workload run.
 Reopen only with observed index-degree growth or a justified new source bank;
 do not enlarge the bank merely to evade a negative discriminator.
+
+## Selective application: preserve the baseline partition
+
+The failed priority insertions motivate a different application policy, not
+another source bank. A whole-input-only shortcut initially looked attractive,
+but all four original queries for owner `1111111100` cross the narrow37 case.
+Its R2 descendants are also contained by an already requested R12 anchor and
+can be reused before native inspection. This is not a proof of zero possible
+calls: G2 can inspect a restricted residual without queue re-admission. No
+whole-input policy was implemented on the strength of that uncertain opportunity.
+
+A more direct screen uses the baseline's own partitions. The unchanged four
+queries produce180 selected-rule pieces and three terminals. Each selected
+piece is then sent, unchanged, to the existing native matcher with each checked
+donor. A hit requires one output with precisely the same box, rank and A/D
+predicates, selecting the donor rule. Separately require no split, refinement
+or empty-cell removal. All other results remain diagnostic; no candidate cuts
+are adopted and no terminal/gap outcome is replaced.
+
+| Original input | Baseline selected pieces | Broad46 direct hits | Narrow37 direct hits |
+| --- | ---: | ---: | ---: |
+| Required R5 anchor | 46 | 1 | 0 |
+| Physical D8/A13/R5 | 43 | 17 | 0 |
+| Physical D7/A11/R4 | 45 | 18 | 0 |
+| Required R12 anchor | 46 | 1 | 0 |
+| Total occurrences | 180 | 37 | 0 |
+
+All three matcher calls complete, with no unresolved results, in8.736s inclusive
+and below94MB sampled process-tree RSS. Independent rejoining of the native
+outputs confirms every count and drained process. These are overlapping-query
+piece occurrences, not integral volume, actual walker hits or performance gains.
+The existing whole58 cold ledger further shows that both physical queries are
+absorbed by the R5 anchor. Thus35 of the37 hits are not additional native root
+opportunities. Only two screened anchor hits remain; descendant applications
+and an advantage over the baseline RHS still need measurement.
+
+One example explains the distinction. Baseline rule15 emits the domain with
+eight active powers equal to1, numerator coordinate `x8>=1`, `x9=0`, and retained
+rank at most5. Broad46 applies to the whole piece. Narrow37 instead cuts it
+into `x8=1`, `x8=2` and `x8>=3`, needing an extra partition. This supports an
+**after-baseline-partition** experiment for broad46: preserve every ordinary
+cut and consider a proven alternative only on a whole already-selected piece.
+Fallback must leave that piece unchanged; terminals, zeroes, gaps and unresolved
+outcomes must never be converted into apparent rule coverage.
+
+The implementation design uses explicit persisted dispatch semantics, shared
+by warm inspection and cold reinspection. Alternatives belong to the same
+prepared batch as the selected baseline rule, preserving immutable overlay
+precedence. Concrete point evaluation must also select a baseline before trying
+alternatives. Uniform case/equality/exclusion/denominator checks remain mandatory;
+unknown/partial applicability declines the shortcut, and actual application
+still checks all RHS obligations and descent. Implementation now passes nine
+native core tests and119 candidate-bundle tests, including codec roundtrips,
+cold reference-Off reinspection and policy-only checkpoint-change rejection.
+The first cold/checkpoint attempt stopped at an omitted Epoch scheduling option;
+the corrected fixture passes without weakening its assertions. Two unrelated
+external-data tests remain ignored. There is no whole58 result or deployment
+gain for this policy yet.
+Evidence: `TMP/postlaunch-20261002/tangent-integration/after-baseline-partition-v1/`.
+
+### Summed recurrences: promising mechanism, incompatible shortcut as stated
+
+A fresh primary-source check of the [diamond rule](https://arxiv.org/html/1504.08258v1)
+identifies a stronger intervention than one-step rule selection: sum a whole
+recursion directly onto pinch boundaries, avoiding intermediate terms. Its
+published construction, however, requires massless lower and spectator lines;
+massive upper lines are allowed. It is not directly an equal-mass vacuum rule.
+
+The obstruction is visible without a large solve. In a scalar triangle let
+`D0=k²+m0²`, `Di=(k+pi)²+mi²`, `Ci=pi²+mi²`, with powers `b,ai,ci`.
+Our direct Euler-IBP derivation gives
+
+```text
+E I = Σ_i ai Ai⁺(B⁻ − Ci⁻) I − m0²(Σ_i ai Ai⁺ + 2b B⁺) I,
+E = d − a1 − a2 − 2b.
+```
+
+Here `Ci⁻` multiplies by `Ci`, lowering its spectator-propagator power;
+prefactors `ai` and `b` are evaluated at the source indices.
+
+The final mass-dependent terms do not lower `b+c1+c2`; one raises `b`.
+Setting the common mass to one does not remove them. Thus borrowing the
+massless termination argument would be invalid. A future massive summed
+recurrence needs an exact combination cancelling these terms, then an actual
+work comparison. No diamond implementation or successful massive shortcut is
+claimed. This remains a research lead, not a reason to enlarge the failed
+Laporta bank blindly.
+
+The saved broad46 row suggests one narrower test: exactly one exported term
+preserves numerator rank, `-I(n-e3)`; its other45 terms shift `n8` toward zero
+by one or two. Displayed coefficients depend only on `n8,d`, but independence
+from `n3` has not yet been checked through native algebra. If confirmed, write
+`I(a)=-I(a-1)+K(a)` and test the exact finite identity
+`I(3)=-I(0)+K(1)-K(2)+K(3)` at physical input
+`[1,1,1,3,1,1,1,1,-2,0]` (A10/R2/D8). This skips a defined chain, unlike the
+earlier arbitrary-child composition. It may still worsen work: up to136 terms
+appear before collection. All guards, source replay and endpoint costs remain
+required. The screened anchor has a=1 already, offering no skip; its unbounded
+helper must not be clipped to physical a<=6. A general symbolic-length sum needs
+another representation, so only this small finite discriminator is registered,
+not authorized as another pilot or implemented as an engine feature.
+
+## Target-directed elimination: distinguish a new mechanism from existing GPLU
+
+Kira3 selects equation dependencies after forward elimination to avoid retaining
+dependencies that cancel during subsequent substitution. It also adjusts seed
+coverage by sector, checking target sufficiency rather than treating the seed
+boundary as permission to discard real reduction terms.
+[Kira3, sections3.1–3.2](https://arxiv.org/html/2505.20197v1#S3.SS2).
+
+RustRed already records direct forward-GPLU dependencies in
+`solver/discovery.rs::add_row`; `trace_many` collects their required closure.
+Its target-only materializer reconstructs the same canonical row from the
+unchanged source prefix. Rebranding these as a new hidden-zero optimization
+would not change the descendant work. This is a source-audited conclusion,
+not a new timing result.
+
+Blade constructs compact relations within selected integral sets, organizing
+their solution in blocks. It also distinguishes genuine inter-sector relations
+from naive cut-based independence. These mechanisms motivate changing the
+relations supplied to the walk, but its published reduction/reconstruction
+speedups do not predict RustRed's symbolic-domain traversal performance.
+[Blade, sections2.5 and3](https://arxiv.org/html/2405.14621v2#S3).
+
+One genuinely untested distinction remains: our752-row joint probe used literal
+same-family integral columns, not exact symmetry-identified columns. Its failed
+projection therefore does not exclude an improved relation after verified
+symmetry transport. A bounded next discriminator must first exhibit a nontrivial
+map that preserves the declared symbolic chart. Arbitrary routing is not enough:
+symbolic numerator powers can require non-fixed-length expansions, and active
+permutations can leave the `n+constant shift` representation. The smallest gate
+admits exact maps fixing free coordinates and permuting equally fixed bases;
+an empty/trivial action is a negative, not grounds to expand the source bank.
+
+A second necessary boundary is proof provenance. A combination using symmetry
+equations cannot be exported as a zero residual of ordinary IBPs alone. It
+needs either an actual ordinary-source replay or separately validated symmetry
+steps. No such mixed proof is claimed here. A concrete-only solve must likewise
+not be reported as a parametric recurrence. The ignored source assessment is
+`TMP/postlaunch-20261002/tangent-integration/TARGET_BLOCK_RELATION_NOTE.md`.
+
+## Requested slices versus unfinished helper cones
+
+The current five-loop declaration contains116 required inputs with finite
+coordinate, numerator-rank and total-positive-power bounds. Its67 auxiliary
+inputs include13 without a total-positive-power bound. Removing those auxiliary
+starts alone is not new: the earlier full-physics helper-free run used precisely
+the116 required rows and was censored with2.802M pending domains.
+
+A distinct proposal is to apply the existing exact rule to the demanded slice
+Q instead of inheriting the entire unfinished dependency cone of a larger A.
+Old graph edges do not retain a reusable restricted source-to-child map, so the
+smallest sound mechanism reruns native matching and application on Q, retaining
+every condition and successor. Containment lookup and merge must not immediately
+redirect it back to A. This is not a rule-generation improvement or proof of
+finite symbolic traversal.
+
+Independent critique identifies the necessary workload distinction. In the
+four-loop58-query control, the wider anchors themselves are required: their
+work cannot be avoided by closing Q earlier. In five loops auxiliary-only work
+can remain pending, but a demanded-work stopping policy is needed to realize
+the saving rather than eventually drain that queue anyway. Existing cold
+`PhysicsQueries` verification can accept a cooperative checkpoint with optional
+pending work, provided all183 inputs were admitted/source-valid, every required
+query is covered by a closed independently reinspected input root, and every
+saved native record passes reinspection. Its `complete` flag describes the
+reinspection, not an empty pending queue. An internal Q node alone is currently
+not a certifying input root; initial absorption must also be handled honestly.
+
+No scheduler change or experiment is claimed for this proposal. Its local
+image witness is insufficient evidence of total-work savings. The audit and
+minimal falsifier are saved in
+`TMP/postlaunch-20261002/tangent-integration/DEMAND_SLICE_FALSIFIER_PLAN.md`.

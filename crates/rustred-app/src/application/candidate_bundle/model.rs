@@ -6,6 +6,7 @@ pub use rustred::solver::{CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePo
 use crate::application::InputFormat;
 
 pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v2";
+pub(super) const DISPATCH_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v3";
 pub(super) const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
@@ -366,6 +367,16 @@ pub(super) struct ProgramRecord {
     pub permutation: Option<Vec<usize>>,
     pub integral_order: String,
     pub sectors: Vec<SectorRecord>,
+    /// Sparse execution policy, independent of equation/source wire records.
+    pub rule_dispatch: Vec<RuleDispatchRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+pub(super) struct RuleDispatchRecord {
+    pub sector: usize,
+    pub rule: usize,
+    /// 1 = AfterBaselinePartitionWholePiece; default entries are forbidden.
+    pub policy: u8,
 }
 
 /// Read-only adapter for existing control-owner inputs. No missing custom

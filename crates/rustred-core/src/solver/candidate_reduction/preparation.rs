@@ -119,6 +119,21 @@ impl<const N: usize> CandidateReducer<N> {
         }
         let shared::PreparedRecords { rules, terminals } =
             shared::prepare_records(&shared, records, &ordering, limits)?;
+        let whole_piece_alternatives = rules
+            .iter()
+            .filter_map(|(&sector, rules)| {
+                let indices: Vec<_> = rules
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, rule)| {
+                        (rule.dispatch_policy
+                            == crate::solver::RuleDispatchPolicy::AfterBaselinePartitionWholePiece)
+                            .then_some(index)
+                    })
+                    .collect();
+                (!indices.is_empty()).then_some((sector, indices))
+            })
+            .collect();
         let shared::PreparedFamily {
             context,
             source_conditions,
@@ -133,6 +148,7 @@ impl<const N: usize> CandidateReducer<N> {
             max_numerator_rank: scope.flatten(),
             ordering,
             rules,
+            whole_piece_alternatives,
             terminals,
             terminal_aliases: None,
             terminal_normalization: None,

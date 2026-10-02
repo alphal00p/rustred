@@ -7,6 +7,7 @@ fn fixture() -> (CoefficientContext, SectorRule<2>, IntegralOrder<2>) {
     let context = CoefficientContext::new(["n0", "n1", "d"]);
     let case = CoordinateCase::new([None, Some(1)]).unwrap();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: case.into(),
             target: case.integral(),
@@ -132,6 +133,7 @@ fn finite_zero_proof_budget_is_fail_closed_not_partial_coverage() {
     let sector = [false, true, false, true];
     let case = CoordinateCase::generic();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: case.into(),
             target: case.integral(),
@@ -185,6 +187,7 @@ pub(super) fn affine_fixture() -> (
         .unwrap()
         .unwrap();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,
@@ -298,6 +301,7 @@ fn affine_zero_projection_discards_only_impossible_activation_cells() {
         .unwrap()
         .unwrap();
     let mut rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,
@@ -387,6 +391,7 @@ fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
         ),
     };
     let mut rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,

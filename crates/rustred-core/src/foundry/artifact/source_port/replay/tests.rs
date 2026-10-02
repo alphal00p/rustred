@@ -31,6 +31,7 @@ fn coupled_sunset() -> (SourcePortAudit<3>, SectorRule<3>) {
     (
         audit,
         SectorRule {
+            dispatch_policy: Default::default(),
             candidate,
             exceptions,
         },

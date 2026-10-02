@@ -57,6 +57,7 @@ fn term(
 }
 fn rule(ordinal: usize, rhs: Vec<PreparedTerm<3>>) -> PreparedRule<3> {
     PreparedRule {
+        dispatch_policy: Default::default(),
         ordinal,
         case: crate::solver::Case::generic(),
         fixed: [None; 3],
@@ -560,6 +561,7 @@ fn applied_small_integer_oracle_matches_native_evaluator_and_noninvolutive_order
                     root_sector: owner.root,
                     ordering: &owner.ordering,
                     rules: &owner.batches[0].rules,
+                    whole_piece_alternatives: &owner.batches[0].whole_piece_alternatives,
                     source_conditions: &shared.source_conditions,
                     zero_sectors: &shared.zero_sectors,
                     limits: p.context.limits,

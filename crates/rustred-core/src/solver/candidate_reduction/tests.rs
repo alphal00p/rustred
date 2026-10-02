@@ -365,6 +365,7 @@ fn affine_test_owner(block: bool) -> CandidateReducer<3> {
         coefficient: context.one().raw().clone(),
     }];
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: case.into(),
             target,

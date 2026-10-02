@@ -27,6 +27,7 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) max_numerator_rank: Option<u32>,
     pub(super) ordering: OrderingPolicy,
     pub(super) rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
+    pub(super) whole_piece_alternatives: BTreeMap<[bool; N], Vec<usize>>,
     pub(super) terminals: BTreeSet<IntegralKey>,
     pub(super) terminal_aliases: Option<TerminalAliasPlan>,
     pub(super) terminal_normalization: Option<TerminalNormalizationPlan>,

@@ -383,6 +383,7 @@ fn original_rule_pole_is_checked_before_any_sample_can_appear_solved() {
         .sub(&context.index(0).unwrap(), &context.integer(2))
         .unwrap();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: CoordinateCase::new([Some(2)]).unwrap().into(),
             target: Integral::numeric([2]).unwrap(),

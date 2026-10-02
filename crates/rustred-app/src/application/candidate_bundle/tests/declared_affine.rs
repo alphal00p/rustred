@@ -58,6 +58,7 @@ fn saved_saturatable_affine_chart_keeps_declared_layout_and_exact_application() 
         solution.finite_residuals.clear();
         if *sector == [true; 3] {
             solution.rules.push(SectorRule {
+                dispatch_policy: Default::default(),
                 candidate: RuleCandidate {
                     case: declared.clone(),
                     target,

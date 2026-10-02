@@ -95,8 +95,11 @@ pub fn inspect_generated_candidate_program(
             continue;
         }
         let mut rules = Vec::new();
-        for (ordinal, rule) in sector.rules.iter().enumerate() {
-            if ordinals.as_ref().is_some_and(|set| !set.contains(&ordinal)) {
+        for (rule_ordinal, rule) in sector.rules.iter().enumerate() {
+            if ordinals
+                .as_ref()
+                .is_some_and(|set| !set.contains(&rule_ordinal))
+            {
                 continue;
             }
             ids.extend(rule.case.equations.iter().copied());
@@ -104,7 +107,13 @@ pub fn inspect_generated_candidate_program(
             if options.include_rhs_coefficients {
                 ids.extend(rule.rhs.iter().map(|term| term.coefficient));
             }
-            rules.push(rule_view(ordinal, rule));
+            let mut view = rule_view(rule_ordinal, rule);
+            if codec::dispatch::policy(&bundle.records, ordinal, rule_ordinal)
+                == rustred::solver::RuleDispatchPolicy::AfterBaselinePartitionWholePiece
+            {
+                view.dispatch_policy = Some("AfterBaselinePartitionWholePiece");
+            }
+            rules.push(view);
         }
         included_rules += rules.len();
         included_terminals += sector.finite_residuals.len();
@@ -208,6 +217,7 @@ fn integral_view(key: &IntegralRecord) -> CandidateIntegralInspection {
 
 fn rule_view(ordinal: usize, rule: &RuleRecord) -> CandidateRuleInspection {
     CandidateRuleInspection {
+        dispatch_policy: None,
         ordinal,
         case: CandidateCaseInspection {
             kind: rule.case.kind.clone(),

@@ -61,7 +61,8 @@ pub struct OwnerDomainMatchStats {
     pub rules: usize,
     pub terminal_checks: usize,
     pub predicates: usize,
-    /// Charged before callback, including a consumer-rejected last piece.
+    /// Charged before optional whole-piece selection and callback, including a
+    /// failed optional guard or a consumer-rejected last attempted piece.
     pub pieces: usize,
     pub cells: usize,
     pub split_operations: usize,
@@ -77,6 +78,11 @@ pub struct OwnerDomainMatchStats {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnerDomainPredicate {
+    /// Admission/cancellation while considering a whole-piece alternative.
+    WholePieceAlternative {
+        batch: usize,
+        rule: usize,
+    },
     SourceCondition {
         ordinal: usize,
     },

@@ -47,6 +47,7 @@ pub(super) fn preserves_domain<const N: usize>(
         return Ok(true);
     }
     let exceptional = SectorRule {
+        dispatch_policy: Default::default(),
         candidate,
         exceptions,
     }

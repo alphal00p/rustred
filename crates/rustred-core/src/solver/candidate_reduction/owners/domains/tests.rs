@@ -24,6 +24,7 @@ fn formula<const N: usize>(
     let case = CoordinateCase::new(fixed).unwrap();
     let target = case.integral();
     SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: case.into(),
             target,

@@ -15,7 +15,8 @@ use rustred::foundry::parametric::ParametricGuardOrigin;
 use rustred::identity::ParametricIbpGenerator;
 use rustred::persistence::{CoefficientId, CoefficientTableBuilder};
 use rustred::solver::{
-    CoordinateCase, Integral, RuleCandidate, SearchStats, SectorRule, Term, extract_exceptions,
+    CoordinateCase, Integral, RuleCandidate, RuleDispatchPolicy, SearchStats, SectorRule, Term,
+    extract_exceptions,
 };
 use symbolica::prelude::*;
 
@@ -30,6 +31,7 @@ pub struct CheckedPriorityOwnerExport {
     proof: CheckedOriginalSourceCombination,
     base_owner_blake3: String,
     owner_blake3: String,
+    dispatch_policy: RuleDispatchPolicy,
 }
 
 impl CheckedPriorityOwnerExport {
@@ -44,6 +46,9 @@ impl CheckedPriorityOwnerExport {
     }
     pub fn owner_blake3(&self) -> &str {
         &self.owner_blake3
+    }
+    pub fn dispatch_policy(&self) -> RuleDispatchPolicy {
+        self.dispatch_policy
     }
 }
 
@@ -66,6 +71,25 @@ pub fn encode_checked_priority_owner<const N: usize>(
     proposal: OriginalSourceCombinationRequest,
     proof_limits: OriginalSourceCombinationLimits,
     bundle_limits: CandidateBundleLimits,
+) -> Result<CheckedPriorityOwnerExport, AppError> {
+    encode_checked_priority_owner_with_policy::<N>(
+        base_owner_bytes,
+        proposal,
+        proof_limits,
+        bundle_limits,
+        RuleDispatchPolicy::Partition,
+    )
+}
+
+/// Checked owner export with an explicit persisted dispatch policy. A
+/// post-baseline alternative retains the exact proof/case/RHS but cannot
+/// split ordinary pieces, repair gaps, or override another prepared batch.
+pub fn encode_checked_priority_owner_with_policy<const N: usize>(
+    base_owner_bytes: &[u8],
+    proposal: OriginalSourceCombinationRequest,
+    proof_limits: OriginalSourceCombinationLimits,
+    bundle_limits: CandidateBundleLimits,
+    dispatch_policy: RuleDispatchPolicy,
 ) -> Result<CheckedPriorityOwnerExport, AppError> {
     if !(1..=16).contains(&N) {
         return Err(error(
@@ -179,6 +203,7 @@ pub fn encode_checked_priority_owner<const N: usize>(
         ]);
     }
     let rule = SectorRule {
+        dispatch_policy: RuleDispatchPolicy::Partition, // Equation-only transport below.
         candidate,
         exceptions,
     };
@@ -199,6 +224,20 @@ pub fn encode_checked_priority_owner<const N: usize>(
     let inserted = codec::rules::rule_record(&rule, &mut table)?;
     let mut records = base.records.clone();
     records.sectors[0].rules.insert(0, inserted.clone());
+    for policy in &mut records.rule_dispatch {
+        policy.rule += 1;
+    }
+    if dispatch_policy == RuleDispatchPolicy::AfterBaselinePartitionWholePiece {
+        records.rule_dispatch.insert(
+            0,
+            super::model::RuleDispatchRecord {
+                sector: 0,
+                rule: 0,
+                policy: 1,
+            },
+        );
+        records.schema = super::model::DISPATCH_CANDIDATE_BUNDLE_SCHEMA.into();
+    }
     let bytes = codec::write_records(
         &records,
         &base.family,
@@ -209,6 +248,11 @@ pub fn encode_checked_priority_owner<const N: usize>(
     if roundtrip.records != records || roundtrip.family != base.family {
         return Err(error(
             "priority owner metadata changed during native roundtrip",
+        ));
+    }
+    if codec::dispatch::policy(&roundtrip.records, 0, 0) != dispatch_policy {
+        return Err(error(
+            "priority dispatch policy changed during native roundtrip",
         ));
     }
     for index in 0..base.coefficients.len() {
@@ -246,6 +290,7 @@ pub fn encode_checked_priority_owner<const N: usize>(
         owner_blake3: blake3::hash(&bytes).to_hex().to_string(),
         bytes,
         proof,
+        dispatch_policy,
     })
 }
 

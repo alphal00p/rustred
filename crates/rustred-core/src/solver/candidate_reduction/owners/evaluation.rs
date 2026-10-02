@@ -26,6 +26,15 @@ impl<const N: usize> PreparedOwnerBatch<N> {
             .max()
             .unwrap_or(0);
         Self {
+            whole_piece_alternatives: rules
+                .iter()
+                .enumerate()
+                .filter_map(|(i, rule)| {
+                    (rule.dispatch_policy
+                        == crate::solver::RuleDispatchPolicy::AfterBaselinePartitionWholePiece)
+                        .then_some(i)
+                })
+                .collect(),
             rules,
             terminals,
             coalescing_bound,

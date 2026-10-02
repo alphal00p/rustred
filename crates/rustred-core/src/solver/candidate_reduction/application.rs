@@ -23,6 +23,7 @@ impl<const N: usize> CandidateReducer<N> {
             root_sector: self.root_sector,
             ordering: &self.ordering,
             rules: &[],
+            whole_piece_alternatives: &[],
             source_conditions: &self.source_conditions,
             zero_sectors: &self.zero_sectors,
             limits: self.limits,
@@ -49,6 +50,10 @@ impl<const N: usize> CandidateReducer<N> {
             root_sector: self.root_sector,
             ordering: &self.ordering,
             rules,
+            whole_piece_alternatives: self
+                .whole_piece_alternatives
+                .get(&sector)
+                .map_or(&[], Vec::as_slice),
             source_conditions: &self.source_conditions,
             zero_sectors: &self.zero_sectors,
             limits: self.limits,

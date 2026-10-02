@@ -91,8 +91,9 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, SectorDomainSolution, SectorEvent,
-    SectorPhase, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
+    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, RuleDispatchPolicy,
+    SectorDomainSolution, SectorEvent, SectorPhase, SectorRule, SectorSolution, SectorSolveError,
+    SectorSolveOptions, SectorStats,
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,

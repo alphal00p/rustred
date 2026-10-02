@@ -75,7 +75,7 @@ fn unknown_policy_fails_before_native_state_import() {
     let limits = CandidateBundleLimits::default();
     let (envelope, mut records, _) = codec::read_structure(generated.bundle(), limits).unwrap();
     records.solver_policy = "ordinary-source-port-numerical-depth-00-v1".into();
-    let program = bincode::encode_to_vec(&records, bincode::config::standard()).unwrap();
+    let program = codec::dispatch::encode(&records).unwrap();
     let sections = envelope
         .sections()
         .iter()

@@ -15,6 +15,7 @@ pub(super) struct CandidateEvaluator<'a, const N: usize> {
     pub root_sector: [bool; N],
     pub ordering: &'a OrderingPolicy,
     pub rules: &'a [PreparedRule<N>],
+    pub whole_piece_alternatives: &'a [usize],
     pub source_conditions: &'a [IndexedPolynomial],
     pub zero_sectors: &'a BTreeSet<[bool; N]>,
     pub limits: ReductionLimits,
@@ -71,122 +72,158 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
-        'rules: for rule in self.rules {
-            if rule
-                .fixed
-                .iter()
-                .zip(target.powers())
-                .any(|(fixed, &n)| fixed.is_some_and(|v| i64::from(v) != n))
+        let mut baseline = None;
+        for rule in self.rules {
+            if rule.dispatch_policy == crate::solver::RuleDispatchPolicy::Partition
+                && self.applicable(rule, target)?
             {
-                continue;
+                baseline = Some(rule);
+                break;
             }
-            for equality in &rule.equalities {
+        }
+        let Some(mut rule) = baseline else {
+            return Err(CandidateReductionError::Uncovered {
+                target: target.clone(),
+            });
+        };
+        // A singleton is a whole baseline piece. Optional alternatives cannot
+        // create coverage where the ordinary batch had no applicable rule.
+        for &index in self.whole_piece_alternatives {
+            let alternative = &self.rules[index];
+            if self.applicable(alternative, target)? {
+                rule = alternative;
+                break;
+            }
+        }
+        self.apply_selected(rule, target, request, statistics)
+    }
+
+    fn applicable(
+        &self,
+        rule: &PreparedRule<N>,
+        target: &IntegralKey,
+    ) -> Result<bool, CandidateReductionError> {
+        if rule
+            .fixed
+            .iter()
+            .zip(target.powers())
+            .any(|(fixed, &n)| fixed.is_some_and(|v| i64::from(v) != n))
+        {
+            return Ok(false);
+        }
+        for equality in &rule.equalities {
+            if !self
+                .context
+                .specialize_polynomial_sealed(
+                    equality,
+                    target.powers(),
+                    self.limits.indexed_algebra,
+                )?
+                .is_zero()
+            {
+                return Ok(false);
+            }
+        }
+        // One branch is one AND-conjunction; a rule is excluded if ANY
+        // entire branch vanishes. Never split its factors into exclusions.
+        for branch in &rule.exceptions {
+            let mut all_zero = true;
+            for condition in branch {
                 if !self
                     .context
                     .specialize_polynomial_sealed(
-                        equality,
+                        condition,
                         target.powers(),
                         self.limits.indexed_algebra,
                     )?
                     .is_zero()
                 {
-                    continue 'rules;
+                    all_zero = false;
+                    break;
                 }
             }
-            // One branch is one AND-conjunction; a rule is excluded if ANY
-            // entire branch vanishes. Never split its factors into exclusions.
-            for branch in &rule.exceptions {
-                let mut all_zero = true;
-                for condition in branch {
-                    if !self
-                        .context
-                        .specialize_polynomial_sealed(
-                            condition,
-                            target.powers(),
-                            self.limits.indexed_algebra,
-                        )?
-                        .is_zero()
-                    {
-                        all_zero = false;
-                        break;
-                    }
-                }
-                if all_zero {
-                    continue 'rules;
-                }
+            if all_zero {
+                return Ok(false);
             }
-            // Test every original denominator before coefficient cancellation
-            // or RHS coalescing. An undefined formula is not a zero identity.
-            for term in &rule.rhs {
-                if self
-                    .context
-                    .specialize_polynomial_sealed(
-                        &term.denominator,
-                        target.powers(),
-                        self.limits.indexed_algebra,
-                    )?
-                    .is_zero()
-                {
-                    continue 'rules;
-                }
-            }
-            let mut result = BTreeMap::new();
-            for term in &rule.rhs {
-                let (coefficient, _) = self.context.specialize_sealed(
-                    &term.coefficient,
+        }
+        // Test every original denominator before coefficient cancellation
+        // or RHS coalescing. An undefined formula is not a zero identity.
+        for term in &rule.rhs {
+            if self
+                .context
+                .specialize_polynomial_sealed(
+                    &term.denominator,
                     target.powers(),
                     self.limits.indexed_algebra,
-                )?;
-                if coefficient.is_zero() {
-                    continue;
-                }
-                let mut child = [0_i64; N];
-                for (axis, ((out, &n), &shift)) in child
-                    .iter_mut()
-                    .zip(target.powers())
-                    .zip(&term.shift)
-                    .enumerate()
-                {
-                    *out = n.checked_add(shift).ok_or_else(|| {
-                        CandidateReductionError::IndexOverflow {
+                )?
+                .is_zero()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn apply_selected(
+        &self,
+        rule: &PreparedRule<N>,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
+        let mut result = BTreeMap::new();
+        for term in &rule.rhs {
+            let (coefficient, _) = self.context.specialize_sealed(
+                &term.coefficient,
+                target.powers(),
+                self.limits.indexed_algebra,
+            )?;
+            if coefficient.is_zero() {
+                continue;
+            }
+            let mut child = [0_i64; N];
+            for (axis, ((out, &n), &shift)) in child
+                .iter_mut()
+                .zip(target.powers())
+                .zip(&term.shift)
+                .enumerate()
+            {
+                *out =
+                    n.checked_add(shift)
+                        .ok_or_else(|| CandidateReductionError::IndexOverflow {
                             target: target.clone(),
                             axis,
                             rule: rule.ordinal,
-                        }
-                    })?;
-                }
-                let child = IntegralKey::try_new(child).map_err(ReductionError::IntegralKey)?;
-                self.validate_target(&child)?;
-                if self.is_zero(&child) {
-                    continue;
-                }
-                if self
-                    .ordering
-                    .compare(child.powers(), target.powers())
-                    .map_err(ReductionError::Ordering)?
-                    != Ordering::Less
-                {
-                    return Err(CandidateReductionError::NonDescending {
-                        target: target.clone(),
-                        child,
-                        rule: rule.ordinal,
-                    });
-                }
-                accumulate_master_in_request(
-                    self.context.base(),
-                    &mut result,
-                    &child,
-                    coefficient,
-                    self.limits,
-                    request,
-                    statistics,
-                )?;
+                        })?;
             }
-            return Ok(result);
+            let child = IntegralKey::try_new(child).map_err(ReductionError::IntegralKey)?;
+            self.validate_target(&child)?;
+            if self.is_zero(&child) {
+                continue;
+            }
+            if self
+                .ordering
+                .compare(child.powers(), target.powers())
+                .map_err(ReductionError::Ordering)?
+                != Ordering::Less
+            {
+                return Err(CandidateReductionError::NonDescending {
+                    target: target.clone(),
+                    child,
+                    rule: rule.ordinal,
+                });
+            }
+            accumulate_master_in_request(
+                self.context.base(),
+                &mut result,
+                &child,
+                coefficient,
+                self.limits,
+                request,
+                statistics,
+            )?;
         }
-        Err(CandidateReductionError::Uncovered {
-            target: target.clone(),
-        })
+        Ok(result)
     }
 }
 pub(super) fn validate_entry_rank(

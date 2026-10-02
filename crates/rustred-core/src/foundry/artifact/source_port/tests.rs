@@ -307,6 +307,7 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
     // never admitted as a rule. The complete independent coordinate cover is
     // the authority for all points, including the affine stratum.
     solution.rules.push(SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,
@@ -318,6 +319,7 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
     });
     let coordinate = CoordinateCase::generic();
     solution.rules.push(SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: coordinate.integral(),
             case: coordinate.into(),
@@ -645,6 +647,7 @@ fn boundary_rule(coefficient: &str) -> (CoefficientContext, SectorRule<2>) {
     (
         context,
         SectorRule {
+            dispatch_policy: Default::default(),
             candidate,
             exceptions: ExceptionalConditions::default(),
         },
@@ -720,6 +723,7 @@ fn affine_descent_excludes_only_proved_impossible_activation_cells() {
         };
         let case = crate::solver::Case::from(affine);
         SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 target: case.integral(),
                 case,
@@ -776,6 +780,7 @@ fn affine_target_removes_relative_coordinate_exceptions_from_replay_prefilter() 
     };
     let case = crate::solver::Case::from(affine);
     let mut rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,

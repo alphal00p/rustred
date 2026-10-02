@@ -68,6 +68,8 @@ pub(in crate::solver::candidate_reduction) struct PreparedOwner<const N: usize> 
 #[derive(Debug)]
 pub(in crate::solver::candidate_reduction) struct PreparedOwnerBatch<const N: usize> {
     pub rules: Vec<PreparedRule<N>>,
+    /// Saved-order indices of post-baseline alternatives in this batch only.
+    pub whole_piece_alternatives: Vec<usize>,
     pub terminals: BTreeSet<IntegralKey>,
     pub coalescing_bound: usize,
     pub overlay: Option<super::feedback::OwnerOverlayMetadata<N>>,

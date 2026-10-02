@@ -302,6 +302,7 @@ fn rejection_lookahead_uses_current_cut_and_preserves_batch_terminal_priority() 
     )
     .unwrap();
     owner.batches.push(Arc::new(PreparedOwnerBatch {
+        whole_piece_alternatives: vec![],
         rules: vec![],
         terminals: [IntegralKey::try_new([2, 2, 0]).unwrap()].into(),
         coalescing_bound: 0,

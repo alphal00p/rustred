@@ -193,6 +193,7 @@ fn actual_above_entry_rank_successor_is_nominated_without_positive_power_narrowi
     // Synthetic descent edge isolates the trace-to-nomination contract; it
     // makes no claim of IBP provenance for this test-only base formula.
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: CoordinateCase::new([Some(1), Some(3), Some(-10)])
                 .unwrap()

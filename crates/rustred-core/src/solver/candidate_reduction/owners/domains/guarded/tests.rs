@@ -94,6 +94,7 @@ fn rule(
         panic!("saved affine fixture");
     };
     PreparedRule {
+        dispatch_policy: Default::default(),
         ordinal: 7,
         fixed: *affine.face().fixed(),
         case: affine.into(),
@@ -578,6 +579,7 @@ fn guarded_preparation_retains_arc_case_without_forging_selection() {
             OWNER,
             Some(10),
             vec![SectorRule {
+                dispatch_policy: Default::default(),
                 candidate,
                 exceptions: ExceptionalConditions::default(),
             }],

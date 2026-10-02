@@ -10,6 +10,8 @@ use crate::foundry::completion::LatticeBox;
 use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
 use crate::solver::candidate_reduction::power_domain::{self, DomainPowerBounds};
 
+#[path = "engine/after_baseline.rs"]
+mod after_baseline;
 #[path = "engine/lookahead.rs"]
 mod lookahead;
 
@@ -296,6 +298,10 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             "pieces",
         )?;
         let rank = self.effective_rank(&cell)?;
+        let disposition = match self.after_baseline(&cell, rank, disposition) {
+            Ok(disposition) => disposition,
+            Err((identity, failure)) => return self.fail_predicate(cell, identity, failure),
+        };
         let piece = OwnerDomainMatchPiece {
             owner: self.owner,
             cell,
@@ -442,6 +448,13 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                     index: index + 1,
                     stage: RuleStage::Fixed,
                 };
+                // Optional alternatives never participate in ordinary case,
+                // predicate or rejection-lookahead traversal.
+                if rule.dispatch_policy
+                    == crate::solver::RuleDispatchPolicy::AfterBaselinePartitionWholePiece
+                {
+                    return self.push(cell, next);
+                }
                 let at = |stage| Phase::Rule {
                     batch,
                     index,

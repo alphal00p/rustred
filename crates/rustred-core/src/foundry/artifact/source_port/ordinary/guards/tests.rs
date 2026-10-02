@@ -6,6 +6,7 @@ fn fixture() -> (CoefficientContext, SectorRule<2>, Vec<LatticeBox>) {
     let context = CoefficientContext::new(["n0", "n1", "d"]);
     let case = CoordinateCase::generic();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: case.into(),
             target: case.integral(),

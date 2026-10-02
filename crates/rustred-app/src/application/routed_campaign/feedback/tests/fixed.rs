@@ -106,6 +106,7 @@ fn fixed_feedback_actual_descendants_keep_above_entry_rank_and_increased_dots() 
     let rules = [([1, 3, -10], [1, 1, -11]), ([1, 1, -3], [3, 1, 0])]
         .into_iter()
         .map(|(parent, child)| SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 case: CoordinateCase::new(parent.map(Some)).unwrap().into(),
                 target: Integral::numeric(parent).unwrap(),

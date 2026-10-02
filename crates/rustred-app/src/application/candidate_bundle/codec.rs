@@ -9,6 +9,7 @@ use rustred::persistence::{
 };
 use rustred::solver::{Integral, Power, SectorSolution, SectorStats};
 
+pub(super) mod dispatch;
 pub(super) mod rules;
 
 use crate::application::{AppError, MAX_INPUT_BYTES};
@@ -84,8 +85,9 @@ pub(super) fn read_structure(
     let (schema, _): (String, usize) = bincode::decode_from_slice(program, config)
         .map_err(|e| AppError::schema(format!("invalid candidate structural schema: {e}")))?;
     let (records, consumed): (ProgramRecord, usize) = match schema.as_str() {
-        CANDIDATE_BUNDLE_SCHEMA => bincode::decode_from_slice(program, config)
+        DISPATCH_CANDIDATE_BUNDLE_SCHEMA => bincode::decode_from_slice(program, config)
             .map_err(|e| AppError::schema(format!("invalid candidate structural record: {e}")))?,
+        CANDIDATE_BUNDLE_SCHEMA => dispatch::decode_v2(program)?,
         LEGACY_CANDIDATE_BUNDLE_SCHEMA => {
             let (old, consumed): (LegacyProgramRecord, usize) =
                 bincode::decode_from_slice(program, config).map_err(|e| {
@@ -107,6 +109,7 @@ pub(super) fn read_structure(
                     permutation: old.permutation,
                     integral_order,
                     sectors: old.sectors,
+                    rule_dispatch: Vec::new(),
                 },
                 consumed,
             )
@@ -170,13 +173,15 @@ pub(super) fn write_records(
     limits: CandidateBundleLimits,
 ) -> Result<Vec<u8>, AppError> {
     validate(records, limits)?;
-    if records.schema != CANDIDATE_BUNDLE_SCHEMA {
+    if !matches!(
+        records.schema.as_str(),
+        CANDIDATE_BUNDLE_SCHEMA | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+    ) {
         return Err(AppError::schema(
             "legacy candidate structural records are read-only; new output requires explicit order metadata",
         ));
     }
-    let program = bincode::encode_to_vec(records, bincode::config::standard())
-        .map_err(|e| AppError::serialization(e.to_string()))?;
+    let program = dispatch::encode(records)?;
     family
         .validate_shape(limits.family_limits(), limits.binary_limits())
         .map_err(binary_error)?;
@@ -228,7 +233,7 @@ fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
 fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(), AppError> {
     if !matches!(
         bundle.schema.as_str(),
-        CANDIDATE_BUNDLE_SCHEMA | LEGACY_CANDIDATE_BUNDLE_SCHEMA
+        CANDIDATE_BUNDLE_SCHEMA | LEGACY_CANDIDATE_BUNDLE_SCHEMA | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
     ) || bundle.status != STATUS
     {
         return Err(AppError::schema(
@@ -236,6 +241,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
         ));
     }
     super::policy::numerical_depth(&bundle.solver_policy)?;
+    dispatch::validate(bundle, limits)?;
     if bundle.family_source.len() > MAX_INPUT_BYTES {
         return Err(AppError::limit(
             "candidate family input exceeds its byte limit",
@@ -409,6 +415,7 @@ mod collection_budget_tests {
             AppErrorKind::Limit
         );
         let bundle = ProgramRecord {
+            rule_dispatch: Vec::new(),
             schema: CANDIDATE_BUNDLE_SCHEMA.into(),
             status: STATUS.into(),
             solver_policy: SOLVER_POLICY.into(),
@@ -523,7 +530,8 @@ pub(super) fn solutions<const N: usize>(
     bundle
         .sectors
         .iter()
-        .map(|record| {
+        .enumerate()
+        .map(|(sector_ordinal, record)| {
             let sector: [bool; N] = record
                 .sector
                 .as_slice()
@@ -532,8 +540,17 @@ pub(super) fn solutions<const N: usize>(
             let rules = record
                 .rules
                 .iter()
-                .map(|record| {
-                    rules::restore_rule(record, &bundle.coefficients, variables, indices, &sector)
+                .enumerate()
+                .map(|(rule_ordinal, record)| {
+                    let mut rule = rules::restore_rule(
+                        record,
+                        &bundle.coefficients,
+                        variables,
+                        indices,
+                        &sector,
+                    )?;
+                    rule.dispatch_policy = dispatch::policy(bundle, sector_ordinal, rule_ordinal);
+                    Ok(rule)
                 })
                 .collect::<Result<Vec<_>, AppError>>()?;
             let finite_residuals = record

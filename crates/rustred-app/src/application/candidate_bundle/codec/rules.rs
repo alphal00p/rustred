@@ -52,6 +52,13 @@ pub(in crate::application::candidate_bundle) fn rule_record<const N: usize>(
     rule: &SectorRule<N>,
     table: &mut CoefficientTableBuilder,
 ) -> Result<RuleRecord, AppError> {
+    // Legacy equation records have no dispatch field. Only the program-level
+    // policy transport may deliberately attach it; never silently strip one.
+    if rule.dispatch_policy != rustred::solver::RuleDispatchPolicy::Partition {
+        return Err(AppError::input(
+            "rule-only transport cannot preserve dispatch policy",
+        ));
+    }
     let candidate = &rule.candidate;
     Ok(RuleRecord {
         case: case_record(&candidate.case, table)?,
@@ -236,6 +243,7 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
         })
         .collect::<Result<_, AppError>>()?;
     Ok(SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case,
             target,

@@ -17,6 +17,7 @@ fn source(context: &CoefficientContext, terms: &[(i16, &str)]) -> crate::solver:
 
 fn rule<const N: usize>(case: Case<N>, sources: Vec<SeedSource<N>>) -> SectorRule<N> {
     SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,
@@ -360,6 +361,7 @@ fn tangent_affine_recentered_composition_passes_full_original_replay() {
     let (target, rhs) = crate::solver::canonicalize_source_port(physical, &[0, 1]).unwrap();
     assert_eq!(target, case.integral());
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case,
             target,

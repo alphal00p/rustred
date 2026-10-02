@@ -328,6 +328,7 @@ fn affine_rule_coverage_respects_the_exceptional_fixed_point() {
 fn exceptional_case_union_removes_only_exactly_subsumed_affine_branches() {
     let context = CoefficientContext::new(["a", "b"]);
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: Case::generic(),
             target: Integral::symbolic([0; 2]).unwrap(),
@@ -358,6 +359,7 @@ fn unsupported_guard_intersection_cannot_suppress_pending_work() {
     let sources = trivial::<2>(&context);
     let solver = SectorSolver::new(&sources, [true; 2], SectorConfig::default()).unwrap();
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: Case::generic(),
             target: Integral::symbolic([0; 2]).unwrap(),

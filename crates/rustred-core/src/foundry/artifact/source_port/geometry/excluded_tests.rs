@@ -17,6 +17,7 @@ fn descent_uses_entire_excluded_conjunction_without_cancelling_zero_over_zero() 
     };
     let excluded = Arc::new(AffineApplicationDomain::from_case(&case, &sector).unwrap());
     let make_rule = |coefficient| SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: CoordinateCase::generic().into(),
             target: Integral::symbolic([0; 3]).unwrap(),

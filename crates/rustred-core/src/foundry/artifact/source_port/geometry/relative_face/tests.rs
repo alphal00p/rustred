@@ -49,6 +49,7 @@ fn relative_faces_intersect_new_fixed_coordinates_before_testing_equations() {
         assert!(is_coordinate_exception(&parent, &child, &[false; 4]).unwrap());
         let case = Case::from(parent);
         let rule = SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 target: case.integral(),
                 case,
@@ -86,6 +87,7 @@ fn genuinely_extra_equations_are_not_replaced_with_their_coordinate_hull() {
     assert!(!is_coordinate_exception(&parent, &child, &[false; 4]).unwrap());
     let case = Case::from(parent);
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,
@@ -122,6 +124,7 @@ fn disjoint_fixed_faces_remove_no_parent_points_and_wrong_maps_are_rejected() {
     assert!(is_coordinate_exception(&parent, &child, &[false; 4]).unwrap());
     let case = Case::from(parent.clone());
     let rule = SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             target: case.integral(),
             case,

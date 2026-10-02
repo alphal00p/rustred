@@ -381,6 +381,7 @@ powers=[1,1,0]
         .map(|excluded| {
             let case = CoordinateCase::<3>::new([None, Some(1), None]).unwrap();
             SectorRule {
+                dispatch_policy: Default::default(),
                 candidate: RuleCandidate {
                     target: case.integral(),
                     case: case.into(),
@@ -793,6 +794,7 @@ powers=[1,1,0]
                 })
                 .collect();
             rules.push(SectorRule {
+                dispatch_policy: Default::default(),
                 candidate: RuleCandidate {
                     target,
                     case: case.into(),

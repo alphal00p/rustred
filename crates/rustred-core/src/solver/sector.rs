@@ -22,12 +22,24 @@ pub use selection::{
     RuleTrialStats, RuleTrialSummary,
 };
 
-/// A solved equation together with the exact exceptional index conditions
-/// on which it must NOT be applied. Coefficient parameters remain generic.
+/// Saved dispatch semantics, independent of a rule's algebraic identity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RuleDispatchPolicy {
+    /// Ordinary ordered dispatch, including exact case/guard partitioning.
+    #[default]
+    Partition,
+    /// An optional alternative only after an ordinary rule has selected a
+    /// complete piece in the same prepared batch. It must apply uniformly to
+    /// that unchanged piece; it never partitions it or fills a baseline gap.
+    AfterBaselinePartitionWholePiece,
+}
+
+/// A solved equation and its independent runtime dispatch policy.
 #[derive(Debug)]
 pub struct SectorRule<const N: usize> {
     pub candidate: RuleCandidate<N>,
     pub exceptions: ExceptionalConditions,
+    pub dispatch_policy: RuleDispatchPolicy,
 }
 
 impl<const N: usize> SectorRule<N> {
@@ -569,6 +581,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             })?;
         Ok((
             SectorRule {
+                dispatch_policy: Default::default(),
                 candidate,
                 exceptions,
             },

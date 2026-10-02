@@ -1,5 +1,6 @@
 //! Synthetic fixtures exercise applicability, not IBP provenance or closure.
 mod affine_priority;
+mod after_baseline;
 mod and_lookahead;
 mod factor_priority;
 mod finite_refinement;
@@ -37,6 +38,7 @@ fn batch(p: &mut Arc<CandidateOwnerPrograms<3>>) -> &mut PreparedOwnerBatch<3> {
 }
 fn rule(ordinal: usize) -> PreparedRule<3> {
     PreparedRule {
+        dispatch_policy: Default::default(),
         ordinal,
         case: crate::solver::Case::generic(),
         fixed: [None; 3],
@@ -96,6 +98,7 @@ fn concrete(p: &CandidateOwnerPrograms<3>, key: IntegralKey) -> OwnerDomainMatch
     let shared = &p.context.shared;
     let owner = &p.owners[&OWNER];
     let evaluator = |rules| CandidateEvaluator {
+        whole_piece_alternatives: &[],
         context: &shared.context,
         root_sector: owner.root,
         ordering: &owner.ordering,
@@ -291,6 +294,7 @@ fn later_batch_terminal_does_not_shadow_earlier_formula() {
     )
     .unwrap();
     owner.batches.push(Arc::new(PreparedOwnerBatch {
+        whole_piece_alternatives: vec![],
         rules: vec![],
         terminals: [IntegralKey::try_new([1, 1, 0]).unwrap()].into(),
         coalescing_bound: 0,

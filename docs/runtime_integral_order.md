@@ -275,9 +275,39 @@ sectors contribute no invented historical timing. Worker-summed durations are
 not whole-campaign wall time, and exact-materialization time is included in
 search time rather than added twice.
 
+## Experimental application policy for checked alternatives
+
+Rule dispatch is separate from both discovery visitation and mathematical
+integral order. `rustred::solver::RuleDispatchPolicy::Partition` remains the
+default. The opt-in `AfterBaselinePartitionWholePiece` first lets ordinary rules
+partition a requested domain, then tries the marked alternative on each whole
+selected piece. It introduces no new split or refinement. If the alternative's
+case, exclusions or original denominators cannot be proved applicable throughout
+that piece, selection stays with the baseline. It cannot replace a gap, terminal,
+zero or unresolved outcome, or override an earlier immutable batch. Actual
+application still checks source conditions, every RHS obligation and descent.
+
+The Rust application API
+`encode_checked_priority_owner_with_policy::<N>(..., policy)` exports an
+original-source-checked alternative while preserving the old rules and finite
+terminals. The proof remains attached to the returned `CheckedPriorityOwnerExport`;
+its candidate bytes alone are not a closing artifact. Normal loading, inspection,
+concrete application and cold domain reinspection retain the dispatch policy.
+Unsupported equation-only re-export and certification reject marked programs
+rather than silently removing their semantics.
+
+This experimental mechanism passes the focused native core and candidate-bundle
+regressions. It has no demonstrated whole-campaign speedup yet. The
+[current research control](research/global_degree_order_literature_2026-10-01.md#selective-application-preserve-the-baseline-partition)
+keeps all original queries and measures complete traversal plus cold verification.
+
 ## Persistence, routing and proof boundaries
 
-Generated candidate structure is version2, generation checkpoints version4.
+Ordinary generated candidate structure is version2, generation checkpoints
+version4. Marked dispatch alternatives use candidate structure version3 with a
+sparse rule-policy table; outputs without that table retain exact version2 bytes.
+Changing a persisted policy changes the owner payload and invalidates reuse of
+a checkpoint bound to the old payload.
 A narrow read-only reader for existing version1 candidate structures derives
 their exact legacy permutation order; it cannot introduce programmed metadata
 or silently migrate a campaign. Unknown/inconsistent versions are rejected

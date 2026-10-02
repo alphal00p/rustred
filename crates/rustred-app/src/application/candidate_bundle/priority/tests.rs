@@ -15,6 +15,8 @@ use super::super::{
 };
 use super::*;
 
+mod after_baseline;
+
 const FAMILY: &str = r#"
 schema = "rustred.project.toml.v1"
 [family]

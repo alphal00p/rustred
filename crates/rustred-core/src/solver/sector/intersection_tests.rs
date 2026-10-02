@@ -12,6 +12,7 @@ fn equations(context: &CoefficientContext, expressions: &[&str]) -> Vec<Coeffici
 
 fn guarded<const N: usize>(context: &CoefficientContext, branches: &[&[&str]]) -> SectorRule<N> {
     SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: Case::generic(),
             target: Integral::symbolic([0; N]).unwrap(),

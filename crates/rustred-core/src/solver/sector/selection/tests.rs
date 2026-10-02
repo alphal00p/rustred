@@ -526,6 +526,7 @@ fn quality_candidate<const N: usize>(target: Integral<N>, rhs: Vec<Integral<N>>)
     let context = CoefficientContext::new(["n"]);
     Admitted {
         rule: SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 case: Case::generic(),
                 target,
@@ -651,6 +652,7 @@ fn bounded_rule_portfolio_unpruned_children_and_guard_priorities_remain_distinct
     let context = CoefficientContext::new(["n"]);
     let candidate = |children: Vec<Case<1>>, rhs: usize| Admitted {
         rule: SectorRule {
+            dispatch_policy: Default::default(),
             candidate: RuleCandidate {
                 case: Case::generic(),
                 target: Integral::symbolic([0]).unwrap(),

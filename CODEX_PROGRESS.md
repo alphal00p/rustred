@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 04:55 UTC (06:55 Zurich)
+## Current workboard — October 2, 06:44 UTC (08:44 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -37,6 +37,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
 | Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900; weight-pole distinction pushedc8bfc306. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Component comparison exact checks pass but produces no new structural advantage over GCD | Delivered/negative performance gates. Park raw16 component integration and automatic priority insertion; reopen on a new source-bank or application mechanism. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
 | Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
+| Nonfragmenting shortcut selection | `five_loop_order_runner` design/implementation; independent `rule_quality_audit`; `r_primary_transfer_audit` diagnostic/pilot; root integration | Opt-in native policy implemented; core9PASS and candidate-bundle119PASS/2 external tests ignored, including cold-Off/checkpoint binding. Shared optimized CLI building | Checked broad46 export and unchanged whole58. No work-gain claim from the37/180 eligibility screen |
+| Directional recurrence summation | `five_loop_order_runner`; root | Read-only structural lead: broad46 has one rank-preserving `-I(n-e3)` term; other45 lower the chosen numerator power | Deferred: exact coefficient independence, guarded three-step source replay and endpoint-cost test required. Screened anchor has that power1 already, hence no chain to skip there |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -51,6 +53,222 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 06:44 UTC — native integration regression gate passes
+
+- [M] `after-baseline-native-tests-r2` passes119 tests, zero failures, with two
+  external saved-program/source-replay tests intentionally ignored. Native test
+  execution takes0.95s; guarded compilation plus execution takes1,544.714s.
+  Codec2 and priority9 all pass, including both earlier weight-pole regressions,
+  cold reference-Off reinspection and policy-only payload-change rejection at
+  cold verification/resume. Independent raw-receipt audit agrees; the owned
+  process group is drained. Together with r1 this executes all nine new core
+  tests, two codec tests and two new policy integration tests.
+- [D] The regular optimized app-library/shared CLI build has now started under
+  the same exclusive locks (`after-baseline-shared-cli-build-r1`). A cached
+  targeted `after_baseline` invocation is queued afterward as
+  `after-baseline-native-tests-r3` for the existing exporter's receipt filter.
+  Root session IDs are61045 (build) and73311 (queued test). Agents monitor
+  receipts only; no duplicate builds or native pilots run concurrently.
+- [D] Documented the experimental API and sparse v3 dispatch format in
+  `docs/runtime_integral_order.md`. Ordinary outputs remain exact v2. All
+  performance claims remain pending the fresh checked export and unchanged
+  whole58 comparison; these compilation durations are not solver timings.
+
+### October 2, 06:18 UTC — native selection passes; integration fixture repaired
+
+- [M] `after-baseline-native-tests-r1` finishes after1,867.845s, chiefly optimized
+  compilation. All nine core selection/application tests pass in0.07s. The
+  checked-export integration test passes; the cold/checkpoint test stops before
+  walking because its Epoch fixture omitted `TransferUnreserved` scheduling.
+  This is a setup failure, not a closure or performance result. The owned group
+  has drained. Peak single-child RSS was about25.1GiB.
+- [D] `five_loop_order_runner` adds the same scheduling option used by the
+  existing valid Epoch fixture; no assertion is weakened. Independent review
+  is assigned to `rule_quality_audit`. Root starts the wider native
+  `application::candidate_bundle::` suite under the same guarded release build,
+  including codec, prior priority/weight-pole and new policy regressions.
+  Exact command and lifecycle evidence:
+  `TMP/postlaunch-20261002/tangent-integration/after-baseline-native-tests-r2/`.
+  Production, its owners and its checkpoint remain untouched.
+- [M] Independent scope review confirms the116 finite required inputs and
+  thirteen genuinely unbounded auxiliary A domains. The old full-physics
+  helper-free experiment already used exactly those116 rows and retained G2.
+  Therefore removing auxiliary starts or relabeling verification is not a new
+  optimization. A demand-scoped test must actually replace a dependency on an
+  unfinished wider cone with exact native reinspection of the requested slice,
+  and prevent lookup/merge from immediately aliasing it back. Existing edge
+  records cannot provide that restricted proof by themselves.
+- [D] Root queues the shared regular app-library/CLI build behind the native
+  test job, using the same source, cache and exclusive locks. Evidence will be
+  `after-baseline-shared-cli-build-r1`; it is waiting, not yet a built executable.
+  The broader test filter will be followed by the cached targeted policy test
+  receipt required by the prepared exporter. No new benchmark gate is added.
+- [R] Runner's primary-source/source-code follow-up finds forward dependency
+  selection already implemented. The752-row failed projection did not quotient
+  its columns by symmetry, so a genuinely different next discriminator would
+  require a native-verified symbolic-chart-preserving map and a valid mixed
+  identity proof. Neither is established; no further elimination run launched.
+  Record: `tangent-integration/TARGET_BLOCK_RELATION_NOTE.md`. Root reconciles
+  Kira3/Blade findings into the stable research document, without importing
+  their workload speedups or numerical sufficiency checks as closure authority.
+- [R] Independent demand-scope critique: earlier Q closure is not total-work
+  saving when A remains required (the four-loop58 control). For five-loop
+  auxiliaries, useful savings also require stopping/defer semantics; the current
+  Epoch loop normally drains the queue. Existing cold PhysicsQueries can accept
+  a clean cooperative checkpoint with auxiliary-only pending records, but
+  requires a closed containing input root for each required query and globally
+  complete saved-native reinspection. A newly closed internal Q alone is not
+  sufficient. This is a precise deferred boundary, not an implemented feature.
+
+### October 2, 05:16 UTC — native no-split eligibility screen finds a witness
+
+- [M] Three frozen715 CLI calls complete in8.736s inclusive. The four original
+  owner0012 queries are all locally applicable:180 selected-rule pieces and
+  three terminals, no gaps/invalid/unresolved pieces. Donor comparisons rematch
+  exactly those180 pieces with the same native box/rank/A-D predicates.
+
+  | Donor | Unchanged shortcut selections | Direct, zero-refinement/split | Unchanged fallback selections |
+  | --- | ---: | ---: | ---: |
+  | Narrow37 | 0 | 0 | 105 |
+  | Broad46 | 37 | 37 | 49 |
+
+- [M] The remaining donor results split their input pieces and are not eligible
+  for the proposed replacement. Both comparisons complete with zero unresolved
+  queries; all three owned groups drain under the300s/CPU32/150GB controls.
+  Peak sampled process-tree RSS is below94MB. Evidence and exact commands:
+  `TMP/postlaunch-20261002/tangent-integration/after-baseline-partition-v1/execution-r1/`.
+  Final wrapper790952d2 contains a duplicated identical baseline-applicability
+  assertion from overlapping author/root edits; BOUND and final source hashes
+  agree. The duplicate does not alter inputs or conclusions; no rerun needed.
+- [D] This passes the mechanism screen for broad46 only. It is not a whole-walk
+  application census, volume fraction, descent recheck or performance result.
+  Advance a distinct opt-in after-baseline-partition policy: retain all ordinary
+  baseline cuts; on each selected-rule piece, choose a uniformly applicable
+  marked shortcut or retain the baseline rule. Never replace terminals, zeroes,
+  gaps or unresolved pieces, and never create a new cut. Existing application
+  checks still validate every RHS condition and strict descent. Separate source
+  review and actual-result audit precede implementation/build; complete unchanged
+  whole58 traversal/cold reinspection remains the performance gate.
+- [M] Independent audit accepts the actual screen. Broad hits are1,17,18,1
+  across the original R5/D8/D7/R12 queries. For example, an existing baseline
+  rule15 piece has all eight positive indices fixed to1, numerator coordinate
+  x8>=1 and x9=0, with R<=5. Broad46 fits that entire piece; narrow37 would cut
+  it at x8=2. These are piece occurrences, not distinct integrals or measured
+  recursive applications. This directly motivates the partition-preserving
+  broad46 experiment rather than more unconditional priority insertion.
+- [D] Independent design GO granted. The native policy is explicit on a rule;
+  ordinary rules remain the default. An opt-in v3 sparse dispatch table preserves
+  the existing rule wire representation, while empty-policy outputs keep their
+  exact v2 encoding. Normal owner loading, concrete application, symbolic walk
+  and cold replay retain the policy; unsupported transforms must refuse rather
+  than discard it. Alternative ordinals are prepared once, avoiding an extra
+  full scan on every ordinary concrete application. No new CAS primitive.
+- [D] Implementation is active. A separate agent completed the mechanical
+  default-field updates at38 existing `SectorRule` literals and three prepared
+  test helpers across26 tracked files, preserving every assertion and algorithm.
+  Untracked tests and unrelated FeynKit work remain untouched. Native build and
+  policy test execution have not started. The complete whole58 harness is
+  prepared but deliberately non-runnable until the new owner export and shared
+  optimized CLI are bound; no old eager-priority payload is being relabeled.
+- [M] Representativity follow-up: the prior whole58 cold ledger delegates both
+  physical D8/D7 queries to the R5 anchor root. Thus35 of the37 screen hits are
+  rematches of absorbed inputs, not additional native root applications. Only
+  two screened anchor hits remain (both originally rule15); descendant hits and
+  an RHS advantage on that face are not established. The unchanged whole58
+  comparison remains mandatory. The implementation is not a demonstrated gain.
+- [D] Core and codec bodies are written; focused tests and independent source
+  audit are active. No new native build or performance job has started. An
+  ignored native-export diagnostic will compare the two rules on the actual
+  anchor face using Symbolica, without removing queries or changing guards.
+- [M] First guarded release lib check finishes in40.155s with one const-generic
+  forwarding error in the new app wrapper (missing `::<N>`); core checks, app
+  prevents downstream Python check completion. The implementation agent is
+  correcting it before test compilation. Evidence:
+  `TMP/postlaunch-20261002/tangent-integration/after-baseline-check-r1/`.
+- [M] Corrected core/app/Python release `--lib --tests` typecheck passes in
+  48.165s inclusive (`after-baseline-check-r2`). Independent frozen-source and
+  test-design audit gives GO: nine core dispatch/application tests, two codec
+  tests and two export/cold/checkpoint tests. This is not native execution yet.
+  Focused optimized native test compilation is now running under the build
+  locks on CPUs0–15, at most eight workers:
+  `after-baseline-native-tests-r1`. The unchanged whole58 pair still waits for
+  passing native tests and a fresh shared executable.
+- [R] A bounded literature/source follow-up distinguishes summing a directional
+  recurrence from composing arbitrary children. Broad46's exported structure
+  suggests `I(a)=-I(a-1)+K(a)`, with K lowering numerator rank; a three-step
+  sum would eliminate the a-chain to a pinch. Its displayed coefficient
+  independence still needs native proof, and it may expand to136 pre-collection
+  terms. The two screened anchor pieces have a=1, so there is no shortcut there.
+  Register only the finite-a=3 physical witness as a possible future falsifier;
+  no new pilot/engine change. A symbolic-length sum cannot be represented by
+  today's ordinary fixed-shift rules. Separately, primary-source diamond rules
+  require massless lines; root's mass-deformed Euler derivation and independent
+  algebra review identify extra raising terms rather than a valid direct import.
+- [M] Fresh read-only FIVE-loop role census (explicit declaration IDs, not names)
+  finds all116 required queries have finite A caps10–23, finite rank and positive
+  coordinate uppers. All67 auxiliary queries have unbounded positive-coordinate
+  uppers, but54 retain finite A and only13 have unbounded A. This differs from
+  the four-loop required R5/R12 anchors and must not be conflated with them.
+  Query SHA `42a0c627…749ef64`; production bytes are unchanged. Independent census
+  and semantics review requested before drawing an optimization conclusion.
+- [E] Existing PhysicsQueries cold acceptance can retain all183 declarations
+  while accepting the116 required queries through independently closed input
+  roots. The missing witness is a separate restricted proof when Q has only been
+  delegated to unfinished wider A. Existing edges do not encode the restriction
+  needed to infer it from A's graph; reinspection must also avoid immediate
+  re-aliasing at lookup/merge. No automatic benefit or finite-descendant bound is
+  implied. This is a deferred mechanism review, not a change to production or
+  an authorization to discard the13 broader auxiliary declarations.
+
+### October 2, 04:59 UTC — selective shortcut experiment registered
+
+- [D] Previous turn is progress: exact capability and independently checked
+  negative results are pushed in `c8bfc306` and `c56f047d`. The full objective
+  remains unachieved. Continue on `main` under the latest rule-quality priority;
+  the earlier scheduler/feature-branch wording does not reopen parked lanes.
+- [D] Mechanism: avoid the additional case-complement partition introduced by
+  eagerly prioritizing a narrow shortcut. Try it only when the normalized
+  original matcher-input domain lies in its proved case and guard obligations are
+  uniformly satisfied. Otherwise retain the original rule path, without a
+  new split, suppressed RHS, changed terminal or narrowed query scope.
+- [D] Expected benefit is preserving some earlier local downstream savings
+  while avoiding new fragmentation; magnitude is unknown. Falsifiers include
+  zero useful applications, continued total-work growth or material checking
+  overhead. The small discriminator is the unchanged complete four-loop58
+  cohort with the exact same narrow37 identity, source proof and base suffix.
+  No new Laporta/source bank or independent algebra implementation is planned.
+- [D] Implementation agent first identifies a minimal persistent policy shared
+  by warm inspection and cold/replay/checkpoint loading. Separate auditor
+  checks guards, containment, descent, failure behavior and representation;
+  pilot agent prepares only ignored input/harness changes. Root serializes
+  builds/heavy jobs. No native build, pilot or production change yet.
+- [D] Independent audit fixes the eligibility boundary before implementation:
+  decide on the normalized original input, not on a piece created later by
+  terminal/fallback splits. Correlation-aware containment may be conservative;
+  skipping an uncertain shortcut is safe because the original path remains.
+- [D] Pre-implementation review changes the next action: all four original
+  owner0012 queries cross narrow37's fixed face, while its actual R2 descendants
+  lie in an already requested R12 orthant. Queue and epoch containment can reuse
+  that broad anchor before calling the matcher. No eligible native-input
+  witness is established, so hold the whole-input policy rather than compile a
+  likely no-op. Existing record JSON has no full domain inventory; no custom
+  checkpoint decoder or measured-zero-hit claim is introduced.
+- [D] Register a distinct small discriminator: use the existing frozen native
+  matcher to collect baseline-selected pieces for the same four owner0012
+  inputs, then match those exact pieces against each already checked donor
+  (narrow37/broad46). An eligible replacement must return one unchanged piece
+  selecting the new rule; any split, fallback or unknown is ineligible. This
+  tests an after-baseline-partition shortcut, NOT re-enabling the abandoned
+  whole-input policy. At most300s including load/output/drain, CPU32/W1,
+  150GB/150GB memory ceiling/reserve. No walk, new algebra, removed anchor,
+  engine edit or build. Independent harness audit precedes execution.
+- [D] The auditor rejects a universal zero-hit inference from initial-anchor
+  containment alone: G2 can inspect an A/D-restricted residual directly, without
+  re-admitting it, and projection may make that residual fit the shortcut.
+  This is a source-compatible counterpath, not an observed frozen-campaign
+  witness. Whole-input selection remains unqualified, not mathematically ruled
+  out; the next native screen deliberately addresses baseline pieces instead.
 
 ### October 2, 04:55 UTC — component preconditioning is structurally negative
 

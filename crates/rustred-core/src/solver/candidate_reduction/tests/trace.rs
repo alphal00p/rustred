@@ -14,6 +14,7 @@ fn fixed<const N: usize>(
         .context()
         .clone();
     SectorRule {
+        dispatch_policy: Default::default(),
         candidate: RuleCandidate {
             case: CoordinateCase::new(target.map(Some)).unwrap().into(),
             target: Integral::numeric(target).unwrap(),

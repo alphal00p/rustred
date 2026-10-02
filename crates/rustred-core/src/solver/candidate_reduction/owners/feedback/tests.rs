@@ -50,6 +50,7 @@ fn retained_guarded_rule_chart_is_in_prepared_overlay_byte_admission() {
             &base,
             [true; 3],
             vec![SectorRule {
+                dispatch_policy: Default::default(),
                 candidate: RuleCandidate {
                     target: case.integral(),
                     case: case.clone(),
