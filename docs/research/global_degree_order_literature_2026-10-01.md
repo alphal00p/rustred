@@ -425,6 +425,90 @@ that claim. No reflected-row authority or new tensor engine follows.
 Evidence:`TMP/postlaunch-20261001/global-degree-order/local-fg-endpoint-union-v1/`;
 independent source, measurement and drain audits pass.
 
+### Exact six-outer-index lift
+
+The next gate has now passed. Reusing the147 recovered source weights and
+regenerating the full original shifted IBPs yields the identical38-term
+homogeneous relation with **all six outer powers symbolic**. The bubble powers
+remain one, the mixed numerator is quadratic, and the other ISP power is zero.
+Dimension stays generic. All2165 source terms are restored before partial
+specialization, including1268 that vanished at the original point; conditions
+are retained rather than inferred from a sampled equality.
+
+Freeing the bubble powers as well leaves74 residual keys with those same
+weights. This is a bounded negative result for that lift, not an obstruction
+to all broader rules. The primary exact product costs0.234s native within a
+1.378s owned probe; cached optimized-adapter compilation costs68.621s separately.
+Independent source and actual-output audits pass. Evidence:
+`TMP/postlaunch-20261001/global-degree-order/local-fg-partial-lift-v1/`.
+
+The existing work reduction still measures one fixed input's successor union.
+This symbolic identity has not been installed as a parametric case: native
+descent, applicability, case ownership and replay/publication must still be
+checked. In particular the current canonical-forward-pivot replay path does
+not automatically accept every independently proved source combination.
+
+A structurally identical bubble appears in required five-loop owner18910 at
+`[0,1,2,2,1,0,1,1,1,-2,0,1,0,0,1]`, with ell=k2,p=k3,q=k4 and the six
+Gram coordinates all represented directly by existing denominators. The native
+five-loop transfer now passes: all147 weighted original sources are regenerated
+in the15-index family and their full2694-term product equals the38-term
+identity, both at this point and with all seven outer powers symbolic. All1797
+point-zero terms and denominator records are retained before testing the lift.
+This is new five-loop exact-source evidence, not an assumption of family
+isomorphism. Probe0.981s native/2.358s inclusive; cached adapter compilation
+74.912s separately. Source and actual-output audits pass.
+
+The saved native rule35 emits64 uniform nonzero successors after31 exact zeros,
+all retaining the mixed D10 numerator. The proved37 terms remove it from36;
+their R0/1/2 counts are31/5/1, against saved R1/2 counts10/54. This justifies a
+full descendant-union comparison with the same67-owner rule pool. It does not
+yet establish five-loop work savings or publish a case rule. Evidence:
+`TMP/postlaunch-20261001/global-degree-order/local-five-point-v1/` and
+`local-fg-five-loop-transfer-v1/`.
+
+### Completed five-loop counterbalanced work test
+
+Both separately bounded pairs now finish with full cold reinspection of every
+input and native domain. They use the same67-owner/8246-route pool and overlay,
+16 workers on CPUs32–47, fresh graphs, no descendant clipping, and the same
+frozen release executable. These are the complete successor unions of one
+required physical input, not the entire116-query campaign.
+
+| Metric | Saved64, pair1 | Proved37, pair1 | Saved64, pair2 | Proved37, pair2 |
+| --- | ---: | ---: | ---: | ---: |
+| Domains | 143,218 | 105,721 | 139,739 | 106,690 |
+| Native inspections | 106,640 | 76,980 | 103,380 | 77,614 |
+| Successor admissions | 11,107,100 | 7,382,357 | 10,643,049 | 7,410,507 |
+| Owner preparation (s) | 76.590 | 76.409 | 66.416 | 71.871 |
+| Native traversal (s) | 51.884 | 32.674 | 55.415 | 38.970 |
+| Guarded cold verification (s) | 128.831 | 150.773 | 136.836 | 131.829 |
+| Guarded walk+cold sum (s) | 262.544 | 264.396 | 264.176 | 247.315 |
+
+The repeated result is23.65–26.18% fewer domains,24.92–27.81% fewer native
+inspections,30.37–33.53% fewer successor admissions, and29.68–37.02% less
+forward traversal time. Native Ready scheduling changes exact counts slightly
+between runs; the direction and size of the local work gain survive reversal.
+Observed maximum descendant rank is5 rather than6, with no unbounded-rank
+domains in either arm. This is an observation, not an imposed rank cutoff.
+
+Whole walk+cold performance is mixed:0.71% slower in pair1 and6.38% faster in
+pair2. No substantial complete-lifecycle speedup or consistent memory gain is
+established. The cold native-visitor tally includes verifier callback/coverage
+work and is not a pure CAS or CPU profile; its variable cost has not been
+isolated. Both full pair entries take532.655s and517.112s respectively, including
+setup/report/drain. Source-proof compilation/materialization and parent rule
+application remain separately excluded from this fixed-program endpoint test.
+
+All roots and native inspections pass the independent cold check, with zero
+frontiers, uncovered obligations or reported violations, and all owned process
+groups drain. Native worklist exhaustion and sealed-cycle coverage are not a
+new global descent/termination theorem. No new case rule has been installed,
+and other required inputs may still demand portions of the avoided graph.
+The next meaningful gate is generic source construction and checked integration,
+then unchanged whole-cohort tests—not a production restart based on this table.
+Evidence: `TMP/postlaunch-20261001/global-degree-order/local-five-endpoint-union-v1/`.
+
 ## Revisited triangular-rule literature: what is still different
 
 Liu and Mitov's triangular construction explicitly limits numerator weight in
@@ -513,5 +597,112 @@ its stated completeness conditions and one-/two-loop scattering examples do
 not establish a turnkey massive-vacuum closure method. The useful immediate
 connection here is source construction, not a new completeness theorem.
 [Coro et al., sections 2–3](https://arxiv.org/html/2607.06365v1#S2).
-Both proposals remain pending behind the proved local-identity work test; the
-cofactor idea is not a new tensor reducer or an installed shifted-dimension lane.
+The component-wise source-basis comparison remains pending. The cofactor
+diagnostic subsequently passes below; it is not a new tensor reducer or an
+installed shifted-dimension lane.
+
+The older general foundation is also useful: logarithmic vector fields tangent
+to propagator hypersurfaces constrain unwanted dot growth, and Gram-determinant
+syzygies can remove dimension shifts. Böhm et al. prove completeness for their
+specified Gram syzygy generators, not completeness of every resulting reduction
+strategy or termination of our symbolic-domain campaign.
+[Böhm et al., sections III–V](https://arxiv.org/html/1712.09737v2#S3).
+
+For the narrow next experiment we need less machinery: find a polynomial vector
+that annihilates selected denominator derivatives identically, using the existing
+family derivative-contraction matrix and Symbolica arithmetic. This stronger
+local tangency condition avoids differentiating those denominator powers at all.
+It may survive arbitrary bubble powers even when the subsequently simplified
+unit-power37-RHS identity does not. That is a new row to derive and verify, not
+permission to generalize the failed frozen-weight lift. The successful native
+identity check below still supplies no completeness theorem or workload result
+for the new row.
+
+For a symbolic numerator power, the direct vector (without the extra v
+multiplier) gives a particularly small proposed source. Write
+`B=s*v^2-2*r*w*v+(r^2-s*t)*z+t*w^2` and let b be the power of
+`Dnum=z+t-2v-1`. Then the divergence numerator is
+`(d-2)*(s*v-r*w)+2*b*B/Dnum`. Its highest Dnum term has coefficient
+`s*(b-d+2)/2`. With target power a=b-1 and active `s=Dactive+1`, this is a
+candidate target coefficient `(a-d+3)/2` plus a companion whose active power
+is lowered. One must keep that companion integral: dividing by s would change
+the family. At a=-1 the b=0 contributions must cancel natively, not be removed
+from the general symbolic source beforehand.
+
+This derivation received independent mathematical review before the automatic
+native construction below. Index-uniform native descent and work benefit remain
+pending. The generic diagnostic uses family-derived signed minors, monomial
+coefficients as original-source weights, and complete translated ordinary
+IBPs. It does not import the147 coefficients of the successful local example.
+Other ell-dependent numerator coordinates remain fixed to zero in this first
+case; arbitrary such numerators are not silently covered.
+
+The unit-mass vacuum setting helps orient this identity: the constant term in
+`p²=Dactive+1` supplies a scalar target coefficient. With a general mass it is
+the corresponding mass-squared constant; in a massless specialization that
+coefficient may vanish. The identity can remain true while the proposed rule
+orientation fails. A generic implementation must retain the mass/normalization
+guard or refuse that orientation, not introduce `1/p²` as a field coefficient.
+
+The longer-term workload hypothesis is local structure removal, not a new
+global degree bound. A tangent vector can avoid increasing protected positive
+powers while reducing a troublesome numerator. Pinches may still expose other
+numerators and must remain in the output. The earlier helper-free R0 control
+does not prove that arbitrary numerator inputs can be brought into that same
+bounded R0 scope. First measure the supported local cases, then the unchanged
+combined four-loop and representative five-loop requests; do not infer whole
+campaign closure from this mechanism.
+
+### Automatic native tangent-source result
+
+The input-driven constructor now passes on the registered five-loop owner.
+From the nominated loop, two protected propagators and three contraction
+directions, it forms the signed matrix minors using Symbolica, verifies exact
+tangency, and expands them into ordinary-source translations. This automatically
+constructs the identity from family data; it does not yet discover all eligible
+local subgraphs or import the earlier147 proof weights.
+
+The primary vector requires42 translated sources and782 original terms.
+Its full symbolic source product equals an independently assembled product-rule
+row with zero residual, before index specialization. Fixing only the other five
+inactive indices to zero gives47 homogeneous terms and46 prospective RHS terms.
+Both bubble powers, all outer powers, dimension and the selected numerator
+power remain symbolic. Its target coefficient exactly equals
+`-2*(n9-d+3)`, where n9 is the tenth denominator's index. All source denominators
+and this normalization condition are retained.
+
+At the registered rank-two point the46 RHS terms have rank0/1/2 counts25/20/1,
+versus10/54 rank1/2 terms for the saved64-term row. All have F<=12 below parent
+F13;8 remain on the same support,38 pinch, none activates an absent propagator.
+At the separate rank-one boundary the primary identity yields15 RHS terms,
+no activation, F<=11 below parent F12, and target coefficient2(d-2). The
+potentially troublesome zero source-numerator power is handled by exact native
+cancellation, not an omitted derivative term.
+
+Multiplying the vector by the nominated scalar product also passes full
+source-product equality:123 translated sources,2217 original terms,56 RHS at
+rank two, target1-d. This larger secondary row is not presumed preferable.
+Its rank-one output is only an algebraic diagnostic outside its declared fixed
+rank-two case; support activations there are not accepted as a reduction.
+
+The complete diagnostic costs1.021s native/2.345s inclusive, with72.425s cached
+optimized-adapter compilation separately. Two earlier setup failures are
+preserved: a Rust iterator borrow error, then an expected-expression parser
+using a bare index name instead of the context's private index symbol. The
+correction constructs only that expected comparison through native typed APIs;
+neither source construction nor its exact equality checks changed.
+Evidence: `TMP/postlaunch-20261001/global-degree-order/local-tangent-source-v1/`.
+
+This is broader exact identity evidence than the successful fixed-numerator,
+unit-bubble37-RHS lift. It is a different row: the measured37-RHS descendant
+savings must not be assigned to it. Concrete point descent is also not the
+unbounded native case proof. Existing `PreparedOriginalDomain` can recompile
+explicit original-source weights, retain guards and prove full cell descent;
+the remaining implementation is a small producer and its candidate-owner
+integration, with ordinary rules retained outside the admitted case. The current
+generated-owner overlay path expects a canonical elimination row, so merely
+injecting this independently valid combination there is not legitimate.
+
+The next performance gate is unchanged whole-cohort coverage with an installed
+checked rule, not another claim from fewer immediate successors. Until that
+gate, production and its owner pool remain unchanged.

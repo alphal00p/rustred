@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 01:26 UTC (03:26 Zurich)
+## Current workboard — October 2, 02:23 UTC (04:23 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -33,9 +33,9 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Joint descendant-combination Laporta | root; design/ignored adapter `r_primary_transfer_audit`; independent `rule_quality_audit` | Native diagnostic completes: no eliminating row in the fixed752-row bank | Preserve bounded negative result; no bank growth, row publication or irreducibility inference |
 | Exact-physical-D coefficient restriction | root; independent `r_primary_transfer_audit` | Pending witness: code confirms geometric D is retained but not generally used in coefficient zero recognition | Find an actual coefficient that vanishes on the exact D slice before implementing; no split-based overcoverage or new CAS |
 | Global absolute-degree-first order | `five_loop_order_runner` comparator/runner; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Four-loop cold-All pass; domains−3.64%, no timing win. Expanded-basis5L pair cold-All passes: domains−0.75%, arm time+0.40%, terminals25→28 | Delivered negative promotion gate; no campaign restart recommendation or robust/equal-basis speedup claim |
-| Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | Exact unreflected37-RHS identity and ABBA cold-All unions pass: domains−27.7%/−28.4%, natives−22.0%/−22.1%, successors−51.9% | Positive fixed-point gate; prepare exact partial-index lift. No installed macro, full58 or5L gain claim |
+| Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | 4L ABBA cold-All unions pass. Exact outer-index lifts pass in4L and5L. Both5L pairs cold-All PASS: domains−23.65–26.18%, successor admissions−30.37–33.53%, traversal−29.68–37.02% | Positive local work gate; whole walk+cold mixed (+0.71%/−6.38%). No installed macro or full58/full116 gain claim |
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
-| Affine operator components / local tangent sources | `r_primary_transfer_audit`; root | Primary-literature and existing-API review delivered; distinct from current GCD source preconditioning | Pending: bounded affine-component basis comparison; automatic protected-denominator minors only after local-union work gate. No new CAS or tensor service |
+| Affine operator components / local tangent sources | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Automatic tangent diagnostic and independent actual-result audit PASS:42 ordinary translations prove symbolic numerator/bubble-power identity;46 RHS at registered5L point, rank-one control passes | Integrate through existing original-source/descent path before whole-cohort tests.46-RHS work is unmeasured; prior37-RHS gains cannot be reused. Affine-component comparison remains pending |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -50,6 +50,183 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 01:38 UTC — local identity lifts beyond one numerical point
+
+- [M] The147 fixed-point source weights reproduce the entire38-term identity
+  with all six outer powers symbolic, after regenerating complete ordinary
+  sources and recentering from the scalar base to the actual numerator target.
+  Bubble powers remain1, mixed numerator power is2, the other local ISP is0;
+  dimension remains generic. This is exact algebraic identity authority, not
+  yet native case/descent/ownership publication. The full2165-term source
+  product retains1268 terms that vanish at the original point before testing
+  the symbolic lift, and all source/pivot/normalization conditions are retained.
+- [M] The deliberately broader variant freeing the two bubble powers fails
+  with these same weights:74 residual keys. This rejects that frozen-weight
+  lift only; no claim that no such broader rule exists. Neither hypothesis was
+  installed. Evidence: `TMP/postlaunch-20261001/global-degree-order/
+  local-fg-partial-lift-v1/RESULTS.md`, receiptSHA
+  `6cecf684df642f04bc5e827c3642be8feb9302acf6a31d1a2e6ae4c57b3feb85`.
+  Cached optimized-adapter compilation68.621s; owned probe1.378s inclusive,
+  0.234s native. Independent source, receipt and process-drain audit passes.
+- [D/M] Runner and independent auditor identified the same six Gram slots in
+  actual required5L owner18910, `011110111001001`: ell=k2,p=k3,q=k4,
+  bubbleD2/D9, numeratorD10, active outer p²=D3+1 and q²=D4+1.
+  Point `[0,1,2,2,1,0,1,1,1,-2,0,1,0,0,1]` is inside unchanged required
+  `phys-d9-a12-r3-011110111001001` (A11/R2/D9/F13). All other active
+  denominators are ell-independent. This is structural evidence only: its
+  selected saved rule, descendant work and transferred source identity are
+  still unmeasured. Do not borrow costs from a different query's shared cone.
+- [D] Root assigned runner to prepare a <=300s existing-CLI point diagnostic,
+  author to prepare an input-driven5L source-product transfer, and separate
+  auditor to review both. Root serializes native execution and remains final
+  verifier. No core change, extra tensor service, source-bank expansion, or
+  production mutation. Prior audited ordering/proof/work evidence is pushed
+  on `main` at `d390d27f`.
+- [M] The5L native point diagnostic then completed in2.908s inclusive with
+  batch0/rule35 selected by ordinary dispatch. Its95 terms produce31 exact
+  zeros and64 distinct uniform successors; every successor retains the mixed
+  D10 numerator. F10/11/12/13 histogram8/2/53/1; R1/2 histogram10/54;
+  53 pinches and11 same-support children. All95 denominator records retained,
+  zero conditional successors or reported problems. Independent input, output
+  and process-drain audit passes. Evidence: `global-degree-order/
+  local-five-point-v1/execution-r1/` beneath the same TMP base. No recursive
+  walk, proposed row application or5L gain is implied by this diagnostic.
+- [M] The subsequent5L transfer passes both frozen hypotheses: the exact
+  registered point and all seven outer positive indices symbolic, retaining
+  unit bubble powers and the fixed numerator. Native regeneration prepares25
+  ordinary sources and147 selected translations; the full2694-term products
+  have zero residual against the mapped38-term identity in both cases. Thus
+  five-loop authority is not assumed from a four-loop graph resemblance.
+  Compilation74.912s; owned probe2.358s inclusive/0.981s native. Evidence:
+  `global-degree-order/local-fg-five-loop-transfer-v1/probe-r1/RESULT.json`.
+  Separate actual-result audit passes, including147/147 mapped source rows
+  equal at the point and1797 retained point-zero terms. The proposed37 RHS
+  terms are not yet an installed rule; complete
+  descendant work against saved64 is the next pilot, with unchanged67-owner
+  pool and overlay and no source-bank expansion or scope clipping.
+- [M] Read-only production at01:47 UTC remains running with fresh heartbeat:
+  153,970,588 discovered,110,900,928 locally completed,15,596,908 pending,
+  zero reported frontiers. Last recursive scan records13/67 initial roots and
+  20,405,752 domains closed, but is4549s old. Last-hour pending/completion is
+  −0.06069; neither that decrease nor stale closure counts implies an ETA or
+  eventual completion. RSS134.09GB; last-hour computing-inspector mean2.45.
+  No production lifecycle, inputs or binaries changed.
+
+### October 2, 01:59 UTC — first five-loop local walk improves; cold gate pending
+
+- [M] Same67-owner/8246-route pool plus unchanged overlay, W16 CPUs32–47:
+  the saved64 endpoint union finishes with143,218 domains,106,640 native
+  inspections and11,107,100 successor admissions in51.884s native traversal.
+  Its cold-All check passes for every input and native inspection.
+  The proved37 endpoint union then finishes with105,721 domains,76,980 native
+  inspections and7,382,357 successor admissions in32.674s traversal. Its cold
+  reinspection is running: no completed-pair claim until it passes and drains.
+  Preparation is76.59s/76.41s respectively, explicitly separate from traversal.
+- [D] On full pair success, root will launch a separate reversed pair under
+  the same1800s inclusive cap and unchanged scope. No production switch follows
+  from a single input's successor union. Evidence:
+  `TMP/postlaunch-20261001/global-degree-order/local-five-endpoint-union-v1/`.
+- [M/D] A small coordination race is retained transparently: root's running
+  forward wrapper had loaded audited source7cca0d43/protocol9da48519 before
+  runner added the requested optional reverse flag on disk. Actual BOUND has
+  the original hashes and identical commands; exact old source/protocol copies
+  are archived separately. Independent audit found no semantic effect on the
+  live run. Current23e04b0d/34224ca7 is for a future separately granted reverse
+  run only; no auto-repeat or running-file edits are allowed.
+- [D] The generic tangent-source prototype is being prepared by
+  `r_primary_transfer_audit` in ignored TMP while the native pair runs;
+  `rule_quality_audit` reviews the mathematics and source. No concurrent heavy
+  job, core implementation or new tensor service. Native matrix minors and
+  translated ordinary sources should derive a row without importing the147
+  frozen weights. A direct vector recurrence with symbolic numerator power
+  and bubble powers is a registered hypothesis, not an established rule.
+- [M] At02:01 UTC the full first pair completes and drains in532.655s:
+  both arms pass complete cold-All reinspection. Work reductions are26.18%
+  domains,27.81% native inspections and33.53% successor admissions; forward
+  traversal is37.02% faster. However cold phase128.831→150.773s offsets the
+  walk gain: guarded walk+cold262.544→264.396s (+0.71%), so no whole-arm
+  timing win is claimed. PeakRSS5.476/5.481GB is effectively unchanged.
+  Root launched the separately audited reverse pair (`--pair reverse`) with
+  a new1800s clock. Production stays untouched; repeated work gains are not
+  assumed until that pair passes.
+
+### October 2, 02:12 UTC — repeated five-loop work benefit; automatic source next
+
+- [M] Reversed pair completes/cold-All passes/drains in517.112s. Saved64 vs
+  proved37:139,739→106,690 domains;103,380→77,614 natives;
+  10,643,049→7,410,507 successor admissions;55.415→38.970s traversal.
+  Both pairs together establish23.65–26.18% less domain work and29.68–37.02%
+  less forward traversal time for this one complete endpoint union. Independent
+  actual-result audit passes, including all8 process groups absent afterward.
+- [M] Cold verification varies: second-pair136.836→131.829s, compared with
+  first-pair128.831→150.773s. Complete guarded walk+cold is264.176→247.315s
+  in pair2 (−6.38%), but +0.71% in pair1. Do not promote this as a consistent
+  whole-lifecycle timing win, full116 gain or new production macro. Cold visitor
+  wall tallies include verifier callback/coverage work, not just CAS or CPU.
+  Full table and limitations are in the tracked global-degree literature note;
+  raw immutable evidence and runner report are in the local endpoint-union lane.
+- [M/D] Generic input-driven tangent-source diagnostic is prepared and
+  independently source-reviewed. It uses native Symbolica determinant minors,
+  polynomial differentiation and full ordinary-source products, not the147
+  hand-selected proof weights. Compilation attempt1 failed cleanly in3.779s
+  on a nested iterator borrow (E0373), before any native test. Author made the
+  single ownership-only correction; raw failure is preserved. Attempt2 then
+  compiles in73.637s and drains. Its separate native probe fails cleanly in
+  2.491s at diagnostic expectation parsing: bare `n9` is not the context's
+  private-qualified index symbol (`VariableMapMismatch`). The preceding first
+  variant tangency/full-product/partial-product assertions were reached, but
+  no complete output or successful proof is claimed. Author and independent
+  auditor agree on constructing only the expected comparison with native typed
+  index/dimension/integer arithmetic; identity construction is unchanged.
+  No engine rebuild or production edit. Evidence:
+  `global-degree-order/local-tangent-source-v1/`.
+
+### October 2, 02:23 UTC — automatic tangent construction passes exactly
+
+- [M] The comparison-only native-index correction compiles in72.425s. The
+  separate complete probe passes and drains in2.345s, of which1.021s is native
+  diagnostic time. This is an optimized adapter linked to the frozen release
+  libraries, not a full campaign or a new rule-generation benchmark. Commands:
+  `python -B TMP/postlaunch-20261001/global-degree-order/local-tangent-source-v1/run.py
+  --mode compile --attempt 3 --grant root-approved-local-tangent-compile`, then
+  the same command with `--mode probe` and `root-approved-local-tangent-probe`.
+  Actual evidence is under `compile-r3/` and `probe-r3/`; both earlier failed
+  attempts are retained. Root owns runs; author and independent auditor inspect
+  the actual result separately. No additional native job is running in this lane.
+- [M] From the nominated loop/protected propagators/contraction directions,
+  native Symbolica matrix minors construct a polynomial tangent vector. All
+  protected derivative products vanish exactly.42 translated ordinary sources
+  (782 original terms) equal the independently assembled full product-rule row
+  before any index specialization. After fixing only the five other inactive
+  indices to zero, the row has47 terms/46 prospective RHS entries. Bubble,
+  outer and selected numerator powers remain symbolic. Target coefficient is
+  `-2*(n9-d+3)`; no frozen147-source weights, FORM relation, custom CAS or new
+  tensor service is used. The input still nominates the local structure: automatic
+  discovery of all suitable subgraphs is not implemented.
+- [M] At the registered physical rank-two input,46 RHS terms have F8..12,
+  all below parent F13, with rank0/1/2 counts25/20/1. There are8 same-support
+  and38 pinched terms, no support activation. The primary rank-one control has
+  15 RHS terms, F<=11 below parent F12, and retained normalization2(d-2).
+  This is concrete descent evidence, not the unbounded native case/descent gate.
+  The optional scalar-product-multiplied control also proves its full identity:
+  123 sources/2217 original terms,56 RHS at rank two, target1-d. Its separate
+  rank-one diagnostic lies outside that control's fixed-numerator case and must
+  not be treated as an admitted rule there.
+- [E/D] This successful broader identity is not the earlier simplified37-RHS
+  shortcut. No descendant walk or timing gain has been measured for46 RHS.
+  Next implement a small checked producer through `PreparedOriginalDomain`
+  (full original-source sum, retained guards and native sign-cell descent), then
+  bridge accepted cells into candidate-owner dispatch with ordered fallback.
+  Existing generated-owner overlay replay demands canonical elimination rows;
+  do not forge that trace or bypass it for a valid but differently derived row.
+  No new proof framework or repeated hot-path authentication is needed.
+- [M] Read-only production at02:23 UTC: running/fresh heartbeat,157,512,284
+  discovered,113,563,904 locally complete,16,029,421 pending, zero reported
+  frontiers.13/67 roots and20,405,752 recursive closures are the last scan,
+  6665s old, not a current no-closure observation. RSS136.72GB; no ETA or
+  mathematical closure inferred. Production state and frozen executables remain
+  untouched.
 
 ### October 1, 22:50 UTC — implement a genuinely global degree order
 
