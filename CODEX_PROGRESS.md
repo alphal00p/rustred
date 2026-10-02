@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 04:40 UTC (06:40 Zurich)
+## Current workboard — October 2, 04:55 UTC (06:55 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -33,9 +33,9 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Joint descendant-combination Laporta | root; design/ignored adapter `r_primary_transfer_audit`; independent `rule_quality_audit` | Native diagnostic completes: no eliminating row in the fixed752-row bank | Preserve bounded negative result; no bank growth, row publication or irreducibility inference |
 | Exact-physical-D coefficient restriction | root; independent `r_primary_transfer_audit` | Pending witness: code confirms geometric D is retained but not generally used in coefficient zero recognition | Find an actual coefficient that vanishes on the exact D slice before implementing; no split-based overcoverage or new CAS |
 | Global absolute-degree-first order | `five_loop_order_runner` comparator/runner; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Four-loop cold-All pass; domains−3.64%, no timing win. Expanded-basis5L pair cold-All passes: domains−0.75%, arm time+0.40%, terminals25→28 | Delivered negative promotion gate; no campaign restart recommendation or robust/equal-basis speedup claim |
-| Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | 4L ABBA cold-All unions pass. Exact outer-index lifts pass in4L and5L. Both5L pairs cold-All PASS: domains−23.65–26.18%, successor admissions−30.37–33.53%, traversal−29.68–37.02% | Positive local work gate; whole walk+cold mixed (+0.71%/−6.38%). No installed macro or full58/full116 gain claim |
+| Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | 4L ABBA cold-All unions pass. Exact outer-index lifts pass in4L and5L. Both5L pairs cold-All PASS: domains−23.65–26.18%, successor admissions−30.37–33.53%, traversal−29.68–37.02% | Positive local work gate; whole walk+cold mixed (+0.71%/−6.38%). No production-installed macro or full58/full116 gain claim |
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
-| Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Degree-one logarithmic ansatz independently vetoed analytically | Park automatic priority insertion; source-component falsifier prepared, not run. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
+| Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900; weight-pole distinction pushedc8bfc306. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Component comparison exact checks pass but produces no new structural advantage over GCD | Delivered/negative performance gates. Park raw16 component integration and automatic priority insertion; reopen on a new source-bank or application mechanism. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
 | Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -51,6 +51,54 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 04:55 UTC — component preconditioning is structurally negative
+
+- [M] The ignored source-basis diagnostic completes in1.348s inclusive,
+  0.124s inside the adapter, after a separate69.290s optimized adapter compile.
+  Independent result audit verifies exact original-source products, both full
+  source spans and an invertible rank16 base-field transformation. All jobs
+  drain. Evidence: `TMP/postlaunch-20261002/tangent-integration/component-precondition-v1/`,
+  `compile-r2/RESULT.json` and `probe-r2/RESULT.json`. The first compile's
+  adapter-only `json!` syntax error remains recorded; no engine change.
+
+  | Structural metric | Raw ordinary sources | Existing GCD basis | Component basis |
+  | --- | ---: | ---: | ---: |
+  | Rows | 16 | 16 | 16 |
+  | Symbolic terms | 264 | 564 | 564 |
+  | Maximum index degree | 1 | 1 | 1 |
+  | Nonzero terms at the nominated point | 204 | 439 | 439 |
+  | Terms harder than the parent | 81 | 67 | 67 |
+  | Terms increasing absolute degree F | 56 | 21 | 21 |
+
+- [M] Joining rows by their distinct leading shifts gives the same complete
+  shift inventories and point metrics for GCD and component reduction, with
+  reversed row order. This does not establish coefficient proportionality.
+  The diagnostic uses Symbolica's existing rational-polynomial sparse reducer,
+  all16 unshifted ordinary sources and80 physical shift columns/880 component
+  columns. It does not test a preceding syzygy construction or the full LoopIn
+  algorithm. The two recorded phase timings include different checking work
+  and are not a production speed comparison.
+- [D] Park this raw-bank intervention without a solver integration or workload
+  run: the registered structural discriminator is negative. Reopen only for
+  measured index-degree growth or a different, justified source bank. Both
+  priority-rule insertion variants are also parked. A selective whole-domain
+  shortcut remains a distinct unimplemented hypothesis; any test must preserve
+  the original fallback, exact applicability and cold-replay behavior, and show
+  a whole-cohort gain rather than reuse endpoint-union timings as that claim.
+- [M] Implementation/previous-result milestone `c8bfc306` is committed and
+  pushed on `main`: generic-field source-weight pole handling and its focused
+  tests, with the real147-source export and negative full58 result documented.
+  Public five-check smoke ran and release test sources compile; private app
+  classifier unit tests were not separately executed. No production binary,
+  input, checkpoint, reference material or unrelated working-tree file changed.
+- [M] Read-only production around04:57UTC: running/fresh heartbeat,170.32M
+  discovered,14.73M pending,23.19M recorded recursively closed,13/67 roots,
+  147.13GB process-tree RSS. The conservative closure snapshot is50min old;
+  one-hour pending/completion−0.109. This supports neither a closure ETA nor a
+  claim that the unresolved dependency graph is shrinking. Production remains
+  untouched; these negative full-cohort optimization gates do not justify a
+  restart recommendation.
 
 ### October 2, 04:38 UTC — guarded corpus census is inconclusive, not a counterexample
 

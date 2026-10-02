@@ -597,9 +597,10 @@ its stated completeness conditions and one-/two-loop scattering examples do
 not establish a turnkey massive-vacuum closure method. The useful immediate
 connection here is source construction, not a new completeness theorem.
 [Coro et al., sections 2–3](https://arxiv.org/html/2607.06365v1#S2).
-The component-wise source-basis comparison remains pending. The cofactor
-diagnostic subsequently passes below; it is not a new tensor reducer or an
-installed shifted-dimension lane.
+The component-wise source-basis comparison subsequently completes with no new
+structural benefit on the raw16-source fixture; see the measured result below.
+The cofactor diagnostic also passes below; neither is a new tensor reducer or
+an installed shifted-dimension lane.
 
 The older general foundation is also useful: logarithmic vector fields tangent
 to propagator hypersurfaces constrain unwanted dot growth, and Gram-determinant
@@ -891,3 +892,50 @@ ordinary dispatcher, which resolves exceptions before selecting a rule. The
 census completes0/523 rules and is inconclusive, not a counterexample or proof
 of the proposed invariant. No invariant-aware geometry, bound for unbounded
 helpers, termination theorem or performance gain has been implemented/inferred.
+
+### Component preconditioning: exact equivalence of source spans, no structural gain
+
+The bounded diagnostic compares the16 unshifted ordinary IBPs of the same
+four-loop owner `1111111100`: raw, RustRed's existing GCD-preconditioned basis,
+and a component-wise basis over the kinematic/dimension coefficient field.
+It uses Symbolica's rational-polynomial sparse reducer, not a new algebra
+kernel. Constant and ten index-linear components yield880 columns from80
+integral shifts. Identity columns retain the complete source weights; exact
+products, mutual span checks and a rank16 transformation all pass.
+
+At the nominated physical point `[2,1,1,1,1,1,1,1,-2,0]`:
+
+| Metric | Raw | GCD | Component |
+| --- | ---: | ---: | ---: |
+| Symbolic terms | 264 | 564 | 564 |
+| Maximum index degree | 1 | 1 | 1 |
+| Nonzero point terms | 204 | 439 | 439 |
+| Terms harder than the parent | 81 | 67 | 67 |
+| Terms increasing F | 56 | 21 | 21 |
+
+The two reduced bases have the same16 distinct leading shifts, every full
+shift inventory and all these point metrics, in reversed row order. We did
+not prove proportionality of their coefficients and do not infer it from
+printed expressions. On this bank the existing preconditioner already avoids
+the index-degree growth that motivated the experiment. This is a structural
+negative, not a failed span calculation or a verdict on the complete LoopIn
+method: its preceding syzygy construction is not part of this test.
+
+There is a limited structural explanation for the negative result. In the
+ordinary vacuum IBPs, a nonzero shift `+e_i` or `+e_i-e_j` carries a common
+index factor `n_i` down its column. Cancelling such a pivot column can therefore
+use scales from the base field rather than introduce further index powers.
+The zero-shift column is different. This explains how GCD reduction can already
+preserve degree one on this fixture; without a recorded full pivot trace it
+is not a proof that every elimination followed that mechanism. Translated or
+syzygy-generated source banks need not share the premise.
+
+The optimized adapter compiles in69.290s; the isolated probe takes1.348s
+inclusive, with0.124s inside the adapter. These are diagnostic timings, not
+generation, application or closure timings. Different checks inside the GCD
+and component phases prevent interpreting their ratio as solver speedup.
+An independent audit verifies the receipts, exact checks and drained jobs.
+Evidence: `TMP/postlaunch-20261002/tangent-integration/component-precondition-v1/`.
+The experiment is parked without solver integration or another workload run.
+Reopen only with observed index-degree growth or a justified new source bank;
+do not enlarge the bank merely to evade a negative discriminator.
