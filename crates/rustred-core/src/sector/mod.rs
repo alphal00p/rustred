@@ -15,6 +15,8 @@
 //! family-aware analytic zero test, while [`symmetry`] consumes authenticated
 //! families and exact Symbolica coefficients to verify caller-supplied
 //! momentum maps. Neither analysis generates topology-authored candidates.
+//! [`masters`] builds on the zero test to count master integrals per top
+//! sector from modular critical points of the Lee–Pomeransky polynomial.
 //!
 //! Source correspondence:
 //!
@@ -32,6 +34,7 @@
 mod error;
 mod interior;
 mod mask;
+pub mod masters;
 mod monotone;
 mod ordering;
 mod restriction;
@@ -42,6 +45,9 @@ pub mod zero;
 pub use error::Error;
 pub use interior::{InteriorBounds, SectorInteriorDomain};
 pub use mask::Mask;
+pub use masters::{
+    MasterCount, MasterCountError, MasterCountOptions, MasterCounter, NoVerdictReason,
+};
 pub use monotone::{
     ActivePinchThreshold, SectorMonotoneDomain, SectorMonotonePointClass,
     SectorMonotoneShiftDescentWitness, SectorMonotoneTargetCell, SectorMonotoneTargetCellKind,
