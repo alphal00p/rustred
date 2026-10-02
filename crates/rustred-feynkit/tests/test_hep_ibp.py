@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 from symbolica import E, Expression, S
-from symbolica import hepkit as hep
+from symbolica.community import hepkit as hep
 
 MODEL = Path(__file__).parent / "fixtures" / "scalar_phi3.json"
 
 
 def test_public_class_namespace():
     for cls in (hep.IBPFamily, hep.IBPRule, hep.IBPSolution):
-        assert cls.__module__ == "symbolica.hepkit"
+        assert cls.__module__ == "symbolica.community.hepkit"
 
 
 def coefficients(terms):

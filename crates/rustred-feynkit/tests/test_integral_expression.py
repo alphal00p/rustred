@@ -2,7 +2,7 @@
 
 import pytest
 from symbolica import E, Expression, S
-from symbolica import hepkit as hep
+from symbolica.community import hepkit as hep
 
 
 @pytest.fixture(scope="module")
