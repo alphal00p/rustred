@@ -171,6 +171,20 @@ fn checked_priority_roundtrip_preserves_every_old_record_and_coefficient() {
     );
     assert_eq!(export.proof().requested_bounds(), (&[1][..], &[None][..]));
     assert!(!export.proof().cells().next().unwrap().sources().is_empty());
+    // The actual normalized RHS pole is retained in the immutable proof;
+    // weight-unit discharge must not reclassify it as an optional condition.
+    assert!(
+        export
+            .proof()
+            .cells()
+            .any(|cell| cell.rule().nonzero_guards().iter().any(|guard| guard
+                .origins()
+                .iter()
+                .any(|origin| matches!(
+                    origin,
+                    ParametricGuardOrigin::RuleCoefficientDenominator { .. }
+                ))))
+    );
     let programs = load(export.bytes());
     assert_eq!(
         disposition(&programs, 2),
@@ -185,6 +199,81 @@ fn checked_priority_roundtrip_preserves_every_old_record_and_coefficient() {
         disposition(&programs, 1),
         OwnerDomainMatchDisposition::Terminal { batch: 0 }
     );
+}
+
+#[test]
+fn generic_field_weight_poles_require_exclusive_native_weight_origins() {
+    let (_, family) = base();
+    let (c, proposal) = request(&family);
+    let d = c.lift(&c.base().parameter("d").unwrap()).unwrap();
+    let pole = c
+        .numerator_condition_with_limits(&c.sub(&d, &c.integer(2)).unwrap(), Default::default())
+        .unwrap();
+    let weight_origin = ParametricGuardOrigin::SourceCombinationDenominator {
+        source_ordinal: 0,
+        row_id: proposal.contributions[0].source_row.clone(),
+    };
+    let eligible = |p: &IndexedPolynomial, origins: &[ParametricGuardOrigin]| {
+        is_generic_field_weight_pole(&c, p, origins, Default::default()).unwrap()
+    };
+    // Classifier-only regression: no sealed proof is fabricated here. The
+    // public exporter always checks the full original weighted product first.
+    assert!(eligible(&pole, std::slice::from_ref(&weight_origin)));
+    assert!(!eligible(&pole, &[]));
+    let zero = c
+        .numerator_condition_with_limits(&c.integer(0), Default::default())
+        .unwrap();
+    assert!(!eligible(&zero, std::slice::from_ref(&weight_origin)));
+    for required_origin in [
+        ParametricGuardOrigin::SourceCondition {
+            source_ordinal: 0,
+            row_id: proposal.contributions[0].source_row.clone(),
+            condition_ordinal: 0,
+            condition_sources: Box::new([]),
+        },
+        ParametricGuardOrigin::SourceCoefficientDenominator {
+            source_ordinal: 0,
+            row_id: proposal.contributions[0].source_row.clone(),
+            shift: proposal.rhs[0].0.clone(),
+        },
+        ParametricGuardOrigin::OriginalDomainCondition {
+            condition_ordinal: 0,
+        },
+        ParametricGuardOrigin::RuleCoefficientDenominator {
+            shift: proposal.rhs[0].0.clone(),
+        },
+        ParametricGuardOrigin::FinalTargetCoefficient,
+    ] {
+        assert!(!eligible(&pole, std::slice::from_ref(&required_origin)));
+        // The same polynomial with both origins must NOT pass an ANY-origin
+        // test. Genuine source/retained/final conditions still require runtime
+        // denominator coverage, even when a weight has the identical pole.
+        assert!(!eligible(&pole, &[weight_origin.clone(), required_origin]));
+    }
+}
+
+#[test]
+fn generic_field_weight_poles_do_not_discharge_free_index_guards() {
+    let (_, family) = base();
+    let (c, proposal) = request(&family);
+    let d = c.lift(&c.base().parameter("d").unwrap()).unwrap();
+    let polynomial = c
+        .numerator_condition_with_limits(
+            &c.sub(&d, &c.index(0).unwrap()).unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+    let origins = [ParametricGuardOrigin::SourceCombinationDenominator {
+        source_ordinal: 0,
+        row_id: proposal.contributions[0].source_row.clone(),
+    }];
+    assert!(!is_generic_field_weight_pole(&c, &polynomial, &origins, Default::default()).unwrap());
+    // A true exact singleton is different: after n=2 is imposed by the
+    // checked cell, d-n is the nonzero base-field element d-2.
+    let specialized = c
+        .specialize_fixed_polynomial(&polynomial, &[(0, 2)], Default::default())
+        .unwrap();
+    assert!(is_generic_field_weight_pole(&c, &specialized, &origins, Default::default()).unwrap());
 }
 
 #[test]

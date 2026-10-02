@@ -779,12 +779,115 @@ does not itself guarantee less joint routed-domain work. Evidence is in
 `TMP/postlaunch-20261002/tangent-integration/whole58-v1/forward/`; all native
 phases drained, total comparison31.031s, with prior compilation/export separate.
 
-The next distinct algebraic candidate is a weaker constraint: require
+The next distinct algebraic candidate examined is a weaker constraint: require
 `V(D_i)=D_i*h_i`, not `V(D_i)=0`. Differentiation still does not raise protected
 propagator powers, but a loop touching three active lines may admit new vectors.
 The bounded proposed test has affine vector/h coefficients (77 unknowns for the
-selected four-loop input), solved using Symbolica, followed by full original-row
-replay and actual descendant comparison. This is pending, not a discovered rule
-or a completeness claim. The mathematical motivation is the additional
+selected four-loop input), proposed for a Symbolica solve followed by full
+original-row replay and actual descendant comparison. Independent analytic
+preflight subsequently rejects this particular ansatz, as shown below. The
+mathematical motivation is the additional
 no-doubled-propagator constraint in
 [Böhm et al., section IV](https://arxiv.org/html/1712.09737v2#S4.SS1).
+
+### Cheap analytic veto of the proposed degree-one logarithmic search
+
+With a single differentiated momentum ell, let its four vector coefficients be
+affine polynomials in all independent scalar products over Q(d). Already the
+two denominators `ell²-1` and `(ell-p)²-1` force that vector to zero. Set
+`z=ell²`, `x_j=ell.r_j`, where the three spectators are p,q,r. The first
+divisibility condition has the complete affine solution
+
+```text
+f_j = a_j*(z-1) + b_j + sum_k C_jk*x_k,  C^T = -C
+f_0 = a_0*(z-1) - sum_j b_j*x_j
+V   = f_0*ell + sum_j f_j*r_j.
+```
+
+Independent spectator-Gram coefficients exclude dependence on those variables.
+On the second denominator's zero set, the independent p.q and p.r coefficients
+force f_q=f_r=0. With t=z-1 and w=ell.p, the remaining condition is
+`(a_0*t-b*w)*(t+1-w)+(a_p*t+b)*(t-w)=0`. Its w² coefficient gives b=0;
+its t² and t coefficients then give a_p=a_0=0. Adding a third protected line
+cannot repair this empty ansatz. No compilation/native solve was spent on it.
+
+This does not reject higher-degree logarithmic vectors, massless/special Gram
+settings, multiple differentiated loops, or a different derivation space such
+as Baikov coordinates. Treating spectator scalar products as rational field
+coefficients would change the problem and introduce new denominator obligations.
+There is no automatic degree escalation after this negative result.
+
+The next practical candidate is therefore the previously proved narrow37-RHS
+combination. Its intermediate combination weights have poles such as d−2 that
+cancel from the final RHS. Existing generic-coefficient-field semantics treat
+these as nonzero units; they are not necessarily physical/index exceptions.
+The implemented correction uses existing typed guard origins to separate
+weight-only poles from genuine source hypotheses, caller-retained conditions
+and final coefficient poles. All remain in proof provenance. Index-dependent
+guards and mixed origins are not discarded. The existing public bridge smoke
+passes, including refusal of a genuine additional condition; the real147-source
+export supplies the positive weight-only case. Release core/app test sources
+compile; the private classifier unit tests have not separately executed.
+
+### Narrow37 rule: full native export passes, combined-workload benefit fails
+
+The complete original product replays147 contributions/2,165 terms, including
+1,268 terms that vanished at the old fixed sample. It verifies36 sign cells
+over the declared six-free-index box, with four indices fixed. Export costs
+0.242s inside the adapter (2.966s owned invocation), after124.359s adapter
+compilation. These are export/check timings for an already discovered identity,
+not generation or closing-campaign timings. The experimental payload grows
+49,027 to52,106 bytes, adds one rule and preserves the old16-rule suffix and
+single terminal. It is not a new full-owner certificate.
+
+The unchanged whole58 cohort, with the same16 owners/508 routes and W16,
+passes cold full reinspection in both arms. Nevertheless:
+
+| Metric | Saved pool | Narrow37 priority |
+| --- | ---: | ---: |
+| Scheduled domains | 26,025 | 27,696 |
+| Native inspections | 17,957 | 18,264 |
+| Events | 872,486 | 909,620 |
+| Traversal, seconds | 4.167153 | 4.366214 |
+| Complete arm, seconds | 16.301522 | 16.548076 |
+
+The extra1,671 domains comprise1,364 aliases and307 native inspections.
+Routed admissions rise7.24% versus1.17% for RHS admissions; major G2 counts
+are unchanged. This is a negative priority-policy result, not a successful
+whole-workload optimization. No reverse repetition or production rollout.
+The local endpoint pilots bypassed parent matching and kept original programs;
+the integrated test partitions a narrow case and changes the recursive program.
+Those are different interventions. Complement splitting is a plausible cost,
+but these counters alone do not prove it caused the complete regression.
+
+Existing partial-rule overlays are not a no-split alternative: they append
+after baseline fall-through and use the same partial-intersection splitting.
+An opportunistic rule used only on wholly contained input domains would require
+a new explicit policy and corresponding cold/checkpoint semantics. No such
+policy or benefit is claimed here. Evidence:
+`TMP/postlaunch-20261002/tangent-integration/replayed-147-whole58-v1/`.
+
+### Conditional physical invariant: a separate geometry question
+
+A dots-first argument is false for the saved pool: an actual same-support rule
+maps(A,R)=(5,5) to(6,4). A possible replacement is F+M*S, where F=A+R and S
+counts active denominators. Under the common uncut order, same-support terms
+have nonincreasing F; a strict support drop pays for an increase at most the
+finite saved shift's L1 norm. Choosing M above every such norm therefore works
+IF nonzero terms never reactivate a pinched denominator and routing respects
+the same potential. This premise needs a whole-pool, guard-aware check; raw
+positive shifts on inactive axes are not witnesses when coefficients vanish
+on that activation face or the saved rule excludes it.
+
+Even a valid concrete invariant does not authorize clipping widened abstract
+domains. Separate caps on A and R do not represent their sum correlation;
+queue, reuse and cold verification would need to agree on the restricted scope.
+The attempted complete check of the original four-loop rule corpus uses the
+existing native guarded-application CLI, without new algebra or a solver build.
+It stops at the first of523 rules: an excluded n2=1 sign face is specialized
+before the lazy guard is discharged, producing `ZeroDenominator` for2(n2−1).
+This fail-closed diagnostic limitation does not affect the separately verified
+ordinary dispatcher, which resolves exceptions before selecting a rule. The
+census completes0/523 rules and is inconclusive, not a counterexample or proof
+of the proposed invariant. No invariant-aware geometry, bound for unbounded
+helpers, termination theorem or performance gain has been implemented/inferred.

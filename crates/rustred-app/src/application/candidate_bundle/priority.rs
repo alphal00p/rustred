@@ -4,11 +4,14 @@
 //! proof stays attached to the returned bytes; the candidate codec itself does
 //! not acquire source-proof authority, nor does its empty seed trace claim it.
 
-use rustred::algebra::{CoefficientPolynomial, IndexedCoefficientContext, IndexedPolynomial};
+use rustred::algebra::{
+    CoefficientPolynomial, ExactAlgebraLimits, IndexedCoefficientContext, IndexedPolynomial,
+};
 use rustred::foundry::artifact::{
     CheckedOriginalSourceCombination, OriginalSourceCombinationLimits,
     OriginalSourceCombinationRequest, check_original_source_combination,
 };
+use rustred::foundry::parametric::ParametricGuardOrigin;
 use rustred::identity::ParametricIbpGenerator;
 use rustred::persistence::{CoefficientId, CoefficientTableBuilder};
 use rustred::solver::{
@@ -50,6 +53,9 @@ impl CheckedPriorityOwnerExport {
 /// and free local axes `[0, infinity)` or `[1, infinity)`. The latter is encoded
 /// by an exact excluded boundary, not a widened application domain. Unsupported
 /// guards refuse the entire export: no shared family condition is strengthened.
+/// Pure base-field poles arising only from contribution weights may be
+/// discharged as generic-field units after the complete identity check. Their
+/// conditions and origins remain in the returned proof, not erased from it.
 /// Old rules, finite terminals, order, family and solver policy remain unchanged.
 /// Terminals retain their existing priority over all rules. No search, canonical
 /// pivot replay, terminal creation, owner installation or closure check occurs.
@@ -328,15 +334,22 @@ fn check_runtime_guards(
                 Ok(primitive(&p))
             })
             .collect::<Result<Vec<_>, AppError>>()?;
-        for guard in cell.rule().nonzero_guards() {
+        for checked_guard in cell.rule().nonzero_guards() {
             let guard = context
                 .specialize_fixed_polynomial(
-                    guard.polynomial(),
+                    checked_guard.polynomial(),
                     &fixed,
                     limits.cell.indexed_algebra,
                 )
                 .map_err(error)?;
-            if guard.is_nonzero_constant() {
+            if guard.is_nonzero_constant()
+                || is_generic_field_weight_pole(
+                    context,
+                    &guard,
+                    checked_guard.origins(),
+                    limits.cell.indexed_algebra.exact_algebra,
+                )?
+            {
                 continue;
             }
             if guard.is_zero() || !denominators.contains(&primitive(&guard)) {
@@ -347,6 +360,39 @@ fn check_runtime_guards(
         }
     }
     Ok(())
+}
+
+// A nonzero element of Q(base parameters) is a unit. This does NOT discharge
+// source hypotheses, caller-retained conditions, final/RHS poles, or a guard
+// still depending on a free integral index. Origins come only from the checked
+// original product; deduplicated guards must have exclusively weight origins.
+// Exact cell specialization precedes this check, so no unspecialized index
+// dependency is silently ignored. The checked proof itself is never modified.
+fn is_generic_field_weight_pole(
+    context: &IndexedCoefficientContext,
+    polynomial: &IndexedPolynomial,
+    origins: &[ParametricGuardOrigin],
+    limits: ExactAlgebraLimits,
+) -> Result<bool, AppError> {
+    context
+        .validate_polynomial_with_limits(polynomial, limits)
+        .map_err(error)?;
+    if polynomial.is_zero()
+        || origins.is_empty()
+        || !origins.iter().all(|origin| {
+            matches!(
+                origin,
+                ParametricGuardOrigin::SourceCombinationDenominator { .. }
+            )
+        })
+    {
+        return Ok(false);
+    }
+    // IndexedCoefficientContext authenticates the map as base variables
+    // followed by every integral-index variable. Use native polynomial degree,
+    // not display parsing or factor/implication guesses.
+    let base_count = context.base().one().get_variables().len();
+    Ok((0..context.index_count()).all(|axis| polynomial.raw().degree(base_count + axis) == 0))
 }
 
 // Native primitive associates only: no string parsing, factor guesses or

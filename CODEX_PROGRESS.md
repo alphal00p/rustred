@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 03:42 UTC (05:42 Zurich)
+## Current workboard — October 2, 04:40 UTC (06:40 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -35,7 +35,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Global absolute-degree-first order | `five_loop_order_runner` comparator/runner; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Four-loop cold-All pass; domains−3.64%, no timing win. Expanded-basis5L pair cold-All passes: domains−0.75%, arm time+0.40%, terminals25→28 | Delivered negative promotion gate; no campaign restart recommendation or robust/equal-basis speedup claim |
 | Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | 4L ABBA cold-All unions pass. Exact outer-index lifts pass in4L and5L. Both5L pairs cold-All PASS: domains−23.65–26.18%, successor admissions−30.37–33.53%, traversal−29.68–37.02% | Positive local work gate; whole walk+cold mixed (+0.71%/−6.38%). No installed macro or full58/full116 gain claim |
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
-| Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic constructor6/6, public integration2/2, five-check bridge smoke PASS; real owner export486cells PASS. Whole58 both cold-All PASS but domains+2.44%, traversal+0.53% | Broad46-RHS priority not promoted; no reverse repeat. Diagnose actual integrated effect; independent logarithmic-vector proposal and affine-component comparison pending. Private unit-suite reruns remain qualified |
+| Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Degree-one logarithmic ansatz independently vetoed analytically | Park automatic priority insertion; source-component falsifier prepared, not run. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
+| Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -50,6 +51,157 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 04:38 UTC — guarded corpus census is inconclusive, not a counterexample
+
+- [M] One frozen-CLI four-loop census stops in3.011s at the first of523 rules:
+  `0111100000`,rule0 returns `Applied(Algebra(ZeroDenominator))`. The requested
+  whole orthant includes n2=1, although the admitted conditional rule excludes
+  that face and has denominators2(n2−1). Native sign-cell specialization reaches
+  the pole before completing the conditional inspection.0/523 rules complete;
+  no no-reactivation or finite-potential premise is established.
+- [D] Keep raw `TMP/postlaunch-20261002/no-reactivation-four-loop-v1/execution-r1/`.
+  Author and independent reviewer inspect the diagnostic boundary; no automatic
+  retry, limit increase, engine patch, coordinate truncation or production change.
+  The successful matched cold campaign controls remain separate evidence.
+- [D] Independent source review confirms this is a fail-closed diagnostic
+  completeness gap, not an unsafe accepted rule: the ordinary dispatcher
+  resolves exceptions before selecting rules. Increasing work limits would
+  not fix the excluded-face specialization. Keep this outside the priority
+  optimization implementation unless a useful rule-quality experiment needs it.
+- [D] The affine-component preconditioner falsifier passes independent source
+  review after correcting sealed-row API use before compilation. It compares
+  exactly16 unshifted sources with Symbolica's reducer and full original-product
+  checks; no solver-injection/closure claim. Minimal existing-controller glue
+  is being prepared. No native structural result yet.
+
+### October 2, 04:34 UTC — narrow37 whole58 is also a negative priority result
+
+- [M] Forward pair cold-All PASS in33.464s, W16/CPU32–47, same16 owners,
+  508 routes,58 required queries/32 unique roots and frozen CLI. Both exact
+  declared scopes pass independent full reinspection; all processes drain,
+  zero frontiers/uncovered/abandoned obligations. Original fallback remains.
+
+  | Metric | Original pool | Narrow37 priority |
+  | --- | ---: | ---: |
+  | Scheduled domains | 26,025 | 27,696 |
+  | Native inspections | 17,957 | 18,264 |
+  | Events | 872,486 | 909,620 |
+  | Preparation, seconds | 1.101547 | 1.101629 |
+  | Native traversal, seconds | 4.167153 | 4.366214 |
+  | Cold native process, seconds | 8.429610 | 8.842912 |
+  | Complete arm, seconds | 16.301522 | 16.548076 |
+
+- [D] No reverse/restart/rollout: domains+6.42%, inspections+1.71%, events
+  +4.26%, traversal+4.78%, complete arm+1.51%. The extra1,671 domains are
+  1,364 aliases and307 native inspections. Routed admissions grow7.24%, RHS
+  admissions1.17%, and all main G2 plan/coverage counts are identical. There
+  is no successful-rule histogram, so a quantitative new-rule hit claim would
+  be invented. Evidence: `tangent-integration/replayed-147-whole58-v1/forward/`.
+- [D] Earlier endpoint-union pilots kept the old program and bypassed parent
+  matching. Priority insertion instead adds a four-fixed-index partition and
+  changes recursive behavior over six arbitrary outer indices. Matcher source
+  explicitly cuts that case's complement before fallback. Extra fragmentation
+  is plausible, not isolated as the sole cause by aggregate counters.
+- [D] Independent source review: existing partial-rule overlays append after
+  baseline fall-through and use the same partial-intersection splitting. They
+  are NOT a whole-domain-contained override, and require a different seeded
+  proof contract. A no-split shortcut policy would be new work with matching
+  cold/checkpoint semantics; it is not silently enabled or already measured.
+- [M] New core/app release `--lib --tests` check passes31.162s, including new
+  weight-origin classifier test sources. This is compilation checking, not
+  execution of those private unit tests. Public smoke and real147 export ran.
+
+### October 2, 04:27 UTC — narrow37 identity admitted by native pipeline
+
+- [M] Adapter-only compile-r3 passes124.359s. Native `probe-r3/` succeeds in
+  2.966s inclusive,0.242s inside the adapter and0.076s in checked proof/export.
+  This is export of an already discovered identity, NOT IBP generation or
+  campaign closure timing. All147 original contributions/2,165 complete terms
+  are replayed, including1,268 terms zero at the old sample. The exact symbolic
+  product and37-term normalized RHS agree;36 sign cells cover the six-free-axis
+  case with the four fixed indices unchanged.
+- [M] Experimental saved owner has16→17 rules, the same single terminal and
+  unchanged full fallback suffix;49,027→52,106 bytes. Candidate identity is
+  `b323f5f7c83c24ef742cd8f5a638ec2fcc401fbba9ddd1a9e92aa71a37369c2a`.
+  This supplies the positive real-input guard-origin test missing from the
+  five-check smoke. Independent result audit and whole58 binding follow.
+  Production remains untouched; no full-owner certification/closure claim.
+
+### October 2, 04:18 UTC — new bridge validation and a conditional finite envelope
+
+- [M] Optimized app-only build `tangent-integration/build-app-weight-units2/`
+  passes in752.405s (peak single-child RSS13.51GiB); new public smoke compiles
+  in120.203s and passes all five checks in1.157s inclusive. Independent audit
+  confirms refusal of genuine additional guards, fallback/terminal retention
+  and drained processes. This does not claim execution of the private unit
+  suite or success of the positive147-source export.
+- [M] `replayed-147-owner-v1/compile-r1/` stops after5.917s because the ignored
+  adapter accidentally calls private `completed.relations()`. No native export
+  ran. Author is correcting only that adapter using the existing public
+  inventory interface, with independent review; no engine accessor/rebuild.
+- [D] Two independent read-only reviews reject a dots-first global bound:
+  saved rule61 has a nonzero same-support transition A5/R5 to A6/R4, F=10.
+  A conditional potential `F + M*support`, with M at least the largest saved
+  shift L1 norm, survives that example and a support-drop example F7 to F9.
+  It still requires every nonzero saved/repair rule to forbid reactivation of
+  pinched indices and the appropriate common within-support ordering. Admitted
+  routing preserves the needed A/R bounds. Whole-pool guard-aware checking is
+  pending; permissive engine tests are not an actual-pool counterexample.
+- [D] Even such a bound would not authorize silently clipping an old widened
+  domain: queue, reuse, checkpoint and cold verification must all recognize the
+  restricted domain. Existing separate A/R caps might already make a coarse
+  envelope redundant. No finite-closure theorem, performance improvement, new
+  domain semantics, or production change is claimed.
+- [M] Corrected adapter compiles in126.250s. Its first native probe then stops
+  in3.091s before algebra because one historical receipt status was named
+  incorrectly in the adapter (`FIXED_ROW_MEMBERSHIP_DIAGNOSTIC_COMPLETE` is
+  the actual label). Both agents check the remaining literal/data assertions
+  against the pinned receipts before the next adapter-only compile. Failures
+  remain in `compile-r1/` and `probe-r2/`; neither is a mathematical failure.
+- [M] Read-only production at04:19UTC: running/fresh heartbeat,166.87M
+  discovered,15.08M pending,23.19M recorded recursively closed,13/67 recorded
+  closed roots,143.86GB process-tree RSS. Recursive snapshot age~13min;
+  one-hour pending/completion−0.088. Actual recorded closures have advanced;
+  this is not an ETA or evidence of eventual complete closure.
+
+### October 2, 03:52 UTC — milestone pushed; next empty ansatz eliminated cheaply
+
+- [M] Committed/pushed `45160900` on `main`: generic tangent construction,
+  original-source admission, checked candidate bridge, focused tests and honest
+  negative whole58 result. No reference material, campaign outputs, license or
+  unrelated changes staged. Production remains untouched.
+- [D] Independent analytic review rejects the proposed77-unknown affine
+  logarithmic-vector ansatz: already two protected nonzero-unit-mass quadrics
+  force its vector to zero when momentum coefficients are affine polynomials
+  in independent Gram variables over Q(d). This veto is specific to the chosen
+  single-loop derivation/degree/field, not to general no-dot IBPs. No compile,
+  native solve or wider-degree search was necessary. Detailed proof retained at
+  `TMP/postlaunch-20261002/logarithmic-v1/ANALYTIC_PREFLIGHT.md`.
+- [D] The independent guard review identifies a legitimate distinction:
+  intermediate source-combination weight poles such as d−2 are nonzero units
+  over generic Q(d), whereas actual source hypotheses, final coefficient poles
+  and index-dependent exceptional factors are separate obligations. Runner
+  designs the smallest checked provenance distinction, retaining all poles in
+  the proof record; auditor reviews it before implementation. This is not a
+  blanket removal of guards or a claim about specialized module rank at d=2.
+- [D] The next performance candidate remains the already derived147-source/
+  37-RHS identity on its exact narrow slice, not a new FORM formula, larger
+  Laporta bank or guessed dimensional relation. It can use the same unchanged
+  four-loop58-query comparison once safely exported. Original fallbacks stay.
+- [D] The guard distinction is implemented/source-audited using existing
+  `ParametricNonZeroGuard::origins()`: only exclusively weight-denominator,
+  nonzero, index-free guards qualify after exact cell specialization. No core
+  API/schema change; genuine/mixed conditions retain strict handling. Optimized
+  app-only build `build-app-weight-units2/` is running. The147-source export and
+  unchanged58 companion are prepared/source-reviewed but not executed yet.
+- [D] Parallel read-only hypothesis: an immutable finite rule pool's verified
+  lexicographic descent and bounded shifts might yield explicit reachable A/R
+  credits from bounded physical starts. If routing respects the same credit,
+  it could remove artificial hull growth without clipping real descendants.
+  Agents inspect actual order/route code and existing negative evidence first.
+  Unbounded helpers are excluded from that proposed finite-input claim; no
+  bound, implementation, eventual-termination or performance result is assumed.
 
 ### October 2, 03:42 UTC — installed broad tangent rule: valid, no whole58 gain
 
