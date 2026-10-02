@@ -23,9 +23,37 @@ print(laporta.reduce([3]))
 ```
 
 For graph input, start with `diagram.integral_family(kinematics=kin)`.
-Provide independent external momenta and their scalar products in
+Provide independent external momenta and assign all their scalar products in
 `Kinematics`. Masses, invariants, and the dimension can be arbitrary rational
-functions of scalar Symbolica symbols, including namespaced symbols.
+functions of scalar Symbolica symbols, including namespaced symbols, and of
+loop-independent invariants such as the tensor contraction `dot(q, q)`:
+
+```python
+from symbolica.community.tensor import Representation, TensorName, dot
+
+p = S("p")
+q = TensorName.vector("probe::q")(1, Representation.mink(dimension=d))
+kin = hep.Kinematics(d, momenta=[k, p]).with_scalar_product(p, p, dot(q, q))
+bubble = hep.IntegralFamily(
+    [k], [p], [kin.scalar_product(k, k), kin.scalar_product(k - p, k - p)],
+    kinematics=kin,
+)
+print(hep.IBPFamily(bubble).reduce_laporta([[2, 1]]).reduce([2, 1]))
+```
+
+An invariant is a call to a function declared `Scalar`, such as `dot`, that
+mentions none of the family's momenta, labeled like `K(0)` or plain like `k`,
+and no routed edge momentum `Q(e)`. These checks are syntactic: any other
+vector inside an invariant must itself be loop-independent. Each distinct
+invariant is an independent parameter and appears unchanged in coefficients
+and conditions; relations between invariants, or with symbols inside them
+such as the `d` in `mink(d)`, are not used. Contracted indices normalize to
+`dot`, and Symbolica orders its arguments, but `dot` over `mink(d)` and over
+`mink(4)` are different invariants. Uncontracted tensor structures, such as an
+explicit metric or a factor left inside `dot`, Symbolica built-ins such as
+`log`, and non-integer or symbolic exponents such as `sqrt(s)` are rejected.
+Call `.to_expression()` on a tensor invariant before combining it with
+`kin.scalar_product(...)` in a denominator.
 Complete an independent but incomplete family with `family.complete()`;
 the appended slots represent irreducible scalar products and normally have
 nonpositive powers. Dependent propagators require partial fractions first.
@@ -54,10 +82,12 @@ follows their right-hand sides, and back-substitutes the solved integrals.
 of distinct integrals searched. Exhausting the latter raises an error.
 `residuals` explicitly lists the remaining basis at that search depth; these
 are not certified independent masters. Increasing depth can reduce the basis
-further. Unmatched integrals passed to `solution.reduce` remain unchanged.
+further. Unmatched integrals passed to `solution.reduce` remain unchanged
+unless they lie outside a declared cut, which reduces them to zero.
 Scaleless subsectors are removed only after RustRed's sector analyzer proves
 them zero. Family symmetries can further identify residuals using Feynkit's
-verified momentum maps, as demonstrated in the notebook.
+verified momentum maps, as demonstrated in the notebook. In a cut family, use
+only maps that send cut denominators to cut denominators.
 
 The runtime adapter accepts 1–12 denominators. Concrete search targets and
 fixed coordinates must lie in RustRed's compact power range `-64..63`;
@@ -68,6 +98,41 @@ experimental reconstruction backends depend on newer vendored Symbolica APIs;
 the core's default `reconstruction` feature keeps those available to existing
 RustRed users, while this bridge disables that feature to share the community
 host's pinned Symbolica version.
+
+## Reverse-unitarity cuts
+
+`IBPFamily(family, cut=[True, False, ...])` flags cut denominators in family
+order, like Kira's `cut_propagators` (1-based numbers there) or LiteRed's
+`CutDs`. Every integral with a nonpositive power on a cut denominator
+vanishes. Both solvers and `solution.reduce` return zero for such integrals,
+whether or not they were requested:
+
+```python
+from symbolica import E
+
+d, k, p, s, m2, I = S("d", "k", "p", "s", "m2", "I")
+kin = hep.Kinematics(d, momenta=[k, p]).with_scalar_product(p, p, s)
+bubble = hep.IntegralFamily(
+    [k], [p], [kin.scalar_product(k, k) - m2, kin.scalar_product(k - p, k - p)],
+    kinematics=kin,
+)
+solution = hep.IBPFamily(bubble, cut=[True, True]).reduce_laporta([[2, 1]], max_depth=1)
+expected = (3 - d) / (s - m2) * I(1, 1)
+assert (solution.reduce([2, 1], integral=I) - expected).together() == E("0")
+assert solution.reduce([1, 0]) == []
+```
+
+The cut family keeps the uncut integral order. A cut reduction is therefore
+the uncut reduction with every integral outside the cut removed, and its
+residuals are the uncut residuals inside the cut. `ibp_identities()` returns
+the ordinary identities; they hold for cut integrals once the terms outside
+the cut are set to zero. In `solve_parametric`, discovery drops terms that
+leave the cut through a fixed cut index, so fix the cut indices where
+possible, for example `fixed=[None, 1]`. Terms that leave the cut through a
+symbolic cut index stay in `rule.terms`; `rule.apply` and `solution.reduce`
+drop them as zero. With every cut index symbolic, the rule is the uncut rule.
+Masks built from a diagram's cut edges follow the family's denominator order.
+Never cut the auxiliary slots appended by `complete()`.
 
 ## Build and validation
 
@@ -86,9 +151,10 @@ cargo test -p rustred --test feynkit_bridge -- --test-threads=1
 
 The Python tests generate connected two-loop propagator and vertex graphs,
 introduce two independent masses and external virtualities, and check native
-identity conversion, both solving modes, exact analytic reductions, and error
-handling. Notebook execution additionally needs IPython; interactive execution
-uses a normal Python Jupyter kernel.
+identity conversion, both solving modes, exact analytic reductions,
+reverse-unitarity cuts, tensor invariants, and error handling. Notebook
+execution additionally needs IPython; interactive execution uses a normal
+Python Jupyter kernel.
 
 The [two-loop phi4 notebook](../../examples/notebooks/feyncalc_phi4_two_loop.ipynb)
 reproduces the [FeynCalc Kira example](https://feyncalc.github.io/FeynCalcExamples/Phi4/TwoLoops/Renormalization-SS),

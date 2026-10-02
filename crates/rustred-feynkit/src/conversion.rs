@@ -14,6 +14,61 @@ pub(crate) struct FamilyConversion {
     pub original_parameters: BTreeMap<Atom, Atom>,
 }
 
+/// Momenta that no IBP parameter may mention.
+struct Momenta {
+    loops: Vec<Momentum>,
+    external: Vec<Momentum>,
+    edge: Option<Momentum>,
+}
+
+/// A momentum as FeynKit writes it: a symbol `k`, or a labeled call `K(0)`,
+/// which Spenso spells `K(0, mink(d))` inside scalar products.
+struct Momentum {
+    head: Symbol,
+    labels: Vec<Atom>,
+}
+
+impl Momentum {
+    fn new(momentum: &PythonExpression) -> PyResult<Self> {
+        match momentum.expr.as_view() {
+            AtomView::Var(variable) => Ok(Self {
+                head: variable.get_symbol(),
+                labels: Vec::new(),
+            }),
+            AtomView::Fun(function) => Ok(Self {
+                head: function.get_symbol(),
+                labels: function.iter().map(|label| label.to_owned()).collect(),
+            }),
+            _ => Err(PyValueError::new_err(
+                "family momenta must be symbols or labeled calls",
+            )),
+        }
+    }
+
+    /// Whether `value` mentions this momentum, bare or as a call with its labels.
+    fn occurs_in(&self, value: AtomView<'_>) -> bool {
+        let mut found = false;
+        value.visitor(&mut |view| {
+            found |= match view {
+                AtomView::Var(variable) => {
+                    self.labels.is_empty() && variable.get_symbol() == self.head
+                }
+                AtomView::Fun(function) => {
+                    function.get_symbol() == self.head
+                        && function.get_nargs() >= self.labels.len()
+                        && function
+                            .iter()
+                            .zip(&self.labels)
+                            .all(|(argument, label)| argument == label.as_view())
+                }
+                _ => false,
+            };
+            !found
+        });
+        found
+    }
+}
+
 impl FamilyConversion {
     pub fn from_feynkit(source: &Bound<'_, PyAny>, name: &str) -> PyResult<Self> {
         if !source.getattr("is_independent")?.extract::<bool>()? {
@@ -90,12 +145,31 @@ impl FamilyConversion {
             }
             affine.push(row);
         }
+        let momenta = |momenta: &[PythonExpression]| {
+            momenta
+                .iter()
+                .map(Momentum::new)
+                .collect::<PyResult<Vec<_>>>()
+        };
+        // FeynKit's routed edge momenta Q(e) may depend on any loop momentum.
+        let module = kin.get_type().getattr("__module__")?.extract::<String>()?;
+        let edge = match source.py().import(module.as_str())?.getattr("Symbols") {
+            Ok(symbols) => Some(Momentum::new(
+                &symbols.getattr("edge_momentum")?.extract()?,
+            )?),
+            Err(_) => None,
+        };
+        let momenta = Momenta {
+            loops: momenta(&loops)?,
+            external: momenta(&external)?,
+            edge,
+        };
         let mut symbols = BTreeSet::new();
         for value in std::iter::once(&dimension)
             .chain(gram.iter().flatten())
             .chain(affine.iter().flatten())
         {
-            Self::scalar_symbols(value.as_view(), &mut symbols)?;
+            Self::scalar_symbols(value.as_view(), &momenta, &mut symbols)?;
         }
         let names = (0..symbols.len())
             .map(|i| format!("feynkit_parameter_{i}"))
@@ -116,13 +190,13 @@ impl FamilyConversion {
                 .try_to_rational_polynomial(&Q, &Z, Some(context.one().get_variables().clone()))
                 .map_err(|error| {
                     PyValueError::new_err(format!(
-                        "IBP coefficients must be rational functions of scalar symbols: {error}"
+                        "IBP coefficient {value} must be a rational function of scalar symbols and invariants: {error}"
                     ))
                 })?;
             if !context.contains(&result) {
-                return Err(PyValueError::new_err(
-                    "undeclared scalar dependence in IBP coefficient",
-                ));
+                return Err(PyValueError::new_err(format!(
+                    "undeclared scalar dependence in IBP coefficient {value}"
+                )));
             }
             Ok(result)
         };
@@ -163,36 +237,89 @@ impl FamilyConversion {
         })
     }
 
-    fn scalar_symbols(value: AtomView<'_>, symbols: &mut BTreeSet<Atom>) -> PyResult<()> {
+    /// Collect the parameters: scalar symbols and opaque invariant calls.
+    ///
+    /// A call such as the tensor invariant `dot(q, q)` is one opaque parameter
+    /// when its head is declared `Scalar`, is not a Symbolica built-in (whose
+    /// relations, such as `log(s*t) = log(s) + log(t)`, the solver cannot see),
+    /// keeps no factor inside a linear head, and mentions none of the family's
+    /// momenta or FeynKit's routed edge momenta. Its arguments, such as the `d`
+    /// in `mink(d)`, are not parameters. Only these syntactic checks are made:
+    /// any other vector inside an invariant must itself be loop-independent.
+    fn scalar_symbols(
+        value: AtomView<'_>,
+        momenta: &Momenta,
+        symbols: &mut BTreeSet<Atom>,
+    ) -> PyResult<()> {
         match value {
-            AtomView::Var(_) => {
+            AtomView::Var(_) | AtomView::Fun(_) => {
+                let mentions =
+                    |momenta: &[Momentum]| momenta.iter().any(|momentum| momentum.occurs_in(value));
+                if mentions(&momenta.loops) {
+                    return Err(PyValueError::new_err(format!(
+                        "IBP coefficient {value} depends on a loop momentum; masses, invariants, and the dimension must be loop-independent"
+                    )));
+                }
+                if mentions(&momenta.external) {
+                    return Err(PyValueError::new_err(format!(
+                        "IBP coefficient {value} contains an external momentum; assign all external scalar products in Kinematics to values free of the family's momenta"
+                    )));
+                }
+                if mentions(momenta.edge.as_slice()) {
+                    return Err(PyValueError::new_err(format!(
+                        "IBP coefficient {value} contains a routed edge momentum, which may depend on loop momenta; write it through the family's momenta first"
+                    )));
+                }
+                if let AtomView::Fun(function) = value {
+                    let head = function.get_symbol();
+                    if head.is_builtin() {
+                        return Err(PyValueError::new_err(format!(
+                            "IBP coefficient {value} calls a Symbolica built-in, whose relations the solver cannot use; introduce a symbol for it"
+                        )));
+                    }
+                    if !head.is_scalar() {
+                        return Err(PyValueError::new_err(format!(
+                            "IBP coefficients must be rational functions of scalar symbols and of invariants such as dot(q, q), whose function is declared Scalar; {value} is not"
+                        )));
+                    }
+                    if head.is_linear()
+                        && function.iter().any(|arg| matches!(arg, AtomView::Mul(_)))
+                    {
+                        return Err(PyValueError::new_err(format!(
+                            "IBP invariant {value} keeps a factor or an uncontracted tensor inside a linear function; contract or simplify the tensor expression, or factor scalar coefficients out"
+                        )));
+                    }
+                }
                 symbols.insert(value.to_owned());
             }
             AtomView::Add(sum) => {
                 for child in sum.iter() {
-                    Self::scalar_symbols(child, symbols)?;
+                    Self::scalar_symbols(child, momenta, symbols)?;
                 }
             }
             AtomView::Mul(product) => {
                 for child in product.iter() {
-                    Self::scalar_symbols(child, symbols)?;
+                    Self::scalar_symbols(child, momenta, symbols)?;
                 }
             }
             AtomView::Pow(power) => {
-                for child in power.iter() {
-                    Self::scalar_symbols(child, symbols)?;
+                let (base, exponent) = power.get_base_exp();
+                if !matches!(exponent, AtomView::Num(number) if number.get_coeff_view().is_integer())
+                {
+                    return Err(PyValueError::new_err(format!(
+                        "IBP coefficient {value} has a non-integer or symbolic exponent; introduce a symbol for roots, exponentials, or symbolic powers"
+                    )));
                 }
+                Self::scalar_symbols(base, momenta, symbols)?;
             }
             AtomView::Num(_) => {}
-            AtomView::Fun(_) => {
-                return Err(PyValueError::new_err(
-                    "IBP coefficients must be rational functions of scalar symbols; assign all external scalar products in Kinematics",
-                ));
-            }
         }
         Ok(())
     }
 
+    /// Replace whole atoms top-down. An opaque invariant is therefore replaced
+    /// before its arguments are visited, so a parameter such as the dimension
+    /// is never substituted inside it.
     pub fn rename(value: &Atom, replacements: &BTreeMap<Atom, Atom>) -> Atom {
         value.replace_map(|view, _, output| {
             if let Some(replacement) = replacements.get(&view.to_owned()) {

@@ -12,7 +12,7 @@ use symbolica::poly::PolyVariable;
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralFamily;
 use crate::sector::{
-    Mask,
+    CutConstraint, Mask, Pattern, Restrictions,
     zero::{Analyzer, Decision},
 };
 
@@ -88,8 +88,16 @@ pub struct DynamicSolution {
 /// Find one reusable symbolic-index recurrence on an explicit sector/case.
 /// Fixed coordinates use absolute powers; `None` coordinates remain symbolic.
 /// Exhausting the finite search radius is an error, never a solved rule.
+///
+/// `cuts` selects reverse-unitarity (`CutDs`) denominators; integrals with a
+/// nonpositive power on one of them vanish by definition. Discovery drops terms
+/// that leave the cut through a fixed cut index. Terms that leave it through a
+/// symbolic cut index remain on the right-hand side and vanish once the index
+/// is specialized; with every cut index symbolic, the rule is the uncut rule.
+/// `CutConstraint::none` is the ordinary family.
 pub fn solve_parametric(
     family: &IntegralFamily,
+    cuts: &CutConstraint,
     sector: &[bool],
     fixed: &[Option<i16>],
     options: DynamicSolveOptions,
@@ -98,6 +106,7 @@ pub fn solve_parametric(
         family.denominator_count(),
         parametric,
         family,
+        cuts,
         sector,
         fixed,
         options
@@ -108,8 +117,14 @@ pub fn solve_parametric(
 /// replay. Every newly encountered RHS integral receives the same bounded
 /// search, up to `max_targets`. Solved targets are back substituted across
 /// sectors. Unresolved RHS integrals remain explicit.
+///
+/// Integrals outside the support of `cuts` vanish, as in [`solve_parametric`].
+/// The integral order is that of the uncut family, so a cut reduction equals
+/// the uncut one with every integral outside the cut support removed.
+/// Requested targets outside the support receive zero rules without a search.
 pub fn solve_laporta(
     family: &IntegralFamily,
+    cuts: &CutConstraint,
     targets: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
@@ -117,6 +132,7 @@ pub fn solve_laporta(
         family.denominator_count(),
         laporta,
         family,
+        cuts,
         targets,
         options
     )
@@ -171,6 +187,17 @@ fn index_variables<const N: usize>(sources: &SourceSystem<N>) -> Vec<PolyVariabl
         .collect()
 }
 
+fn dynamic_powers<const N: usize>(integral: super::Integral<N>) -> Vec<DynamicPower> {
+    integral
+        .powers()
+        .iter()
+        .map(|power| DynamicPower {
+            symbolic: power.is_symbolic(),
+            value: power.value(),
+        })
+        .collect()
+}
+
 fn export<const N: usize>(
     candidate: RuleCandidate<N>,
     sources: &SourceSystem<N>,
@@ -179,16 +206,7 @@ fn export<const N: usize>(
     let exceptions = extract_exceptions(&candidate, sources.index_variables(), sector)
         .map_err(|error| SolverError::ExactReplay(error.to_string()))?
         .branches;
-    let powers = |integral: super::Integral<N>| {
-        integral
-            .powers()
-            .iter()
-            .map(|power| DynamicPower {
-                symbolic: power.is_symbolic(),
-                value: power.value(),
-            })
-            .collect()
-    };
+    let powers = dynamic_powers::<N>;
     let mut nonzero_conditions = sources.conditions().to_vec();
     for term in &candidate.rhs {
         let denominator = &term.coefficient.denominator;
@@ -212,8 +230,25 @@ fn export<const N: usize>(
     })
 }
 
+/// A rule for a vanishing target: either by a zero proof, valid under the
+/// family's domain `conditions`, or by lying outside the cut, which needs none.
+fn zero_rule<const N: usize>(
+    case: &CoordinateCase<N>,
+    sector: &[bool; N],
+    conditions: Vec<CoefficientPolynomial>,
+) -> DynamicRule {
+    DynamicRule {
+        sector: sector.to_vec(),
+        target: dynamic_powers(case.integral()),
+        rhs: Vec::new(),
+        nonzero_conditions: conditions,
+        exceptions: Vec::new(),
+    }
+}
+
 fn parametric<const N: usize>(
     family: &IntegralFamily,
+    cuts: &CutConstraint,
     sector: &[bool],
     fixed: &[Option<i16>],
     options: DynamicSolveOptions,
@@ -221,29 +256,23 @@ fn parametric<const N: usize>(
     let sector = array::<_, N>(sector, "sector")?;
     let case = CoordinateCase::new(array(fixed, "fixed indices")?)?;
     let sources = SourceSystem::<N>::from_family_with_lorentz(family, options.include_lorentz)?;
-    let (zero_sectors, zero_conditions) = zero_census(family, &[sector])?;
+    let restrictions = cut_restrictions(family, cuts)?;
     if !case.is_in_sector(&sector) {
         return Err(SolverError::InvalidInput(
             "case lies outside its sector".into(),
         ));
     }
+    if is_excluded(&restrictions, sector)? {
+        return Ok(DynamicSolution {
+            rules: vec![zero_rule(&case, &sector, Vec::new())],
+            index_variables: index_variables(&sources),
+            ..Default::default()
+        });
+    }
+    let (zero_sectors, zero_conditions) = zero_census(family, &restrictions, &[sector])?;
     if zero_sectors.contains(&sector) {
         return Ok(DynamicSolution {
-            rules: vec![DynamicRule {
-                sector: sector.to_vec(),
-                target: case
-                    .integral()
-                    .powers()
-                    .iter()
-                    .map(|power| DynamicPower {
-                        symbolic: power.is_symbolic(),
-                        value: power.value(),
-                    })
-                    .collect(),
-                rhs: Vec::new(),
-                nonzero_conditions: zero_conditions,
-                exceptions: Vec::new(),
-            }],
+            rules: vec![zero_rule(&case, &sector, zero_conditions)],
             index_variables: index_variables(&sources),
             ..Default::default()
         });
@@ -275,26 +304,39 @@ fn parametric<const N: usize>(
 
 fn laporta<const N: usize>(
     family: &IntegralFamily,
+    cuts: &CutConstraint,
     targets: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
+    let restrictions = cut_restrictions(family, cuts)?;
     let mut pending = BTreeSet::<[i16; N]>::new();
+    // Outside the cut support no search is needed, so these targets neither
+    // count against `max_targets` nor widen the zero census.
+    let mut excluded = BTreeMap::<[i16; N], CoordinateCase<N>>::new();
     for target in targets {
         let powers = array::<_, N>(target, "target")?;
-        CoordinateCase::new(powers.map(Some))?;
-        pending.insert(powers);
+        let case = CoordinateCase::new(powers.map(Some))?;
+        if is_excluded(&restrictions, powers.map(|power| power > 0))? {
+            excluded.insert(powers, case);
+        } else {
+            pending.insert(powers);
+        }
     }
     let sources = SourceSystem::<N>::from_family_with_lorentz(family, options.include_lorentz)?;
     let initial_sectors: Vec<_> = pending
         .iter()
         .map(|powers| powers.map(|power| power > 0))
         .collect();
-    let (zero_sectors, zero_conditions) = zero_census(family, &initial_sectors)?;
+    let (zero_sectors, zero_conditions) = zero_census(family, &restrictions, &initial_sectors)?;
     let zero_sectors: std::sync::Arc<[[bool; N]]> = zero_sectors.into();
     let mut result = DynamicSolution {
         index_variables: index_variables(&sources),
         ..Default::default()
     };
+    for (powers, case) in excluded {
+        let sector = powers.map(|power| power > 0);
+        result.rules.push(zero_rule(&case, &sector, Vec::new()));
+    }
     let mut visited = BTreeSet::new();
     let mut solvers = BTreeMap::new();
     while !pending.is_empty() {
@@ -315,21 +357,9 @@ fn laporta<const N: usize>(
         for (sector, cases) in sectors {
             if zero_sectors.contains(&sector) {
                 for case in cases {
-                    result.rules.push(DynamicRule {
-                        sector: sector.to_vec(),
-                        target: case
-                            .integral()
-                            .powers()
-                            .iter()
-                            .map(|power| DynamicPower {
-                                symbolic: false,
-                                value: power.value(),
-                            })
-                            .collect(),
-                        rhs: Vec::new(),
-                        nonzero_conditions: zero_conditions.clone(),
-                        exceptions: Vec::new(),
-                    });
+                    result
+                        .rules
+                        .push(zero_rule(&case, &sector, zero_conditions.clone()));
                 }
                 continue;
             }
@@ -384,15 +414,55 @@ fn extend_conditions(target: &mut Vec<CoefficientPolynomial>, source: &[Coeffici
     }
 }
 
-/// Analyze the union of the requested sectors' subsectors. Every zero entry
+fn invalid_input(error: impl std::fmt::Display) -> SolverError {
+    SolverError::InvalidInput(error.to_string())
+}
+
+/// The cut support as sector restrictions, without a sector pattern.
+///
+/// Like the solver's own cut preparation, cuts are not combined with power
+/// shifts: a shifted uncut index could activate a sector outside the census
+/// while lowering a cut index, and that integral would survive as a residual.
+fn cut_restrictions(
+    family: &IntegralFamily,
+    cuts: &CutConstraint,
+) -> Result<Restrictions, SolverError> {
+    if cuts.required_active().active_count() > 0
+        && family.power_shifts().iter().any(|shift| !shift.is_zero())
+    {
+        return Err(SolverError::InvalidInput(
+            "reverse-unitarity cuts are not supported with power shifts".into(),
+        ));
+    }
+    Restrictions::try_new(
+        cuts.clone(),
+        Pattern::any(cuts.arity()).map_err(invalid_input)?,
+    )
+    .map_err(invalid_input)
+}
+
+/// Whether `sector` misses a cut denominator, so all its integrals vanish.
+fn is_excluded<const N: usize>(
+    restrictions: &Restrictions,
+    sector: [bool; N],
+) -> Result<bool, SolverError> {
+    let mask = Mask::try_new(sector).map_err(invalid_input)?;
+    Ok(restrictions
+        .exclusion(&mask)
+        .map_err(invalid_input)?
+        .is_some())
+}
+
+/// Analyze the union of the requested sectors' subsectors. A zero entry either
 /// comes from the existing exact U+F rank certificate, including missing-loop
-/// integrals; no heuristic deletion of numerator or pinched terms occurs.
+/// integrals, or misses a cut denominator and so vanishes by the definition of
+/// a cut integral. No heuristic deletion of numerator or pinched terms occurs.
 fn zero_census<const N: usize>(
     family: &IntegralFamily,
+    restrictions: &Restrictions,
     sectors: &[[bool; N]],
 ) -> Result<(Vec<[bool; N]>, Vec<CoefficientPolynomial>), SolverError> {
-    let analyzer = Analyzer::try_unrestricted(family)
-        .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+    let analyzer = Analyzer::try_new(family, restrictions.clone()).map_err(invalid_input)?;
     let mut zero = Vec::new();
     for bits in 0..(1usize << N) {
         let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
@@ -402,13 +472,10 @@ fn zero_census<const N: usize>(
         {
             continue;
         }
-        let mask =
-            Mask::try_new(sector).map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+        let mask = Mask::try_new(sector).map_err(invalid_input)?;
         if matches!(
-            analyzer
-                .analyze(&mask)
-                .map_err(|error| SolverError::InvalidInput(error.to_string()))?,
-            Decision::ProvedZero(_)
+            analyzer.analyze(&mask).map_err(invalid_input)?,
+            Decision::ProvedZero(_) | Decision::Excluded(_)
         ) {
             zero.push(sector);
         }
