@@ -50,6 +50,48 @@ excluding compilation and review waiting. Independent source/receipt audits
 pass, as do75 selected core tests,6 focused app tests and the complete app
 suite (1,325 passed,14 existing ignores,0 filtered). These are not W50 tests.
 
+## Five-loop transfer: finite-terminal tradeoff, not an end-to-end win
+
+Regenerating owner17941 with the same absolute-degree prefix passes exact
+original-source replay but leaves28 fixed terminal keys instead of25. The first
+registered equal-terminal screen therefore stops honestly; this is not a solver
+failure or a project requirement for a minimal master basis. A separate paired
+test explicitly accepts the larger finite basis and retains the exact original
+required query `conv-d10-a16-r6-101010000110001`, all67 owners/8,246 routes and
+the unchanged repair overlay. There are no auxiliary starting queries or clipped
+descendants in this small control.
+
+| Metric | Default | One global-F owner |
+| --- | ---: | ---: |
+| Finite terminal keys in changed owner | 25 | 28 |
+| Scheduled domains | 23,625 | 23,447 |
+| Native inspections | 16,301 | 16,213 |
+| Dependency edges | 252,456 | 249,488 |
+| Native traversal | 6.385 s | 5.595 s |
+| Owned walk | 87.101 s | 86.829 s |
+| Staging + walk + cold, arm wall time | 177.022 s | 177.725 s |
+
+Both arms pass full cold native reinspection with no uncovered obligations.
+Domains decrease0.753%, inspections0.540%, but complete arm time increases0.397%.
+Preparation dominates this small query; traversal alone is not the end-to-end
+cost. Baseline counts also vary slightly across parallel runs, so this single
+pair does not establish a robust gain. It uses a changed finite basis, not
+equal-basis reduction. Cold sealing of cyclic dependency coverage is not a
+proof of algebraic reduction termination.
+
+At the nominated F10 input, successors decrease46→42 and all four F-growing
+children disappear. The three new finite leaves have old reductions, each
+producing six F11 children: reinserting those rows unchanged would violate the
+new degree constraint. They are not proven independent masters, and none is
+an immediate child of the nominated new rule. Exact whole-campaign use of the
+three leaves is not exposed by this aggregate diagnostic.
+
+The pair takes361.404s inclusive, excluding the separately retained249.213s
+qualification/initial stopped screen and compilation. W16/CPUs32–47,150GB
+guard, all processes drained; independent audit passes. Evidence:
+`TMP/postlaunch-20261001/global-degree-order/five-loop17941-terminal-tradeoff-v1/`.
+There is no campaign-switch recommendation from either loop-count control.
+
 ## Bottom line
 
 Putting `F(n)=sum_i |n_i|=A+R` before support is a genuinely different experiment
@@ -187,6 +229,45 @@ finite-scope experiment, not equivalent coverage of the original 183 starts.
 See the existing [auxiliary-scope assessment](five_loop_auxiliary_scope_2026-09-25.md)
 and [finite-domain investigation](finite_physics_domain_growth_2026-10-01.md).
 
+### A weaker finite bound may already exist for the old rules
+
+Global F is sufficient for a tight degree bound, but is **not necessary** under
+stronger support-transition assumptions. Root proposed, and the independent
+source/math auditor checked, this conditional argument for a fresh helper-free
+finite-input campaign:
+
+1. Every applicable same-support rule has total-excess-first descent, hence
+   `ΔF≤0` because `F=total_excess+support_count` on that support.
+2. Every support-changing rule is a literal pinch, with no inactive-axis
+   reactivation. Let `M≥0` bound the F increase of any such saved shift; the
+   maximum sum of absolute components over the finite saved shifts is safe.
+3. Route cannot increase positive support count, A cap or R cap. New residual
+   domains retain or tighten their incoming caps.
+
+Then the coarse domain quantity `Φ=A_cap+R_cap+M*support_count` cannot increase
+when a new obligation is created. A pinch consumes at least one unit of support
+count, paying for at most M degree growth. References to already-created anchors
+preserve the global maximum bound even if they do not preserve the requesting
+node's individual bound. For the finite required inputs a safe global bound is
+therefore `F≤max_initial Φ≤37+15M`. Global-F rules could reduce this coarse
+ceiling to37, potentially an important improvement, rather than creating
+finiteness from nothing.
+
+This is not yet a theorem about the actual saved campaign. The domain Apply
+API permits support swaps and lower-count activations inside a wider saved
+root; its support-transition tests explicitly cover these. Ordinary generation
+and source replay instead require the relevant activation exclusions. The
+67 actual programs **and** repair overlay must satisfy that corpus-level
+contract and the E-primary condition. No complete corpus audit or measured M
+was run here. An unbounded starting helper or imported unbounded anchor also
+invalidates the finite-input premise.
+
+Even an established finite key universe can be enormous; equal-degree routing
+cycles and worklist behavior remain separate issues. This supplies neither a
+practical ETA nor missing reductions. It does correct an overstrong inference:
+seeing F grow at a pinch is not, by itself, evidence of an infinite reachable
+key space. No rank clipping or extra certificate implementation follows.
+
 ## One fallback if the new order is impractical
 
 Keep ordinary source generation broad enough to cancel higher-F intermediate
@@ -226,8 +307,20 @@ parent relation and identical complete source bank and objective, a unit-target
 solve may be algebraically equivalent. Those conditions were not established
 by the earlier controls. Supra-sector source rows and final RHS
 reactivation are distinct choices. No inferred master independence or automatic
-canonical replay follows. This remains a proposal after the global-F pilot,
-not an authorized implementation or run.
+canonical replay follows.
+
+The first native version of this discriminator has now run after the global-F
+control. At the actual owner481/rule151 point, it retains the45 non-growing
+siblings and jointly targets the24 F-growing terms. Its fixed47 centres/752
+ordinary source rows yield1,322 columns, of which1,240 are forbidden. Symbolica
+finishes elimination in0.496s, but the target marker does not pivot: this bank
+does not contain the requested eliminating combination. All source and original
+parent guards/denominators are retained. Native preparation plus algebra takes
+0.899s; the owned process harness takes5.969s. Compilation is separate.
+This is a bounded negative result, not irreducibility or a proof that larger or
+differently chosen banks cannot work. No source-bank expansion or rule
+publication is implied. Evidence:
+`TMP/postlaunch-20261001/global-degree-order/joint-combination-v1/probe-r3/`.
 
 ## Historical bubble dimensional recurrence: precise implementation boundary
 
@@ -246,6 +339,112 @@ whole-graph U/P experiments were separate diagnostics, not an installed campaign
 rule source. A localized bubble/subgraph recurrence is therefore a separate
 candidate: retain the dimension and denominator conditions, then eliminate any
 shifted-dimension intermediate exactly before proposing a same-dimension rule.
+
+### Local bubble follow-up: compare structure, not only term count
+
+The original-family obstacle is not necessarily fatal: an outer denominator
+such as `p²=D4+1` can sometimes be cleared to obtain a polynomial-weighted
+integral identity, then oriented as a rule. This changes the equation being
+solved; it does not license treating `1/p²` as a coefficient independent of the
+remaining loop momenta. A hand-derived rank-two bubble example at the actual
+required FG point `[2,1,1,1,1,1,1,1,-2,0]` has 27 formal RHS keys, all F≤10,
+against the parent's F11. It retains massive tadpoles and a d−1 denominator.
+It is not yet a native source-proved or parametric rule.
+
+Native inspection of the installed rule9 at that same point gives 26 distinct
+uniform successors after nine exact zeros: 20 at F10, one at F9 and five at F8.
+Thus neither term count nor maximum degree establishes an improvement. However,
+all 26 existing endpoints retain the mixed bubble numerator, whereas the
+prospective identity removes it from 26 of its 27 endpoints. Its hand-counted
+F histogram is two/three/nine/seven/six terms at F10/9/8/7/6. That locality and
+degree-distribution difference is a plausible mechanism worth an exact proof
+test, not a measured saving. The actual baseline inspection completed and
+drained in2.063s; no proposed replacement or descendant comparison ran.
+
+The next gate was full native original-source-span equality with d left generic,
+including every physical column and denominator. The hand derivation uses
+translation/reflection and scaleless polynomial identities; a finite ordinary
+IBP bank need not contain their consequences. A failed span test therefore
+rejects that bank, not the tensor identity. Any added symmetry or zero relation
+would need its own existing native authority, not an unlabelled source row.
+Evidence: `TMP/postlaunch-20261001/global-degree-order/LOCAL_DIMENSIONAL_RECURRENCE_NOTE.md`
+and `local-fg-point-v1/execution-r1/` beneath the same evidence directory.
+
+That exact test now has a useful positive result, but not for the shortest row.
+Using252 ordinary IBPs on84 explicit source points, Symbolica proves the
+**unreflected** angular identity with147 nonzero original-source weights and
+an empty residual. Dimension remains symbolic. Both a full augmented product
+and an independently formed ordinary-only product reproduce the complete row.
+No change-of-variables or zero-sector identity is assumed. The reflected
+27-RHS version leaves67 residual terms in this fixed bank; it is not accepted
+as an ordinary-source consequence, nor disproved by that bounded miss.
+
+The proved relation has37 nonzero RHS keys. At F6/7/8/9/10 it has10/10/12/3/2
+terms;36 remove the mixed numerator, while the one remaining term pinches an
+outer line. The target coefficient is4(d−1), retained as a normalization
+condition. This is a fixed-index identity, not yet a parametric case rule.
+Its descendant-union comparison against the installed26 terms is the next
+work gate (completed below). The exact diagnostic costs0.121s native/1.355s inclusive; cached
+adapter compilation costs69.336s separately. Evidence:
+`TMP/postlaunch-20261001/global-degree-order/local-fg-source-proof-v1/probe-r1/`.
+
+This identifies a concrete connection to local dimensional methods without
+adding a shifted-dimension runtime: a local angular consequence can already
+be expressed through ordinary same-dimension IBPs. Whether that consequence
+is cheaper to use, and whether it lifts to a useful broad case, are separate
+questions. The implementation still has no new tensor reduction service.
+
+### Completed local-identity work test
+
+Two counterbalanced pairs use the same frozen16-owner/508-route pool, starting
+from the complete saved26 or proved37 successor sets of that exact input.
+Nothing is clipped, no new rule is installed, and all starts and native domains
+are independently cold-reinspected. All four arms finish without frontiers or
+uncovered obligations, using16 workers on CPUs32–47 and the same150GB guard.
+
+| Metric | Saved rule, pair1 | Proved identity, pair1 | Saved rule, pair2 | Proved identity, pair2 |
+| --- | ---: | ---: | ---: | ---: |
+| Domains | 13,931 | 10,068 | 13,974 | 10,004 |
+| Native inspections | 10,082 | 7,869 | 10,146 | 7,905 |
+| Successor admissions | 422,656 | 203,242 | 424,988 | 204,431 |
+| Native traversal (s) | 1.465 | 0.803 | 1.423 | 0.849 |
+| Guarded walk+cold phase sum (s) | 5.081 | 4.375 | 5.537 | 4.353 |
+
+This is a substantial **local** work reduction: about28% fewer domains,22%
+fewer inspections and52% fewer successor admissions despite the larger RHS.
+All four arms together take21.259s inclusive of setup/report/drain; the earlier
+proof/adapter-compilation project is separate. Sampled RSS varies and does not
+establish a memory improvement. The comparison excludes constructing/applying
+the parent shortcut itself and does not run the unchanged58-query scope.
+
+It therefore justifies an exact parametric-lift experiment, not a production
+restart or claimed five-loop speedup. The six outer indices may be freed only
+after checking the full original-source product and retained conditions with
+those variables still symbolic. A fixed-point identity is insufficient for
+that claim. No reflected-row authority or new tensor engine follows.
+Evidence:`TMP/postlaunch-20261001/global-degree-order/local-fg-endpoint-union-v1/`;
+independent source, measurement and drain audits pass.
+
+## Revisited triangular-rule literature: what is still different
+
+Liu and Mitov's triangular construction explicitly limits numerator weight in
+lower sectors, rather than accepting any pinch as automatically cheap. It also
+orders equal-weight terms towards a selected coordinate. Their discovery uses
+shifted ordinary IBPs, separates forbidden and allowed columns, and checks
+rank before recovering coefficients. Their stated triangular setup fixes
+positive indices and treats abstract indices as nonpositive; propagator dots
+in our frozen requests cannot simply be ignored.
+[Liu and Mitov, sections II.5–III.3](https://arxiv.org/html/2512.05923v1#S3).
+
+RustRed already has the essential sparse search/replay mechanism. The remaining
+experiment is the shape of the allowed endpoint set, not another elimination
+kernel. Global F permits a lost propagator power to pay for a numerator increase;
+the paper's lower-sector restriction is stronger in that respect. Conversely,
+such a restriction may leave no row in a bounded bank. Neither formulation
+proves the current mixed-order campaign terminates. The 752-row joint probe
+already tested one stricter intersection of old-order descent and non-growing
+F, unsuccessfully. Before enlarging it, use an actual local mechanism and
+measure complete descendant work, with every coefficient and guard retained.
 No FORM dependency, copied topology-specific dispatcher, or new runtime rule
 has been introduced by this investigation.
 
@@ -267,11 +466,52 @@ original denominator family. Tarasov's explicit one-loop relations retain
 these external-invariant and mass coefficients.
 [Tarasov, section 4.5](https://arxiv.org/html/hep-ph/9703319v1#S4.SS5)
 
-The code/input review nominated a real required four-loop rank-two bubble
+The initial code/input review nominated a real required four-loop rank-two bubble
 point, `n=[2,1,1,1,1,1,1,1,-2,0]`, in owner `1111111100`, A9/R2/D7.
-It is not yet a measured expensive rule or a native-verified shortcut. A first
-probe must retain the complete numerator/tadpole sum and test exact cancellation
-of all non-family outer denominators. Failure defers the shortcut rather than
-discarding those terms or starting a broad new family/tensor implementation.
+At nomination it was neither a measured expensive rule nor a native-verified
+shortcut. The completed unreflected proof above now supplies fixed-point
+ordinary-source authority with the complete numerator/tadpole sum retained;
+full-cohort work savings and parametric publication remain unestablished. An uncancelled
+non-family outer denominator would still defer a shortcut rather than license
+discarding terms or starting a broad new family/tensor implementation.
 The detailed read-only derivation and source locations are saved in
 `TMP/postlaunch-20261001/global-degree-order/LOCAL_DIMENSIONAL_RECURRENCE_NOTE.md`.
+
+## Two concrete follow-ons, not another full elimination framework
+
+Smith's 2026 LoopIn description separates each integral shift's constant and
+index-linear coefficient components into columns before row reduction over the
+kinematic/dimension field. It follows with target-local symbolic solves where
+necessary. This is different from merely changing coefficient variable order.
+[LoopIn, section 3.1, equations 13–17](https://arxiv.org/html/2602.19909v1#S3.SS1).
+
+Code inspection finds RustRed's current source preconditioner instead uses
+index-polynomial GCD-scaled elimination. That can increase index degree; the
+component-wise alternative preserves affine index dependence in that phase.
+The narrow experiment is a source-basis comparison using Symbolica's existing
+sparse reducer and exact original-source weights. Measure coefficient degree,
+exceptional guards and subsequent complete descendant work, not just row count.
+Retain originals where elimination scales vanish. No competing CAS kernel or
+new preconditioner has been implemented for this proposal.
+
+A second code-derived opportunity makes the local angular construction
+automatic. For bubble loop ell and directions ell,q,p, native denominator
+derivative contractions produce, up to an overall factor,
+
+`M = [[z,v,w], [z-w,v-r,w-s]]`,
+
+where z=ell², v=q·ell, w=p·ell, r=q·p and s=p². The signed two-by-two minors
+give the tangent vector's three polynomial coefficients, up to overall sign.
+This is a tiny family-derived polynomial null vector, not a topology-name rule.
+Multiplying by v stays within the degree-three source bank already tested.
+Symbolica must perform polynomial/minor arithmetic and exact tangency checks.
+The falsifier is failure to recover a useful exact identity or a net workload
+benefit; a degenerate matrix is not evidence that no such identity exists.
+
+The compact-Landau work provides a broader determinant-based construction, but
+its stated completeness conditions and one-/two-loop scattering examples do
+not establish a turnkey massive-vacuum closure method. The useful immediate
+connection here is source construction, not a new completeness theorem.
+[Coro et al., sections 2–3](https://arxiv.org/html/2607.06365v1#S2).
+Both proposals remain pending behind the proved local-identity work test; the
+cofactor idea is not a new tensor reducer or an installed shifted-dimension lane.

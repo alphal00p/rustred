@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 00:16 UTC (02:16 Zurich)
+## Current workboard — October 2, 01:26 UTC (03:26 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -30,10 +30,12 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Censored cleanly after1,460.665s;10.668M domains/2.802M pending; no frontier | Paused checkpoint retained; no cold closure, extension or automatic resume |
 | Symmetry-aware RHS coalescing | `rule_quality_audit`; independent `r_primary_transfer_audit` | Exact cancellation and both cold checks pass, but272→277 domains: no useful work saving | Broad implementation parked; reopen on a demonstrated costly parametric case |
 | Target-local constrained rule search | `rule_quality_audit`; independent `r_primary_transfer_audit` | Extra F constraint nondiscriminating; physical Euler7 is structurally dominated by saved4 | Delivered/parked; no endpoint-union run or new rule publication |
-| Joint descendant-combination Laporta | root; design/ignored adapter `r_primary_transfer_audit`; independent `rule_quality_audit` | First compile fails on diagnostic formatting only; narrow correction active | Actual physical rule151 block and752-row bank; preserve negative receipt, compile then bounded native probe |
+| Joint descendant-combination Laporta | root; design/ignored adapter `r_primary_transfer_audit`; independent `rule_quality_audit` | Native diagnostic completes: no eliminating row in the fixed752-row bank | Preserve bounded negative result; no bank growth, row publication or irreducibility inference |
 | Exact-physical-D coefficient restriction | root; independent `r_primary_transfer_audit` | Pending witness: code confirms geometric D is retained but not generally used in coefficient zero recognition | Find an actual coefficient that vanishes on the exact D slice before implementing; no split-based overcoverage or new CAS |
-| Global absolute-degree-first order | `five_loop_order_runner` comparator; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Full tests and58-query cold-All pass; domains−3.64%, inspections−4.22%, no timing win | Preserve modest/negative result; assess one representative5L transfer versus all-owner4L generation before the next pilot |
+| Global absolute-degree-first order | `five_loop_order_runner` comparator/runner; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Four-loop cold-All pass; domains−3.64%, no timing win. Expanded-basis5L pair cold-All passes: domains−0.75%, arm time+0.40%, terminals25→28 | Delivered negative promotion gate; no campaign restart recommendation or robust/equal-basis speedup claim |
+| Local dimension-return shortcut | `r_primary_transfer_audit`; runner `five_loop_order_runner`; independent `rule_quality_audit`; root | Exact unreflected37-RHS identity and ABBA cold-All unions pass: domains−27.7%/−28.4%, natives−22.0%/−22.1%, successors−51.9% | Positive fixed-point gate; prepare exact partial-index lift. No installed macro, full58 or5L gain claim |
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
+| Affine operator components / local tangent sources | `r_primary_transfer_audit`; root | Primary-literature and existing-API review delivered; distinct from current GCD source preconditioning | Pending: bounded affine-component basis comparison; automatic protected-denominator minors only after local-union work gate. No new CAS or tensor service |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -363,6 +365,234 @@ release nor input is edited.
   particular derivation, retains massive tadpoles and the d−1 denominator,
   but is NOT native-verified or a published rule. Agent prepares an actual
   installed-rule comparison first; no new tensor implementation is authorized.
+
+### October 2, 00:34 UTC — pushed implementation; joint-block result and next control
+
+- [M] Commit/push `3d3dba1d` to `origin/main`: experimental persisted global
+  degree ordering, exact sign-cell checks, conservative proof refusals, public
+  descriptor surfaces, tests and measured4L outcomes. Unrelated FeynKit changes,
+  reference material, licenses, campaign output and ignored probes are excluded.
+- [M] Joint cached compile-r3 passes in123.488s on8 build cores. Native
+  probe-r3 completes/drains in5.969s inclusive; preparation+native algebra
+  0.899s, elimination0.496s. Its fixed47 source points/752 ordinary rows give
+  1,322 physical columns,1,240 forbidden columns and21,724 retained reducer
+  nonzeros, but no target-marker pivot (`NO_BLOCK_PIVOT_IN_FIXED_BANK`). All
+  69 original denominator conditions and source/parent guards remain explicit.
+  This rules out this bounded source bank, NOT the existence of a combination,
+  a parametric rule or a reduction. No bank extension, terminal/master claim
+  or installed rule follows. Failed/censored compile-r1/r2 receipts remain.
+- [D] Choose one5L transfer next: unchanged prior isolated required query
+  `conv-d10-a16-r6-101010000110001`, all67 owners/8,246 routes and existing
+  repair overlay retained; only owner17941 regenerated. This is NOT all116
+  five-loop required queries or a rank-zero weakening. Its saved rule217 has
+  four real F10→11 lower-support successors, making it a concrete discriminator.
+  Runner prepares an independently reviewed shared1,800s two-arm pilot using
+  the current frozen build. No new engine compile or runtime grant yet.
+- [M] Production read-only at00:34: checkpoint15 resumable,146,509,747
+  scheduled/103,800,160 locally completed/16,092,534 pending, zero frontiers,
+  about128.98GB RSS. Refreshed conservative recursive count is20,405,752
+  (above the earlier18,652,486),13/67 roots; snapshot age136s. This is recorded
+  progress, not an ETA or evidence of eventual closure. No lifecycle changes.
+
+### October 2, 00:44 UTC — five-loop transfer running; refine the local-bubble test
+
+- [M/D] Independent wrapper review passes; root launches
+  `python -B TMP/postlaunch-20261001/global-degree-order/five-loop17941-v1/run.py
+  --grant root-approved-global-f-five-loop17941-pair` with the existing Nix
+  Python. One1,800s inclusive clock, W16/CPU32–47,150GB guard, no compilation.
+  The single unchanged required D10/A16/R6 query uses all67 owners/8,246 routes
+  and the existing repair. It is not all116 queries or a finite-state proof.
+  Baseline generation233 rules/25 terminals, source replay and strict decoded
+  equality have passed; baseline traversal/cold verification precedes candidate
+  generation. Runner monitors; auditor independently checks final receipts.
+- [M] Actual FG comparison at `[2,1,1,1,1,1,1,1,-2,0]` passes native matching
+  and complete guarded application in2.063s inclusive. Rule9 has35 original
+  terms,9 exact zeros,26 distinct uniform successors:20 at F10,1 at F9,5 at F8
+  (parent F11);3 same-support/23 pinches, no problems. Both groups drain.
+  Evidence:`global-degree-order/local-fg-point-v1/execution-r1/`.
+- [E/D] The hand-derived dimension-return row has27 formal endpoints and
+  the same maximum F10, so there is no term-count or maximum-degree gain.
+  However its proposed F profile is2/3/9/7/6 terms at F10/9/8/7/6, and26 of27
+  remove the mixed bubble numerator; all26 installed endpoints retain it.
+  This is a different locality hypothesis, not disproved by the endpoint count
+  and not a measured work gain. Author prepares only a narrow exact ordinary-
+  source proof, with independent mathematical audit. Massive tadpoles, scaleless
+  polynomial treatment, d−1 poles and complete source products remain explicit.
+  No native run, publication, new tensor reducer or parameter-general claim yet.
+
+### October 2, 00:48 UTC — five-loop generation passes, comparison gate stops
+
+- [M] The one-query pair ends cleanly after249.213s, with baseline cold-All
+  PASS:23,734 domains/16,316 native inspections/248,128 edges, zero frontiers
+  or uncovered obligations. Native preparation71.328s, traversal6.392s.
+  These current-build counts replace historical counts only for this comparison.
+- [M] Candidate generation completes in26.694s versus15.753s, produces234
+  rules instead of233, and passes full original-source/guard replay
+  (3,942 source contributions). Payload1,103,459 bytes versus1,007,361.
+  Exact terminal census is28 versus25: three added, none removed. All added
+  keys have A6/R4/D2/F10. The predeclared no-added-terminal screen stops before
+  candidate point usage or traversal; preserve its `INCOMPLETE_OR_FAILED`
+  comparison receipt rather than rewrite it as a pass.
+- [D] This is NOT a generation/replay failure, irreducibility result or reason
+  to require a minimal basis. The user explicitly accepts finite nonminimal
+  terminals. The equal-basis gate was for a clean performance discriminator,
+  not the project goal. Inspect the three changed keys and consider a separately
+  registered finite-basis-tradeoff comparison; no silent relaxation, terminal
+  deletion, production change or claimed five-loop speed gain. Runner prepares
+  this distinction while the auditor independently checks the completed pair.
+
+### October 2, 00:59 UTC — expanded-terminal comparison and a sharper finite-bound distinction
+
+- [M/D] Preserve the first stopped screen unchanged. A separate reviewed
+  follow-up explicitly accepts its three additional finite terminals and reuses
+  both source-qualified donors without regenerating or repeating source replay:
+  `python -B TMP/postlaunch-20261001/global-degree-order/five-loop17941-terminal-tradeoff-v1/run.py
+  --grant root-approved-global-f-five-loop17941-terminal-tradeoff`.
+  Root launches it with a fresh1,800s inclusive cap, W16/CPU32–47 and150GB.
+  Fresh matched baseline/candidate walks each require cold-All verification.
+  This measures work to the changed finite basis, not equal-basis speedup.
+- [M] Native diagnostics pass in6.45s: candidate rule218 emits42 uniform
+  successors at the registered F10 point, histogram4/10/18/10 at F7/8/9/10,
+  versus baseline46 including four at F11. None directly hits the new terminals.
+  Each of the three new keys selects legacy rule167, producing46/76/46
+  successors and six F11 edges each. Thus the added terminals are not newly
+  proven independent masters; their known old reductions conflict with the
+  chosen global-F restriction. No old row is installed into the new program.
+- [E] Root and independent auditor identify a conditional bound even for
+  old sector-first rules: if every applicable support change is a literal pinch
+  and same-support order is E-primary, `Phi=A_cap+R_cap+M*support_count`
+  cannot increase on new-node creation, where M bounds pinching shift growth.
+  Route preserves/decreases support/A/R; global existing-anchor references do
+  not break induction for a fresh finite-root context. This yields a coarse
+  `F<=37+15M`, versus37 under the stronger global-F hypothesis. The complete
+  actual67-program/overlay contract and M remain unaudited; domain Apply itself
+  permits support swaps, and the13 unbounded production helpers invalidate the
+  finite-input premise. No certificate implementation, ETA or termination
+  claim follows. Detailed premises/counterpaths are in the literature note.
+- [D] Local bubble proof source is ready and independently reviewed:252
+  ordinary rows, a full reflected query and an unreflected angular positive
+  control, separate exact source-weight/residual products. Source-bank membership
+  is not master independence, parametric lifting or a work gain. Cached compile
+  and native execution wait for the active five-loop pair to drain.
+
+### October 2, 01:08 UTC — five-loop tradeoff finishes; stronger local identity next
+
+- [M] The separately registered expanded-basis pair finishes in361.404185s;
+  both arms independently cold-All pass the one unchanged required query,
+  with every16,301/16,213 native inspection repeated and zero errors/frontiers/
+  uncovered obligations. All ten phases drain; independent audit finds all
+  twelve recorded process groups absent. Qualification/generation/replay cost
+  remains separately recorded in the earlier249.213s screen, not erased.
+- [M] Fresh matched default→global-F: domains23,625→23,447 (−0.753%),
+  inspections16,301→16,213 (−0.540%), edges252,456→249,488 (−1.176%).
+  Native traversal6.385292→5.594977s, but walk87.101067→86.829108s and
+  full arm177.021805→177.724862s (+0.397%). The25→28 finite terminal
+  change is explicit. Earlier unchanged-baseline counts varied under parallel
+  reuse, so one small-delta pair cannot establish a robust work reduction.
+  Source/receipt auditor `rule_quality_audit` gives GO to this interpretation.
+- [D] Do not recommend a campaign switch from global-F pilots. Retain the
+  opt-in mechanism and negative whole-cost result; do not hide its more costly
+  preparation behind a local42-versus46-successor improvement. Ignored detailed
+  report: `global-degree-order/five-loop17941-terminal-tradeoff-v1/RESULTS.md`
+  under `TMP/postlaunch-20261001/`.
+- [M/D] After the pair drains, root launches the independently audited cached
+  FG diagnostic compilation: `python -B TMP/postlaunch-20261001/global-degree-order/local-fg-source-proof-v1/run.py
+  --mode compile --attempt 1 --grant root-approved-fg-source-compile`.
+  Cached release dependencies, opt2 adapter, CPUs0–7; this is compilation, not
+  solver timing. Only after a clean compile may the separately granted probe
+  test both full reflected and unreflected rows against252 original IBPs.
+  No bank expansion, symmetry deletion, parametric publication or workload
+  improvement is inferred from a successful fixed-index product alone.
+
+### October 2, 01:13 UTC — local angular identity has an exact source proof
+
+- [M] The cached adapter compiles and drains in69.336457s. Root then runs
+  `python -B TMP/postlaunch-20261001/global-degree-order/local-fg-source-proof-v1/run.py
+  --mode probe --attempt 1 --grant root-approved-fg-source-probe`.
+  The independently audited native diagnostic finishes in0.120982s,1.354726s
+  inclusive,252 original rows/334 physical columns/1,547 matrix nonzeros.
+  Source/request/binary pins match and the owned process group is absent.
+- [M] The reflected28-term homogeneous row is NOT in this fixed ordinary
+  bank:67 residual keys remain. The unreflected38-term row IS in its span:
+  147 nonzero original-source weights reproduce the complete identity with
+  zero residual. Both the augmented product and independent ordinary-only
+  product are checked exactly in Symbolica; dimension d remains symbolic.
+  No symmetry rows, omitted scaleless terms or projected residual are used.
+- [M/E] The actual proved candidate has37 nonzero RHS terms after dividing
+  by4(d−1), not the earlier27-term proposal. Its F histogram at F6..10 is
+  10/10/12/3/2, all strictly below parentF11;36 of37 remove the D9 mixed
+  numerator. Saved rule9 has26 nonzero terms, with20 atF10 and all26 retaining
+  D9. More terms may still cost less downstream, but this is not established.
+  Keep all source/pivot/weight/normalization conditions; baseline comparison
+  poles are not silently added to or removed from the new identity's proof.
+- [D] Register the smallest useful next discriminator: fresh complete RHS
+  unions, native saved26 versus exactly proved37, same16-owner/508-route pool
+  and cold-All inspection. Runner prepares input-only steering; independent
+  auditor checks it before root launches. No replacement is published, no
+  broader case is inferred from the fixed point, and the reflected candidate
+  is ineligible. A prospective exact partial-index lift uses existing Symbolica
+  specialization only if descendant work justifies pursuing it.
+
+### October 2, 01:20 UTC — preserve two concrete research candidates
+
+- [E] Agent/root primary-source review distinguishes LoopIn's affine-in-index
+  component matrix (2602.19909, Eq16) from the current index-polynomial GCD
+  source preconditioner. Flattening constant/index-linear coefficient blocks
+  over the base field could avoid some index-degree growth and exceptional
+  factors, but no workload gain or new implementation is claimed. Existing
+  Symbolica sparse reduction and native coefficient access suffice for a small
+  source-basis discriminator; `SourceSystem::new` alone is not an authority
+  seam and must not drop inherited conditions or original-source provenance.
+- [E] Native family derivative contractions also expose a small generic
+  cofactor construction of the local angular vector: signed minors of its
+  two protected-denominator derivative rows produce a polynomial tangent
+  field. This is a candidate source constructor, not a tensor reducer or
+  imported FORM relation. Exact tangency/source replay and useful complete
+  descendant work remain mandatory. Broader Landau completeness hypotheses
+  are not silently transferred to massive vacuum families.
+- [D] Both are registered with mechanisms/falsifiers in
+  `docs/research/global_degree_order_literature_2026-10-01.md`. Prioritize the
+  already proved FG endpoint-union test before new implementation. Its two
+  counterbalanced pairs use the same frozen engine/rule pool and a single
+  inclusive30-minute budget; production remains untouched.
+
+### October 2, 01:26 UTC — local-identity descendant unions show a real bounded gain
+
+- [M] Root runs the preregistered ABBA wrapper after independent source review:
+  `python -B TMP/postlaunch-20261001/global-degree-order/local-fg-endpoint-union-v1/run.py
+  --grant root-approved-fg-endpoint-union`. No engine rebuild, source generation,
+  changed rule pool or new runtime rule. One schema-only prelaunch correction
+  permits absent parked pre-cut reporting fields while keeping strict native
+  reference-Off and joint-pruning-false checks. Both dry and actual checks pass.
+- [M] All four fresh unions and cold-All checks complete in21.258775s inclusive,
+  W16/CPU32–47/150GB,8 phases drained; independent auditor confirms process
+  groups absent. All26 saved or37 proved starting points, every native domain,
+  zero errors/frontiers/uncovered/count mismatches. Source-proof preparation
+  (70.691s including cached compilation) remains separately charged.
+- [M] First pair saved→local: domains13,931→10,068, inspections10,082→7,869,
+  successors422,656→203,242, traversal1.464811→0.802662s. Counterbalanced
+  second pair saved→local:13,974→10,004,10,146→7,905,424,988→204,431,
+  1.422828→0.849472s. Thus domains−27.73%/−28.41%, inspections−21.95%/
+  −22.09%, successors−51.91%/−51.90%, traversal−45.20%/−40.30%.
+  Guarded walk+cold sums5.081→4.375s and5.537→4.353s; total wrapper
+  includes setup/report/drain beyond those phase sums. RSS does not establish
+  a consistent gain. The candidate has more direct terms, yet less downstream
+  work in both runs: local term count alone would choose the wrong rule here.
+- [E] This is one fixed required input's complete successor union, not the
+  unchanged58-query campaign, a published parametric macro or a five-loop gain.
+  Parent-application/proof costs are not included in the endpoint walks.
+  Different initial endpoint sets and reuse can contribute to the result;
+  do not attribute every saving solely to numerator locality. Existing cyclic
+  cold coverage is not a new algebraic-termination theorem.
+- [D] The positive discriminator justifies the next narrow exact step:
+  retain the verified147 source weights and use existing partial-index
+  specialization to free the six outer indices, keeping bubble/numerator
+  indices fixed initially. Verify the entire polynomial product, including
+  terms that vanished at the point and original conditions. A separately
+  labelled broader bubble-power trial is optional only if equally small.
+  Author prepares ignored input-driven code; independent audit/root own the
+  compile/run decision. No new tensor reducer, source-bank expansion or
+  production mutation. Receipt:`local-fg-endpoint-union-v1/execution-r1/`.
 
 ### October 1, 22:35 UTC — physical Euler control is not a useful replacement
 
