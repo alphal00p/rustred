@@ -75,14 +75,16 @@ remaining symbolic kinematic conditions must still be nonzero. A parametric
 `solution.reduce(powers)` performs one recurrence step. It does not certify
 closure of every sector or every exceptional case.
 
-`reduce_laporta(targets, max_depth=2, max_targets=1024, include_lorentz=False)`
+`reduce_laporta(targets, max_depth=2, max_targets=1024, include_lorentz=False,
+preferred_masters=None, until_stable=False)`
 searches integer seed neighborhoods, exactly replays the discovered rules,
 follows their right-hand sides, and back-substitutes the solved integrals.
 `max_depth` bounds the signed L1 seed radius; `max_targets` bounds the number
 of distinct integrals searched. Exhausting the latter raises an error.
 `residuals` explicitly lists the remaining basis at that search depth; these
 are not certified independent masters. Increasing depth can reduce the basis
-further. Unmatched integrals passed to `solution.reduce` remain unchanged
+further; `preferred_masters`, `until_stable`, and `certify()` are described
+below. Unmatched integrals passed to `solution.reduce` remain unchanged
 unless they lie outside a declared cut, which reduces them to zero.
 Scaleless subsectors are removed only after RustRed's sector analyzer proves
 them zero. Family symmetries can further identify residuals using Feynkit's
@@ -134,6 +136,84 @@ drop them as zero. With every cut index symbolic, the rule is the uncut rule.
 Masks built from a diagram's cut edges follow the family's denominator order.
 Never cut the auxiliary slots appended by `complete()`.
 
+## Preferred masters
+
+`reduce_laporta(targets, preferred_masters=[[...], ...])` expresses the
+reduction through the listed integrals. They are searched like targets and
+count against `max_targets`:
+
+```python
+from symbolica import E
+
+d, k, m2, T = S("d", "k", "m2", "T")
+kin = hep.Kinematics(d, momenta=[k])
+tadpole = hep.IntegralFamily([k], [], [kin.scalar_product(k, k) - m2], kinematics=kin)
+solution = hep.IBPFamily(tadpole).reduce_laporta([[1], [3]], max_depth=1, preferred_masters=[[2]])
+assert solution.residuals == [[2]] and solution.replaced == [[1]]
+assert (solution.reduce([1], integral=T) - 2 * m2 / (d - 2) * T(2)).together() == E("0")
+```
+
+Each preferred integral that the search reduces replaces a residual of its own
+sector by an exact basis change: per sector, from the lowest, the reductions
+of its preferred integrals are brought to reduced echelon form over the
+sector's other residuals, hardest residual first. Dividing by a pivot, here
+`d - 2`, adds its numerator to the `nonzero_conditions` of every rule that
+uses the replaced residual. Mapping each preferred integral back to its
+original reduction must restore every rule of the search exactly; the bridge
+checks this. A preferred integral that the search leaves unreduced already is
+a residual and stays one; `solution.preferred_masters` reports `"replaced"` or
+`"residual"` for each. `ValueError` is raised, and no basis change returned,
+when a preferred integral is listed twice, lies outside the cut or in a zero
+sector, reduces to zero or only to lower-sector integrals, or depends on other
+preferred integrals of its sector modulo lower sectors. These are exact
+relations, not depth effects. Masters are counted modulo IBP (and Lorentz)
+identities without symmetries, so integrals equal by a graph symmetry are
+distinct masters. `residuals` may include integrals needed only to express a
+preferred integral.
+
+## Checking a reduction
+
+`until_stable=True` searches depths `0..=max_depth` and stops once two deeper
+searches reproduce the residual set; `solution.stable_depth` is the first depth
+of that plateau, or `None` if `max_depth` came first. This is a heuristic.
+
+`solution.certify(count_masters=True, replay=True, seed=0)` returns an
+`IBPCertificate` of a `reduce_laporta` solution:
+
+- `replay` derives every rule again from the family's original IBP (and, if
+  used, Lorentz) identities at the seeds the search recorded, after an
+  independent zero-sector census, checks strict descent, and checks that every
+  returned rule, including any basis change, follows from them. A failure
+  raises `ValueError`; success sets `certificate.reduction = "verified"`.
+- `count_masters` counts the master integrals of each residual sector without
+  symmetries from critical points of the Lee–Pomeransky polynomial `U + F`,
+  computed exactly at random finite-field kinematics chosen by `seed` and
+  required to agree on two independent samples. `certificate.masters` is
+  `"incomplete"` when a sector holds more residuals than masters, which shows
+  that the search missed relations; `"count-consistent"` when no sector
+  exceeds its count, which does not prove the residuals independent; or
+  `"no-verdict"` when a count is unreliable, for example with a singular
+  external Gram matrix (light-like or forward kinematics), where the
+  parametric count can be lower than what IBP reaches. `master_counts`,
+  `residual_counts`, `excess_sectors`, and `no_verdict` give the details.
+
+```python
+d, k, p, s = S("d", "k", "p", "s")
+kin = hep.Kinematics(d, momenta=[k, p]).with_scalar_product(p, p, s)
+bubble = hep.IntegralFamily(
+    [k], [p], [kin.scalar_product(k, k), kin.scalar_product(k - p, k - p)], kinematics=kin
+)
+ibp = hep.IBPFamily(bubble)
+assert ibp.reduce_laporta([[3, 1], [1, 1]], max_depth=0).certify().masters == "incomplete"
+stable = ibp.reduce_laporta([[3, 1]], max_depth=4, until_stable=True)
+assert stable.residuals == [[1, 1]] and stable.stable_depth == 1
+assert stable.certify().reduction == "verified"
+```
+
+A depth-zero search of `I(3,1)` alone keeps `I(3,1)`, a valid single master:
+it is `"count-consistent"`, and only the deeper search or `until_stable`
+reveals the conventional master `I(1,1)`.
+
 ## Build and validation
 
 The companion `symbolica-community` host adds a native dependency on this crate
@@ -152,7 +232,8 @@ cargo test -p rustred --test feynkit_bridge -- --test-threads=1
 The Python tests generate connected two-loop propagator and vertex graphs,
 introduce two independent masses and external virtualities, and check native
 identity conversion, both solving modes, exact analytic reductions,
-reverse-unitarity cuts, tensor invariants, and error handling. Notebook
+reverse-unitarity cuts, tensor invariants, preferred masters, certificates,
+and error handling. Notebook
 execution additionally needs IPython; interactive execution uses a normal
 Python Jupyter kernel.
 

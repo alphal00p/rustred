@@ -4,7 +4,8 @@ use rustred::family::{AffineDenominator, IntegralFamily};
 use rustred::sector::CutConstraint;
 use rustred::solver::SourceSystem;
 use rustred::solver::bridge::{
-    DynamicSolution, DynamicSolveOptions, solve_laporta, solve_parametric,
+    DynamicSolution, DynamicSolveOptions, PreferredStatus, certify_laporta, solve_laporta,
+    solve_parametric,
 };
 use std::collections::BTreeMap;
 
@@ -155,6 +156,7 @@ fn check(vertex: bool) {
         &family,
         &uncut(&family),
         &[target.clone(), master.clone()],
+        &[],
         options,
     )
     .unwrap();
@@ -204,6 +206,7 @@ fn check(vertex: bool) {
         &family,
         &uncut(&family),
         &[corner, connected.clone()],
+        &[],
         DynamicSolveOptions {
             max_depth: 0,
             max_targets: 1024,
@@ -316,6 +319,7 @@ fn zero_sectors_duplicates_and_invalid_inputs_are_explicit() {
         &family,
         &uncut(&family),
         &[zero.clone(), zero],
+        &[],
         DynamicSolveOptions::default(),
     )
     .unwrap();
@@ -327,6 +331,7 @@ fn zero_sectors_duplicates_and_invalid_inputs_are_explicit() {
             &family,
             &uncut(&family),
             &[vec![1, 1]],
+            &[],
             DynamicSolveOptions::default()
         )
         .is_err()
@@ -346,6 +351,7 @@ fn zero_sectors_duplicates_and_invalid_inputs_are_explicit() {
             &family,
             &uncut(&family),
             &[vec![2, 1, 0, 0, 0]],
+            &[],
             DynamicSolveOptions {
                 max_targets: 1,
                 ..Default::default()
@@ -380,6 +386,7 @@ fn equal_mass_sunset_matches_feyncalc_kira_reductions() {
         &family,
         &uncut(&family),
         &targets,
+        &[],
         DynamicSolveOptions::default(),
     )
     .unwrap();
@@ -520,9 +527,9 @@ fn assert_cut_projects_uncut(
     targets: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> DynamicSolution {
-    let uncut_solution = solve_laporta(family, &uncut(family), targets, options).unwrap();
+    let uncut_solution = solve_laporta(family, &uncut(family), targets, &[], options).unwrap();
     let cuts = CutConstraint::try_new(cut.iter().copied()).unwrap();
-    let solution = solve_laporta(family, &cuts, targets, options).unwrap();
+    let solution = solve_laporta(family, &cuts, targets, &[], options).unwrap();
     let uncut_rules = reductions(&uncut_solution);
     let rules = reductions(&solution);
     for target in targets {
@@ -582,6 +589,7 @@ fn reverse_unitarity_cuts_project_uncut_reductions() {
         &massive,
         &CutConstraint::try_new([true, true]).unwrap(),
         &[vec![2, 1]],
+        &[],
         options,
     )
     .unwrap();
@@ -620,6 +628,7 @@ fn reverse_unitarity_cuts_project_uncut_reductions() {
         &scaleless,
         &CutConstraint::try_new([true, true]).unwrap(),
         &[vec![1, 1], vec![2, 1]],
+        &[],
         options,
     )
     .unwrap();
@@ -671,7 +680,7 @@ fn reverse_unitarity_parametric_rules_and_input_guards() {
     assert_eq!(with_cut.rules[0].rhs, plain.rules[0].rhs);
 
     let wrong_arity = CutConstraint::none(3).unwrap();
-    assert!(solve_laporta(&massive, &wrong_arity, &[vec![1, 1]], options).is_err());
+    assert!(solve_laporta(&massive, &wrong_arity, &[vec![1, 1]], &[], options).is_err());
     assert!(solve_parametric(&massive, &wrong_arity, &[true, true], &symbolic, options).is_err());
 
     // Like the solver's cut preparation, cuts are not combined with power shifts.
@@ -689,11 +698,259 @@ fn reverse_unitarity_parametric_rules_and_input_guards() {
     .unwrap();
     let only_first = CutConstraint::try_new([true, false]).unwrap();
     // The shift alone is still supported.
-    solve_laporta(&shifted, &uncut(&shifted), &[vec![2, 1]], options).unwrap();
+    solve_laporta(&shifted, &uncut(&shifted), &[vec![2, 1]], &[], options).unwrap();
     for error in [
-        solve_laporta(&shifted, &only_first, &[vec![1, 1]], options).unwrap_err(),
+        solve_laporta(&shifted, &only_first, &[vec![1, 1]], &[], options).unwrap_err(),
         solve_parametric(&shifted, &only_first, &[true, true], &symbolic, options).unwrap_err(),
     ] {
         assert!(error.to_string().contains("power shifts"), "{error}");
     }
+}
+
+/// Massive tadpole `k.k - m2`.
+fn tadpole() -> (IntegralFamily, CoefficientContext) {
+    let c = CoefficientContext::try_new(vec!["d", "m2"]).unwrap();
+    let family = IntegralFamily::new(
+        "tadpole",
+        vec!["k".into()],
+        Vec::new(),
+        c.clone(),
+        c.parameter("d").unwrap(),
+        vec![AffineDenominator::new(
+            -c.parameter("m2").unwrap(),
+            vec![c.integer(1)],
+        )],
+        Vec::new(),
+        vec![c.zero()],
+    )
+    .unwrap();
+    (family, c)
+}
+
+/// Massless triangle `[k.k, (k-p1).(k-p1), (k-p1-p2).(k-p1-p2)]` with light-like
+/// legs and `(p1+p2)^2 = s`; its top sector reduces to the `s` bubble.
+fn light_like_triangle() -> IntegralFamily {
+    let c = CoefficientContext::try_new(vec!["d", "s"]).unwrap();
+    let s = c.parameter("s").unwrap();
+    let half = &s / &c.integer(2);
+    let integer = |values: [i64; 3]| values.map(|value| c.integer(value)).to_vec();
+    IntegralFamily::new(
+        "triangle",
+        vec!["k".into()],
+        vec!["p1".into(), "p2".into()],
+        c.clone(),
+        c.parameter("d").unwrap(),
+        vec![
+            AffineDenominator::new(c.zero(), integer([1, 0, 0])),
+            AffineDenominator::new(c.zero(), integer([1, -2, 0])),
+            AffineDenominator::new(s.clone(), integer([1, -2, -2])),
+        ],
+        vec![vec![c.zero(), half.clone()], vec![half, c.zero()]],
+        vec![c.zero(); 3],
+    )
+    .unwrap()
+}
+
+#[test]
+fn preferred_masters_change_the_basis_exactly() {
+    let options = DynamicSolveOptions {
+        max_depth: 1,
+        ..Default::default()
+    };
+    let (tadpole, c) = tadpole();
+    let solution = solve_laporta(
+        &tadpole,
+        &uncut(&tadpole),
+        &[vec![1], vec![3]],
+        &[vec![2]],
+        options,
+    )
+    .unwrap();
+    assert_eq!(solution.residuals, [vec![2]]);
+    // T(1) = 2 m2/(d-2) T(2), divided by the pivot d-2.
+    let p = |name| c.parameter(name).unwrap();
+    let d2 = &p("d") - &c.integer(2);
+    assert_same_terms(
+        &reductions(&solution)[&vec![1]],
+        &BTreeMap::from([(vec![2], &(&c.integer(2) * &p("m2")) / &d2)]),
+        "tadpole",
+    );
+    let change = solution.basis_change.as_ref().unwrap();
+    assert_eq!(change.replaced, [vec![1]]);
+    assert_eq!(change.preferred[0].status, PreferredStatus::Replaced);
+    assert!(change.conditions.iter().any(|condition| {
+        (&Coefficient::from(condition.clone()) - &d2).is_zero()
+            || (&Coefficient::from(condition.clone()) + &d2).is_zero()
+    }));
+    let one_rule = solution
+        .rules
+        .iter()
+        .find(|rule| rule.target[0].value == 1)
+        .unwrap();
+    assert!(
+        one_rule
+            .nonzero_conditions
+            .iter()
+            .any(|condition| !condition.is_constant() && change.conditions.contains(condition))
+    );
+
+    // Independently map the preferred master back through the default search.
+    let (bubble, _) = bubble(true, false);
+    let targets = [vec![1, 1], vec![2, 1], vec![1, 2], vec![1, 0]];
+    let preferred = [vec![2, 1]];
+    let plain = solve_laporta(
+        &bubble,
+        &uncut(&bubble),
+        &[&targets[..], &preferred].concat(),
+        &[],
+        options,
+    )
+    .unwrap();
+    let changed = solve_laporta(&bubble, &uncut(&bubble), &targets, &preferred, options).unwrap();
+    assert!(changed.residuals.contains(&vec![2, 1]) && !changed.residuals.contains(&vec![1, 1]));
+    let plain_rules = reductions(&plain);
+    let back = &plain_rules[&vec![2, 1]];
+    for (target, rhs) in reductions(&changed) {
+        let mut mapped = BTreeMap::<Vec<i16>, Coefficient>::new();
+        for (powers, coefficient) in rhs {
+            let terms = if powers == preferred[0] {
+                back.clone()
+            } else {
+                BTreeMap::from([(powers, c.integer(1))])
+            };
+            for (inner, factor) in terms {
+                let value = &coefficient * &factor;
+                let sum = match mapped.remove(&inner) {
+                    Some(old) => &old + &value,
+                    None => value,
+                };
+                if !sum.is_zero() {
+                    mapped.insert(inner, sum);
+                }
+            }
+        }
+        let expected = plain_rules
+            .get(&target)
+            .cloned()
+            .unwrap_or_else(|| BTreeMap::from([(target.clone(), c.integer(1))]));
+        assert_same_terms(&mapped, &expected, &format!("{target:?} mapped back"));
+    }
+
+    // A preferred residual of the search is kept as is.
+    let kept = solve_laporta(&bubble, &uncut(&bubble), &targets, &[vec![1, 1]], options).unwrap();
+    assert_eq!(
+        kept.basis_change.unwrap().preferred[0].status,
+        PreferredStatus::Residual
+    );
+
+    let error = |family: &IntegralFamily, targets: &[Vec<i16>], preferred: &[Vec<i16>]| {
+        solve_laporta(family, &uncut(family), targets, preferred, options)
+            .unwrap_err()
+            .to_string()
+    };
+    assert!(error(&tadpole, &[vec![1]], &[vec![2], vec![2]]).contains("listed twice"));
+    assert!(error(&tadpole, &[vec![1]], &[vec![0]]).contains("zero sector"));
+    assert!(error(&tadpole, &[vec![1]], &[vec![1, 1]]).contains("coordinates"));
+    assert!(
+        error(&bubble, &targets, &[vec![2, 1], vec![1, 2]]).contains("depends on preferred master")
+    );
+    let triangle = light_like_triangle();
+    let deeper = DynamicSolveOptions {
+        max_depth: 2,
+        ..Default::default()
+    };
+    let lower = solve_laporta(
+        &triangle,
+        &uncut(&triangle),
+        &[vec![1, 1, 1]],
+        &[vec![1, 1, 1]],
+        deeper,
+    );
+    let message = lower.unwrap_err().to_string();
+    assert!(message.contains("lower-sector integrals"), "{message}");
+    let cut = CutConstraint::try_new([true, true]).unwrap();
+    let outside = solve_laporta(&bubble, &cut, &targets, &[vec![1, 0]], options).unwrap_err();
+    assert!(outside.to_string().contains("outside the cut"));
+}
+
+#[test]
+fn laporta_certificate_replays_and_rejects_tampering() {
+    let options = DynamicSolveOptions {
+        max_depth: 1,
+        ..Default::default()
+    };
+    let (bubble, c) = bubble(true, false);
+    let targets = [vec![1, 1], vec![2, 1], vec![1, 2], vec![1, 0], vec![2, 0]];
+    let plain = solve_laporta(&bubble, &uncut(&bubble), &targets, &[], options).unwrap();
+    let certificate = certify_laporta(&bubble, &uncut(&bubble), &plain, false).unwrap();
+    assert!(certificate.replayed_rules > 0 && certificate.identities > 0);
+    assert_eq!(certificate.returned_rules, plain.rules.len());
+
+    let preferred =
+        solve_laporta(&bubble, &uncut(&bubble), &targets, &[vec![2, 1]], options).unwrap();
+    certify_laporta(&bubble, &uncut(&bubble), &preferred, false).unwrap();
+    let cut = CutConstraint::try_new([true, true]).unwrap();
+    let cut_solution = solve_laporta(&bubble, &cut, &targets, &[], options).unwrap();
+    certify_laporta(&bubble, &cut, &cut_solution, false).unwrap();
+    // A certificate must use the solution's own cut.
+    assert!(certify_laporta(&bubble, &uncut(&bubble), &cut_solution, false).is_err());
+
+    let two_loop = family(false);
+    let lorentz = DynamicSolveOptions {
+        max_depth: 1,
+        include_lorentz: true,
+        ..Default::default()
+    };
+    let solution = solve_laporta(
+        &two_loop,
+        &uncut(&two_loop),
+        &[vec![2, 1, 1, 0, 0]],
+        &[],
+        lorentz,
+    )
+    .unwrap();
+    certify_laporta(&two_loop, &uncut(&two_loop), &solution, true).unwrap();
+
+    let doubled = |coefficient: &Coefficient| coefficient * &c.integer(2);
+    let mut returned = plain.clone();
+    let rule = returned
+        .rules
+        .iter_mut()
+        .find(|rule| !rule.rhs.is_empty())
+        .unwrap();
+    rule.rhs[0].coefficient = doubled(&rule.rhs[0].coefficient);
+    assert!(certify_laporta(&bubble, &uncut(&bubble), &returned, false).is_err());
+    let mut derived = plain.clone();
+    let rule = derived
+        .derivation
+        .iter_mut()
+        .find(|derived| !derived.rule.rhs.is_empty())
+        .unwrap();
+    rule.rule.rhs[0].coefficient = doubled(&rule.rule.rhs[0].coefficient);
+    assert!(certify_laporta(&bubble, &uncut(&bubble), &derived, false).is_err());
+    let mut missing = plain.clone();
+    missing
+        .derivation
+        .retain(|derived| derived.rule.rhs.is_empty());
+    assert!(certify_laporta(&bubble, &uncut(&bubble), &missing, false).is_err());
+}
+
+#[test]
+fn until_stable_reports_the_first_reproduced_depth() {
+    let (bubble, _) = bubble(false, false);
+    let options = |max_depth| DynamicSolveOptions {
+        max_depth,
+        until_stable: true,
+        ..Default::default()
+    };
+    let shallow = solve_laporta(&bubble, &uncut(&bubble), &[vec![3, 1]], &[], options(0)).unwrap();
+    assert_eq!(
+        (shallow.residuals.clone(), shallow.stable_depth),
+        (vec![vec![3, 1]], None)
+    );
+    let stable = solve_laporta(&bubble, &uncut(&bubble), &[vec![3, 1]], &[], options(6)).unwrap();
+    assert_eq!(stable.residuals, [vec![1, 1]]);
+    assert_eq!((stable.stable_depth, stable.depth), (Some(1), 3));
+    let short = solve_laporta(&bubble, &uncut(&bubble), &[vec![3, 1]], &[], options(2)).unwrap();
+    assert_eq!((short.stable_depth, short.depth), (None, 2));
 }

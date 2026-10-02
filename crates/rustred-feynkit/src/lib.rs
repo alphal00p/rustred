@@ -3,6 +3,7 @@
 //! The bridge reads Feynkit's existing public family API. Expressions remain
 //! native atoms in the host kernel; no second extension or string parser is used.
 
+mod certificate;
 mod conversion;
 
 use std::{
@@ -13,6 +14,7 @@ use std::{
     },
 };
 
+use certificate::PyIbpCertificate;
 use conversion::FamilyConversion;
 use pyo3::{
     exceptions::{PyTypeError, PyValueError},
@@ -23,7 +25,7 @@ use rustred::{
     family::IntegralFamily,
     identity::ParametricIbpGenerator,
     sector::CutConstraint,
-    solver::bridge::{self, DynamicPower, DynamicSolution, DynamicSolveOptions},
+    solver::bridge::{self, DynamicPower, DynamicSolution, DynamicSolveOptions, PreferredStatus},
 };
 use symbolica::{
     api::python::PythonExpression,
@@ -59,6 +61,13 @@ impl PythonPower {
         i16::try_from(self.0).map_err(|_| {
             PyValueError::new_err("propagator power is outside the compact range -64..=63")
         })
+    }
+
+    fn compact_all(integrals: Vec<Vec<Self>>) -> PyResult<Vec<Vec<i16>>> {
+        integrals
+            .into_iter()
+            .map(|powers| powers.into_iter().map(Self::compact).collect())
+            .collect()
     }
 }
 
@@ -114,7 +123,32 @@ pub struct PyIbpFamily {
     cuts: CutConstraint,
 }
 
+/// The data `IBPSolution.certify` needs to check a Laporta solution again.
+pub(crate) struct LaportaRecord {
+    pub(crate) family: Arc<IntegralFamily>,
+    pub(crate) cuts: CutConstraint,
+    pub(crate) include_lorentz: bool,
+    pub(crate) solution: DynamicSolution,
+}
+
 impl PyIbpFamily {
+    /// Convert a Laporta solution, keeping what a certificate needs.
+    fn laporta_solution(
+        &self,
+        solution: DynamicSolution,
+        include_lorentz: bool,
+    ) -> PyResult<PyIbpSolution> {
+        let record = LaportaRecord {
+            family: Arc::clone(&self.family),
+            cuts: self.cuts.clone(),
+            include_lorentz,
+            solution: solution.clone(),
+        };
+        let mut converted = self.solution(solution)?;
+        converted.laporta = Some(Arc::new(record));
+        Ok(converted)
+    }
+
     fn solution(&self, solution: DynamicSolution) -> PyResult<PyIbpSolution> {
         let mut replacements = self.parameters.clone();
         for (internal, visible) in solution.index_variables.iter().zip(&self.indices) {
@@ -164,12 +198,38 @@ impl PyIbpFamily {
                 solution.stats.exact_trace_rows,
             ),
         ]);
+        let preferred = solution
+            .basis_change
+            .as_ref()
+            .map(|change| {
+                change
+                    .preferred
+                    .iter()
+                    .map(|master| {
+                        let status = match master.status {
+                            PreferredStatus::Replaced => "replaced",
+                            PreferredStatus::Residual => "residual",
+                        };
+                        (master.integral.clone(), status)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let replaced = solution
+            .basis_change
+            .map(|change| change.replaced)
+            .unwrap_or_default();
         Ok(PyIbpSolution {
             rules,
             residuals: solution.residuals,
             stats,
             arity: self.indices.len(),
             cut,
+            depth: solution.depth,
+            stable_depth: solution.stable_depth,
+            preferred,
+            replaced,
+            laporta: None,
         })
     }
 }
@@ -325,7 +385,16 @@ impl PyIbpFamily {
 
     /// Run exact finite-target Laporta elimination with a bounded seed search.
     /// ``residuals`` are the unresolved basis at this depth, not certified masters.
-    #[pyo3(signature = (targets, *, max_depth=2, include_lorentz=false, max_targets=1024))]
+    /// ``preferred_masters`` are searched like targets and become residuals by
+    /// an exact basis change: each one the search reduces replaces a residual
+    /// of its own sector, and dividing by a pivot adds its numerator to the
+    /// nonzero conditions of the rules that use it. A preferred master outside
+    /// the cut, in a zero sector, reducing to zero or to lower sectors, or
+    /// dependent on other preferred masters of its sector raises ``ValueError``.
+    /// ``until_stable`` searches depths ``0..=max_depth`` and stops once two
+    /// deeper searches reproduce the residuals; see ``stable_depth``.
+    #[pyo3(signature = (targets, *, max_depth=2, include_lorentz=false, max_targets=1024, preferred_masters=None, until_stable=false))]
+    #[allow(clippy::too_many_arguments)]
     fn reduce_laporta(
         &self,
         py: Python<'_>,
@@ -333,31 +402,28 @@ impl PyIbpFamily {
         max_depth: u32,
         include_lorentz: bool,
         max_targets: usize,
+        preferred_masters: Option<Vec<Vec<PythonPower>>>,
+        until_stable: bool,
     ) -> PyResult<PyIbpSolution> {
-        let targets = targets
-            .into_iter()
-            .map(|target| {
-                target
-                    .into_iter()
-                    .map(PythonPower::compact)
-                    .collect::<PyResult<Vec<_>>>()
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let targets = PythonPower::compact_all(targets)?;
+        let preferred = PythonPower::compact_all(preferred_masters.unwrap_or_default())?;
         let result = py
             .detach(|| {
                 bridge::solve_laporta(
                     &self.family,
                     &self.cuts,
                     &targets,
+                    &preferred,
                     DynamicSolveOptions {
                         max_depth,
                         include_lorentz,
                         max_targets,
+                        until_stable,
                     },
                 )
             })
             .map_err(value_error)?;
-        self.solution(result)
+        self.laporta_solution(result, include_lorentz)
     }
 
     fn __repr__(&self) -> String {
@@ -567,6 +633,11 @@ pub struct PyIbpSolution {
     stats: BTreeMap<String, usize>,
     arity: usize,
     cut: Arc<[bool]>,
+    depth: u32,
+    stable_depth: Option<u32>,
+    preferred: Vec<(Vec<i16>, &'static str)>,
+    replaced: Vec<Vec<i16>>,
+    laporta: Option<Arc<LaportaRecord>>,
 }
 
 #[pymethods]
@@ -584,6 +655,57 @@ impl PyIbpSolution {
     #[getter]
     fn stats(&self) -> BTreeMap<String, usize> {
         self.stats.clone()
+    }
+
+    /// Seed depth of a ``reduce_laporta`` search; ``None`` for parametric rules.
+    #[getter]
+    fn depth(&self) -> Option<u32> {
+        self.laporta.as_ref().map(|_| self.depth)
+    }
+
+    /// With ``until_stable``, the first depth whose residuals the next two
+    /// depths reproduced; ``None`` otherwise. A heuristic, not a proof that the
+    /// residuals are masters.
+    #[getter]
+    fn stable_depth(&self) -> Option<u32> {
+        self.stable_depth
+    }
+
+    /// ``(powers, status)`` for each preferred master in request order. The
+    /// status is ``"replaced"`` when the search reduced it and it replaced a
+    /// residual, or ``"residual"`` when the search left it unreduced.
+    #[getter]
+    fn preferred_masters(&self) -> Vec<(Vec<i16>, &'static str)> {
+        self.preferred.clone()
+    }
+
+    /// The search residuals that preferred masters replaced.
+    #[getter]
+    fn replaced(&self) -> Vec<Vec<i16>> {
+        self.replaced.clone()
+    }
+
+    /// Check this ``reduce_laporta`` solution; see ``IBPCertificate``.
+    /// ``replay`` derives every rule again from the family's original
+    /// identities at its recorded seeds and raises ``ValueError`` if one does
+    /// not follow. ``count_masters`` compares each residual sector with its
+    /// master count at random finite-field kinematics chosen by ``seed``.
+    #[pyo3(signature = (*, count_masters=true, replay=true, seed=0))]
+    fn certify(
+        &self,
+        py: Python<'_>,
+        count_masters: bool,
+        replay: bool,
+        seed: u64,
+    ) -> PyResult<PyIbpCertificate> {
+        let Some(record) = &self.laporta else {
+            return Err(PyValueError::new_err(
+                "certify() requires a reduce_laporta solution; parametric recurrences are not certified",
+            ));
+        };
+        let stable_depth = self.stable_depth;
+        py.detach(|| PyIbpCertificate::check(record, stable_depth, count_masters, replay, seed))
+            .map_err(PyValueError::new_err)
     }
 
     /// Apply the first valid solved rule; leave unresolved integrals unchanged.
@@ -641,6 +763,7 @@ pub fn register_hep_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyIbpFamily>()?;
     module.add_class::<PyIbpRule>()?;
     module.add_class::<PyIbpSolution>()?;
+    module.add_class::<PyIbpCertificate>()?;
     Ok(())
 }
 

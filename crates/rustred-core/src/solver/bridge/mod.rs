@@ -5,7 +5,11 @@
 //! algorithms used by [`super::SectorSolver`]. Finite-search residuals are a
 //! basis for the returned equations, not a proof of master independence.
 
+mod basis;
+mod certificate;
+
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use symbolica::poly::PolyVariable;
 
@@ -21,6 +25,14 @@ use super::{
     SourceSystem, extract_exceptions,
 };
 
+pub use basis::{BasisChange, PreferredMaster, PreferredStatus};
+pub use certificate::{ReductionCertificate, certify_laporta};
+
+/// Number of consecutive deeper searches that must reproduce a residual set
+/// before `until_stable` accepts it. One is not enough: some numerator
+/// integrals keep the same residuals from depth 0 to 1 and change at depth 2.
+pub const STABLE_PATIENCE: u32 = 2;
+
 /// Search radius in the signed L1 seed lattice. Parameters remain exact.
 #[derive(Clone, Copy, Debug)]
 pub struct DynamicSolveOptions {
@@ -29,6 +41,10 @@ pub struct DynamicSolveOptions {
     /// Maximum distinct concrete integrals searched during RHS closure.
     /// Exceeding this budget is an error, never an incomplete reduction.
     pub max_targets: usize,
+    /// Laporta only: search depths `0..=max_depth` and stop once the residual
+    /// set has stayed unchanged for [`STABLE_PATIENCE`] deeper searches. This
+    /// is a heuristic for search completeness, not a proof.
+    pub until_stable: bool,
 }
 
 impl Default for DynamicSolveOptions {
@@ -37,6 +53,7 @@ impl Default for DynamicSolveOptions {
             max_depth: 2,
             include_lorentz: false,
             max_targets: 1024,
+            until_stable: false,
         }
     }
 }
@@ -75,14 +92,47 @@ pub struct DynamicSolveStats {
     pub exact_trace_rows: usize,
 }
 
+/// Where a Laporta rule, before back substitution, comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuleOrigin {
+    /// A combination of the family's original identities instantiated at these
+    /// concrete seed integrals.
+    Identities { seeds: Vec<Vec<i16>> },
+    /// The target's sector is scaleless by an exact zero-sector proof.
+    ProvedZero,
+    /// The target has a nonpositive power on a cut denominator.
+    OutsideCut,
+}
+
+/// A Laporta rule before back substitution, kept so that a certificate can
+/// derive it again from the original identities.
+#[derive(Clone, Debug)]
+pub struct DerivedRule {
+    pub rule: DynamicRule,
+    pub origin: RuleOrigin,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DynamicSolution {
     pub rules: Vec<DynamicRule>,
     /// Unsolved requested integrals and terminal RHS integrals. These depend
     /// on the finite seed budget and are not certified master integrals.
+    /// After a preferred-master basis change, every preferred integral is one
+    /// of them, whether or not a target needs it.
     pub residuals: Vec<Vec<i16>>,
     pub index_variables: Vec<PolyVariable>,
     pub stats: DynamicSolveStats,
+    /// Laporta only: the rules before back substitution and any basis change.
+    pub derivation: Vec<DerivedRule>,
+    /// Laporta only: the requested targets, then any preferred masters.
+    pub requested: Vec<Vec<i16>>,
+    /// Laporta only: the preferred-master basis change, if one was requested.
+    pub basis_change: Option<BasisChange>,
+    /// Laporta only: the seed depth of the returned search.
+    pub depth: u32,
+    /// With `until_stable`, the first depth whose residuals the next
+    /// [`STABLE_PATIENCE`] depths reproduced; `None` if none did.
+    pub stable_depth: Option<u32>,
 }
 
 /// Find one reusable symbolic-index recurrence on an explicit sector/case.
@@ -122,10 +172,16 @@ pub fn solve_parametric(
 /// The integral order is that of the uncut family, so a cut reduction equals
 /// the uncut one with every integral outside the cut support removed.
 /// Requested targets outside the support receive zero rules without a search.
+///
+/// `preferred` integrals are searched like targets and then become residuals
+/// through an exact basis change; see [`BasisChange`]. A preferred integral
+/// outside the cut, in a zero sector, reducing to zero or to lower sectors, or
+/// dependent on other preferred integrals of its sector is an error.
 pub fn solve_laporta(
     family: &IntegralFamily,
     cuts: &CutConstraint,
     targets: &[Vec<i16>],
+    preferred: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
     dispatch!(
@@ -134,6 +190,7 @@ pub fn solve_laporta(
         family,
         cuts,
         targets,
+        preferred,
         options
     )
 }
@@ -296,20 +353,39 @@ fn parametric<const N: usize>(
     extend_conditions(&mut rule.nonzero_conditions, &zero_conditions);
     Ok(DynamicSolution {
         rules: vec![rule],
-        residuals: Vec::new(),
         index_variables: index_variables(&sources),
         stats,
+        ..Default::default()
     })
+}
+
+/// The concrete seed integrals whose original identities a rule combines.
+fn seed_integrals<const N: usize>(candidate: &RuleCandidate<N>) -> Vec<Vec<i16>> {
+    let seeds: BTreeSet<Vec<i16>> = candidate
+        .sources
+        .iter()
+        .map(|source| {
+            source
+                .seed
+                .integral
+                .powers()
+                .iter()
+                .map(|power| power.value())
+                .collect()
+        })
+        .collect();
+    seeds.into_iter().collect()
 }
 
 fn laporta<const N: usize>(
     family: &IntegralFamily,
     cuts: &CutConstraint,
     targets: &[Vec<i16>],
+    preferred: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
     let restrictions = cut_restrictions(family, cuts)?;
-    let mut pending = BTreeSet::<[i16; N]>::new();
+    let mut requested = BTreeSet::<[i16; N]>::new();
     // Outside the cut support no search is needed, so these targets neither
     // count against `max_targets` nor widen the zero census.
     let mut excluded = BTreeMap::<[i16; N], CoordinateCase<N>>::new();
@@ -319,91 +395,176 @@ fn laporta<const N: usize>(
         if is_excluded(&restrictions, powers.map(|power| power > 0))? {
             excluded.insert(powers, case);
         } else {
-            pending.insert(powers);
+            requested.insert(powers);
         }
     }
+    let preferred = basis::validate::<N>(preferred, &restrictions)?;
+    requested.extend(preferred.iter().copied());
     let sources = SourceSystem::<N>::from_family_with_lorentz(family, options.include_lorentz)?;
-    let initial_sectors: Vec<_> = pending
+    let initial_sectors: Vec<_> = requested
         .iter()
         .map(|powers| powers.map(|power| power > 0))
         .collect();
     let (zero_sectors, zero_conditions) = zero_census(family, &restrictions, &initial_sectors)?;
-    let zero_sectors: std::sync::Arc<[[bool; N]]> = zero_sectors.into();
-    let mut result = DynamicSolution {
-        index_variables: index_variables(&sources),
-        ..Default::default()
+    if let Some(master) = preferred
+        .iter()
+        .find(|master| zero_sectors.contains(&master.map(|power| power > 0)))
+    {
+        return Err(SolverError::InvalidInput(format!(
+            "preferred master {master:?} lies in a zero sector; it vanishes"
+        )));
+    }
+    let mut closure = Closure {
+        sources: &sources,
+        zero_sectors: zero_sectors.into(),
+        zero_conditions,
+        solvers: BTreeMap::new(),
+    };
+    let mut result = if options.until_stable {
+        closure.until_stable(&requested, options)?
+    } else {
+        closure.run(&requested, options, options.max_depth)?
     };
     for (powers, case) in excluded {
-        let sector = powers.map(|power| power > 0);
-        result.rules.push(zero_rule(&case, &sector, Vec::new()));
+        let rule = zero_rule(&case, &powers.map(|power| power > 0), Vec::new());
+        result.derivation.push(DerivedRule {
+            rule: rule.clone(),
+            origin: RuleOrigin::OutsideCut,
+        });
+        result.rules.push(rule);
     }
-    let mut visited = BTreeSet::new();
-    let mut solvers = BTreeMap::new();
-    while !pending.is_empty() {
-        if visited.len().saturating_add(pending.len()) > options.max_targets {
-            return Err(SolverError::InvalidInput(format!(
-                "Laporta RHS closure exceeds max_targets={}; increase the explicit target budget",
-                options.max_targets
-            )));
-        }
-        let mut sectors = BTreeMap::<[bool; N], Vec<CoordinateCase<N>>>::new();
-        for target in std::mem::take(&mut pending) {
-            visited.insert(target);
-            sectors
-                .entry(target.map(|power| power > 0))
-                .or_default()
-                .push(CoordinateCase::new(target.map(Some))?);
-        }
-        for (sector, cases) in sectors {
-            if zero_sectors.contains(&sector) {
-                for case in cases {
-                    result
-                        .rules
-                        .push(zero_rule(&case, &sector, zero_conditions.clone()));
-                }
-                continue;
+    result.index_variables = index_variables(&sources);
+    result.requested = targets
+        .iter()
+        .cloned()
+        .chain(preferred.iter().map(|master| master.to_vec()))
+        .collect();
+    if !preferred.is_empty() {
+        basis::prefer(&mut result, &preferred)?;
+    }
+    Ok(result)
+}
+
+/// One Laporta closure over a fixed family, census and set of sector solvers,
+/// so that deeper searches reuse each sector's preconditioned identities.
+struct Closure<'s, const N: usize> {
+    sources: &'s SourceSystem<N>,
+    zero_sectors: Arc<[[bool; N]]>,
+    zero_conditions: Vec<CoefficientPolynomial>,
+    solvers: BTreeMap<[bool; N], SectorSolver<'s, N>>,
+}
+
+impl<'s, const N: usize> Closure<'s, N> {
+    fn run(
+        &mut self,
+        requested: &BTreeSet<[i16; N]>,
+        options: DynamicSolveOptions,
+        depth: u32,
+    ) -> Result<DynamicSolution, SolverError> {
+        let search = search(DynamicSolveOptions {
+            max_depth: depth,
+            ..options
+        });
+        let mut pending = requested.clone();
+        let mut result = DynamicSolution {
+            depth,
+            ..Default::default()
+        };
+        let mut visited = BTreeSet::new();
+        while !pending.is_empty() {
+            if visited.len().saturating_add(pending.len()) > options.max_targets {
+                return Err(SolverError::InvalidInput(format!(
+                    "Laporta RHS closure exceeds max_targets={}; increase the explicit target budget, which also counts preferred masters",
+                    options.max_targets
+                )));
             }
-            if !solvers.contains_key(&sector) {
-                solvers.insert(
-                    sector,
-                    SectorSolver::new(
-                        &sources,
+            let mut sectors = BTreeMap::<[bool; N], Vec<CoordinateCase<N>>>::new();
+            for target in std::mem::take(&mut pending) {
+                visited.insert(target);
+                sectors
+                    .entry(target.map(|power| power > 0))
+                    .or_default()
+                    .push(CoordinateCase::new(target.map(Some))?);
+            }
+            for (sector, cases) in sectors {
+                if self.zero_sectors.contains(&sector) {
+                    for case in cases {
+                        let rule = zero_rule(&case, &sector, self.zero_conditions.clone());
+                        result.derivation.push(DerivedRule {
+                            rule: rule.clone(),
+                            origin: RuleOrigin::ProvedZero,
+                        });
+                        result.rules.push(rule);
+                    }
+                    continue;
+                }
+                if !self.solvers.contains_key(&sector) {
+                    let solver = SectorSolver::new(
+                        self.sources,
                         sector,
                         SectorConfig {
-                            zero_sectors: zero_sectors.clone(),
+                            zero_sectors: self.zero_sectors.clone(),
                             ..Default::default()
                         },
-                    )?,
-                );
-            }
-            let solver = &solvers[&sector];
-            let solved = solver.solve_numeric_cases(cases, search(options))?;
-            result.stats.seeds += solved.stats.seeds;
-            result.stats.rows += solved.stats.rows;
-            result.stats.exact_trace_rows += solved.stats.exact_trace_rows;
-            result.residuals.extend(solved.residuals.iter().map(|case| {
-                case.integral()
-                    .powers()
-                    .iter()
-                    .map(|power| power.value())
-                    .collect()
-            }));
-            for candidate in solved.rules {
-                let mut rule = export(candidate, &sources, &sector)?;
-                extend_conditions(&mut rule.nonzero_conditions, &zero_conditions);
-                for term in &rule.rhs {
-                    let target = std::array::from_fn(|axis| term.powers[axis].value);
-                    if !visited.contains(&target) {
-                        pending.insert(target);
-                    }
+                    )?;
+                    self.solvers.insert(sector, solver);
                 }
-                result.rules.push(rule);
+                let solved = self.solvers[&sector].solve_numeric_cases(cases, search)?;
+                result.stats.seeds += solved.stats.seeds;
+                result.stats.rows += solved.stats.rows;
+                result.stats.exact_trace_rows += solved.stats.exact_trace_rows;
+                result.residuals.extend(solved.residuals.iter().map(|case| {
+                    case.integral()
+                        .powers()
+                        .iter()
+                        .map(|power| power.value())
+                        .collect()
+                }));
+                for candidate in solved.rules {
+                    let seeds = seed_integrals(&candidate);
+                    let mut rule = export(candidate, self.sources, &sector)?;
+                    extend_conditions(&mut rule.nonzero_conditions, &self.zero_conditions);
+                    for term in &rule.rhs {
+                        let target = std::array::from_fn(|axis| term.powers[axis].value);
+                        if !visited.contains(&target) {
+                            pending.insert(target);
+                        }
+                    }
+                    result.derivation.push(DerivedRule {
+                        rule: rule.clone(),
+                        origin: RuleOrigin::Identities { seeds },
+                    });
+                    result.rules.push(rule);
+                }
             }
         }
+        result.stats.sectors = self.solvers.len();
+        back_substitute(&mut result)?;
+        Ok(result)
     }
-    result.stats.sectors = solvers.len();
-    back_substitute(&mut result)?;
-    Ok(result)
+
+    /// Deepen the search until [`STABLE_PATIENCE`] deeper searches reproduce
+    /// the residual set, or `max_depth` is reached. Returns the deepest search.
+    fn until_stable(
+        &mut self,
+        requested: &BTreeSet<[i16; N]>,
+        options: DynamicSolveOptions,
+    ) -> Result<DynamicSolution, SolverError> {
+        let mut plateau = 0;
+        let mut previous: Option<Vec<Vec<i16>>> = None;
+        for depth in 0..=options.max_depth {
+            let mut solution = self.run(requested, options, depth)?;
+            if previous.as_ref() != Some(&solution.residuals) {
+                plateau = depth;
+                previous = Some(solution.residuals.clone());
+            }
+            if depth == options.max_depth || depth - plateau >= STABLE_PATIENCE {
+                solution.stable_depth = (depth - plateau >= STABLE_PATIENCE).then_some(plateau);
+                return Ok(solution);
+            }
+        }
+        unreachable!("the depth loop returns at max_depth")
+    }
 }
 
 fn extend_conditions(target: &mut Vec<CoefficientPolynomial>, source: &[CoefficientPolynomial]) {
