@@ -56,6 +56,12 @@ release nor input is edited.
 
 ### October 2, 06:44 UTC — native integration regression gate passes
 
+- [M] Audited implementation and documentation committed/pushed on `main` as
+  `ae1df796` (partition-preserving checked alternatives). This is an opt-in
+  capability milestone, not a deployment recommendation or performance gate.
+  Unrelated FeynKit modifications and all pre-existing untracked work remain
+  unstaged. Reference inputs, temporary evidence and production outputs were
+  not committed. The goal remains active and production is unchanged.
 - [M] `after-baseline-native-tests-r2` passes119 tests, zero failures, with two
   external saved-program/source-replay tests intentionally ignored. Native test
   execution takes0.95s; guarded compilation plus execution takes1,544.714s.
