@@ -2,12 +2,12 @@
 
 `rustred-feynkit` embeds RustRed in the same native Symbolica kernel as
 Feynkit. The community host registers `IBPFamily`, `IBPRule`, and
-`IBPSolution` in `symbolica.community.hep`. No standalone `rustred` Python
+`IBPSolution` in `symbolica.hepkit`. No standalone `rustred` Python
 extension, Kira executable, or expression string conversion is involved.
 
 ```python
 from symbolica import S
-from symbolica.community import hep
+from symbolica import hepkit as hep
 
 d, k, m2 = S("d", "k", "m2")
 kin = hep.Kinematics(d, momenta=[k])

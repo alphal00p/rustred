@@ -68,7 +68,7 @@ impl PythonPower {
 /// powers of those auxiliary denominators should normally be nonpositive.
 /// Solver searches support up to twelve denominators and fixed powers in
 /// ``-64..=63``. Applying a symbolic recurrence accepts signed 64-bit powers.
-#[pyclass(name = "IBPFamily", module = "symbolica.community.hep", frozen)]
+#[pyclass(name = "IBPFamily", module = "symbolica.hepkit", frozen)]
 pub struct PyIbpFamily {
     family: Arc<IntegralFamily>,
     parameters: BTreeMap<Atom, Atom>,
@@ -308,7 +308,7 @@ impl PyIbpFamily {
 /// vanishing makes that branch exceptional and forbids the rule.
 #[pyclass(
     name = "IBPRule",
-    module = "symbolica.community.hep",
+    module = "symbolica.hepkit",
     frozen,
     from_py_object
 )]
@@ -495,7 +495,7 @@ impl PyIbpRule {
 }
 
 /// Rules and unresolved integrals from a finite IBP search.
-#[pyclass(name = "IBPSolution", module = "symbolica.community.hep", frozen)]
+#[pyclass(name = "IBPSolution", module = "symbolica.hepkit", frozen)]
 pub struct PyIbpSolution {
     rules: Vec<PyIbpRule>,
     residuals: Vec<Vec<i16>>,

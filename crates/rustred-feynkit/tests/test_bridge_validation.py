@@ -2,7 +2,7 @@
 
 import pytest
 from symbolica import E, S
-from symbolica.community import hep
+from symbolica import hepkit as hep
 
 
 def tadpole(mass=None, scale=None):

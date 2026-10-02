@@ -4,9 +4,14 @@ from pathlib import Path
 
 import pytest
 from symbolica import E, Expression, S
-from symbolica.community import hep
+from symbolica import hepkit as hep
 
 MODEL = Path(__file__).parent / "fixtures" / "scalar_phi3.json"
+
+
+def test_public_class_namespace():
+    for cls in (hep.IBPFamily, hep.IBPRule, hep.IBPSolution):
+        assert cls.__module__ == "symbolica.hepkit"
 
 
 def coefficients(terms):
@@ -26,16 +31,18 @@ def graph_family(request):
     """Connected two-loop graphs, two masses and all external virtualities."""
     legs = request.param
     model = hep.Model(str(MODEL))
-    diagrams = model.generate_diagrams(
-        ["scalar_0"],
-        ["scalar_0"] * (legs - 1),
-        loops=2,
-        max_vertices=legs + 2,
-        allow_self_loops=False,
-        threads=1,
-    ).diagrams
-    diagram = next(g for g in diagrams if g.integral_family().is_independent)
-    original = diagram.integral_family()
+    diagrams = (
+        model.process(["scalar_0"], ["scalar_0"] * (legs - 1))
+        .generate_diagrams(
+            loops=2,
+            max_vertices=legs + 2,
+            allow_self_loops=False,
+            threads=1,
+        )
+        .diagrams
+    )
+    diagram = next(g for g in diagrams if g.propagator_family().is_independent)
+    original = diagram.propagator_family()
     d, s, t, u, ma, mb = S(
         "ibp_test::d",
         "ibp_test::s",
@@ -50,7 +57,7 @@ def graph_family(request):
     if legs == 3:
         kin = kin.with_scalar_product(external[1], external[1], t)
         kin = kin.with_scalar_product(external[0], external[1], (u - s - t) / 2)
-    routed = diagram.integral_family(kinematics=kin)
+    routed = diagram.propagator_family(kinematics=kin)
     # Assign two independent masses to the graph's ordered internal edges.
     physical = len(routed.denominators)
     family = hep.IntegralFamily(
