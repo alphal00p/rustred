@@ -8,7 +8,12 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 07:19 UTC (09:19 Zurich)
+## Current workboard — October 2, 08:14 UTC (10:14 Zurich), requested stopping checkpoint
+
+The user requests that the current experiments be completed and documented,
+the tested checkpoint pushed, and the agent stop. No further implementation or
+pilots are started. `CODEX_NEW_RULES_STUDY.md` is the consolidated handoff.
+Production remains untouched. Goal completion is **not** claimed.
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -39,6 +44,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
 | Nonfragmenting shortcut selection | `five_loop_order_runner` design/implementation; independent `rule_quality_audit`; `r_primary_transfer_audit` diagnostic/pilot; root integration | Native tests, fresh checked export and unchanged whole58 cold-All pass; domains26,025→26,211 and complete arm15.509→15.796s | Negative promotion result; park broad46 transfer/reverse. Generic opt-in capability remains tested |
 | Symmetry before block elimination | `five_loop_order_runner`; independent `symmetry_block_audit`; root | Same752-row native diagnostic passes validity checks;1,322→1,306 columns, still no target-block pivot | Bounded negative. Park this bank/map; no automatic expansion, publication or parametric claim |
+| Original-coordinate reflection rule | `reflection_rule_probe`; independent `symmetry_block_audit`; root | Two4L pairs PASS;5L pair PASS but domains−1.00%, natives+1.63%, complete walk+cold+0.39% | Delivered; park promotion/no reverse5L. Generic symbolic-chart producer remains design-only |
+| Affine symmetries missed by permutation screen | `affine_symmetry_research`; independent `symmetry_block_audit`; root | Native map/averages valid, but69/24hard→99/41 and163/82 | Delivered negative; park averaging, no walk or bank growth |
 | Directional recurrence summation | `five_loop_order_runner`; root | Read-only structural lead: broad46 has one rank-preserving `-I(n-e3)` term; other45 lower the chosen numerator power | Deferred: exact coefficient independence, guarded three-step source replay and endpoint-cost test required. Screened anchor has that power1 already, hence no chain to skip there |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -54,6 +61,127 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 08:14 UTC — final five-loop comparison and stopping checkpoint
+
+- [M] Native5L reflection independently passes at the required A11/R1/D10
+  point: actual rule35 has95 original terms/guards and64 nonzero endpoints;
+  no zero-sector flags. Verified reflection gives six R0 terms with constant
+  pivot2, maxF12→11 and strict descent. Native1.00056s, reflection0.00930s,
+  wrapper3.3581s; separate adapter compile124.3102s.
+- [M] `reflection-5l-r1-union-v1/execution-forward-r1/RESULT.json` finishes in
+  368.5197s. Same67 owners/8,246 routes/existing repair overlay; all64/six
+  roots and51,422/52,260 native inspections cold-All/Off PASS. Domains
+  66,991→66,321 (−1.00%); successor events3,760,156→3,334,282 (−11.33%);
+  traversal21.2893→19.0958s. Complete walk+cold181.6577→182.3609s (+0.39%).
+  Independent auditor verifies raw hashes/scopes and all four drained groups.
+- [D] Park5L promotion: weak domain gain, more native inspections, slightly
+  slower complete arm. No reverse timing-chase, wider bank, new symbolic
+  source implementation or production change. All owned native handles are
+  drained. A minimal generic reflection design was delivered read-only as
+  `TMP/postlaunch-20261002/tangent-integration/GENERIC_REFLECTION_DESIGN.md`;
+  a sealed symmetry-origin chart, not new CAS, is the missing implementation.
+- [M] Frozen tested CLI copied to
+  `TMP/releases/20261002-new-rules-study/rustred`, SHA256
+  `8ef80b52da13866dbe09d817acd004ec3fc9ca2130d85411ac758398086cf0a7`.
+  Help smoke passes. Fresh direct execution of cached optimized test binaries
+  passes386 core candidate-reduction tests and119 app candidate-bundle tests
+  (two external-data tests intentionally ignored). No full-engine source change
+  or rebuild in this wrap-up. Relevant core/order/app/Cargo inputs remain
+  unchanged; unrelated FeynKit edits and untracked work are preserved.
+- [D] Final report `CODEX_NEW_RULES_STUDY.md` distinguishes local and full-cohort
+  results, production's stale closure snapshots, absent ETA and unimplemented
+  symbolic reflection publication. Independent final report audit passes and
+  independently confirms the frozen CLI hash; final test reruns/help smoke are
+  explicitly root-witnessed. This is the requested owned commit/push checkpoint,
+  after which the goal is paused. No experiments or implementation remain active.
+
+Final test commands (both exit0; no compilation):
+
+```text
+taskset -c 0-3 TMP/codex-runtime-discovery.280crc/target-native/release/deps/rustred-135112256e6c039b solver::candidate_reduction:: --test-threads=1
+taskset -c 4-7 TMP/codex-runtime-discovery.280crc/target-native/release/deps/rustred_app-497daf22b0b4763e application::candidate_bundle:: --test-threads=1
+```
+
+### October 2, 07:56 UTC — local reflection gain reproduced; affine averaging rejected
+
+- [M] `reflection-r1-union-v1` forward/reverse pairs finish in8.7962s/9.2193s.
+  All four arms cold-All/Off PASS with the complete16-owner/508-route pool.
+  Domains7,150→6,274 and7,250→6,315; traversal0.5610→0.4821s and
+  0.5548→0.4610s. Complete walk+cold process phases3.9564→3.5126s and
+  3.9800→3.9484s. Independent audit accepts exact scopes, raw results and all
+  eight drained groups. No rank/zero-sector clipping or parent proof cost in
+  these successor-only measurements. Local work gain, not a full58 speedup.
+- [M] `affine-block-v1/probe-r2` verifies both maps, every S-squared key,
+  P-squared/composition and complete weighted residuals in1.60494s inclusive,
+  native0.23914s. Both averages worsen the row:69/24 hard endpoints becomes
+  99/41 or163/82; all remain descending, F9/R2 unchanged. Park averaging,
+  no recursive test or bank expansion. An earlier compile completed but was
+  never probed after review caught an early-stop visitor error; remove only
+  that stop, compile122.7847s and retain both receipts.
+- [D] Prepare independent5L reflection at actual required point
+  `[0,1,2,2,1,0,1,1,1,-1,0,1,0,0,1]`, A11/R1/D10, in
+  `phys-d10-a14-r4-011110111001001`. Proposed native map k2→k3−k2 swaps
+  active D2/D9 and sends D10 to D4+D2+D9−D3+D15+1−D10. Fresh native
+  verification and original saved-rule selection are required; no4L coefficient
+  import or global family equivalence. Root controls compilation and probe.
+- [R] A parametric extension is mathematically available with equal swapped
+  powers; the smallest rectangular chart fixes them both to1 and frees outer
+  powers. Concrete transport does not itself certify that symbolic lift. A
+  mixed symmetry-source proof or regenerated ordinary-source combination is
+  still needed, followed by whole-cohort benefit. No new tensor reducer.
+
+### October 2, 07:44 UTC — native reflection supplies a smaller exact point rule
+
+- [M] `reflection-r1-v1/probe-r2` passes in1.8182s inclusive; native0.09359s,
+  reflection0.01193s. Actual required FG A9/R1/D8 point selects saved rule9.
+  Complete26→6 RHS, maximumR1→0, maximumF9 unchanged. Every new term strictly
+  descends; native reflection twice and the complete normalized residual pass.
+  No zero-sector terms, guards or original coefficients are discarded.
+- [M] Cached-library adapter compilation122.6085s is separate. Initial compile
+  failed in3.7587s on a JSON-macro recursion limit; the sole source correction
+  raises that compile-time limit. Both jobs drained; no engine rebuild.
+  Independent source audit accepts the unchanged mathematics and minimal fix.
+- [D] Root authorizes the next data-only preparation: existing same16-owner/
+  508-route successor-union comparison, with fresh optimized CLI8ef80b52,
+  all native cold reinspection and both complete endpoint sets. This is not
+  installation into the full58-query cohort or a reusable parametric artifact.
+- [R] Affine owner481 note is delivered. A different map acts linearly on
+  integral combinations rather than as a whole-family denominator permutation.
+  Agent prepares a bounded W-average falsifier using existing Symbolica-backed
+  transport; preserve all45 siblings and separately label symmetry provenance.
+  Primary literature and exact proposed maps are recorded in
+  `docs/research/affine_symmetry_shortcuts_2026-10-02.md`.
+- [M] Read-only production at07:38:183,789,955 domains,13,856,942 pending,
+  138,964,912 local completions, zero reported frontiers. A newer closure scan
+  reports25,777,839 closed domains (2,585,245 newly recorded in the1h window),
+  still13/67 roots. Snapshot age750s; this is scan-batched evidence, not an ETA.
+  Pending/completion−0.136; process RSS155.65GB. No lifecycle/input changes.
+
+### October 2, 07:29 UTC — next bounded rule-quality mechanism selected
+
+- [D] Previous goal turn is progress: complete four-loop cold validation,
+  independently audited negative symmetry experiment, and clean owned pushes
+  `f82b9635`/`8f6295f2`. The goal remains active and incomplete. The authoritative
+  October1 plan amendment still parks scheduling/S5 experiments in favor of
+  rule quality and keeps development on `main`.
+- [D] `reflection_rule_probe` prepares `reflection-r1-v1`, reusing native
+  symmetry verification and finite numerator transport in the original family.
+  Target `[2,1,1,1,1,1,1,1,-1,0]` hasA9/R1/D8 and is independently confirmed
+  inside `phys-d8-a13-r5-1111111100`. Equal bubble powers and absent D10 permit
+  isolating the parent from its reflected image. All complete coefficients,
+  conditions, descent and reflection-twice checks must precede any walk.
+  No new CAS, family relabeling, terminal or ordinary-only certificate.
+- [R] Separate affine-symmetry research finds an actual owner481 candidate,
+  k4→k1−k4, swapping its equally powered D4/D5 while mixing inactive numerator
+  coordinates. This was not tested by the preceding full-denominator permutation
+  quotient. Actual native map/expansion and proof boundaries remain untested;
+  no new source bank or pilot is authorized yet.
+- [M] Fresh read-only production observation at07:26:182,802,072 domains,
+  13,968,499 pending,137,973,936 local completions, zero reported frontiers.
+  Recorded roots13/67 remain stale (snapshot age12,015s), not a last-hour closure
+  measurement. RSS154.4GB and sampled1.0core; pending/completion−0.118 over1h.
+  Production inputs, binary, checkpoint and lifecycle remain unchanged.
 
 ### October 2, 07:19 UTC — symmetry-assisted finite Laporta diagnostic completes
 

@@ -1,5 +1,15 @@
 # RustRed project goal
 
+## October2 requested stopping checkpoint
+
+The user requests completion of the current rule experiments, an audited report
+in `CODEX_NEW_RULES_STUDY.md`, a clean tested commit/push, and then stopping the
+agent. No new experiments or feature implementation are authorized during this
+wrap-up. The mathematical objective below is still open, not achieved. The live
+production campaign is untouched and remains user-controlled. Resume further
+work only on a new user instruction; the report records the measured results,
+frozen development executable and outstanding questions.
+
 ## Current priority — October1, rule optimization on main
 
 The user directs all development resources to understanding and optimizing
