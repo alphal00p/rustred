@@ -284,6 +284,7 @@ fn install_source_port_impl(
         .map(|proposal| {
             proposal.entry.validate_binding(&candidate.family, &root)?;
             if !candidate.ordering.is_source_port_uncut()
+                || !candidate.ordering.is_support_primary()
                 || !candidate.ordering.has_total_excess_primary()
                 || !matches!(
                     proposal.entry.bound(),

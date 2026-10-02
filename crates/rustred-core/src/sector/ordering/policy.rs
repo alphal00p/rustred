@@ -142,6 +142,14 @@ impl OrderingPolicy {
             .map_or(true, |program| program.has_total_excess_primary())
     }
 
+    /// Whether support count precedes every physical-degree comparison.
+    /// Sector-first induction and unconditional proper-pinch witnesses need
+    /// this stronger property, not merely a fixed-support degree comparison.
+    pub fn is_support_primary(&self) -> bool {
+        self.program()
+            .is_none_or(|program| program.is_support_primary())
+    }
+
     /// Static identity for policies whose schema contains no payload.
     /// Payload-bearing policies use [`Self::stable_id`] instead.
     pub const fn static_stable_id(&self) -> Option<&'static str> {

@@ -19,6 +19,7 @@ fn independently_programmed_owners_compose_after_a_strict_pinch() {
         OrderingPolicy::try_programmed(
             CompiledOrder::compile(
                 OrderDescriptor {
+                    pre_support_degree_rows: vec![],
                     support_weights: weights.clone(),
                     support_priority: vec![2, 0, 1],
                     degree_rows: vec![DegreeRow {

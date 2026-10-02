@@ -14,9 +14,10 @@ pub enum CoordinateGroups {
     Interleaved,
 }
 
-/// One nonnegative linear form on coordinate excess. For a concrete power n,
-/// active excess is n-1 and inactive excess is -n. Separate sign-specific
-/// coefficients allow, for example, numerator degree before total degree.
+/// One nonnegative sign-specific linear form. In `degree_rows` it acts on
+/// excess (active n-1, inactive -n); in `pre_support_degree_rows` it acts on
+/// absolute powers (active n, inactive -n). The containing field fixes the
+/// interpretation; moving a row between them changes its meaning.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DegreeRow {
     pub active: Vec<u64>,
@@ -27,6 +28,9 @@ pub struct DegreeRow {
 /// in comparison order, not ranks by slot. All rows compare ascending.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderDescriptor {
+    /// Absolute-power rows evaluated before any support comparison. Empty
+    /// preserves the legacy support-first order and canonical v1 encoding.
+    pub pre_support_degree_rows: Vec<DegreeRow>,
     pub support_weights: Vec<u64>,
     pub support_priority: Vec<usize>,
     pub degree_rows: Vec<DegreeRow>,
@@ -151,10 +155,16 @@ pub(crate) fn permutation(values: &[usize], size: usize) -> Result<(), Error> {
 }
 
 impl OrderDescriptor {
-    pub(crate) fn dimensions(size: usize, rows: usize, limits: Limits) -> Result<usize, Error> {
+    pub(crate) fn dimensions(
+        size: usize,
+        pre_rows: usize,
+        rows: usize,
+        limits: Limits,
+    ) -> Result<usize, Error> {
         if size == 0 {
             return Err(Error::EmptyArity);
         }
+        let rows = pre_rows.checked_add(rows).ok_or(Error::DimensionOverflow)?;
         if rows == 0 {
             return Err(Error::NoDegreeRows);
         }
@@ -164,7 +174,7 @@ impl OrderDescriptor {
             .ok_or(Error::DimensionOverflow)?;
         let bytes = words
             .checked_mul(8)
-            .and_then(|n| n.checked_add(27))
+            .and_then(|n| n.checked_add(if pre_rows == 0 { 27 } else { 35 }))
             .ok_or(Error::DimensionOverflow)?;
         let comparison_terms = size
             .checked_mul(twice_rows.checked_add(8).ok_or(Error::DimensionOverflow)?)
@@ -190,7 +200,12 @@ impl OrderDescriptor {
 
     pub(crate) fn validate(&self, limits: Limits) -> Result<(), Error> {
         let size = self.support_weights.len();
-        Self::dimensions(size, self.degree_rows.len(), limits)?;
+        Self::dimensions(
+            size,
+            self.pre_support_degree_rows.len(),
+            self.degree_rows.len(),
+            limits,
+        )?;
         permutation(&self.support_priority, size)?;
         permutation(&self.coordinate_priority, size)?;
         checked_sum(self.support_weights.iter().copied())?;
@@ -198,7 +213,12 @@ impl OrderDescriptor {
         let mut covered_inactive = reserve(size)?;
         covered_active.resize(size, false);
         covered_inactive.resize(size, false);
-        for (row, weights) in self.degree_rows.iter().enumerate() {
+        for (row, weights) in self
+            .pre_support_degree_rows
+            .iter()
+            .chain(&self.degree_rows)
+            .enumerate()
+        {
             arity(size, weights.active.len())?;
             arity(size, weights.inactive.len())?;
             // A power or offset contributes at most 2^63 in magnitude. This

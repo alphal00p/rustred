@@ -248,6 +248,10 @@ pub(super) fn append_complexity_component(
             output.tag(8)?;
             output.usize(ordinal)
         }
+        ComplexityComponent::PreSupportDegreeRow { ordinal } => {
+            output.tag(9)?;
+            output.usize(ordinal)
+        }
     }
 }
 

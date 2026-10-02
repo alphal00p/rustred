@@ -167,6 +167,7 @@ fn multi_index_programmed_generation_replays_under_its_actual_descriptor() {
         .into();
     let program = CompiledOrder::compile(
         OrderDescriptor {
+            pre_support_degree_rows: vec![],
             support_weights: vec![3, 1, 2],
             support_priority: vec![2, 0, 1],
             degree_rows: vec![

@@ -81,8 +81,8 @@ impl OrderingPolicy {
         Ok(self.complexity_key(left)?.cmp(&self.complexity_key(right)?))
     }
 
-    /// Compare the complete support prefix in the declared order. Degree
-    /// comparisons are valid only when this prefix is equal.
+    /// Compare only the support priorities. This is not a whole-order proof
+    /// when a programmed physical-degree prefix precedes support.
     pub fn compare_support(&self, left: &[bool], right: &[bool]) -> Result<Ordering, Error> {
         self.require_arity(left.len())?;
         if left.len() != right.len() {
@@ -270,6 +270,7 @@ pub enum ComplexityComponent {
     IndexExcess { position: usize },
     SupportWeight,
     DegreeRow { ordinal: usize },
+    PreSupportDegreeRow { ordinal: usize },
 }
 
 impl From<rustred_order::Component> for ComplexityComponent {
@@ -279,6 +280,9 @@ impl From<rustred_order::Component> for ComplexityComponent {
             rustred_order::Component::SupportWeight => Self::SupportWeight,
             rustred_order::Component::SupportAxis(position) => Self::SectorBit { position },
             rustred_order::Component::DegreeRow(ordinal) => Self::DegreeRow { ordinal },
+            rustred_order::Component::PreSupportDegreeRow(ordinal) => {
+                Self::PreSupportDegreeRow { ordinal }
+            }
             rustred_order::Component::Coordinate(position) => Self::IndexExcess { position },
         }
     }

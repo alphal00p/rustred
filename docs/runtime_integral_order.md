@@ -44,17 +44,20 @@ successful mixed-owner pilot as a complete concrete reduction guarantee.
 
 All comparisons are simpler-first. The comparator applies, in order:
 
-1. Number of positive propagator powers (mandatory). A strict pinch is simpler.
-2. Sum of `support_weights` for positive coordinates.
-3. Support bits in `support_priority` order, with `false < true`.
-4. `degree_rows`, compared lexicographically. An active index `n > 0` contributes
+1. Optional `pre_support_degree_rows`, compared lexicographically using physical
+   powers: `n*active[axis]` when `n > 0`, `(-n)*inactive[axis]` otherwise.
+   The default empty prefix preserves the historical support-first comparison.
+2. Number of positive propagator powers.
+3. Sum of `support_weights` for positive coordinates.
+4. Support bits in `support_priority` order, with `false < true`.
+5. `degree_rows`, compared lexicographically. An active index `n > 0` contributes
    `(n-1)*active[axis]`; an inactive index contributes `(-n)*inactive[axis]`.
-5. Coordinate excess ties in `coordinate_priority` order, using the declared
+6. Coordinate excess ties in `coordinate_priority` order, using the declared
    sign-group ordering and ascending/descending directions.
 
 Both priority vectors list axes in comparison order, not ranks by slot.
 Every vector has the family arity. Weights are unsigned integers. Every axis
-of each sign must have a positive coefficient in at least one degree row, and
+of each sign must have a positive coefficient in at least one prefix or suffix row, and
 no row may be identically zero. Native validation checks vector dimensions,
 permutations, resource bounds and weighted accumulator bounds before search.
 
@@ -67,8 +70,13 @@ their existing exact proof gates. This is not an arbitrary executable comparator
 
 Cuts and removed-cut configurations are currently rejected for this programmed
 order. Legacy cut search remains a separate supported solver configuration.
-The optional total-excess-envelope certificate additionally requires a first
-degree row that is a positive multiple of *unweighted* total excess. A lawful
+The optional total-excess-envelope certificate additionally requires an empty
+pre-support prefix and a first degree row that is a positive multiple of
+*unweighted* total excess. Its induction assumes sector-first ordering; fixed-
+support equivalence of absolute degree and excess does not establish that.
+Likewise the specialized unconditional sector-monotone pinch witness rejects
+pre-support orders. General source-port descent instead checks physical degrees
+on exact sign-refined cells, failing closed if the comparison is unresolved. A lawful
 weighted order can increase unweighted excess; it is not relabelled E-primary.
 
 ## Python and CLI
@@ -129,6 +137,36 @@ compatibility evidence, not a five-loop performance improvement. The generic
 CLI and `stage.py` accept this order; the generation-first selected-owner
 `pipeline.py` still accepts only the legacy order. Do not bypass its reserved
 arguments or substitute old payloads to work around that steering limitation.
+
+An experimental, genuinely global absolute-degree order is now expressible as:
+
+```python
+global_degree = rustred.integral_order(arity, pre_support_degree_rows=[
+    {"active": [1] * arity, "inactive": [1] * arity},
+])
+```
+
+This compares `F=sum(abs(n_i))` **before** support, unlike the older post-support
+excess `E=F-number_of_positive_indices`. A pinch from `(1,1)` to `(0,3)` is
+no longer descending. Conversely a transition from `(-3,1)` to `(1,1)` can
+descend despite activating a denominator. This is an opt-in research order,
+not a demonstrated campaign speedup or a family-closure claim. Existing
+empty-prefix programs retain their exact binary identity; nonempty prefixes
+use the versioned v2 compiled-order encoding. JSON retains descriptor version1
+with this optional explicit field. Source rules must be regenerated, not relabelled.
+The source solver's existing activation-boundary restrictions and concrete
+routed evaluator's literal-subsector restriction still apply: a mathematically
+descending reactivation can remain unsupported. It must not be discarded as a
+zero or counted as covered. The experimental comparator does not claim to have
+removed these independent source/application limitations.
+The separate certified `ClosingArtifact` installation path currently still
+requires sector-first `RuleCell` witnesses and rejects these prefix programs,
+even for a tadpole. Candidate generation, source-identity/guard replay and
+the general local descent checks are separate from that certificate. Do not
+interpret a successfully loaded candidate bundle as a certified closing artifact.
+The first mixed-owner four-loop comparison retained all 58 queries and terminal
+keys, reducing domains by 3.64% but not traversal time. See the
+[measurement and literature note](research/global_degree_order_literature_2026-10-01.md).
 
 ## Rust and compilation boundaries
 

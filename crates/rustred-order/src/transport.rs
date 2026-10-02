@@ -11,7 +11,12 @@ impl CompiledOrder {
     pub fn transport(&self, source_for_target: &[usize], limits: Limits) -> Result<Self, Error> {
         let size = self.arity();
         // Bound output before allocating a permutation inverse or any vectors.
-        OrderDescriptor::dimensions(size, self.descriptor().degree_rows.len(), limits)?;
+        OrderDescriptor::dimensions(
+            size,
+            self.descriptor().pre_support_degree_rows.len(),
+            self.descriptor().degree_rows.len(),
+            limits,
+        )?;
         permutation(source_for_target, size)?;
         let mut target_for_source = reserve(size)?;
         target_for_source.resize(size, 0);
@@ -29,6 +34,13 @@ impl CompiledOrder {
             Ok(result)
         };
         let source = self.descriptor();
+        let mut pre_support_degree_rows = reserve(source.pre_support_degree_rows.len())?;
+        for row in &source.pre_support_degree_rows {
+            pre_support_degree_rows.push(DegreeRow {
+                active: weights(&row.active)?,
+                inactive: weights(&row.inactive)?,
+            });
+        }
         let mut degree_rows = reserve(source.degree_rows.len())?;
         for row in &source.degree_rows {
             degree_rows.push(DegreeRow {
@@ -38,6 +50,7 @@ impl CompiledOrder {
         }
         Self::compile(
             OrderDescriptor {
+                pre_support_degree_rows,
                 support_weights: weights(&source.support_weights)?,
                 support_priority: priority(&source.support_priority)?,
                 degree_rows,

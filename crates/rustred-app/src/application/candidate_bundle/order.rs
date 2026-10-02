@@ -14,6 +14,9 @@ pub struct CandidateIntegralOrder {
     pub version: u32,
     pub support_weights: Vec<u64>,
     pub support_priority: Vec<usize>,
+    /// Absolute physical degree rows evaluated before all support priorities.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_support_degree_rows: Vec<CandidateDegreeRow>,
     pub degree_rows: Vec<CandidateDegreeRow>,
     pub coordinate_priority: Vec<usize>,
     pub coordinate_groups: CandidateCoordinateGroups,
@@ -69,6 +72,14 @@ impl CandidateIntegralOrder {
         };
         CompiledOrder::compile(
             OrderDescriptor {
+                pre_support_degree_rows: self
+                    .pre_support_degree_rows
+                    .into_iter()
+                    .map(|row| DegreeRow {
+                        active: row.active,
+                        inactive: row.inactive,
+                    })
+                    .collect(),
                 support_weights: self.support_weights,
                 support_priority: self.support_priority,
                 degree_rows: self

@@ -11,6 +11,7 @@ mod excluded_tests;
 mod grounding;
 
 pub(super) mod bounded;
+mod pre_support;
 mod relative_face;
 
 use std::cmp::Ordering;
@@ -306,12 +307,12 @@ pub(crate) fn prove_wide_descent_with_limits<'a, T: 'a>(
                         parent + i128::from(shifts[axis]) > 0
                     })
                     .collect();
-                let comparison = if actual == sector {
-                    child_key.cmp(&parent_key)
+                let lower = if actual == sector {
+                    child_key.cmp(&parent_key) == Ordering::Less
                 } else {
-                    ordering.compare_support(&actual, sector).map_err(error)?
+                    pre_support::proves_lower(&ordering, &piece, sector, &actual, shifts)?
                 };
-                if comparison == Ordering::Less || vanishes(coefficient, &piece)? {
+                if lower || vanishes(coefficient, &piece)? {
                     continue;
                 }
                 return Err(error(format!(

@@ -27,7 +27,7 @@ fn workload() -> Workload {
         .expect("parse saved-program workload")
 }
 
-fn replay(bytes: &[u8]) -> Value {
+pub(super) fn replay(bytes: &[u8]) -> Value {
     let limits = CandidateBundleLimits::default();
     let bundle = codec::read(bytes, limits).expect("decode trusted candidate bundle");
     macro_rules! dispatch {

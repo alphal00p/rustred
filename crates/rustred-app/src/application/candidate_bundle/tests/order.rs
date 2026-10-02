@@ -6,6 +6,7 @@ use rustred::order::{
 
 fn descriptor(arity: usize) -> OrderDescriptor {
     OrderDescriptor {
+        pre_support_degree_rows: vec![],
         support_weights: vec![0; arity],
         support_priority: (0..arity).collect(),
         degree_rows: vec![
@@ -27,6 +28,69 @@ fn descriptor(arity: usize) -> OrderDescriptor {
 
 fn compiled(arity: usize) -> CompiledOrder {
     CompiledOrder::compile(descriptor(arity), Limits::default()).unwrap()
+}
+
+#[test]
+fn global_degree_tadpole_replays_and_refuses_sector_first_certificates() {
+    let mut d = descriptor(1);
+    d.pre_support_degree_rows = vec![DegreeRow {
+        active: vec![1],
+        inactive: vec![1],
+    }];
+    let expected = CompiledOrder::compile(d, Limits::default()).unwrap();
+    let text = r#"{"version":1,"support_weights":[0],"support_priority":[0],
+        "pre_support_degree_rows":[{"active":[1],"inactive":[1]}],
+        "degree_rows":[{"active":[1],"inactive":[1]},{"active":[0],"inactive":[1]}],
+        "coordinate_priority":[0],"coordinate_groups":"active-first",
+        "active_direction":"descending","inactive_direction":"descending"}"#;
+    let program = CandidateIntegralOrder::from_json(text).unwrap();
+    assert_eq!(program, expected);
+    assert!(!program.is_support_primary());
+    let mut request = FamilyCandidatesRequest::new(K1);
+    request.integral_order = Some(program.clone());
+    let generated = family_candidates(request.clone()).unwrap();
+    request.n_cores = 2;
+    assert_same_program(
+        generated.bundle(),
+        family_candidates(request).unwrap().bundle(),
+    );
+    let (_, mut reducer) = load_generated_candidate_bundle::<1>(
+        generated.bundle(),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(reducer.ordering().program(), Some(&program));
+    for power in 1..=5 {
+        assert!(
+            !reducer
+                .reduce_unit_mass(&rustred::family::IntegralKey::try_new([power]).unwrap())
+                .unwrap()
+                .terms()
+                .is_empty()
+        );
+    }
+    let replayed = super::saved_program::replay(generated.bundle());
+    assert!(replayed["rules"].as_u64().unwrap() > 0);
+    assert_eq!(replayed["closure_claim"], false);
+    // The current certified RuleCell lowering still requires a sector-first
+    // witness, independently of the general replay/descent checks above.
+    // Do not bypass that authority merely because this K1 example is simple.
+    let error =
+        certify_candidates(CandidateCertificationRequest::new(generated.bundle())).unwrap_err();
+    assert!(
+        error
+            .message()
+            .contains("requires support before physical degree")
+    );
+    // The bounded induction also assumes sector-first ordering even though
+    // fixed-support comparison by F agrees with total excess.
+    assert!(
+        certify_candidates(
+            CandidateCertificationRequest::new(generated.bundle()).with_max_total_excess_degree(3)
+        )
+        .is_err()
+    );
 }
 
 #[test]

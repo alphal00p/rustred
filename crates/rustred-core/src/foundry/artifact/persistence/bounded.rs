@@ -177,7 +177,10 @@ pub(super) fn preflight_body(
     ordering
         .require_arity(scope.root.arity())
         .map_err(ArtifactError::from)?;
-    if !ordering.is_source_port_uncut() || !ordering.has_total_excess_primary() {
+    if !ordering.is_source_port_uncut()
+        || !ordering.is_support_primary()
+        || !ordering.has_total_excess_primary()
+    {
         return Err(invalid("bounded scope ordering"));
     }
     metadata.finish()?;

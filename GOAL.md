@@ -73,6 +73,17 @@ proved applicability domain. Changing dimension requires its own typed relation
 and normalization evidence, not an ordinary momentum-routing alias. No live
 campaign, input or frozen executable is modified by these experiments.
 
+October1 global-degree experiment: after exact Euler, hidden-zero and paired
+dimension-shift controls failed to reduce total work, implement an opt-in
+weighted absolute-degree prefix BEFORE support priority in the shared compiled
+integral order. It must govern search, regenerated replay and application;
+update sign-changing descent proofs together and reject specialized sector-first
+proofs whose assumptions no longer hold. Preserve existing empty-prefix behavior
+and avoid any topology-specific relation or successor clipping. Independently
+audit, then test complete four-loop generation and unchanged query coverage
+before five-loop transfer. Keep production untouched; comparator correctness or
+a finite concrete degree fibre alone is not a closure or performance claim.
+
 ## Delivery and branch consolidation — October1
 
 The repaired, optimized binary and user-operated restart instructions are the

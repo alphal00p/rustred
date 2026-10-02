@@ -7,6 +7,7 @@ use rustred_order::{
 
 fn descriptor(n: usize) -> OrderDescriptor {
     OrderDescriptor {
+        pre_support_degree_rows: vec![],
         support_weights: (0..n).map(|axis| (axis + 1) as u64).collect(),
         support_priority: (0..n).rev().collect(),
         degree_rows: vec![DegreeRow {
@@ -25,6 +26,73 @@ fn policy(n: usize) -> OrderingPolicy {
         CompiledOrder::compile(descriptor(n), Limits::default()).unwrap(),
     )
     .unwrap()
+}
+
+#[test]
+fn global_degree_adapter_rejects_growing_pinches_and_sector_first_proofs() {
+    let mut d = descriptor(2);
+    d.pre_support_degree_rows = vec![DegreeRow {
+        active: vec![1; 2],
+        inactive: vec![1; 2],
+    }];
+    let policy =
+        OrderingPolicy::try_programmed(CompiledOrder::compile(d, Limits::default()).unwrap())
+            .unwrap();
+    assert!(!policy.is_support_primary());
+    assert!(policy.has_total_excess_primary()); // Fixed support only.
+    assert_eq!(
+        OrderingPolicy::try_from_stable_id(&policy.stable_id()).unwrap(),
+        policy
+    );
+    // A pinch with degree growth cannot borrow the old sector-first witness.
+    assert!(
+        OrderingPolicy::SpiredUncutV1
+            .prove_strict_descent(&[1, 1], &[0, 3])
+            .is_ok()
+    );
+    assert!(policy.prove_strict_descent(&[1, 1], &[0, 3]).is_err());
+    let domain = crate::sector::SectorMonotoneDomain::try_new_for_rule(
+        Mask::try_new([true, true]).unwrap(),
+        [crate::sector::InteriorBounds::new(1, 1); 2],
+        &[0, 0],
+        &[[-1, 2]],
+    )
+    .unwrap();
+    assert!(matches!(
+        policy.prove_sector_monotone_shift_descent(&domain, &[0, 0], &[-1, 2]),
+        Err(crate::sector::Error::OrderRequiresSupportPrimary)
+    ));
+    // A physical degree decrease can be simpler even when support grows.
+    let witness = policy.prove_strict_descent(&[-3, 1], &[1, 1]).unwrap();
+    assert!(witness.verify());
+    assert_eq!(
+        witness.decisive_component(),
+        ComplexityComponent::PreSupportDegreeRow { ordinal: 0 }
+    );
+    let order = IntegralOrder::from_persisted_policy([true; 2], &policy).unwrap();
+    for a in (-2..=2).flat_map(|i| (-2..=2).map(move |j| [i, j])) {
+        for b in (-2..=2).flat_map(|i| (-2..=2).map(move |j| [i, j])) {
+            let expected = policy
+                .compare(&a.map(i64::from), &b.map(i64::from))
+                .unwrap();
+            assert_eq!(
+                policy
+                    .complexity_key(&a.map(i64::from))
+                    .unwrap()
+                    .cmp(&policy.complexity_key(&b.map(i64::from)).unwrap()),
+                expected
+            );
+            assert_eq!(
+                order
+                    .compare(
+                        &Integral::numeric(a).unwrap(),
+                        &Integral::numeric(b).unwrap()
+                    )
+                    .reverse(),
+                expected
+            );
+        }
+    }
 }
 
 #[test]

@@ -345,6 +345,7 @@ fn sector_budget_cause(error: &sector::Error) -> Option<ProbeLocalBudgetCause> {
         | sector::Error::OrderingPriorityArityLimit { .. }
         | sector::Error::OrderProgram(_)
         | sector::Error::OrderProgramNotCoordinatePriority
+        | sector::Error::OrderRequiresSupportPrimary
         | sector::Error::NotStrictDescent => None,
     }
 }

@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 1, 22:35 UTC (00:35 Zurich)
+## Current workboard — October 2, 00:16 UTC (02:16 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -30,8 +30,10 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Full required-physics helper-free5L | `five_loop_order_runner`; independent `r_primary_transfer_audit` | Censored cleanly after1,460.665s;10.668M domains/2.802M pending; no frontier | Paused checkpoint retained; no cold closure, extension or automatic resume |
 | Symmetry-aware RHS coalescing | `rule_quality_audit`; independent `r_primary_transfer_audit` | Exact cancellation and both cold checks pass, but272→277 domains: no useful work saving | Broad implementation parked; reopen on a demonstrated costly parametric case |
 | Target-local constrained rule search | `rule_quality_audit`; independent `r_primary_transfer_audit` | Extra F constraint nondiscriminating; physical Euler7 is structurally dominated by saved4 | Delivered/parked; no endpoint-union run or new rule publication |
+| Joint descendant-combination Laporta | root; design/ignored adapter `r_primary_transfer_audit`; independent `rule_quality_audit` | First compile fails on diagnostic formatting only; narrow correction active | Actual physical rule151 block and752-row bank; preserve negative receipt, compile then bounded native probe |
 | Exact-physical-D coefficient restriction | root; independent `r_primary_transfer_audit` | Pending witness: code confirms geometric D is retained but not generally used in coefficient zero recognition | Find an actual coefficient that vanishes on the exact D slice before implementing; no split-based overcoverage or new CAS |
-| Global absolute-degree-first order | root; API review `five_loop_order_runner`, independent mathematical critique `r_primary_transfer_audit` | Reopened read-only after cheap shortcut controls fail; different from earlier sector-first E/R descriptors | Check actual comparator/routing/bound interfaces and smallest falsifier; no implementation/build grant |
+| Global absolute-degree-first order | `five_loop_order_runner` comparator; `r_primary_transfer_audit` geometry; root integration; independent `rule_quality_audit` | Full tests and58-query cold-All pass; domains−3.64%, inspections−4.22%, no timing win | Preserve modest/negative result; assess one representative5L transfer versus all-owner4L generation before the next pilot |
+| Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
 | Production observation and integration | root | Active, read-only production | Monitor the user-started repaired campaign; coordinate disjoint resources and record all outcomes |
@@ -46,6 +48,321 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 1, 22:50 UTC — implement a genuinely global degree order
+
+- [M] A better native falsifier is now saved: owner481, required point
+  `[0,1,1,2,2,0,0,0,0,1]`, A7/R0/D7/F7, selects rule151 and emits69
+  guarded successors,24 of which grow F. One coefficient1/6 child has F9:
+  `[-2,3,0,2,1,0,0,0,0,1]`. This is physical required scope, not a helper-only
+  Euler example. Receipt and design checkpoint:
+  `TMP/postlaunch-20261001/rule-quality-portfolio/global-f-order-design-v1/RESULTS.md`.
+- [D] Implement opt-in pre-support weighted absolute-degree rows in the small
+  order crate, application JSON and public Python helper. Empty prefix preserves
+  old comparison and canonical bytes. Nonempty prefix has a distinct persisted
+  identity, is shared by discovery/replay/application, and is NOT just an extra
+  forbidden-column filter under the old sector order. No topology-specific code.
+- [D] Delegation: `five_loop_order_runner` owns comparator/codec/transport;
+  `r_primary_transfer_audit` implements exact sign-refined wide descent;
+  `rule_quality_audit` independently audits both; root integrates metadata,
+  capability gates and interfaces. The geometry implementer is not its auditor.
+- [M/D] Independent review found old support-first shortcuts in wide descent,
+  sector-monotone pinch witnesses and total-excess envelope induction. Update
+  the general geometry proof; conservatively reject prefix orders in specialized
+  proofs until their stronger assumptions are separately established. A fixed-
+  support F-primary comparison does not justify sector-first induction.
+- [D] Acceptance sequence: focused order/API/geometry tests and source audit,
+  optimized complete owner481 generation and replay, then unchanged combined4L
+  scope and cold reinspection if generation qualifies. Follow with a controlled
+  five-loop owner17941 comparison against both A1 and R-primary only after useful
+  evidence. Every pilot remains bounded by30min inclusive; compilation separate.
+  No source-seed clipping, terminal inflation, request narrowing or production
+  mutation. A finite concrete F fibre is not claimed to prove worklist closure.
+- [M] Comparator tests24/24 and pure Python builder tests4/4 pass. Independent
+  `rule_quality_audit` gives source GO for comparator, affine sign-cell proof,
+  app/JSON/Python integration and conservative specialized-proof refusals.
+  Integrated release `cargo check --tests` for core/app/Python passes in52.07s
+  after correcting an exhaustive new-error match and a test constructor name;
+  the failed first check is retained. Evidence:
+  `TMP/postlaunch-20261001/global-degree-order/check{1,2}/`.
+  These are not native generation or performance results. Full optimized native
+  compilation/testing is the next gate, using the established guarded target.
+- [M/E] Follow-through finds a safe incompleteness to track in the pilot:
+  `solver/exception.rs` excludes inactive-axis reactivation even if global F
+  decreases; concrete routed evaluators also retain literal-subsector-only
+  support changes. This is not silently accepted as descent or closure. Ordinary
+  source rows themselves are not blanket-pruned by support. The general domain
+  walker retains successor obligations: within the saved root, installed targets
+  become Apply and others Route; missing routes/root violations stay explicit
+  frontiers. Numeric terminal selection uses the actual comparator, not an
+  assumed sector order. Do not promote this experimental order as unrestricted
+  support-reactivation capability or confuse typed rejection with a lost RHS.
+- [M/D] A direct independent manifest recount confirms116 finite required
+  queries with safe initial F<=37;13 of67 auxiliary starts have unbounded
+  positive powers. This does not change the frozen scope. A global-F guarantee
+  would need every used rule/overlay and route to satisfy it, and still would
+  not bound these13 original unbounded helper starts. No completion ETA follows.
+- [M] Root independently reran all24 comparator tests, passing. Optimized
+  native core/app test compilation is active (no-run), evidence
+  `TMP/postlaunch-20261001/global-degree-order/native-build1/`. Exact invocation:
+  `python -B TMP/codex-integration/guard_build.py --directory
+  TMP/postlaunch-20261001/global-degree-order/native-build1 --cwd
+  /common/dev/rustred --cpus 0-15 --lock TMP/locks/heavy.lock --lock
+  TMP/locks/build-0.lock -- nice -n5 nix develop --command env CARGO_INCREMENTAL=0
+  CARGO_TARGET_DIR=/common/dev/rustred/TMP/codex-runtime-discovery.280crc/target-native
+  cargo test --release --locked --offline --message-format=json -j8 -p rustred
+  -p rustred-app --lib --no-run`. Use the Nix Python from prior receipts when
+  the shell has no Python. Do not launch a competing build. After completion,
+  run `sector::ordering::programmed_tests`,
+  `source_port::geometry::pre_support::tests`, and candidate order tests before
+  compiling/freezing the matching CLI. The owner481 pilot is prepared, unrun,
+  under `global-degree-order/owner481-v1/`; independent harness audit is active.
+  Private forged-witness and isolated install/persistence refusal regressions
+  were recommended for a later test slice; they are not claimed covered by
+  constructor and bounded-certification tests.
+- [M] Production read-only sequence24419:137,628,829 discovered,
+  96,427,264 locally complete,15,851,040 pending,0 frontiers,13/67 initial
+  roots recorded closed,18,652,486 recorded recursive closures. The closure
+  snapshot is2,689s old; do not treat it as an instantaneous no-closure result.
+  RSS120.42GB and5.12 observed cores/32 at this sample. No live state changed.
+
+### October 1, 23:08 UTC — collective relations are a distinct next fallback
+
+- [M/E] Targeted primary literature review is recorded in
+  `docs/research/global_degree_order_literature_2026-10-01.md`; root also read
+  the cited Laporta §§2.3–2.7. His extra relations can reduce a whole higher-dot
+  combination even when its individual terms are not reducible within the same
+  seed system. This is distinct from our completed cancellation-only tests.
+- [M] Source audit: normal numeric `Seeds::current` rejects sign-crossing
+  centres, and `solve_numeric_cases` accepts one declared sector. The earlier
+  manual336-row probe bypassed that policy and included some supra-sector
+  offsets, so do NOT claim those sources were wholly absent there. However it
+  solved for a single unit target, not a weighted joint descendant block.
+- [D] Register joint-block elimination as a fallback, not a new build now.
+  Reuse Symbolica sparse elimination and existing exact source products;
+  retain the full parent identity and every coefficient/guard. Start from an
+  actual harmful RHS block, not arbitrary extra seeds. Require a smaller full
+  routed workload; a finite-point shortcut is not a parametric publication.
+  The new global-F four-loop pilot remains first. No production changes.
+
+### October 1, 23:19 UTC — optimized native order and geometry gates pass
+
+- [M] Fresh optimized core executable from `native-build1` passes the selected
+  programmed-order tests7/7, physical pre-support geometry5/5, existing sector
+  monotone15/15, and source-port selector39/39. Independent `rule_quality_audit`
+  checked matching binary SHA, raw outputs, zero ignored tests, exit status and
+  owned-process drain:66 distinct selected tests, not a full-core test claim.
+  The source-port selector includes27 source-port and12 persistence tests.
+  Additional bounded-persistence8/8 and excluded-denominator1/1 pass.
+- [M] Evidence is `TMP/postlaunch-20261001/global-degree-order/` under
+  `core-{order,geometry,sector-monotone,source-port,bounded,excluded}-tests1/`.
+  These are correctness checks, not throughput measurements. The core binary
+  SHA256 is `5a42db578ed828b42f74251e4f983e1151b93dc97fe3363ef534c9c27ad8d0bf`.
+  Application test compilation remains live on CPUs0–15; small native checks
+  used disjoint CPUs32/33. A fresh matching CLI and owner481 generation/replay
+  remain required before any workload conclusion or production recommendation.
+- [D] The pilot auditor requires original-source replay of the exact
+  `sector-0.rrbin` donor consumed by native matching, in addition to the combined
+  bundle. Runner owns that correction. The baseline new-reader check does not
+  substitute for a fresh default-generation identity check. A separate agent
+  is designing only the bounded weighted-combination fallback; no new native
+  experiment or concurrent implementation is authorized by that design task.
+- [M] Historical bubble check resolved: reference FMFT `fmft.frm::drrG`
+  (line527) contains the genuine `dp -> dp-2` bubble/tadpole recurrences.
+  `r_primary_transfer_audit` located them and root inspected formulas95/96.
+  They are not currently RustRed native campaign features. Native routing
+  explicitly refuses an unauthenticated dimension change; previous full-graph
+  U/P timings were standalone diagnostics. The literature note records this
+  distinction and the remaining localized-subgraph experiment, without copying
+  a reference-only implementation into the production engine.
+
+### October 1, 23:26 UTC — native application catches certificate expectation
+
+- [M] The optimized native core/application build finishes cleanly in1,834.603s
+  (compilation, not solver time). Fresh app SHA256
+  `738d8d672504ea144d9fe5747479919c5254eec0587569486e72b2ad4e9e3581`
+  lists1,339 tests. Focused order filter:5 pass,1 fails. The new global-F K1
+  test successfully generated deterministic1/2-worker candidates, reloaded them
+  and reduced powers1..5, then incorrectly expected full certification to pass.
+  Raw failure is preserved at `global-degree-order/app-order-tests1/`.
+- [M/D] Independent audit resolves the failure: full `certify_candidates`
+  installation still lowers into a `RuleCell` sector-monotone witness; its new
+  support-primary refusal is deliberate and correct. General source replay and
+  sign-cell descent do not replace this certified-cell authority. Root corrects
+  only the test/docs: assert the precise full-certificate refusal, retain the
+  bounded refusal, and invoke the existing original-source/guard replay helper.
+  No proof gate is weakened; no production algorithm change is needed.
+  The corrected test must be rebuilt/rerun; the failed receipt is NOT a pass.
+- [M] Matching optimized CLI compilation began under existing heavy/build0
+  locks and unchanged production source, evidence `global-degree-order/cli-build1/`.
+  The owner481 pilot remains unlaunched pending corrected application gates.
+- [D] Joint weighted-block fallback design is saved by `r_primary_transfer_audit`
+  at `global-degree-order/COMBINATION_PILOT_DESIGN.md`: actual rule151's24
+  F-growing terms, complete source-weight replay, and a finite752-row source bank.
+  The old336-row shell cannot reach two nominated columns; simply repeating it
+  would not test this mechanism. Root subsequently authorizes preparation of
+  its ignored input-driven diagnostic adapter only, no build/run yet. No new
+  production CAS or rule-publication path is part of this preparation.
+- [M] The frozen build1 regression run passes1,324 tests,0 failures,
+  14 existing explicit ignores and1 explicitly filtered test (the obsolete
+  new K1 certificate expectation identified above):115.79s test body,
+  116.195s guarded. This is NOT a complete new-feature acceptance pass.
+  Evidence:`global-degree-order/app-regression-tests1/`; owned group drains.
+  The corrected app test build is queued as `native-build2` behind `cli-build1`
+  on the existing build locks. The original test binaries were frozen in
+  `native-build1/frozen-bin/` before any overwrite, retaining the failed receipt.
+  Independent source audit approves the test-only correction. No production
+  engine code changed to bypass the certificate refusal.
+
+### October 1, 23:44 UTC — fresh CLI and bounded combination preparation
+
+- [M] Optimized CLI build passes in791.099s guarded (compilation only).
+  Frozen executable:`global-degree-order/frozen-bin/rustred`, SHA256
+  `715eb1f3fef9d656d3243a176962a29d46ff6639a30965e4bb2271dc0eb39973`.
+  The corrected native app test build2 is live, not restarted or presumed done;
+  root preserves its process group3650354 and existing lock ownership.
+- [M] Disjoint CPU32 public-CLI smoke passes: runtime Python descriptor builder,
+  fresh global-F K1 generation, saved original-source/guard replay, and exact
+  expected full-certificate refusal with no artifact output. Receipt:
+  `global-degree-order/k1-public-smoke2/`,4.084s inclusive, no performance claim.
+  First smoke receipt remains as a harness failure: it expected exit1/2 rather
+  than the documented Execution exit8; generation/replay/refusal were correct.
+  Root checked `cli/error.rs`, corrected the expected exit and reran. This does
+  not replace the pending corrected unit-test executable or a four-loop walk.
+- [M/D] Runner adds a fresh default owner481 generation/replay/equality control
+  BEFORE the candidate arm. Existing decoded-program comparison checks all
+  family/case/rule/source/terminal content and native coefficients; checkpoint
+  shard ordinal2 versus0 is not part of that payload. Auditor approves the
+  updated wrapper/protocol, with all phases charged to its original1,800s
+  cumulative ceiling. Dry-run passes; native pilot remains unlaunched.
+- [M/D] Independent source review accepts the ignored joint-block adapter at
+  `global-degree-order/joint-combination-v1/` for later compilation/testing.
+  Data checks confirm69 original terms,24 growing terms,45 retained siblings,
+  47 source points/752 ordinary rows and four invalid-input mutations. It uses
+  native Symbolica coefficients, sparse elimination and full source products;
+  forbids reversing through the parent and retains every original denominator.
+  This is prepared source, NOT compiled algebra, a published parametric rule or
+  a measured work reduction. Global-F qualification remains first.
+- [M/E] Root and independent auditor establish a narrower useful cap property
+  from current source: successful Apply edges fix crossing coordinates, giving
+  constantΔR andΔA; the translated finite cap sum `a+r` cannot grow when the
+  all-ones prefix provesΔF<=0. This does not require adding a new F-bound field
+  at that local step. Route/reuse/repair/mixed-order paths, equal-F cycles and
+  unbounded auxiliary starts remain outside this argument. Recorded in
+  `global-degree-order/APPLY_CAP_NOTE.md` and the tracked literature note;
+  no geometry implementation or whole-walker termination claim follows.
+
+### October 2, 00:00 UTC — distinguish bounded geometry from borrowed obligations
+
+- [M/E] `five_loop_order_runner` completed the Route/G2 follow-through:
+  finite A/R route caps do not increase and residual planning preserves them,
+  but finite Q may borrow a larger locally inspected anchor A and inherit its
+  entire unfinished descendant cone. This is not new geometry widening, yet
+  can import work outside Q. Both live and cold closure follow that dependency.
+  Saved `global-degree-order/ROUTE_CAP_NOTE.md`; incorporated the distinction
+  in the tracked literature note. No production policy changed.
+- [D] Delegate a narrow read-only demand-scoped-reuse design to that agent:
+  inspect existing partial-anchor facilities before proposing implementation;
+  require exact successor restriction, retained obligations and a small4L
+  falsifier. Closed-only reuse is not assumed faster or terminating.
+- [M] Corrected app native-build2 remains live under the original heavy/build0
+  locks (PGID3650354); no duplicate/restarted build. At23:59 UTC rustc had
+  approximately21min elapsed and106 CPU-minutes. The fresh CLI is already
+  frozen; owner481 baseline/candidate pilot still awaits the corrected tests.
+- [M] Read-only production sample:143,687,924 scheduled domains,
+  101,327,696 local completions,16,110,764 pending,0 frontiers,127.72GB RSS.
+  The recorded recursive count remains18,652,486 and13/67 roots but is6,712s
+  old; this does not measure zero actual closures over that interval.
+  Checkpoint14 is resumable. No production lifecycle or files were modified.
+- [D/E] Demand-scoped design delivered as
+  `global-degree-order/DEMAND_SCOPED_REUSE_NOTE.md`: saved child edges cannot
+  safely be clipped because they no longer carry their source-piece/shift/guard
+  recipes. A minimal experiment can instead reuse the existing native visitor
+  on Q, retaining all conditional obligations. Snapshot/store/merge aliases must
+  not immediately redirect Q back to the same unfinished wider anchor. If A is
+  independently requested it still needs full coverage, so improved Q latency
+  alone is not whole-cohort saving. No implementation authorized yet.
+- [D] Joint-block launcher preparation is delivered and under independent
+  one-time audit; it pins compatible current release rlibs and uses separate
+  owned compile/probe receipts. No compile/probe was started. The implementer
+  now reviews localized subgraph dimensional recurrences with primary sources;
+  dense whole-graph dimensional products remain parked on their negative data.
+
+### October 2, 00:06 UTC — corrected release application gate
+
+- [M] Native app build2 completes successfully in1,571.737s (compilation), with
+  no stop reason. Frozen test executable:
+  `global-degree-order/frozen-bin/rustred-app-tests`, SHA256
+  `fe76ca91fe1fe0df775dca7c6547bda9c04b18fda04fe99660a0676569b00ab8`.
+  Corrected six order tests pass, including original-source replay and explicit
+  unsupported full/bounded certificate refusal. Receipt:`app-order-tests2/`.
+- [M/D] Start full app regression with no filter or skip on CPU32–47, existing
+  native-test/pilot locks, evidence:`app-full-tests2/`. This is correctness
+  testing, not a performance comparison. The build's heavy lock is released;
+  the owner481 pilot remains sequenced after the full suite to avoid overlap.
+- [M] Full corrected suite completes:1,325 passed,0 failed,14 explicit ignores,
+  0 filtered;118.44s body,119.195s guarded. This includes the previously failed
+  test after the documented correction. W50 subarms remain unavailable under
+  the16-core test allocation as before; do not imply50-worker acceptance.
+- [M/D] Release the audited owner481 pilot with frozen CLI715eb1f3 and app
+  fe76ca91, exact command in `owner481-v1/receipts/BOUND.json`. Fresh baseline
+  generation completes with157 rules/11 terminals in4.7s native; original-source
+  replay/equality is still running before the candidate arm. CPU32–47/W16,
+  existing heavy/pilot locks,150GB ceiling,1,800s inclusive pilot cap. No new
+  checkpoint, helper or production mutation.
+
+### October 2, 00:16 UTC — global degree rule improves the nominated transition
+
+- [M] Owner481 qualification PASS in416.385700s inclusive. Fresh default owner
+  is source-replayed and exactly decoded-identical to the old shard. Candidate
+  combined payload and the actual consumed shard both replay all160 rules and
+  8,701 original-source contributions. Every phase drains; observed peak165.5MB.
+- [M] Candidate rule154 at the registered physical D7 point emits32 uniform
+  successors, all F<=7, versus baseline rule151's69, with24 at F8/F9. New F
+  histogram:17 at7,10 at6,5 at5. Exactly the same11 terminal integral keys are
+  retained; no terminal inflation or replacement explains this point result.
+- [M] Costs also rise: generation31.535s vs4.933s native phases; payload
+  4,294,254 vs2,895,567 bytes; source replay about155s vs31s per payload.
+  This is a useful local mechanism, NOT a whole-campaign win or finiteness
+  theorem. Mixed old/new owners do not all obey the new order.
+- [D] Authorize preparation of an unchanged58-query/16-owner/508-route matched
+  walk and cold-All comparison, changing only this complete owner. The remaining
+  shared active-pilot allowance is1,383.614300s including staging and both arms;
+  waiting for code review is not compute. No repeat generation/replay and no
+  production action. Runner prepares; independent auditor reviews; root releases.
+- [M/D] Independent audit accepts the joint-block launcher. First cached
+  diagnostic compile fails in5.228s on six unsupported `IndexedPolynomial`
+  formatting calls; no algebra ran. Agent fixes only receipt formatting through
+  existing public API, preserving all conditions and the failed receipt. No
+  engine rebuild or changed source bank is required.
+
+### October 2, 00:29 UTC — unchanged four-loop control passes, no speed win
+
+- [M] The matched whole58 pair passes independent full cold reinspection:
+  all58 queries/32 roots, no frontiers/errors/uncovered domains, all groups
+  drained. Qualification plus pair449.743669s; pair alone33.358002s. Evidence:
+  `global-degree-order/whole58-v1/receipts/RESULT.json`.
+- [M] Default→one-global-F-owner:26,025→25,077 domains (−3.64%),
+  17,957→17,200 native inspections (−4.22%),495,898→483,637 edges.
+  Traversal4.225→4.241s; cold owned phase7.947→9.056s; inclusive arm
+  15.747→16.870s. Same terminal keys and original inputs throughout.
+  Immediate point fanout is NOT a reliable predictor of total work. This
+  does not meet a campaign-switch gate; no production restart is recommended.
+- [D] Runner assesses one representative5L transfer versus regenerating all
+  16 four-loop owners; preparation only, no automatic next campaign. Persist
+  the negative timing evidence rather than promoting the favorable singleton.
+- [M/D] Joint compile-r2 corrects all API errors but is cleanly censored by
+  its compile-only240s limit; no native algebra runs. Since compilation is
+  separate from the probe, narrow resource-policy review approves a900s
+  cached-adapter compile on CPUs0–7/W8 under build0/heavy/pilot locks. Native
+  probe remains CPU32/W1 and300s, with the same752-row bank and guards. Root
+  launches compile-r3; no full engine rebuild, no increased algebra budget.
+- [E/D] Local dimensional-recurrence follow-up derives a prospective27-term
+  same-d FG row by clearing the connecting invariant as `D4+1`, with all
+  formal RHS F<=10 versus target F11. This avoids a new mass family in this
+  particular derivation, retains massive tadpoles and the d−1 denominator,
+  but is NOT native-verified or a published rule. Agent prepares an actual
+  installed-rule comparison first; no new tensor implementation is authorized.
 
 ### October 1, 22:35 UTC — physical Euler control is not a useful replacement
 

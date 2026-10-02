@@ -13,6 +13,9 @@ use super::{ComplexityComponent, Mask, OrderingPolicy, SectorInteriorDomain};
 /// candidate. This key retains precisely the remaining signed offsets. Its
 /// persisted policy chooses the dot/numerator and coordinate tie-break order,
 /// identically to the concrete integral key.
+/// Comparing keys from different sectors only orders container entries; it
+/// does not establish physical descent across a sign change. Such a proof
+/// needs the unshifted domain, particularly for pre-support degree programs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ShiftComplexityKey {
     policy: OrderingPolicy,

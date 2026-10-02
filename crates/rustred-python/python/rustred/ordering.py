@@ -10,15 +10,19 @@ import json
 
 
 def integral_order(arity, *, support_weights=None, support_priority=None,
-                   degree_rows=None, coordinate_priority=None,
+                   pre_support_degree_rows=None, degree_rows=None, coordinate_priority=None,
                    coordinate_groups="active-first",
                    active_direction="descending", inactive_direction="descending"):
     """Build a version-1 uncut order descriptor without rebuilding RustRed.
 
-    Support count is always first. ``degree_rows`` is a sequence of mappings
+    Optional ``pre_support_degree_rows`` compare weighted absolute physical
+    powers before support count. For example, one all-ones row compares
+    sum(abs(n_i)) globally, including across pinches. The default empty prefix
+    retains the support-first order. ``degree_rows`` is a sequence of mappings
     with ``active`` and ``inactive`` unsigned coefficient vectors. Their
-    weighted excess degrees are compared lexicographically. Every coordinate
-    of each sign must occur positively in some row; native admission enforces
+    weighted excess degrees are compared lexicographically after support.
+    Every coordinate of each sign must occur positively in some prefix or
+    suffix row; native admission enforces
     this and all resource/overflow bounds. Final coordinate ties lie within
     finite degree fibres, so either tie direction is lawful.
 
@@ -50,19 +54,27 @@ def integral_order(arity, *, support_weights=None, support_priority=None,
     if degree_rows is None:
         degree_rows = [{"active": [1] * arity, "inactive": [1] * arity},
                        {"active": [0] * arity, "inactive": [1] * arity}]
-    rows = []
-    for row in degree_rows:
-        if not isinstance(row, dict) or set(row) != {"active", "inactive"}:
-            raise ValueError("each degree row requires only active and inactive vectors")
-        rows.append({sign: vector(row[sign], None, f"degree {sign}")
-                     for sign in ("active", "inactive")})
-    if not rows:
+    def degree_vectors(values):
+        rows = []
+        for row in values:
+            if not isinstance(row, dict) or set(row) != {"active", "inactive"}:
+                raise ValueError("each degree row requires only active and inactive vectors")
+            rows.append({sign: vector(row[sign], None, f"degree {sign}")
+                         for sign in ("active", "inactive")})
+        return rows
+
+    rows = degree_vectors(degree_rows)
+    prefix = degree_vectors([] if pre_support_degree_rows is None else pre_support_degree_rows)
+    if not rows and not prefix:
         raise ValueError("at least one degree row is required")
-    return json.dumps({"version": 1,
+    result = {"version": 1,
         "support_weights": vector(support_weights, [0] * arity, "support_weights"),
         "support_priority": vector(support_priority, range(arity), "support_priority", True),
         "degree_rows": rows,
         "coordinate_priority": vector(coordinate_priority, range(arity), "coordinate_priority", True),
         "coordinate_groups": coordinate_groups,
-        "active_direction": active_direction, "inactive_direction": inactive_direction},
-        sort_keys=True, separators=(",", ":"))
+        "active_direction": active_direction, "inactive_direction": inactive_direction}
+    # Omit the empty prefix so existing data-only controls are unchanged.
+    if prefix:
+        result["pre_support_degree_rows"] = prefix
+    return json.dumps(result, sort_keys=True, separators=(",", ":"))

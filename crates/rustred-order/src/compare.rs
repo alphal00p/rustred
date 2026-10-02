@@ -6,6 +6,7 @@ use super::{CompiledOrder, CoordinateGroups, Direction, Error};
 /// Honest first decisive component, suitable for higher-level descent evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Component {
+    PreSupportDegreeRow(usize),
     SupportCount,
     SupportWeight,
     SupportAxis(usize),
@@ -107,6 +108,28 @@ impl View<'_> {
             Self::Signed { values, .. } => values[axis],
         }
     }
+
+    /// Physical absolute power, or its signed offset when the common
+    /// fixed-sign symbolic/base contribution has already been cancelled.
+    fn absolute(&self, axis: usize) -> i128 {
+        match self {
+            Self::Powers {
+                coordinates,
+                values,
+            } => {
+                let value = i128::from(values[axis]);
+                if coordinates.active(axis, values[axis]) {
+                    value
+                } else {
+                    -value
+                }
+            }
+            Self::Unsigned { support, values } => {
+                i128::from(values[axis]) + i128::from(support[axis])
+            }
+            Self::Signed { values, .. } => values[axis],
+        }
+    }
 }
 
 impl CompiledOrder {
@@ -181,7 +204,9 @@ impl CompiledOrder {
         )
     }
 
-    /// Complete support prefix, including weights and the declared bit priority.
+    /// Support-only comparison, including weights and the declared bit priority.
+    /// This is NOT a complete order prefix when pre-support rows are present:
+    /// it cannot establish support-changing descent without physical powers.
     /// No degree or coordinate comparison is performed.
     pub fn compare_support(&self, left: &[bool], right: &[bool]) -> Result<Comparison, Error> {
         arity(self.arity(), left.len())?;
@@ -195,7 +220,8 @@ impl CompiledOrder {
 
     /// Compare equal symbolic patterns with one common underlying symbolic
     /// coordinate per slot. Numeric slots contain actual powers; symbolic slots
-    /// contain offsets. Only after support equality do unknown constants cancel.
+    /// contain offsets. Common fixed-sign symbolic contributions cancel even
+    /// in pre-support rows; numeric slots retain their actual absolute powers.
     /// This does not admit cut/delta conventions or prove domain applicability.
     pub fn compare_mixed(
         &self,
@@ -287,6 +313,30 @@ impl CompiledOrder {
     ) -> Result<Comparison, Error> {
         let size = self.arity();
         let descriptor = self.descriptor();
+        for (ordinal, row) in descriptor.pre_support_degree_rows.iter().enumerate() {
+            let mut l = 0i128;
+            let mut r = 0i128;
+            for axis in 0..size {
+                // Unlike the excess suffix, support has not yet tied. Each
+                // operand must use its own physical sign's weight.
+                let lw = if left.active(axis) {
+                    row.active[axis]
+                } else {
+                    row.inactive[axis]
+                };
+                let rw = if right.active(axis) {
+                    row.active[axis]
+                } else {
+                    row.inactive[axis]
+                };
+                l += i128::from(lw) * left.absolute(axis);
+                r += i128::from(rw) * right.absolute(axis);
+            }
+            let cmp = l.cmp(&r);
+            if cmp != Ordering::Equal {
+                return Ok(Comparison::at(cmp, Component::PreSupportDegreeRow(ordinal)));
+            }
+        }
         if compare_support {
             let result =
                 self.support_comparison(&|axis| left.active(axis), &|axis| right.active(axis));

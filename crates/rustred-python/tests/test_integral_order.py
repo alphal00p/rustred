@@ -20,6 +20,18 @@ class IntegralOrderTests(unittest.TestCase):
             {"active": [1, 1, 1], "inactive": [1, 1, 1]},
             {"active": [0, 0, 0], "inactive": [1, 1, 1]}])
         self.assertEqual(value["active_direction"], "descending")
+        self.assertNotIn("pre_support_degree_rows", value)
+        self.assertEqual(integral_order(3), integral_order(3, pre_support_degree_rows=[]))
+
+    def test_absolute_degree_prefix_is_distinct_runtime_data(self):
+        prefix = {"active": [1, 1], "inactive": [1, 1]}
+        value = json.loads(integral_order(2, pre_support_degree_rows=[prefix]))
+        self.assertEqual(value["pre_support_degree_rows"], [prefix])
+        self.assertEqual(value["degree_rows"][0], prefix)
+        # Positive prefix alone bounds the coordinate tie fibres.
+        self.assertEqual(json.loads(integral_order(2,
+            pre_support_degree_rows=[prefix], degree_rows=[]))["degree_rows"], [])
+        self.assertEqual(prefix, {"active": [1, 1], "inactive": [1, 1]})
 
     def test_all_priorities_are_runtime_data_and_inputs_stay_unchanged(self):
         row = {"active": [4, 2, 1], "inactive": [1, 2, 4]}
@@ -42,6 +54,8 @@ class IntegralOrderTests(unittest.TestCase):
         for options in ({"support_priority": [0, 0]}, {"support_weights": [True, 0]},
                 {"support_weights": [-1, 0]}, {"support_weights": [1 << 64, 0]},
                 {"degree_rows": []}, {"degree_rows": [{"active": [1, 1]}]},
+                {"pre_support_degree_rows": [{"active": [1, 1]}]},
+                {"pre_support_degree_rows": [{"active": [-1, 1], "inactive": [1, 1]}]},
                 {"coordinate_groups": "unknown"}, {"active_direction": "unknown"}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 integral_order(2, **options)

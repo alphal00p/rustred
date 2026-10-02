@@ -2,12 +2,14 @@ use super::descriptor::{
     CoordinateGroups, DegreeRow, Direction, Error, Limits, OrderDescriptor, reserve,
 };
 
-const MAGIC: &[u8; 8] = b"RRDORD01";
+const MAGIC_V1: &[u8; 8] = b"RRDORD01";
+const MAGIC_V2: &[u8; 8] = b"RRDORD02";
 
 pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
     let size = descriptor.support_weights.len();
     let bytes = OrderDescriptor::dimensions(
         size,
+        descriptor.pre_support_degree_rows.len(),
         descriptor.degree_rows.len(),
         Limits {
             max_encoded_bytes: usize::MAX,
@@ -15,7 +17,8 @@ pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
         },
     )?;
     let mut result = reserve(bytes)?;
-    result.extend_from_slice(MAGIC);
+    let has_prefix = !descriptor.pre_support_degree_rows.is_empty();
+    result.extend_from_slice(if has_prefix { MAGIC_V2 } else { MAGIC_V1 });
     result.extend_from_slice(
         &u64::try_from(size)
             .map_err(|_| Error::DimensionOverflow)?
@@ -26,6 +29,13 @@ pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
             .map_err(|_| Error::DimensionOverflow)?
             .to_le_bytes(),
     );
+    if has_prefix {
+        result.extend_from_slice(
+            &u64::try_from(descriptor.pre_support_degree_rows.len())
+                .map_err(|_| Error::DimensionOverflow)?
+                .to_le_bytes(),
+        );
+    }
     result.push(match descriptor.coordinate_groups {
         CoordinateGroups::ActiveFirst => 0,
         CoordinateGroups::InactiveFirst => 1,
@@ -48,7 +58,11 @@ pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
             );
         }
     }
-    for row in &descriptor.degree_rows {
+    for row in descriptor
+        .pre_support_degree_rows
+        .iter()
+        .chain(&descriptor.degree_rows)
+    {
         for &weight in row.active.iter().chain(&row.inactive) {
             result.extend_from_slice(&weight.to_le_bytes());
         }
@@ -72,15 +86,23 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
             limit: limits.max_encoded_bytes,
         });
     }
-    if bytes.get(..8) != Some(MAGIC.as_slice()) {
-        return Err(Error::InvalidEncoding);
-    }
+    let has_prefix = match bytes.get(..8) {
+        Some(magic) if magic == MAGIC_V1 => false,
+        Some(magic) if magic == MAGIC_V2 => true,
+        _ => return Err(Error::InvalidEncoding),
+    };
     let mut reader = Reader { bytes, cursor: 8 };
     let size = reader.usize()?;
     let row_count = reader.usize()?;
+    let pre_row_count = if has_prefix { reader.usize()? } else { 0 };
+    // Canonical v2 always has a nonempty prefix; empty descriptors retain
+    // exactly their original v1 bytes, not a second equivalent encoding.
+    if has_prefix && pre_row_count == 0 {
+        return Err(Error::InvalidEncoding);
+    }
     // Reject hostile dimensions, truncated payloads and trailing bytes before
     // any dimension-dependent allocation, including the row container.
-    if OrderDescriptor::dimensions(size, row_count, limits)? != bytes.len() {
+    if OrderDescriptor::dimensions(size, pre_row_count, row_count, limits)? != bytes.len() {
         return Err(Error::InvalidEncoding);
     }
     let coordinate_groups = match reader.byte()? {
@@ -94,6 +116,13 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
     let support_weights = reader.weights(size)?;
     let support_priority = reader.priority(size)?;
     let coordinate_priority = reader.priority(size)?;
+    let mut pre_support_degree_rows = reserve(pre_row_count)?;
+    for _ in 0..pre_row_count {
+        pre_support_degree_rows.push(DegreeRow {
+            active: reader.weights(size)?,
+            inactive: reader.weights(size)?,
+        });
+    }
     let mut degree_rows = reserve(row_count)?;
     for _ in 0..row_count {
         degree_rows.push(DegreeRow {
@@ -103,6 +132,7 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
     }
     debug_assert_eq!(reader.cursor, bytes.len());
     Ok(OrderDescriptor {
+        pre_support_degree_rows,
         support_weights,
         support_priority,
         degree_rows,

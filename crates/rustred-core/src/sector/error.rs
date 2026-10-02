@@ -60,12 +60,16 @@ pub enum Error {
     },
     OrderProgram(rustred_order::Error),
     OrderProgramNotCoordinatePriority,
+    OrderRequiresSupportPrimary,
     NotStrictDescent,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::OrderRequiresSupportPrimary => formatter.write_str(
+                "this specialized descent proof requires support before physical degree",
+            ),
             Self::OrderProgram(error) => error.fmt(formatter),
             Self::OrderProgramNotCoordinatePriority => formatter.write_str(
                 "a programmable integral order cannot be reduced to a coordinate tie priority",

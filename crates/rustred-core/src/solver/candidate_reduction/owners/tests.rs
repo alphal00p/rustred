@@ -23,6 +23,7 @@ fn direct_reducer_and_owner_admission_bind_solution_order_and_sector() {
     variants.push((wrong, "cut integral order"));
     let program = CompiledOrder::compile(
         OrderDescriptor {
+            pre_support_degree_rows: vec![],
             support_weights: vec![0],
             support_priority: vec![0],
             degree_rows: vec![DegreeRow {

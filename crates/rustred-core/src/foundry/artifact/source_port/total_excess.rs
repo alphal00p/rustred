@@ -185,9 +185,12 @@ impl<const N: usize> SourcePortAudit<N> {
         self.validate_sector_masks(inputs.keys().copied())?;
         let ordering =
             ordering.ok_or_else(|| error("zero-only total-excess roots are unsupported"))?;
-        if !ordering.is_source_port_uncut() || !ordering.has_total_excess_primary() {
+        if !ordering.is_source_port_uncut()
+            || !ordering.is_support_primary()
+            || !ordering.has_total_excess_primary()
+        {
             return Err(error(
-                "total-excess envelope requires an uncut source order with a proved total-excess-primary degree row",
+                "total-excess envelope requires an uncut support-primary order with a proved total-excess-primary degree row",
             ));
         }
         // Sector order comes from the persisted integral comparator on sector
@@ -373,6 +376,7 @@ pub(in crate::foundry::artifact) fn visit_successor_degrees(
 ) -> Result<(), SourcePortAuditError> {
     let arity = sector.len();
     if !ordering.is_source_port_uncut()
+        || !ordering.is_support_primary()
         || !ordering.has_total_excess_primary()
         || shift.len() != arity
         || indices.len() != arity

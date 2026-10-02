@@ -1,8 +1,9 @@
 //! Validated, runtime-selected integral orders, independent of algebra and search.
 //!
-//! An order is simpler-first. Support cardinality is always first, so a strict
-//! pinch is simpler. Within one support, nonnegative weighted excess rows are
-//! compared lexicographically. Every coordinate, with either sign, must occur
+//! An order is simpler-first. Optional weighted absolute-power rows precede
+//! support cardinality, support weights and bits. With an empty prefix, strict
+//! pinches are simpler exactly as in the legacy order. Weighted excess rows
+//! follow support. Every coordinate, with either sign, must occur
 //! positively in at least one row. Consequently a fixed vector of row values
 //! has finitely many concrete integrals, making even reversed final ties safe.
 //!
@@ -71,11 +72,26 @@ impl CompiledOrder {
         self.descriptor().support_weights.len()
     }
 
+    /// Whether the support subkey is the complete leading prefix. Consumers
+    /// whose proofs induct on sectors must require this separately from the
+    /// fixed-support total-excess capability below.
+    pub fn is_support_primary(&self) -> bool {
+        self.descriptor().pre_support_degree_rows.is_empty()
+    }
+
     /// On one fixed support, descent under this program cannot increase
-    /// unweighted total excess if its first row is a positive multiple of E.
+    /// unweighted total excess if its earliest degree row is a positive
+    /// multiple of F (absolute prefix) or E (excess suffix). On fixed support
+    /// these differ by a constant. A later E row cannot override an earlier
+    /// rank/weighted row's increasing-E decision.
     /// This is not a bound on a support-changing or transported successor.
     pub fn has_total_excess_primary(&self) -> bool {
-        let row = &self.descriptor().degree_rows[0];
+        let descriptor = self.descriptor();
+        let row = descriptor
+            .pre_support_degree_rows
+            .first()
+            .or_else(|| descriptor.degree_rows.first())
+            .expect("validated nonempty combined degree rows");
         let weight = row.active[0];
         weight != 0
             && row

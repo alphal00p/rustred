@@ -392,9 +392,10 @@ impl SectorMonotoneShiftDescentWitness {
     /// Recheck representability, pivot preservation, inactive-line safety,
     /// the exact threshold partition, and the whole same-sector witness.
     pub fn verify(&self) -> bool {
-        if !self
-            .pivot
-            .verifies_for_sector(&self.policy, self.domain.sector())
+        if !self.policy.is_support_primary()
+            || !self
+                .pivot
+                .verifies_for_sector(&self.policy, self.domain.sector())
             || !self
                 .target
                 .verifies_for_sector(&self.policy, self.domain.sector())
@@ -481,6 +482,9 @@ impl OrderingPolicy {
         pivot_shift: &[i64],
         target_shift: &[i64],
     ) -> Result<SectorMonotoneShiftDescentWitness, Error> {
+        if !self.is_support_primary() {
+            return Err(Error::OrderRequiresSupportPrimary);
+        }
         domain.require_parent_sector_shift(pivot_shift)?;
         domain.require_representable_shift(target_shift)?;
 
