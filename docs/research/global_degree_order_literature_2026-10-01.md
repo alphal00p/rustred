@@ -1116,6 +1116,65 @@ steps. No such mixed proof is claimed here. A concrete-only solve must likewise
 not be reported as a parametric recurrence. The ignored source assessment is
 `TMP/postlaunch-20261002/tangent-integration/TARGET_BLOCK_RELATION_NOTE.md`.
 
+### Concrete symmetry quotient: native experiment and negative result
+
+An existing admitted map, `k2↔k3`, supplies the denominator permutation
+`[0,2,1,3,4,6,5,8,7,9]`. The old rule151 target is fully fixed, so this first
+experiment is point-only; no symbolic index was freed. Native family-map
+verification and permutation compilation validate the map again and retain its
+conditions. Each matrix key is transported with the existing native API.
+
+The experiment regenerates precisely the original47 centres/752 ordinary rows,
+69-term parent and24-term weighted difficult block. The45 other siblings remain
+unchanged. The literal solve reproduces the old negative result exactly, including
+the753 recorded pivot guards, apart from timing. Quotient outputs are allowed
+only if their class contains one of the ORIGINAL82 allowed columns; an absent
+image cannot create a new allowed output, and the parent stays forbidden.
+
+| Metric | Literal bank | Verified symmetry quotient |
+| --- | ---: | ---: |
+| Integral columns/classes | 1,322 | 1,306 |
+| Allowed columns/classes | 82 | 78 |
+| Forbidden columns/classes | 1,240 | 1,228 |
+| Reducer nonzeros | 21,724 | 21,727 |
+| Elimination seconds | 0.236555 | 0.353793 |
+| Target-block pivot | Absent | Absent |
+
+There are16 paired column orbits, with zero mixed allowed/forbidden classes.
+None of the24 difficult terms has its swapped partner anywhere in the literal
+bank. Only1/47 source centres maps into that centre set. These observations
+explain the limited opportunity for this particular quotient; they do not prove
+absence of other useful symmetries, seeds or identities.
+
+The owned probe completes in2.343s inclusive (native adapter0.833s), separately
+from123.635s adapter compilation. Independent audit confirms guards, scope,
+inventory and drained process groups. No mixed identity was produced, so the
+successful residual-reconstruction branch remains unexercised at runtime.
+No rule or terminal is published and no larger bank is automatically attempted.
+Evidence: `TMP/postlaunch-20261002/tangent-integration/symmetry-block-v1/` and
+`SYMMETRY_CHART_CENSUS.md` in its parent directory.
+
+### Follow-up candidate: symmetry-adapted numerator coordinates
+
+A source-level assessment identifies an actual FG bubble reflection, distinct
+from changing a matrix row basis. With `ell=k3`, `p=k4`, `q=k1`, define
+`C=(D1+D3+D7-D4+D5+1)/2` and `X=D9-C`. Under `ell→p-ell`, D3 and D7 exchange,
+C is unchanged and X changes sign. If the two bubble denominator powers are
+equal and D10 has power zero, the full integral with an odd power of X vanishes.
+Its expanded monomials do NOT vanish separately. The broader46 rule permits
+unequal bubble powers and therefore cannot use this condition everywhere.
+
+This is a candidate for simpler scalar relations, not another tensor reducer.
+The costs of expanding `D9^r=(C+X)^r`, changing any numerator coordinates and
+restoring all outputs to the original family must be included. The saved parent
+root includes positive D9, so a transformed numerator cannot simply be relabeled
+as the same owner. Existing affine-family construction and verified finite
+numerator transport provide a possible fixed-rank diagnostic; no native check,
+new mixed-proof publication or performance benefit is claimed yet. First seek
+a strictly improved fully restored row on a real covered slice, before another
+campaign or source-format extension. Read-only details:
+`TMP/postlaunch-20261002/tangent-integration/CENTERED_ISP_NOTE.md`.
+
 ## Requested slices versus unfinished helper cones
 
 The current five-loop declaration contains116 required inputs with finite

@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 07:04 UTC (09:04 Zurich)
+## Current workboard — October 2, 07:19 UTC (09:19 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -38,7 +38,7 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900; weight-pole distinction pushedc8bfc306. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Component comparison exact checks pass but produces no new structural advantage over GCD | Delivered/negative performance gates. Park raw16 component integration and automatic priority insertion; reopen on a new source-bank or application mechanism. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
 | Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
 | Nonfragmenting shortcut selection | `five_loop_order_runner` design/implementation; independent `rule_quality_audit`; `r_primary_transfer_audit` diagnostic/pilot; root integration | Native tests, fresh checked export and unchanged whole58 cold-All pass; domains26,025→26,211 and complete arm15.509→15.796s | Negative promotion result; park broad46 transfer/reverse. Generic opt-in capability remains tested |
-| Symmetry before block elimination | `five_loop_order_runner`; independent `symmetry_block_audit`; root | Concrete admitted loop-swap map found;69 parent RHS keys form62 classes, but24 hard keys remain distinct | Prepare same752-row native quotient diagnostic; preserve separate symmetry proof, no bank growth or publication |
+| Symmetry before block elimination | `five_loop_order_runner`; independent `symmetry_block_audit`; root | Same752-row native diagnostic passes validity checks;1,322→1,306 columns, still no target-block pivot | Bounded negative. Park this bank/map; no automatic expansion, publication or parametric claim |
 | Directional recurrence summation | `five_loop_order_runner`; root | Read-only structural lead: broad46 has one rank-preserving `-I(n-e3)` term; other45 lower the chosen numerator power | Deferred: exact coefficient independence, guarded three-step source replay and endpoint-cost test required. Screened anchor has that power1 already, hence no chain to skip there |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -54,6 +54,38 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 07:19 UTC — symmetry-assisted finite Laporta diagnostic completes
+
+- [M] The earlier full four-loop policy result and386 core regressions were
+  committed/pushed as `f82b9635`. Production remains untouched.
+- [M] `symmetry-block-v1` compiles against the existing optimized libraries in
+  123.635s; probe completes in2.343s inclusive (native adapter0.833s). The exact
+  loop-swap map is freshly verified by native family APIs, with guards retained.
+  Same47 centres/752 rows and original allowed projection; no bank growth.
+- [M] Literal result reproduces the previous negative exactly except timing,
+  including753 pivot guards. Quotient1,322→1,306 columns; allowed82→78,
+  forbidden1,240→1,228;16 paired classes, none with mixed permission. None of
+  the24 difficult keys has its P image in the original matrix. Both solves lack
+  the target-block pivot. Elimination0.236555→0.353793s; U/L nonzeros21,724→21,727.
+  This is not a speed improvement or an irreducibility result.
+- [D] Independent `symmetry_block_audit` accepts the raw result and confirms
+  compile/probe identities, inventory, original guards, no new outputs and
+  drained process groups. No mixed identity was produced; the success-only
+  residual check is source-reviewed, not runtime-exercised. Park this specific
+  map/bank; no automatic seed expansion, publication or campaign transfer.
+- [D] Remaining research is a bounded assessment of symmetry-adapted numerator
+  coordinates, explicitly charging conversion/expansion costs and not developing
+  another tensor reducer. Root owns documentation; implementation agent provides
+  the ignored short note. All native experimental jobs are finished.
+- [R] That assessment is delivered as `CENTERED_ISP_NOTE.md`: an FG centered
+  numerator X changes sign under bubble reflection when its two line powers
+  agree and the other numerator is absent. Only the full odd-X combination
+  vanishes. This does not authorize the broad46 case with unequal powers or
+  relabeling an owner whose parent has positive D9. Next reopening condition:
+  native verification and a smaller fully restored old-coordinate RHS on a
+  real covered slice, charging all conversion work before any workload claim.
+  No new tensor reduction, custom CAS, native experiment or production change.
 
 ### October 2, 07:04 UTC — full four-loop alternative policy passes correctness, not performance
 
