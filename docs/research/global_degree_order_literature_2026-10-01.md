@@ -995,9 +995,45 @@ native core tests and119 candidate-bundle tests, including codec roundtrips,
 cold reference-Off reinspection and policy-only checkpoint-change rejection.
 The first cold/checkpoint attempt stopped at an omitted Epoch scheduling option;
 the corrected fixture passes without weakening its assertions. Two unrelated
-external-data tests remain ignored. There is no whole58 result or deployment
-gain for this policy yet.
+external-data tests remain ignored. The whole58 result below is valid but does
+not pass the performance gate.
 Evidence: `TMP/postlaunch-20261002/tangent-integration/after-baseline-partition-v1/`.
+
+### Measured result: nonfragmenting broad46 is not a workload improvement
+
+The fresh typed policy export reproduces the same42 original sources,46 RHS
+terms and864 retained conditions, preserving the16 original fallback rules and
+one terminal. The51200-byte candidate is new v3 output, not relabeled eager
+priority bytes. Native proof/export takes0.341s; the owned probe takes3.158s,
+separate from122.754s adapter compilation and755.421s shared library/CLI build.
+
+On the two previously screened anchor faces, exact Symbolica specialization
+leaves41 coalesced baseline terms versus46 alternative terms, with77 nonzero
+coefficient differences. Thus the new rule is not merely the old row rewritten.
+This comparison leaves the numerator index symbolic and retains its guards; it
+is not a new proof of applicability on the entire ray.
+
+Both complete four-loop arms use the same freshly optimized executable, all
+16 owners/508 routes/58 required queries,32 admitted roots, W16/CPUs32–47, and
+fresh graphs. Both cold-All/reference-Off checks pass with zero violations,
+frontiers, uncovered cases or errors; all owned subprocesses drain.
+
+| Metric | Baseline | After-baseline broad46 |
+| --- | ---: | ---: |
+| Scheduled domains | 26,025 | 26,211 |
+| Native inspections | 17,957 | 17,970 |
+| Events | 872,486 | 873,448 |
+| Native traversal seconds | 4.261940 | 4.218705 |
+| Complete arm seconds | 15.508818 | 15.795820 |
+
+The31.763s forward pair is a negative promotion result: domains increase0.715%
+and complete arm time increases1.851%. The1.015% traversal difference is not a
+robust speedup. No reverse pair or five-loop transfer is warranted. The generic
+opt-in policy remains tested, but this candidate is parked. Eliminating extra
+partition cuts alone did not convert the local identity into a useful global
+rule. Evidence: `tangent-integration/after-baseline-owner-v1/{compile-r1,probe-r1}`
+and `tangent-integration/after-baseline-whole58-v1/forward/receipts/RESULT.json`
+under `TMP/postlaunch-20261002/`.
 
 ### Summed recurrences: promising mechanism, incompatible shortcut as stated
 

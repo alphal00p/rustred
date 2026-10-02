@@ -8,7 +8,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, 06:44 UTC (08:44 Zurich)
+## Current workboard — October 2, 07:04 UTC (09:04 Zurich)
 
 The preceding delivery turn made concrete progress: source-derived frontier
 repair, native validation, frozen user launch, fast-forward to `main`, and a
@@ -37,7 +37,8 @@ remains active; delivery does not satisfy the unpassed performance gates.
 | Demand-scoped reuse | `five_loop_order_runner`; root | Read-only design delivered; no implementation or native run | Reopen after current rule pilots: exact restricted reinspection, with no redirect to the wider unfinished anchor; demonstrate net work, not just earlier Q closure |
 | Affine operator components / local tangent sources | `r_primary_transfer_audit`; checked-cell producer/priority bridge `five_loop_order_runner`; independent `rule_quality_audit`; root | Generic source/proof/priority capability pushed45160900; weight-pole distinction pushedc8bfc306. Both broad46 and narrow37 whole58 insertions cold-PASS but increase work. Component comparison exact checks pass but produces no new structural advantage over GCD | Delivered/negative performance gates. Park raw16 component integration and automatic priority insertion; reopen on a new source-bank or application mechanism. Existing overlays do not provide a no-split override. Private unit-suite reruns remain qualified |
 | Rule-derived finite physical envelope | `r_primary_transfer_audit`; independent `rule_quality_audit`; root | Conditional potential reviewed; census inconclusive0/523 because an excluded pole stops the diagnostic | Park claim; no automatic retry/engine patch. Do not clip descendants or extend the claim to unbounded helpers |
-| Nonfragmenting shortcut selection | `five_loop_order_runner` design/implementation; independent `rule_quality_audit`; `r_primary_transfer_audit` diagnostic/pilot; root integration | Opt-in native policy implemented; core9PASS and candidate-bundle119PASS/2 external tests ignored, including cold-Off/checkpoint binding. Shared optimized CLI building | Checked broad46 export and unchanged whole58. No work-gain claim from the37/180 eligibility screen |
+| Nonfragmenting shortcut selection | `five_loop_order_runner` design/implementation; independent `rule_quality_audit`; `r_primary_transfer_audit` diagnostic/pilot; root integration | Native tests, fresh checked export and unchanged whole58 cold-All pass; domains26,025→26,211 and complete arm15.509→15.796s | Negative promotion result; park broad46 transfer/reverse. Generic opt-in capability remains tested |
+| Symmetry before block elimination | `five_loop_order_runner`; independent `symmetry_block_audit`; root | Concrete admitted loop-swap map found;69 parent RHS keys form62 classes, but24 hard keys remain distinct | Prepare same752-row native quotient diagnostic; preserve separate symmetry proof, no bank growth or publication |
 | Directional recurrence summation | `five_loop_order_runner`; root | Read-only structural lead: broad46 has one rank-preserving `-I(n-e3)` term; other45 lower the chosen numerator power | Deferred: exact coefficient independence, guarded three-step source replay and endpoint-cost test required. Screened anchor has that power1 already, hence no chain to skip there |
 | Dashboard ratio/color amendment | prior `rule_quality_audit`; current root with independent `r_primary_transfer_audit` | Pushed `df059d8d`;64 tests and independent audit pass | Frozen/live release unchanged |
 | P3 exact-ID retirement application | parked by user priority | Six four-loop arms pass; no gain; mature pair intentionally incomplete | Reopen only after priority changes; no promotion |
@@ -53,6 +54,74 @@ Rule pilots use CPUs32–47 and
 the existing owned-process lifecycle. All scheduling/merge experiments are now
 parked by the user's rule-quality-only priority. Neither the frozen production
 release nor input is edited.
+
+### October 2, 07:04 UTC — full four-loop alternative policy passes correctness, not performance
+
+- [M] Fresh broad46 policy export passes:42 regenerated original sources,
+  46 RHS terms,864 retained conditions, all16 fallback rules and one terminal.
+  Candidate51200B SHA`bc3a4103…f98adf`; shared CLI`8ef80b52…86cf0a7`.
+  Adapter compilation122.754s, owned probe3.158s, native proof/export0.341s.
+  Native anchor comparison gives41 baseline versus46 alternative terms and77
+  nonzero differences, keeping n8 symbolic. Guards remain explicit.
+- [M] Unchanged whole58 forward pair completes in31.763s. Both cold-All/Off
+  checks pass all58 required queries/32 admitted roots, zero violations or
+  uncovered/error/frontier results. Domains26,025→26,211 (+0.715%), native
+  inspections17,957→17,970, events872,486→873,448. Traversal4.261940→4.218705s;
+  complete arm15.508818→15.795820s (+1.851%). Root drains handle19073 and requests
+  independent raw-result audit, which passes: +186 domains consists of173 aliases
+  and13 native inspections; all process groups are absent. The historical
+  baseline discrete counts match, without implying graph identity or cross-build
+  timing equivalence. Source build/test handles and exporter are also
+  finished. Exact commands and results remain in `after-baseline-whole58-v1`.
+- [D] Park this candidate: no useful work/timing gain, no reverse pair or5L
+  transfer, no production restart recommendation. Existing default behavior and
+  production inputs remain unchanged. The generic opt-in capability is already
+  pushed, but a useful replacement rule remains to be found.
+- [R] Concrete symmetry lead: k2↔k3 yields permutation
+  `[0,2,1,3,4,6,5,8,7,9]` in six existing admitted routes. It fixes the old rule151
+  point;69 RHS keys form62 classes, while24 F-growing keys remain24 classes.
+  Only1/47 source centres maps back into the bank. The1322-column inventory was
+  not saved, so its orbit/rank effects are unknown. Prepare a minimal native
+  recheck with the SAME752 rows and a separately verified symmetry residual;
+  no bank growth, terminal promotion or symbolic-family closure claim. The old
+  case is fully fixed, not a parametric chart. `symmetry_block_audit` independently
+  reviews; the prior auditor reached its thread limit.
+- [R] Exact-D coefficient screen finds no established missed-zero witness in
+  fourteen available guarded reports plus broad46/narrow37 coefficient exports.
+  The interface omits correlated A/D from coefficient classification, but this
+  alone does not demonstrate wasted work. No new implementation or native probe.
+- [M] Wider candidate-reduction regressions pass386/386 in0.69s native time,
+  1.141s guarded elapsed (`after-baseline-core-regressions-r2`). This directly
+  executes the already-built r3 test binary, with no compilation. An initial
+  `-p rustred` Cargo-only invocation selected a different feature-unified test
+  artifact and began an unnecessary rebuild; root cooperatively canceled only
+  that owned wrapper after59.189s and verified its group drained. No tests ran
+  in that canceled attempt. Reusing the existing native binary avoids that
+  repeat; the shared CLI/library pins remain unchanged.
+
+### October 2, 06:58 UTC — shared release build and targeted native receipt pass
+
+- [M] `after-baseline-shared-cli-build-r1` completes successfully in755.421s
+  including compilation (CPU user3,335.371s; system54.659s). Maximum single-child
+  RSS13,776,668KiB. This produces the regular library and shared optimized CLI;
+  it is not a solver timing. The queued cached `after-baseline-native-tests-r3`
+  then passes nine core and two app tests in3.149s inclusive. Root drains both
+  execution handles; independent artifact/process review is assigned.
+- [D] Root launches the existing checked exporter compilation from
+  `after-baseline-owner-v1/run.py --mode compile --attempt 1`, binding the fresh
+  regular-build receipt. The subsequent proof/export will bind r3. Independent
+  harness review finds no necessary correction: exact58-query scope, same CLI
+  for both arms, original fallback suffix, and cold-All/Off remain required.
+  No native performance result or production change yet.
+- [R] Separate agents are checking actual chart-preserving symmetry orbits in
+  the failed752-row block and seeking a real coefficient-zero witness on an
+  exact physical-D slice. Neither a general literature analogy nor a sampled
+  zero is accepted as proof or a reason to expand the source bank.
+- [M] Read-only production observation at06:56:180,072,273 discovered domains,
+  14,384,256 pending,135,053,376 local completions, no reported frontiers.
+  Recorded root closure remains13/67, but its snapshot is10,224s old and cannot
+  establish actual last-hour closure. Last-hour pending/completion is−0.134;
+  sampled usage7.47cores and150.3GB RSS. No lifecycle action or ETA inference.
 
 ### October 2, 06:44 UTC — native integration regression gate passes
 
