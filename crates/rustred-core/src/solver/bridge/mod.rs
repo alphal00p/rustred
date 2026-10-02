@@ -7,6 +7,7 @@
 
 mod basis;
 mod certificate;
+mod combination;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

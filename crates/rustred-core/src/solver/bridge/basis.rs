@@ -16,8 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::sector::Restrictions;
-use crate::solver::{CoordinateCase, Integral, IntegralOrder, SolverError};
+use crate::solver::{CoordinateCase, SolverError};
 
+use super::combination::{Combination, NumericOrder, add, combination, sector_of, unit, values};
 use super::{
     DynamicPower, DynamicRule, DynamicSolution, DynamicTerm, array, extend_conditions, is_excluded,
 };
@@ -52,9 +53,6 @@ pub struct BasisChange {
     pub conditions: Vec<CoefficientPolynomial>,
 }
 
-/// A linear combination of integrals, keyed by numeric powers.
-type Combination = BTreeMap<Vec<i16>, Coefficient>;
-
 /// Check each preferred master's arity and range, reject duplicates, and
 /// reject integrals that vanish outside the cut.
 pub(super) fn validate<const N: usize>(
@@ -71,7 +69,7 @@ pub(super) fn validate<const N: usize>(
                 "preferred master {master:?} is listed twice"
             )));
         }
-        if is_excluded(restrictions, sector(&powers))? {
+        if is_excluded(restrictions, sector_of::<N>(&powers))? {
             return Err(SolverError::InvalidInput(format!(
                 "preferred master {master:?} lies outside the cut; it vanishes"
             )));
@@ -86,7 +84,7 @@ pub(super) fn prefer<const N: usize>(
     result: &mut DynamicSolution,
     preferred: &[[i16; N]],
 ) -> Result<(), SolverError> {
-    let order = Order::<N>::new();
+    let order = NumericOrder::<N>::new();
     let residuals: BTreeSet<Vec<i16>> = result.residuals.iter().cloned().collect();
     let preferred_keys: BTreeSet<Vec<i16>> =
         preferred.iter().map(|master| master.to_vec()).collect();
@@ -119,7 +117,7 @@ pub(super) fn prefer<const N: usize>(
                 "preferred master {key:?} reduces to zero"
             )));
         }
-        let own = sector(master);
+        let own = sector_of(master);
         for term in &rule.rhs {
             let powers = values(&term.powers);
             // Search rules strictly descend, so no term can lie in a later sector.
@@ -146,18 +144,19 @@ pub(super) fn prefer<const N: usize>(
         reduced.push((*master, index));
     }
     // Lowest sector first; the stable sort keeps request order within a sector.
-    reduced.sort_by(|left, right| order.sectors(&sector(&right.0), &sector(&left.0)));
+    reduced.sort_by(|left, right| order.sectors(&sector_of(&right.0), &sector_of(&left.0)));
 
     let mut replacements = BTreeMap::<Vec<i16>, (Combination, Vec<CoefficientPolynomial>)>::new();
     let mut pivot_conditions = Vec::new();
-    for group in reduced.chunk_by(|left, right| sector(&left.0) == sector(&right.0)) {
-        let own = sector(&group[0].0);
+    for group in reduced.chunk_by(|left, right| sector_of::<N>(&left.0) == sector_of::<N>(&right.0))
+    {
+        let own = sector_of::<N>(&group[0].0);
         let mut conditions = Vec::new();
         let mut rows = Vec::with_capacity(group.len());
         for &(master, index) in group {
             let rule = &result.rules[index];
             extend_conditions(&mut conditions, &rule.nonzero_conditions);
-            let one = Coefficient::from(rule.rhs[0].coefficient.numerator.one());
+            let one = unit(&rule.rhs[0].coefficient);
             let mut row = Combination::new();
             add(&mut row, master.to_vec(), one);
             for term in &rule.rhs {
@@ -321,9 +320,9 @@ pub(super) fn prefer<const N: usize>(
             // A replaced residual must map back to itself.
             None => {
                 mapped.len() == 1
-                    && mapped.get(&target).is_some_and(|coefficient| {
-                        (coefficient - &Coefficient::from(coefficient.numerator.one())).is_zero()
-                    })
+                    && mapped
+                        .get(&target)
+                        .is_some_and(|coefficient| (coefficient - &unit(coefficient)).is_zero())
             }
         };
         if !restored {
@@ -341,57 +340,20 @@ pub(super) fn prefer<const N: usize>(
     Ok(())
 }
 
-/// The search's numeric integral order: `Less` means harder.
-struct Order<const N: usize>(IntegralOrder<N>);
-
-impl<const N: usize> Order<N> {
-    fn new() -> Self {
-        // Numeric keys compare by denominators and sector first, independently
-        // of the order's own sector, so one order serves every sector.
-        Self(IntegralOrder::new([false; N], [false; N]))
-    }
-
-    fn integral(powers: &[i16]) -> Integral<N> {
-        let powers: [i16; N] = powers
-            .try_into()
-            .expect("search keys have the family's arity");
-        Integral::numeric(powers).expect("search keys lie in the compact power range")
-    }
-
-    fn integrals(&self, left: &[i16], right: &[i16]) -> Ordering {
-        self.0
-            .compare(&Self::integral(left), &Self::integral(right))
-    }
-
-    /// Compare sectors through their corner integrals: `Less` means harder.
-    fn sectors(&self, left: &[bool; N], right: &[bool; N]) -> Ordering {
-        let corner = |sector: &[bool; N]| sector.map(i16::from);
-        self.integrals(&corner(left), &corner(right))
+/// `target -= factor * source`.
+fn subtract(target: &mut Combination, source: &Combination, factor: &Coefficient) {
+    for (integral, coefficient) in source {
+        add(target, integral.clone(), -(factor * coefficient));
     }
 }
 
-fn sector<const N: usize>(powers: &[i16; N]) -> [bool; N] {
-    powers.map(|power| power > 0)
-}
-
-fn sector_of<const N: usize>(powers: &[i16]) -> [bool; N] {
-    std::array::from_fn(|axis| powers[axis] > 0)
-}
-
-fn values(powers: &[DynamicPower]) -> Vec<i16> {
-    powers.iter().map(|power| power.value).collect()
-}
-
-fn combination(terms: &[DynamicTerm]) -> Combination {
-    let mut combination = Combination::new();
-    for term in terms {
-        add(
-            &mut combination,
-            values(&term.powers),
-            term.coefficient.clone(),
-        );
-    }
-    combination
+fn same(left: &Combination, right: &Combination) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|(integral, coefficient)| {
+            right
+                .get(integral)
+                .is_some_and(|other| (coefficient - other).is_zero())
+        })
 }
 
 fn terms(combination: Combination) -> Vec<DynamicTerm> {
@@ -408,30 +370,4 @@ fn terms(combination: Combination) -> Vec<DynamicTerm> {
             coefficient,
         })
         .collect()
-}
-
-fn add(combination: &mut Combination, integral: Vec<i16>, coefficient: Coefficient) {
-    let sum = match combination.remove(&integral) {
-        Some(existing) => &existing + &coefficient,
-        None => coefficient,
-    };
-    if !sum.is_zero() {
-        combination.insert(integral, sum);
-    }
-}
-
-/// `target -= factor * source`.
-fn subtract(target: &mut Combination, source: &Combination, factor: &Coefficient) {
-    for (integral, coefficient) in source {
-        add(target, integral.clone(), -(factor * coefficient));
-    }
-}
-
-fn same(left: &Combination, right: &Combination) -> bool {
-    left.len() == right.len()
-        && left.iter().all(|(integral, coefficient)| {
-            right
-                .get(integral)
-                .is_some_and(|other| (coefficient - other).is_zero())
-        })
 }

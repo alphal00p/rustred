@@ -30,8 +30,9 @@ use crate::algebra::Coefficient;
 use crate::family::IntegralFamily;
 use crate::identity::{ParametricIbpGenerator, ParametricRelation};
 use crate::sector::CutConstraint;
-use crate::solver::{Integral, IntegralOrder, SolverError};
+use crate::solver::SolverError;
 
+use super::combination::{Combination, NumericOrder, add, sector_of, unit, values};
 use super::{
     DynamicRule, DynamicSolution, RuleOrigin, array, cut_restrictions, dispatch, is_excluded,
     zero_census,
@@ -68,8 +69,6 @@ pub fn certify_laporta(
     )
 }
 
-type Combination = BTreeMap<Vec<i16>, Coefficient>;
-
 fn fail(message: String) -> SolverError {
     SolverError::ExactReplay(format!("certification failed: {message}"))
 }
@@ -84,12 +83,11 @@ fn certify<const N: usize>(
         return Err(fail("the solution records no requested integrals".into()));
     }
     let restrictions = cut_restrictions(family, cuts)?;
-    let order = IntegralOrder::new([false; N], [false; N]);
-    let compare =
-        |left: &[i16], right: &[i16]| order.compare(&integral::<N>(left), &integral(right));
+    let order = NumericOrder::<N>::new();
+    let compare = |left: &[i16], right: &[i16]| order.integrals(left, right);
     let mut requested_sectors = Vec::new();
     for integral in &solution.requested {
-        let sector = sector(&array::<_, N>(integral, "requested integral")?);
+        let sector = sector_of(&array::<_, N>(integral, "requested integral")?);
         if !is_excluded(&restrictions, sector)? {
             requested_sectors.push(sector);
         }
@@ -102,7 +100,7 @@ fn certify<const N: usize>(
     let mut by_seeds = BTreeMap::<&[Vec<i16>], Vec<&DynamicRule>>::new();
     for derivation in &solution.derivation {
         let rule = &derivation.rule;
-        let target = values(rule);
+        let target = values(&rule.target);
         if derived.insert(target.clone(), rule).is_some() {
             return Err(fail(format!("{target:?} is derived twice")));
         }
@@ -124,7 +122,7 @@ fn certify<const N: usize>(
                     return Err(fail(format!("the rule for {target:?} records no seeds")));
                 }
                 for term in &rule.rhs {
-                    let powers = term_values(&term.powers);
+                    let powers = values(&term.powers);
                     if compare(&target, &powers) != std::cmp::Ordering::Less || is_zero(&powers) {
                         return Err(fail(format!(
                             "the rule for {target:?} does not strictly descend to {powers:?}"
@@ -152,19 +150,15 @@ fn certify<const N: usize>(
         let desired: Vec<(Vec<i16>, Combination)> = rules
             .iter()
             .map(|rule| {
-                let target = values(rule);
+                let target = values(&rule.target);
                 let mut row = Combination::new();
                 if let Some(term) = rule.rhs.first() {
-                    add(&mut row, target.clone(), one(&term.coefficient));
+                    add(&mut row, target.clone(), unit(&term.coefficient));
                 } else {
                     return Err(fail(format!("the rule for {target:?} has no terms")));
                 }
                 for term in &rule.rhs {
-                    add(
-                        &mut row,
-                        term_values(&term.powers),
-                        -term.coefficient.clone(),
-                    );
+                    add(&mut row, values(&term.powers), -term.coefficient.clone());
                 }
                 Ok((target, row))
             })
@@ -215,7 +209,7 @@ fn certify<const N: usize>(
             let back: BTreeMap<Vec<i16>, &DynamicRule> = change
                 .original
                 .iter()
-                .map(|rule| (values(rule), rule))
+                .map(|rule| (values(&rule.target), rule))
                 .collect();
             let mut residuals: BTreeSet<Vec<i16>> = solution
                 .residuals
@@ -233,10 +227,10 @@ fn certify<const N: usize>(
     };
     let mapped_rules = solution.rules.iter().chain(back.values().copied());
     for rule in mapped_rules {
-        let target = values(rule);
+        let target = values(&rule.target);
         let mut row = Combination::new();
         let unit = match rule.rhs.first() {
-            Some(term) => one(&term.coefficient),
+            Some(term) => unit(&term.coefficient),
             None => {
                 // A zero rule must be derived as zero.
                 match derived.get(&target) {
@@ -250,14 +244,14 @@ fn certify<const N: usize>(
         };
         add(&mut row, target.clone(), unit);
         for term in &rule.rhs {
-            let powers = term_values(&term.powers);
+            let powers = values(&term.powers);
             // A replaced preferred master stands for its original reduction.
             match back.get(&powers) {
                 Some(original) => {
                     for inner in &original.rhs {
                         add(
                             &mut row,
-                            term_values(&inner.powers),
+                            values(&inner.powers),
                             -(&term.coefficient * &inner.coefficient),
                         );
                     }
@@ -281,11 +275,7 @@ fn certify<const N: usize>(
             };
             let factor = row.remove(&key).expect("the hardest key is present");
             for term in &derivation.rhs {
-                add(
-                    &mut row,
-                    term_values(&term.powers),
-                    &factor * &term.coefficient,
-                );
+                add(&mut row, values(&term.powers), &factor * &term.coefficient);
             }
         }
         if !row.is_empty() {
@@ -296,7 +286,11 @@ fn certify<const N: usize>(
         certificate.returned_rules += 1;
     }
 
-    let solved: BTreeSet<Vec<i16>> = solution.rules.iter().map(values).collect();
+    let solved: BTreeSet<Vec<i16>> = solution
+        .rules
+        .iter()
+        .map(|rule| values(&rule.target))
+        .collect();
     let residuals: BTreeSet<&Vec<i16>> = solution.residuals.iter().collect();
     for integral in &solution.requested {
         if !solved.contains(integral) && !residuals.contains(integral) {
@@ -376,41 +370,4 @@ fn instantiate<const N: usize>(
         );
     }
     Ok(Some(row))
-}
-
-fn integral<const N: usize>(powers: &[i16]) -> Integral<N> {
-    let powers: [i16; N] = powers
-        .try_into()
-        .expect("integral keys have the family's arity");
-    Integral::numeric(powers).expect("integral keys lie in the compact power range")
-}
-
-fn sector<const N: usize>(powers: &[i16; N]) -> [bool; N] {
-    powers.map(|power| power > 0)
-}
-
-fn sector_of<const N: usize>(powers: &[i16]) -> [bool; N] {
-    std::array::from_fn(|axis| powers[axis] > 0)
-}
-
-fn values(rule: &DynamicRule) -> Vec<i16> {
-    term_values(&rule.target)
-}
-
-fn term_values(powers: &[super::DynamicPower]) -> Vec<i16> {
-    powers.iter().map(|power| power.value).collect()
-}
-
-fn one(template: &Coefficient) -> Coefficient {
-    Coefficient::from(template.numerator.one())
-}
-
-fn add(row: &mut Combination, integral: Vec<i16>, coefficient: Coefficient) {
-    let sum = match row.remove(&integral) {
-        Some(existing) => &existing + &coefficient,
-        None => coefficient,
-    };
-    if !sum.is_zero() {
-        row.insert(integral, sum);
-    }
 }
