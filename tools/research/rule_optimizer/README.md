@@ -773,3 +773,54 @@ radial producer was relinked with the new app library without changing its
 source. These controls are recorded in ignored
 `candidates/lower-cut-controls-v1/`; they are export compatibility checks, not
 new downstream performance measurements.
+
+`forbid_cofinally_higher_columns` is an optional boolean (default false) for
+the narrow case of one genuinely unbounded coordinate, every other coordinate
+fixed, unshifted family powers, and plain saved Spired order. It derives each
+actual source-image column's exact sign-stabilization threshold, then uses the
+native support/shift ordering keys to identify columns that are higher on the
+entire infinite tail. A rational coefficient in a uniformly descending rule
+must annihilate such a column identically. The finite native interior is only
+a checked carrier, not an empirical or finite-box proof of cofinality. Unsupported
+orders, affine/correlated or multifree charts, finite rays, overflow, and witness
+storage over budget refuse. This is the unprojected strict-descent contract;
+it does not waive known-zero sectors or delete any source/RHS terms. Derived
+mandatory columns are reported separately from caller-selected optional cost
+exclusions, and native full-source/chart/guard proof remains required.
+
+`RUSTRED_SYMBOLIC_PROJECTOR_PROGRESS=1` enables observational stderr JSON for
+source preparation, projection, proof/refinement and export. Sparse row
+heartbeats are throttled to at most one per second; disabled payloads are lazy.
+Progress never supplies algebra or authority inputs. The combined cofinal,
+progress and lower-cut build passed 32 optimized research tests, including the
+474 previously observed higher shifts and a finite-corner counterexample.
+Default, explicit-off and enabled cofinal checked tadpole exports all match the
+frozen reference bytes. The tested private source was transferred unchanged,
+then the observational modules received a formatting-only rustfmt pass; the
+compiled private snapshot remains retained. Build/control receipts are in
+ignored `candidates/projector-cofinal-progress-build-v1/` and
+`candidates/cofinal-controls-v1/`; these are correctness gates, not a graph-gain
+claim.
+
+`projection_backend` optionally selects `"direct-l"`; absent or `"augmented"`
+keeps the existing identity-augmented algorithm. Direct-L reduces only the
+physical `[F, target]` columns with native Symbolica, records accepted input/U/L
+row correspondence, and recovers a target through one native solve of the
+accepted triangular `L` transpose. It verifies that solve and the complete
+original-source product. All input and physical-pivot guards remain live;
+dependent and empty rows are not mistaken for accepted source rows. Resource
+checks cover retained matrices and recovery inputs, with the outer RSS/time
+guard bounding unobservable native scratch. This remains research adapter
+orchestration, not a new algebra or proof kernel.
+
+The merged optional backend passed 39 optimized tests. Actual cofinal-enabled
+positive proof reports agree between backends, and three checked toy exports
+are byte-identical. A separately frozen actual owner66 1062-source/final823-F
+comparison completed with identical full reports (apart from elapsed seconds
+and the backend selector), including the same 47 conditions and finite target
+miss. That miss does not exercise target recovery; its positive coverage comes
+from the source-replay fixtures and checked exports. Receipts are in ignored
+`candidates/projector-direct-l-cofinal-build-v1/`,
+`candidates/direct-l-cofinal-controls-v1/`, and
+`candidates/direct-l-fixed1062-comparison-v1.json`. None is a downstream cost,
+closure, or campaign-speed claim. The larger 5796-source trial is separate.

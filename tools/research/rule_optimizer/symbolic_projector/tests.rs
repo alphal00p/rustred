@@ -13,6 +13,72 @@ fn context() -> IndexedCoefficientContext {
     )
     .unwrap()
 }
+
+#[test]
+fn cofinal_preseed_replaces_tadpole_refinement_with_same_exact_full_product() {
+    let (bytes, r) = tadpole();
+    let (old, _) = run::<1>(&bytes, &r, false).unwrap();
+    let mut opted = r.clone();
+    opted["forbid_cofinally_higher_columns"] = json!(true);
+    let (new, _) = run::<1>(&bytes, &opted, false).unwrap();
+    assert_eq!(old["status"], "EXACT_ORIGINAL_SOURCE_CHART_PROVED");
+    assert_eq!(new["status"], old["status"]);
+    assert_eq!(old["refinements"], 1);
+    assert_eq!(new["refinements"], 0);
+    assert_eq!(new["cofinal_higher_new_count"], 1);
+    assert_eq!(
+        new["attempts"].as_array().unwrap().last().unwrap()["normalized_full_product"],
+        old["attempts"].as_array().unwrap().last().unwrap()["normalized_full_product"]
+    );
+    assert_eq!(
+        new["attempts"].as_array().unwrap().last().unwrap()["ordinary_contributions"],
+        old["attempts"].as_array().unwrap().last().unwrap()["ordinary_contributions"]
+    );
+    let mut explicit = r.clone();
+    explicit["forbid_cofinally_higher_columns"] = json!(false);
+    let (mut off, _) = run::<1>(&bytes, &explicit, false).unwrap();
+    let mut old = old;
+    off.as_object_mut().unwrap().remove("seconds");
+    old.as_object_mut().unwrap().remove("seconds");
+    off["request"] = old["request"].clone();
+    assert_eq!(off, old);
+}
+
+#[test]
+fn cofinal_witness_storage_is_admitted_before_per_column_json() {
+    let (_, mut r) = tadpole();
+    let universe = BTreeSet::from([shift(0), shift(1)]);
+    r["limits"]["max_augmented_columns"] = json!(1);
+    assert!(
+        cofinal::columns(
+            &r,
+            &rustred::sector::OrderingPolicy::SpiredUncutV1,
+            &universe
+        )
+        .unwrap_err()
+        .contains("column allowance")
+    );
+    r["limits"]["max_augmented_columns"] = json!(2);
+    r["limits"]["max_coordinate_cells"] = json!(7);
+    assert!(
+        cofinal::columns(
+            &r,
+            &rustred::sector::OrderingPolicy::SpiredUncutV1,
+            &universe
+        )
+        .unwrap_err()
+        .contains("witness coordinates")
+    );
+    r["limits"]["max_coordinate_cells"] = json!(8);
+    let (columns, witnesses) = cofinal::columns(
+        &r,
+        &rustred::sector::OrderingPolicy::SpiredUncutV1,
+        &universe,
+    )
+    .unwrap();
+    assert_eq!(columns, BTreeSet::from([shift(1)]));
+    assert_eq!(witnesses.len(), 1);
+}
 fn shift(n: i64) -> IndexShift {
     static SHIFTS: std::sync::OnceLock<BTreeMap<i64, IndexShift>> = std::sync::OnceLock::new();
     SHIFTS.get_or_init(|| {
@@ -771,4 +837,231 @@ fn fixed_root_policy_checked_tadpole_export_fixture_and_default_identity() {
         )
         .unwrap();
     }
+}
+
+fn compare_direct(
+    c: &IndexedCoefficientContext,
+    rows: &[project::Row],
+    f: &BTreeSet<IndexShift>,
+    l: project::Limits,
+) -> (project::Proposal, project::Proposal) {
+    let a = target(project::project(c, rows, &shift(0), f, &[], l).unwrap());
+    let b = target(direct_l::project(c, rows, &shift(0), f, &[], l).unwrap());
+    assert_eq!(a.prefix_rows, b.prefix_rows);
+    assert_eq!(a.weights, b.weights);
+    assert_eq!(a.image, b.image);
+    assert_eq!(a.guards.len(), b.guards.len());
+    for (g, h) in a.guards.iter().zip(&b.guards) {
+        assert_eq!(g.polynomial, h.polynomial);
+        assert_eq!(g.origin, h.origin);
+    }
+    (a, b)
+}
+
+#[test]
+fn direct_l_policy_is_explicit_and_tadpole_checked_bytes_match() {
+    let (bytes, mut r) = tadpole();
+    assert!(!direct_l::enabled(&r).unwrap());
+    let (a, a_bytes) = run::<1>(&bytes, &r, true).unwrap();
+    r["projection_backend"] = json!("augmented");
+    assert!(!direct_l::enabled(&r).unwrap());
+    let (explicit, explicit_bytes) = run::<1>(&bytes, &r, true).unwrap();
+    assert_eq!(a["attempts"], explicit["attempts"]);
+    assert_eq!(a_bytes, explicit_bytes);
+    r["projection_backend"] = json!("direct-l");
+    let (b, b_bytes) = run::<1>(&bytes, &r, true).unwrap();
+    assert_eq!(a["status"], b["status"]);
+    assert_eq!(a["attempts"], b["attempts"]);
+    eprintln!(
+        "two-source tadpole common export result: {} / {}",
+        a["status"],
+        a["attempts"].as_array().unwrap().last().unwrap()["export_error"]
+    );
+    assert_eq!(a["refinements"], b["refinements"]);
+    assert_eq!(a_bytes, b_bytes);
+    // Use the already established checked-export control, without an unused
+    // forward source and its conservative prefix guard.
+    r["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    r["max_refinements"] = json!(0);
+    r["projection_backend"] = json!("augmented");
+    let (valid_a, bytes_a) = run::<1>(&bytes, &r, true).unwrap();
+    r["projection_backend"] = json!("direct-l");
+    let (valid_b, bytes_b) = run::<1>(&bytes, &r, true).unwrap();
+    assert_eq!(valid_a["status"], "CHECKED_PRIORITY_OWNER_EXPORTED");
+    assert_eq!(valid_a["status"], valid_b["status"]);
+    assert_eq!(valid_a["attempts"], valid_b["attempts"]);
+    assert_eq!(bytes_a, bytes_b);
+    for invalid in [json!(null), json!(true), json!(0), json!("inverse")] {
+        r["projection_backend"] = invalid;
+        assert!(validate(&r).is_err());
+    }
+}
+
+#[test]
+fn direct_l_empty_and_dependent_rows_preserve_original_input_mapping() {
+    let c = context();
+    let rows = vec![
+        project::Row::new(),
+        project::Row::from([(shift(1), c.integer(2)), (shift(-1), c.one())]),
+        project::Row::from([(shift(1), c.integer(4)), (shift(-1), c.integer(2))]),
+        project::Row::new(),
+        project::Row::from([
+            (shift(1), c.integer(6)),
+            (shift(0), c.integer(3)),
+            (shift(-1), c.integer(5)),
+        ]),
+    ];
+    let (a, _) = compare_direct(&c, &rows, &BTreeSet::from([shift(1)]), limits());
+    assert_eq!(a.prefix_rows, 5);
+    assert_eq!(a.weights.keys().copied().collect::<Vec<_>>(), vec![1, 4]);
+}
+
+#[test]
+fn direct_l_nonlex_pivot_chronology_sorts_native_l_transpose() {
+    let c = context();
+    let rows = vec![
+        project::Row::from([(shift(-1), c.integer(2))]),
+        project::Row::from([(shift(-2), c.integer(3)), (shift(-1), c.one())]),
+        project::Row::from([(shift(-2), c.integer(6)), (shift(-1), c.integer(2))]),
+        project::Row::from([
+            (shift(-2), c.one()),
+            (shift(-1), c.one()),
+            (shift(0), c.integer(5)),
+            (shift(1), c.one()),
+        ]),
+    ];
+    compare_direct(&c, &rows, &BTreeSet::from([shift(-2), shift(-1)]), limits());
+}
+
+#[test]
+fn direct_l_symbolic_pivots_and_cancelled_input_poles_remain_live() {
+    let c = context();
+    let n = c.index(0).unwrap();
+    let inv = c.div(&c.one(), &n).unwrap();
+    let rows = vec![
+        project::Row::from([
+            (shift(1), n.clone()),
+            (shift(0), c.one()),
+            (shift(-1), inv.clone()),
+        ]),
+        project::Row::from([(shift(1), c.one()), (shift(0), c.one()), (shift(-1), inv)]),
+        project::Row::from([(
+            shift(0),
+            c.div(&c.one(), &c.sub(&n, &c.integer(7)).unwrap()).unwrap(),
+        )]),
+    ];
+    let (a, b) = compare_direct(&c, &rows, &BTreeSet::from([shift(1)]), limits());
+    assert_eq!(a.prefix_rows, 2);
+    // Even an unvisited source after target retains its original input pole.
+    let after = c.sub(&n, &c.integer(7)).unwrap().raw().numerator.clone();
+    assert!(b.guards.iter().any(|g| g.polynomial.raw() == &after));
+}
+
+#[test]
+fn direct_l_no_target_and_foreign_context_refusals_agree() {
+    let c = context();
+    let rows = vec![
+        project::Row::new(),
+        project::Row::from([(shift(1), c.one())]),
+        project::Row::from([(shift(1), c.integer(2))]),
+    ];
+    for result in [
+        project::project(
+            &c,
+            &rows,
+            &shift(0),
+            &BTreeSet::from([shift(1)]),
+            &[],
+            limits(),
+        ),
+        direct_l::project(
+            &c,
+            &rows,
+            &shift(0),
+            &BTreeSet::from([shift(1)]),
+            &[],
+            limits(),
+        ),
+    ] {
+        assert!(matches!(
+            result.unwrap(),
+            project::Projection::NoTarget { rows: 3, .. }
+        ));
+    }
+    let foreign = IndexedCoefficientContext::try_new(
+        &CoefficientContext::try_new(["x"]).unwrap(),
+        "foreign",
+        1,
+    )
+    .unwrap();
+    let bad = vec![project::Row::from([(shift(0), foreign.index(0).unwrap())])];
+    assert!(direct_l::project(&c, &bad, &shift(0), &BTreeSet::new(), &[], limits()).is_err());
+    assert!(project::project(&c, &bad, &shift(0), &BTreeSet::new(), &[], limits()).is_err());
+    let one = vec![project::Row::from([(shift(0), c.one())])];
+    let mut storage = limits();
+    storage.nonzeros = 4; // U + L + Lt + Lt.clone + unit = 5.
+    assert!(matches!(
+        direct_l::project(&c, &one, &shift(0), &BTreeSet::new(), &[], storage),
+        Err(project::Error::Budget(
+            "retained reduction plus native solve input"
+        ))
+    ));
+    let mut terms = limits();
+    terms.coefficient_terms = 9;
+    assert!(matches!(
+        direct_l::project(&c, &one, &shift(0), &BTreeSet::new(), &[], terms),
+        Err(project::Error::Budget(
+            "retained native U/L coefficient terms"
+        ))
+    ));
+}
+
+#[test]
+fn direct_l_1062_row_fixture_matches_augmented_prefix_weights_and_full_image() {
+    let c = context();
+    let mut rows = vec![project::Row::new()];
+    rows.extend(
+        (0..1060).map(|_| project::Row::from([(shift(1), c.one()), (shift(-1), c.integer(2))])),
+    );
+    rows.push(project::Row::from([
+        (shift(1), c.integer(3)),
+        (shift(0), c.integer(2)),
+        (shift(-1), c.integer(8)),
+    ]));
+    let mut l = limits();
+    l.rows = 1062;
+    // Synthetic augmented identity stress: at most2 triangular1062x1062
+    // U/L envelopes (<1.13M entries), each scalar has2constant terms.
+    // These are TEST-ONLY ceilings; no experiment or production limit changes.
+    l.nonzeros = 2_000_000;
+    l.coefficient_terms = 4_000_000;
+    let (a, _) = compare_direct(&c, &rows, &BTreeSet::from([shift(1)]), l);
+    assert_eq!(a.prefix_rows, 1062);
+    let mut mutated = rows.clone();
+    mutated[1061].insert(shift(-1), c.integer(9));
+    assert_ne!(
+        project::replay(&c, &mutated, &a.weights, &mut Vec::new(), l).unwrap(),
+        a.image
+    );
+}
+
+#[test]
+fn direct_l_native_empty_dependent_and_full_rank_append_contract() {
+    use symbolica::{
+        domains::SelfRing,
+        prelude::Z,
+        tensors::sparse::{LuLMode, SparseRowReducer},
+    };
+    let c = context();
+    let mut reducer = SparseRowReducer::new(2, project::Field::new(Z), LuLMode::Full);
+    assert_eq!(reducer.add_row(&[], &[]), None);
+    assert_eq!(reducer.l().nrows(), 0);
+    assert_eq!(reducer.add_row(&[c.one().raw().clone()], &[0]), Some(0));
+    assert_eq!(reducer.add_row(&[c.integer(2).raw().clone()], &[0]), None);
+    assert_eq!(reducer.u().nrows(), 1);
+    assert_eq!(reducer.l().nrows(), 2);
+    assert_eq!(reducer.add_row(&[c.one().raw().clone()], &[1]), Some(1));
+    assert_eq!(reducer.add_row(&[c.one().raw().clone()], &[0]), None);
+    assert_eq!(reducer.u().nrows(), 2);
+    assert_eq!(reducer.l().nrows(), 3);
 }

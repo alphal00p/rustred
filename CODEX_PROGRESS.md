@@ -13,14 +13,122 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Lane | Responsible agent | State | Next executable decision |
 | --- | --- | --- | --- |
 | Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
-| Incumbent-informed source recovery | `rule_cost_profiles` | First large attempt censored | Preserve the5,796-source result; profile the exact same bank with native progress before another completion attempt. |
-| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Active implementation | Replace optional per-row identity augmentation by one native triangular weight solve after a target hit; require exact agreement with the old path. |
+| Incumbent-informed source recovery | `rule_cost_profiles` | Large augmented runs censored | Preserve the5,796-source results; delayed weight recovery and modular source nomination are the next measured alternatives. |
+| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe active | Thirty-nine combined tests and checked-byte controls pass; wait for the unchanged actual-bank result before any speed claim. |
+| Modular support nomination | `rule_optimizer_impl` + independent auditor | Active narrow API implementation | Reuse the existing Spired modular rank/dependency kernel; nominate typed sources only, then run unchanged exact proof. No custom CAS or modular authority. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
-| Cofinal higher-column planning | Implementation + auditor | Private implementation / audit | The instrumented bank repeats122 refinement cycles in148s; batch only columns proved necessarily higher on the infinite ray, then retain full native proof. |
+| Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
-| Exact lower-cut publication | Implementation + auditor | Delivered / final audit | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
+| Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Optional exact-search improvements integrated — October3, 18:40 UTC
+
+[M] The cofinal planner and direct-L research backend are integrated after the
+combined39-test optimized gate, actual positive full-proof equivalence and
+checked toy byte controls. The independent auditor checks the main promotion:
+`direct_l.rs` is byte-identical to the tested private file; the other post-build
+differences are formatting and test placement only. The augmented backend and
+cofinal-off defaults remain unchanged. Neither production executable nor rule
+pool changes. The active modular-core wrapper is a separate unfinished slice
+and is excluded from this integration commit.
+
+[M] The augmented5,796-row/cofinal-F6448 run stops cooperatively and drains:
+1,505.557s outer,1,500.968s guard elapsed,1,484.055s child CPU,3.862GB sampled
+peak RSS. No target/proof or artifact is produced. The last heartbeat records
+at least2,604 visited rows at1,233.310s; the final row count is unknown. This is
+censoring, not a proof that the bank lacks a solution. The delayed-weight run
+continues independently; its row2,989 heartbeat at654.83s is only partial
+progress, not a completed speed comparison. Evidence remains in
+`candidates/symbolic-owner66-union5796-cofinal-v1/` and the sibling
+`symbolic-owner66-union5796-cofinal-direct-l-v1/`.
+
+[M] Read-only production observation around18:39UTC:106,099,058 domains,
+15,644,961 pending inspections,zero reported frontiers,95.524GB RSS and7.75
+observed cores. The conservative closure snapshot reports13/67 roots and
+14,310,736 closed domains but is860s old. These counters are not a closure ETA
+or a reason to change the user-controlled production campaign.
+
+### Existing modular kernel selected for compact exact work — October3, 18:22 UTC
+
+[E] The up-front-F experiment replaces repeated small solves by one harder exact
+solve; its expression growth may offset the saved repetitions. The delayed-weight
+experiment is being tested first, but root also authorizes a narrow discovery-only
+API over the already implemented `SpiredModularKernel<IndexShift>`. Its current
+crate-private visibility is the missing boundary, not an absent elimination
+algorithm. The API may return only typed source support/chronology and discovery
+statistics. All structural F columns remain registered even when their sampled
+coefficient is zero; a vanished sampled denominator/guard is unlucky evidence.
+
+[E] The same exact projector must independently rebuild a relation from nominated
+sources with the complete unchanged F/chart/order, followed by full ordinary-source
+replay and all native guard/descent/export gates. Neither a modular hit nor miss
+establishes authority. `rule_optimizer_impl` owns the bounded generic adapter and
+tests; `frontier_oct3_resume` audits before a consolidated core/app build on0/1.
+The profiler keeps the immutable cofinal/direct-L comparison on its separate
+build/native allocation. No production source pool or checkpoint is changed.
+
+### Arithmetic profile and direct-L control — October3, 18:16 UTC
+
+[M] Root samples only the owned cofinal probe PID51107 for15s: user CPU-clock at
+99Hz, DWARF8192,32 mmap pages, collector CPU69. Perf records1,359 samples with
+zero lost. `MultivariatePolynomial::heap_division` accounts for40.91% self samples;
+its stacks include Symbolica rational-polynomial addition, heuristic GCD and
+exact division. This is a short-window arithmetic profile, not an attribution
+of the whole run. The probe is explicitly instrumented, so its elapsed time is
+not a pristine matched comparison. Raw evidence:
+`candidates/owner66-cofinal-5796-18h12-perf.data`.
+
+[M] Corrected direct-L gates pass30 tests and actual old/default/direct checked
+exports all match `915c3875…`. The real1,062-source/fixed823-F control completes
+in both backends:1,062 visited rows,2,709 image columns,47 conditions, zero
+refinements and `NO_TARGET`. Entire reports agree after removing only elapsed
+seconds and the explicit backend choice. Projection intervals are0.455s and
+0.199s, native totals5.371s and5.130s, outer times9.844s and12.393s. This single
+pair does not establish a full-arm speedup. It exercises physical elimination,
+not target-weight recovery; the latter has the synthetic/positive byte controls.
+The independent auditor verifies receipts and these interpretation limits.
+
+[E] Root authorizes a combined cofinal/direct-L private build and the identical
+5,796-source probe on native67/supervisor68, changing only the projection backend.
+It will run alongside the unchanged augmented probe on65/66 after focused gates.
+No alternative is accepted yet. The generation engineer also inspects existing
+modular trace-nomination APIs read-only as a possible next way to avoid expensive
+exact work on nonwinning rows; no reconstruction/CAS kernel is reimplemented.
+
+[E] API reconciliation: production already has target-block/L-transpose lifting
+in `solver/discovery/target_only.rs`, including a factorized field, and a native
+semi-numerical source-weight backend. The new research adapter is not an invention
+of that algebra. The existing private helper uses an integral-order prefix and
+requires independent projected rows; the research path accepts arbitrary measured
+F columns, maps dependent/empty rows, and retains indexed source/guard provenance.
+If it proves useful, consolidation through a shared bounded internal adapter is
+preferred to permanently duplicating orchestration. Earlier factorized pilots
+also include regressions and factorization stalls; the current division profile
+alone does not justify switching the field.
+
+### Cofinal bank probe starts; orthogonal comparison separated — October3, 18:09 UTC
+
+[M] The private combined cofinal/progress build passes32 optimized tests and
+all three default/off/on export-byte controls (`915c3875…`). The independent
+auditor approves the exact single-unbounded-axis theorem and checks the actual
+same-bank request delta. Binary `06bbb66c…` uses the tested lower-cut app library.
+The request adds only the named cofinal policy to the frozen5,796-source input;
+all numeric allowances, chart, source order and root remain unchanged.
+
+[M] Preparation takes6.095s and identifies5,625 additional necessary cancellations
+beyond the inherited823, yielding6,448 forbidden columns. The single augmented
+projection reaches row1,966 at43.135s, with117,904 U nonzeros and37,974 L nonzeros.
+No target or proof is reported yet. These are progress observations, not a
+successful rule or a completed timing. The supervised run retains its128GiB
+ceiling and1500/1620/1800-second cooperative/hard/inclusive schedule.
+
+[E] Root allocates independent native67/supervisor68 cores for the forthcoming
+short augmented/direct-L1,062-source comparison, once its corrected gates pass;
+the cofinal run keeps native65/supervisor66. Both comparison arms use the same
+placement, their own locks and normal memory/drain guards. This avoids serializing
+independent small probes; build and production reservations remain unchanged.
 
 ### Direct-L first gate catches two issues — October3, 18:02 UTC
 
@@ -44,6 +152,10 @@ Python evaluator/profile regressions: all pass in0.100s, with temporary files
 confined to the workspace TMP area.
 
 ### Lower-cut implementation gates complete — October3, 18:01 UTC
+
+[M] This scoped milestone is committed and pushed to main as `7b847b8b`.
+Only the nine owned source/test/documentation files are included; unrelated
+FeynKit work, campaigns and reference material remain untouched.
 
 [M] The encoding-only bridge completes all14 app tests and21 corrected optimized
 research tests. Actual old/new toy bytes both hash `915c3875…`; old/new radial

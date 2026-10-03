@@ -1,8 +1,14 @@
 //! Finite symbolic source projection with conservative failed-descent refinement.
 //! Native Symbolica owns algebra; existing source/chart proof and exporter own
 //! authority. No numerical-weight lift, source-bank growth, chart change or walk.
+#[path = "symbolic_projector/cofinal.rs"]
+mod cofinal;
+#[path = "symbolic_projector/direct_l.rs"]
+mod direct_l;
 #[path = "symbolic_projector/inspect.rs"]
 mod inspect;
+#[path = "symbolic_projector/progress.rs"]
+mod progress;
 #[path = "symbolic_projector/project.rs"]
 mod project;
 #[path = "symbolic_projector/refine.rs"]
@@ -177,6 +183,8 @@ fn validate(r: &Value) -> Result<usize> {
     require(r["schema"] == SCHEMA, "unknown symbolic projection schema")?;
     trace::detail(r)?;
     root_policy::enabled(r)?;
+    cofinal::enabled(r)?;
+    direct_l::enabled(r)?;
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
     let n = mask.len();
     require(
@@ -304,6 +312,11 @@ fn error_json(error: &SourcePortAuditError) -> Value {
 
 fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, Option<Vec<u8>>)> {
     let started = Instant::now();
+    progress::reset();
+    progress::event(
+        "owner_load_start",
+        || json!({"owner_bytes":bytes.len(),"export_requested":export}),
+    );
     let trace_detail = trace::detail(r)?;
     let p = policy(r)?;
     let limits = projection_limits(r)?;
@@ -333,6 +346,10 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
         &family,
         p.source_generation,
     ))?;
+    progress::event(
+        "source_generation_start",
+        || json!({"requested_rows":r["sources"].as_array().map(Vec::len)}),
+    );
     let c = generator.context();
     let prepared = checked(generator.prepare_ordinary_ibp())?;
     let count = prepared.len();
@@ -428,17 +445,42 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
     };
     let derived_root_new_count = derived_root_columns.difference(&forbidden).count();
     forbidden.extend(derived_root_columns.iter().cloned());
+    let cofinal_enabled = cofinal::enabled(r)?;
+    progress::event(
+        "cofinal_start",
+        || json!({"enabled":cofinal_enabled,"image_columns":universe.len(),"f_size":forbidden.len()}),
+    );
+    let (cofinal_columns, cofinal_witnesses) = if cofinal_enabled {
+        require(
+            family.power_shifts().iter().all(|shift| shift.is_zero()),
+            "cofinal nomination refuses shifted powers",
+        )?;
+        cofinal::columns(r, owner.owner_ordering(), &universe)?
+    } else {
+        (BTreeSet::new(), Vec::new())
+    };
+    let cofinal_new_count = cofinal_columns.difference(&forbidden).count();
+    forbidden.extend(cofinal_columns);
+    progress::event("source_ready", || {
+        json!({"source_rows":span.originals.len(),"image_columns":universe.len(),
+        "f_size":forbidden.len(),"derived_root_columns":derived_root_columns.len(),"cofinal_new_columns":cofinal_new_count,"retained_guards":span.guards.len()})
+    });
     let Some(target) = universe
         .iter()
         .find(|s| s.values().iter().all(|&v| v == 0))
         .cloned()
     else {
         return Ok((
-            json!({"schema":SCHEMA,"status":"NO_TARGET_COLUMN_IN_FROZEN_SPAN","request":r,
+            cofinal::annotate(
+                json!({"schema":SCHEMA,"status":"NO_TARGET_COLUMN_IN_FROZEN_SPAN","request":r,
             "finite_bank_rows":span.originals.len(),"frozen_image_columns":universe.len(),"refinements":0,
             "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
             "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
             "source_proof_passed":false,"nonexistence_claim":false,"production_modified":false}),
+                cofinal_enabled,
+                &cofinal_witnesses,
+                cofinal_new_count,
+            ),
             None,
         ));
     };
@@ -447,7 +489,16 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
     let mut candidate = None;
     let mut status = "REFUSED_OR_INCOMPLETE";
     loop {
-        let projection = match project::project(
+        progress::event(
+            "projection_requested",
+            || json!({"attempt":attempts.len(),"refinements":added,"f_size":forbidden.len()}),
+        );
+        let projection_function = if direct_l::enabled(r)? {
+            direct_l::project
+        } else {
+            project::project
+        };
+        let projection = match projection_function(
             c,
             &span.images,
             &target,
@@ -457,6 +508,10 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
         ) {
             Ok(v) => v,
             Err(e) => {
+                progress::event(
+                    "projection_refused",
+                    || json!({"detail":e.to_string(),"f_size":forbidden.len()}),
+                );
                 trace::append(
                     &mut attempts,
                     json!({"status":"SYMBOLIC_PROJECTION_REFUSED","detail":e.to_string(),"refinement_permitted":false}),
@@ -502,8 +557,13 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
             "normalized_full_product":row_json(&proposal.image),"conditions":guards_json(&guards),
             "ordinary_contributions":request.contributions.iter().map(|s|json!({"source_row":s.source_row.stable_string(),"offset":s.offset.values(),"weight":s.weight.raw().to_string(),"display_only":true})).collect::<Vec<_>>(),
             "full_original_product_replayed":true});
+        progress::event("proof_start", || {
+            json!({"source_contributions":request.contributions.len(),
+            "rhs_terms":request.rhs.len(),"retained_guards":request.retained_conditions.len(),"f_size":forbidden.len()})
+        });
         match check_original_source_combination(&family, request.clone(), p) {
             Err(error) => {
+                progress::event("proof_refused", || error_json(&error));
                 attempt["proof_error"] = error_json(&error);
                 let action = refine::refine(
                     &error,
@@ -516,6 +576,10 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
                 match action {
                     Ok(refine::Action::Added(shift)) => {
                         added += 1;
+                        progress::event(
+                            "refinement_added",
+                            || json!({"refinements":added,"f_size":forbidden.len(),"shift":shift.values()}),
+                        );
                         attempt["next_forbidden_shift"] = json!(shift.values());
                         trace::append(&mut attempts, attempt, trace_detail);
                         continue;
@@ -532,11 +596,16 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
                 break;
             }
             Ok(proof) => {
+                progress::event(
+                    "proof_passed",
+                    || json!({"cells":proof.cells().count(),"f_size":forbidden.len()}),
+                );
                 status = "EXACT_ORIGINAL_SOURCE_CHART_PROVED";
                 attempt["status"] = json!(status);
                 attempt["proof_cells"]=json!(proof.cells().enumerate().map(|(i,cell)|json!({"lower":proof.cell_bounds(i).unwrap().0,"upper":proof.cell_bounds(i).unwrap().1,
                     "rhs_terms":cell.rule().right_hand_side().len(),"guards":cell.rule().nonzero_guards().iter().map(|g|g.polynomial().raw().to_string()).collect::<Vec<_>>()})).collect::<Vec<_>>());
                 if export {
+                    progress::event("export_start", || json!({"base_bytes":bytes.len()}));
                     let before =
                         checked(inspect_generated_candidate_bundle(bytes, ingress.bundle))?;
                     match encode_checked_priority_owner_with_policy::<N>(
@@ -547,10 +616,18 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
                         RuleDispatchPolicy::AfterBaselinePartitionWholePiece,
                     ) {
                         Err(error) => {
+                            progress::event(
+                                "export_refused",
+                                || json!({"detail":error.to_string()}),
+                            );
                             status = "EXACT_CHART_PROVED_EXPORT_REFUSED";
                             attempt["export_error"] = json!(error.to_string());
                         }
                         Ok(owner) => {
+                            progress::event(
+                                "export_encoded",
+                                || json!({"candidate_bytes":owner.bytes().len()}),
+                            );
                             let after = checked(inspect_generated_candidate_bundle(
                                 owner.bytes(),
                                 ingress.bundle,
@@ -580,14 +657,23 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
             }
         }
     }
+    progress::event(
+        "run_finished",
+        || json!({"status":status,"attempts":attempts.len(),"refinements":added}),
+    );
     Ok((
-        json!({"schema":SCHEMA,"status":status,"request":r,"ordinary_sources_generated":count,
+        cofinal::annotate(
+            json!({"schema":SCHEMA,"status":status,"request":r,"ordinary_sources_generated":count,
         "finite_bank_rows":span.originals.len(),"nonzero_symbolic_images":span.images.iter().filter(|x|!x.is_empty()).count(),"frozen_image_columns":universe.len(),
         "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
         "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
         "guard_tautology_policy":"native nonzero constants omitted after context/zero checks; all nonconstant assumptions retained",
         "refinements":added,"attempts":attempts,"seconds":started.elapsed().as_secs_f64(),"production_modified":false,"recursive_walk":false,
         "point_weight_lift":false,"coverage_or_cost_claim":false,"finite_span_miss_is_not_nonexistence":true}),
+            cofinal_enabled,
+            &cofinal_witnesses,
+            cofinal_new_count,
+        ),
         candidate,
     ))
 }
@@ -657,6 +743,7 @@ fn main_result() -> Result<()> {
         dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?
     };
     let text = checked(serde_json::to_string_pretty(&report))?;
+    progress::event("report_serialized", || json!({"bytes":text.len()}));
     require(
         text.len() <= limit(&r, "max_report_bytes")?,
         "report byte allowance exceeded",
@@ -667,6 +754,10 @@ fn main_result() -> Result<()> {
         fresh(&dest.join("request.json"), &request_bytes)?;
         fresh(&dest.join("candidate.rrbin"), &bytes)?;
         fresh(&dest.join("proof-export.json"), text.as_bytes())?;
+        progress::event(
+            "artifact_written",
+            || json!({"candidate_bytes":bytes.len()}),
+        );
     }
     println!("{text}");
     Ok(())

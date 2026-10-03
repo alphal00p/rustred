@@ -18,8 +18,8 @@ use symbolica::{
 
 pub type Row = BTreeMap<IndexShift, IndexedCoefficient>;
 pub type Weights = BTreeMap<usize, IndexedCoefficient>;
-type Field = RationalPolynomialField<IntegerRing, u16>;
-type Matrix = SparseMatrix<Field>;
+pub(super) type Field = RationalPolynomialField<IntegerRing, u16>;
+pub(super) type Matrix = SparseMatrix<Field>;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -58,10 +58,10 @@ pub fn bound(n: usize, max: usize, resource: &'static str) -> Result<()> {
         Err(Error::Budget(resource))
     }
 }
-fn add(a: usize, b: usize) -> Result<usize> {
+pub(super) fn add(a: usize, b: usize) -> Result<usize> {
     a.checked_add(b).ok_or(Error::Budget("count overflow"))
 }
-fn native<T>(f: impl FnOnce() -> T) -> Result<T> {
+pub(super) fn native<T>(f: impl FnOnce() -> T) -> Result<T> {
     catch_unwind(AssertUnwindSafe(f)).map_err(|_| Error::NativePanic)
 }
 
@@ -140,7 +140,11 @@ pub fn add_term(
     }
     bound(row.len(), limits.columns, "full image columns")
 }
-fn matrix_bound(c: &IndexedCoefficientContext, m: &Matrix, limits: Limits) -> Result<()> {
+pub(super) fn matrix_bound(
+    c: &IndexedCoefficientContext,
+    m: &Matrix,
+    limits: Limits,
+) -> Result<()> {
     bound(m.nvalues(), limits.nonzeros, "native matrix nonzeros")?;
     let mut terms = 0;
     for value in m.values() {
@@ -160,7 +164,7 @@ fn matrix_bound(c: &IndexedCoefficientContext, m: &Matrix, limits: Limits) -> Re
     }
     Ok(())
 }
-fn admit_values(
+pub(super) fn admit_values(
     c: &IndexedCoefficientContext,
     values: &[rustred::algebra::Coefficient],
     retained_terms: &mut usize,
@@ -346,6 +350,7 @@ pub fn project(
     bound(universe.len(), limits.columns, "image shift columns")?;
     let width = add(add(forbidden.len(), 1)?, rows.len())?;
     bound(width, limits.columns, "augmented projection columns")?;
+    super::progress::projection_start(rows.len(), forbidden.len(), width);
     let physical = forbidden.len() + 1;
     let mut guards = Vec::new();
     for g in input_guards {
@@ -415,6 +420,12 @@ pub fn project(
             limits.nonzeros,
             "native U/L nonzeros",
         )?;
+        super::progress::rows(
+            ordinal + 1,
+            forbidden.len(),
+            reducer.u().nvalues(),
+            reducer.l().nvalues(),
+        );
         // add_row (not add_row_with_back_subs) appends to U and L without
         // changing earlier rows. Authenticate only the two new rows once;
         // total retained terms/nonzeros stay cumulatively resource-bound.
@@ -478,6 +489,10 @@ pub fn project(
                 && forbidden.iter().all(|s| !image.contains_key(s)),
             "full symbolic target/F replay failed",
         )?;
+        super::progress::event("projection_target", || {
+            serde_json::json!({"rows_visited":ordinal+1,
+            "f_size":forbidden.len(),"weight_terms":weights.len(),"full_image_terms":image.len()})
+        });
         return Ok(Projection::Target(Proposal {
             weights,
             image,
@@ -485,6 +500,10 @@ pub fn project(
             prefix_rows: ordinal + 1,
         }));
     }
+    super::progress::event(
+        "projection_miss",
+        || serde_json::json!({"rows_visited":rows.len(),"f_size":forbidden.len()}),
+    );
     Ok(Projection::NoTarget {
         guards,
         rows: rows.len(),

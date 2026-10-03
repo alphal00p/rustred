@@ -2992,9 +2992,25 @@ output and checked bytes, but cannot promise zero timing overhead.
 Source inspection confirms a possible separate algebra-cost issue: the
 research projector eliminates `[F,target,I]`, retaining both expanded identity
 tails and native L. Spired's modular stream uses direct L-pattern dependencies
-and a zero sentinel, but the existing exact frame/rooted lift and parametric
-reducers still augment identity. There is no already-public exact no-identity
-projector to invoke unchanged.
+and a zero sentinel. The exact foundry frame/rooted lift examined here still
+augments identity, but this must not be generalized to every exact backend:
+`solver/discovery/target_only.rs` already implements a physical harder/target
+block, a native transposed-L weight solve and one full-frame reconstruction,
+including a factorized-field variant. Its helpers are private, so there is no
+already-public arbitrary-F projector to invoke unchanged.
+
+That existing target-only backend derives its forbidden block from the
+`IntegralOrder` prefix and requires every projected prefix row to be independent;
+an empty/dependent row is an explicit `TargetOnlyDependentPrefix` refusal.
+It transports raw frame coefficients through `FrameVariables` and returns an
+`ExactRow`, not an original-generator certificate. The research direct-L adapter
+instead maps accepted input/L rows across dependent or empty inputs, accepts an
+explicit F, retains sealed indexed source/prefix guard origins, and returns
+weights for full ordinary-source replay. The existing helper uses native
+triangular normalization/back substitution; the prototype uses native
+`SparseMatrix::solve`. If the prototype proves useful, a shared bounded internal
+adapter should reuse these existing mechanisms rather than preserving duplicate
+permanent orchestration. No replacement is implemented in this audit.
 
 The public native sparse API is sufficient for a bounded alternative without
 new elimination code. Reduce only `[F,target]` with full L, recording the
@@ -3050,3 +3066,120 @@ evidence of repeated projection/proof cycles, not an initial elimination
 stall or a completed bank outcome. Batch nomination of cofinally higher
 columns is therefore the directly motivated prospective optimization; the
 separate no-identity backend remains a scaling hypothesis to test.
+
+### Cofinal preclassification: private gates
+
+The optional classifier is restricted to the loaded plain unshifted Spired
+order and a coordinate chart with exactly one unbounded free index and every
+other index fixed. It computes the exact threshold after which all shifted
+powers have stable signs, then uses native support comparison or the native
+same-support shift key. This is not a finite-point comparison: on that tail
+the key difference is independent of the free index. A nonzero rational
+coefficient cannot vanish at every integer on the infinite tail, so a higher
+column must cancel identically in a uniform literal-source rule. Certified
+zero-sector quotients are not assumed. Extra chart constraints, other orders,
+shifted powers, arithmetic overflow and witness-resource excess refuse.
+
+The combined private cofinal/progress snapshot passes all 32 optimized tests
+in `projector-cofinal-progress-build-v1`; its independently rehashed binary is
+`06bbb66c…`. This includes the actual 474-shift fixture, finite-corner versus
+cofinal counterexample, active/inactive and support-change cases, resource
+limits, and a native tadpole proof with identical full product but fewer
+refinements. The cofinal helper is unchanged from source audit, and the
+project/progress modules are byte-identical to the tested progress snapshot.
+Default/off/on checked exports in `cofinal-controls-v1` all have exact bytes
+`915c3875…`; all build, test and control groups drain successfully.
+
+The ensuing authorized request `158d922d…` differs from the frozen 5,796-row
+request only by `forbid_cofinally_higher_columns=true`. Plan `945ce177…` binds
+the actual gates, native65/guard66, 128 GiB, 150-GB reserve and the unchanged
+1500/1620/1800-second schedule. This is not an isolated performance comparison:
+the app and diagnostic configuration also
+differ from the original censored execution.
+The parent additionally attaches a bounded performance sampler to this owned
+native process; the running probe is therefore explicitly instrumented, not
+a pristine wall-time comparison. The subsequent main-source merge differs
+from its immutable compiled private snapshot only by inspected rustfmt changes
+in `project.rs` and `progress.rs`; the proof/classifier code is unchanged.
+
+The augmented cofinal run then stops cooperatively with exit `-2` and fully
+drained owned groups, without hard stop or failure. Outer elapsed is 1,505.557
+seconds, guard inclusive elapsed 1,500.968 seconds, waited child CPU 1,484.055
+seconds and sampled RSS 3.862 GB. The trace records one projection with F6448,
+no target/proof event, and a last row heartbeat at 2,604 rows, 1,233.310 seconds
+(U273,948/L86,676 entries). That heartbeat is a lower bound, not the exact final
+row count. Final stdout is empty and no artifact exists. This is a censored
+exact elimination, not an all-bank miss or mathematical rule refusal.
+
+### Domain-proved guards versus runtime persistence
+
+`PreparedOriginalDomain::verify_cell` checks every retained guard on the exact
+cell before full replay and descent. The original-source producer supplies no
+extra affine restriction or exclusions, and the lower-cut bridge now transports
+its requested coordinate box exactly. Consequently, for a guard depending only
+on integral indices after exact cell specialization, the sealed nonzero proof
+already discharges its obligation on the transported integer domain. Requiring
+primitive association with a surviving RHS denominator is conservative for
+this narrow class; the existing `n-1`/`n-2` factor-guard refusal can therefore
+be a publication limitation rather than a missing mathematical condition.
+
+This does not justify dropping every guard. The native domain checker splits
+a polynomial by base-parameter coefficients and proves nonzeroness over the
+generic base field: for example, `d-n` has nonzero coefficient one, but can
+vanish under a particular base specialization. Current publication deliberately
+distinguishes source/caller/family assumptions from exclusively source-weight
+field units. A possible later narrow discharge would require native zero
+degree in every base variable, preserve the checked proof and guard records,
+and keep all mixed/base assumptions and actual RHS denominator checks. Tests
+must retain rejection of an in-domain integer root and of unrepresented mixed
+or source-parameter poles. No such guard-policy change is implemented here.
+
+### Direct-L fixture corrections
+
+The first private direct-L gate has 28 passes and two preserved setup failures.
+The synthetic 1,062-row fixture exceeds its toy nonzero ceiling in the default
+augmented backend; the other failure demands successful export from a default
+two-source tadpole whose retained prefix guard already causes a legitimate
+export refusal. Neither failure demonstrates a direct-L algebra discrepancy.
+The revised tests keep exact two-source attempt/status/guard equivalence and
+add successful byte equality on the established backward-only source fixture.
+Only the synthetic fixture receives 2-M nonzero/4-M coefficient-term ceilings;
+runtime ceilings and resource-negative tests are unchanged.
+
+The revised gate subsequently passes all 30 tests with no ignored tests in
+`projector-direct-l-build-v2`. Test binary `ccd03bbd…`, unchanged normal binary
+`32e2eeee…` and all emitted fixture pins were independently rehashed; every
+runtime source file is byte-identical between v1 and v2. The native tests take
+1.00 second, 3.043 seconds including the owned wrapper, and all groups drain.
+The 1,062-row fixture is synthetic, not an owner66 performance measurement.
+
+The separate actual old/default/direct CLI controls then all return checked
+exports with exact bytes `915c3875…` in `projector-direct-l-controls-v3`.
+All three exit zero without stops and drain. Their actual allocation is
+native67/guard68; one inherited prose field in the immutable plan still names
+65/66, but commands, resource fields and executed bindings record 67/68.
+
+The real fixed owner66 1,062-row/F823 comparison also completes. Both native
+reports have 2,709 columns, 1,062 visited rows, 47 retained conditions, one
+attempt, zero refinements and `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`.
+Their complete JSON is identical after removing only `seconds` and the request
+backend selector. Both executions drain cleanly. Native totals are
+5.371/5.130 seconds, outer elapsed 9.844/12.393 seconds and sampled RSS about
+3.415 GB; these timings do not establish a robust speedup. This actual-owner
+negative exercises physical elimination, not target-weight recovery; the
+recovery path's positive controls remain the synthetic and tadpole tests.
+
+The combined private cofinal/direct-L snapshot subsequently passes all 39
+tests in `projector-direct-l-cofinal-build-v1`; normal binary `8a0fcac4…` is
+independently rehashed. In `direct-l-cofinal-controls-v1`, three actual checked
+exports remain byte-identical `915c3875…`. The additional joint-mode positive
+control sets cofinal nomination true on the two-source tadpole: both backends
+reach target prefix two, replay the full original product and prove the chart.
+Their complete proof reports match after removing only elapsed seconds and
+the backend selector. All groups drain without failures or stops.
+
+The separately authorized large direct-L request changes only the backend
+selector relative to the frozen cofinal 5,796-row request, on native67/guard68
+with 128 GiB, 150-GB reserve and 1500/1620/1800-second deadlines. It does not
+change the augmented execution on 65/66, which subsequently censors as recorded
+above. The large direct-L result remains pending here.

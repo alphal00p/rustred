@@ -444,7 +444,7 @@ but the subsequent finite search still exhausts its span after474 additional
 descent exclusions (141.132s native), without an export. Independent audit
 confirms these exclusions are necessary on this whole ray under the current
 literal ordinary-identity contract. No improvement is claimed from the shorter
-intermediate expression. The5,796-row follow-up is active; it has no result yet.
+intermediate expression. The5,796-row follow-ups are described below.
 
 The merged research tooling passes21 optimized tests, seven prior app semantic
 tests, and an actual cross-binary byte-identical checked toy export. The merged
@@ -452,3 +452,28 @@ standalone binary is `7e92d3389d62b2264f5abea39030533b6d47756be59b1808b54593e8fb
 Evidence is in `TMP/rule-optimizer-20261003/candidates/projector-combined-build-v1/`
 and `projector-combined-control-v1/`. These are tool correctness gates, not
 five-loop performance wins or a production-switch recommendation.
+
+## Optional cofinal planning and delayed exact weights
+
+The subsequent combined research build passes39 optimized tests. The optional
+cofinal planner derives necessary cancellations over a single infinite ray;
+the optional direct-L projector uses Symbolica reduction on physical columns
+and one native solve for source weights after a hit. Defaults are unchanged.
+Positive full-proof equivalence and actual checked-byte controls pass, with
+independent mathematical and implementation audits. These are research search
+improvements, not changes to the live production rules or executable.
+
+On the actual5,796-source bank, cofinal planning nominates6,448 forbidden
+columns. The augmented backend is cooperatively censored at1,505.557s outer,
+1,484.055s child CPU and3.862GB sampled peak RSS. It produces no target, proof
+or artifact. Its last heartbeat is2,604 visited rows at1,233.310s; that is not
+an exact final row count. A15s instrumented window attributes40.91% of self
+samples to Symbolica polynomial heap division, with GCD/rational-addition
+callers. This does not attribute the whole run or constitute an uninstrumented
+paired timing. The direct-L alternative is still running at this update.
+
+A smaller actual1,062-source/F823 comparison finishes in both backends with
+identical reports after removing only timing and backend choice: no target,
+2,709 columns,47 conditions. Projection intervals0.455/0.199s do not establish
+full-process improvement: native totals5.371/5.130s and outer9.844/12.393s are
+close/noisy and ordered. No campaign-level benefit is claimed.
