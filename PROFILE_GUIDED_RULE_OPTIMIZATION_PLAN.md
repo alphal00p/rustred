@@ -34,11 +34,13 @@ reachable obligations are discharged and its reusable output cold-loads.
   Separate agents own campaign profiling, candidate generation/integration and
   independent mathematical/code/measurement criticism. Rotate focused research
   and implementation tasks without letting authors approve their own changes.
-- Both production campaigns are read-only inputs. Only the user stops, starts,
+- Production campaigns are read-only inputs. The user stopped `codex_ultra`
+  on October3; the new37 campaign remains live. Only the user stops, starts,
   resumes or replaces them. Preserve every original checkpoint and frozen input.
   Changed rule pools normally require a fresh traversal; do not silently rebind
   an old checkpoint or allow compatibility work to consume this program.
-- Production currently reserves CPUs 64–95 and 96–127. Recheck live process
+- Live production currently reserves CPUs 96–127; the stopped campaign used
+  64–95. Recheck live process
   affinities and other users before measurements. Use existing build/heavy-job
   locks; allocate separate development CPUs and explicit process-tree memory
   guards with host headroom. Do not alter host settings or escalate commands.

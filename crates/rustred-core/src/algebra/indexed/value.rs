@@ -8,10 +8,12 @@ use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 /// A canonical coefficient known to belong to one exact `K(n)` variable map.
 ///
-/// All public constructors normalize numerator and denominator to coprime
-/// factors. This invariant lets integral index translations avoid a second
-/// polynomial GCD: `n -> n + a` is a polynomial-ring automorphism and thus
-/// preserves coprimality.
+/// Public constructors normalize numerator and denominator to coprime factors,
+/// except checked native-result admission, which requires an already canonical
+/// native rational function. That ingress authenticates context membership but
+/// does not establish coprimality. The canonical invariant lets integral index
+/// translations avoid a second polynomial GCD: `n -> n + a` is a polynomial-ring
+/// automorphism and thus preserves coprimality.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedCoefficient {
     pub(super) raw: Coefficient,

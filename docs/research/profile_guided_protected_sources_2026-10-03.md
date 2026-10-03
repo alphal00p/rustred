@@ -9,8 +9,9 @@ reasoning. Subsequent native outcomes are recorded in the
 [independent audit](profile_guided_rule_optimizer_audit_2026-10-03.md): the
 secondary75 projection gives a bounded negative, while the optional gradient
 toy and broader radial charts pass their separate native proofs. Those results
-do not convert untested proposals below into performance claims. The final
-finite multi-loop kernel section remains a new prospective mechanism.
+do not convert untested proposals below into performance claims. The finite
+multi-loop kernel section preserves its proposal-time scope; completed finite
+diagnostics are summarized in the final section.
 
 ## Selective protection, not a blanket ban on raised powers
 
@@ -215,9 +216,9 @@ Compact discovery inputs, the frozen H policy and the original research note
 are under ignored `TMP/rule-optimizer-20261003/profiles/`; this tracked document
 contains no campaign record payloads.
 
-## Future bounded multi-loop logarithmic kernel
+## Original bounded multi-loop logarithmic-kernel proposal
 
-This is a proposal, not an implemented source service or successful pilot.
+The following is the original proposal, not a claim of a successful rule.
 The newly sampled owner011101110111000 has nine active denominator axes;
 its native loop0 incidence has three dependent active axes. Other-loop
 incidence must be authenticated before calling the whole sector trivalent.
@@ -271,3 +272,87 @@ automatic escalation. The prior one-loop affine negative does not rule out
 joint multi-loop degree1 weights, but it remains negative evidence against
 blind ansatz repetition. Completed shared downstream cohorts, not kernel size
 or local tail length, would eventually decide whether an admitted rule helps.
+
+## Completed owner66 finite diagnostics
+
+These experiments retain owner `011101110111000`, its saved Spired order and
+the frozen physical point `[0,3,1,1,0,1,1,1,0,2,1,1,0,0,0]` (A12/R0).
+The separate full-pool baseline from that one root completed 385,948 domains,
+314,840 native inspections and about 5.34 million events; walk time was 27.783s,
+full arm 221.051s, with cold verification passing. This establishes downstream
+work for the root, not the cost or ancestry of any particular RHS child.
+
+Native point dispatch selected incumbent batch0/rule698. Its complete guarded
+report retained 1,668 unique nonzero tails: 47 same-support and 1,621 strict
+subsector tails. Four same-support A12/R0 transfers were
+`-eD10+eD4`, `-eD10+eD6`, `-eD10+eD7`, `-eD10+eD8`, in child-minus-source
+convention. They nominated H4 structurally; none has separately measured
+downstream cost. The actual saved rule has 14 fixed coordinates and only D2
+free. Its stored exclusion IDs were not imported as new proof authority.
+
+The kernel implementation uses native derivative contractions, Symbolica
+polynomials and its sparse reducer; it does not implement a polynomial CAS or
+Gaussian elimination. All original-source products, pre-cancellation guards
+and point non-lower columns are retained. Each row is checked against the full
+constraint matrix and full original source product.
+
+| Frozen finite experiment | Constraint matrix/rank | Full parametric images | Point outcome |
+| --- | --- | --- | --- |
+| All nine active axes, degree0, recenter0 | 25 by135 /25 | No kernel | No target |
+| All nine active axes, degree1, recenter0 | 400 by1,080 /390 | All10 kernel images exactly zero | No target |
+| D4/D6/D7/D8 protected, degree1, recenter−eD10 | 400 by480 /260 | All140 images nonzero | Rank130; no target with271 non-lower columns |
+
+The selective matrix had 2,025 nonzeros. None of its 140 images vanished
+entirely at the point, and all four H4 shifts were absent. Suppressing those
+transfers therefore did not suffice for a target pivot in this fixed span.
+Generic image rank over K(n) was explicitly not computed; 140 is a count, not
+an independent-image rank. No target candidate existed for candidate replay
+or export. The old all-active zero-image result remains unchanged.
+
+The union of all participating original RowId/offset pairs in those nonzero
+images has 312 entries. It is retained only as a pending raw superspan
+nomination, not an automatically authorized larger-bank experiment. Arbitrary
+weights on its rows would not inherit logarithmic protection or kernel-weight
+guards. Any later solve must regenerate original sources and conditions and
+independently prove its F/H obligations and full chart. No displayed coefficient
+strings or point weights were lifted into symbolic algebra.
+
+The independently frozen broad-R0 two-protected control differentiated k2,
+protected D2/D11, used contraction directions k2/k5/k4 and recenter−eD10.
+Its chart fixed every inactive exponent to zero, left active powers positive
+and free, and required D10>=2. Native proof refused term28 with shift
+`-2eD5-eD10` on its reported subcell, which includes D2=1 and D10=2.
+This creates rank2 while lowering active-power sum by1, increasing A+R by1.
+The generated D5 numerator survives despite the original D5 exponent being
+zero: fixing an index is not setting a denominator polynomial to zero.
+The actual refusal is the authority; no stronger claim about every chart cell
+or a different source combination follows. The case-specific variant was not
+run, the broad chart was not shrunk, and no artifact was exported.
+
+The minimal generic subset/ingress revision passed eight kernel tests and
+22 prescribed-source tests. Re-exporting the unchanged radial control with
+absent versus explicit-native-default ingress limits produced bytes identical
+to the earlier candidate. New library builds were reused, not duplicated.
+The selective probe and broad-R0 control each completed in under12s inclusive
+with about3.43GB peak RSS, pinned to CPU64 with32GiB process limit and150GB
+host reserve. These local timings, potentially overlapping other diagnostic
+work, are not rule-efficacy or shared-cohort speedup claims.
+
+Evidence under ignored `TMP/rule-optimizer-20261003/`:
+
+- `profiles/owner66-incumbent-tail-summary.json` and
+  `profiles/owner66-rule698-same-support47.json`: complete native-tail extraction.
+- `candidates/owner66-R0-point-baseline-v1/`: completed shared-pool root baseline.
+- `candidates/logarithmic-owner66-finite-summary-v1.json`: all-active negatives.
+- `candidates/source-ingress-subset-build-v1/`: real build/test receipts, both
+  radial byte controls and full selective diagnostic report.
+- `candidates/selective-H4-finite-summary-v1.json` and
+  `candidates/selective-H4-raw-support-union-v1.json`: compact native-result
+  summary and pending source nomination, with full input/output identities.
+- `candidates/two-protected-owner66-broad-R0-proof-v1/`: frozen command, owned
+  resource receipt and exact native non-descent refusal.
+
+These are complete finite negatives, not irreducibility, no-rule, closure or
+higher-degree results. The separately controlled raw75 symbolic-projector
+trials and any restricted D2 chart are distinct experiments; their source bank
+is not enlarged by the 312-row nomination.

@@ -414,6 +414,54 @@ fn native_result_ingress_authenticates_once_before_sealing() {
 }
 
 #[test]
+fn native_result_ingress_retains_index_poles_and_refuses_foreign_maps_and_limits() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "native-public", 1).unwrap();
+    // A raw native result has no semantic scope seal. Use a genuinely
+    // different variable map, not merely another scope over the same field.
+    let foreign = IndexedCoefficientContext::try_new(&base, "foreign-native", 2).unwrap();
+    let quotient = context
+        .div(&context.one(), &context.index(0).unwrap())
+        .unwrap();
+    let admitted = context
+        .admit_native_result_with_limits(quotient.raw().clone(), ExactAlgebraLimits::default())
+        .unwrap();
+    assert_eq!(admitted, quotient);
+    assert!(
+        !context
+            .denominator_condition_with_limits(&admitted, ExactAlgebraLimits::default(),)
+            .unwrap()
+            .is_nonzero_constant()
+    );
+    assert!(
+        context
+            .admit_native_result_with_limits(
+                foreign.index(0).unwrap().raw().clone(),
+                ExactAlgebraLimits::default(),
+            )
+            .is_err()
+    );
+    assert!(
+        context
+            .admit_native_result_with_limits(
+                admitted.raw().clone(),
+                ExactAlgebraLimits {
+                    max_polynomial_terms: 0,
+                    ..Default::default()
+                },
+            )
+            .is_err()
+    );
+    let mut undefined = admitted.raw().clone();
+    undefined.denominator = context.zero().raw().numerator.clone();
+    assert!(
+        context
+            .admit_native_result_with_limits(undefined, Default::default())
+            .is_err()
+    );
+}
+
+#[test]
 fn primitive_guard_serialization_rejects_large_integers_before_formatting() {
     let base = CoefficientContext::new(["x"]);
     let context = IndexedCoefficientContext::try_new(&base, "guard-byte-preflight", 1).unwrap();

@@ -244,7 +244,13 @@ fn exact_but_raising_ordinary_identity_fails_descent() {
         IndexShift::try_new([1], 1).unwrap(),
         c.div(&twice_n, &pivot).unwrap(),
     )];
-    let message = failure(&f, request);
+    let error = check_original_source_combination(&f, request, Default::default()).unwrap_err();
+    assert!(
+        matches!(&error, SourcePortAuditError::UnprovedDescentObligation {
+        term_ordinal: 0, shift, local_lower, local_upper, child_sector,
+    } if shift == &[1] && local_lower == &[1] && local_upper == &[None] && child_sector == &[true])
+    );
+    let message = error.to_string();
     assert!(
         message.contains("not uniformly lower on local box [1]..[None]")
             && message.contains("shift=[1], child_sector=[true]"),

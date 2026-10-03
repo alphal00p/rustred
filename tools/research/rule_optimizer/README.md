@@ -233,6 +233,18 @@ inactive `-n`. Nonfixed axes have lower 0 or 1 and no upper bound, matching the
 existing priority bridge. This format cannot encode correlated A/R/D predicates;
 a broader coordinate chart needs its own fresh exact proof.
 
+An optional `owner_load_limits` object supplies the seven native ingress limits
+(`max_bundle_bytes`, `max_total_input_bytes`, `max_total_coefficient_bytes`,
+`max_collection_entries`, `max_total_symbolica_state_bytes`,
+`max_zero_sector_visits`, `max_coefficient_bytes`). Omission preserves native
+defaults. Explicit values must be positive; the native 1 GiB bundle hard cap
+still applies. The same bundle policy reaches loading, pre/post-export
+inspection and priority encoding. This changes transport allowances, not proof
+or exact-algebra limits. The subset/ingress revision passed 22 native producer
+tests; both absent and explicit-default ingress reproduced the previous radial
+candidate bytes exactly. Evidence: ignored `candidates/source-ingress-subset-build-v1/`
+under `TMP/rule-optimizer-20261003/`.
+
 Export rechecks the source proof through the existing checked-priority encoder,
 including runtime guard representability and native codec roundtrip. It retains
 the old rule suffix, terminals and coefficient identities and marks the new
@@ -444,9 +456,13 @@ not replace or narrow the original full-sign request.
 the `rule_optimizer_logarithmic_kernel` Cargo example. Its CLI is
 `validate REQUEST` or `probe OWNER REQUEST`; neither publishes a rule, installs
 an owner, or performs a recursive walk. Requests bind the native family and
-saved order, physical target, all active protected axes, recenter, degree and
+saved order, physical target, protected axes, recenter, degree and
 finite resource limits. Degree 0/1 is an explicit experiment policy, not a
 family or loop-count branch. No automatic degree or target escalation occurs.
+Protected axes must be a sorted, unique, nonempty subset of the owner's actual
+active axes. The report distinguishes that subset from complete active-axis
+protection. `kernel_vector_subset_selection: false` means all resulting kernel
+vectors are retained; it does not mean every active denominator was protected.
 The seven public owner-ingress limits are explicit request fields, separate
 from the finite source/matrix limits; exact-algebra defaults and the native
 1 GiB per-bundle hard ceiling remain in force. Loading an owner reconstructs
@@ -510,3 +526,162 @@ Compact evidence and full raw reports are in ignored
 `candidates/logarithmic-owner66-finite-summary-v1.json` and
 `candidates/logarithmic-kernel-build-v4/probe-degree{0,1}/` beneath the same TMP
 campaign. Both processes exited successfully and drained their owned groups.
+
+A separately preregistered degree-1 experiment protected only zero-based axes
+`[3,5,6,7]` (D4/D6/D7/D8), with recenter `-e9` (D10), at the same owner66 point
+and saved order. These destinations came from four observed incumbent dot
+transfers, not measured per-child costs. The subset validator passed all eight
+kernel tests before this probe. Its 400-by-480 matrix had 2,025 nonzeros, rank
+260 and kernel dimension 140. All 140 complete parametric images were nonzero;
+none vanished entirely at the point. Despite point image rank 130, there was
+no target pivot with all 271 non-lower columns retained. Full constraint,
+parametric source and point-specialization replays passed. Generic `K(n)` image
+rank was not computed. No candidate existed to replay or export.
+
+All four nominated transfers were absent from those images, so suppressing
+them alone did not produce a useful fixed-point relation. The exact nonzero
+images use 312 distinct original RowId/offset pairs. Their raw union is only a
+pending superspan nomination: arbitrary weights on those sources would not
+inherit logarithmic protection or kernel-weight guards. No larger-bank run was
+authorized by extracting it. Compact evidence is in
+`candidates/selective-H4-finite-summary-v1.json` and
+`candidates/selective-H4-raw-support-union-v1.json`; the full native receipt is
+`candidates/source-ingress-subset-build-v1/selective-H4/`. The older all-active
+zero-image negative remains unchanged. These are finite source diagnostics,
+not chart, closure, irreducibility or performance claims.
+
+## Finite symbolic source projector
+
+`symbolic_projector.rs` and its private `symbolic_projector/` modules implement
+the `rule_optimizer_symbolic_projector` Cargo example. Build it with
+`cargo build --release -p rustred-app --example rule_optimizer_symbolic_projector`;
+run its focused fixtures with the corresponding `cargo test --release` command.
+The CLI is `validate REQUEST`, `inspect OWNER REQUEST`, `prove OWNER REQUEST`,
+or `export OWNER REQUEST FRESH_DIRECTORY`. It never runs a recursive walk or
+changes an installed owner. Exported candidates must still be tested with the
+same frozen campaign executable and shared owner pool as their baseline.
+
+Projection requests use `rustred.symbolic-source-projector.v1`, binding the
+family, owner, persisted order, coordinate chart, ordered finite bank of native
+RowIds/translations, explicit forbidden shifts, refinement count, ingress limits
+and algebra/report limits. `max_complete_source_rows` also sets the native proof
+source-row cap; it is not solely an ordinary-generator inventory allowance.
+The JSON interface currently accepts ordinary source rows; native weighted
+source spans are also supported in-process and tested.
+There is no coefficient-display parser or numerical-weight lift. An optional
+read-only `rustred.symbolic-source-inspection.v1` request selects one saved rule
+through the existing public inspector, returning its actual coordinate/affine
+case and a bounded RHS-shape summary, not source or dispatch authority.
+
+Symbolica reduces the augmented `[forbidden | target | identity]` matrix over
+the native indexed field. Its identity tail is multiplied by the complete source
+image, then composed back to named original source rows and replayed again.
+Input, source, weight, fixed-specialization, pivot and pre-cancellation conditions
+are retained. The public native-result ingress checks map/layout/resources; it
+does not prove an IBP identity, nonzero pivot, or source lineage. Only the existing
+original-source checker can certify the entire unchanged chart and saved order;
+the existing checked-priority exporter independently repeats that proof and
+retains the original rules and terminal inventory.
+
+Only a typed `UnprovedDescentObligation` can add its complete offending shift to
+the forbidden set. The witness records term ordinal, shift, local cell and child
+support; it is not automatically a mathematical counterexample because the
+native descent prover may be conservative. Every attempt is reported. The bank,
+chart and order remain fixed, and each added shift is new and belongs to the
+finite image universe. This bounds refinement but guarantees neither discovery
+nor export. Missing targets, exhausted limits, zero guards, unsupported poles,
+nonlinear/affine proof refusals and other errors do not trigger a new bank or a
+narrower chart. Each new attempt rebuilds its own conservative pivot conditions;
+rejected-attempt conditions remain in the trace rather than contaminating a
+different final circuit.
+
+Optional `trace_detail` is `full` (the unchanged default) or `summary`. Summary
+removes only earlier candidates' rendered products, conditions and source-weight
+lists. It retains every attempt, forbidden set, prefix, typed failure/cell,
+new shift and replay flag, plus payload counts and the exact displayed full
+product coefficient of each failed shift. The last actual candidate remains
+complete even when followed by a terminal no-target or resource record; that
+terminal record is also retained. A missing failed-shift product entry refuses
+compaction rather than dropping its evidence. This is display-only: all native
+products, guard retention, proof checks and exported bytes are unchanged. It is
+intended to bound repeated diagnostic payloads, not expand mathematical budgets.
+The compact-trace standalone build passed all 15 optimized example tests,
+including full/default trace identity, actual native refinement equivalence,
+byte-identical checked export and preservation of the last full candidate before
+terminal no-target/resource records. Receipts are in ignored
+`candidates/projector-summary-build-v1/` beneath the TMP root below.
+
+The first supervised optimized build passed all 11 example tests. They include
+genuine index-dependent forbidden cancellation, complete original-source replay,
+a raising tadpole relation refined to a backward chart proof, successful direct
+backward export with outside-chart fallback, and cancellation of an actual lower
+tadpole child. The latter's chart `n >= 3` proves exactly but is explicitly
+refused by the current priority exporter, which cannot encode that free-axis
+lower bound. Conservative extra pivot guards can likewise prevent export even
+when a chart proof passes; no guard pruning or chart widening is implied.
+Build/test receipts, including the two corrected test-only failures, are in
+ignored `TMP/rule-optimizer-20261003/candidates/symbolic-projector-build-v{1,2,3}/`.
+The follow-up optimized core test target also passed 30 focused tests: all 18
+indexed-context tests, all 11 original-source producer tests, and typed-error
+context propagation. That includes the new native-ingress and failed-descent
+fixtures. Its guarded compile took 1,009 seconds; the tests took 0.03 seconds
+natively. Receipts are in `candidates/symbolic-projector-build-core-v1/` beneath
+the same ignored TMP root. The prepared unoptimized fallback was not needed.
+The canonical-native-result documentation clarification is a doc-only source
+delta from the already frozen research producer binary, not an engine change.
+Retained matrix/output bounds do not account for every native reducer scratch
+allocation or intermediate operation, so owned time/RSS supervision remains
+mandatory for all nontrivial probes. Native-result admission requires canonical
+Symbolica output; it does not normalize arbitrary raw rational functions or
+recover semantic scope provenance from a shared native variable map.
+
+The first owner66 trial used the actually inspected rule-698 coordinate face:
+14 fixed powers and only D2 free. The same 75 original rows were tried with
+initial forbidden sets empty and H4, followed by bounded whole-chart descent
+refinement. Both full-face `D2 >= 1` searches stopped on a genuine source-weight
+pole. An unchanged rerun using the existing failure-only native diagnostic
+located it at the `D2 = 1` sign subcell, not across the entire face. Those
+refusals and the original face were retained.
+
+A separately authorized `D2 >= 2` trial retained the other 14 fixed indices,
+bank, order and algebra limits, leaving D2=1 to the old rule. Both arms reached
+the initial 32-refinement allowance. One explicit allowance-only retry used 75
+refinements and a 256 MiB report limit: a newly forbidden column has nonzero
+contraction with the current source vector, which annihilates all prior
+forbidden columns, so the forbidden-column rank strictly rises within a
+75-row matrix. Both searches then visited all 75 rows and found no target under
+their final forbidden sets, after 62 and 68 additions respectively. Independent
+inspection sharpened the empty-arm result: all 62 banned shifts preserve the
+same support across this entire univariate chart and are strictly higher under
+the exact saved order. Their coefficients must therefore vanish in any uniformly
+descending rational circuit on this face; merely permuting these same 75 rows
+cannot rescue it. This is still a fixed-bank/chart limitation, not irreducibility
+or a claim that no rule exists in a larger source span. The H4 arm also imposes
+its separate requested child exclusions. No owner66 artifact or graph improvement
+was produced.
+The exact traces and compact paired summaries are in ignored
+`TMP/rule-optimizer-20261003/candidates/symbolic-owner66-raw75-*`.
+
+`limits.max_domain_bound_endpoint_cells` optionally sets the existing native
+rule-proof endpoint-storage budget. Omission preserves 8,192; explicit values
+must be positive `usize` values. This is distinct from `max_coordinate_cells`
+and changes no source, guard or descent semantics. A private six-file research
+snapshot, linked against the same core/app libraries, passed all 12 example
+tests before the exact three-line policy change and fixture were transferred
+back to the main tree after the core test build drained.
+
+A separately authorized owner66 union retained the ordered raw75 bank and
+appended 287 previously nominated RowId/offset pairs, seeding F with the ordinary
+raw75 trial's final 62 columns. This heuristic union does not inherit kernel
+protection or prove search completeness. With 362 rows and 909 image columns,
+it added 32 forbidden shifts before native endpoint preflight refused
+10,560 cells against 8,192. The last candidate used 21 original contributions;
+its full original product replay passed, but chart proof did not complete.
+One unchanged-math retry with the explicit endpoint limit set to one million
+then exceeded its 512 MiB report allowance and emitted no result body. Its final
+F, target and proof outcome are therefore unknown, not a finite-span miss or
+proof success. Both processes drained; neither exported an artifact. Original
+requests/refusals remain under ignored `candidates/symbolic-owner66-union362-*`
+and `candidates/projector-endpoints-build-v1/`. Copied nested raw75 provenance
+describes ancestors only; the union preregistration and actual request fields
+define the larger experiment.

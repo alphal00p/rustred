@@ -1986,3 +1986,568 @@ comparison receipt exists. The pair stops exactly at the frozen completion
 gate, without selecting a smaller subset, dropping controls, or reporting an
 efficacy ratio. This is a censored baseline-feasibility observation; it cannot
 show whether the full-cross replacement helps this later workload.
+
+The separately approved baseline-only owner66 R0 diagnostic uses the physical
+point frozen before either kernel outcome. Its lower/upper coordinates are
+fixed, but the original R≤4/A≤16/D∈[12,14] caps are deliberately retained;
+these native request semantics must also be retained in any later comparison.
+The exact current-new37 67-owner/8,246-route/two-repair context is unchanged,
+with no replacement and one required root. It is not a replacement for the
+censored residual6 study and was not selected after trying easier points.
+
+This one-root baseline completes in 222.597 seconds inclusive (221.051-second
+arm), scheduling385,948 domains and314,840 native inspections with5,342,002
+events. Worklist exhaustion and checkpoint pendingzero are recorded. The raw
+walk's exit4/incomplete status has a stale0/1 closure snapshot; independent
+cold All/Off checking supplies the actual closure evidence, verifying the one
+root and all314,840 natives with zero errors, frontiers, uncovered obligations
+or violations. Actual input/command, owner and request bindings pass audit;
+stage, walk and cold groups drain. The runner records `only_arm=baseline`;
+no candidate phase or comparison exists. This establishes a concrete regional
+baseline burden, not a candidate benefit, residual6 coverage or termination
+theorem.
+
+The local incumbent selector independently identifies batch0/rule698 at the
+same physical point, with no RHS expansion, in10.030 seconds inclusive. Its
+first guarded inspection is reporting-incomplete: the16MiB display allowance
+is exhausted while rendering1,684 predicates/253,810 predicate terms, before
+any applied term visits or retained RHS event. It exits4/drains in9.358
+seconds with zero retained events and no admitted guarded domain. No tail/H
+claim follows from that partial report. A separately approved display-budget
+retry does not change source algebra or the frozen target.
+
+The fresh guarded-v2 retry changes only the three output paths and the report
+and expression display ceilings (64MiB and1MiB). Actual bound command and plan
+match; source, point, rule0/698, mathematical work limits and CPU64 resource
+policy are unchanged. The native inspection now finishes completely, retaining
+all1,668 successors:47 same-support and1,621 strict-subsupport, from1,669 term
+visits with one zero. An admitted-domain event and final problemszero event are
+present; native/report errors and all optional refusals are zero. Exit0 and
+owned-process drain occur in10.603 seconds inclusive. The incoming-complement
+record remains a protocol event, not a frontier. This permits exact local-tail
+analysis, but does not attribute downstream cost to any individual successor.
+
+Independent recomputation of every retained event confirms all1,668 distinct
+physical keys, child-minus-parent shifts, inverse `argument_shift` convention,
+A/R/D values, display-coefficient hashes and owner/budget histograms. Exactly
+four same-owner tails preserve A12/R0: physical shifts−eD10+eD4, +eD6, +eD7
+or+eD8 (one-based denominator axes). The other43 same-owner tails comprise
+22 atA11/R0,17 atA10/R1,3 atA10/R0 and1 atA9/R0. Selecting those four transfers
+as H is a structural hypothesis, not evidence that each is expensive. It does
+not justify forbidding all same-owner or all rank-increasing children. The
+prospective75-row ordinary bank and original saved-case inspection remain
+separate from these observed tail facts.
+
+### Positive-control design for the prospective symbolic projector
+
+Selective forbidden tails are less restrictive than demanding that every
+active denominator be logarithmically protected. The latter condition erased
+all useful images in the tested owner66 degree1 span. A prospective projector
+should start with genuinely nonzero ordinary/tangent images and retain a
+symbolic target coefficient, complete source replay and full-chart guard/order
+checking. A numeric support shortlist is only a nominated subbank, never a
+completeness certificate for the original bank.
+
+The smallest positive feedback control is the unit-mass tadpole. Its native
+ordinary source is `S(n)=(d-2*n) I(n)-2*n I(n+1)`. On the frozen chart n≥2,
+visit offsets0 then−1 with initially empty F. The first normalized proposal
+raises n and fails the unchanged order; adding shift+1 to F then exposes the
+valid backward recurrence. Conservatively retaining the revised projector's
+`n!=0` and `n-1!=0` pivot guards is mathematically harmless on this chart, but
+the current priority exporter does not generally discharge positivity guards:
+an unused `n!=0` pivot may still cause an honest export refusal when it does
+not match a surviving RHS denominator. A separate backward-only n≥2 source
+is the minimal successful-export control; no new guard pruning is implied.
+The rejected first proposal's guards stay in that attempt's receipt, not the
+next attempt.
+This is a successful refinement control, although its first failure is not
+specifically a boundary failure.
+
+A second small positive control exercises a genuinely requested lower tail.
+Freeze offsets−1 and−2, chart n≥3, and H={shift−1}, which the baseline one-step
+recurrence actually uses. A full symbolic combination yields
+`I(n)=(d-2*n+2)*(d-2*n+4)/(4*(n-1)*(n-2)) I(n-2)`.
+It must retain both index guards and preserve the old n=2 rule as fallback,
+not shrink a previously broader chart after observing a pole. A prospectively
+chosen shared cohort {4,6,8} can test whether bypassing odd intermediates really
+saves completed graph work; neither a shorter recurrence nor per-root counts
+alone establish that. Current priority scope encoding cannot represent the
+n≥3 chart's local lower2, so this second control is initially proof-only with
+an explicit export refusal, not a license to widen its chart. These controls
+are proposed, not executed evidence.
+
+An optional later boundary fixture uses D1=k²−1, D2=q²−1 and N=(k−q)²−1,
+with a,b≥2 and c≤0. A radial tangent centered at+eN introduces N+2 terms
+that activate N on c=0; the ordinary q-lowering source at−e2 instead has only
+c-weighted N+1 terms, which vanish on that boundary, and avoids the baseline
+k-lowering tail−e1. Native full-chart proof must establish the behavior rather
+than trusting this sketch. Conservatively retaining all first-row pivot guards
+may unnecessarily exclude c=−1 after refinement; that limitation needs explicit
+fallback accounting or reuse of existing dependency-trace pruning, not a new
+ad hoc guard-discharge rule. The simpler tadpole controls should come first.
+
+### Symbolic projector source-only audit
+
+The initial frozen research implementation passes source review: main
+`bb3af723dacbdc80085465af36b9d065ed2909eaebb11ba729a9be1afbaf8c8d`,
+projector `e19ad92e529dc04b0544878448fbf7d4bcff309839c1249a6ccaf633abaf957e`,
+with all six module/test pins checked. This is not yet a compiled-test or
+native-experiment result. The two core changes only expose the existing
+checked indexed-native coefficient ingress and make the unchanged uniform
+descent refusal typed; neither grants source or rule authority. Existing
+exact-frame discovery and its authority-rich validation path are not refactored.
+
+The native Symbolica `add_row` implementation is append-only in U/L and stops
+at the first new pivot. Thus the identity-column weights have the intended
+source-combination sign, and the target-normalized full image has RHS equal
+to the negated non-target terms. Complete native replay checks every physical
+column, including tails excluded from elimination. Weighted spans compose
+back into canonical ordinary RowId/offset contributions before the unchanged
+original-source/chart checker and checked priority exporter are invoked.
+Requested visitation is preserved separately from native canonical source
+provenance; no point-normalized weight is silently promoted to a free-index
+identity.
+
+Original source conditions, fixed-specialization witnesses, span/input weight
+poles, physical-prefix pivots and composition denominators survive before zero
+removal and coalescing. Guards from a rejected proposal remain in that attempt,
+not automatically in the next one. All physical-prefix pivots are retained
+conservatively; this can cause a legitimate export refusal, as discussed above.
+The failed-descent type preserves its exact sign-cell bounds and child support
+but explicitly is not always a mathematical counterexample. Only that type may
+add a new, non-target shift already in the frozen native image universe to F.
+Budget, unsupported geometry/guard, normalization, replay or no-progress errors
+stop without chart narrowing, source-bank growth or order changes.
+
+Review caught and corrected use of a private shift constructor and omitted
+aggregate input/W coefficient-term preflights. Native-derived keys are now
+cloned instead, with no third core seam. Source rows and retained matrices have
+explicit shape, nonzero, coefficient-term and guard bounds; native reducer
+scratch and work inside an individual Symbolica call still require the owned
+time/RSS supervisor. The separate bounded saved-rule inspector omits coefficient
+text as algebra input and does not claim source replay, dispatch or closure.
+Eleven focused tests are authored; their execution evidence is pending.
+
+The first targeted build finishes the optimized core/app libraries, then fails
+the research test target on three test-only public-API names. Raw exit101 and
+owned drain are recorded at810.133 seconds, without a resource stop. Replacing
+two `CoefficientContext::new` calls by fallible public construction and one
+`neg` by `neg_with_limits` changes only the test helper API spelling. Reversing
+those three substitutions exactly reproduces the prior test hash; corrected
+test source is`6b9797a65c6cbb4e923d01e7ebf9dbfb9eb30b5f1a9a97f93d4224beffd4ae51`.
+The original failed receipt remains intact; no test pass is inferred from the
+successful library compilation.
+
+The first runnable test suite reports10/11 passes. The failure is an incorrect
+fixture expectation: two contexts with the same base variables and index count
+share the native positional variable map even when their semantic scopes
+differ. Their sealed coefficients remain incompatible, but stripping a seal
+leaves no raw lineage to authenticate. The correction must test sealed-scope
+rejection separately and use a genuinely different native map (different base
+variables or arity) for raw-map rejection. No relaxation of the actual map or
+seal validator is warranted, and the failed test receipt is preserved.
+
+The corrected v3 executable now passes all11 tests (native test time0.04s).
+Independent audit rehashes test binary
+`ae4c3e37e8a5461572c05b71a5a2044ae12aa4c605246ef00732a1255d06bcad`,
+checks identical compile/run source pins, and confirms exit0/drain for the
+125.333-second compile on0–15 and the test phase onCPU0. The changed fixture
+uses arity2 for genuine raw-map mismatch; the existing separate core fixture
+continues to assert that same-map/different-scope sealed values do not
+interoperate. No runtime validator changed. Symbolic forbidden cancellation,
+typed refinement into a full-chart tadpole proof, actual backward export with
+outside-chart fallback, and lower-H cancellation with honest unsupported-chart
+export refusal all execute successfully. These are feature controls, not an
+owner66 applicability or cost result.
+
+The optimized projector binary subsequently builds successfully and drains
+in127.035 seconds inclusive; independent rehash confirms
+`91ed9f02757c98b4fec364b9e5e21bd08e6ac0629c407de47987896cef7ead1e`.
+The fresh core/app library hashes also match the separately frozen relink plan.
+The read-only rule698 inspector is bounded toCPU64/32GiB,150GB host reserve
+and20/25/30-second deadlines. Its16-term RHS display sample is not a truncated
+source proof. The actual saved case must be read before freezing raw75's chart.
+Point-derived shifts may guide discovery, never establish symbolic descent.
+The corrected prospective comparison starts F empty versus H4, with the same
+32 typed whole-chart refinement cap; it does not claim complete preclassified
+F, and must report each arm's independently evolving F trace.
+
+The native-ingress contract has one explicit limitation: shape/map/resource
+authentication does not repeat rational-polynomial GCD normalization. Its input
+must already be canonical output from a native Symbolica algorithm. The
+projector satisfies that precondition; the public documentation must not imply
+that arbitrary hand-built raw numerator/denominator pairs are normalized by
+this seam. Source authority and pre-cancellation guards remain separate.
+
+### Prospective owner66 selective-source checks
+
+The released finite logarithmic-kernel validator requires protection of every
+active axis. Consequently an input-only four-axis request would refuse before
+algebra; no failed native run is needed to discover that. A separately reviewed
+subset-policy change is required. The underlying coefficient construction is
+already parameterized by the protected set. For prospective H4 protection of
+D4,D6,D7,D8 with recenter−eD10, all protected recenter components are zero, so
+logarithmic divisibility really suppresses positive shifts on those axes.
+This is a stronger structural constraint than removing just the four observed
+keys, not a guarantee of a useful nonzero image, target pivot or lower chart.
+
+The reviewed minimal subset patch (kernel source`2c5ded9b…`, tests`7540038f…`)
+accepts only sorted, unique, nonempty active subsets and explicitly reports
+whether every active axis was protected. Its polynomial/linear algebra is
+unchanged; every kernel image still reaches full replay and the point F solver.
+The prospective selective request differs from the earlier degree1 request
+only in the four protected axes and recenter. Build/test execution remains
+pending at this audit stage.
+
+The prescribed producer's separate optional ingress patch (`dd1ff640…`)
+preserves absent-option defaults and forwards all seven explicit transport
+fields to the loader, with bundle fields also reaching both inspections and
+checked export. Review caught and corrected the latter propagation gap before
+building. Tests cover unchanged explicit-default artifact bytes, native loader
+refusal and proof-accept/export-output-cap refusal. No source algebra or proof
+policy is changed by transport allowances.
+
+A separate proposed two-protected k2 source correctly identifies active
+dependent denominators D2,D10,D11 and protects D2,D11 along directions
+(k2,k5,k4), centered at−eD10. Nevertheless, preventing active-power raises is
+not sufficient for descent. Its cofactors involve inactive D5 and D13. Up to
+orientation, V(D10)=8 det Gram(k2,k5,k4); the part with no active denominator
+factor is `2*(2+D5-D5^2+D13+D5*D13-D13^2)`. Here extracting that polynomial
+part is formal coefficient analysis, not setting physical propagators on shell.
+The resulting pure-inactive numerator terms can preserve every active power
+while increasing R and A+R, hence violating the saved Spired order. Fixing an
+inactive exponent to zero does not set its denominator polynomial to zero.
+Only the D9 and D14 exponent prefactors vanish on that R0 face after complete
+product formation. This is a prospective falsifier to check through native
+full-source proof, not an already executed refusal or permission to drop terms.
+
+### Actual owner66 transfer comparison and symbolic-chart inspection
+
+The completed `owner66-R0-fullcross-v1` matched graph pair preserves the exact
+previously frozen singleton and its original A/R/D caps, the current-new37
+67-owner pool, 8,246 routes and both repairs. The sole owner replacement is the
+already proved lower-owner full-cross candidate `3ccb744c…`; this does not test
+an owner66 optimizer. Actual native commands match the frozen plans. Both
+fresh CP6 generation1 graphs have zero pending work, frontiers and abandoned
+obligations, and all six stage/walk/cold process groups drained without a
+resource stop. Independent cold All/Off verification passes the one required
+root and all 314,994 / 314,978 native inspections. Stale live 0/1 closure
+snapshots are not used as completion authority. Accepted regional cycles do
+not invalidate the source-proved rules, but cold verification is not an
+all-family reduction-termination proof.
+
+Scheduled work is 386,097→385,859 (−0.0616%), native inspections
+314,994→314,978 (−0.0051%), and events 5,327,486→5,323,569 (−0.0735%).
+Traversal is 27.6461→28.1060 seconds; full arm time is
+224.8779→225.1810 seconds, with 454.2098 seconds inclusive for the pair.
+This is no material transfer benefit; no reverse pair is justified by these
+near-null observations. Earlier positive local cohorts remain distinct, and
+this completed singleton does not replace the censored six-residual cohort.
+
+The released symbolic inspector (`91ed9f02…`) independently reads saved rule
+698 as a coordinate case with exactly fourteen fixed physical indices and
+only D2 free. The diagnostic completes in 6.3158 seconds, drained, with raw
+receipt `23c58698…`. It exposes 1,669 stored RHS terms and 1,969 retained
+sources, but no source-proof or dispatch authority. Its three stored exclusion
+conjunctions contain coefficient IDs only; they are not borrowed as conditions
+for a new source proof. Root freezes the entire positive D2 locus (D2≥1),
+including its boundary, with the other fourteen indices unchanged.
+
+### Raw75 symbolic refinement: actual conservative refusals
+
+The two requests `c493a9c2…` / `dc8c5aae…` differ only in initial forbidden
+shifts: empty versus the four observed dot-transfer keys. Both use exactly
+the same 75 native ordinary source views, ordered as all 25 contractions at
+centers 0, −eD2 and −eD10, the inspected fourteen-fixed/D2≥1 chart, saved
+order and at most32 typed refinements. No incumbent exclusion, point-order
+classification or post-hoc chart narrowing supplies proof authority. The
+proof-only CPU65 runner (`5ba86c58…`) retains the existing lifecycle and
+changes only placement/lock and the authorized 220/240/300-second deadlines;
+32GiB process allowance and 150GB host reserve remain explicit.
+
+Both native phases complete and drain in about ten seconds, but neither
+produces a source-proved rule or artifact. Independent trace checks confirm
+that every added F key is exactly a new native typed unproved-descent shift;
+every attempted original full product replays. Empty initial F makes eleven
+additions (final F size11); H4 makes eight (final size12). Both stop at the
+same first-target prefix12 circuit with an opaque guard refusal, correctly
+without further refinement. Raw receipt hashes are `26cbc1a2…` and
+`30f84dcb…`.
+
+The displayed final four source weights are each `−1/(n1−1)`, where native
+axis1 is physical D2. Thus the D2=1 boundary singularity is present in the
+actual selected circuit, not merely an unused prefix-pivot guard. Its
+normalized full product also retains a +eD2 term `n1/(n1−1)`; restricting
+to D2≥2 would not by itself establish descent. The authoritative result is
+the native guard refusal, not a newly inferred alternative chart. This is
+not exhaustion of every circuit in the 75-row span: the algorithm stops at
+its selected prefix circuit, and the non-descent classifier is conservative.
+No cost, coverage, irreducibility or global nonexistence conclusion follows.
+
+An authorized diagnostic-only rerun with the unchanged empty-arm request and
+binary confirms the precise native guard-failure cell: local D2=0, hence
+physical D2=1, with guard `−1+n1` and no borrowed exclusions. The stderr
+receipt is `376da17d…`; semantic stdout differs from the original only in
+elapsed seconds. It drains in 11.1611 seconds under the separate30-second
+cap. A prospectively frozen D2≥2 experiment, if authorized separately, would
+be a restricted new scope, not a successful replacement of this full-positive
+chart or evidence that its remaining raising tails descend.
+
+### Subset-kernel and ingress execution gates
+
+The reviewed subset/ingress patches now have actual executable evidence in
+`source-ingress-subset-build-v1`: all eight kernel tests and all22 prescribed
+producer tests pass, with drained compile/test groups. Independently rehashed
+optimized binaries are `806a92ec…` (kernel) and `906c0add…` (prescribed).
+The absent-ingress and explicit-default-ingress native radial exports both
+rehash byte-for-byte to the earlier measured candidate `1c8b6d7c…`, preserving
+the old producer path. The ingress tests also exercise proof acceptance with
+a base-sized byte cap followed by export-growth refusal, not merely JSON
+field propagation.
+
+The frozen selective degree1 diagnostic (protect D4,D6,D7,D8, center−eD10)
+completes in 11.7329 seconds inclusive on CPU64, with no stop/error and its
+owned groups drained. Raw report `e058bb82…` matches the exact request. The
+400×480 coefficient constraint matrix has2,025 nonzeros, rank260 and a
+140-dimensional kernel. All140 complete parametric source images are nonzero;
+none vanish at the frozen point. Point image rank is130, and the complete
+271-column nonlower F solve has no target pivot. Full constraint replay,
+parametric original-image replay and point specialization replay pass. Generic
+K(n) image rank is explicitly not computed; original target-combination replay
+is null because no target combination was found. No rule is exported.
+
+This finite constrained-span negative is different from the earlier all-active
+degree1 zero-image result. It does not prove that ordinary-source alternatives
+are absent. A union of the native nonzero-image supports may nominate a new
+raw bank, but it does not inherit the kernel weights' logarithmic protection
+or any source/descent authority; all conditions and full products must be
+regenerated in a separate frozen experiment.
+
+The emitted union is independently checked against all native sparse kernel
+weights: it contains exactly312 original unknown columns, and every nominated
+RowId, translation, native ordinal and translated provenance maps unchanged
+to the report. This is a raw superspan nomination only, not the original
+140-dimensional logarithmic constraint space.
+
+### Restricted-face continuation and broad geometric control
+
+A separately authorized D2≥2 raw75 pair changes only the free-axis lower bound
+and explicit restricted-scope provenance. Both arms preserve all other bank,
+chart, order and algebra limits. They complete and drain in 11.9626 / 11.1918
+seconds but stop at the frozen32-refinement allowance, after33 replayed
+attempts. Final F sizes are32 /36 and last target prefixes33 /37. Every
+addition is again a new typed failed-descent shift; neither produces a rule.
+Raw receipts are `2c96c75f…` / `7982a32c…`. Clearing the D2=1 guard obstruction
+therefore does not establish descent or even a completed finite search.
+
+Root separately authorizes one allowance-only continuation to75 refinements
+and a256MiB report, preserving the original32-cap outcomes. The rank-progress
+argument is valid for this fixed specialized 75-row matrix over K(n): the
+current exact source vector annihilates every prior F column but is nonzero on
+the next failed shift, so that column is outside the old F span. Each accepted
+addition strictly raises its rank, which cannot exceed75; full rank leaves no
+normalized target circuit. All33 recorded products per restricted arm omit F
+and contain their failed shift, corroborating the native full replay and sparse
+nonzero construction. This is a finite stopping bound, not a completeness or
+existence theorem. Guard/refusal/resource stops remain stops, and globally
+banning a conservatively unproved shift may exclude an otherwise valid rule.
+
+That explicitly authorized75-cap continuation now completes both finite
+searches. Empty initial F makes62 additions (63 attempts, final F62); H4
+makes68 additions (69 attempts, final F72). Each final reducer visits all75
+rows and reports `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`. Independent trace
+checks confirm every typed transition, prior-F annihilation and failed-shift
+presence in the exact replayed current product. Neither arm hits the revised
+refinement, time or memory limits. Inclusive times are13.928 /14.574 seconds,
+all owned groups drain, and no artifact exists. Reports `1230999d…` and
+`30063e80…` are64.09MB and70.89MB, respectively. This is a completed miss for
+each accumulated conservative F, not proof that every valid lower circuit in
+raw75 or any other bank is absent. The original full-positive-locus guard
+refusal and restricted32-cap incomplete receipts remain unchanged.
+
+The separately frozen broad-R0 two-protected control now has an actual native
+refusal. With unchanged request `3b9ca6da…`, the tested prescribed binary
+`906c0add…` stops on term28, shift `−2eD5−eD10`, at a reported subcell with
+D2=1 and D10=2. Support stays unchanged, A decreases1 and R increases2, so
+A+R rises1. This confirms a Gram-numerator descent obstruction, but is not
+the exact unchanged-A term anticipated before execution. The reported cell
+does not contain the frozen D2=3 point, so the receipt must not be described
+as a point-specific refusal there. Native exit2 is an algebra/proof refusal,
+not a timeout:11.4231 seconds inclusive, no resource stop, owned groups
+drained, no export and no production mutation.
+
+### Why the global Euler identity is not immediately a lower recurrence
+
+The actual common family is a five-loop vacuum with every denominator
+`D_i=q_i²−1`. Summing the five diagonal ordinary IBPs gives
+`(Ld−2Σa) I(a)−2Σ_i a_i I(a+e_i)=0`. Translating by−e_j therefore yields
+`(a_j−1) I(a)=(Ld/2−Σa+1) I(a−e_j)−Σ_{i≠j} a_i I(a−e_j+e_i)`.
+For j=D2 and D10, this identity is already in raw75: its bank contains all
+five `ordinary-ibp:l:l` rows at each required translation. Adding the Euler
+identity itself cannot expand that bank's span.
+
+The saved inspection binds plain `SpiredUncutV1`, not a custom coordinate
+priority. `sector/ordering.rs` compares support, corner distance and degrees;
+`sector/ordering/comparison.rs` reverses the excess comparison at the first
+active physical slot where the indices differ. The owner's active slots are
+D2,D3,D4,D6,D7,D8,D10,D11,D12 in that order. Root-sector lineage does not
+permute those physical coordinates. Consequently every one of the eight
+same-support Euler transfers out of D2 is higher, whereas transfers out of
+D10 to earlier D2,D3,D4,D6,D7,D8 are lower and transfers to D11,D12 are higher.
+Their coefficients are nonzero on the declared R0 face. The isolated
+`I(a−e_j)` term is lower, but that does not repair the higher transfers.
+This is an ordering obstruction for this particular cheap identity, not a
+missing-source explanation or a proof that the target is a master.
+
+The smallest prospective input-only control is the prescribed five-row Euler
+sum at−eD10 on the unchanged coordinate chart. Native original-source proof
+should derive normalization `−2(a_D10−1)` and test the two higher transfers;
+this prediction has not been executed here. D2 has the additional genuine
+normalization boundary at1. Any different visitation/constraint experiment
+within raw75 is a new heuristic search, not a new independent identity or
+permission to alter the common order.
+
+Conversely, a useful prospective positive control puts a dot on the last active
+slot D12 (a_D12≥2), on a separately declared R0 chart. Every Euler dot transfer
+then goes to an earlier active slot and is lower under this same tie-break,
+as is the lower-sum term. Five diagonal rows centered at−eD12 should admit
+that recurrence under native proof. This is a distinct chart, not coverage of
+the current D2/D10 point or a downstream performance claim.
+
+### Separately authorized raw362 superspan diagnostic
+
+The next frozen input takes the exact union of raw75 and the 312 native support
+pairs, preserving the original 75 visitation and appending 287 new pairs in
+canonical order. Its 62 initial forbidden shifts are independently reconstructed
+from the completed ordinary raw75 trace and used only as heuristic exclusions.
+No logarithmic weights, protection or guards are inherited. The chart remains
+fourteen-fixed/D2≥2 and the frozen producer remains `91ed9f02…`; only the two
+row allowances, refinement allowance and report allowance change, to 362/362/
+512MiB. The authorized CPU65 lifecycle has 520/540/600-second bounds and 32GiB
+process allowance with 150GB reserve.
+
+Actual native execution uses 362 rows and 909 physical columns. It makes 32
+further typed additions, reaches F94 after 33 replayed attempts, and selects
+a target at prefix 192 before stopping on an operational proof allowance:
+`combined domain bound endpoint cells budget exceeded: requested10560,
+limit8192`. This is neither a completed target miss nor proof of non-descent.
+Independent checks verify every new key and full-product F annihilation, and
+the exact request/bank binding. Native exit 0 does not turn its
+`REFUSED_OR_INCOMPLETE` proof status into success. The run drains in 18.1970
+seconds inclusive with about 4.91GB sampled peak RSS, produces no artifact,
+and retains raw 154.10MB report `3feaf69c…`. No automatic limit change or
+algebra retry is inferred from this receipt.
+
+### Optimized core regression gate
+
+The targeted core cfg-test gate now passes, separately from the earlier eleven
+example tests. Cargo reports an optimized `rustred` lib/test artifact at
+opt-level3, with no opt0 fallback, and its independently rehashed binary is
+`1012d5be…`. Compile time is 1,009.033 seconds inclusive within the authorized
+1,200-second allowance; the owned group drains. All current source, manifest,
+Symbolica source and docs-only canonical-precondition pins match the compile
+and test receipts.
+
+All 30 selected tests pass: eighteen indexed-context tests, eleven original
+source-producer tests and the typed-error message-context preservation test.
+This includes native-result admission, genuine foreign-map refusal, separate
+sealed-scope isolation, full identity tampering rejection, retained canceled
+poles and exact-but-raising source refusal. The optimized test run reports
+0.03 seconds native / 1.035 seconds inclusive, drained. No CLI or application
+binary was rebuilt for this core gate, and the frozen experiment producer
+remains unchanged. Evidence is `symbolic-projector-build-core-v1/`.
+
+### Optional endpoint allowance and output-censored continuation
+
+The private research snapshot exposes only the existing native endpoint-cell
+allowance: absent input preserves 8,192; the separately authorized request
+sets 1,000,000. Its other four implementation modules are unchanged. All twelve
+optimized example tests pass, including default preservation and refusal of
+zero, negative, null, fractional and string allowances. Independently rehashed
+test binary `b64b0e3d…` and executable `47e3b9de…` match their real compile
+receipts. Test/binary compilation takes 123.233 / 124.467 seconds inclusive;
+tests take 0.05 seconds native / 3.087 seconds inclusive. All groups drain.
+
+The one unchanged-bank/chart/order/F62 continuation is **output-censored**.
+Native exit 2 reports `report byte allowance exceeded`, with zero stdout and
+104 bytes of stderr, at the existing 512MiB report allowance. The guard records
+39.544 seconds, the outer phase 40.821 seconds inclusive, about 10.312GB peak
+RSS, no cooperative/hard stop and drained owned groups. The wrapper's phase
+field is null because its success-only helper rejects exit 2; the raw guard
+receipt establishes lifecycle completion, not source-proof completion. No
+final F, target outcome, proved chart or exported artifact can be inferred.
+Evidence is `projector-endpoints-build-v1/`; no automatic report-cap escalation
+is justified by this result.
+
+### Source visitation and conservative refinement
+
+For fixed forbidden columns F and the complete frozen source span, exact
+target feasibility is invariant under row permutation. The chosen circuit is
+not invariant, and a failed uniform descent/vanishing obligation does not prove
+that every valid circuit must annihilate that entire shift. Another circuit
+may have a coefficient vanishing on the troublesome cell. Whole-shift bans
+therefore can create source-order-specific dead ends, even when every current
+replay and rank-progress check is sound.
+
+The smallest controlled visitation comparison keeps the bank, full chart,
+initial F62 and all allowances fixed, varying only one preregistered source
+ordering. Compare the first divergent typed addition and exact target result
+for each final F, not just elapsed time or prefix length. A positive/negative
+pair demonstrates path dependence; two misses do not establish absence of a
+valid rule in the original span. In particular, F62 itself comes from one
+earlier search path: permutations with that seed cannot recover circuits the
+seed already excludes. A separately authorized empty-seed comparison would be
+needed to isolate that inherited constraint, with no silent removal of F62 in
+the current experiment.
+
+The actual raw75 failures admit a stronger, chart-specific conclusion than
+that generic caution. The completed empty arm reports 56 unbounded D2 cells
+and six singleton D2=2 cells; H4 reports 52 and sixteen, respectively. All
+typed failures preserve the parent's support. Checking the fourteen fixed
+physical powers from the actual raw request and the child at D2=2 proves that
+every one of these shifts preserves support throughout D2≥2. Native geometry
+therefore takes the exact same-support shift-key branch, not conservative
+`pre_support`. Every shift is strictly higher on the entire ray: for the empty
+arm, 55 by corner distance, six by the reversed D2 coordinate and one by the
+reversed D10 coordinate. H4's added shifts split 60 / six / two.
+
+With only D2 free, a rational coefficient over the generic base field cannot
+vanish on this infinite higher ray without vanishing identically. This remains
+true for shifts whose first reported failure happens to be a singleton cell.
+Thus all 62 empty-arm exclusions are necessary for a uniformly descending
+rational identity on this precise chart. Its complete 75-row target miss
+cannot be rescued merely by permuting raw75. This does not concern other
+charts, extra sources, piecewise finite-support formulas, changed order,
+master status or full-family irreducibility. The per-shift audit, including
+actual child minima, key deltas and source/report hashes, is retained in
+`raw75-failed-shift-order-audit-v1.json` (`f52b11e7…`).
+
+The first raw362 run's 32 further additions likewise all have unbounded
+reported intervals and preserve support with a strictly higher key on the
+whole ray. Its corresponding per-shift evidence is
+`union362-failed-shift-order-audit-v1.json`. Thus none of the first 94 bans
+provides evidence of greedy over-pruning here. Source visitation may still
+affect circuit complexity, pivot guards and resource use in the larger span;
+the operational endpoint refusal and subsequent output censoring do not
+resolve whether that larger span contains an admissible circuit.
+
+The subsequent compact-trace source review passes at main `7aa4af09…`, helper
+`498ce812…` and tests `5ac277d3…`. It changes only already-rendered diagnostic
+JSON: native matrix operations, replay, guards, proof, refinement and export
+are untouched. Default/explicit `full` preserve existing attempt records.
+`summary` retains all attempts, F/prefix information, typed failures and cells,
+the actual displayed failed-shift product coefficient, replay flags and exact
+payload counts. The last full circuit remains even if the final record is a
+target miss or resource refusal. A missing failed-shift term refuses compaction
+and retains the full diagnostic rather than silently losing that witness.
+All fifteen tests subsequently pass, including actual native full/summary
+equivalence and byte-identical checked export. The independently rehashed
+test binary is `75e4a24b…`; optimized standalone compilation takes 120.764
+seconds inclusive and tests 0.05 seconds native / 1.930 seconds inclusive.
+Both groups drain without stops and their small source/driver pins match the
+reviewed files. Evidence is `projector-summary-build-v1/`; these test receipts
+do not by themselves resolve the larger-bank experiment.
+The standalone executable subsequently links in 122.837 seconds inclusive,
+exits zero and drains without stops; its independently rehashed bytes are
+`7a24613c98ee4778fc7209407109dd16051147295c6c1d10c709c513b8bc6e8a`.
+It uses the existing authenticated native libraries, with no core rebuild.

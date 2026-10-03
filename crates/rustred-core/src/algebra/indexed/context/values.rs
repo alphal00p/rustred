@@ -228,11 +228,22 @@ impl IndexedCoefficientContext {
     /// Admit one raw rational function returned by a native Symbolica
     /// algorithm which consumed values from this exact indexed context.
     ///
+    /// The input must already be a canonical native rational function, with
+    /// coprime numerator and denominator. This ingress does not normalize
+    /// arbitrary raw polynomial pairs or establish coprimality; callers must
+    /// preserve that invariant when selecting the native algorithm.
+    ///
     /// Native coefficient fields do not carry RustRed's variable-map
-    /// identity. This crate-private seam performs the complete map, layout,
+    /// identity. This seam performs the complete map, layout,
     /// exponent, and resource authentication exactly once before sealing the
-    /// result for trusted downstream arithmetic.
-    pub(crate) fn admit_native_result_with_limits(
+    /// result for trusted downstream arithmetic. Callers must authenticate
+    /// every native input before invoking Symbolica and retain any source,
+    /// denominator, pivot, and pre-cancellation conditions separately.
+    /// Admission establishes context membership only: it does not certify
+    /// a source identity, a nonzero condition, or a rule's descent/domain.
+    /// In particular, matching native maps cannot recover the semantic scope
+    /// provenance of an unsealed value; the caller must bind its inputs.
+    pub fn admit_native_result_with_limits(
         &self,
         raw: Coefficient,
         limits: ExactAlgebraLimits,

@@ -301,6 +301,15 @@ fn replay_error(error: &SourcePortAuditError) -> Value {
         SourcePortAuditError::UnsupportedAffineOwnership { role, .. } => {
             json!({"kind":"unsupported-affine-replay","role":format!("{role:?}")})
         }
+        SourcePortAuditError::UnprovedDescentObligation {
+            term_ordinal,
+            shift,
+            local_lower,
+            local_upper,
+            child_sector,
+        } => json!({"kind":"unproved-descent-obligation","term_ordinal":term_ordinal,
+            "shift":shift,"local_lower":local_lower,"local_upper":local_upper,
+            "child_sector":child_sector,"concrete_counterexample_claim":false}),
     }
 }
 

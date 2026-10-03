@@ -76,7 +76,7 @@ fn explicit_owner_ingress_policy_propagates_without_touching_algebra_limits() {
 }
 
 #[test]
-fn explicit_degree_and_all_protected_scope_cannot_silently_expand() {
+fn explicit_degree_and_protected_scope_cannot_silently_expand() {
     assert_eq!(validate(&request()).unwrap(), 1);
     for (field, value) in [
         ("max_weight_degree", json!(2)),
@@ -89,6 +89,38 @@ fn explicit_degree_and_all_protected_scope_cannot_silently_expand() {
         let mut r = request();
         r[field] = value;
         assert!(validate(&r).is_err(), "{field}");
+    }
+}
+
+#[test]
+fn selective_protection_accepts_only_sorted_unique_nonempty_active_subsets() {
+    let mut r = request();
+    r["target"] = json!([2, 0, 1]);
+    r["owner_mask"] = json!("101");
+    r["recenter"] = json!([0, 0, 0]);
+    for axes in [json!([0]), json!([2]), json!([0, 2])] {
+        r["protected_axes"] = axes;
+        assert_eq!(validate(&r).unwrap(), 3);
+        let scope = protection_scope(&r);
+        assert_eq!(scope["active_axes"], json!([0, 2]));
+        assert_eq!(scope["protected_axes"], r["protected_axes"]);
+        assert_eq!(
+            scope["all_active_axes_protected"],
+            r["protected_axes"] == json!([0, 2])
+        );
+        assert_eq!(scope["kernel_vector_subset_selection"], false);
+    }
+    for axes in [
+        json!([]),
+        json!([0, 0]),
+        json!([2, 0]),
+        json!([1]),
+        json!([0, 1, 2]),
+        json!([3]),
+        json!([-1]),
+    ] {
+        r["protected_axes"] = axes;
+        assert!(validate(&r).is_err(), "{}", r["protected_axes"]);
     }
 }
 

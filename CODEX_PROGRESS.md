@@ -10,6 +10,332 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Current workboard — October3 profile-guided rule optimization
 
+### Compact trace gate and next implementation boundary — October3, 16:19 UTC
+
+[M] All 15 optimized projector tests pass, independently checked. They include
+unchanged full/default reports, full/summary mathematical equivalence,
+byte-identical exported candidates, and retaining the last complete candidate
+before a final target miss. The trace adapter receives rendered diagnostics
+only; it cannot alter native proof inputs. Standalone test linking takes
+120.764s and execution 1.930s inclusive. Production and its executable remain
+untouched. A fresh ordinary projector binary is linking from the same sources.
+
+[E] The next implementation slice is a bounded, read-only nomination of source
+support from the incumbent's own saved seeds. The existing ordinary-replay
+service already expands all original directions at each seed; the polynomial
+preconditioner does not itself shift integral indices. This can provide a more
+informed source bank than blind shell growth. Symbolic/fixed coordinates and
+canonical recentering must be validated, actual original RowIds enumerated,
+and original-source proof repeated. Stored source ordinals, exclusions or
+guards will not be promoted into authority. Implementation and independent
+audit remain separate, and this slice must not delay current frozen probes.
+
+### The small-bank obstruction is now understood — October3, 16:12 UTC
+
+[M] Independent inspection strengthens the raw75 result on this particular
+chart. Every one of the 62 shifts added by the initially empty-F search
+preserves the parent support and is strictly higher across the entire
+D2>=2 ray under the saved order: 55 by corner distance, six by the reversed
+D2 tie-break, and one by D10. A nonzero rational coefficient cannot vanish on
+that whole infinite ray. These 62 bans are therefore necessary here, not just
+conservative consequences of one failed pivot. The final exact target miss
+rules out a uniformly descending circuit in this finite source bank on this
+chart; it says nothing about a larger bank or another chart/order.
+
+[M] The same check validates the first 32 additions from the larger bank.
+Auditor evidence: `candidates/raw75-failed-shift-order-audit-v1.json` and
+`candidates/union362-failed-shift-order-audit-v1.json`. Each records actual
+source/report bindings, fixed powers, whole-ray support and order deltas.
+Initial optional H4 exclusions are not relabeled as necessary bans.
+
+[E] This rules out wasting runs on raw75 permutations. The larger bank's
+input-controlled source permutations may still change circuit size or pivot
+guards. If it has no descending circuit either, a complete signed-L1 source
+shell is the next concrete expansion, including positive translations absent
+from the restricted negative-shift enrichment. An incumbent-seed-derived
+superspan is another read-only design lead; no stored preconditioned basis
+ordinal will be mistaken for an original ordinary-source RowId.
+
+### Diagnostic output, not proof work, becomes the next limit — October3, 16:02 UTC
+
+[M] The private endpoint-option binary passes12 tests and links successfully.
+Its otherwise unchanged362-source retry exits with only `report byte allowance
+exceeded`: repeated per-attempt display payloads exceed512MiB. Inclusive
+time40.821s, peak tree RSS10.312GB, no supervisor stop and all processes drained.
+The final mathematical status is **unobserved**, because no report was emitted;
+this cannot be called either a source-span miss or a proved rule.
+
+[E] Root authorizes a small optional compact trace in the research adapter,
+implemented by `rule_optimizer_impl` and independently reviewed by
+`frontier_oct3_resume`. Keep all attempts, counts, forbidden-set refinements,
+typed errors and replay results, plus the complete final candidate. Omit only
+repeated earlier display arrays; actual source combinations, guards and proof
+work remain unchanged. `rule_cost_profiles` will repeat the same frozen
+mathematics after tests, with the same512MiB report cap. No unbounded output
+budget escalation or production change is involved.
+
+### Optimized core test gate passes — October3, 15:59 UTC
+
+[M] The optimized core cfg-test build completes in1,009.033s; no fallback or
+reduced optimization is used. All30 focused tests pass:18 indexed-context,
+11 original-source producer, and one typed-error-context test. The independently
+checked test binary is `1012d5be…9a56fb`; test execution takes1.035s inclusive.
+The private endpoint-option adapter also passes all12 optimized example tests.
+Root reruns the15 Python evaluator and six profiling tests, all passing, and
+the scoped diff whitespace check passes. Build receipts remain under
+`candidates/symbolic-projector-build-core-v1/` and
+`candidates/projector-endpoints-build-v1/` in the ignored evidence root.
+
+[E] Source-visitation alternatives are the next small, input-only diagnostic
+if the enlarged bank still fails. They must retain the same source set, common
+integral order, chart and native proof, so any difference reflects the selected
+circuit and conservative refinement path rather than a changed request.
+
+### Expanded source bank and precise proof limit — October3, 15:57 UTC
+
+[M] The D2>=2 raw75 searches now exhaust their finite constrained spans after
+62 added forbidden shifts (initially empty) and68 additions (four initial
+dot-transfer shifts). Both finish in about14s, with exact original-source
+replay throughout, but no target pivot in the remaining span. These are
+negative results for the conservatively accumulated forbidden sets, not proof
+that no descending identity exists. The earlier32-refinement limits and D2=1
+guard failures remain separate, preserved observations.
+
+[M] A new, explicitly expanded bank takes the original75 sources plus287
+distinct translated ordinary sources nominated by the selective-kernel support.
+The362-source trial reaches prefix192, after32 new descent refinements, then
+refuses a116-tail candidate because its endpoint-cell preflight requests10,560
+against the native default8,192. Inclusive time18.197s, peak tree RSS4.914GB;
+all33 full original-source replays pass. No rule is proved or exported. Raw
+support nomination does not inherit the kernel's protection properties.
+
+[E] `rule_cost_profiles` is testing a narrow optional research-driver input
+for the existing native endpoint-cell limit in a private ignored snapshot;
+absence retains8,192. One otherwise unchanged retry will explicitly use
+1,000,000. `frontier_oct3_resume` independently audits its implementation and
+measurements. This neither alters the production solver nor relaxes descent,
+guards, scope, or source replay. The copied raw75 provenance prose in the
+immutable requests is ancestor-only; the union362 preregistration supersedes it.
+
+[M] `rule_optimizer_impl` is compiling the focused core test target; the11
+optimized projector example tests already pass. No new production binary is
+recommended. Root retains ownership of the coherent integration and logs.
+
+[E] An ordering diagnosis explains why the simple vacuum Euler identity is
+not an immediate cure. Under the saved order, decreasing the earliest dotted
+active coordinate D2 and moving its dot elsewhere raises the integral; the
+D10 version still has raising D11/D12 transfers. These identities already lie
+in the tested raw75 bank. Changing the common order is a whole-program
+experiment, not a permissible per-rule shortcut. The auditor has documented
+the derivation and a distinct last-active-dot positive control.
+
+### Finite-span outcomes and boundary diagnosis — October3, 15:23 UTC
+
+[M] The selective degree-one kernel protects onlyD4/D6/D7/D8. It completes in
+11.733s inclusive:400 unknowns,480 constraints,rank260/nullity140. All140 full
+parametric images are nonzero and have no positive shift on those protected
+axes, but their exact point image has no target pivot after eliminating its271
+forbidden columns. This is a finite constrained-span miss, not a universal
+nonexistence statement. Kernel8 tests, producer22 tests and two old-path byte
+controls pass independent audit. The312-row raw support union is retained as
+a pending nomination, without inheriting the kernel's protection properties.
+
+[M] Both raw75 full-positive-D2 trials finish normally in about10s. The empty
+initial F arm adds11 typed shifts; the H4 arm adds8. Both then stop on a real
+guard refusal, not resource exhaustion or exhaustion of all source solutions.
+The final circuit uses four ordinary-source weights proportional to1/(D2−1)
+and still has an unproved raising tail. Failure-only native diagnostics,
+without code changes, confirm the guard vanishes on precisely the D2=1
+boundary cell. The entire fourteen-fixed coordinate face is not singular.
+
+[E] A separately preregistered D2>=2 pair is authorized, with all other inputs
+and limits unchanged and old-rule fallback retained atD2=1. Removing that
+boundary does not establish descent; both new arms must run the same native
+proof/refinement again. No artifact has been exported. The original full-face
+refusals remain intact and will not be relabeled as success.
+
+[M] Read-only production at15:22UTC:79.04million discovered domains,
+13.76million pending, no frontiers,72.98GB RSS and about3.43 observed cores.
+The13/67 conservative root snapshot is about43minutes old; no ETA is inferred.
+
+### Current-stage transfer result and exact chart — October3, 15:08 UTC
+
+[M] The fresh full-cross transfer pair completes both arms and cold All/Off
+verification. Baseline:386,097 domains,314,994 native inspections,27.646s
+traversal/224.878s full arm. Candidate:385,859 domains,314,978 native,
+28.106s/225.181s. Inclusive pair454.210s, no pending/frontiers/abandonment.
+The 0.062% domain difference is not a material improvement and is comparable
+to scheduling variation. This broader test does not support extrapolating the
+earlier local gain. No reverse repeat or production promotion is warranted
+for this near-null diagnostic. Independent final receipt review is requested.
+
+[M] Saved-rule inspection completes in6.316s, independently audited. Rule698
+fixes fourteen physical indices and leaves onlyD2 free; D10 is fixed2. It has
+1,669 stored RHS terms and1,969 retained sources. Root chooses the full positive
+free-coordinate chart D2>=1 for the new experiment. Its stored exclusion IDs
+are diagnostic only; none are borrowed as source assumptions.
+
+[E] The new raw75 pair transparently revises the unexecuted proposal: initial
+F={} versus F=H4, with the same32 typed whole-chart descent refinements, not a
+complete initial point-order F. Both requests must be frozen before either
+solve. Source bank, coordinate locus, saved order and resource limits remain
+identical; a refusal cannot silently narrow the chart or enlarge the bank.
+
+### Symbolic projector release tests pass — October3, 15:02 UTC
+
+[M] All 11 optimized native projector tests pass (0.04s native;1.138s guarded),
+independently checked against the compiled binary and source pins. They cover
+symbolic forbidden-column cancellation, weighted provenance replay, typed
+descent refinement, actual checked export/fallback and honest refusal to export
+a proved chart outside the current exporter representation. Binary linking
+follows; no five-loop projector result is available yet.
+
+[M] The second build had10/11 passing tests and one incorrect raw-context
+expectation: native variable maps are shared by same-arity indexed contexts,
+whereas their sealed semantic scopes remain distinct. The corrected test uses
+a genuinely different raw variable map. Existing sealed-scope rejection tests
+remain unchanged. This is a fixture correction, not weakened validation; both
+failed build/test receipts are retained. Root also reruns all21 Python
+profiling/evaluator tests successfully.
+
+### Existing candidate transfer test started — October3, 14:59 UTC
+
+[M] Root starts an independently preflight-audited matched pair using the
+previously frozen owner66 R0 singleton and the already exact full-cross tangent
+replacement in lower owner `101010000110001` (payload `3ccb744c…`). This is not
+the forthcoming owner66 projector candidate. Both arms freshly stage the full
+new37 pool, all8,246 routes and both repairs, then walk and cold-reinspect
+All/Off. The old singleton baseline is not reused as a paired timing. Same
+16-worker CPUs32–47 lane,150GB cap/reserve and inclusive1,800s schedule.
+
+[E] This separate training diagnostic tests transfer of the existing local
+gain to a more expensive parent graph while compilation proceeds. It is not
+held-out validation or a substitute for the censored six-residual cohort.
+Command:`python -B TMP/rule-optimizer-20261003/run_pair.py --plan
+TMP/rule-optimizer-20261003/candidates/owner66-R0-fullcross-v1/plan.json`.
+Root owns native session40782; no production path is modified.
+
+### Selective source-span implementation and build gate — October3, 14:52 UTC
+
+[M] The first optimized build completes the changed core/app libraries in
+810.36s but exposes three test-helper API errors (two unavailable constructors
+and one negation call). The implementation agent preserves the failed receipt
+and corrects only those calls before relinking the example tests. No native
+projector experiment or passing test result is claimed yet. Matching fresh
+library identities are shared with the parallel diagnostics lane; it must not
+link an old app library against the new core library.
+
+[M] Independent source review passes the selective logarithmic-kernel change
+and the prescribed-source explicit ingress policy after fixing propagation of
+that policy into both inspection and export. The kernel can protect a declared
+subset of active denominators, while retaining the original all-active mode.
+Eight kernel and twenty-two producer tests await execution. The first new
+kernel experiment keeps degree one and protects only the four observed
+same-degree dot-transfer destinations. No reconstruction or CAS kernel is
+implemented in RustRed.
+
+[E] Active ownership: `rule_optimizer_impl` handles the symbolic projector,
+its test/build gate and saved-case inspection; `rule_cost_profiles` handles
+the selective kernel and optional-ingress gates; `frontier_oct3_resume`
+independently audits implementation, source scope and measurements. Root
+coordinates resources and will evaluate any exact exported candidate against
+the completed 385,948-domain baseline before considering promotion.
+
+[M] Production remains read-only. At about14:51UTC the sole live new37
+campaign has74.25million discovered domains,13.45million pending, no frontiers,
+69.48GB tree RSS and roughly4 observed cores. Its conservative closure snapshot
+reports13/67 roots and is about12minutes old. The user-stopped `codex_ultra`
+campaign stays stopped. These observations do not establish convergence.
+
+### Actual incumbent fanout identified — October3, 14:31 UTC
+
+[M] The frozen owner66 target selects saved batch0/rule698. Its local guarded
+inspection completes after one output-budget-only retry (16→64MiB total,
+64KiB→1MiB per expression). The original reporting refusal is retained; no
+mathematical limit, target, ordering or source is changed. Independent audit
+passes. Complete output has1,668 distinct successor keys:47 same-support and
+1,621 strict subsectors, with1,669 term visits/one exact-zero term. Native
+processing plus runner takes10.603s, with owned processes drained.
+
+[M] Four same-support children preserve A=12/R=0 and move a dot fromD10 to
+D4,D6,D7 orD8. The other43 same-support children have smaller A. Across all
+successors,523 haveR=0,817 haveR=1 and328 haveR=2. These are exact local-key
+statistics, not recursive cost attribution. The existing public rule inspector
+will supply the saved parametric case; the singleton matched domain cannot be
+mistaken for that case. Evidence:`profiles/owner66-incumbent-tail-summary.json`
+and`discovery-owner66-incumbent-guarded-v2/` under the ignored root.
+
+[M] A preregistered4MiB sample of the completed single-root graph decodes10,501
+frames. Observed Apply work dominates inspector time; downstream owners3,4,2
+and12 are training leads, while owner24 remains reserved held-out. Owner66
+itself is absent from these windows. These publication/byte-window-biased
+samples do not establish which of its1,668 children causes the downstream work.
+
+[E] The next finite-bank hypothesis cancels the four exact same-degree dot
+transfers, not every active-power increase or every numerator. It is tested
+against the ordinary saved-order forbidden set separately from that set plus
+the four extra shifts. A prospective75-row bank uses all25 ordinary directions
+at offsets0,−eD2 and−eD10, the target's dotted coordinates. Actual saved-case
+inspection and a frozen request precede a symbolic probe. This is a selective
+elimination experiment, not a guarantee that a better rule exists in the bank.
+
+### Concrete current-stage target baseline completes — October3, 14:21 UTC
+
+[M] The previously frozen owner66 rank-zero target completes its separate
+full-context baseline in222.597s inclusive (221.051s arm). It creates385,948
+scheduled domains,314,840 native inspections and5,342,002 events. Owner
+preparation80.704s; traversal27.783s. Pending, frontiers and abandoned
+obligations are all zero. Independent cold All/Off reinspection passes the
+one required root and all native records; independent actual-binding and
+process-drain audit passes. No candidate arm ran and no optimization is
+measured. Its native stale0/1 snapshot/exit4 is superseded by the cold result.
+
+[M] The cold verifier reports70,889 nodes in sealed regional cycles; its PASS
+is re-derived coinductive dependency coverage, not original-IBP replay or a
+general termination theorem. It establishes the finite regional workload for
+this point, **not** closure of the original six residuals or the campaign.
+The point was already frozen for the kernel test before this baseline was
+planned. Original input caps and full current-new37 pool/routes are unchanged.
+Evidence:`candidates/owner66-R0-point-baseline-v1/` under the ignored root.
+
+[E] This supplies a tractable, nontrivial downstream test for the selective
+symbolic projector: the numerator-free point itself generates substantial
+regional work. The profiler is identifying its incumbent rule and tails and
+will sample only bounded windows of this newly completed graph. Do not assign
+per-tail causal costs from aggregate domain counts.
+
+### Symbolic target projection implementation — October3, 14:13 UTC
+
+[M] Diagnostic milestone`2aced52f` is committed and pushed to main. Root reruns
+all21 profiling/evaluator Python tests successfully. Native20 producer and7
+joint-kernel tests and independent code/mathematical/receipt audits are recorded
+in that milestone. All unsuccessful source spans remain documented.
+
+[E] Three lanes are active: `rule_optimizer_impl` implements checked native
+coefficient ingress, a typed unproved-descent obligation and a research-only
+exact Symbolica target projector; `rule_cost_profiles` extracts the selected
+rule and tails for the already frozen owner66 R0 target; auditor
+`frontier_oct3_resume` independently reviews both. Existing completion/search
+defaults and integral ordering are unchanged. Exact target projection will
+refine only its explicit forbidden-shift set within a frozen finite source
+bank; it cannot publish on numerical evidence or silently enlarge scope.
+
+[M] A separate baseline-only full-context traversal is preregistered and
+independently plan-audited for that **same pre-existing R0 point**. All coordinate
+bounds are fixed to it, while its original correlated caps are retained. This
+is a new training diagnostic, not a replacement for the censored six-residual
+cohort. It uses16 workers on32–47, unchanged67-owner/8246-route/two-repair pool,
+150GB process cap/reserve and first-arm inclusive deadlines through990s.
+Command:`python -B TMP/rule-optimizer-20261003/run_pair.py --plan
+TMP/rule-optimizer-20261003/candidates/owner66-R0-point-baseline-v1/plan.json
+--only-arm baseline`. No candidate or causal cost ratio is claimed.
+
+[M] Read-only production observation at14:09UTC:68.56million discovered,
+12.83million pending, no frontiers,64.27GB tree RSS and13/67 roots in a
+roughly23-minute-old conservative closure snapshot. User-paused old campaign
+remains stopped. The current campaign is not modified; these counters do not
+establish eventual convergence or an ETA.
+
 ### Joint-kernel negative and current-stage censor — October3, 14:03 UTC
 
 [M] The corrected explicit owner-ingress diagnostic passes seven native tests

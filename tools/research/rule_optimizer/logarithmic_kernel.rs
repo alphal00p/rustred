@@ -151,14 +151,13 @@ fn validate(r: &Value) -> Result<usize> {
                 .ok_or("invalid protected axis".to_string())
         })
         .collect::<Result<Vec<_>>>()?;
-    let active = mask
-        .bytes()
-        .enumerate()
-        .filter_map(|(i, b)| (b == b'1').then_some(i))
-        .collect::<Vec<_>>();
     require(
-        !active.is_empty() && protected == active,
-        "protected_axes must list every active axis exactly once in order",
+        !protected.is_empty()
+            && protected
+                .iter()
+                .all(|&axis| axis < n && mask.as_bytes()[axis] == b'1')
+            && protected.windows(2).all(|pair| pair[0] < pair[1]),
+        "protected_axes must be a sorted unique nonempty subset of active axes",
     )?;
     checked(IntegralShift::try_new(vector(&r["recenter"], n)?))?;
     for name in ["family_fingerprint", "expected_order"] {
@@ -388,6 +387,7 @@ fn probe<const N: usize>(bytes: &[u8], r: &Value) -> Result<Value> {
     Ok(
         json!({"schema":SCHEMA,"status":"FINITE_LOGARITHMIC_KERNEL_DIAGNOSTIC_COMPLETE","request":r,
         "family_fingerprint":family.fingerprint(),"saved_order":format!("{:?}",bound.owner_ordering()),"base_parameters":family.coefficient_context().parameter_names(),
+        "protection_scope":protection_scope(r),
         "preflight":preflight.report(),"construction":system.report,"unknown_provenance":unknowns,
         "constraint_columns":system.columns,"constraint_matrix":matrix_rows(&system.matrix),
         "coefficient_kernel_over_K":kernel.report,"kernel_weights":matrix_rows(&kernel.weights),
@@ -397,6 +397,20 @@ fn probe<const N: usize>(bytes: &[u8], r: &Value) -> Result<Value> {
         "master_or_irreducibility_or_coverage_or_cost_claim":false,
         "resource_scope":"Structural preflight and retained native results bounded; native transient scratch requires outer owned wall/RSS guard"}),
     )
+}
+
+fn protection_scope(r: &Value) -> Value {
+    let active = r["owner_mask"]
+        .as_str()
+        .unwrap()
+        .bytes()
+        .enumerate()
+        .filter_map(|(i, b)| (b == b'1').then_some(i))
+        .collect::<Vec<_>>();
+    json!({"active_axes":active,"protected_axes":r["protected_axes"],
+        "all_active_axes_protected":r["protected_axes"] == json!(active),
+        "axis_convention":"zero-based physical denominator coordinates",
+        "kernel_vector_subset_selection":false})
 }
 
 fn read_bounded(path: &Path, max: usize) -> Result<Vec<u8>> {

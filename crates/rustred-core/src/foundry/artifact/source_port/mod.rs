@@ -95,6 +95,21 @@ pub enum SourcePortAuditError {
         domain: AffineApplicationDomain,
         role: AffineOwnershipRole,
     },
+    /// Uniform descent, or exact coefficient vanishing, was not proved for
+    /// this term on one exact sign cell. This is NOT necessarily a concrete
+    /// counterexample: the descent proof may be conservative. Bounds use
+    /// parent sector-local coordinates (active n-1, inactive -n).
+    ///
+    /// Discovery may conservatively forbid the entire shift and retry its
+    /// unchanged finite source span. Such a restriction grants no authority
+    /// and a subsequent miss is not a proof that no valid rule exists.
+    UnprovedDescentObligation {
+        term_ordinal: usize,
+        shift: Vec<i64>,
+        local_lower: Vec<u64>,
+        local_upper: Vec<Option<u64>>,
+        child_sector: Vec<bool>,
+    },
 }
 
 impl fmt::Display for SourcePortAuditError {
@@ -128,6 +143,16 @@ impl fmt::Display for SourcePortAuditError {
                     domain.equations(),
                 )
             }
+            Self::UnprovedDescentObligation {
+                term_ordinal,
+                shift,
+                local_lower,
+                local_upper,
+                child_sector,
+            } => write!(
+                f,
+                "term {term_ordinal} is not uniformly lower on local box {local_lower:?}..{local_upper:?}; shift={shift:?}, child_sector={child_sector:?}"
+            ),
         }
     }
 }
@@ -165,7 +190,8 @@ impl SourcePortAuditError {
             }
             Self::Message(_)
             | Self::ResourceBudgetExhausted { .. }
-            | Self::UnsupportedResourcePolicy { .. } => None,
+            | Self::UnsupportedResourcePolicy { .. }
+            | Self::UnprovedDescentObligation { .. } => None,
         }
     }
 }

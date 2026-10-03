@@ -315,11 +315,13 @@ pub(crate) fn prove_wide_descent_with_limits<'a, T: 'a>(
                 if lower || vanishes(coefficient, &piece)? {
                     continue;
                 }
-                return Err(error(format!(
-                    "term {term_ordinal} is not uniformly lower on local box {:?}..{:?}; shift={shifts:?}, child_sector={actual:?}",
-                    piece.lower(),
-                    piece.upper(),
-                )));
+                return Err(SourcePortAuditError::UnprovedDescentObligation {
+                    term_ordinal,
+                    shift: shifts.to_vec(),
+                    local_lower: piece.lower().to_vec(),
+                    local_upper: piece.upper().to_vec(),
+                    child_sector: actual,
+                });
             }
         }
     }

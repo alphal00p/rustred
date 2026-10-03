@@ -360,6 +360,6 @@ pub(super) fn point<const N: usize>(
         "true_parametric_zero_count":images.rows.iter().filter(|x|x.is_empty()).count(),
         "nonzero_parametric_images_vanishing_at_point":images.rows.iter().zip(&image_rows).filter(|(a,b)|!a.is_empty()&&b.is_empty()).count(),
         "specialization_guards_before_cancellation":guards,"result":solved.report,"original_source_replay":composed,
-        "all_kernel_images_including_zero_rows_passed_to_F_solver":true,"subset_selection":false}),
+        "all_kernel_images_including_zero_rows_passed_to_F_solver":true,"kernel_vector_subset_selection":false}),
     )
 }

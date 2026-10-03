@@ -1,7 +1,8 @@
 # Campaign-guided rule optimization: first completed downstream results
 
 October 3, 2026. This report concerns isolated development experiments, not a
-change to either running production campaign. The active objective remains
+change to production. The user has stopped the old campaign; the new37 campaign
+remains live and read-only. The active objective remains
 [the profile-guided optimization plan](../../PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
 
 ## Mechanism, not an extra master or a smaller request
@@ -151,6 +152,22 @@ feasibility observation, not a comparison, closure result or evidence that
 the earlier shortcut helps these residuals. The original cohort is retained.
 Evidence:`candidates/residual6-fullcross-v1/`.
 
+### Separate preregistered rank-zero target
+
+A baseline-only test keeps the owner66 integer target already frozen before the
+joint-kernel tests, with all67 current-new37 owners,8246 routes and two repairs.
+It completes and cold-passes one required root and314,840 native inspections:
+385,948 scheduled domains,5,342,002 events, zero pending/frontiers/abandoned.
+Preparation takes80.704s, traversal27.783s, full arm221.051s and inclusive
+runner222.597s. No candidate arm or paired comparison is performed.
+
+This gives a nontrivial completed cost baseline for the next symbolic search;
+it is not substituted for the earlier censored residual cohort. The independent
+cold verifier finds70,889 nodes in sealed regional cycles, so its PASS denotes
+coinductive dependency coverage/reinspection, not a termination theorem or
+original-source certification. Independent input, command and process audits
+pass. Evidence:`candidates/owner66-R0-point-baseline-v1/`.
+
 ## Current-stage source constraints: useful negative results
 
 The generic two-protected tangent adapter passes20 native tests. Its owner15
@@ -171,6 +188,115 @@ using exact symbolic projection; a zero-image span cannot be rescued by lifting.
 Evidence:`candidates/logarithmic-owner66-finite-summary-v1.json`.
 
 ## What is established, and what is not
+
+### Transfer to the current-stage rank-zero workload
+
+A new matched pair keeps the previously frozen owner66 rank-zero point and all
+67 owners, 8,246 ordered routes and two repair overlays. Only the already proved
+full-cross lower-owner rule changes. This is a fresh pair, not a comparison with
+the earlier diagnostic baseline; both arms cold-reinspect successfully.
+
+| Arm | Scheduled domains | Native inspections | Events | Traversal (s) | Full arm (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 386,097 | 314,994 | 5,327,486 | 27.646 | 224.878 |
+| Full-cross candidate | 385,859 | 314,978 | 5,323,569 | 28.106 | 225.181 |
+
+The domain difference is only 0.062%, comparable to ordinary schedule-dependent
+variation; traversal is 1.66% slower in this pair. There is **no material gain**
+on this workload and no reason to promote the candidate on this evidence.
+This does not erase its earlier local wins, but demonstrates why those wins
+cannot be extrapolated to a whole five-loop campaign. No second pair is needed
+to claim a benefit that this diagnostic did not find. Independent actual-binding
+audit is recorded separately. Evidence:
+`candidates/owner66-R0-fullcross-v1/`; inclusive wall time 454.210s.
+
+### The expensive rule's actual parametric case
+
+Native inspection identifies saved owner66 rule698, with 1,669 stored RHS terms
+and 1,969 retained sources. Its coordinate case fixes fourteen indices; only
+the D2 power is free. The selected point has D2=3 and D10=2. Exact guarded
+application produces 1,668 nonzero, distinct children: 47 keep the same support
+and 1,621 are strict subsectors. Four same-support children move one dot from
+D10 to D4, D6, D7 or D8 without changing total positive power or numerator rank.
+These local counts do not identify each child's recursive cost.
+
+The next independently reviewed experiment uses 75 ordinary sources at three
+fixed translations. It compares an initially empty forbidden-shift set against
+one containing those four dot transfers. Both keep the exact coordinate locus,
+D2>=1, the saved integral order and a maximum of 32 typed whole-chart descent
+refinements. This is **not** a precomputed complete forbidden-column census.
+The source bank and chart cannot expand or shrink after a failed attempt.
+The incumbent's stored exclusion IDs are not borrowed as proved assumptions.
+
+The new Symbolica-based projector passes 11 optimized example tests. Actual
+saved-case inspection passes in 6.316s. Both first symbolic trials complete in
+about 10s but refuse their selected circuit: it has a genuine `1/(D2-1)` pole.
+Failure-only native diagnostics confirm the affected cell is the D2=1 boundary,
+not the whole coordinate face. The circuit also retains an unproved raising
+tail, so excluding that boundary alone does not establish descent. A separate
+D2>=2 trial is authorized; the original refusals are preserved and that omitted
+slice must retain old-rule fallback. No replacement artifact has been exported.
+Any valid alternative still needs parent dispatch, completed downstream
+comparisons and independent audits.
+
+The subsequent D2>=2 searches preserve the boundary's old-rule fallback. Their
+first32-refinement attempts reach that explicit limit. Allowance-only retries
+then finish:62 added forbidden shifts from the empty set, or68 added to the
+four initial transfers, leave no target pivot among all75 sources. Inclusive
+times are13.928s and14.574s, with peak tree RSS below3.9GB. All generated
+circuits replay exactly. This is a finite-span negative under the accumulated
+conservative forbidden set, not a claim that no useful rule exists.
+
+A subsequent independent ordering audit sharpens the initially empty-F result.
+All 62 added shifts preserve support and are strictly higher on the **entire**
+declared D2>=2 ray, not only on their reported failing subcells. A nonzero
+rational coefficient cannot vanish on an infinite interval of that free index.
+Thus those bans are necessary for a uniformly descending rational circuit on
+this chart, and the final exact rank miss excludes such a circuit in raw75.
+This is a finite-bank statement, not master irreducibility or failure of IBP
+reduction. The four optional initial H4 exclusions are not claimed necessary.
+The per-shift evidence is `candidates/raw75-failed-shift-order-audit-v1.json`.
+
+A separate selective-kernel calculation protects D4/D6/D7/D8 rather than every
+active denominator. Its degree-one matrix has400 unknowns,480 constraints and
+rank260. All140 kernel vectors have nonzero parametric images, and none raises
+the protected indices. Their point image nevertheless lacks a target pivot.
+The ordinary-source support nominates312 distinct translated rows; union with
+the original75 gives362 sources, including287 new ones. Using raw support does
+not inherit the kernel's protection or rank properties.
+
+That362-source experiment reaches a candidate with116 RHS tails but stops on
+the native endpoint-cell budget:10,560 requested versus8,192 allowed. It takes
+18.197s inclusive, peaks at4.914GB RSS, and all33 attempted circuits pass full
+original-source replay. There is still **no proved or exported replacement**.
+An optional input for that existing native limit is under test, permitting an
+otherwise unchanged retry without changing the default or proof criteria.
+Evidence:`candidates/symbolic-owner66-union362-seedF62-summary-v1.json`.
+
+The separately tested endpoint-option retry is output-censored: repeated full
+per-attempt diagnostics exceed512MiB after40.821s inclusive, with10.312GB peak
+RSS. Its final mathematical outcome is unobserved; a native process exit alone
+does not establish a proved rule or a finite-span miss. A compact trace mode is
+being tested to retain every refinement and the complete final candidate while
+omitting duplicate intermediate displays. It will not change proof work.
+
+The elementary vacuum Euler recurrence explains one ordering obstruction:
+
+\[
+(a_j-1)I(a)=(Ld/2-\sum_i a_i+1)I(a-e_j)
+-\sum_{i\ne j}a_i I(a-e_j+e_i).
+\]
+
+These relations already occur as sums of diagonal ordinary IBPs in the raw75
+bank. At fixed support and total power, the saved order treats excess in an
+earlier active coordinate as simpler. Thus the D2 recurrence's dot transfers
+raise the integral; the D10 recurrence still raises transfers to D11/D12.
+The last-active-coordinate version would descend on a different dotted face,
+but does not solve this target. This is an ordering issue, not a missing source
+identity. A changed common order requires a separate coherent program and
+downstream experiment, not selective acceptance of a raising rule.
+
+### Scope of conclusions
 
 - Exact rule validity, common-order descent and fallback are separate from the
   downstream performance result; neither substitutes for the other.

@@ -25,7 +25,7 @@ use rustred::{
     solver::RuleDispatchPolicy,
 };
 use rustred_app::{
-    CandidateOwnerBundle, encode_checked_priority_owner_with_policy,
+    CandidateOwnerBundle, CandidateOwnerLoadLimits, encode_checked_priority_owner_with_policy,
     inspect_generated_candidate_bundle, load_generated_candidate_owners,
 };
 use serde_json::{Value, json};
@@ -96,6 +96,50 @@ fn fixed(r: &Value) -> Result<Vec<(usize, i64)>> {
         .collect()
 }
 
+/// Optional transport policy only; absent input preserves the native default.
+/// Algebra/proof limits are not changed by these seven ingress fields.
+fn owner_load_limits(r: &Value) -> Result<CandidateOwnerLoadLimits> {
+    let Some(value) = r.get("owner_load_limits") else {
+        return Ok(CandidateOwnerLoadLimits::default());
+    };
+    let fields = [
+        "max_bundle_bytes",
+        "max_total_input_bytes",
+        "max_total_coefficient_bytes",
+        "max_collection_entries",
+        "max_total_symbolica_state_bytes",
+        "max_zero_sector_visits",
+        "max_coefficient_bytes",
+    ];
+    let object = value
+        .as_object()
+        .ok_or("owner_load_limits must be an object")?;
+    require(
+        object.len() == fields.len() && object.keys().all(|key| fields.contains(&key.as_str())),
+        "unknown or missing owner ingress field",
+    )?;
+    let number = |name: &str| -> Result<usize> {
+        value[name]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|&n| n > 0)
+            .ok_or_else(|| format!("positive owner ingress limit required: {name}"))
+    };
+    let mut policy = CandidateOwnerLoadLimits::default();
+    policy.bundle.max_bundle_bytes = number("max_bundle_bytes")?;
+    require(
+        policy.bundle.max_bundle_bytes <= rustred_app::MAX_CANDIDATE_BUNDLE_BYTES,
+        "owner bundle exceeds native hard ceiling",
+    )?;
+    policy.max_total_input_bytes = number("max_total_input_bytes")?;
+    policy.bundle.max_total_coefficient_bytes = number("max_total_coefficient_bytes")?;
+    policy.bundle.max_collection_entries = number("max_collection_entries")?;
+    policy.max_total_symbolica_state_bytes = number("max_total_symbolica_state_bytes")?;
+    policy.max_zero_sector_visits = number("max_zero_sector_visits")?;
+    policy.bundle.max_coefficient_bytes = number("max_coefficient_bytes")?;
+    Ok(policy)
+}
+
 fn validate(r: &Value) -> Result<usize> {
     require(
         r["schema"] == SCHEMA
@@ -115,6 +159,7 @@ fn validate(r: &Value) -> Result<usize> {
             "family/order binding required",
         )?;
     }
+    owner_load_limits(r)?;
     for k in [
         "max_owner_bytes",
         "max_output_bytes",
@@ -351,6 +396,7 @@ fn produce<const N: usize>(
 ) -> Result<(Value, Option<Vec<u8>>)> {
     let started = Instant::now();
     let policy = policies(r)?;
+    let ingress = owner_load_limits(r)?;
     let arithmetic = policy.cell.indexed_algebra;
     let exact = arithmetic.exact_algebra;
     let sector: [bool; N] =
@@ -361,7 +407,7 @@ fn produce<const N: usize>(
             bytes,
             owner_sector: &mask,
         }],
-        Default::default(),
+        ingress,
         Default::default(),
     ))?;
     require(
@@ -583,20 +629,17 @@ fn produce<const N: usize>(
     let mut candidate = None;
     if export {
         let export_start = Instant::now();
-        let before = checked(inspect_generated_candidate_bundle(
-            bytes,
-            Default::default(),
-        ))?;
+        let before = checked(inspect_generated_candidate_bundle(bytes, ingress.bundle))?;
         let owner = checked(encode_checked_priority_owner_with_policy::<N>(
             bytes,
             proposal,
             policy,
-            Default::default(),
+            ingress.bundle,
             RuleDispatchPolicy::AfterBaselinePartitionWholePiece,
         ))?;
         let after = checked(inspect_generated_candidate_bundle(
             owner.bytes(),
-            Default::default(),
+            ingress.bundle,
         ))?;
         require(
             after.generated_rules == before.generated_rules + 1
@@ -686,6 +729,59 @@ mod tests {
         "limits":{"max_owner_bytes":1048576,"max_output_bytes":1048576,"max_source_rows":8,"max_complete_source_rows":8,"max_terms":1000,"max_conditions":1000,"max_coordinate_cells":10000,"max_cells":64,"max_polynomial_terms":1000,"max_term_operations":100000,"max_exponent":64,"max_report_bytes":1048576}})
     }
     #[test]
+    fn optional_owner_ingress_preserves_defaults_and_maps_only_transport_fields() {
+        let mut r = request();
+        let defaults = CandidateOwnerLoadLimits::default();
+        let absent = owner_load_limits(&r).unwrap();
+        let snapshot = |p: &CandidateOwnerLoadLimits| {
+            [
+                p.bundle.max_bundle_bytes,
+                p.max_total_input_bytes,
+                p.bundle.max_total_coefficient_bytes,
+                p.bundle.max_collection_entries,
+                p.max_total_symbolica_state_bytes,
+                p.max_zero_sector_visits,
+                p.bundle.max_coefficient_bytes,
+            ]
+        };
+        assert_eq!(snapshot(&absent), snapshot(&defaults));
+        let fields = [
+            "max_bundle_bytes",
+            "max_total_input_bytes",
+            "max_total_coefficient_bytes",
+            "max_collection_entries",
+            "max_total_symbolica_state_bytes",
+            "max_zero_sector_visits",
+            "max_coefficient_bytes",
+        ];
+        r["owner_load_limits"] = json!({});
+        for (i, name) in fields.iter().enumerate() {
+            r["owner_load_limits"][name] = json!(1000 + i);
+        }
+        let explicit = owner_load_limits(&r).unwrap();
+        assert_eq!(
+            snapshot(&explicit),
+            [1000, 1001, 1002, 1003, 1004, 1005, 1006]
+        );
+        assert_eq!(explicit.bundle.exact_algebra, defaults.bundle.exact_algebra);
+        for bad in [json!(null), json!({}), json!({"invented":1})] {
+            let mut wrong = r.clone();
+            wrong["owner_load_limits"] = bad;
+            assert!(validate(&wrong).is_err());
+        }
+        for bad in [
+            json!(0),
+            json!(-1),
+            json!(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES + 1),
+        ] {
+            let mut wrong = r.clone();
+            wrong["owner_load_limits"]["max_bundle_bytes"] = bad;
+            assert!(validate(&wrong).is_err());
+        }
+        r["owner_load_limits"]["invented"] = json!(1);
+        assert!(validate(&r).is_err());
+    }
+    #[test]
     fn malformed_sources_and_unsupported_chart_refuse() {
         assert_eq!(validate(&request()).unwrap(), 1);
         for case in 0..5 {
@@ -765,6 +861,29 @@ powers = [1]
             }
             assert!(produce::<1>(&bytes, &r, false).is_err(), "{field}");
         }
+    }
+    #[test]
+    fn explicit_ingress_reaches_native_loader_and_default_export_is_unchanged() {
+        let (bytes, mut r) = fixture();
+        let (_, original) = produce::<1>(&bytes, &r, true).unwrap();
+        let p = CandidateOwnerLoadLimits::default();
+        r["owner_load_limits"] = json!({
+            "max_bundle_bytes":p.bundle.max_bundle_bytes,
+            "max_total_input_bytes":p.max_total_input_bytes,
+            "max_total_coefficient_bytes":p.bundle.max_total_coefficient_bytes,
+            "max_collection_entries":p.bundle.max_collection_entries,
+            "max_total_symbolica_state_bytes":p.max_total_symbolica_state_bytes,
+            "max_zero_sector_visits":p.max_zero_sector_visits,
+            "max_coefficient_bytes":p.bundle.max_coefficient_bytes});
+        let (_, explicit) = produce::<1>(&bytes, &r, true).unwrap();
+        assert_eq!(original, explicit);
+        assert!(explicit.as_ref().unwrap().len() > bytes.len());
+        let mut export_capped = r.clone();
+        export_capped["owner_load_limits"]["max_bundle_bytes"] = json!(bytes.len());
+        assert!(produce::<1>(&bytes, &export_capped, false).is_ok());
+        assert!(produce::<1>(&bytes, &export_capped, true).is_err());
+        r["owner_load_limits"]["max_total_input_bytes"] = json!(1);
+        assert!(produce::<1>(&bytes, &r, false).is_err());
     }
     #[test]
     fn known_tadpole_symbolic_chart_uses_original_proof_and_preserves_suffix() {

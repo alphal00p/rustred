@@ -25,6 +25,19 @@ fn message_location_keeps_typed_proof_errors_intact() {
         typed,
         SourcePortAuditError::ResourceBudgetExhausted { resource: "atoms" }
     ));
+    let typed = SourcePortAuditError::UnprovedDescentObligation {
+        term_ordinal: 2,
+        shift: vec![1],
+        local_lower: vec![1],
+        local_upper: vec![None],
+        child_sector: vec![true],
+    }
+    .with_message_context(|| panic!("typed descent obligations must retain their structure"));
+    assert!(
+        matches!(typed, SourcePortAuditError::UnprovedDescentObligation {
+        term_ordinal: 2, ref shift, ref local_lower, ref local_upper, ref child_sector,
+    } if shift == &[1] && local_lower == &[1] && local_upper == &[None] && child_sector == &[true])
+    );
 }
 
 #[test]
