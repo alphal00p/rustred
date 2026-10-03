@@ -10,6 +10,125 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Current workboard — October3 profile-guided rule optimization
 
+### Joint-kernel negative and current-stage censor — October3, 14:03 UTC
+
+[M] The corrected explicit owner-ingress diagnostic passes seven native tests
+and independent audit. Both fixed owner66 probes complete, including owner
+loading: degree0 takes10.944s (native6.277s), degree1 takes11.254s
+(native7.020s), peak tree RSS about3.413GB. Degree0 has25 unknowns/rank25,
+no kernel. Degree1 has400 unknowns/rank390 and ten kernel vectors, but every
+complete **parametric** source image is identically zero. This is stronger
+than cancellation only at the sample point, and weaker than any general
+irreducibility claim. K(n) image rank was explicitly not computed; zero-image
+replay was exact. Neither probe yields a rule or artifact. Evidence:
+`TMP/rule-optimizer-20261003/candidates/logarithmic-owner66-finite-summary-v1.json`.
+Both owned process groups drained; the earlier ingress refusal is retained.
+
+[M] The current-new37 six-residual baseline is cooperatively censored at
+727.977s inclusive:5,898,330 scheduled domains,3,620,678 native inspections,
+83,180,655 events and757,106 pending. No frontiers, errors or abandoned
+obligations; CP6 generation1 saved/resumable, owned processes drained. Its
+live0/6 closure snapshot is stale and not a cold result. No candidate or cold
+arm ran, so this is **not** an efficacy comparison. All7,315 original tuples,
+67 owners,8246 routes and two repairs remain unchanged. Independent audit
+passes. Evidence:`candidates/residual6-fullcross-v1/` under the same ignored root.
+
+[M] Independent actual-receipt audit now passes both completed full-cross
+mixed2 pairs:24.91% less scheduled work, but no established whole-arm time win.
+The larger current-stage baseline shows why this local gain cannot yet support
+a whole-campaign recommendation. Production is not modified.
+
+[E] Next mechanism: allow some active-power transfers and eliminate selected
+costly shifts over the exact symbolic coefficient field. Blanket degree0/1
+protection of every active denominator is parked for owner66; a symbolic
+projector cannot rescue a span whose full images are all zero. Profiler
+`rule_cost_profiles` will inspect actual selected rule tails before nominating
+selective constraints. Implementer `rule_optimizer_impl` prepares two narrow
+native API seams and a research-only Symbolica target projector, with typed
+descent obligations and bounded same-bank refinement. `frontier_oct3_resume`
+independently reviews code, mathematics and measurements. No automatic degree,
+source-bank or chart escalation is admitted; no production switch is advised.
+
+### Current-stage source tests and transport finding — October3, 13:43 UTC
+
+[M] Two-protected bridge has20 passing native tests and independent review.
+Its generic toy fails saved-order descent, while the owner15 full-sign request
+first exhausts4,096 sign cells. A separately authorized prove-only diagnostic
+keeps the **same frozenR0 point**, source recipe and ordering; it fails in1.995s
+on the nonzero shift`-2e0-e1+2e13`, which activates inactiveD14 from0 to2.
+Thus a larger proof budget alone cannot repair this recipe's full chart.
+No artifact is exported, no request coverage is narrowed, and no terminal is
+added. Old radial output remains byte-identical. The independent auditor
+confirms all these distinctions. Evidence:
+`candidates/two-protected-source-build-v1/native-milestone.json` and
+`R0-diagnostic-summary.json`.
+
+[M] The joint logarithmic kernel diagnostic compiles and passes six tests.
+Its first degree0 probe stops **before algebra** because the default native
+loader cap is lower than owner66's725,521,584-byte artifact. A bounded framing
+audit (76 bytes at known offsets, not another whole-file scan) finds a
+696,872,680-byte coefficient table with201,896 entries. The existing campaign
+already admits this data under explicit larger ingress limits. The fix will
+honor those limits through generic request fields, keeping the point, degree,
+matrix, source and32GiB process bounds unchanged. Original refusal is retained.
+No mathematical kernel result is available yet.
+
+[E] Next shared-context test is frozen at all six new-stage residuals,7,315
+distinct tuples, unchanged current-new37 pool/routes/repairs and full-cross
+replacement. This tests transfer to current-stage work; it does not assume the
+candidate is encountered. Independent preflight precedes execution. To use
+available resources safely, root permits the small algebra probes on CPU64
+under a dedicated lock while the16-worker traversal remains on32–47 and builds
+on0–15. Both degree probes use the same new placement; the failed pre-algebra
+timing is not a comparison. Combined development memory ceilings stay below
+200GB plus150GB host reserve. The live production process on96–127 remains
+untouched. This explicit diagnostic overlap does not waive the owned-process
+guards or alter existing full-campaign timing harnesses.
+
+### Pushed gradient milestone; broader dispatch measured — October3, 13:19 UTC
+
+[M] Commit`99ab02d9` is pushed to main: optional protected-gradient source
+nomination,15 native tests, shifted-family chart proof/export, unchanged radial
+bytes and the independently audited evidence/negative results. Unrelated
+HepKit/FeynKit edits and untracked files remain untouched.
+
+[M] Full-cross mixed2 pair completes in367.562s. Both arms cold-pass their two
+unchanged integer inputs with the full67-owner/8246-route/two-repair context:
+baseline10,010 domains/9,607 native inspections/233,803 events versus
+candidate7,517/7,103/204,000. Traversal1.158445s→1.052706s; full arm
+181.993110s→181.932551s. Thus24.91% less scheduled work and9.13% less
+traversal time in this pair, but effectively no whole-arm timing gain.
+Waited CPU1617.363s/1619.482s; sampled peak tree RSS5.265GB/5.302GB.
+No pending work, frontiers or abandoned obligations. Independent audit checks
+actual commands, bindings, checkpoint exhaustion and cold All/Off reinspection.
+Evidence:`candidates/radial-full-cross-mixed2-v1/` under the ignored root.
+
+[M] Counterbalanced v2 is independently plan-audited and now running.
+Only destination/cohort labels/arm order differ; no point or budget changed.
+Optimized two-protected source test/binary builds may run concurrently on0–15,
+while this pair stays on32–47 and production on96–127. This host contention
+is recorded; work counts are primary and small timing differences remain noisy.
+Read-only host observation also finds an unrelated GammaLoop process consuming
+about115 cores with affinity0–383, so disjoint **our-job** reservations do not
+mean host-isolated measurements. Root does not change that other user's job.
+The new adapter's source audit passes, but its20 authored tests have not yet
+executed. Joint degree0/1 kernel code/testing is a separate source-only lane;
+optional expensive K(n) image-rank computation may be explicitly disabled in
+its first request while every nonzero image, point solve and replay is retained.
+
+[M] Reverse mixed2 pair has now completed in356.413s. It reproduces exactly
+7,517 versus10,010 scheduled domains and7,103 versus9,607 native inspections.
+All four arms across both pairs cold-pass and discharge their finite worklists.
+Reverse traversal0.975860s candidate versus1.043474s baseline; full arm
+178.507366s versus175.092565s. The work saving is stable, but there is no
+whole-arm wall-time win. Reverse-pair independent receipt audit is pending.
+The two-protected optimized build now passes all20 tests; the native generic
+toy/observed-owner15 proof chain is admitted, with no automatic chart narrowing
+or budget escalation. Its frozenR0 point must actually satisfy the emitted
+normalization guard before it can be called a target hit. Kernel source and
+frozen-input audit also pass; root registers its Cargo example and grants
+optimized test/binary builds on0–15, not yet the native owner66 probes.
+
 ### Full mixed chart and counterbalanced evidence — October3, 13:09 UTC
 
 [M] The approved full-cross retry succeeds without changing the chart or

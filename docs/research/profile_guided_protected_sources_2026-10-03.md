@@ -4,8 +4,13 @@ October 3, 2026. Read-only mechanism study for the
 [optimization plan](../../PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md), informed by
 the [bounded cost profile](five_loop_rule_cost_profile_2026-10-03.md).
 This document authorizes no implementation, native job or campaign change.
-The two bounded diagnostics below remain the next proposed tests; the appendix
-is a future mechanism, not an additional experiment or a held-out fit.
+The first two experiments and nonradial appendix preserve their proposal-time
+reasoning. Subsequent native outcomes are recorded in the
+[independent audit](profile_guided_rule_optimizer_audit_2026-10-03.md): the
+secondary75 projection gives a bounded negative, while the optional gradient
+toy and broader radial charts pass their separate native proofs. Those results
+do not convert untested proposals below into performance claims. The final
+finite multi-loop kernel section remains a new prospective mechanism.
 
 ## Selective protection, not a blanket ban on raised powers
 
@@ -132,8 +137,11 @@ For a component monomial c*D^alpha, the ordinary-source offset is
 `+e_D14-e_i-e_j` or `+e_D14-2e_i`, besides constant/linear shifts.
 Use the native plan's actual contributions and RowIds; do not guess weights.
 The 75-row bank of Test 1 is **not assumed to contain these translations**.
-Proposed limits are degree 2, 128 translated contributions, 10,000 original
-product terms, one point and 60 seconds. Reject a zero/degenerate vector,
+Proposed limits are emitted-vector degree2,128 translated contributions,
+10,000 original product terms, one point and60 seconds. The native tangency
+check multiplies a degree1 derivative by a degree2 minor, so its intermediate
+polynomial allowance must permit degree3 without permitting a degree3 emitted
+vector or an optional multiplier. Reject a zero/degenerate vector,
 unavailable target pivot, new source poles, non-lower tails or resource refusal.
 
 No current driver directly admits this mixed-point two-protected request:

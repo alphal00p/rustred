@@ -95,7 +95,7 @@ production run remained active. Each pair uses identical placement and limits
 within its two arms. Evidence: `candidates/prescribed-spectator-followup12-v1/`
 and`-v2/`.
 
-## Broader mixed chart: exact authority, cost not yet measured
+## Broader mixed chart: exact authority and completed local comparisons
 
 The same eight-source identity now passes the unchanged saved-order proof with
 all previously fixed cross numerators free nonpositive, while D14 remains
@@ -113,11 +113,62 @@ report. The raw success/error evidence is preserved; bounded postprocessing
 using the declared128MiB allowance verifies the original receipt without a
 native rerun. Independent audit confirms source/proof/export binding.
 
-This removes a previous applicability restriction, but may also introduce more
-successors. **No speed or shared-work benefit is inferred.** A preregistered
-two-point comparison keeps both previously frozen mixed inputs unchanged and
-uses actual priority dispatch within the full pool/routes. It is training
-validation, not a production or held-out result.
+This removes a previous applicability restriction, but also permits more RHS
+terms. The preregistered comparison keeps both previously frozen mixed integer
+inputs unchanged and uses actual priority dispatch within the full pool/routes.
+Neither point nor its bounds is adjusted after candidate discovery.
+
+| Pair / arm | Domains | Native inspections | Events | Traversal (s) | Full arm (s) | Waited CPU (s) | Peak tree RSS (GB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 baseline first | 10,010 | 9,607 | 233,803 | 1.158 | 181.993 | 1,617.363 | 5.265 |
+| 1 candidate second | 7,517 | 7,103 | 204,000 | 1.053 | 181.933 | 1,619.482 | 5.302 |
+| 2 candidate first | 7,517 | 7,103 | 205,099 | 0.976 | 178.507 | 1,633.369 | 5.269 |
+| 2 baseline second | 10,010 | 9,607 | 233,803 | 1.043 | 175.093 | 1,674.627 | 5.320 |
+
+All four arms finish with zero pending work, frontiers or abandoned obligations
+and cold-pass both roots and all native inspections. Both pairs reproduce
+**24.91% fewer scheduled domains**, with traversal6.48–9.13% faster. Full-arm
+time is effectively unchanged in pair1 and1.95% higher in pair2; no established
+whole-arm timing benefit is claimed. An unrelated GammaLoop workload has broad
+host affinity during these observations, and a compile on0–15 overlaps pair2
+on32–47. These reservations separate our own jobs, not all host contention.
+Evidence:`candidates/radial-full-cross-mixed2-v1/` and`-v2/`; pair totals
+367.562s and356.413s. This remains training validation, not a campaign-wide or
+held-out result. Independent actual command/input/cold audits pass for both
+pairs.
+
+## Transfer to current-stage residuals: baseline censored
+
+The next frozen cohort contains all six new-stage residuals,7,315 distinct
+integer tuples, with unchanged current-new37 pool, routes and repair overlays.
+The baseline stops cooperatively after727.977s inclusive with5,898,330 scheduled
+domains,3,620,678 native inspections,83,180,655 events and757,106 pending.
+It has no frontiers, errors or abandoned obligations; checkpoint generation1
+is saved/resumable and owned processes drain. Independent audit passes.
+
+Neither a candidate arm nor cold reinspection ran. This is an incomplete
+feasibility observation, not a comparison, closure result or evidence that
+the earlier shortcut helps these residuals. The original cohort is retained.
+Evidence:`candidates/residual6-fullcross-v1/`.
+
+## Current-stage source constraints: useful negative results
+
+The generic two-protected tangent adapter passes20 native tests. Its owner15
+full-sign proof initially hits the sign-partition budget; a separate diagnostic
+on the unchanged frozen R0 point finds a genuine non-descending term that
+activates an inactive propagator. Raising the proof budget alone therefore
+cannot make that unchanged recipe descend. No candidate is exported.
+
+A separate native Symbolica joint-kernel probe protects every active
+denominator of owner66. Degree0 has no kernel. Degree1 gives ten kernel
+vectors, but all ten regenerate to identically zero **parametric** IBP images.
+The probes complete in10.944s and11.254s inclusive (including owner loading),
+with about3.413GB peak tree RSS. Seven native tests and independent audits pass.
+This rules out only the tested finite ansatz, not useful higher-degree or
+selectively protected relations. It does not establish master irreducibility.
+The next approach admits selected power transfers and targets expensive tails
+using exact symbolic projection; a zero-image span cannot be rescued by lifting.
+Evidence:`candidates/logarithmic-owner66-finite-summary-v1.json`.
 
 ## What is established, and what is not
 

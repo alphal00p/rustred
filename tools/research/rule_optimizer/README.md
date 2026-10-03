@@ -364,3 +364,149 @@ and its one original terminal retained. This is an independent shifted-family
 chart proof, not an operational-family or performance claim. Its input-grammar
 refusal (reserved label `J`, later renamed `N`) and first budget refusal remain
 in the raw evidence beside the successful retry.
+
+## Two-protected native source bridge
+
+The separate request schema `rustred.two-protected-tangent-chart.v1` feeds the
+existing native `TangentSourcePlan` through the same producer executable. It
+uses the existing family/order/chart/limit fields, but has this nomination shape
+(indices are zero-based; this is a shape example, not a proved chart):
+
+```json
+{
+  "differentiated_loop": 0,
+  "protected_denominators": [0, 1],
+  "contractions": [
+    {"kind": "loop", "index": 0},
+    {"kind": "loop", "index": 1},
+    {"kind": "external", "index": 0}
+  ],
+  "recenter": [0, 0, 1]
+}
+```
+
+The axes, three distinct contraction directions, and full-arity integer recenter
+are explicit inputs. Protected axes need not be active. Unlike the radial mode,
+this schema does not infer a numerator, impose a recenter convention, or silently
+change the chart. Mixed schemas, prescribed weights, multipliers and unknown
+nomination fields are refused. The native family validates actual directions.
+
+`geometry_two_protected.rs` constructs native signed two-by-two minors and
+materializes their complete ordinary-source product. It does not implement a
+polynomial engine or solve its own source equations. Output vector degree is at
+most two; native tangency verification separately permits degree-three
+intermediate derivative-times-minor products. All native limits are explicitly
+mapped from the request, and external time/RSS supervision remains mandatory.
+`max_complete_source_rows` also bounds the native original-proof source batch,
+so it must accommodate both the completed ordinary inventory and selected
+translated rows, not just the number of ordinary RowIds.
+
+Named RowIds, translations and indexed weights stay native in-process. Every
+materialized pre-cancellation condition enters the common producer, whose full
+regenerated product must equal the native materialized product exactly before
+fixed specialization or target normalization. Native ordinary rows carry family
+domain/input-basis guards; the adapter invents no intermediate-pole getter.
+The unchanged original-source chart checker and runtime-guard exporter remain
+the only admission path. Degenerate minors, absent pivots, non-descending tails,
+unsupported poles, or resource misses do not authorize a partial chart or a
+terminal. No downstream improvement follows merely from tangency.
+
+The bridge fixtures cover full mixed derivatives and an explicit
+parameter pole, external directions, arbitrary recenter, protected-axis order,
+degree-three verification versus degree-two output, malformed inputs and bounded
+refusals. They join the existing producer tests through the same Cargo example.
+The first supervised optimized build passed all 20 tests (the original 15 plus
+five bridge fixtures). Prospective toy and observed-owner chart inputs were
+frozen before native outcomes; their original-source proof, checked export and
+target applicability remain separate gates. Build receipts are in ignored
+`TMP/rule-optimizer-20261003/candidates/two-protected-source-build-v1/`.
+
+The first frozen two-protected toy chart was refused by the native saved-order
+checker: a term transfers rank from its selected numerator into the other
+inactive axis and is not uniformly lower. Its chart was not narrowed afterward.
+The independently frozen owner-15 full sign chart (including the observed
+rank-zero face) stopped at the 4,096-sign-cell allowance. That is an incomplete
+proof, not a mathematical or non-descent verdict; no owner-15 candidate or target
+hit was claimed. Both original refusals remain beside the successful old-radial
+control export, whose bytes exactly match the previously measured candidate.
+
+A separately approved diagnostic fixed all 15 indices to the already frozen
+owner-15 rank-zero tuple, without changing the source nomination. It reached an
+actual native non-descent refusal: shift `-2 e0 - e1 + 2 e13` activates physical
+D14 from zero to two and enlarges support. This falsifies the unchanged recipe
+on that required point; increasing the full-chart partition budget alone cannot
+repair it. The fixed-point request was prove-only, produced no export, and did
+not replace or narrow the original full-sign request.
+
+## Finite joint logarithmic source kernel
+
+`logarithmic_kernel.rs` and its private `logarithmic_kernel/` modules implement
+the `rule_optimizer_logarithmic_kernel` Cargo example. Its CLI is
+`validate REQUEST` or `probe OWNER REQUEST`; neither publishes a rule, installs
+an owner, or performs a recursive walk. Requests bind the native family and
+saved order, physical target, all active protected axes, recenter, degree and
+finite resource limits. Degree 0/1 is an explicit experiment policy, not a
+family or loop-count branch. No automatic degree or target escalation occurs.
+The seven public owner-ingress limits are explicit request fields, separate
+from the finite source/matrix limits; exact-algebra defaults and the native
+1 GiB per-bundle hard ceiling remain in force. Loading an owner reconstructs
+its saved records, so a small algebra request does not imply cheap loading.
+
+For every native ordinary direction and denominator monomial up to that degree,
+native derivative contractions and Symbolica polynomial products construct the
+coefficients of `V(Dj) mod Dj`. Symbolica reduces `[constraints | identity]`;
+every resulting kernel vector is independently multiplied by the entire
+constraint matrix. Native completed-source inventory supplies actual RowIds
+and ordinals. Each polynomial weight uses the original source translated by
+`recenter - monomial`, retaining full product-rule terms and original guards.
+No coefficient display is parsed back into algebra.
+
+Complete parametric source images distinguish identically zero combinations
+from nonzero images that vanish only at the requested point. Generic image rank
+over `K(n)` may be explicitly disabled and then reports `null/not_computed`;
+no kernel image is dropped by that choice. Native point rank and the target
+solve retain all non-target keys that fail strict descent under the saved order.
+Any target combination is composed back to original translated rows and replayed
+over every physical column. Zero-sector and cross-owner tails are not discarded.
+Pivot, source, family and pre-cancellation denominator conditions are retained.
+
+The initial six tests exercise a massive-tadpole degree-1 target and degree-0/boundary
+misses, a genuine joint-rotation zero source image, point-only vanishing,
+denominator permutation, forbidden-column cancellation and mutated replay
+rejection. The supervised optimized test binary passed all six; build and test
+receipts are in ignored
+`TMP/rule-optimizer-20261003/candidates/logarithmic-kernel-build-v2/`.
+One failed preliminary test compile is retained in `build-v1`; its only fix was
+serialization of a native stable ordering identifier via `to_string()`.
+The first owner66 attempt then hit the default 256 MiB native ingress limit
+before algebra, despite the request's 1 GiB file allowance. This is not a
+degree-0 mathematical negative. The approved explicit ingress-policy revision
+copies the immutable campaign's limits and adds a focused propagation test;
+the original refusal and requests remain preserved. Its rerun uses isolated
+CPU64 with its own lock, unchanged 32 GiB RSS and three-minute allowance, and
+may overlap other CPU32–47 work; timings are not compared with that refusal.
+All seven tests passed after that revision in `logarithmic-kernel-build-v4/`.
+The short `build-v3` test-compile refusal is preserved too: its only fix was
+explicit unsigned types for two 2 GiB test-JSON literals.
+
+The first owner66 requests freeze one previously sampled A12/R0 point and zero
+recentering for both degrees. They are source discovery, not completion of its
+468-tuple residual or the 7,315-tuple training cohort. Missing target, zero image,
+guard refusal or exhausted limits are finite negative/incomplete outcomes, not
+master-integral or cost claims. Structural preflight and retained-result bounds
+do not bound every Symbolica scratch allocation: an owned time/RSS supervisor
+and separate native execution grant remain mandatory.
+
+Both corrected owner66 probes completed under that guard. Degree 0 had 25
+unknowns and constraint rank 25, hence no kernel. Degree 1 had 400 unknowns,
+constraint rank 390, and ten kernel vectors; every full **parametric** original
+source image was exactly zero. Neither supplied a target pivot (point image
+rank zero in both cases). This is a finite-ansatz negative, not merely a
+point-specialization cancellation, and not a general irreducibility, closure
+or higher-degree result. Generic image-rank computation remains explicitly
+skipped; no nonzero image was discarded. The ten vectors are not identified as
+a particular geometric basis by this report. No degree escalation followed.
+Compact evidence and full raw reports are in ignored
+`candidates/logarithmic-owner66-finite-summary-v1.json` and
+`candidates/logarithmic-kernel-build-v4/probe-degree{0,1}/` beneath the same TMP
+campaign. Both processes exited successfully and drained their owned groups.

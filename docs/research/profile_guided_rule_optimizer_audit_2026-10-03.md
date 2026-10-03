@@ -1731,3 +1731,258 @@ two arms have identical normalized commands,16 workers on CPU IDs32–47 and
 monotone cumulative phase deadlines ending1,770 seconds within the1,800-second
 inclusive allowance. This planning gate does not assert a completed walk or
 extend either point to a broader performance cohort.
+
+That first mixed2 pair completes and passes independent actual-binding/cold
+review:10,010→7,517 scheduled domains,9,607→7,103 native inspections and
+233,803→204,000 events. Both roots and all saved natives pass All/Off
+reinspection with no errors/frontiers/uncovered obligations; checkpoints have
+zero pending work and all owned groups drain. The full67-owner/8,246-route/
+two-repair context and exact commands match the frozen plan. Full-arm times
+181.993→181.933 seconds are effectively unchanged despite24.9% fewer scheduled
+domains. The candidate-first reverse plan is identical after destination,
+cohort label and arm-order normalization. Concurrent non-overlapping CPU0–15
+compilation, if present during that repeat, remains a host-contention caveat.
+The coordinator also observes an unrelated gammaloop job using roughly115 CPU
+cores with affinity0–383. Thus disjoint CPU assignments among our own jobs do
+not make either timing host-isolated. Work counts and cold outcomes remain
+primary; small wall-time differences are not treated as reliable speed gains.
+
+The frozen two-protected implementation then passes independent source review
+at module `e67145c9...25fb4fb`, tests `2769cb0f...cea86a0`, producer
+`6aa6c6b4...6af3926`. It implements the previously reviewed native materialize
+bridge, preserves every condition, and requires exact full-product equality
+before fixed specialization. Separate-schema parsing rejects radial-only
+fields and optional multipliers; old mode paths remain unchanged. Five new
+fixtures cover the guard/mixed-tail, external/recenter, sign, degree and
+refusal obligations. Their execution and an actual owner-chart proof remain
+separate gates; source review alone does not assert either result.
+
+The two-protected optimized build subsequently succeeds at binary
+`09e428fb8d0da64bf931ded203f204811c493274022542cec638a5fc25de636e`;
+all20 native tests pass, and both compiler groups and the test group drain.
+The frozen generic three-loop toy protects P=k²−1 and Q=(k−p)²−1, keeps
+R=p²−1 and S=q²−1 positive, N=(k+q)²−1 negative and M=(p+q)²−1 fixedzero.
+The independently nominated owner15 chart instead retains every inactive
+zero face, including D14=0. Its frozen R0 hotspot singleton requires a
+separate actual normalization/matching gate: an exported guarded rule that
+misses that point would not count as a hotspot hit.
+
+The reverse full-cross mixed2 experiment also passes actual-binding and cold
+audit. Its native command arrays equal the frozen plan, query SHA256 remains
+`f79745a00850ffb94396638870171ae8f0ced66f290bb910e2403843143518ec`,
+and the complete67-owner/8,246-ordered-route/two-repair context remains intact.
+Exactly owner101010000110001 changes. Both roots and all9,607/7,103 native
+inspections pass cold All/Off checking; pending work, errors, frontiers,
+uncovered obligations and violations are zero. Raw walk exit4/stale closure
+snapshots remain distinct from the independent cold result. Every owned
+phase drains. Scheduled domains again fall10,010→7,517 (24.905%), while
+full-arm time rises175.093→178.507 seconds (+1.95%). This repeats a finite
+work-count improvement, not a robust full-time gain or a general-family claim.
+
+## Finite logarithmic-kernel source and preregistration audit
+
+The independent source review reads all five implementation/test files,
+including six tests, before compilation. Reviewed SHA256 prefixes are
+main `4b37782c`, polynomial `e82f6f5f`, linear `3db07bf6`, sources `3ec543bd`
+and tests `7c5c4c1f`. No source-level algebra/provenance blocker is found.
+
+For each ordinary native RowId and admitted denominator monomial, the
+coefficient constraints retain every term of every protected derivative
+modulo its own denominator. Symbolica performs the polynomial arithmetic
+and native `[C|I]` row reduction. Identity-column rows supply a complete
+left-kernel basis, checked by rank-nullity and exact native multiplication
+back into every original constraint column. There is no custom elimination.
+
+Each monomial alpha becomes a complete original ordinary IBP translated by
+`recenter-alpha`: this is the polynomial-weighted total derivative, including
+its product-rule terms, not multiplication of an already differentiated
+relation. Native RowId/ordinal/offset and family/index-context bindings are
+checked. Original family/source/term conditions, kernel-weight denominators
+and native reduction pivots are retained before cancellation. Every original
+source condition and coefficient is specialized at the frozen point before
+zero removal. The full parametric product and the point product are each
+replayed independently using native matrices. All non-target non-lower
+physical columns enter F; a target solve is recomposed into original source
+weights and replayed against every original physical column.
+
+A coefficient-kernel vector, a nonzero parametric source image, and a useful
+fixed-point target relation are explicitly different outcomes. True-zero
+parametric images and nonzero images vanishing only at the point are counted
+separately. Skipping optional K(n) image rank reports null/not_computed and
+does not discard any image from the point solver. The six tests cover shape
+refusal, a mutated constraint replay, full-F/target replay, denominator
+permutation, a genuine joint-rotation zero image, and massive-tadpole
+degree/boundary/skipped-rank behavior. Their runtime result is a later gate.
+
+Preregistration `c12a3a1f...544ed4a` binds the unchanged owner66 panel and the
+same valid coordinatewise-lower training point at both degrees, with all nine
+active denominators protected, recenterzero, and unchanged saved order.
+The25×135 and400×1,080 coefficient systems fit the respective frozen bounds.
+Only degree and corresponding resource allowances differ. Native scratch
+still needs the external time/RSS guard: retained-result/preflight bounds do
+not claim to bound all transient Symbolica allocations. No chart authority,
+master declaration,468-point residual coverage,7,315-point cohort closure,
+or downstream performance follows from a successful point diagnostic.
+
+The two-protected native toy then supplies a concrete ordering falsifier:
+term13 with physical shift `[0,0,0,0,+1,-1]` is not uniformly lower at
+local `[0,0,0,0,1,0]`. It transfers numerator rank from N to M. The ordinary
+source/tangency construction therefore does not by itself imply descent in
+the saved order. The1.447-second guarded refusal exits2 and drains without
+an export; no chart is narrowed afterward. The independent owner15 full-sign
+attempt instead exhausts the4,096 original-sign-cell allowance in1.971
+seconds. That is a resource refusal, not evidence of non-descent or successful
+R0 applicability. Its raw refusal is retained and no candidate is exported.
+The same new binary's radial-control checked export succeeds and independently
+hashes to the already measured `1c8b6d7c...844ef` bytes, confirming that this
+new mode has not changed that established old-mode artifact.
+
+One subsequently approved prove-only diagnostic fixes all15 indices to the
+already frozen owner15 R0 point, without changing the nomination, order or
+proof allowances and without allowing export. It exits2/drains in1.995
+seconds with an actual non-descent witness: term0 has shift
+`[-2,-1,0,0,0,0,0,0,0,0,0,0,0,+2,0]`, activating previously absent D14.
+The resulting physical child is
+`[1,1,1,0,2,0,2,0,0,1,0,0,1,2,1]` from parent
+`[3,2,1,0,2,0,2,0,0,1,0,0,1,0,1]`. This falsifies the unchanged recipe at
+the declared required point and hence its unmodified full-sign publication.
+It is not a global no-relation result, and no favorable rank-positive point
+is substituted. The earlier whole-chart budget refusal is retained separately.
+
+The finite-kernel test compile initially finds one Rust API serialization
+mismatch, not an algebra failure. Adding `.to_string()` to the test's saved
+order identifier is the only change: reversing that edit reproduces the
+reviewed test hash exactly. New test SHA256 starts `43bfd286`; all four
+algorithm-file hashes are unchanged. The failed build and fresh retry remain
+separate receipts.
+
+The fresh optimized kernel test build then exits0/drains with the reviewed
+source pins. Its actual test log reports six passed, zero failed in0.04
+seconds native time. The source permutation, joint-zero-image, tadpole
+degree/boundary and complete-replay fixtures therefore pass execution rather
+than remaining source-only expectations. The owner66 point experiment is
+still a separate gate. Its reviewed wrapper reuses the existing owned
+controller, singleCPU32 and32GiB limit,150GB host reserve and cumulative
+150/165/180-second cooperative/hard/acceptance ceilings. A bounded64MiB
+report reader permits one extra byte only when it is the native final newline.
+The optimized diagnostic binary subsequently builds in73.060 seconds inclusive,
+exits0 and drains; its independently hashed SHA256 is
+`015f1a381852f45b832cde018209b9775bf09e53bafb265977bc2caa90244b7a`.
+All reviewed source pins remain unchanged. This build result alone is not an
+owner66 source diagnostic result.
+
+The first owner66 degree0 invocation is a transport refusal before algebra:
+the native loader's default256MiB bundle cap rejects the already declared
+725,521,584-byte owner. Its exit2/drained receipt remains intact; degree1 is
+not launched on that configuration. A bounded76-byte framing/count read,
+using seeks rather than scanning the payload, identifies the next default
+admission issue: the coefficient section is696,872,680 bytes, exceeding the
+default128MiB coefficient-table allowance. It contains201,896 entries;
+the Symbolica state is1,482 bytes and structural program28,646,008 bytes.
+The existing immutable campaign policy already admits bundle1GiB, aggregate
+input/coefficients2GiB and32M collection entries. Explicitly binding that
+existing ingress policy is a transport repair, not a degree/point/source
+escalation; source algebra and outer resource bounds remain separate.
+
+The prospective residual6 full-cross transfer plan passes metadata audit.
+Its baseline equals the exact current-new37 selection `c2f8740b...e818b`
+after path absolutization only. All67 owners,8,246 ordered routes and both
+repair overlays remain. Only owner101010000110001 changes from the same
+`046a15ab...3f763` base used by the audited export to `3ccb744c...ba935`;
+the current-new37 choice for the other changed historical owner is retained.
+The original six required residual queries remain byte-identical at
+`96c17ac2...8d2df`, with no helpers, trimmed faces or dropped controls.
+Both commands agree modulo arm paths, using16 workers on32–47,150GB plus
+150GB reserve and monotone cumulative deadlines ending1,770/1,800 seconds.
+The shared7,315-tuple cohort tests transfer, not a presumed encounter of the
+candidate owner. A censored baseline ends the pair without an efficacy ratio.
+
+The explicit ingress repair subsequently passes source/input audit. It maps
+exactly seven positive caller-owned allowances into the native loader, rejects
+unknown/missing fields and preserves the native 1GiB bundle ceiling and exact
+algebra defaults. A seventh test checks propagation and refusal. The three
+private algebra modules remain byte-identical. Each revised degree request
+equals its original after removal of the sole new `owner_load_limits` field;
+there is no target/order/source/matrix-budget adaptation. The coordinator
+separately moves both future diagnostics to CPU64 with its dedicated
+`native-algebra-cpus64.lock`, leaving benchmark32–47 and production96–127
+unchanged. The 32GiB process limit, 150GB reserve and 150/165/180-second deadlines
+remain. Concurrent benchmark activity is recorded rather than treating timing
+as host-isolated or comparing it with the failed initial transport attempt.
+
+The prospective symbolic follow-on has two concrete API boundaries, not an
+algebra-kernel gap. Native Symbolica reduction can solve over K(n), but
+`IndexedCoefficientContext::admit_native_result_with_limits` is currently
+crate-private. Public base-field lifting does not admit index-dependent raw
+results; printing and reparsing a display is not an acceptable substitute.
+A minimal checked ingress could reuse the existing complete map/layout/
+exponent/resource validation and would grant context membership only, not
+source authority. Every original and pivot denominator must still be retained.
+
+Likewise the source-port geometry checker currently returns a textual Message
+for a non-lower term/cell. Automated refinement should consume a structured
+shift/cell/child-support witness rather than parse that message. Adding the
+entire offending shift to symbolic F is conservative: it can eliminate useful
+coefficients that vanish only on the offending cell, so a finite-bank miss
+would apply only to the strengthened finite ansatz. Any bounded feedback loop
+must preserve the original chart, all original source terms/guards and the
+common order, and finish with the unchanged native original-source proof.
+These are implementation proposals only; they do not authorize chart shrinking,
+new terminal assumptions or inference from a point relation to a whole chart.
+
+The ingress revision's preliminary test compile is retained after two new
+2GiB JSON literals need explicit `u64` types. Reversing those two suffixes
+reproduces the prior test hash, with no runtime or allowance change. Fresh
+build-v4 then passes all seven tests and produces the optimized diagnostic
+binary in 70.396 seconds inclusive, exit0/drained. Its independently checked
+SHA256 is `28cd44c1bde5959df4e7a40e6b2b7f6c5358d6340c60cb8a3b1094ad079a0064`.
+Native-plan-v2 `1d5803bd...3820289` binds exactly this binary, unchanged revised
+requests and owner, and the separately approved CPU64 placement. Compilation
+and seven passing fixtures still do not assert the owner66 diagnostic outcome.
+
+Both corrected CPU64 diagnostics subsequently complete and pass independent
+receipt/provenance review. Degree0 has 25 unknowns and 135 coefficient columns,
+constraint rank25 and kernel dimension0. It has no images and no target pivot
+against54 physical forbidden columns; the declared constraint/source replay
+gates pass. Native/report time is6.277 seconds and inclusive time10.944 seconds.
+This is a completed finite negative, separate from the retained transport miss.
+
+Degree1 has400 unique native `(RowId,alpha,-alpha)` source views,1,080
+coefficient columns and4,140 nonzeros. Native constraint rank390 leaves ten
+kernel vectors. Every one of their complete parametric original-source images
+is identically zero, verified by full native matrix replay before point
+specialization. There are zero nonzero images and zero point-only vanishing
+images; point image rank is zero and no target survives the330-column F test.
+Its report SHA256 is
+`8cd83e78241d01b7684269793917f77598be1d2edc99ebd01269248765b346a3`.
+Native/report time is7.020 seconds, inclusive time11.254 seconds and sampled
+peak RSS3.413GB. Both processes exit0 and all owned groups drain; neither
+publishes a rule or performs a recursive walk.
+
+This zero-image finding is stronger than merely failing one point pivot:
+symbolic K(n) projection of this unchanged image span cannot produce a useful
+relation. A future symbolic projector needs a genuinely different admitted
+span or protection constraint set, not a solver applied to these ten zero
+rows. Their number alone does not identify them as Lorentz generators, and
+no such basis identification has been performed. The result neither declares
+a master nor proves that higher-degree or differently constrained relations
+cannot exist. No degree2 escalation is implied or performed.
+
+The unchanged residual6 transfer baseline is subsequently cooperatively
+censored at its preregistered deadline. Actual command, six-query hash,
+67-owner/8,246-route/two-repair context, 16 workers on32–47 and150GB plus
+150GB reserve match the plan. The guard reports
+`inclusive_cooperative_deadline`, exit4 and no hard stop; whole pilot time is
+727.977 seconds. Native status is paused, with CP6 generation1 saved and
+757,106 pending domains. It has scheduled5,898,330 domains, completed3,620,678
+native inspections and emitted83,180,655 events, with zero frontiers, native
+failures or abandoned obligations. The live0/6 root-closure snapshot is
+114.75 seconds stale and is not independently verified closure evidence.
+
+Both owned PIDs are absent on read-only verification, and stage/walk groups
+are reported drained. The candidate directory contains only the prewritten
+selection-source metadata: no candidate phase ran. No baseline cold phase or
+comparison receipt exists. The pair stops exactly at the frozen completion
+gate, without selecting a smaller subset, dropping controls, or reporting an
+efficacy ratio. This is a censored baseline-feasibility observation; it cannot
+show whether the full-cross replacement helps this later workload.

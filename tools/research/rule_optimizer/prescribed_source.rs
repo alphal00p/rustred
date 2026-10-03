@@ -3,6 +3,7 @@
 //! does not lift point weights, delete zero sectors or walk. An isolated
 //! geometry-nomination module feeds the same full original-source proof path.
 mod geometry_tangent;
+mod geometry_two_protected;
 use rustred::{
     algebra::{
         ExactAlgebraLimits, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
@@ -97,7 +98,9 @@ fn fixed(r: &Value) -> Result<Vec<(usize, i64)>> {
 
 fn validate(r: &Value) -> Result<usize> {
     require(
-        r["schema"] == SCHEMA || r["schema"] == geometry_tangent::SCHEMA,
+        r["schema"] == SCHEMA
+            || r["schema"] == geometry_tangent::SCHEMA
+            || r["schema"] == geometry_two_protected::SCHEMA,
         "unknown request schema",
     )?;
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
@@ -168,6 +171,10 @@ fn validate(r: &Value) -> Result<usize> {
                 "free priority axes require lower0/1 and no upper bound",
             )?;
         }
+    }
+    if r["schema"] == geometry_two_protected::SCHEMA {
+        geometry_two_protected::parse(r, n)?;
+        return Ok(n);
     }
     if r["schema"] == geometry_tangent::SCHEMA {
         nomination_mode(r)?;
@@ -402,7 +409,24 @@ fn produce<const N: usize>(
     let mut weights = BTreeMap::new();
     let mut nominated_conditions = Vec::new();
     let mut nomination_report = None;
-    if r["schema"] == geometry_tangent::SCHEMA {
+    let mut materialized_product = None;
+    if r["schema"] == geometry_two_protected::SCHEMA {
+        let native = geometry_two_protected::nominate(&family, &generator, &completed, r)?;
+        for ((row, offset), weight) in native.nomination.weights {
+            let ordinal = *ids
+                .get(&row.stable_string())
+                .ok_or("nominated RowId absent from native inventory")?;
+            require(
+                weights
+                    .insert(TranslatedSourceRequest::new(ordinal, offset), weight)
+                    .is_none(),
+                "duplicate nominated source pair",
+            )?;
+        }
+        nominated_conditions = native.nomination.conditions;
+        nomination_report = Some(native.nomination.report);
+        materialized_product = Some(native.full_product);
+    } else if r["schema"] == geometry_tangent::SCHEMA {
         let nominate = match nomination_mode(r)? {
             "radial" => geometry_tangent::nominate,
             "protected-gradient" => geometry_tangent::gradient::nominate,
@@ -464,6 +488,13 @@ fn produce<const N: usize>(
         policy.translated_sources,
     ))?;
     let (product, mut conditions) = source_product(c, &sources, &weights, nominated_conditions, r)?;
+    if let Some(expected) = materialized_product {
+        require(
+            product == expected,
+            "common full source product differs from native tangent materialization",
+        )?;
+        nomination_report.as_mut().unwrap()["full_product_equality_checked"] = json!(true);
+    }
     let unrestricted_terms = product.len();
     let restrictions = fixed(r)?;
     let target = product
