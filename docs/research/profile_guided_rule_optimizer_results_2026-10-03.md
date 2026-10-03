@@ -441,11 +441,16 @@ uses the existing owned-process guard and locks; do not run it on production's
 cores. Both production inputs and checkpoints are unchanged.
 # October 3 follow-up: source-informed recovery and merged tools
 
-The saved-source inspector nominates212 distinct physical translations and25
+The saved-source inspector initially nominates212 distinct translations and25
 native ordinary directions for the actual owner66 rule:5,300 pairs. Together
 with the previous1,062-row bank, the union contains5,796 distinct pairs. This
-is a source-span nomination, not proof of the stored identity or permission to
-inherit its exclusions or zero-sector reductions.
+is an explicit search-bank nomination, not proof of the stored identity or
+permission to inherit its exclusions or zero-sector reductions. **Subsequent
+October3 inspection finds a recentering defect:** the saved target has already
+been canonicalized, while its retained source seeds have not. The inspector's
+zero translation is therefore not established. The earlier claim that this
+bank contains the incumbent's source span is withdrawn pending recovery of the
+raw pivot's shift. Measurements below remain valid for the recorded bank.
 
 The fixed-root-aware1,062-row search at physical D2>=2 finishes in30.703s
 inclusive,3.416GB peak RSS, with exact full replay but a genuine final pole at
@@ -531,4 +536,32 @@ native zero diagnostic on all37 constant forbidden support masks returns
 37 `Inconclusive`, no `ProvedZero`, in5.031s native/7.700s outer. It supplies
 no permission to discard columns. Preliminary source inspection finds neither
 hidden preconditioner translations nor index-content division; no specific
-bug or production-rule invalidity has been established.
+bug or production-rule invalidity has been established by those observations.
+
+The subsequently identified research-inspector recentering defect gives a
+concrete next experiment. Translating all5,796 source offsets by−eD2, with
+the full root/cofinal F regenerated for that new universe, yields sampled
+target supports in all three samples: F6274, ranks4755/4756, first hit5646,
+identical3,549-source support. Sample times0.558915/0.529688/0.516899s;
+whole command10.766s and3.442GB RSS. This is promising discovery evidence,
+not an exact rule or a measured downstream gain. The independent original-bank
+exact-vs-shifted evaluation check finds no discrepancy in any of120,959
+coefficients per sample and reproduces its prior ranks. These results isolate
+the missing recenter nomination rather than a demonstrated modular CAS error.
+Evidence: `candidates/symbolic-owner66-recenter-minus1-v2/` and
+`incidence-study/exact-shift-check-v1/`.
+
+Two source-visitation permutations then preserve all5,796 rows, the complete
+F6274 and the same three samples. Component/low-F-degree ordering nominates
+3,515 rows. Target-incidence graph distance followed by low F degree nominates
+2,823, with identical typed supports at all three samples (11.641s total).
+The20.46% reduction from3,549 is a **shortlist-size reduction only**, not a
+campaign-work improvement. This latter frame is selected for the first exact
+lift; its source ordinals are bound to its own permuted full request.
+
+The corrected inspector passes9 tests and the combined exact-frame/compaction
+research suite passes53. Three native CLI exports—old reference, new default,
+new selected/compacted direct-L—produce identical checked toy bytes. The actual
+five-loop exact lift is in progress, with all original-source guards and full F
+retained and native16→2 coefficient-map compaction observed. No owner66 exact
+export or downstream gain is claimed until that run and subsequent checks finish.

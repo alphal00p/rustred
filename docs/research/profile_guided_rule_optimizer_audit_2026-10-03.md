@@ -2599,8 +2599,12 @@ The new separate app API `inspect_generated_candidate_source_support` and
 research `support-inspect` schema pass structural review before execution.
 They decode one rule, refuse affine cases, validate the saved target/seed
 symbolic pattern and coefficient shifts, and compute physical offsets using
-the same convention as native ordinary replay: symbolic seed shift plus
-canonical target translation; fixed seed power minus target power. Exact
+what was initially thought to be the native ordinary-replay convention:
+symbolic seed shift plus canonical target translation; fixed seed power minus
+target power. **Later correction:** the saved target is already canonical, so
+v1 did not recover the raw winning-pivot translation required by replay.
+Its output is only unrecentered seed support; see the explicit contract-error
+diagnosis and v2 regression below. The initial audit missed this issue. Exact
 offsets are deduplicated and paired with every RowId from completed native
 ordinary generation, never with guessed preconditioned basis ordinals.
 
@@ -2692,20 +2696,19 @@ ordinary inventory has 522 terms and no source conditions. Report `7005c389…`
 preserves the exact fourteen-fixed case, target, root, family and saved order,
 with source-replay, dispatch and closure authority explicitly false.
 
-This is the same offset/direction universe constructed by native
-`source_port/ordinary.rs:58–127`; `certificate.rs::source_offset` uses the same
-transport convention. Regenerated preconditioning composes polynomial scales
-and additions at the same seed (`ordinary/provenance.rs`), so it does not itself
-require additional translated seeds. Conditional on validating that stored
-derivation, the 5,300 rows therefore contain its preconditioned source span
-over the generic coefficient field, with row-normalization factors absorbed
-into weights. They do not yet certify the saved RHS on a chart with its
-exclusions removed. Existing original replay permits only independently
-proved zero residual products; source, weight and normalization domains still
-matter. The inspector deliberately does not authenticate saved basis ordinals.
-The decisive future check is desired-identity membership followed by complete
-original replay/zero-product and whole-chart guard checks, not a raw target
-pivot or a claim that all incumbent exclusions are unnecessary.
+The original audit described this as the same offset/direction universe as
+`source_port/ordinary.rs:58–127`. That conclusion is withdrawn: ordinary replay
+uses a raw-pivot translation recovered from the complete selected frame,
+whereas inspector v1 used the already-canonical saved target. Preconditioning
+still composes polynomial scales and additions at the same seed and introduces
+no extra translations itself, but those seeds may all require a common
+recenter before they describe the canonical incumbent. Thus these 5,300 rows
+are a literal nominated bank, not an established incumbent superspan. The
+actual counts, resource gates and executed receipts above remain accurate.
+Existing original replay additionally checks zero residual products and the
+source, weight and normalization domains. The decisive future check remains
+correctly recentered desired-identity membership followed by complete original
+replay and whole-chart guards, not a raw target pivot or borrowed exclusions.
 
 ### Fixed-root preprojection and constant-tautology gate
 
@@ -2831,8 +2834,9 @@ rule may be represented in the ordinary source span only modulo those proved
 zero-integral products, not as the literal target-minus-stored-RHS identity.
 Necessary-column negatives here concern the present unprojected strict-lower
 producer, not irreducibility modulo known-zero sectors. A 5,300-row failure
-would require distinguishing this semantic difference and genuine guard
-conditions from missing source span before proposing arbitrary new shells.
+would require distinguishing this semantic difference, genuine guard
+conditions and the subsequently discovered missing raw-pivot recentering
+before proposing arbitrary new shells.
 
 ### Prospective cofinal batch classification
 
@@ -3299,9 +3303,12 @@ The offset convention was checked against the actual replay path, rather than
 inferred from serialized basis ordinals. In
 `source_port/certificate.rs::source_offset`, a symbolic coordinate uses the
 saved seed shift plus canonical translation; a fixed coordinate uses saved
-seed power minus target power. The support inspector implements those same
-formulas and validates that coefficient shifts agree with physical seeds.
-The inspected owner66 record's canonical translation is zero.
+seed power minus target power. The support inspector validates that coefficient
+shifts agree with physical seeds, but the subsequent contract audit below found
+that it does **not** recover the canonical translation used by this formula.
+Its reported zero comes from the already-canonical saved target, not the
+pre-canonical raw pivot. The earlier inference that owner66's actual
+recentering was zero is withdrawn.
 
 `solver/precondition/provenance.rs` contains only source nodes and forward
 polynomial multiply/subtract nodes. There is no integral-shift or coefficient
@@ -3309,17 +3316,18 @@ translation operation in that DAG. Its composition adapter transforms each
 scalar with the same seed and canonical translation as the associated source
 row. Finally, `source_port/normalization.rs::checked_scale` verifies a single
 nonzero polynomial multiplier against every original term on identical shift
-support; normalization is translated before fixed specialization. Thus these
-mechanisms do not require additional hidden offsets beyond the saved seeds.
+support; normalization is translated before fixed specialization. The
+preconditioner itself adds no hidden seed offsets; the separate winning-pivot
+translation is still required and was missing from the inspector's inference.
 
-The 212-offset by 25-row inventory is therefore the relevant ordinary-source
-superspan nomination for those seed records, subject to the original source
-domain and normalization. This is not a claim that the incumbent's literal
-RHS belongs to that full span without its saved exclusions or certified-zero
-quotient: ordinary replay explicitly distinguishes full source identities
-from projected discovery. A future completed bank miss should investigate
-those concrete domain/quotient differences, not assume an unobserved
-preconditioner translation or infer family irreducibility.
+The 212-offset by 25-row inventory remains an exactly specified search-bank
+nomination, but its claimed alignment to the canonical incumbent was not
+established. A common recentering of every symbolic seed may be missing. The
+experiments on that bank remain valid for their actual inputs; neither their
+misses nor their resource stops establish that the incumbent's source span is
+exhausted. Even a correctly recentered inventory still requires distinguishing
+the full original-source identity from any authenticated-zero quotient and
+saved applicability exclusions.
 
 The earlier native zero census of 27 masks concerns only inherited F823,
 not the later cofinal F6448. If a modular full-bank sample misses, that remains
@@ -3333,6 +3341,135 @@ F6448 contains 37 distinct child masks, ten beyond the old 27. All are constant
 on the whole `D2>=3` ray, since their free-axis shifts range from -2 to +3 and
 the other 14 powers are fixed. This identifies the next census's scope without
 assuming any of those masks is zero.
+
+The subsequent native census completes on all 37 masks and all 6,448 unique
+shifts: zero `ProvedZero`, 37 `Inconclusive`, zero `Excluded`. Independent
+mapping checks find no omitted or duplicated shifts. Raw receipt
+`incidence-study/fullF-zero-native-v1/guard/stdout` hashes to `1bdfc0c3…`;
+the native phase takes 5.031 seconds, 7.700 seconds including the controller,
+exits cleanly and drains. The only reported analyzer-domain condition is the
+constant basis-determinant numerator `-1024`. This supplies no native zero
+certificate with which to relax the tested F, but is not a proof that these
+integrals are nonzero. It does not resolve the independently identified
+source-bank recentering error.
+
+### Saved source seeds and the missing raw-pivot recentering
+
+The independent post-miss code audit confirms a concrete metadata-contract
+error in `inspection/source_support.rs`, not an established error in the
+saved rule or native algebra. `CoordinateCase::matches` accepts any symbolic
+shift on a free axis. In `solver/search.rs`, a winning raw target may therefore
+be `n+k`. `instantiate::canonicalize` translates the equation by `-k` and
+normalizes its pivot, but the returned `RuleCandidate` retains the original
+untranslated `SeedSource` vector. Serialization preserves those seeds.
+The stored target is already canonical and cannot reveal `k`.
+
+The existing authenticated path handles this correctly:
+`source_port/replay.rs` regenerates the selected frame, identifies a raw pivot,
+canonicalizes its complete physical row, and requires equality to the entire
+saved target and RHS. Only then does it derive `-raw_target.shift` and pass
+that translation into `ordinary::weights` and `certificate::source_offset`.
+By contrast, the metadata inspector derives `-saved_target.shift`, which is
+necessarily zero for a valid canonical free coordinate. The prior audit's
+claim that the two paths supplied the same translation was wrong.
+
+A minimal regression is the unit-mass tadpole source
+`(d-2n) I(n) - 2n I(n+1) = 0`. Its raw pivot `I(n+1)` produces a canonical
+backward equation for `I(n)` while retaining seed zero. Its corresponding
+ordinary source offset is `-1`, not zero. The existing synthetic inspector
+fixture instead places `3` in a saved symbolic target, which normal rule
+restoration would reject as noncanonical; it did not test this lifecycle.
+
+A metadata-only inspector should report unrecentered seed offsets and mark
+the actual recentering unknown. A recovered incumbent-relative inventory must
+obtain the raw pivot through bounded native replay and complete canonical-RHS
+equality, or consume an equivalently authenticated replay receipt. Explicit
+candidate recenterings can be searched as nominations, but cannot be labeled
+recovered facts. Fixed-coordinate offsets remain seed power minus target
+power; only free coordinates receive the common recentering. No revised bank
+or successful replay for owner66 is claimed by this source-only finding.
+
+No hidden momentum-symmetry relation was found in the direct saved-rule path.
+The vacuum `SourceSystem` contains the 25 ordinary IBPs; Lorentz rows require
+external momenta. Sector preparation only sorts/coalesces identical integral
+keys. Momentum transport belongs to the later routed-application module,
+not direct owner batch 0/rule 698 application. Search also retains exact rows
+and their `SeedSource` records together and indexes both with the same trace;
+each exact backend sees only that selected slice. Early exact completion may
+over-retain source records, but does not intentionally omit a contributing
+input or introduce another source. Finally, saved-owner loading prepares
+the stored RHS after structural/context/order checks; it does not perform
+original-source replay. Successful guarded application and cold graph closure
+must not be substituted for that missing identity check.
+
+An independent native evaluator diagnostic subsequently checks the literal
+5,796-row bank at all three existing samples. Every one of 120,959 translated
+terms per sample agrees with evaluating its zero-offset ordinary coefficient
+at `n+source_offset`, with the corresponding integral-key displacement. The
+comparison retains 46,937, 46,937 and 46,981 zero residues respectively and
+checks every source condition (this corpus has none). Separate native finite-
+field reducers again find F rank and augmented rank 4,932 in every sample.
+Raw report `incidence-study/exact-shift-check-v1/probe/guard/stdout` hashes to
+`17283ba1…`; compile and probe are clean/drained, with 13.071 seconds outer
+probe elapsed and 3.453-GB peak RSS. This excludes the hypothesized shifted-
+evaluation mismatch for these frozen inputs, not the missing common
+recentering in their nomination or the possibility of unlucky samples.
+
+The parent's next input-only nomination shifts all 5,796 source offsets by
+`-e_D2`, retaining ordered RowIds, chart, common order, three samples and all
+algebra limits. Caller F823 is cleared and the unchanged native root/cofinal
+policies derive complete F6274 for the new corpus. All three samples now find
+a target rank gain, 4,755 to 4,756, after 5,646 rows. Each returns the same
+3,549 typed source ordinals and requests. The independently checked raw report
+`symbolic-owner66-recenter-minus1-v2/guard/stdout` hashes to `d779347e…`;
+execution is clean/drained in 10.766 seconds inclusive. An initial pretty-JSON
+input-byte refusal is retained; v2 changes serialization only. This is useful
+evidence for the missing-recenter mechanism, not recovery of the incumbent's
+actual raw pivot, an exact source proof, publication, or a downstream gain.
+
+The corrective source-inspector v2 source review passes: it removes the
+misleading `canonical_translation`, marks the default frame as unrecentered
+with status `unknown`, and optionally accepts a caller-nominated common
+translation, explicitly unverified. Exact arity, zero fixed-axis entries,
+checked sums, canonical saved targets and existing resource limits are
+enforced. Its new generated-tadpole fixture compares the entire native
+normalized RHS at offsets zero and minus one, rather than trusting an expected
+metadata field. This entry is a source review, pending the new compiled tests.
+
+The corrected inspector's actual application semantic gate subsequently passes
+all nine selected tests: six source-support tests and three existing inspection
+tests, none ignored. Test binary `3a0186cb…` was independently rehashed; the
+recorded source pins match the reviewed files. The opt0 semantic test build and
+test phases exit cleanly and drain (363.345 and 5.071 seconds inclusive).
+The optimized/no-LTO application library then completes in 438.029 seconds,
+cleanly/drained; its actual `de2cc92c…` bytes are independently rehashed.
+The new research shortlist/compaction tests remain a separate pending gate.
+
+The next research-only exact shortlist adapter also passes source review.
+It validates the entire frozen original bank and derives the complete universe,
+root constraints, cofinal F and all retained conditions before moving a caller's
+explicitly ordered subset of images and W rows into the exact projector. The
+full original rows, typed bindings and condition inventory remain present.
+Composition still replays final weights against those originals before native
+original-source proof. Empty, duplicate, invalid and out-of-range ordinals
+refuse; nomination mode cannot take an exact subset. A selected-frame miss
+does not silently fall back or establish a full-bank miss. Six focused fixtures
+are authored, with their compiled gate pending.
+
+The paired opt-in coefficient-map compaction is an injective native
+representation change, not index specialization. It follows production
+`discovery::FrameVariables`: scan every selected full-image numerator and
+denominator after original-context admission, retain occurring variables in
+their original order, and use Symbolica's native rearrangement. Every native
+U/L entry and recovered weight is restored to the full original map before
+indexed admission or guard extraction; original-source replay remains on that
+full map. Variables appearing only in inherited guards are not erased from
+those guards. Default-off routes through the previous helpers. The final
+streaming matrix-bound implementation `9cd78c61…` does not retain an additional
+whole admitted-value vector. Four authored tests cover denominator-only and
+foreign variables, zero/negative/all-constant empty maps, dependent rows,
+ordered guard equality, both backends and checked-export bytes; compilation
+and operational evidence are still separate pending gates.
 
 ### Projected incidence components: scope of a possible optimization
 
@@ -3371,3 +3508,51 @@ which are projected-zero in this control. No coefficient display is parsed,
 no source is deleted and no native algebra run is added. This conservative
 supergraph can establish disconnection, but may miss pruning after exact
 specialization; its degree counts are not exact specialized costs.
+
+### Corrected-bank row visitation and selected exact-lift gates
+
+Two frozen input-only permutations of the corrected, recentered 5,796-row
+bank finish cleanly. Component-first/low-F-degree returns the same 3,515
+typed source ordinals in all three samples; target-distance/low-F-degree
+returns the same 2,823. Their independently checked reports retain exactly
+the baseline full F6274, chart, common order, sample list and limits; only
+source visitation changes. Every returned ordinal resolves to its exact
+typed request in that permutation. The first-hit prefixes are respectively
+5,378 rows (rank 4,853 to 4,854) and 5,239 (4,683 to 4,684); these are not
+full-bank rank measurements. Raw reports hash to `6b682abd…` and
+`dfc1263f…`, with clean/drained outer times 12.538 and 11.641 seconds.
+The 2,823 support is 20.46% smaller than the earlier 3,549 nomination,
+but this is neither an exact proof nor a downstream-work improvement.
+
+The combined selection/compaction executable gate now passes all 53 tests,
+none ignored. Actual test binary `640631d1…` and normal binary `9dc7b14e…`
+were independently rehashed. The final test phase is clean/drained in
+4.654 seconds outer elapsed (1.06 seconds reported by libtest); normal
+optimized linking took 123.743 seconds outer elapsed. Preserved earlier
+attempts include a missing fixture-file packaging failure and a test
+expectation failure: the old two-source fixture itself conservatively
+refuses export because of its retained pivot guard. The corrected fixture
+explicitly keeps that refusal, while requiring the selected backward rule
+and an independently established single-backward-source reference both to
+pass checked export and produce identical bytes. No runtime implementation
+changed for this test correction.
+
+Three separate actual CLI controls then pass checked export: old reference,
+new default and new selected/compact modes. Their artifacts independently
+rehash byte-identically to `915c3875599e2f2b85044914c1de134c3bb3bddced3774084bc263abc7591fa3`;
+all three native phases exit cleanly and drain. These controls establish
+the narrow compatibility gate, not the large-bank candidate's validity.
+
+The parent's first exact lift uses the 2,823 ordinals relative to the
+target-distance permutation, not the original bank ordering. Its bound
+request `e9b17c9f…` preserves all 5,796 originals and all F6274 before
+selection, the same 14 fixed coordinates and unbounded D2>=3 chart, and all
+original-source conditions. Only modular nomination is replaced by exact
+selection, direct-L and coefficient-variable compaction. Independently
+read boot progress confirms full bank/F derivation before selection and
+16-to-2 native injective variable-map compaction. Native CPU65 and supervisor
+CPU66, 128-GiB RSS cap, 150-GB host reserve and cumulative 1500/1620/1800-second
+deadlines remain bound; the report reader now honors the declared bounded
+report allowance. At this audit point exact replay, chart proof and checked
+export are still pending. No production change or downstream-gain claim is
+authorized by the shortlist or its successful boot.

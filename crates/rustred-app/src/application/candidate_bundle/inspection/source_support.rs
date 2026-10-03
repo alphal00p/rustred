@@ -1,4 +1,4 @@
-//! Saved seed geometry as a bounded nomination of an ordinary-source superspan.
+//! Saved, unrecentered seed geometry as a bounded ordinary-source nomination.
 //! No preconditioned basis reconstruction, frame replay or proof is performed.
 
 use std::collections::BTreeSet;
@@ -20,6 +20,11 @@ use crate::AppError;
 pub struct CandidateSourceSupportOptions {
     pub sector: Vec<bool>,
     pub rule_ordinal: usize,
+    /// Optional common source translation nominated by the caller. Saved
+    /// canonical targets do NOT reveal the original winning pivot translation.
+    /// This is never a recovered or authenticated recentering; fixed axes must
+    /// be zero. None reports the stored seeds without recentering.
+    pub source_recenter_nomination: Option<Vec<i64>>,
     pub max_retained_seeds: usize,
     pub max_unique_offsets: usize,
     pub max_original_rows: usize,
@@ -49,15 +54,19 @@ pub struct CandidateSourceSupportInspection {
     pub rule_ordinal: usize,
     pub case: CandidateCaseInspection,
     pub target: CandidateIntegralInspection,
-    /// Translation from saved symbolic target coordinates to canonical n.
-    pub canonical_translation: Vec<i64>,
+    /// Unknown by default; an explicit value is only a caller nomination.
+    pub source_recenter_nomination: Option<Vec<i64>>,
+    pub source_recenter_status: &'static str,
+    pub source_offset_frame: &'static str,
     /// Payload-local IDs retained only as saved applicability metadata.
     pub excluded_all_zero_conjunctions: Vec<Vec<u32>>,
     pub guard_metadata_authority: &'static str,
     pub retained_seed_count: usize,
     pub unique_offset_count: usize,
-    /// Lexicographically ordered physical source translations relative to n.
-    /// Numeric target coordinates are specialized only after translation.
+    /// Lexicographically ordered stored-seed displacements, optionally shifted
+    /// by the explicit caller nominee. Without a recovered raw winning pivot,
+    /// these need not contain the saved canonical rule's source span. Numeric
+    /// target coordinates are specialized only after translation.
     pub source_offsets: Vec<Vec<i64>>,
     /// Complete native ordinary generation order, not saved basis-row IDs.
     pub ordinary_source_rows: Vec<String>,
@@ -87,7 +96,7 @@ fn offsets(
     rule: &RuleRecord,
     arity: usize,
     options: &CandidateSourceSupportOptions,
-) -> Result<(Vec<i64>, Vec<Vec<i64>>), AppError> {
+) -> Result<Vec<Vec<i64>>, AppError> {
     codec::rules::validate_rule(rule, arity)?;
     if rule.case.kind != "coordinate" {
         return Err(AppError::input(
@@ -113,7 +122,7 @@ fn offsets(
     for axis in 0..arity {
         match fixed.get(&axis) {
             Some(&value) if !rule.target.symbolic[axis] && rule.target.values[axis] == value => {}
-            None if rule.target.symbolic[axis] => {}
+            None if rule.target.symbolic[axis] && rule.target.values[axis] == 0 => {}
             _ => {
                 return Err(AppError::input(
                     "saved target symbolic/fixed layout differs from its coordinate case",
@@ -121,13 +130,18 @@ fn offsets(
             }
         }
     }
-    let canonical = rule
-        .target
-        .symbolic
-        .iter()
-        .zip(&rule.target.values)
-        .map(|(&symbolic, &value)| if symbolic { -i64::from(value) } else { 0 })
-        .collect::<Vec<_>>();
+    if let Some(recenter) = &options.source_recenter_nomination {
+        if recenter.len() != arity
+            || recenter
+                .iter()
+                .zip(&rule.target.symbolic)
+                .any(|(&value, &symbolic)| !symbolic && value != 0)
+        {
+            return Err(AppError::input(
+                "source recenter nomination requires exact arity and zero fixed-axis entries",
+            ));
+        }
+    }
     let mut unique = BTreeSet::new();
     for seed in &rule.sources {
         if seed.integral.symbolic != rule.target.symbolic {
@@ -143,7 +157,12 @@ fn offsets(
                         "saved symbolic seed coefficient shift differs from physical integral",
                     ));
                 }
-                i64::from(seed.shifts[axis]).checked_add(canonical[axis])
+                i64::from(seed.shifts[axis]).checked_add(
+                    options
+                        .source_recenter_nomination
+                        .as_ref()
+                        .map_or(0, |s| s[axis]),
+                )
             } else {
                 if seed.shifts[axis] != 0 {
                     return Err(AppError::input(
@@ -168,7 +187,7 @@ fn offsets(
             unique.insert(offset);
         }
     }
-    Ok((canonical, unique.into_iter().collect()))
+    Ok(unique.into_iter().collect())
 }
 
 /// Decode one saved rule, validate seed coordinate transport and complete native
@@ -206,7 +225,7 @@ pub fn inspect_generated_candidate_source_support(
         .rules
         .get(options.rule_ordinal)
         .ok_or_else(|| AppError::input("source-support saved rule ordinal is absent"))?;
-    let (canonical_translation, source_offsets) = offsets(rule, arity, &options)?;
+    let source_offsets = offsets(rule, arity, &options)?;
     let family = bundle
         .family
         .to_family(
@@ -263,7 +282,7 @@ pub fn inspect_generated_candidate_source_support(
         ordinary_source_rows.push(row.row_id().stable_string());
     }
     let report = CandidateSourceSupportInspection {
-        schema: "rustred.candidate-source-support.json.v1",
+        schema: "rustred.candidate-source-support.json.v2",
         family_fingerprint: bundle.family_fingerprint.clone(),
         integral_order: bundle.integral_order.clone(),
         priority_slots: bundle.permutation.clone(),
@@ -282,7 +301,17 @@ pub fn inspect_generated_candidate_source_support(
             affine_zero_equations: rule.case.equations.clone(),
         },
         target: integral_view(&rule.target),
-        canonical_translation,
+        source_recenter_status: if options.source_recenter_nomination.is_some() {
+            "caller_nomination_unverified"
+        } else {
+            "unknown"
+        },
+        source_offset_frame: if options.source_recenter_nomination.is_some() {
+            "caller_recentered_stored_seeds"
+        } else {
+            "unrecentered_stored_seeds"
+        },
+        source_recenter_nomination: options.source_recenter_nomination,
         excluded_all_zero_conjunctions: rule.exclusions.clone(),
         guard_metadata_authority: "saved payload-local exclusion IDs only; no guard, pivot or source-condition reuse",
         retained_seed_count: rule.sources.len(),
@@ -292,7 +321,7 @@ pub fn inspect_generated_candidate_source_support(
         nominated_pair_count,
         generated_term_count,
         generated_condition_count,
-        nomination_semantics: "every completed native ordinary RowId at every unique physical seed offset; full sources must be regenerated and independently proved before use",
+        nomination_semantics: "every completed native ordinary RowId at each reported stored-seed displacement; the saved canonical target does not determine the raw winning pivot's recentering; no incumbent-span membership is asserted; full sources must be regenerated and independently proved before use",
         original_inventory_completed: true,
         saved_basis_ordinals_validated: false,
         source_replay_claim: false,

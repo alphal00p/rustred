@@ -1,6 +1,6 @@
 //! Bounded seed-offset nomination through the separate native read-only API.
 use super::*;
-pub const SCHEMA: &str = "rustred.symbolic-source-support-inspection.v1";
+pub const SCHEMA: &str = "rustred.symbolic-source-support-inspection.v2";
 
 fn options(r: &Value) -> Result<rustred_app::CandidateSourceSupportOptions> {
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
@@ -27,6 +27,10 @@ fn options(r: &Value) -> Result<rustred_app::CandidateSourceSupportOptions> {
     Ok(rustred_app::CandidateSourceSupportOptions {
         sector: mask.bytes().map(|b| b == b'1').collect(),
         rule_ordinal: number(r, "rule_ordinal")?,
+        source_recenter_nomination: r
+            .get("source_recenter_nomination")
+            .map(|value| checked(serde_json::from_value(value.clone())))
+            .transpose()?,
         max_retained_seeds: limit(r, "max_retained_seeds")?,
         max_unique_offsets: limit(r, "max_unique_offsets")?,
         max_original_rows: limit(r, "max_original_rows")?,

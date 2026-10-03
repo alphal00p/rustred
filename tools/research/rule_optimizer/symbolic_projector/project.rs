@@ -22,6 +22,9 @@ pub(super) type Field = RationalPolynomialField<IntegerRing, u16>;
 pub(super) type Matrix = SparseMatrix<Field>;
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[path = "native_variables.rs"]
+pub(super) mod native_variables;
+
 #[derive(Debug)]
 pub enum Error {
     Invalid(String),
@@ -332,6 +335,20 @@ pub fn project(
     input_guards: &[Guard],
     limits: Limits,
 ) -> Result<Projection> {
+    project_with_compaction(c, rows, target, forbidden, input_guards, limits, false)
+}
+
+/// Opt-in injective coefficient-map transport; physical columns and guards do
+/// not change. Every native result is restored before indexed admission.
+pub fn project_with_compaction(
+    c: &IndexedCoefficientContext,
+    rows: &[Row],
+    target: &IndexShift,
+    forbidden: &BTreeSet<IndexShift>,
+    input_guards: &[Guard],
+    limits: Limits,
+    compact: bool,
+) -> Result<Projection> {
     bound(rows.len(), limits.rows, "source-span rows")?;
     require(!rows.is_empty(), "empty symbolic source span")?;
     require(
@@ -397,6 +414,7 @@ pub fn project(
         limits.nonzeros,
         "projection inputs",
     )?;
+    let variables = native_variables::Variables::new(c, rows, compact, limits)?;
     let native_width = u32::try_from(width).map_err(|_| Error::Budget("native augmented width"))?;
     let mut reducer = native(|| SparseRowReducer::new(native_width, Field::new(Z), LuLMode::Full))?;
     let f = forbidden.iter().cloned().collect::<Vec<_>>();
@@ -407,15 +425,15 @@ pub fn project(
         for (i, shift) in f.iter().enumerate() {
             if let Some(v) = row.get(shift) {
                 ids.push(i as u32);
-                values.push(v.raw().clone());
+                values.push(variables.map(v.raw())?);
             }
         }
         if let Some(v) = row.get(target) {
             ids.push(forbidden.len() as u32);
-            values.push(v.raw().clone());
+            values.push(variables.map(v.raw())?);
         }
         ids.push((physical + ordinal) as u32);
-        values.push(c.one().raw().clone());
+        values.push(variables.map(c.one().raw())?);
         let pivot = native(|| reducer.add_row(&values, &ids))?
             .ok_or_else(|| Error::Invalid("identity-augmented source lost independence".into()))?
             as usize;
@@ -447,8 +465,8 @@ pub fn project(
                 && lcols.last().copied() == Some(urow),
             "native append-only row chronology changed",
         )?;
-        let uvalues = admit_values(c, uvalues, &mut retained_terms, limits)?;
-        let lvalues = admit_values(c, lvalues, &mut retained_terms, limits)?;
+        let uvalues = variables.admit_values(c, uvalues, &mut retained_terms, limits)?;
+        let lvalues = variables.admit_values(c, lvalues, &mut retained_terms, limits)?;
         if pivot < physical {
             let scale = lvalues
                 .last()

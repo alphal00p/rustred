@@ -15,15 +15,116 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
 | Incumbent-informed source recovery | `rule_cost_profiles` | Large augmented runs censored | Preserve the5,796-source results; delayed weight recovery and modular source nomination are the next measured alternatives. |
 | Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe censored | Preserve the completed controls; full exact elimination is still expensive, so use modular nomination before another large lift. |
-| Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered /36 core +43 research tests pass | All three full-bank samples miss; investigate the source-contract gap before attempting another large exact solve. |
-| Matrix incidence / arithmetic ordering | `rule_cost_profiles` + independent auditor | Census delivered; native permutation runs parked | Only208 rows disconnect under full F, all projected-zero; permutations cannot repair the measured rank misses. Reopen on a bank with a target. |
-| Incumbent source-contract gap | Implementation + profiler + auditor | Active diagnosis | Native37-mask census is inconclusive throughout; inspect actual saved basis/replay and independently cross-check modular/source coordinates. No guard or zero waiver. |
+| Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered; corrected-bank discovery succeeds | All three minus-one-recenter samples nominate the same3549-source trace; exact full-source materialization remains required. |
+| Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Reopened on target-bearing corrected bank | Input-only structural source-visitation trials may reduce trace cost; preserve all5796 sources/F/chart. No column-permutation cure is claimed. |
+| Incumbent source-contract gap | Implementation + profiler + auditor | Recentring defect identified in research inspector | Recover the raw winning target's translation; saved canonical target cannot determine it. Correct nomination, retain old-bank negative evidence, rerun modular probes. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### First corrected exact lift launched — October3, 20:05 UTC
+
+[M] All three native CLI checked-export controls pass against the frozen old
+research executable: reference, new default and selected+compact direct-L
+produce identical `915c3875…` candidate bytes, about0.99s inclusive each.
+The first actual corrected exact attempt starts only after those controls and
+the53-test gate. It uses the target-distance2823-row shortlist within the full
+5796 original bank, F6274 and unchanged chart, on native65/supervisor66 with
+128GiB pilot allowance,150GB host reserve and1500/1620/1800s cooperative/hard/
+inclusive ceilings. Production remains untouched. The initial native events
+confirm16→2 coefficient variables and complete source/F/guard preparation
+before selection. At87.90s,2652/2823 rows have been visited; this is partial
+progress, not completion or a matched speed comparison. Evidence:
+`candidates/symbolic-owner66-recenter-target-distance-selected-compact-v1/`.
+
+### Source-order shortlist improvement and merged test gate — October3, 20:04 UTC
+
+[M] Two input-only source-visitation trials preserve the corrected full5796-row
+bank, exact F6274, chart, samples and all policies. Component-first/minimum-F-degree
+ordering yields3515 nominated rows (34 fewer); target-incidence graph distance,
+then minimum F degree/source nonzeros/original ordinal yields2823 (726 fewer,
+20.46% smaller shortlist). Each trial's three samples agree on the exact typed
+support and dependency ordinals; all owned groups drain. Whole times12.538 and
+11.641s. This is **not**20% less downstream work, an exact speed comparison,
+or achievement of the campaign-switch gate. The first exact attempt will use
+the2823 winner, bound to its own permuted source ordinal space; no3549 exact
+run has occurred. Evidence:
+`incidence-study/recenter-order-recommendation-v1.json` (`0c1607f3…`).
+
+[M] New app build `de2cc92c…` completes in438.029s; all9 inspection tests pass.
+The combined research executable `9dc7b14e…` builds in123.743s. Its corrected
+test-only executable `640631d1…` passes53 tests, zero ignored, in1.06s raw/
+4.654s guarded. Two setup/fixture failures are preserved: missing copied JSON
+fixture, then52passes/one invalid artifact comparison against a legitimately
+export-refused full-prefix control. The corrected test explicitly asserts that
+refusal and compares successful selected bytes to the independently positive
+single-backward-source reference. No runtime change or guard waiver was needed.
+Independent source review covers selection, compaction and the corrected test;
+native CLI byte controls precede the first actual exact lift on65/66.
+
+### Corrected-bank modular hits; compact exact-frame implementation — October3, 19:52 UTC
+
+[M] The explicit common−eD2 source translation produces a modular target in all
+three unchanged samples. Every sample sees F6274, rank4755→4756, and the same
+3549-source dependency-ordered support, with first hit at source5646. Sample
+times are0.558915/0.529688/0.516899s; complete command10.766s,3.442GB RSS,
+clean/drained on67/68. CallerF is cleared because it belongs to the old source
+universe; the unchanged native root/cofinal policies regenerate the complete
+necessary F for the shifted bank. All5796 source RowIds/order, chart, samples
+and limits remain unchanged. This is explicit translation nomination, not
+recovery/proof of the incumbent or a new exact rule. Evidence:
+`candidates/symbolic-owner66-recenter-minus1-v2/`, raw `d779347e…`.
+The preceding v1 refused before algebra because pretty-printed input exceeded
+the byte cap; v2 changes serialization to compact JSON only, retaining v1.
+
+[M] Independent native differential testing separately checks all120959
+translated coefficients at all three original samples against ordinary-source
+evaluation at n+s, reproducing rank4932/4932 for the original bank. It completes
+in7.361s native/13.071s inclusive, no discrepancy. Thus the shifted evaluator
+was not the observed mismatch. A conservative native-support census bounds
+possible common free-axis recenters by {-3,-2,-1,0,1,2}; the successful−1
+nominee lies inside that finite set, but its actual saved-pivot identity is
+not yet replayed. Evidence: `incidence-study/exact-shift-check-v1/` and
+`incidence-study/raw-free-recenter-nominees-v1.json`.
+
+[M] Source-reviewed follow-up is now being built: inspector v2 reports an
+unknown recenter unless one is explicitly nominated; a genuine canonical
+tadpole regression reproduces the old mistake. Nine app inspection tests
+pass. Root's optional `exact_source_ordinals` selects only images and their
+weight map AFTER complete original-source/F/guard preparation; full original
+rows, bindings and conditions stay intact for replay. Profiler's optional
+coefficient-variable compaction mirrors existing production transport through
+Symbolica native variable rearrangement, restoring the full context before
+all guards and returned weights. Independent audits pass; the combined53-test
+research build remains pending. No custom polynomial or reconstruction kernel
+is introduced. Next: bounded exact lift of the corrected sampled support,
+then full proof/export and unchanged whole-context cost cohorts if successful.
+
+### Research inspector recentering defect — October3, 19:40 UTC
+
+[M] Implementer and independent auditor identify a concrete convention error
+in the research source-support inspector. Search canonicalizes the raw winning
+target and RHS, but retains its original, unshifted `SeedSource` records. The
+inspector inferred the canonical translation from the already canonical saved
+target, obtaining zero. Correct source replay instead regenerates the raw
+winning pivot and derives its translation before canonicalization
+(`source_port/replay.rs`). Therefore the212-offset/5,300-source nomination is
+not established as a superspan for the saved incumbent: it may be displaced
+by a common translation along the one symbolic axis. Earlier claims of that
+superspan guarantee are withdrawn. The measured5,796-row negative results
+remain correct for their explicit input bank, not for the incumbent's properly
+recentered source span.
+
+[E] This is evidence of a research-inspection defect, not an invalid production
+rule. Next actions are native raw-pivot recovery or a bounded explicitly labelled
+translation nomination, regression coverage for a nonzero raw pivot, and fresh
+modular tests before any exact materialization. All1669 symbolic incumbent RHS
+keys have now been inspected and none intersects fullF6448, so the earlier
+nonzero-at-one-point limitation has also been removed. The modular milestone
+was committed/pushed as `ce2d8069`; production remains unchanged.
 
 ### Complete zero census and source-contract checks — October3, 19:25 UTC
 

@@ -17,6 +17,8 @@ mod project;
 mod refine;
 #[path = "symbolic_projector/root_policy.rs"]
 mod root_policy;
+#[path = "symbolic_projector/selection.rs"]
+mod selection;
 #[path = "symbolic_projector/source.rs"]
 mod source;
 #[path = "symbolic_projector/support_inspect.rs"]
@@ -94,6 +96,15 @@ fn fixed(r: &Value) -> Result<Vec<(usize, i64)>> {
             Ok((checked(usize::try_from(p[0]))?, p[1]))
         })
         .collect()
+}
+
+fn compact_coefficients(r: &Value) -> Result<bool> {
+    r.get("compact_coefficient_variables")
+        .map_or(Ok(false), |value| {
+            value
+                .as_bool()
+                .ok_or_else(|| "compact_coefficient_variables must be boolean".into())
+        })
 }
 fn owner_limits(r: &Value) -> Result<CandidateOwnerLoadLimits> {
     let v = &r["owner_load_limits"];
@@ -239,6 +250,8 @@ fn validate(r: &Value) -> Result<usize> {
         checked(IntegralShift::try_new(offset.clone()))?;
         require(seen.insert((id, offset)), "duplicate source RowId/offset")?;
     }
+    selection::ordinals(r, sources.len())?;
+    compact_coefficients(r)?;
     let lower = array(&r["chart"], "lower")?;
     let upper = array(&r["chart"], "upper")?;
     require(lower.len() == n && upper.len() == n, "chart arity differs")?;
@@ -326,6 +339,12 @@ fn run_mode<const N: usize>(
     nomination_only: bool,
 ) -> Result<(Value, Option<Vec<u8>>)> {
     require(!(export && nomination_only), "nomination cannot export")?;
+    require(
+        !nomination_only || r.get("exact_source_ordinals").is_none(),
+        "exact source selection cannot alter the modular nomination bank",
+    )?;
+    let exact_selection = selection::ordinals(r, array(r, "sources")?.len())?;
+    let compact = compact_coefficients(r)?;
     let started = Instant::now();
     progress::reset();
     progress::event(
@@ -512,6 +531,16 @@ fn run_mode<const N: usize>(
             None,
         ));
     }
+    // Derive the entire source universe, F, assumptions and provenance before
+    // selecting an exact frame. A sampled shortlist changes neither authority
+    // nor the set of mandatory cancelled columns, including absent/zero ones.
+    if let Some(ordinals) = &exact_selection {
+        selection::apply(&mut span, ordinals)?;
+        progress::event("exact_frame_selected", || {
+            json!({"original_rows":span.originals.len(),"selected_rows":span.images.len(),
+                "full_f_columns":forbidden.len(),"retained_guards":span.guards.len()})
+        });
+    }
     let mut added = 0;
     let mut candidate = None;
     let mut status = "REFUSED_OR_INCOMPLETE";
@@ -521,9 +550,9 @@ fn run_mode<const N: usize>(
             || json!({"attempt":attempts.len(),"refinements":added,"f_size":forbidden.len()}),
         );
         let projection_function = if direct_l::enabled(r)? {
-            direct_l::project
+            direct_l::project_with_compaction
         } else {
-            project::project
+            project::project_with_compaction
         };
         let projection = match projection_function(
             c,
@@ -532,6 +561,7 @@ fn run_mode<const N: usize>(
             &forbidden,
             &span.guards,
             limits,
+            compact,
         ) {
             Ok(v) => v,
             Err(e) => {
@@ -549,7 +579,11 @@ fn run_mode<const N: usize>(
         };
         let proposal = match projection {
             project::Projection::NoTarget { guards, rows } => {
-                status = "NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F";
+                status = if exact_selection.is_some() {
+                    "NO_TARGET_IN_SELECTED_EXACT_FRAME_WITH_CURRENT_F"
+                } else {
+                    "NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F"
+                };
                 trace::append(
                     &mut attempts,
                     json!({"status":status,"visited_rows":rows,"conditions":guards_json(&guards),"nonexistence_claim":false}),
@@ -691,7 +725,7 @@ fn run_mode<const N: usize>(
     Ok((
         cofinal::annotate(
             json!({"schema":SCHEMA,"status":status,"request":r,"ordinary_sources_generated":count,
-        "finite_bank_rows":span.originals.len(),"nonzero_symbolic_images":span.images.iter().filter(|x|!x.is_empty()).count(),"frozen_image_columns":universe.len(),
+        "finite_bank_rows":span.originals.len(),"exact_projection_rows":span.images.len(),"nonzero_symbolic_images":span.images.iter().filter(|x|!x.is_empty()).count(),"frozen_image_columns":universe.len(),
         "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
         "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
         "guard_tautology_policy":"native nonzero constants omitted after context/zero checks; all nonconstant assumptions retained",

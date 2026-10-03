@@ -30,6 +30,7 @@ struct Accepted {
 
 fn recover(
     c: &IndexedCoefficientContext,
+    variables: &project::native_variables::Variables,
     reducer: &SparseRowReducer<Field>,
     accepted: &[Accepted],
     target_basis: usize,
@@ -73,8 +74,8 @@ fn recover(
     )?;
     let n = u32::try_from(rank).map_err(|_| Error::Budget("native accepted rank"))?;
     let transpose = native(|| Matrix::from_triplets(n, n, triplets, Field::new(Z)))?;
-    matrix_bound(c, &transpose, limits)?;
-    admit_values(c, transpose.values(), retained_terms, limits)?;
+    variables.matrix_bound(c, &transpose, limits)?;
+    variables.admit_values(c, transpose.values(), retained_terms, limits)?;
     // Charge the cloned native solve input BEFORE allocating it. Native solve
     // scratch is additionally constrained by the outer process/time guard.
     bound(
@@ -90,20 +91,16 @@ fn recover(
         limits.columns,
         "native solve augmented columns",
     )?;
-    admit_values(c, transpose.values(), retained_terms, limits)?;
-    admit_values(c, &[c.one().raw().clone()], retained_terms, limits)?;
+    variables.admit_values(c, transpose.values(), retained_terms, limits)?;
+    let one = variables.map(c.one().raw())?;
+    variables.admit_values(c, std::slice::from_ref(&one), retained_terms, limits)?;
     // The solve internally performs native forward/back substitution. Since
     // this is triangular, its pivots are exactly the retained L diagonals.
     super::progress::event("direct_l_recovery_start", || {
         json!({"rank":rank,
         "l_transpose_nonzeros":transpose.nvalues()})
     });
-    let unit = SparseVector::from_csr(
-        n,
-        vec![c.one().raw().clone()],
-        vec![target_basis as u32],
-        Field::new(Z),
-    );
+    let unit = SparseVector::from_csr(n, vec![one], vec![target_basis as u32], Field::new(Z));
     let solution = native(|| transpose.clone().solve(unit))?
         .map_err(|e| Error::Invalid(format!("native L transpose solve failed: {e}")))?;
     require(solution.len() == n, "native solve vector shape differs")?;
@@ -111,8 +108,8 @@ fn recover(
     // bridge preserves native typed entries without a string round trip.
     let mut weights_column = Matrix::new(n, 0, Field::new(Z));
     native(|| weights_column.append_col(solution))?;
-    matrix_bound(c, &weights_column, limits)?;
-    admit_values(c, weights_column.values(), retained_terms, limits)?;
+    variables.matrix_bound(c, &weights_column, limits)?;
+    variables.admit_values(c, weights_column.values(), retained_terms, limits)?;
     bound(
         add(
             add(reducer.u().nvalues(), reducer.l().nvalues())?,
@@ -122,8 +119,8 @@ fn recover(
         "retained reduction/recovery nonzeros",
     )?;
     let equation = native(|| &transpose * &weights_column)?;
-    matrix_bound(c, &equation, limits)?;
-    admit_values(c, equation.values(), retained_terms, limits)?;
+    variables.matrix_bound(c, &equation, limits)?;
+    variables.admit_values(c, equation.values(), retained_terms, limits)?;
     bound(
         add(
             add(
@@ -149,10 +146,7 @@ fn recover(
     for (basis, binding) in accepted.iter().enumerate() {
         for at in weights_column.row_ptrs()[basis]..weights_column.row_ptrs()[basis + 1] {
             require(weights_column.col_idcs()[at] == 0, "weight column changed")?;
-            let value = c.admit_native_result_with_limits(
-                weights_column.values()[at].clone(),
-                limits.arithmetic,
-            )?;
+            let value = variables.admit(c, &weights_column.values()[at], limits)?;
             // Common replay retains this weight's denominator BEFORE the
             // source product, exactly as in the default augmented backend.
             require(
@@ -176,6 +170,18 @@ pub fn project(
     forbidden: &BTreeSet<IndexShift>,
     input_guards: &[Guard],
     limits: Limits,
+) -> Result<Projection> {
+    project_with_compaction(c, rows, target, forbidden, input_guards, limits, false)
+}
+
+pub fn project_with_compaction(
+    c: &IndexedCoefficientContext,
+    rows: &[Row],
+    target: &IndexShift,
+    forbidden: &BTreeSet<IndexShift>,
+    input_guards: &[Guard],
+    limits: Limits,
+    compact: bool,
 ) -> Result<Projection> {
     bound(rows.len(), limits.rows, "source-span rows")?;
     require(!rows.is_empty(), "empty symbolic source span")?;
@@ -236,6 +242,7 @@ pub fn project(
         }
     }
     bound(inputs, limits.nonzeros, "projection inputs")?;
+    let variables = project::native_variables::Variables::new(c, rows, compact, limits)?;
     let native_width = u32::try_from(width).map_err(|_| Error::Budget("native physical width"))?;
     let mut reducer = native(|| SparseRowReducer::new(native_width, Field::new(Z), LuLMode::Full))?;
     let f = forbidden.iter().cloned().collect::<Vec<_>>();
@@ -247,12 +254,12 @@ pub fn project(
         for (i, shift) in f.iter().enumerate() {
             if let Some(v) = row.get(shift) {
                 ids.push(i as u32);
-                values.push(v.raw().clone());
+                values.push(variables.map(v.raw())?);
             }
         }
         if let Some(v) = row.get(target) {
             ids.push(forbidden.len() as u32);
-            values.push(v.raw().clone());
+            values.push(variables.map(v.raw())?);
         }
         let before_u = reducer.u().nrows() as usize;
         let before_l = reducer.l().nrows() as usize;
@@ -279,7 +286,7 @@ pub fn project(
                 .l()
                 .last_row()
                 .ok_or_else(|| Error::Invalid("native L row missing".into()))?;
-            admit_values(c, raw, &mut retained_terms, limits)?
+            variables.admit_values(c, raw, &mut retained_terms, limits)?
         } else {
             Vec::new()
         };
@@ -309,7 +316,7 @@ pub fn project(
                     .all(|id| *id < urow),
             "accepted L dependency chronology changed",
         )?;
-        let admitted_u = admit_values(c, uvalues, &mut retained_terms, limits)?;
+        let admitted_u = variables.admit_values(c, uvalues, &mut retained_terms, limits)?;
         let scale = admitted_l
             .last()
             .ok_or_else(|| Error::Invalid("native pivot absent".into()))?;
@@ -346,6 +353,7 @@ pub fn project(
         )?;
         let weights = recover(
             c,
+            &variables,
             &reducer,
             &accepted,
             before_u,

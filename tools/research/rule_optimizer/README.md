@@ -574,16 +574,22 @@ through the existing public inspector, returning its actual coordinate/affine
 case and a bounded RHS-shape summary, not source or dispatch authority.
 
 The separate `support-inspect OWNER REQUEST` mode accepts
-`rustred.symbolic-source-support-inspection.v1`. It nominates all completed
-native ordinary RowIds at every distinct physical seed offset of one saved
-coordinate rule. Symbolic offsets include the saved target's canonical
-translation; fixed offsets are the seed's absolute index minus the fixed
+`rustred.symbolic-source-support-inspection.v2`. It nominates all completed
+native ordinary RowIds at every distinct stored-seed displacement of one saved
+coordinate rule. The common source recentering is **unknown** by default:
+generation canonicalizes the winning equation but retains its original seeds,
+so the saved canonical target does not reveal the raw winning pivot's shift.
+Optional `source_recenter_nomination` supplies an explicit, unverified common
+translation; it must have exact arity and zero entries on fixed axes. The report
+tags unrecentered versus caller-recentered offsets and grants neither nominee
+source authority. Fixed offsets are the seed's absolute index minus the fixed
 target value, not the saved coefficient shift (which must be zero there).
 The output is factored into offset and RowId lists, with exact case/target and
 saved exclusion-ID metadata. Basis ordinals and weights are not interpreted or
 exported; an empty source list, inconsistent seed transport or affine case
-refuses. This is a proposed superspan, not an incumbent certificate: zero-sector
-projection and guards still require full original-source regeneration and proof.
+refuses. Neither unrecentered seeds nor an unverified recentering establish an
+incumbent superspan. Zero-sector projection and guards also require full
+original-source regeneration and proof.
 Explicit limits bound the retained-seed scan, distinct offsets, ordinary rows,
 Cartesian pair count and output. Generated term/condition totals are retained
 inventory bounds checked after native completion, not scratch allocation caps;
@@ -593,9 +599,17 @@ test binary with optimized dependencies) and all 16 optimized research-example
 tests. Its app library and research producer were optimized; the core and campaign
 CLI were not rebuilt. The first read-only owner66/rule698 inspection completed
 in 6.223 seconds: 1,969 saved seeds yielded 212 unique physical offsets and 25
-native ordinary RowIds, or 5,300 factored pairs. The saved canonical translation
-was verified to be zero. This is not evidence that all 5,300 rows should be fed
-to an unrestricted symbolic solve. Frozen build/test and inspection receipts are
+native ordinary RowIds, or 5,300 factored pairs. Its v1 report incorrectly
+interpreted the already-canonical target as establishing zero source recentering;
+those offsets are only unrecentered seeds. The original receipts remain intact.
+The v2 regression uses a genuinely generated tadpole: target and seed both store
+zero, but only source offset -1 reproduces its complete saved normalized RHS.
+The v2 correction passed nine focused app inspection tests (six source-support
+tests and three existing inspection tests), including that complete native RHS
+comparison. Its app library is opt2/noLTO; the semantic test binary is opt0 with
+optimized dependencies. Receipts are in `candidates/source-recenter-build-v1/`;
+the separately rebuilt research driver gate is still pending. Frozen v1
+build/test and inspection receipts are
 under ignored `candidates/source-support-build-v1/` and
 `candidates/symbolic-owner66-source-support-v1/` beneath the TMP root below.
 
@@ -875,3 +889,40 @@ nonexistence conclusion and no exported owner. The entire guarded observation
 took 13.97 seconds; source preparation and bounded report rendering are separate
 from the sample times. Evidence is under ignored
 `candidates/symbolic-owner66-modular5796-v1/`.
+
+That bank subsequently proved to have an unestablished source recenter: saved
+canonical targets do not encode the raw winning pivot's displacement. The v2
+source-support inspector above now reports unknown recentering or an explicit,
+unverified caller nomination. On this actual case, shifting the bank by−eD2
+and regenerating complete root/cofinal F yields target supports in all three
+samples. This remains discovery evidence, not replay of the saved identity.
+
+`exact_source_ordinals` optionally supplies a nonempty, duplicate-free list of
+positions in the complete, explicitly ordered `sources` request. It controls
+the exact frame only: complete original-source preparation, full image universe,
+root/cofinal F and all input guards are established **before** selection. The
+adapter moves the selected images and their original-source weight maps without
+copying them, retaining all original rows/bindings/guards for final replay.
+Absent selected-row F columns stay present as exact structural zeros. Explicit
+visitation order is preserved; selection is refused in modular nomination mode.
+A selected-frame miss is labelled `NO_TARGET_IN_SELECTED_EXACT_FRAME_WITH_CURRENT_F`,
+not a conclusion about the entire original bank. No sampled weights are accepted.
+
+`compact_coefficient_variables: true` optionally removes globally absent
+variables from the native reducer's coefficient map, following the production
+`FrameVariables` implementation and using Symbolica's own variable rearrangement.
+Both numerators and denominators determine the active map; integral coordinates
+are not changed. Coefficients are restored to the authenticated original context
+before guards, returned weights and full-source replay. Both exact backends
+support it; false/absent preserves the previous path. It is coefficient storage
+and arithmetic specialization, not a new CAS or reconstruction algorithm.
+
+The combined research suite passes53 optimized tests, and the corrected source
+inspector passes9 app tests. The first merged test package omitted a JSON fixture;
+the next run exposed an incorrect byte-control assumption about an unused
+forward-pivot guard. Both failed attempts are retained. The corrected test still
+asserts the full-prefix export refusal and compares successful selected bytes
+against the established single-backward-source export; no guard is waived.
+Evidence: ignored `candidates/source-recenter-build-v1/`,
+`projector-selected-compact-build-v1/` and
+`projector-selected-compact-tests-v3-build-v1/`.
