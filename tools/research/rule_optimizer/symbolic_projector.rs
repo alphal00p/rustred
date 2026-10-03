@@ -11,6 +11,8 @@ mod direct_l;
 mod inspect;
 #[path = "symbolic_projector/nominate.rs"]
 mod nominate;
+#[path = "symbolic_projector/positive_power_envelope.rs"]
+mod positive_power_envelope;
 #[path = "symbolic_projector/progress.rs"]
 mod progress;
 #[path = "symbolic_projector/project.rs"]
@@ -201,6 +203,7 @@ fn validate(r: &Value) -> Result<usize> {
     trace::detail(r)?;
     root_policy::enabled(r)?;
     cofinal::enabled(r)?;
+    positive_power_envelope::cap(r)?;
     if !reconstructed::enabled(r) {
         direct_l::enabled(r)?;
     }
@@ -504,6 +507,31 @@ fn run_mode<const N: usize>(
     };
     let cofinal_new_count = cofinal_columns.difference(&forbidden).count();
     forbidden.extend(cofinal_columns);
+    if positive_power_envelope::cap(r)?.is_some() {
+        require(
+            family.power_shifts().iter().all(|shift| shift.is_zero()),
+            "positive-power envelope refuses shifted powers",
+        )?;
+    }
+    let envelope = positive_power_envelope::columns(r, owner.owner_ordering(), &universe)?;
+    let envelope_new_count = envelope
+        .as_ref()
+        .map_or(0, |e| e.columns.difference(&forbidden).count());
+    if let Some(e) = &envelope {
+        forbidden.extend(e.columns.iter().cloned());
+    }
+    let annotate = |report| {
+        positive_power_envelope::annotate(
+            cofinal::annotate(
+                report,
+                cofinal_enabled,
+                &cofinal_witnesses,
+                cofinal_new_count,
+            ),
+            envelope.as_ref(),
+            envelope_new_count,
+        )
+    };
     progress::event("source_ready", || {
         json!({"source_rows":span.originals.len(),"image_columns":universe.len(),
         "f_size":forbidden.len(),"derived_root_columns":derived_root_columns.len(),"cofinal_new_columns":cofinal_new_count,"retained_guards":span.guards.len()})
@@ -514,15 +542,12 @@ fn run_mode<const N: usize>(
         .cloned()
     else {
         return Ok((
-            cofinal::annotate(
+            annotate(
                 json!({"schema":SCHEMA,"status":"NO_TARGET_COLUMN_IN_FROZEN_SPAN","request":r,
             "finite_bank_rows":span.originals.len(),"frozen_image_columns":universe.len(),"refinements":0,
             "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
             "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
             "source_proof_passed":false,"nonexistence_claim":false,"production_modified":false}),
-                cofinal_enabled,
-                &cofinal_witnesses,
-                cofinal_new_count,
             ),
             None,
         ));
@@ -530,15 +555,7 @@ fn run_mode<const N: usize>(
     let mut attempts = Vec::new();
     if nomination_only {
         let report = nominate::run(r, c, &completed, &requested, &forbidden, &target)?;
-        return Ok((
-            cofinal::annotate(
-                report,
-                cofinal_enabled,
-                &cofinal_witnesses,
-                cofinal_new_count,
-            ),
-            None,
-        ));
+        return Ok((annotate(report), None));
     }
     // Derive the entire source universe, F, assumptions and provenance before
     // selecting an exact frame. A sampled shortlist changes neither authority
@@ -759,7 +776,7 @@ fn run_mode<const N: usize>(
         || json!({"status":status,"attempts":attempts.len(),"refinements":added}),
     );
     Ok((
-        cofinal::annotate(
+        annotate(
             json!({"schema":SCHEMA,"status":status,"request":r,"ordinary_sources_generated":count,
         "finite_bank_rows":span.originals.len(),"exact_projection_rows":span.images.len(),"nonzero_symbolic_images":span.images.iter().filter(|x|!x.is_empty()).count(),"frozen_image_columns":universe.len(),
         "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
@@ -767,9 +784,6 @@ fn run_mode<const N: usize>(
         "guard_tautology_policy":"native nonzero constants omitted after context/zero checks; all nonconstant assumptions retained",
         "refinements":added,"attempts":attempts,"seconds":started.elapsed().as_secs_f64(),"production_modified":false,"recursive_walk":false,
         "point_weight_lift":false,"coverage_or_cost_claim":false,"finite_span_miss_is_not_nonexistence":true}),
-            cofinal_enabled,
-            &cofinal_witnesses,
-            cofinal_new_count,
         ),
         candidate,
     ))

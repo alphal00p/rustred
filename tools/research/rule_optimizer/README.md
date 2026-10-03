@@ -987,3 +987,42 @@ remain preserved. Optimized test binary `60264321…` runs the 62 tests in 1.32s
 the frozen normal executable is `dd4b5c5a…`. Evidence:
 `TMP/rule-optimizer-20261003/candidates/projector-reconstructed-build-v6/`.
 These tests establish the research interface, not an operational five-loop gain.
+
+### Positive-power envelope (research opt-in)
+
+`max_positive_power_excess` is an optional nonnegative integer. Omission leaves
+the existing path unchanged. When supplied, it adds an optional cost restriction
+to F using only columns present in the complete native, fixed-specialized source
+universe, before any exact row selection or modular nomination. No source, term,
+guard, or existing forbidden column is removed. The current target is the zero
+shift relative to the declared physical chart; the limit is relative to that
+target's positive-power sum, not an assumed free-index value alone.
+
+The initial scope is one positive unbounded index with every other index fixed,
+unshifted family powers, and no extra affine/correlated restrictions. For each
+column, native complexity-key dots plus active propagators give its positive
+power sum. The excess is `C + max(n+s, 0) - n`, whose maximum on this ray is at
+the exact lower corner, including sign crossings and newly active fixed axes.
+All arithmetic and witness storage are bounded; unsupported charts refuse.
+
+Whole-column cancellation is a deliberate cost policy, not a necessary descent
+condition: it can exclude circuits whose coefficients vanish on a finite
+violating boundary. Reports retain the actual universe count, all selected
+shifts with lower-corner witnesses, and the number newly added to F. A modular
+hit remains discovery only; unchanged full-source replay, chart/guard/descent
+proof, checked export and shared downstream measurement are still required.
+All 68 optimized tests pass, including six envelope tests for exact crossings,
+fixed-axis activation, coordinate permutation, unsupported geometry and
+overflow/resource refusal. The native tadpole test adds a genuinely new F
+column, preserves the full source/guard proof, and exports identical bytes.
+Prior/current default optimized exports also match byte-for-byte. Evidence is
+under `TMP/rule-optimizer-20261003/candidates/projector-envelope-build-v2/`.
+The frozen 5,796-source pilot completed both A-only and H55-plus-A arms. From
+12,230 actual columns, the envelope selected 4,544 and added 867 new forbidden
+columns. All three explicit samples hit in each arm: A-only used F size 7,141
+and nominated 2,803 sources; H55-plus-A used F size 7,196 and nominated 2,914.
+Each arm returned identical source ordinals across its three samples. Evidence:
+`TMP/rule-optimizer-20261003/incidence-study/positive-power-envelope-v2/`.
+These are modular feasibility observations, not exact proofs or work savings.
+Only the joint arm is scheduled for exact reconstruction; the previous H55-only
+rule was source-proved but increased shared domain work by about 0.50%.

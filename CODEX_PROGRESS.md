@@ -20,13 +20,81 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Incumbent source-contract gap | Implementation + profiler + auditor | Research inspector corrected and pushed | Explicit minus-one nomination restores modular feasibility; it is not yet a replay of the saved incumbent. |
 | Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Delivered; H55 checked export in468.915s | Same bytes as sparse-exact1220.975s; smaller-cache run censored. Preserve controlled cache result, not a campaign gain. |
 | Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H55 exact export succeeds; downstream negative | Full-context point385477→387421 domains. Diagnose replacement tails/shared dependencies before proposing another block. |
+| Native positive-power envelope | `rule_optimizer_impl` + independent auditor | 68 optimized tests pass; both modular controls hit | One joint H55+A exact lift only, then unchanged point gate; no automatic A-only lift or further local filters. |
+| Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Complete developer graph and record census delivered | Native-match four frozen whole-domain representatives for owners0/3; preserve existing held-out owners. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
-| Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
+| Mathematical and measurement review | `exact_and_cost_audit` | Active | Continue the completed independent source/witness audits; preflight the single joint lift and audit lower-owner matching. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Delegation refreshed; source milestone frozen — October3, 22:46 UTC
+
+[M] `rule_optimizer_impl` freezes the small envelope source, integration and
+README after the actual68-test gate and both modular controls. The root is
+publishing this audited research capability independently of its performance
+hypothesis; no improved production pool is claimed. The exact H55+A request is
+prepared but awaits its final independent input preflight. No automatic retry.
+
+[E] Replacement profiling agent `lower_sector_discovery` receives the four
+prepared whole-domain queries and the existing owned-process matching guard:
+CPUs32–47,150GB process cap and150GB host reserve,540s cooperative stop and600s
+inclusive ceiling. The separate exact lift uses65/66. New independent auditor
+`exact_and_cost_audit` reviews both lanes; the previous graph and envelope audits
+remain recorded. No production process, input or checkpoint is modified.
+
+### Envelope feasibility succeeds; lower owners remain priority — October3, 22:40 UTC
+
+[M] Research module passes68 optimized tests (six new),1.44s native; old/new
+default checked toy artifacts are byte-identical. The independent source,
+mathematical and actual-receipt audits pass. Only research files change; no
+production or core rebuild. Optimized executable `15f634bd…` uses the existing
+frozen optimized native dependencies.
+
+[M] Two modular controls finish in21.801s inclusive, all owned groups drained.
+The actual12230-column universe has4544 envelope violations,867 not already in
+mandatory F. A-only: F7141, ranks4691/4692,2803 nominated sources. H55+A: F7196,
+ranks4737/4738,2914 nominated sources. Each gives identical typed support across
+all three frozen samples, after5239 source visits. An explicit160M dense-scan
+allowance replaces100M because the declared full-universe worst-case bound is
+141781752; this is recorded, not a hidden algorithm change or timing comparison.
+No modular result is a proof or publication authority. Evidence:
+`incidence-study/positive-power-envelope-v2/`.
+
+[E] Root and auditor authorize exactly one joint H55+A reconstructed lift as
+the already-defined falsifier, in parallel with lower-owner profiling on separate
+cores. Keep cache8192/250M, all original-source/guard gates, unchanged full pool
+and point, and the20%scheduled-work criterion. No A-only lift, bank expansion,
+budget retry or more local filters if this second activated rule is near-null or
+negative. Its feasibility alone does not overcome the93-node static H55 result.
+
+[M] Complete diagnostic record census reads296471547bytes in52.447s, accounting
+for all314824/316781 native inspections. Baseline summed inspector wall intervals
+are116.197s (overlapping workers, not campaign wall/CPU). Owner0 contributes
+40.530s and owner3 contributes19.497s. H55's93 hypothetical lost graph nodes
+include92 native inspections totaling only0.004103s. The profiler now prepares
+two whole-domain representatives each for these common lower owners. This is a
+better-grounded next discovery target than another arbitrary parent RHS block.
+Evidence: `profiles/H55-record-census-{plan,result}-v1.json`.
+
+### H55 is mostly shared downstream work — October3, 22:33 UTC
+
+[M] The preregistered developer-only graph diagnostic finishes in8.993s,
+112924931bytes read. Independent codec/geometry/interpretation audit passes.
+All1668 baseline root successors exactly biject emitted singleton keys. In the
+fixed retained graph, removing just55 H55 root edges makes only93/385477 nodes
+unreachable;6of55 children remain reached. Removing all133 root edges of that
+support loses163 nodes; all47 same-support edges loses5991. These are separate
+counterfactual cuts, not additive savings, valid IBPs or runtime predictions.
+
+[E] This weakens the original parent-block target even under cost-free removal.
+Continue the one A-envelope modular test, but require new evidence before an
+expensive exact lift. Prioritize common lower-owner rule costs and marginal
+sharing. The profiler now studies the already completed developer cohorts,
+preserving held-out owner exclusions; no production sidecar scan is needed.
+Evidence: `profiles/H55-graph-result-v1.json` and its preregistration/script.
 
 ### Execution restored; controlled experiment resumes — October3, 22:24 UTC
 
@@ -43,6 +111,31 @@ bounded shared-graph cost attribution. No new candidate is promoted.
 snapshot reports18005178 closed and13/67 roots, but is1111.8s old; it is not a
 current closure-rate measurement or a completion forecast. The live campaign
 and its inputs/checkpoint are unchanged.
+
+[M] The result/documentation milestone is committed and pushed as `eb9e002c`.
+The envelope implementation is now a small research-only module, reusing native
+complexity keys and actual specialized columns, with source audit completed.
+The auditor requests an additional positive assertion: an enabled envelope must
+add a previously unbanned column, not merely duplicate an existing cofinal ban.
+The expected68-test native gate and two modular controls (A-only, H55+A) remain
+pending; no prospective source or sampled relation is a published rule.
+
+[E] The profiler has a bounded developer-checkpoint graph diagnostic allocation:
+CPU69,180s,<=450MB read, starting with geometry/tags/edges rather than production
+sidecars. An idealized H55 root-edge cut may show whether other retained branches
+still reach the same work. Cut only uniquely identified obligations; sharing,
+aliases and G2 edges forbid naive per-term deletion. Unreachable nodes in this
+fixed graph are a structural counterfactual, not a valid reduction or an
+achievable runtime bound. The earlier completed cold checks remain authority.
+
+[E] Independent critique of a possible later modular feasible-set search:
+adding profile-ranked forbidden-column blocks is a systematic hypothesis search,
+not a CAS kernel or a proof of optimality. Feasibility is hereditary but need
+not have the matroid exchange property; early greedy bans can trap bad choices.
+If pursued, preregister one graph-informed ranking, a small decision budget and
+one final three-sample candidate; exact proof and unchanged graph gates remain.
+Do not launch this merely because a local envelope fails: require the new shared
+reachability evidence to identify what different cost mechanism it would address.
 
 ### Execution environment interruption — October3, 22:15 UTC
 

@@ -715,3 +715,46 @@ and anchor reachability, rather than repeatedly stacking local RHS proxies.
 The full frozen cohort and held-out gates remain unchanged. This experiment has
 **not run**: the sandbox launcher began failing before command execution due to
 missing `bwrap`. No escalation, bypass or production changes were attempted.
+
+## Shared-graph diagnosis after launcher recovery
+
+After execution is restored, an independently reviewed diagnostic reads only
+the two completed developer checkpoints:112,924,931 bytes in8.993s on CPU69.
+It checks native section layouts and count/range invariants, retaining alias
+and G2 dependencies, and performs cycle-safe reachability. This research reader
+does not replace the already completed native cold verifier.
+
+All1,668 baseline root edges exactly biject the independently emitted singleton
+keys. Each proposed cut can therefore be tied to its actual term without
+deleting an edge also required by an unrelated root term. All other recorded
+edges remain intact; no candidate rule is published from a graph cut.
+
+| Hypothetical root-edge removal | Edges cut | Recorded nodes becoming unreachable |
+| --- | ---: | ---: |
+| H55 alone | 55 | 93 /385,477 (0.0241%) |
+| Entire pinch support containing H55 | 133 | 163 |
+| All same-support recurrence tails | 47 | 5,991 |
+
+Six of the55 H55 child nodes remain reachable through other root branches.
+Other single-support cuts remove between0 and308 nodes. This is strong evidence
+against treating H55's term count or apparent rank growth as a large unique
+downstream cost. These numbers concern separate cuts in a frozen graph; they
+are neither additive nor upper bounds on arbitrary valid rewrites, which can
+change other edges, sharing and scheduling. In particular, they do not prove
+that a combination of support changes cannot help.
+
+Both complete graphs are reachable from their sole root. Their raw domain
+geometries have296,753 common keys,88,724 baseline-only and90,668 candidate-only.
+Thus similar total sizes conceal substantial repartitioning; a small net count
+delta cannot be attributed to a handful of added terms without further evidence.
+Native Apply counts concentrate in shared lower owners, headed here by
+`000011001001011` (17,798 baseline /18,168 candidate) and
+`010111011000001` (14,453 /15,028). Counts alone are not inspector CPU time or
+selected-rule attribution. The next profiling pass seeks representative lower
+rules while leaving the preregistered held-out owners out of candidate fitting.
+
+Evidence: `profiles/H55-graph-preregistration-v1.json`,
+`profiles/analyze_H55_graph.py`, and `profiles/H55-graph-result-v1.json` under
+the ignored October3 evidence directory. The actual-universe envelope is still
+one bounded falsifier; repeated root-mask pruning is not the strategy going
+forward unless shared-graph evidence supports the chosen block.

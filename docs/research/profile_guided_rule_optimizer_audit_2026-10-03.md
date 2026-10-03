@@ -3875,3 +3875,71 @@ when remaining/new tails still reach the same costly nodes or anchors.
 Bounded graph attribution should motivate the next hypothesis instead of an
 unbounded sequence of additional local RHS filters. No new native job or
 source change is performed for this audit.
+
+The subsequent bounded completed-graph diagnostic supplies a more specific
+mechanism check. Independent review matches its 97-byte compact-domain and
+source/count/target-run readers to the native CP6 codec; the helper checks
+section headers, sizes, unique runs, sorted/deduplicated endpoints and ledger
+totals. Its visited-set traversal preserves cycles and alias/G2 dependencies.
+The baseline root's 1,668 singleton children form a complete bijection with
+the actual incumbent keys. Independently resolving the frozen H55 RHS
+ordinals reproduces both the nomination's exact 55 shifts and the selected
+persisted child IDs, so the cut does not remove a shared non-H emission.
+
+In this fixed recorded graph, cutting only those 55 root edges makes 93 of
+385,477 nodes unreachable (0.0241%); six of the 55 child nodes remain reachable
+through other paths. Removing the entire 133-edge H55 support group loses
+163 nodes, whereas removing all 47 same-support root edges loses 5,991.
+All 47 same-support tails survive in the candidate according to the separate
+tail comparison. This is useful evidence that H55 were a poor isolated
+shared-work target, even under unrealistically free removal. It is not a
+valid replacement IBP, an attainable performance bound under a rebuilt
+dynamic cover graph, or causal attribution of the measured +1,944 nodes.
+The script's stable-read SHA snapshots are diagnostic provenance; the
+existing native cold receipt remains authentication/closure authority.
+Evidence: `profiles/analyze_H55_graph.py`,
+`profiles/H55-graph-preregistration-v1.json` and
+`profiles/H55-graph-result-v1.json`. No additional whole-graph parse was run
+by this auditor.
+
+The optional positive-power envelope implementation receives a source-level
+pass before compilation. It derives columns only from the actual complete
+fixed-specialized native universe, after mandatory root/cofinal constraints
+and before exact row selection or modular nomination. It preserves every
+source, guard and earlier forbidden column. For one positive free physical
+index n and all other axes fixed, native complexity-key dots plus propagator
+count equals A, and the exact excess `C+max(n+s,0)-n` is nonincreasing.
+Thus the lower-corner maximum includes free-axis sign crossings and fixed
+inactive-axis activations without sampling. Unsupported charts, shifted
+powers, arithmetic overflow and witness-budget excess fail closed; omission
+returns the old path before additional geometry checks. The six focused
+tests include nonredundant envelope-only F addition and checked-export byte
+identity, not merely a ban already supplied by cofinal classification.
+The resulting 68-test gate and actual five-loop nomination are still pending
+at this entry. Whole-column envelope bans remain optional search policy,
+not necessary-descent claims when a coefficient could vanish only on a
+finite violating boundary.
+
+The actual optimized envelope gate subsequently passes all 68 tests,
+including each of the six intended new names, with no failures or ignored
+tests. Both links and the test run exit cleanly and drain; the real prior
+and new checked toy exports are byte-identical. The native executable is
+`15f634bd1564d51810e9f68c8e8637f00478b5601ed9a9ecfc313199e2c0902c`.
+The two frozen discovery inputs differ only by the original H55 set; each
+adds cap zero and the explicitly approved dense-scan allowance 100M to160M
+to its earlier counterpart. A prelaunch runner-label correction accurately
+records the conservative cumulative 120/150-second pair deadline and
+180-second inclusive ceiling rather than claiming a separate allowance per
+arm. The unexecuted earlier plan is preserved.
+
+The A-only/H55+A modular pair completes in 21.801 seconds, all groups drained,
+with no source proof or export claim. Both use the same 5,796 sources, fixed
+chart and three frozen samples. Independent recomputation checks every one
+of the 4,544 reported envelope witnesses at the exact lower corner and its
+positive excess; 867 add to existing F. Full F is exactly 7,141 for A-only
+and 7,196 for H55+A. All three samples hit in each arm, with identical typed
+source/input-ordinal support within that arm: 2,803 and 2,914 sources,
+respectively, each at visitation prefix 5,239. These are first-hit sampled
+supports, not full-span ranks, exact certificates or cheaper recurrences.
+Evidence: `incidence-study/positive-power-envelope-v2/` and
+`candidates/projector-envelope-build-v2/`.
