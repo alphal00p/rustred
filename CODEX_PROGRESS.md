@@ -416,6 +416,70 @@ Receipt/report: `profiles/c19-downstream-profile.json` and
 `profiles/C19_DOWNSTREAM_PROFILE.md`. The profiler is preparing a separately
 preregistered broader training-validation cohort, not changing the held-outs.
 
+[M] The producer/compact planner milestone is committed and pushed to main as
+`84554939`. First C19 A/B completed and both arms independently cold-pass with
+zero pending/frontiers/abandoned obligations. Baseline versus candidate:
+99,610→143 scheduled domains,96,762→143 native inspections,1,858,298→6,721 events,
+7.398→0.210s traversal,186.242→174.224s full setup+walk+cold. The99.856% domain
+reduction is a strong **local** result; the6.45% full-arm time improvement is
+much smaller because loading/checking the unchanged full pool dominates this
+small request. Pair inclusive364.204s; no production modification.
+Evidence: `candidates/prescribed-spectator-c19-v1/comparison.json`.
+
+[M] Root launched a fresh reverse-order repeat (candidate then baseline) with
+the same query/context, metric and resource settings:
+`candidates/prescribed-spectator-c19-v2/`. The independent audit is checking the
+first pair's actual query, inventory and cold evidence. This result authorizes
+neither a campaign switch nor a claim about all five-loop inputs. In parallel,
+the implementation agent is adding topology-generic source nomination from
+native derivative incidence and affine tangent components, reusing the same
+source/proof/export pipeline. No new CAS kernel, tensor reducer or relaxed
+mathematical obligation is involved. Builds wait for the active pilot slot.
+
+[M] Counterbalanced C19 repeat also completed/cold-passed: baseline99,667
+domains/96,802 natives/1,858,696 events/7.573s traversal/187.883s complete arm;
+candidate again143 domains/143 natives/6,721 events/0.210s traversal/172.574s
+complete arm. Pair inclusive363.895s. The local reduction is reproduced in
+both arm orders (99.856–99.857% domains;6.45–8.15% complete-arm time). The first
+pair's independent audit confirms all actual bindings/context/cold gates. Cold
+verification accepts sealed regional cycles; those do not contradict the
+separately proved concrete strict descent, but cold coverage alone is not a
+general termination proof or full-family claim.
+
+[M] At11:40UTC root started the separately preregistered Followup12 A/B:
+`candidates/prescribed-spectator-followup12-v1/`. It contains all seven eligible
+stable-stratum Apply representatives and minimum-hash controls for five pinch
+Route masks, preserving12 whole sampled domains/19 tuples and their original
+correlated caps. This broadens spectators/active dots/transport, not input
+cardinality, and remains candidate-scope-informed training-validation. No roots
+may be dropped if they dilute gains or fail. Separate restricted held-out
+validation is being prepared without examining candidate outcomes on it.
+
+[M] Followup12 completed and both cold-All arms pass all12 required roots:
+scheduled domains3565→1529 (57.11% lower), natives3489→1504, events55,351→25,965;
+traversal0.378→0.271s and full arm177.483→171.872s. No pending/frontiers/debt;
+pair352.611s inclusive. This extends the observed mechanism to the frozen shared
+spectator/pinch cohort, still not an independent/full-family performance claim.
+Counterbalanced repetition and its independent measurement audit remain pending.
+
+[M] The independent Followup12 audit subsequently passed actual inputs,
+commands, complete cold coverage and a bounded1192-byte initial-prefix read per
+arm: precisely seven Apply plus five Route roots with unchanged geometry.
+Counterbalanced repetition remains pending. Source-only audit also passed the
+generic geometry nominator and its nine authored tests; compilation/execution
+waits for the active heldout pilot to drain. The measured prescribed binary and
+exported candidate remain frozen, separate from these source edits.
+
+[M] Root then launched a separately frozen331-tuple restricted heldout:
+`candidates/prescribed-spectator-heldout331-v1/`. Two unchanged starting owners
+differ from candidateowner1010. H1 retains every original coordinate bound and
+D[-3,14] but explicitly restricts A14→7 and R16→2 (330 tuples, rather than the
+whole parent's69,326,952); H2 is kept completely unchanged (one A23/R1 tuple).
+Both are required. This deliberately preserves mixed numerators and all available
+one-dot directions without selecting on candidate eligibility. It is not full
+H1 validation; failure/timeout will not trigger an undisclosed smaller cohort.
+The independent agent checked these metadata/counts before execution.
+
 ## Current workboard — October3 frontier repair
 
 [M] The old campaign stopped with one native frontier, not an algebra crash or

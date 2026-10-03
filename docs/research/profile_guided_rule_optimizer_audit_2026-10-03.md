@@ -1237,3 +1237,143 @@ only one owner. A broader symbolic algebra chart must not broaden C19's finite
 query, weaken the cold closure gates, remove the other66 owners, change either
 repair overlay, or erase any of the8,246 routes. No production deployment or
 full-five-loop efficacy claim follows from proof/export or local dispatch.
+
+## First complete C19 treatment comparison
+
+Independent review of `candidates/prescribed-spectator-c19-v1/` accepts the first
+completed A/B comparison. Both staged query files are byte-identical to the
+frozen C19 input. All67 owners, the exact ordered8,246 routes and both repair
+overlays remain present. Comparing complete staged metadata and the frozen
+inventories leaves exactly one change: owner ordinal2's proved replacement
+bytes and digest. Query roles, bounds, native options and16-worker CPU32–47
+allocation are unchanged. There is no query narrowing or terminal addition.
+
+Both arms drain without queue debt, abandonment, frontiers, failed natives,
+observer failure, admission failure or resource stop. Each cold verifier passes
+All reinspection with reference levers Off, matching owner/request digests and
+the same1/1 root independently verified. All96,762 baseline natives and143
+candidate natives are re-inspected; all admitted domains are covered and no
+violations remain. The stale raw `incomplete`/engine-closure snapshot is not the
+acceptance authority. The comparison reports completed=true, no issues,
+cohort target observed=true and promotion=false.
+
+| Complete C19 metric | Baseline | Candidate |
+| --- | ---: | ---: |
+| Scheduled domains | 99,610 | 143 |
+| Native inspections | 96,762 | 143 |
+| Events | 1,858,298 | 6,721 |
+| Traversal seconds | 7.398 | 0.210 |
+| Complete arm seconds | 186.242 | 174.224 |
+
+The shared regional graph work falls sharply on this19-point cohort, while
+complete-arm time falls only6.45%: full-pool preparation and cold loading remain
+dominant. These are distinct metrics, and a traversal ratio is not an end-to-end
+speedup. A fresh reverse-order pair is the next timing/control check; retain
+both pairs and ordinary rolling graph-count variability, rather than selecting
+the fastest arm. Follow-up whole-root cohorts must keep their preregistered
+outside-chart/Route controls and score the complete shared union.
+
+The candidate cold graph contains83 nodes on regional cycles. This does not
+invalidate the separately source-proved rules: region abstraction/reuse can
+produce graph cycles while individual concrete integral transitions strictly
+descend under the unchanged common order. Conversely cold coinductive closure
+alone does not prove reduction termination. The accepted combined claim is
+exact source/guard/descent evidence plus finite discharged regional work and
+complete native-reference coverage for C19. It is not tested all-family closure,
+a new master basis, or a general runtime guarantee.
+
+The prospective Followup12 metadata was independently checked without launching
+native work or rereading checkpoint bodies. Reproducing the frozen selection
+from488 retained representatives gives89 eligible whole records: all7 matching
+Apply representatives plus82 Route candidates, from which the minimum frame
+hash for each of5 masks is selected. The6 geometrically similar G2 residual
+records are correctly excluded from this whole-record selection. Each emitted
+query preserves its source box and R/A/D bounds. Direct finite enumeration
+confirms19 distinct `(owner, local-coordinate tuple)` starting points across
+all12 required roots, with no overlap or geometry trimming.
+
+All5 Route masks are absent from the unchanged installed pool and retain their
+single original transport route to owner000010011001001; the7 Apply roots have
+installed owner101010000110001. These agree with the native initial-phase
+contract under unchanged overcover and absent source conditions. Actual root
+phases and complete cold closure still require execution checks. This is a
+candidate-scope-informed training-validation cohort derived from baseline C19,
+not a pristine heldout. Its Route controls remain in the primary shared-union
+cost even if they dilute any gain; no failed or ineffective cases may be removed
+after seeing outcomes.
+
+The reverse-order C19 repeat in `candidates/prescribed-spectator-c19-v2/` also
+passes independent context/receipt audit. Candidate runs first, baseline second;
+per-arm staged selections equal the first pair, and exact queries, roles,
+criterion, resources, replacement and native options remain unchanged. Both
+again drain and pass complete Cold All / reference Off with1/1 independently
+verified root, matching owner/request digests and no uncovered work, frontiers,
+errors or violations. The candidate repeats143 domains,143 natives and6,721
+events; baseline has99,667 domains,96,802 natives and1,858,696 events.
+
+Traversal is0.210251 versus7.572695 seconds; complete arm is172.573828 versus
+187.882566 seconds, candidate versus baseline. Across both fixed-order pairs,
+the ratio of summed complete-arm time is0.926958, approximately7.30% lower—not
+the roughly99.86% graph-node reduction presented as a wall-time gain. Two pairs
+support this local repeatability observation, not a precise statistical runtime
+estimate under all host conditions. No source proof was repeated for this
+unchanged candidate, and production scope/deployment remains untouched.
+
+The later restricted-heldout331 proposal also passes independent metadata
+review before native execution. H1 changes only its explicit restricted ID,
+maximum positive degree14 to7 and numerator-rank cap16 to2; all15 coordinate
+bounds and D[-3,14] remain unchanged. H2, including its ID, is the original
+singleton query without modification. Independent degree-count convolution
+confirms69,326,952 tuples in original H1,330 in the restricted H1 envelope, and1
+in H2. Both root owners remain unchanged installed entries24 and31; the full
+67-owner/8,246-route/two-overlay context is retained. This is prospective
+restricted owner-family transfer validation, not completion of full H1 or an
+independent publication-time sample. Keep both roots and frozen caps even if
+one is ineffective or the union is censored; any later candidate fitting to
+these outcomes consumes this validation split.
+
+## Followup12 completed comparison and geometry-nomination source review
+
+`candidates/prescribed-spectator-followup12-v1/` passes independent measurement
+audit. All12 original query bytes/roles and whole geometries are retained; the
+67-owner,8,246-route,two-overlay staged selections equal their corresponding
+C19 arms. Actual native argv matches the frozen plan. Both arms drain without
+queue debt, abandonment, frontier, failure or resource stop. Cold All / reference
+Off re-inspects every3,489 baseline native and1,504 candidate native, independently
+verifies all12 roots, binds the saved requests and owners, and reports no
+uncovered work or violations.
+
+The actual root phases were also checked, rather than merely inferred from
+query masks. Reading only the1,192-byte native domain prefix per arm (28-byte
+header plus12 fixed-width root records) and the small initial-input mapping
+confirms7 Apply and5 Route roots. Every root's owner, lower/upper coordinates,
+rank and A/D bounds equals its preregistered query. This was not a checkpoint
+restore or whole-sidecar scan; independent native cold verification remains
+the closure authority.
+
+Complete shared-union domains fall3,565 to1,529 (57.11%), natives3,489 to1,504,
+and events55,351 to25,965. Traversal is0.378108 versus0.270508 seconds; complete
+arm is177.482845 versus171.872089 seconds (3.16% lower). The planned local metric
+criterion is met, with no promotion authority. This one pair is still
+profile-informed training-validation; counterbalance remains pending and no
+per-root additive cost claim or general-family gain follows.
+
+The separate geometry nomination module and integration were source-reviewed
+at module SHA256 `381509c9...1b85c78d`, tests `2cac336f...be2c0da3`, and producer
+`d034b64b...d5245b4`, before compilation. No code-review blocker was found.
+The new schema chooses an explicit coordinate loop and numerator, derives the
+contraction vector from native off-diagonal coefficients, requires one radial
+active dependent denominator, and expands the tangent through native affine
+denominator coordinates into ordinary RowId/offset weights. It does not infer
+support validity from incidence or discard mixed numerator derivatives.
+
+Lifted geometric factors and their products have denominator witnesses retained
+before coalescing or zero-weight removal. Those global conditions feed the
+shared full source-product path, followed by the existing source-term guards,
+fixed-specialization witnesses and normalization poles. Extracting that shared
+function preserves prescribed mode's old loop semantics, with an empty initial
+condition vector. All original-source/guard/descent/export gates remain the
+authority; nomination itself is not a proof. Nine authored tests cover old
+producer behavior, schema separation, exact eight-view reproduction, relabeling,
+parameter poles, unsupported/resource refusal and full mixed derivative versus
+spectator behavior. Their compile/native outcomes remain separate later gates.
