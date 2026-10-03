@@ -149,3 +149,55 @@ authority and unchanged ordered terminal inventories remain separate native
 gates. Promotion additionally needs counterbalanced pairs, complete controls,
 held-outs, generation-cost accounting and independent review. This helper
 always retains the incumbent and never authorizes a production switch.
+
+# Finite projected-source-bank diagnostic
+
+`projected_bank.rs` is a generic, input-directed native diagnostic. It reloads
+one saved owner, binds its family and persisted order, regenerates requested
+ordinary IBP source translations, and compares the same bank under two discovery
+projections: all non-descending non-target columns (F), then F plus explicitly
+nominated lower keys (H). Symbolica performs elimination and the exact weighted
+product over the full original matrix. Every surviving tail must strictly
+descend under the unchanged saved order; zero-sector terms are not discarded.
+
+It is also a Cargo example, so cached machine-specific RLIBs are not required:
+
+```bash
+cargo test --release --locked --offline -p rustred-app --example rule_optimizer_projected_bank
+cargo build --release --locked --offline -p rustred-app --example rule_optimizer_projected_bank
+target/release/examples/rule_optimizer_projected_bank validate REQUEST.json
+target/release/examples/rule_optimizer_projected_bank probe OWNER.rrbin REQUEST.json
+```
+
+Run native commands through the existing owned-process supervisor with explicit
+CPU/RSS/wall budgets; the commands above do not provide process supervision.
+The first optimized execution uses pinned existing release libraries, with
+build/test/probe receipts in ignored
+`TMP/rule-optimizer-20261003/candidates/projected-bank-build-v1/`.
+
+Requests use schema `rustred.projected-source-bank.v1`: numeric `target`, exact
+`owner_mask`, `family_fingerprint`, `expected_order`, `expensive_keys` (H, which
+may be a structural hypothesis rather than measured expensive), and `sources`.
+Each source supplies an `offset` and exactly one native `source_row` RowId string
+or `source_ordinal`. Named IDs are resolved from the completed native inventory;
+they do not assume a loop-index-to-ordinal formula. Optional `source_visitation`
+permutes the native canonical offset-major selected-source order. Resource
+limits bound input bytes, source counts/conditions/coordinates, matrix shape,
+retained reducer nonzeros, source coefficient terms and final report size.
+Native intermediate expression growth additionally needs outer RSS/deadline
+limits. The shape validator does not load an owner or establish source authority.
+
+The preregistered four unit fixtures cover input refusals, native cancellation
+of both H and genuinely non-descending F columns, full-tail retention, and a
+known massive tadpole bank whose extra H constraint has no solution. A miss is
+only a miss in this finite bank, never a new master or irreducibility result.
+
+Output keeps source provenance, original/specialization guards, conservative
+native pivot guards, all exact finite tails and source weights. Display strings
+are diagnostics, not a reusable proof artifact. Base parameters and dimension
+remain symbolic, but integral powers are specialized: this is not a parametric
+chart certificate, priority-owner export or shared downstream cost comparison.
+If F already avoids H, identical F/F+H results do not establish that the extra
+projection helped. Publication requires separate native original-source replay
+on the full declared chart, complete exceptional geometry and the shared-cohort
+evaluation gates above.

@@ -32,9 +32,9 @@ all pre-existing untracked work remain outside this program.
 
 | Lane | State | First deliverable |
 | --- | --- | --- |
-| Campaign profile and work attribution (`rule_cost_profiles`) | First deliverable complete; attribution active | Bounded sample, frozen panels and actual selected-rule/partition counts |
-| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Evaluator delivered; projected-source prototype active | Tested existing-artifact evaluator; generic Symbolica source-circuit diagnostic next |
-| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Initial audits delivered; source nomination active | Separate audits, primary-source mechanisms and exact tadpole-source proposal |
+| Campaign profile and work attribution (`rule_cost_profiles`) | Delivered; cohort preparation active | Bounded sample, frozen panels, actual rule/partition attribution and candidate scope overlap |
+| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Evaluator and finite source diagnostic delivered; parametric producer active | Exact constrained circuits at five points; broad original-source proof and checked export next |
+| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Initial/code audits delivered; native receipt audit active | Separate authority/measurement checks; broader chart and generic source-nomination analysis |
 | Matched downstream experiments | A/A and known-negative4L controls complete | Completed-cohort metrics verified; new5L candidate comparisons pending |
 | Improved pool and deployment | Pending | Exact, cold-loadable, measured candidate; user-only production launch |
 
@@ -223,6 +223,86 @@ priority-owner export follow only after exact source/order validation. The
 generic research adapter is drafted; its standalone optimized build and tests
 are the next implementation gate, using cached release libraries and a separate
 CPU0–15 build allocation. Full downstream cost and held-out checks remain open.
+
+### October3 source-circuit implementation and authority boundaries
+
+[M] Root has delegated the standalone optimized build and four focused native
+tests to `rule_optimizer_impl`, using the existing owned-process supervisor,
+cached release libraries, CPU0–15 for compilation and CPU32 for probes. The
+separate auditor reviewed the generic projected-bank adapter and requested a
+genuine non-descending-column cancellation test before execution. Source review
+passes; compilation and execution results are still pending. This avoids a full
+engine rebuild while keeping family, source bank, target and H input-controlled.
+
+[E] The eight tangent-source rows all preserve D15. Consequently the four
+incumbent dot-transfer children, each lowering D15, should be absent from the
+entire bank. Its F versus F+H comparison is an intentionally vacuous control:
+a successful candidate would establish structured source selection, not a gain
+caused by extra forbidden-column projection. The original baseline has no A+R
+growth at these points. Neither a shorter tail nor exact point validity measures
+shared downstream benefit.
+
+[M] The independent export audit found that the current checked-priority bridge
+cannot encode the sampled finite A/R/D chart directly. The proposed next proof
+must instead establish the identity on a genuinely broader coordinate chart
+(D14 numerator power at least1, D15 propagator power at least2, other coordinates
+fixed). Only a successful native parametric proof permits export; whole-piece
+post-baseline dispatch then retains each original piece's coupled restrictions.
+No point equality is generalized, no bound is silently removed, and no original
+terminal or fallback rule is changed. The profiler is selecting a shared-pool
+validation cohort and checking whether incumbent source provenance can provide
+a non-vacuous combined-bank projection test.
+
+[M] Read-only check at12:45 Europe/Zurich: both production campaigns remain
+running with zero reported frontiers and13/67 conservative root closures. Each
+has about23.6–23.8 million discovered domains,6.3 million pending and27GB RSS.
+These are live, stale-snapshot observations, not matched efficacy evidence or
+an ETA. No production process, input or checkpoint was altered.
+
+[M] The optimized projected-bank implementation now passes all4 native tests;
+root also reran all20 Python profiler/evaluator tests successfully. Standalone
+test/binary compilation took69.80/68.88s inclusive, separately from probes.
+The exact tested source SHA256 is
+`3766326b1d5ae84c6444c1737643c012738e9dd5d434d248ba0d50ccc49a1c3a`;
+the frozen diagnostic binary SHA256 is
+`ad8acecc7cf715778e689cb70b4f8f58de6719f3f9c5773b5e132782b605d299`.
+A Cargo example target and README make it buildable without this host's cached
+RLIB paths. No engine or production rule-pool change is part of this milestone.
+
+[M] All five preregistered points pass exact full-source-product and saved-order
+descent checks in the eight-row bank. The first unconstrained solution uses
+**three** source rows, not the nominated eight-weight tangent identity; it
+raises D1 in two children while lowering numerator rank. The original four
+dot-transfer H keys are absent from this entire bank, as predicted. Native
+load+prepare+two exact solves take0.932–0.943s per point, mostly preparation;
+guarded invocations take approximately2s. These are small diagnostic timings,
+not owner generation or family-closure timings.
+
+[M] A second preregistered, non-vacuous constraint adds those two actual D1-raising
+children to H, with no code change or recompilation. At all five points the
+same bank yields a **five**-source circuit with both columns exactly zero and
+no other D1-raising child. All full tails and guards remain. At s=1 the bank's
+RHS shrinks5→3 terms; elsewhere it remains8→8. This demonstrates controlled
+selection of a different valid recurrence, not cheaper downstream work. Raw
+bank tails retain zero-sector terms, so they are not directly comparable with
+the incumbent's seven post-filtering successors. Evidence:
+`TMP/rule-optimizer-20261003/candidates/projected-bank-build-v1/`;
+`probe-noraise-*` contains the second experiment. Every owned process drained.
+
+[M] Scope profiling prevents overstating reach: the proposed broad single-ISP
+chart wholly contains39 of the primary parent's1761 matched pieces (596 integer
+tuples) and intersects77 (2008 tuples), versus83,391,783 tuples in that complete
+parent. Only one of rule19's111 pieces intersects. These counts are geometric,
+not work shares; actual guards can further reduce whole-piece eligibility.
+The first downstream control is the original correlated19-point piece7 under
+the unchanged full67-owner/8246-route/two-repair context. It is a training
+control, not held-out or full-parent validation. No closure time is predicted.
+
+Next gates: an exact parametric original-source proof (not lifted point weights),
+checked whole-piece priority export retaining the existing suffix and terminals,
+then a completed shared-cohort comparison and independent cold reinspection.
+The mathematical audit and implementation continue separately; a successful
+finite projection alone does not satisfy the optimization goal.
 
 ## Current workboard — October3 frontier repair
 

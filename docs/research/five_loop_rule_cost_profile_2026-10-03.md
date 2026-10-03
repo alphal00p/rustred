@@ -137,6 +137,58 @@ first rule19 example is piece6 (rank0); piece7 retains rank cap10 with axis13
 in [1,10]. Rule40's first example is piece70, with axis5 in [1,9] and axis13
 in [0,8]. These caps do not certify attainment or blanket factorization.
 
+Root then inspected batch0/rule19 on five singleton members of piece7:
+physical D15 power b=2 with numerator D14 power -s for s=1,2,3,9,
+and b=3,s=10. The exact chart also imposes s<=b+7; b=2,s=10 was excluded.
+All five applications finished cleanly with seven distinct immediate keys:
+six same-owner and one strict-subsector successor, no conditional successors,
+RHS problems, optional refusals or coalescing additions. The mandatory
+`IncomingComplement` event is not a nonempty frontier witness. All original
+poles remain attached; native zero-based `n14` means D15, giving b-1 and
+2(b-1), both nonzero here. At b=2,s=2, four lower shifts move the D15 dot
+to D3/D5/D10/D11 with coefficient -1 and unchanged A=7,R=2,D=5.
+These nominate a structural dot-redistribution target, not a measured costly
+tail or budget increase. `profiles/rule19-guarded-summary.json` preserves
+all exact singleton geometries, shifts, display-only coefficients and guards.
+The single unchanged owner subset supports local algebra only, not cohort cost.
+
+## Next bounded shared-cost design
+
+No frozen five-loop panel case has an established recursive closure receipt.
+The first completion-seeking training cohort is the exact 19-point piece7
+chart, as one correlated whole query under all 67 owners, 8,246 routes, both
+repairs and unchanged terminals. It is a derived training microcohort, not the
+83,391,783-point historical parent or a heldout. The other frozen whole training
+domains contain 10,296,493 and 3,209,481 integer tuples. The smallest frozen
+heldout is the existing one-point A23/R1 case; Route control has 2,926 points,
+and the broad heldout has 69,326,952. These exact box/rank/A/D counts are not
+runtime estimates: native domains remain symbolic and downstream work unknown.
+
+`profiles/completed-cohort-plan.json` freezes the proposed staged comparisons
+and a 1,800-second inclusive pair envelope, subject to root allocation. Both
+fresh arms must finish with no unresolved debt and pass bound cold verification
+before completed union work/cost ratios are reported. Otherwise retain explicit
+censoring, stopping reasons and debt; a separately labelled smaller training
+probe may follow but cannot replace the frozen whole cases. Holdouts remain
+unused for fitting; full controls and the original 116+67 scope remain required.
+
+The proposed broader candidate allows all active powers positive, only D14
+negative, and the eight other inactive powers zero. This is a scope expansion
+beyond piece7, requiring its own exact proof/guards/descent. In the primary
+parent it intersects 77/1,761 matched pieces; 39 are conservatively wholly
+contained by explicit bounds, covering 596 tuples. All intersections total
+2,008 tuples; only one of rule19's 111 pieces intersects (piece7). These are
+geometry counts, not cost shares or certified applicability. Whole-piece
+alternate dispatch cannot use a mere partial intersection. Exact indices and
+cap-aware calculations are in `profiles/broad-scope-overlap.json`.
+
+The existing public candidate inspector exposes retained source counts, not
+incumbent source weights. Saved seed basis ordinals refer to a preconditioned
+basis, not original ordinary rows; original-source recovery remains private.
+Public finite replay returns identity/count receipts, not that combination.
+Do not reconstruct authority from display RHS text. No export bridge is added;
+a future larger ordinary source bank needs a distinct preregistered mechanism.
+
 ## Local receipts
 
 Ignored evidence is under `TMP/rule-optimizer-20261003/profiles/`:

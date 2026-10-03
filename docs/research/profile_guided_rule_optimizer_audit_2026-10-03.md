@@ -506,8 +506,9 @@ box has all-zero lower coordinates, upper
 Its sampled inspector reports 1,736 selected pieces, 33,380 successors, 651
 conditional successors and 139 distinct edges in about 0.949 seconds. These are
 different counters; they do not identify a costly rule or prove downstream cost.
-The owner index is 2, native ordinal 6, and selected rule/required-root ancestry
-remain unknown.
+The owner index is 2 and native ordinal 6. At the time of this nomination,
+selected rule and required-root ancestry were unknown; the subsequent local
+matching result below identifies the former, not the latter.
 
 Therefore the next prerequisite is one bounded current-binary, no-follow parent
 inspection on this exact box. Record actual selected batch/rule pieces, all guard
@@ -592,3 +593,479 @@ whole checkpoints, promote a censored comparison, or turn this research into a
 checkpoint-compatibility project. The profile and literature evidence nominate
 experiments; only exact validation plus completed matched cohorts can promote
 their resulting rules.
+
+## Native attribution and the first exact structural source recipe
+
+The bounded, no-follow native matching report is now available at
+`TMP/rule-optimizer-20261003/discovery-native-match/result.json`, SHA256
+`dfa0715fdf6d95dace7ceda1d7bb69cf446ad945d0342992928dbbc521899e00`.
+The profiler's geometry-checked summary is
+`profiles/native-match-summary.json` under the same experiment root, SHA256
+`4741809fbd5d822bdefd0377520ee5abb37dade5556f31523166a25b201c9133`.
+All three discovery parents reproduce their historical matching counters. Their
+combined partition contains 1,917 selected pieces and 25 terminals, with no gaps,
+unresolved pieces or invalid source conditions. Preparation took 138.577 seconds
+and matching 0.372 seconds. RHS successors were **not expanded**. This establishes
+which saved rule matches each exact piece, not per-rule runtime, downstream work,
+recursive closure, or the existence of any particular expensive child shift.
+
+The first parent has 1,736 selected pieces using 143 distinct batch-0 rules;
+rule19 appears on 111 pieces. Frequency alone is not a cost attribution. Its
+piece7 (zero-based) is nevertheless a useful small structural discovery chart:
+only local axes13 and14 are free. Their bounds are respectively [1,10] and [1,2];
+all other local coordinates are zero. Retain R<=10, A<=14 and -2<=D<=14 from the
+actual piece. In physical powers this is
+
+`n=(1,0,1,0,1,0,0,0,0,1,1,0,0,-s,b)`, with `b in {2,3}`, `1<=s<=10`.
+
+Here `A=b+5`, `R=s`, and `D=b+5-s`, so the exact chart also requires `s<=b+7`.
+The apparent rectangular corner `(b,s)=(2,10)` is outside the piece. It must not
+be included by an adapter that drops power bounds. Piece6, the first rule19
+piece, has rank zero; it is a poor sole test of a cross-numerator mechanism.
+Other frequent rules have much larger charts with several cross-numerator axes
+free and are deliberately not the first source-search input.
+
+Freeze `(b,s)=(2,2)` as the discovery point:
+`[1,0,1,0,1,0,0,0,0,1,1,0,0,-2,2]`, with A=7,R=2,D=5.
+Use `(2,1),(2,3),(2,9),(3,10)` as explicit local boundary/variation checks, and
+`(2,10)` as a rejected chart-membership control. The reason not to discover only
+at s=1 is concrete: the recentered source coefficient `m=1-s` vanishes there,
+erasing an entire source branch. Finite points cannot certify the chart.
+The profiler has prepared these five in-chart guarded singleton queries, with
+the original full correlated chart retained in
+`profiles/rule19-guarded-plan.json` (SHA256
+`024acb348af72ab9296142477572aba0b5f411b76aab11042b201f4f63ecfacd`).
+That single unchanged owner is only a local application diagnostic: it omits
+routes and does not claim shared downstream cost. A guarded adapter unable to
+represent power bounds must keep these as singletons, not broaden the rectangle.
+
+### Bound conventions and eight translated ordinary sources
+
+Load the unchanged owner bytes with SHA256
+`046a15ab40b96da21b33057547c64348761cb51a685affb13c022f55fa43f763` and bind the
+actual family and owner ordering. Do not infer either solely from a mask or a
+family display name. In the checked input basis, L=5, E=0, the symbolic dimension
+is d, masses are one and `D_i=q_i^2-1` (Minkowski-style), not `q_i^2+1`.
+The exceptional common-basis momentum really is `q14=k1+k2-k4`.
+
+For this chart use `k=k1`, `p=k2-k4`. The family's scalar-product expansion gives
+`p^2=D10+1` and `2 k1.p=D14-D1-D10-1`. Therefore
+
+`V=(D1+1)(k2-k4) - (D14-D1-D10-1) k1/2`.
+
+This is the earlier tangent `k^2 p-(k.p)k`; it does not differentiate D1 into a
+higher power, and every other active denominator in this owner is independent of
+k1. Translating full ordinary rows, not an already reduced RHS, incorporates
+the polynomial-vector product rule automatically.
+
+Let `e_i` be a zero-based exponent unit vector, and add the common recenter
+`c=+e_13` to every row request. Differentiate k1 in all eight rows:
+
+| Contraction | Translation offsets, including c | Exact weights |
+| --- | --- | --- |
+| k2 | c, c-e_0 | +1, +1 |
+| k4 | c, c-e_0 | -1, -1 |
+| k1 | c-e_13, c-e_0, c-e_9, c | -1/2, +1/2, +1/2, +1/2 |
+
+Resolve the ordinals from completed `RowId::OrdinaryIbp` records. The inspected
+native enumeration in `family/kinematics.rs::build_contractions` places loop
+contractions k1..k5 before externals, and
+`identity/generator/ordinary.rs::generate_ordinary_row` uses
+`contraction_index=ordinal/loops`, `differentiated_loop=ordinal%loops`.
+Consequently this bound five-loop vacuum family gives ordinals 5,15,0 for the
+three table rows. These numbers are an independently checked expectation, not a
+replacement for resolving and validating the actual loaded records.
+
+An analytic sanity check, not source-port authority, is available. Write
+`t=D14`, `U=D1+D10+1`, and let the recentered source exponent be `m=1-s`.
+Twice the full IBP integrand coefficient, relative to that source integrand, is
+
+`(m-d+1)t + (d-1-2m)U + m[U^2-4(D1+1)(D10+1)]/t`.
+
+Thus the prospective unnormalized target coefficient is `(2-s-d)/2`. Its
+nonvanishing conditions must be retained by the native producer. The other
+terms raise n14 by one or two while only decreasing powers of D1/D10. At s=1,
+the second group is multiplied by m=0 and must cancel exactly before support
+classification; at s=0 it need not cancel and may activate D14. The proposal is
+therefore not an unrestricted extension to rank zero. Keep all D1-pinched terms
+in the exact source product, even if a later native zero-sector test removes
+them. Do not introduce a hand tensor reducer, shortcut master declaration, or
+new two-protected tangent construction.
+
+### Frozen projection and acceptance questions for the adapter
+
+The smallest first input is this one owner, one chart, and eight-source bank,
+with the concrete discovery point and boundary checks above. No blind repeat of
+the previous 752-row bank is justified. Retrieve the saved policy through
+`BoundOwnerSearch::owner_ordering()` and compute F from **all** non-descending
+columns under that policy, excluding the target itself. Never alter the global
+order to make this source pass. With optional lower-column block H, the finite
+projection screen is
+
+`rank([S_F,S_H,s_target]) > rank([S_F,S_H])`.
+
+The equivalent exact-field question is whether some source weight vector kills
+every F/H column and gives unit target coefficient. Finite specialization is
+only a screen; the complete original source identity, all guards, and unchanged
+native descent must be verified after exact lifting. A miss is a bounded-bank
+failure, not a no-reduction or coverage result. An exact eight-row identity may
+make a general projected solve unnecessary for this first nomination; retain a
+generic source request interface rather than introducing topology-specific code.
+
+The subsequent guarded RHS diagnostic now supplies the actual local tails, but
+still not their downstream expense. Its native report is
+`discovery-rule19-guarded/result.json`, SHA256
+`e300217acce08fa3dcf2f35ff5f95c202c48f6f9f285f35c65744bf0d71d3bdc`, with the
+profiler's extraction at `profiles/rule19-guarded-summary.json`. All five in-chart
+singletons complete with no native/report errors, no optional refusals, and
+`guarded_rule_finished` reporting zero problems. Each visits 22 original terms,
+retains seven distinct nonzero successor keys, identifies 14 zero terms and one
+zero-sector group. The required `IncomingComplement` protocol event is not an
+assertion that this already-matched singleton contains an uncovered point.
+
+At `(b,s)=(2,2)`, use physical child-minus-parent shifts (the negative of the
+report's `argument_shift_decimal`, because `source_n=child_m+argument_shift`).
+The following D labels are one-based:
+
+| Physical child shift | Coefficient at the discovery point | Change in A,R |
+| --- | --- | --- |
+| -e_D10+e_D14-e_D15 | 1 | -2,-1; strict subsupport |
+| -e_D15 | 2d-4 | -1,0 |
+| +e_D14-e_D15 | 1 | -1,-1 |
+| +e_D11-e_D15 | -1 | 0,0 |
+| +e_D10-e_D15 | -1 | 0,0 |
+| +e_D5-e_D15 | -1 | 0,0 |
+| +e_D3-e_D15 | -1 | 0,0 |
+
+Thus all observed tails are nonincreasing in A+R. A block selected by A+R growth
+would be empty here. The four dot-transfer tails instead give a concrete
+structural H: they preserve the cross-numerator rank and redistribute the D15
+dot within the banana block. They are native-order-lower, not demonstrated
+expensive descendants. The displayed original rule guards `n14-1` and `2n14-2`
+use zero-based native power variable names: here n14 denotes the D15 exponent b,
+not the negative D14 numerator power. Retain every original pole even on terms
+whose coefficient vanishes in one specialization.
+
+Compare the same eight-source bank with F alone and F+H. The nominated tangent
+leaves D15 unchanged and instead lowers the D14 numerator rank, so its full
+weighted product should already annihilate these four H columns. More strongly,
+every bank row differentiates k1, D15 is k1-independent, and no selected offset
+changes D15. Thus all four H keys should be absent from the entire eight-row
+matrix, whose columns retain n15=b. This is a preregistered prediction of a
+vacuous H control. If both projections admit the same circuit, that is evidence
+for structural source engineering, not evidence that adding H was necessary.
+Report absent columns rather than pretending an extra constraint was exercised.
+The source may be redundant with
+the existing rule bank or merely exchange a short local formula for costly
+routed descendants; exact admission and a completed matched cohort are still
+required. The guarded outputs now support the narrow statement that rule19
+lowers/transfers D15 dots while often preserving numerator rank, not a claim that
+this recurrence is globally inferior.
+
+## Secondary-degree constraints without changing the global order
+
+A locally admitted alternative whose tails additionally satisfy
+`A(child)+R(child) <= A(parent)+R(parent)` is different from the prior unsuccessful
+experiment that reordered the entire integral space by absolute degree. Here
+the original strict descent order stays authoritative and the saved baseline
+remains the fallback. A projected H could contain all lower-but-secondary-degree-
+increasing columns; an empty feasible projected space is simply a refused
+alternative. This can be tested on the first chart without a new global policy.
+
+The eight-source sanity formula above suggests nonincreasing A+R on its declared
+chart, but native exact inequalities and boundary cancellations must establish
+that claim for every retained successor. Point probes alone are insufficient.
+Even a successful chart-level nonexpansion proof is not a finite-work theorem:
+symmetry routes may alter numerator coordinates, domain hulls and guard splits
+may amplify bounds, and baseline fallback or helper owners may increase this
+secondary measure. The frozen helpers are unbounded. There is no general global
+termination or finite-union claim until all of those operations preserve a
+common finite domain budget as well.
+
+## Independent review of the finite projected-bank diagnostic
+
+Reviewed the complete initial `tools/research/rule_optimizer/projected_bank.rs`
+without compiling, executing, or authoring its implementation. For the bounded
+fixed-point research role, no algebraic blocker was found: native owner loading
+binds the family and saved order; selected ordinary sources are regenerated and
+translated through existing APIs; F contains every original non-descending
+non-target column; and H is restricted to lower keys. Both arms use the same
+matrix and source visitation. Native Symbolica elimination retains identity
+columns to recover source weights, then multiplies those weights by the entire
+original matrix. The target must be one, every forbidden coefficient zero, and
+every surviving RHS key strictly lower under the unchanged saved policy.
+
+Checked the pinned `numerica` implementation rather than assuming its L format:
+the last entry added to an accepted L row is the native pivot scale. The adapter
+retains its numerator/denominator conditions along with original-source and
+pre-normalization specialization poles. It reports H columns absent from the
+bank and whether the unconstrained source circuit actually uses H. A missing
+target pivot is only a failure in the supplied finite bank. Dimension remains
+symbolic; physical indices are specialized. No parametric-chart certificate,
+rule publication, recursive coverage, zero-sector pruning, or performance claim
+is emitted.
+
+Two focused follow-ups were requested and then source-reviewed in SHA256
+`3766326b1d5ae84c6444c1737643c012738e9dd5d434d248ba0d50ccc49a1c3a`: neutral
+wording for structural H (not “measured expensive”), and a test with a genuine
+original non-descending F column that must cancel, supplementing the H-only
+cancellation fixture. The new fixture misses with one row, then combines
+`I5+I4-I2=0` and `I5-I1=0` to reduce target I4 only after eliminating I5. These
+four total fixtures still require the separately owned compile/test run.
+Named row IDs are resolved through a bounded native zero-translation inventory,
+not a copied ordinal formula; aliasing two requests to the same canonical pair
+is refused after native deduplication. Source input coefficient-term caps do not
+bound every symbolic expression generated inside a reducer/product operation.
+The reviewed outer wall-time/RSS/CPU ownership guard therefore remains required,
+with a tiny frozen bank and no production mutation. This source review is not
+the later compile/test receipt or mathematical authority to install a rule.
+
+## From a point circuit to a checked parametric priority alternative
+
+This is an existing-API path, not an implementation or a claim that the pilot
+has passed. A rational-in-d circuit at one physical index point is not lifted by
+copying its displayed weights and replacing numbers with index symbols. Either
+derive a symbolic recipe (the tangent supplies one) or reconstruct a symbolic
+combination separately, then let the original-source producer check it afresh.
+
+### Coordinate-proof scope versus the correlated discovery piece
+
+`OriginalSourceCombinationRequest` accepts a coordinate `LatticeBox` and sorted
+`FixedIndexRestriction`s, not A/R/D bounds or general affine exclusions.
+`candidate_bundle/priority.rs::representable_case` is intentionally narrower:
+each nonfixed axis must have upper=None and lower=0 or1. It refuses finite free
+upper bounds, free lower bounds above1, or a fixed restriction inconsistent with
+the box. The finite correlated piece7 therefore cannot be exported directly by
+this bridge. In particular, deleting its D>=-2 constraint would be an invalid
+reinterpretation of the old proof domain.
+
+A separate broader coordinate proof avoids changing any API. The conservative
+scope fixes the other 13 axes and leaves s>=1,b>=2 unbounded. The structural
+identity permits a more useful proposed scope at essentially the same source
+size: leave every active power positive and arbitrary, require n14<=-1, and fix
+the other eight inactive powers to zero. In zero-based axes:
+
+- Free active axes: 0,2,4,9,10,14, local lower0/upper=None.
+- Free numerator axis13: local lower1/upper=None, meaning physical n14<=-1.
+- Fixed axes1,3,5,6,7,8,11,12: physical0, local lower0/upper=Some(0).
+
+Optionally requiring b>=2 is expressible by local lower1 on axis14, but it is
+not needed by the tangent algebra. Root must freeze the intended broad scope
+before proof/evaluation. The reason arbitrary active powers are plausible is
+exact: V is tangent to D1 for every n1, and all other active denominators are
+k1-independent, so their differentiated contributions cancel or vanish in the
+full combination. This is not a scalar factorization assumption. Sign partition
+must still cover D1/D10 powers1,2 and larger, as well as numerator s=1,2 and
+larger; the producer—not this reasoning—must establish every cell's descent.
+
+If that new broad proof passes, applying the alternative to the old discovery
+piece does not drop its correlations. The post-baseline matcher changes only
+the disposition of an already selected piece. `matching/engine.rs::emit`
+retains the original cell, effective rank, and `powers` predicates after calling
+`after_baseline`. The dedicated regression
+`after_baseline_keeps_exact_power_predicates_and_effective_rank` checks this.
+Thus `(b,s)=(2,10)` can be outside the original query while inside a newly proved
+algebra chart, with no contradiction or expanded query-coverage claim.
+
+### Concrete call sequence and guard obligations
+
+1. Load the exact base bytes with `load_generated_candidate_owners::<15>` and
+   `CandidateOwnerBundle`, then `Arc::new(programs).bind_owner_search(...)`.
+   Bind the proposal to `owner_root()`, `owner_sector()` and a clone of
+   `owner_ordering()`. Use the loaded family and full fingerprint. The export
+   additionally requires one unpermuted saved owner and exact root/order equality.
+2. Construct `ParametricIbpGenerator::try_new(&family)` and retain its authenticated
+   `IndexedCoefficientContext`. Get the dimension via
+   `context.lift(family.dimension())`, not by guessing the string name of a base
+   parameter. Here the symbolic normalization is
+   `C=(context.index(13)+2-d)/2`. Multiply the eight constant weights in the table
+   by `1/C` using native context arithmetic. Keep both free indices symbolic;
+   for the broader scope keep all six active powers symbolic too.
+3. Regenerate ordinary sources with `prepare_ordinary_ibp`, `generate`, `complete`
+   and `translate_selected_completed_source_rows`. Resolve native `RowId`s and
+   preserve the explicit offsets. Form the full weighted relation using native
+   indexed arithmetic, specialize only the explicitly fixed coordinates with
+   `specialize_fixed_indices`, retain returned pre-normalization conditions,
+   verify unit coefficient on the zero shift, and negate every other coefficient
+   to obtain RHS. Preserve original-source provenance and every pole; no manually
+   pruned zero-sector term or parsed display expression supplies authority.
+4. Build `OriginalSourceCombinationRequest { root_sector, sector, ordering,
+   lower, upper, fixed, contributions, rhs, retained_conditions }`.
+   Contributions are unique `(RowId,IntegralShift,IndexedCoefficient)` triples;
+   offsets are relative to target indices before restriction. RHS shifts are
+   unique, target-free `IndexShift`s with authenticated coefficients. Retained
+   conditions can add legitimate pre-cancellation assumptions, never waive
+   regenerated source/weight/RHS poles or encode the missing A/R/D inequalities.
+5. Call `check_original_source_combination(&family, request.clone(), limits)`
+   for an isolated proof receipt if useful, then
+   `encode_checked_priority_owner_with_policy::<15>(&base_bytes, request,
+   proof_limits, bundle_limits, RuleDispatchPolicy::AfterBaselinePartitionWholePiece)`.
+   The exporter repeats the original-source check itself. No restored ordinary
+   `SectorRule` bridge, overlay append, source-search rediscovery or new framework
+   is required for this explicitly weighted source recipe.
+
+The original producer sign-partitions the coordinate box using all RHS shifts,
+retains original and RHS conditions before coefficient-zero removal, and rejects
+the entire request if any surviving cell fails source replay, support/root scope,
+guard proof, or strict descent. Its zero-sector list is empty. At s=1, the terms
+with n14 shifted by+2 have coefficient proportional to `1+n14`; this must vanish
+on that exact cell before attempting support activation. Do not divide by
+`1+n14`, omit s=1, or infer that the whole branch vanished from the s=1 point.
+At D1/D10 pinches keep all original terms until the producer's native logic
+handles them. The prospective normalization pole `n14+2-d` depends on a free
+index and cannot be discharged as a pure base-field weight unit.
+
+The priority bridge separately checks runtime guard representability. Every
+nonconstant proof guard must survive as an associated primitive denominator of
+a runtime RHS term, apart from tightly limited pure-base-field poles carrying
+only native source-weight origins. Source hypotheses, caller-retained guards,
+final-target poles and free-index poles do not acquire that exemption. The
+returned proof keeps the conditions even when an eligible weight-only base-field
+pole is treated as a unit. Any guard mismatch is a refusal, not permission to
+drop the assumption. Tests cover free-index guard refusal, additional unpersisted
+parameter guards, unsupported bounds, forged/changed source products and raising
+identities.
+
+Export prepends a marked alternative inside the same saved batch, shifts old
+rule indices by one, preserves all old rule records and finite terminals,
+preserves original coefficient IDs, and checks native roundtrip equality. Keep
+the returned `CheckedPriorityOwnerExport::proof()` and base/owner byte digests
+bound to the recipe/receipt. Loading `bytes()` alone does not replay that proof
+or confer certification. Cold verification must still use the exact frozen new
+payload in an isolated experiment, not a mutated production owner.
+
+Whole-piece dispatch is deliberately conservative: it requires an already
+selected baseline rule in the same immutable batch; it cannot fill gaps or
+override terminals, source failures or unresolved pieces. Fixed-face hull checks
+and all equality/exclusion/RHS denominator predicates must pass uniformly.
+Unknown guard results fall back, while budget/corruption/cancellation failures
+remain errors. No new partition or refinement is allowed. Consequently this
+particular dispatch experiment cannot reduce the number of parent matching
+pieces; it can improve only their chosen RHS and subsequent work, and it adds
+guard-check overhead. A claim of “143 rules to one broad rule” would be an algebra
+scope observation, not a demonstrated reduction of current matching cost.
+
+Minimum next receipts are: exact broad source/cell proof including s=1 and
+D1/D10 pinches; checked export roundtrip/suffix/terminal preservation; native
+matching geometry equality including original A/R/D predicates; actual marked
+rule selection where eligible and unchanged fallback at s=0; then full routed,
+completed-cohort and cold-All evaluation. A broad-chart proof is not itself a
+closure or performance result.
+
+### Generic nomination without a topology-specific reducer
+
+The present pilot recipe is manually nominated. A positive result would justify
+an input-steerable structural nomination step, not hardcoded owner-mask tests.
+Its smallest generic form scans existing coordinate loop directions. For each
+direction i, use `IntegralFamily::derivative_contraction(j,i,q)` over all native
+contraction momenta q to verify exact independence of every active denominator
+except one. Require the remaining protected derivative to be parallel to k_i;
+in the simple massive case its scalar-product form is a nonzero multiple of
+k_i² plus a k_i-independent constant. These are native coefficient identities,
+not edge-count or display-name heuristics.
+
+Among the chart's genuinely free inactive numerator axes, inspect the chosen
+denominator's k_i·k_l and k_i·p_external coefficients using `coordinates()` and
+`denominators()[j].coefficients()`. Half of those cross coefficients defines a
+k_i-independent contraction p. Refuse a zero p or failure of the exact
+independence/tangency checks. The diagonal k_i² term does not affect tangency.
+For this family D14 nominates p=k2-k4. `scalar_product_expansion` then converts
+`k_i² p-(k_i·p)k_i` into denominator monomials times available contractions;
+each monomial gives an explicit negative-index translation and scalar weight
+of an ordinary IBP row. Source-degree/count budgets and the same exact final
+producer determine admission. This route does not need to factor a graph into
+masters or build a tensor-reduction service.
+
+The product rule is essential. If `f_n=product D_j^(-n_j)` and a polynomial
+vector component is `c D^alpha q`, then its IBP is
+`c div(q f_(n-alpha))`, a complete translated ordinary row. It is not
+`c D^alpha div(q f_n)`: the latter omits
+`c (q·partial D^alpha) f_n`. Any index-dependent normalization weight is constant
+with respect to loop momentum, so it multiplies the already complete source
+identity without that problem. With several free cross-numerators, all their
+derivative terms remain and may defeat the small-bank hypothesis; the first
+broader chart therefore fixes the other eight inactive powers to zero.
+
+A later non-coordinate isolated direction could be nominated by a small native
+Symbolica linear solve on stacked derivative-coefficient constraints, followed
+by exact verification and a normalized nonzero direction. Existing matrix
+`solve_any`/row-reduction services are available; no homemade elimination or
+general module-intersection system is warranted. This is optional future scope,
+not a prerequisite for the current source recipe or permission to alter the
+bound family, global order, source identities, or campaign topology pool.
+
+## First finite-bank receipt and a nonvacuous follow-up control
+
+Independently inspected the first native receipt at
+`candidates/projected-bank-build-v1/probe/guard/stdout`, SHA256
+`e0ad0d2b4b38e600bc4b283d964e6a5171b7a8fee0b5c79eb012531c99aaf119`.
+The standalone binary SHA256 is
+`ad8acecc7cf715778e689cb70b4f8f58de6719f3f9c5773b5e132782b605d299`.
+Its four native tests passed, including original-F cancellation and the known
+bounded-bank miss. The point probe exited0 without stop/failure and with owned
+groups drained; native total time was0.938 seconds, outer inclusive time1.839
+seconds and sampled peak tree RSS86,777,856 bytes. These are bounded diagnostic
+costs, not recursive workload performance.
+
+At b2/s2, the eight rows produce43 nonzeros and19 physical columns. Three columns
+are forbidden by the original order. Both F and F+H find the same exact finite
+circuit at prefix8, supported on only three rows: ordinary(k1,k1) at offset0 with
+weight1/d, ordinary(k2,k1) at+e_D14 with weight-2/d, and ordinary(k4,k1) at+e_D14
+with weight+2/d (notation here is contraction, differentiated loop). All four
+nominated H keys are absent from the full bank, as predicted. The complete
+original matrix product is checked, target coefficient is one, and all retained
+tails descend under the saved order. This is not the prescribed eight-weight
+tangent: it has eight raw tails including two with D1 power raised from1 to2.
+Do not lift its point-specific weights to symbolic active powers.
+
+Eight raw source-product tails versus seven baseline guarded successors is not
+an efficacy comparison: the bank intentionally performs no zero-sector pruning,
+whereas baseline guarded application included zero-sector and zero-coefficient
+filtering. The broad candidate's observed geometric reach is also not a cost
+weight: the profiler reports77 intersecting primary-parent pieces, only39 of
+1,761 wholly contained by conservative scope checks, and only piece7 among the
+111 rule19 pieces intersecting. Actual guards can reduce eligibility further.
+
+A minimal next structural constraint, frozen before its run, adds the two
+raised-D1 keys from the F result to the original four H keys. Relative to the
+discovery target these are `+e_D1+e_D14` and
+`+e_D1-e_D10+e_D14`. The original unconstrained circuit demonstrably uses both,
+so this H addition is nonvacuous. It tests whether the same eight-source bank
+can avoid those specific raised-tadpole-power descendants; it does not establish
+that such descendants are expensive. Keep source rows, order and visitation
+unchanged. A miss is only a constrained-bank miss. A pass must report all RHS
+keys and any remaining D1-raising tails: eliminating two observed keys is not
+automatically forbidding every possible D1 increase. Exact parametric tangent
+production remains an independently checked next step, including s=1 and all
+D1/D10 pinch cells, irrespective of this finite comparison's outcome.
+
+The follow-up receipts are now complete and independently inspected. Under
+`projected-bank-build-v1/`, the original `probe/` plus
+`probe-{b2s1,b2s3,b2s9,b3s10}/` retain identical F/F+H4 circuits, with four H
+keys absent and none used, at all five points. The five
+`probe-noraise-{b2s2,b2s1,b2s3,b2s9,b3s10}/` receipts use H6. All have exactly
+two H keys used by F, change source-weight support from three to five, and retain
+no raised-D1 RHS key. Raw RHS counts remain8 versus8 except s=1, where they
+change5 to3. Every receipt checks the full original product, unit target, zero
+forbidden coefficients and strict saved-order descent. The shared source
+requests, native source provenance, family, order, limits and visitation are
+identical across all ten reports; only frozen point/H inputs change.
+
+All ten native executions and outer guards exit0 without stop/failure and drain
+their owned groups. Both optimized standalone compile receipts and the four-test
+run also exit cleanly. The H6 result demonstrates that a nonvacuous projected
+constraint can change the exact finite circuit within this fixed bank. It still
+does not establish the prescribed eight-weight tangent, a parametric chart,
+downstream expense, a source-generation efficiency gain, or a five-loop speedup.
+No pointwise weight is promoted to a symbolic formula by this audit.
+
+The scope-overlap method was checked independently too. With eight inactive axes
+fixed, the sum of active-coordinate intervals is a contiguous integer interval,
+and the only inactive rank is s; testing that A-R intersects the saved D interval
+is therefore exact for overlap. The stated whole-hull containment test is
+conservative. A separate arithmetic count of the original primary query gives
+2008 points: its active widths yield162 combinations with summed A=1701; A<=14
+removes the unique A=15 combination, leaving161 combinations and summed A=1686.
+Each allows s=1..A+2, so the total is1686+2*161=2008, agreeing with the sum of
+piece intersections. This does not upgrade the 39 explicitly contained pieces
+to applicable-rule or weighted-cost authority.
