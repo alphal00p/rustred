@@ -32,10 +32,10 @@ all pre-existing untracked work remain outside this program.
 
 | Lane | State | First deliverable |
 | --- | --- | --- |
-| Campaign profile and work attribution (`rule_cost_profiles`) | Active | Bounded-read evidence inventory, recurrent expensive regions, sampling limits |
-| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Active | Existing API audit and minimal generic candidate/export/scoring boundary |
-| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Active | Rejection criteria, audit of profiling/experimental design, relevant primary sources |
-| Matched downstream experiments | Pending | Frozen evidence-derived panels and baseline measurements |
+| Campaign profile and work attribution (`rule_cost_profiles`) | First deliverable complete; attribution active | Bounded sample, frozen panels and actual selected-rule/partition counts |
+| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Evaluator delivered; projected-source prototype active | Tested existing-artifact evaluator; generic Symbolica source-circuit diagnostic next |
+| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Initial audits delivered; source nomination active | Separate audits, primary-source mechanisms and exact tadpole-source proposal |
+| Matched downstream experiments | A/A and known-negative4L controls complete | Completed-cohort metrics verified; new5L candidate comparisons pending |
 | Improved pool and deployment | Pending | Exact, cold-loadable, measured candidate; user-only production launch |
 
 [M] The third new-agent spawn hit the thread limit; reassigning the independent
@@ -76,6 +76,131 @@ but takes OriginalSourceCombination, not an arbitrary SectorRule. Begin with
 the narrow existing-artifact evaluator and actual A/A control; defer core API
 changes until the profile supplies concrete targets. Source-proof provenance
 and native traversal cold reinspection are separate acceptance gates.
+
+### October3 bounded discovery and first optimization hypothesis
+
+[M] Bootstrap plan commit `bb52250b` is pushed to main. The profiler has read
+exactly32MiB from32 preregistered immutable CP6 windows, not restored or scanned
+the whole checkpoints. Plan: `TMP/rule-optimizer-20261003/profiles/`
+`preregistered-window-plan.json` (SHA256 `b2953d39ed6154315c156b76f7afa4d4dfb263381be5f70ef91c60d27a692395`).
+Results: `bounded-sample.json`,74,384 decoded frames. The independent auditor
+checked the codec against native wire definitions and its6 focused tests.
+This is diagnostic sampling only. OldOct1 and Oct2 used different executable
+identities, so these observations cannot support causal performance comparisons.
+
+[M] A concrete candidate target is owner `101010000110001`:8 sampled whole
+inspections in domains capped by R16/A14/D[-2,14] emitted211,504 successors,
+with9,425 selected pieces and975 distinct outgoing edges. Those are emitted
+obligations, not211,504 newly admitted domains. Owner `111100000011100` is a
+second fragmentation target. One publication window contributes22.63s of the
+sample's71.40s Oct1 Apply time and451,124 of839,942 emitted successors: strong
+cluster bias prevents population estimates. Bounds are domain caps, not attained
+physical ranks. Selected rule IDs and root ancestry are not in these records.
+
+[E] The first new algebraic hypothesis is **cost-directed forbidden projection**:
+in a finite ordinary-source bank, retain every non-descending column F and add
+a nominated expensive *lower* child block H. Seek a source combination that
+annihilates F and H while keeping a nonzero target coefficient. Symbolica's
+existing sparse GPLU/weight solve supplies all algebra; only column selection
+and reindexing would be new control logic. This does not change the common
+mathematical descent order. A modular hit is discovery only; replay the full
+original identity, all poles/guards and strict descent before any installation.
+
+Expected benefit: avoid measured fragmentation and recurring expensive routed
+regions even at the cost of a longer immediate RHS. Smallest falsifier: no
+target pivot in the bounded projected bank, excessive exact fill/guards, or no
+improvement in completed shared-cohort cost. A miss falls back and proves no
+irreducibility. This remains **pending**, not implemented or a demonstrated
+gain; the previous752-row/24-term negative result is retained. New profiling
+must nominate a genuinely different block/chart or source span before retesting.
+
+[M] The comparison helper is under independent review. Before native A/A runs,
+fix comparison against planned native options (not merely arm-to-arm equality),
+preregister the primary metric instead of choosing work/time post hoc, and
+force identical-payload A/A outcomes to be neutral despite timing noise.
+No candidate rule pool or production deployment is approved by this bootstrap.
+
+### October3 completed evaluator controls
+
+[M] Root executed the optimized combined4L58-query control through the existing
+owned-process guard:16 workers on CPUs32–47,150GB process ceiling/host reserve,
+fresh owner staging and checkpoints, no compilation or production mutation.
+Frozen CLI `8ef80b52…`;16 owners and508 routes unchanged. The entire A/A pair
+took33.331s. Each arm had26,025 scheduled domains,17,957 native inspections
+and872,486 events; each independently cold-reinspected all17,957 natives,
+all32 initial obligations and all58 queries, with no frontier or uncovered
+obligation. Arm setup+walk+cold times were16.722/15.793s; this5.6% timing spread
+is noise/cache/context evidence, not an optimization. The native traversal
+times were4.187/4.208s. Evidence:
+`TMP/rule-optimizer-20261003/candidates/aa-whole58-v2/`.
+
+[M] The real run exposed a receipt-parser mismatch: successful checkpoint-only
+native reports omit the optional top-level `error` field. The helper initially
+refused both complete arms. Implementation and independent review aligned it
+with the actual schema while requiring explicit clean admission/stop/failure
+fields and unchanged cold gates;13 tests now pass. The original receipt and
+initial refusal are retained; `comparison-corrected.json` is a new analysis of
+the same immutable native evidence, not a rewritten run or a new measurement.
+
+[M] Root then repeated the known-negative whole-piece4L candidate control,
+replacing only owner `1111111100` with the previously source-proved candidate.
+Both58-query arms again independently cold passed. Baseline:26,025 domains,
+17,957 natives,872,486 events,15.826s complete arm. Candidate:26,211 domains,
+17,970 natives,873,448 events,15.886s. The evaluator correctly rejects this
+0.715% work increase as an improvement. Pair inclusive32.746s. Evidence:
+`TMP/rule-optimizer-20261003/candidates/known-negative-whole58-v1/`.
+These controls establish operational measurement behavior, not a new5L gain.
+
+Next actions: reproduce the sampled training parents against the current
+repaired67-owner pool to attribute selected rules/fragmentation; keep held-out
+owners out of candidate fitting. The implementation lane is now authorized to
+prepare a generic, input-driven **finite projected-bank diagnostic** using
+Symbolica's sparse reducer and full matrix product. It will compare the same
+source bank with/without nominated expensive lower columns. No point identity
+will be published as a parametric rule; chart lifting remains a later gate.
+
+[M] The three whole discovery parents now pass native matching under the full
+current repaired old-saved pool:67 owners,8,246 routes,two overlays. On one
+development CPU32, setup took138.577s and actual matching0.372s; inclusive
+143.485s, sampled process-tree peak5.101GB, clean owned-process drain. There
+were1,917 selected-rule pieces,25 pre-existing terminal pieces,zero gaps and
+zero unresolved classifications. RHS expansion and recursive closure were
+**not** requested. Each query's12 matching work counters exactly reproduce
+its historical record. Evidence: `TMP/rule-optimizer-20261003/discovery-native-match/`.
+
+[M] The primary owner `101010000110001` yields1,761 pieces involving143
+different selected rules: batch0 rule19 appears111 times, rule0 76, rule6 74,
+rule3 63 and rule123 56. The second owner's155 pieces use49 rules; the
+same-cap neighbor's26 pieces use5 rules. This establishes actual partition
+fragmentation, not merely a long RHS or a guessed rule identity. These are
+mechanism targets, not yet proof of a global hotspot or optimization benefit.
+
+[E] The independent structural audit identifies a denominator-isolated massive
+tadpole in both training sectors. Inactive propagator numerators couple that
+loop to the rest, so this is not simple scalar factorization. A narrow candidate
+source direction is the tangent vector `V = k^2 p - (k.p)k`, with other-loop
+vector p. Its polynomial coefficients can be expanded into a small selection
+of translated **ordinary IBP sources** using existing Symbolica/RustRed services.
+The full numerator product rule, actual family basis, source ordinals, parameter
+chart and common descent still need checking. No new tensor reducer, special
+five-loop relation, cut deletion or new terminal is proposed. The next test is
+whether such a structured source bank eliminates a measured expensive child
+block where the baseline bank does not.
+
+[M] Read-only live check at12:26 Europe/Zurich: both repaired production native
+processes still run on their original reservations, each about22GB resident.
+Both currently display13/67 initial obligations closed; snapshots are508/518s
+old and are conservative, not independently complete required-query counts.
+These are not matched candidate efficacy measurements. Production remains
+untouched; improved rules are not installed automatically.
+
+[M] Final tooling review also bound each arm's actual native paths, cold
+checkpoint generation and memory settings to its planned run. All20 focused
+Python tests pass (6 profiler +14 evaluator), independently reviewed. Reanalysis
+under these stricter checks preserves both completed controls; raw measurements
+remain unchanged. The forthcoming Rust projected-bank adapter is unfinished
+and uncompiled at this checkpoint and is deliberately excluded from the tested
+tooling milestone. No new candidate efficacy claim is made.
 
 ## Current workboard — October3 frontier repair
 
