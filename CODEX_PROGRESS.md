@@ -108,6 +108,16 @@ frontier-repair and user-launch delivery, not a claim of eventual completion.
 Unbounded-hull applicability remains unproved, explicitly outside this local
 repair acceptance. Further exceptional cases may still appear.
 
+[M] Delivery commit `9ef3688e` was integrated with concurrent HepKit commits
+`c6f7fc70` and `79a50848` in an isolated worktree; merge `5ef45efb` was pushed to
+`origin/main`. The main workspace's branch/index then advanced to that descendant
+without changing any working file. Before/after SHA256 checks preserved all
+eight collaborator files exactly; two retain additional uncommitted edits.
+This reconciliation does not change the tested CLI engine. Final independent
+audit accepts the local repair and both frozen launch alternatives, with all
+coverage/checkpoint limitations above. Production launch remains the user's
+next action; no further solver or optimization work is started by this delivery.
+
 ## October2 separate new-rule campaign preparation
 
 The user requests a new full five-loop comparison campaign, to be launched by
