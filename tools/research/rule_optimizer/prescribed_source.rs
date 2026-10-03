@@ -170,6 +170,7 @@ fn validate(r: &Value) -> Result<usize> {
         }
     }
     if r["schema"] == geometry_tangent::SCHEMA {
+        nomination_mode(r)?;
         require(
             r.get("sources").is_none(),
             "geometry nomination cannot also prescribe sources",
@@ -218,6 +219,17 @@ fn nomination_index(r: &Value, key: &str) -> Result<usize> {
         .as_u64()
         .and_then(|n| usize::try_from(n).ok())
         .ok_or_else(|| format!("nomination {key} must be an index"))
+}
+
+fn nomination_mode(r: &Value) -> Result<&str> {
+    match r["nomination"].get("mode") {
+        None => Ok("radial"),
+        Some(value) => match value.as_str() {
+            Some("radial") => Ok("radial"),
+            Some("protected-gradient") => Ok("protected-gradient"),
+            _ => Err("unknown geometry nomination mode".into()),
+        },
+    }
 }
 
 fn policies(r: &Value) -> Result<OriginalSourceCombinationLimits> {
@@ -391,7 +403,12 @@ fn produce<const N: usize>(
     let mut nominated_conditions = Vec::new();
     let mut nomination_report = None;
     if r["schema"] == geometry_tangent::SCHEMA {
-        let nomination = geometry_tangent::nominate(
+        let nominate = match nomination_mode(r)? {
+            "radial" => geometry_tangent::nominate,
+            "protected-gradient" => geometry_tangent::gradient::nominate,
+            _ => unreachable!("mode was validated"),
+        };
+        let nomination = nominate(
             &family,
             c,
             &sector,
@@ -664,6 +681,14 @@ mod tests {
         assert!(validate(&r).is_err());
         r.as_object_mut().unwrap().remove("sources");
         assert_eq!(validate(&r).unwrap(), 1); // Shape only; no family has been loaded.
+        for mode in ["radial", "protected-gradient"] {
+            let mut explicit = r.clone();
+            explicit["nomination"]["mode"] = json!(mode);
+            assert_eq!(validate(&explicit).unwrap(), 1);
+        }
+        let mut unknown = r.clone();
+        unknown["nomination"]["mode"] = json!("guess-a-direction");
+        assert!(validate(&unknown).is_err());
         for case in 0..3 {
             let mut wrong = r.clone();
             match case {

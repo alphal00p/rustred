@@ -10,6 +10,201 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Current workboard — October3 profile-guided rule optimization
 
+### Full mixed chart and counterbalanced evidence — October3, 13:09 UTC
+
+[M] The approved full-cross retry succeeds without changing the chart or
+source identity: eight translated ordinary sources,59 RHS terms and2,304
+exact sign cells. All inactive indices are free nonpositive exceptD14,
+which is strictly negative; all active powers remain positive. Its target
+coefficient is`(2+n13+n7+n6+n5-d)/2`; every cell retains the corresponding
+guard. Checked export preserves233 prior rules and25 terminals and adds one
+priority rule. Candidate SHA256
+`3ccb744c0fa4272134cf2c8689a857bfd508325be274d64dac7e5218511ba935`.
+Proof5.905s inclusive; export native success/drain in5.917s. The original
+wrapper then failed reading its50.5MB report with an old32MiB cap. A bounded
+reader respecting the declared128MiB allowance validates the preserved
+native result, source pins, stdout/artifact equality and direct/export proof
+equality. The original error remains in evidence; no native rerun or changed
+algebra is hidden. Independent mathematical/code audit passes.
+
+[M] Followup12's reverse pair completes in348.547s: candidate1,529 domains
+versus baseline3,565, reproducing57.11% less work. Both arms cold-pass all12
+roots with zero pending/frontier/abandoned obligations. Full-arm time is
+172.868s candidate versus172.146s baseline: **no established wall-time win**.
+This is profile-informed training validation, not an independent heldout.
+The optional gradient build also reproduces the old radial artifact byte for
+byte. Its generic shifted toy passes carrier preparation/inspection but its
+first proof hit a four-source budget with seven sources; one unchanged-chart
+eight-source retry is approved, with the refusal preserved.
+
+[M] The next downstream comparison keeps the two previously frozen mixed
+integer points unchanged, but uses actual rule dispatch rather than an
+explicit rule selector. All67 owners,8246 routes and two repairs remain;
+only the full-cross owner's payload changes. Plan:
+`TMP/rule-optimizer-20261003/candidates/radial-full-cross-mixed2-v1/plan.json`.
+This measures broader applicability, not the whole five-loop request.
+
+[M] Generic shifted-toy retry now passes: seven complete sources, eight RHS
+terms,18 exact cells, pivot`8+4*n2-4*d`, with the exceptional guard retained.
+Proof3.282s/export2.166s, native exit0 and owned processes drained. The only
+retry change is source allowance4→8. Checked export preserves five original
+rules and one terminal; candidate SHA256
+`fef1b52cdc48b757122f0a68741e3b31b30de5456d910f5a5e22b17b2ce09f9c`.
+Independent audit confirms exact source replay and all boundary cells. This is
+the generic shifted-gradient validity gate, not a downstream speed claim.
+Root reran21 Python tests successfully. Full-cross mixed2 plan is independently
+audited and running on32–47; no production input or checkpoint is changed.
+
+[E] Parallel source-only lanes now target the current-stage hotspots:
+`rule_optimizer_impl` reuses native two-protected tangent construction;
+`rule_cost_profiles` implements a finite degree0/1 joint multi-loop logarithmic
+kernel diagnostic using Symbolica sparse reduction. The latter protects every
+active denominator at a fixed preregistered owner66 point. A nonzero kernel,
+nonzero parametric IBP image, useful saved-order pivot and downstream benefit
+are four distinct gates; none implies the next. No degree2 escalation is
+authorized. `frontier_oct3_resume` independently audits both. Production remains
+unchanged, with13/67 roots and zero frontiers in its latest conservative scan.
+
+### Live campaign identity check — October3, 12:26 UTC
+
+[M] At the user's request, root mapped the actual Zellij panes using the
+running server's v0.45 CLI (`XDG_RUNTIME_DIR=/run/user/1125`) and checked
+process ancestry. `codex_ultra` (pane4, supervisor2940123/native2941004) runs
+`five-loop-a1-oldsavedpool-frontier-repaired-20261003`;
+`codex_astra_new_rules` (pane5, supervisor2941420/native2941870) runs
+`five-loop-a1-currentnew37pool-frontier-repaired-20261003`. The independent
+auditor confirmed both are fresh October3 traversals, not checkpoint resumes:
+`resume_requested=false`, no amendments, and CP6 imported-prefix length0.
+Their old October1/2 checkpoints remain separate and retained.
+
+[M] Both use the same frozen executable, identical183 queries (116required,
+67auxiliary),8246 ordered routes and two identical repair overlays. Exactly
+one of67 owner payloads differs: `011110111001001`, old SHA256`c77332c2…`
+versus new`faa34c23…`. The latter carries the previously tested37-term
+rank2 shortcut ahead of the retained72 rules/6terminals. This is **not**
+today's C19 tangent candidate; that candidate is installed in neither run.
+Independent audit rehashed the differing payloads and compared the remaining
+selection fields. Both live states around12:26UTC show13/67 root closures,
+about49million discovered domains,27.3million local completions,
+10.5million pending domains,49.6GB RSS and no frontiers. Closure snapshots
+are asynchronous conservative counts, not an equal-time speed comparison.
+
+[E] There is no accidental identical-pool launch, but most work overlaps:
+these are a deliberate baseline versus one-owner treatment for the same
+coverage request, not complementary partitions. If the user wants only one
+long-running attempt, retaining the new-rules run and gracefully checkpointing
+the old-pool run is reasonable. It does not establish a global new-rule win.
+Root has not stopped, signalled or changed either production process.
+
+### Harder validation and next mechanism — October3, 12:30 UTC
+
+[M] The separately admitted candidate-only heldout331 diagnostic stopped
+cooperatively after729.636s inclusive. It retained the exact same two roots,
+331 tuples, full pool, routes, guards and first-arm deadlines as the censored
+baseline. Final recorded work:7,947,561 scheduled,6,293,090 native inspections,
+76,555,779 events,765,237 pending, no frontiers or abandoned obligations.
+Checkpoint generation1 is saved/resumable. The1/2 root count is a stale
+conservative live snapshot, not a cold result. Thus both heldout observations
+are incomplete; neither supports an efficacy ratio or production promotion.
+Evidence: `TMP/rule-optimizer-20261003/candidates/`
+`prescribed-spectator-heldout331-candidate-only-v1/`.
+
+[M] The already audited two-point mixed-numerator native diagnostic completed
+in2.452s, including preparation and owned-process guard. No graph traversal
+or production mutation occurred. Its full native tails are now available for
+the profiler to derive expensive-column constraints under the preregistered
+policy, rather than inventing them from expected numerator behavior.
+Evidence: `TMP/rule-optimizer-20261003/discovery-mixed-guarded/`.
+
+[E] The implementation lane has delivered optional protected-gradient source
+nomination for a single nonradial dependent active denominator. The independent
+algebra review accepts `V=(g.g)p-(g.p)g`, with `g=derivative(P,k)`, as tangent
+toP; the full code and fifteen focused native tests are pending audit/build.
+It uses existing derivative contractions and coefficient services, not a new
+CAS kernel. No nomination has rule, descent or coverage authority without the
+existing exact source/proof/export gates. The current heldout is no longer a
+pristine validation case for strategies motivated by its behavior.
+
+[M] User subsequently stopped `codex_ultra`. Root read-only verification:
+supervisor2940123/native2941004 exited; status`paused/operator_signal_2`,
+checkpoint generation3 saved/resumable with10,512,655 pending and zero
+abandoned obligations. New37 supervisor2941420/native2941870 remains running
+on96–127. Its12:36UTC snapshot has13/67 roots,50.7million discovered,
+10.72million pending and zero frontiers. Resource reservation64–95 is no
+longer occupied by this old campaign; other host work still needs checking.
+The user explicitly prioritizes strongest improved rules over checkpoint
+compatibility and authorizes isolated parallel investigation, not changes to
+the remaining production run.
+
+[M] Mixed-tail policy finding: primary rule0 emits six complete successors,
+none raisingD1 or performing the preregistered pure dot redistribution.
+Therefore its proposedH set is empty, and that projected-bank experiment is
+vacuous/refused rather than padded with fabricated constraints. Secondary
+rule40 emits fourteen successors and one actualD1-raising lower key. The
+same75-source bank (25ordinary rows at0,+eD6,+eD14) is prepared for it.
+All six primary tails lower spectatorD13; four retain the mixed-cross rank,
+two lower it. The published tangent's guard excludes the mixed point; no
+native mixed-chart descent failure has yet been observed. Evidence and
+next hypothesis: `profiles/MIXED_NATIVE_H_AND_NEXT_BANK.txt` and
+`candidates/projected-bank-mixed75-preregistration-v1.json` under the same
+ignored evidence root. Independent auditor checked every native tail.
+
+[M] Optional gradient test build passed in120.218s; all15 native tests pass
+in0.24s (2.360s including guard). Optimized executable compilation is active.
+Root reran all21 Python profile/evaluator tests successfully and diff checking
+is clean. A direct broaderD6mixed chart is frozen for native proof, preserving
+all mixed terms; no authority or performance success is assumed. The reverse
+Followup12 plan is also prepared and independently audited: only arm order
+and fresh destination differ from its first successful pair.
+
+### Broader exact chart and current-stage evidence — October3, 12:44 UTC
+
+[M] The unchanged radial nomination **passes** on the broader mixedD6 chart:
+physicalD6,D14≤−1, D7=D8=0, all active powers positive and all remaining
+inactive spectators free. Native proof checks72 sign cells and retains28RHS
+terms from8 original source views. Its derived target coefficient is
+`(2+n13+n5-d)/2` (zero-based index labels). Proof2.596s and checked export
+3.017s inclusive;233old rules become234, all25 terminals retained. Independent
+audit confirms source replay, guard retention, common-order descent and native
+roundtrip. Candidate SHA256`44d1fb27a13b56bb0fe1661badcff17d6d7c35d6c323ce4718233610934b2bc9`.
+This is broader mathematical admission, not a measured workload improvement.
+
+[M] Removing all three cross-numerator restrictions at once hit the existing
+**operational sign-partition work budget**, not a mathematical counterexample:
+`original sign partition work`, clean exit2 after1.975s. No artifact exported.
+Implementation review bounds this chart by2304cells and2,039,040 accumulated
+coordinate operations; current allowance is1,000,000. One unchanged-chart
+retry with4,000,000 operations and128MiB report allowance is approved under
+the same30s/150GB outer bounds. No new splitter or algebra is justified yet.
+
+[M] Secondary mixed75 bank completes in2.653s:75 original views,259 physical
+columns,942 nonzeros. F-only (116columns) gives a replay-checked2-source,
+18-tail target pivot. Adding the actual nominated lower H key (117columns)
+gives`NO_TARGET_PIVOT_IN_FIXED_BANK` after all75 rows. The constraint is
+nonvacuous; this rejects that finite bank, not the existence of a recurrence.
+Auditor independently checked the native result. Primary's emptyH is retained
+as a negative hypothesis result and not launched. Evidence:
+`candidates/projected-bank-build-v1/probe-mixed-secondary75/`.
+
+[M] A new bounded4MiB sample from sealed new37 checkpoint generation2 decodes
+10,255 frames (7,060whole,1,432G2,1,763aliases). It describes recent published
+inspections, **not current pending domains**, and is stage/byte-cluster biased.
+New training hotspots are owners66`011101110111000`,20`111001100111001`,
+and15`111010100100101`; earlier1010/1111 training owners are absent from these
+windows. Thus the strong C19 gain cannot be extrapolated to current production.
+Slower sampled records include G2 residual inspections, which must be nominated
+with their residuals/dependencies rather than replaced by whole parents.
+Profiler is preparing exact representative queries and independent heldout
+separation. Plan/sample: `profiles/new37-recent-sealed-*`.
+
+[E] Next mechanisms follow this evidence: reuse native two-protected tangent
+sources for loops with two dependent active lines, and investigate a bounded
+joint multi-loop logarithmic ansatz for the trivalent current-stage sectors.
+The latter remains design/research; a finite kernel vector is not itself a
+useful reduction rule. All original terms, common-order constraints, source
+proofs and downstream completed-cohort checks remain required. Followup12's
+counterbalanced second pair is running in an isolated directory meanwhile.
+
 The user explicitly starts an ambitious program to use existing campaign data
 to discover more efficient rules, rather than only repair frontiers. A new
 tool-managed goal is assigned to root; its full objective and acceptance gates
@@ -32,10 +227,10 @@ all pre-existing untracked work remain outside this program.
 
 | Lane | State | First deliverable |
 | --- | --- | --- |
-| Campaign profile and work attribution (`rule_cost_profiles`) | Delivered; cohort preparation active | Bounded sample, frozen panels, actual rule/partition attribution and candidate scope overlap |
-| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Generic parametric producer delivered; source-nomination design active | Exact source proof and checked spectator-free export passed; mixed-numerator extension next |
-| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Producer/native proof audits delivered; comparison audit next | Separate algebra, dispatch and downstream-benefit gates |
-| Matched downstream experiments | A/A and known-negative4L controls, C19 five-loop A/A complete; first candidate A/B active | Unchanged shared pool, independent cold verification, then broader validation |
+| Campaign profile and work attribution (`rule_cost_profiles`) | Current-stage residual6 panel delivered; finite joint kernel diagnostic active | Six preserved residuals,7,315 distinct tuples; degree0/1 source-only implementation |
+| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Gradient15 tests pass; full-cross proof/export delivered; two-protected adapter active | Generic shifted-toy proof retry and native tangent-source reuse |
+| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | C19/Followup12 pairs, censored heldout, full-cross and negative75-bank audited | Separate algebra, dispatch and downstream-benefit gates; new source modules under review |
+| Matched downstream experiments | Two completed pairs each for C19 and Followup12; both harder heldout observations censored | Full-cross two-point comparison prepared; broader benefit and complete controls pending |
 | Improved pool and deployment | Pending | Exact, cold-loadable, measured candidate; user-only production launch |
 
 [M] The third new-agent spawn hit the thread limit; reassigning the independent

@@ -206,3 +206,60 @@ Do not generalize local C19 savings to unresolved broader scopes.
 Compact discovery inputs, the frozen H policy and the original research note
 are under ignored `TMP/rule-optimizer-20261003/profiles/`; this tracked document
 contains no campaign record payloads.
+
+## Future bounded multi-loop logarithmic kernel
+
+This is a proposal, not an implemented source service or successful pilot.
+The newly sampled owner011101110111000 has nine active denominator axes;
+its native loop0 incidence has three dependent active axes. Other-loop
+incidence must be authenticated before calling the whole sector trivalent.
+Neither the early isolated-loop rule's validity nor its C19 cost improvement
+generalizes to this owner.
+
+For each ordinary direction G_i, nominate a denominator polynomial P_i of
+degree at most k and impose `sum_i P_i*G_i(D_j)=h_j*D_j` for every protected j.
+This is the logarithmic no-raised-power constraint in
+[Smith and Zeng, section2.3, equations11–17](https://arxiv.org/html/2507.11140v2#S2.SS3),
+restricted to a finite degree, not their full module-syzygy computation.
+Because D_j is an independent native denominator variable, the finite
+constraint can be assembled by equating coefficients after D_j=0. This
+eliminates h_j without polynomial division. Protecting all nine active axes
+is different from protecting a selected three-axis subset.
+
+For15 denominator variables and25 ordinary directions, the structural counts
+before sparsity are:
+
+| Maximum weight degree | Coefficient unknowns | Constraints for nine protected axes, at most |
+| --- | ---: | ---: |
+| 0 | 25 | 135 |
+| 1 | 400 | 1,080 |
+| 2 | 3,400 | 6,120 |
+
+The counts are `25*binomial(15+k,k)` and
+`9*binomial(15+k,k+1)`. Each native derivative contraction is affine in the
+denominator basis. Symbolica owns polynomial arithmetic and sparse reduction;
+finite monomial enumeration and coefficient-matrix assembly are the proposed
+adapter work. Existing native ingredients are `derivative_contraction`,
+`MultivariatePolynomial<RationalPolynomialField<...>,...>` as used in
+[`tangent/polynomial.rs`](../../crates/rustred-core/src/identity/tangent/polynomial.rs),
+and `SparseRowReducer::{add_row,u,l,pivots}` with augmented identity columns
+as already used by `projected_bank.rs`. There is no existing public generic
+free-module kernel wrapper, and ideal F4 is not a substitute for one.
+
+The smallest falsifiable first test freezes one original sampled owner66
+target and its common order, then examines degrees0 and1 with all25 directions
+and all nine active protections. Record coefficient-kernel dimension, complete
+original-source image rank, all guards and the actual target-pivot result.
+Global rotational/Lorentz combinations can have a nonzero coefficient kernel
+but an identically zero full source product; polynomial source multiples can
+also be useless. Neither counts as a reduction rule. Require elimination of
+every non-lower physical column F and exact full source replay, followed by an
+explicit parametric chart proof if a useful point circuit exists. This reuses
+the saved order rather than replacing it with no-dot heuristics.
+
+A zero kernel, zero full-source image, missing target pivot or bounded refusal
+is a valid negative. Degree2 is a separate3,400-unknown resource decision, not
+automatic escalation. The prior one-loop affine negative does not rule out
+joint multi-loop degree1 weights, but it remains negative evidence against
+blind ansatz repetition. Completed shared downstream cohorts, not kernel size
+or local tail length, would eventually decide whether an admitted rule helps.

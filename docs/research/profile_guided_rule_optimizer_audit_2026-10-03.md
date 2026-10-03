@@ -1445,3 +1445,289 @@ another C19 walk for these identical bytes. The accompanying
 was independently checked against its primary-paper sections and native API
 limits; its two next experiments and nonradial appendix remain proposals, not
 execution or expanded-chart authority.
+
+## Optional one-protected gradient nomination: algebra review
+
+For an explicit differentiated loop k, write the protected quadratic and chosen
+inactive numerator in the bound scalar-product coordinates as
+`P=aP*k²+sum(bP_r*k.q_r)+C` and
+`J=aJ*k²+sum(bJ_r*k.q_r)+Cj`, with r excluding k. The raw off-diagonal coefficient
+is b, not2b. Let gradient components be `g_k=2*aP`, `g_r=bP_r`, and nominate
+`p_k=0`, `p_r=aP*bJ_r-aJ*bP_r`. This p is independent of the differentiated k
+and unchanged by adding a base-field multiple of P to J. That latter algebraic
+fact does not authorize changing saved integral indices or their domains.
+
+The proposed native component construction is exactly
+
+```text
+V_s = sum_r (p_s*g_r - g_s*p_r) * derivative_contraction(P,k,q_r)
+    = p_s*(g.g) - g_s*(g.p).
+```
+
+Consequently `g.V=0` without dividing by a momentum norm or introducing square
+roots. The derivative contractions are affine in the native denominator basis,
+so each constant/linear monomial component still nominates an ordinary source
+at `recenter-monomial`; full translated sources supply every product-rule term.
+External contraction vectors and base-field parameters are allowed by this
+identity, provided native family invariants and inverse-basis conditions remain
+bound. Retain all input/product/subtraction poles before simplification or
+weight coalescing. Incidence and tangency alone do not prove target orientation,
+scope, strict descent or runtime applicability.
+
+For radial P, this choice gives `p=2*aP*p_old` and
+`V=8*aP^3*V_old`. Thus the radial control should recover the same normalized
+candidate if all native guards admit it; canceled common factors must not
+silently erase conditions. If aP=0, this particular p becomes parallel to g
+and V is zero. That is a bounded nomination miss, not absence of another tangent
+or evidence for a master. Zero p or other degeneracy likewise fails closed.
+
+The independent positive fixture proposed before implementation is the generic
+two-loop basis `P=(k0-k1)^2-mP^2`, `Q=k1^2-mQ^2`,
+`J=(k0+k1)^2-mJ^2`, active P/Q with J negative. Check exact tangent/source
+consistency, old radial-mode refusal, loop/denominator permutation and radial
+normalized-control equality. A small one-loop/external analogue can additionally
+exercise external-momentum indexing and invariant constants. These are new toy
+fixtures, not a rule or chart fitted to the currently exposed heldout. This
+section is algebra/API review only; implementation and native proof outcomes
+remain separate gates.
+
+## Restricted heldout candidate-only censoring
+
+The fresh `candidates/prescribed-spectator-heldout331-candidate-only-v1/`
+observation also exhausts its frozen allowance without completing. Independent
+receipt review confirms the unchanged331-tuple two-query scope, full67 owners,
+8,246 routes and both overlays, with only the approved candidate-owner
+substitution. The actual native command matches the candidate-only plan.
+
+The raw result records7,947,561 scheduled domains,6,293,090 native inspections,
+76,555,779 events and765,237 pending domains. Frontiers, abandoned obligations,
+failed nodes and admission errors are zero. The cooperative deadline yields
+exit4, a saved resumable CP6 generation1 and complete worker/process-group
+drain, not a hard kill. Guard elapsed time is724.289 seconds; the whole attempt
+takes729.636 seconds. The live1/2-root closure snapshot is about100 seconds
+stale and is not cold verification.
+
+No cold-All receipt, completed arm, completed single-arm observation or
+comparison exists. Both heldout attempts are censored; neither supplies a
+completed efficacy ratio, and their similar observed-work counts establish
+neither equal eventual cost nor a candidate regression. This is an operational
+budget result, not failure of the candidate's independently proved identity.
+Keep the full scope and raw receipts intact; neither run completes full H1.
+
+## Optional gradient implementation: independent source audit
+
+Source-only review accepts `geometry_gradient.rs` at `bac67146...1d53382`, its
+six new fixtures at `bcd70ba7...3519a`, and the producer integration at
+`311c1fdc...a14e3b0`. Native compilation/tests and any checked-chart proof remain
+separate gates; no successful execution is claimed by this review.
+
+The implementation uses the correct raw off-diagonal coefficients and
+`g_k=2*aP`. Native contraction order agrees with ordinary RowId ordinals for
+both loop and external momenta. Each antisymmetric component scale multiplies
+the authenticated derivative contraction, and its affine monomials become
+ordinary sources at `recenter-monomial`. Thus source generation, rather than
+an assumed commuting derivative, supplies the full product rule. Operand,
+product and subtraction denominator witnesses survive cancellation, and even
+an identically zero scale visits cached expansion factors before zero weights
+are dropped. Existing native family/source conditions remain authoritative.
+
+Unknown modes fail closed; absent or explicit radial mode calls the unchanged
+radial nominator. The shared source product, normalization, checked original
+source replay, strict saved-order proof and checked priority export are not
+changed. The six new fixtures target shifted massive geometry, radial scaling
+and normalized-product agreement, relabeling, external Gram terms, a canceled
+inverse-basis pole, and degenerate/resource refusals. Comparing protected-power
+specializations exercises the complete ordinary affine-index source product;
+it is not independent authority for a requested free chart or descent. The
+README correctly records that the already-exposed operational heldout is not
+pristine validation for this follow-on mechanism.
+
+## Mixed-tail extraction and the next protected-source falsifier
+
+Independent read-only reconstruction of the complete two-point native report
+agrees with `profiles/mixed-actual-H-extraction.json`: primary rule0 emits six
+distinct nonzero child keys, with both preregistered H categories empty;
+secondary rule40 emits fourteen, with one D1-increasing cross-owner key and
+no same-owner unit dot redistribution. Every key agrees both with the native
+singleton target geometry and with `child=source-argument_shift`; all recorded
+A/R/D deltas agree. Clean native rule finishes, no optional refusals and exact
+report bindings precede this extraction. The two75-row requests contain exactly
+all25 ordinary RowIds at offsets0,+e_D6,+e_D14 and retain their original points.
+The primary empty-H refusal is a valid negative finding, not permission to
+invent a replacement block. Neither H category is measured downstream cost.
+
+Guard exclusion of D6-negative mixed points is not a failed mixed-chart proof.
+Only the separately requested full native proof can establish whether the
+radial source sum has a target/guard/descent obstruction on that chart. If its
+extra D6 derivative is the obstruction, a narrowly targeted existing-native
+alternative is available without changing the saved order: protect both D1
+and D6 while differentiating k1. `TangentSourceSpec` requires two distinct
+denominator axes, not two active axes; protecting an inactive numerator is
+allowed by its actual constructor.
+
+A source-level nomination is zero-based differentiated_loop0,
+protected_denominators[0,5], contractions[Loop(0),Loop(2),Loop(1)],
+recenter=+e13 and no multiplier. Signed native2x2 minors annihilate both
+derivatives, while the other active denominators are independent of k1. This
+is distinct from switching to k2 and protecting active D10/D11. The native
+plan must provide its real degree2 monomial offsets and complete materialized
+ordinary-source product; the75-row finite bank is not assumed to span them.
+The cheapest meaningful falsifier is absence of a useful actual target pivot
+or a retained non-lower tail under the same saved order, followed by guard and
+chart proof if the point succeeds. No implementation, descent, applicability
+or cost result is asserted by this nomination.
+
+The subsequent actual mixed-D6 radial proof **passes**, so its receipt does
+not establish the hypothesized obstruction. Defer the two-protected fallback.
+The pinned gradient build passes all15 tests with every build/test/proof/export
+phase drained. `gradient-source-build-v1/prove-mixed-d6/` proves the exact
+requested chart: D6,D14 strictly negative, D7,D8 fixed zero, all active powers
+positive and the independent inactive spectators unrestricted nonpositive.
+The native normalization is `(2+n13+n5-d)/2`; eight complete original source
+views yield28 broad RHS terms. The72 sign cells form the exact Cartesian
+partition of the requested geometry, retaining the guard `d-2-n13-n5` and
+the active pinch/s=1 boundaries. No chart adaptation or discarded mixed tail
+is used.
+
+Checked export repeats the same proof and preserves all233 baseline rules
+and25 terminals while prepending one rule, with the native codec roundtrip
+passing. Candidate SHA256 is
+`44d1fb27a13b56bb0fe1661badcff17d6d7c35d6c323ce4718233610934b2bc9`.
+Inclusive proof/export times are2.596/3.017 seconds. This is a broader valid
+source/guard/common-order chart, not yet a dispatch or downstream-cost result.
+
+The prospective full-cross chart, with no fixed inactive axes and only
+D14 strictly negative, then refuses with `original sign partition work` in
+1.975 seconds. Native exit2 is cleanly drained, without a hard stop. The source
+checker charges the accumulated number of split coordinate cells times arity
+before verifying each cell; this resource refusal is not a non-descending-tail
+or invalid-identity witness. No full-cross export is produced. Any later retry
+must retain this receipt and explicitly change only a separately admitted
+proof allowance, not silently shrink the chart.
+
+The secondary75 finite bank completes in2.653 seconds within its explicit
+45/55-second owned deadlines and60-second acceptance ceiling. Its75 rows,
+259 physical columns and942 input nonzeros produce an exact two-source,
+18-tail baseline target pivot with116 forbidden columns. That RHS contains
+the sole preregistered H key. With117 forbidden columns the same bank has no
+target pivot, so the negative is nonvacuous. It proves neither a master nor
+global infeasibility beyond this bank, and measures no downstream cost.
+
+## Multi-active loops: bounded logarithmic ansatz, not a module solver
+
+The newer profile's multi-active-loop owners require a separate hypothesis
+from the early isolated-tadpole success. Native two-protected minors can still
+generate exact sources while leaving a third active derivative intact, but
+cannot be called a three-protected service. A3x4 signed-minor construction
+would be a distinct degree3 mechanism, not an existing API capability.
+
+A more focused finite proposal is to assign degree-bounded denominator
+polynomials to all ordinary IBP directions jointly. The logarithmic condition
+`sum(P_i*G_i(D_j))=h_j*D_j` is the no-raised-protected-power construction of
+[Smith and Zeng, section2.3, equations11–17](https://arxiv.org/html/2507.11140v2#S2.SS3).
+This finite truncation does not claim their complete syzygy-module algorithm.
+For a native independent denominator basis, divisibility by D_j can instead
+be tested by setting D_j=0 and equating the remaining polynomial coefficients;
+there is no need to add unknown h_j coefficients. This is a finite exact
+coefficient-linear problem, not a custom polynomial or module engine.
+
+With15 denominator variables and25 ordinary directions, degree≤0/1/2 gives
+25/400/3,400 coefficient unknowns. Protecting all9 positive axes of owner
+011101110111000 yields at most135/1,080/6,120 coefficient constraints,
+respectively. These are structural upper bounds before native sparsity, not
+measured ranks or memory guarantees. Protecting only three selected axes
+would be a weaker, separately stated problem. Existing primitives are native
+`derivative_contraction`, Symbolica `MultivariatePolynomial` over the rational
+polynomial coefficient field, and `SparseRowReducer` with native augmented
+identity columns. The generic bounded monomial/matrix adapter is missing glue;
+the repository does not already expose a general free-module kernel service.
+
+The smallest proposed falsifier freezes one actual sampled owner66 target and
+its saved order, then tests degrees0 and1 with all25 directions and all9 active
+protections. Record raw kernel dimension separately from the rank of its
+complete original-source image. Global rotational identities can yield a
+nonzero coefficient kernel but an identically zero full source relation;
+polynomial multiples of ordinary sources are also not automatically useful.
+Demand a real target pivot after every unchanged non-lower column F is
+eliminated, preserve all source/normalization guards and test an explicit
+parametric chart natively afterward. No target pivot is a legitimate bounded
+negative. Degree2 is a separate3,400-unknown escalation, never automatic.
+The prior single-loop affine negative does not exclude this jointly coupled
+multi-loop ansatz, but neither does it justify expecting a positive result.
+
+## Followup12 reverse repeat and full-cross native success
+
+The completed candidate-first `prescribed-spectator-followup12-v2/` retains
+the exact v1 query/selection objects and planned native commands. All67 owners,
+8,246 routes and both overlays remain bound; all12 roots and every1,502/3,486
+candidate/baseline native inspection pass cold All/Off checking. Checkpoint
+pending work is zero and all owned groups drain. Both raw walks retain exit4
+and stale `incomplete` closure snapshots, rather than falsely claiming their
+live snapshots certified the result; the separate cold receipts supply the
+regional closure evidence.
+
+Scheduled domains again fall from3,565 to1,529 (57.11%). Reverse-order full-arm
+times are172.146 seconds baseline and172.868 candidate, a0.42% increase, versus
+a3.16% decrease in the first ordering. Thus structural-work savings repeat,
+but a robust wall-time gain is not established. This profile-selected cohort
+remains training validation, not independent heldout or production promotion.
+
+The separately admitted full-cross retry changes only the source-proof work
+allowance1M→4M and report allowance16→128MiB, plus explanatory provenance.
+Its complete chart, eight-source nomination and saved order are unchanged.
+Native prove/export both succeed and drain in5.905/7.400 seconds inclusive.
+The full chart has every inactive power nonpositive except D14 strictly
+negative, and all active powers positive. The actual pivot is
+`(2+n13+n7+n6+n5-d)/2`;59 broad RHS terms and2,304 unique Cartesian sign cells
+retain the common guard `d-2-n13-n7-n6-n5`, including all split boundaries.
+Export rechecks the identical source proof and codec roundtrip, preserving
+all233 baseline rules and25 terminals while prepending one rule.
+
+The50,502,269-byte proof report fits the approved128MiB bound but exceeds the
+old helper's32MiB JSON-reader cap. Its retained outer `AssertionError` therefore
+records a postprocessing refusal after successful native export, not an
+algebra failure. Audit reads the bounded actual artifact directly; neither
+receipt is overwritten and no algebra rerun is needed just to fix parsing.
+Candidate SHA256 is
+`3ccb744c0fa4272134cf2c8689a857bfd508325be274d64dac7e5218511ba935`,
+with proof-report SHA256
+`73a414c92e301b73b2c6e9ccd59280bf3d2b76cd279e6bc71918b9cdf5b72331`.
+This is native source/guard/common-order validity and checked export only;
+dispatch reach and completed downstream cost for these new bytes are untested.
+
+The subsequent existing two-protected adapter preflight needs no core getter
+or new algebra kernel. `TangentSourcePlan::try_new` followed by `materialize`
+validates bound family/context, complete ordinary inventory and each native
+RowId/ordinal/offset. Its public sources, indexed weights, full product and
+conditions can feed the unchanged original-source proof path directly, without
+serialized coefficient lifting. Materialization retains weight/source poles
+before full-product cancellation. Constructor polynomial intermediates do not
+have a separate public witness list; complete family input/inverse-basis
+conditions are already retained in every ordinary row by
+`identity/generator/domain.rs`. A no-multiplier adapter is explicitly degree2;
+allowing the optional multiplier would be a separately scoped degree3 change.
+Owner15's k1/D1,D7 nomination is not a topology-specific dispatch rule or a
+proof of usefulness, and all other inactive derivative terms must remain.
+
+The native gradient toy subsequently passes after one explicitly recorded
+source-row allowance4→8 retry; its earlier reserved-label carrier refusal
+and seven-required/four-allowed proof refusal remain preserved. The retry
+does not change the shifted equations, P,Q≥1/N≤−1 chart, nomination or order.
+Seven complete sources yield eight RHS terms and18 exact Cartesian sign cells
+with actual pivot `8+4*n2-4*d`. The P/Q pinch and N=-1 boundaries are included;
+both `d-2-n2` and its fourfold guard remain recorded. Native prove/export drain
+successfully in3.282/2.166 seconds. Checked export retains all five old rules
+and the one terminal, adding one rule, and passes codec roundtrip. Toy artifact
+SHA256 is `fef1b52cdc48b757122f0a68741e3b31b30de5456d910f5a5e22b17b2ce09f9c`.
+This is shifted-gradient source/guard/descent authority on the declared toy,
+not a performance result or proof for an unrelated family.
+
+The next full-cross mixed2 A/B plan is independently checked before launch:
+its two required singleton queries exactly equal the prior frozen points with
+only forced batch/rule selectors removed, intentionally exercising actual
+dispatch. All67 owners,8,246 ordered routes and two repairs are retained;
+only owner101010000110001 receives the source-proved full-cross bytes. The
+two arms have identical normalized commands,16 workers on CPU IDs32–47 and
+monotone cumulative phase deadlines ending1,770 seconds within the1,800-second
+inclusive allowance. This planning gate does not assert a completed walk or
+extend either point to a broader performance cohort.

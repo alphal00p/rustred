@@ -25,7 +25,7 @@ IBPs, not a topology-specific identity inserted into the engine. Full source
 translations include all product-rule terms. The present chart allows arbitrary
 active powers, a negative D14 power, and five independent spectator numerator
 powers; the other three cross-numerator powers are fixed zero. Mixed-cross
-extension is separate work, not silently covered by this result.
+extension is separate work, not silently covered by this measured result.
 
 The generic research producer uses Symbolica and existing RustRed services to
 regenerate the complete symbolic sum, derive its normalization, prove all18
@@ -78,15 +78,46 @@ five minimum-hash pinch-route controls. Original coordinate and correlated
 bounds are preserved, and no zero-benefit control may be dropped. This is
 candidate-scope-informed training validation, not a pristine heldout.
 
-| First pair | Domains | Native inspections | Events | Traversal (s) | Full arm (s) | Waited CPU (s) | Peak tree RSS (GB) |
+| Pair / arm | Domains | Native inspections | Events | Traversal (s) | Full arm (s) | Waited CPU (s) | Peak tree RSS (GB) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 3,565 | 3,489 | 55,351 | 0.378 | 177.483 | 1,667.622 | 5.266 |
-| Candidate | 1,529 | 1,504 | 25,965 | 0.271 | 171.872 | 1,649.911 | 5.299 |
+| 1 baseline first | 3,565 | 3,489 | 55,351 | 0.378 | 177.483 | 1,667.622 | 5.266 |
+| 1 candidate second | 1,529 | 1,504 | 25,965 | 0.271 | 171.872 | 1,649.911 | 5.299 |
+| 2 candidate first | 1,529 | 1,502 | 25,857 | 0.275 | 172.868 | 1,654.581 | 5.216 |
+| 2 baseline second | 3,565 | 3,486 | 55,705 | 0.388 | 172.146 | 1,664.760 | 5.273 |
 
-Both arms cold-pass all12 required roots, with no pending work, frontier or
-abandoned obligation. The shared-cohort domain reduction is57.11%; full-arm
-time is3.16% lower. Reverse-order repetition remains pending. Evidence:
-`candidates/prescribed-spectator-followup12-v1/`.
+All four arms cold-pass all12 required roots, with no pending work, frontier or
+abandoned obligation. Both pairs reproduce exactly57.11% fewer scheduled
+domains. Full-arm time is3.16% lower in the first pair but0.42% higher in the
+reverse pair: this is a reproducible work reduction, **not** an established
+whole-arm timing gain. The second pair takes348.547s inclusive; the original
+old-pool production run had been user-paused before this pair, while the new37
+production run remained active. Each pair uses identical placement and limits
+within its two arms. Evidence: `candidates/prescribed-spectator-followup12-v1/`
+and`-v2/`.
+
+## Broader mixed chart: exact authority, cost not yet measured
+
+The same eight-source identity now passes the unchanged saved-order proof with
+all previously fixed cross numerators free nonpositive, while D14 remains
+strictly negative. Native source replay retains59 RHS terms and checks2,304
+sign cells. Its target coefficient is`(2+n13+n7+n6+n5-d)/2` in zero-based
+index labels; the corresponding guard is retained throughout. The checked
+export adds one rule ahead of233 old rules, preserving all25 terminals.
+Candidate SHA256:`3ccb744c0fa4272134cf2c8689a857bfd508325be274d64dac7e5218511ba935`.
+
+The first attempt exhausted an operational partition-work allowance. One
+unchanged-chart retry raised that allowance from one to four million, with a
+128MiB report cap. Proof completes in5.905s inclusive; export's native process
+succeeds and drains in5.917s. An obsolete32MiB reader then rejects the50.5MB
+report. The raw success/error evidence is preserved; bounded postprocessing
+using the declared128MiB allowance verifies the original receipt without a
+native rerun. Independent audit confirms source/proof/export binding.
+
+This removes a previous applicability restriction, but may also introduce more
+successors. **No speed or shared-work benefit is inferred.** A preregistered
+two-point comparison keeps both previously frozen mixed inputs unchanged and
+uses actual priority dispatch within the full pool/routes. It is training
+validation, not a production or held-out result.
 
 ## What is established, and what is not
 
@@ -105,9 +136,16 @@ time is3.16% lower. Reverse-order repetition remains pending. Evidence:
   Neither starting owner is the replaced owner. Its baseline was cooperatively
   **censored**, not completed:7,926,371 domains,6,255,154 native inspections,
   781,801 pending, zero frontiers, checkpoint saved and owned processes drained.
-  Whole pilot730.102s. No cold check or candidate arm ran, so there is no
-  completed heldout A/B result. The unchanged scope is retained for any further
-  diagnostic; roots will not be dropped or bounds reduced after this outcome.
+  Whole pilot730.102s. No cold check or candidate arm ran in that paired pilot.
+  A subsequent fresh **candidate-only** diagnostic retained exactly the same
+  scope and first-arm deadlines. It was also cooperatively censored:
+  7,947,561 domains,6,293,090 native inspections,765,237 pending, zero frontiers,
+  no abandoned obligations, checkpoint generation1 saved; whole pilot729.636s.
+  Neither run discharged the heldout scope. These are separate fixed-time
+  observations, not a completed A/B efficacy result or evidence of a material
+  broader win. The unchanged scope is retained; roots will not be dropped or
+  bounds reduced after this outcome. The candidate-only evidence is in
+  `candidates/prescribed-spectator-heldout331-candidate-only-v1/`.
 - No production switch is recommended yet. Source nomination, broader exact
   candidates, heldout checks and full controls remain active goal work.
 

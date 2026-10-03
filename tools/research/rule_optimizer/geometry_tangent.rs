@@ -19,6 +19,9 @@ use rustred::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+#[path = "geometry_gradient.rs"]
+pub(super) mod gradient;
+
 pub(super) const SCHEMA: &str = "rustred.geometry-tangent-chart.v1";
 
 #[derive(Clone, Copy)]

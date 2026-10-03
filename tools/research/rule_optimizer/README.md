@@ -305,3 +305,62 @@ exact source weights, RHS, chart cells and guard polynomials coincide. Raw recei
 are preserved in ignored `TMP/rule-optimizer-20261003/candidates/geometry-source-build-v1/`,
 with `equivalence.json` recording the comparison. This validates nomination for
 that chart, not a mixed-cross chart or an additional performance measurement.
+
+## Optional protected-gradient nomination
+
+The geometry schema also accepts `nomination.mode: "protected-gradient"`.
+Omitting `mode`, or selecting `"radial"`, retains the existing radial algorithm.
+An unknown mode is refused. The optional mode still requires exactly one active
+denominator depending on the selected coordinate loop; it does not handle two
+protected propagators or silently change the explicit fixed/free chart.
+
+For that denominator `P`, write its loop gradient as `g = ∂P/∂k`.
+Let `aP`, `aJ` be the squared-loop coefficients of `P` and the selected numerator
+`J`, and `bP[r]`, `bJ[r]` their raw off-diagonal scalar-product coefficients.
+The canonical direction has `p[k]=0` and
+`p[r]=aP*bJ[r]-aJ*bP[r]`. Native checked multiplication/subtraction and cached
+derivative contractions assemble each component of
+`V = (g·g)p - (g·p)g` into ordinary source translations. This protects a
+routing-shifted quadratic denominator without a Gram inverse, square root,
+custom polynomial engine, or fitted source weights.
+
+`geometry_gradient.rs` is separate from the radial algorithm and reuses its
+bounded affine-source builder. All operand/product poles survive subtraction
+and coalescing, including inverse-basis witnesses from native derivative
+expansions. Zero squared-loop coefficient, zero effective direction, empty
+vector field, or a resource miss refuses nomination; none authorizes a terminal,
+new chart, or alternate search. Full ordinary-source generation, actual target
+normalization, unchanged saved-order proof and checked export remain mandatory.
+Mixed-numerator tails are retained, not assumed to descend.
+
+Focused fixtures cover a generic shifted two-loop mass family, loop and
+denominator permutation, a loop/external Gram example, parameter-pole propagation,
+degenerate cases, and radial-limit normalization against the old algorithm.
+They pass in the fresh audited build; the earlier measured binary does not
+contain this optional mode. The current operational held-out cohort
+motivated this extension and must not be reused as pristine held-out validation
+for it. No broader validity or performance is inferred from the algebraic identity.
+
+The first optional-mode build passed all 15 tests, including the original nine.
+A separate training probe through the unchanged radial mode proved and exported
+the explicit mixed-D6 chart (D6 and D14 strictly negative, D7/D8 fixed zero):
+eight sources, 28 RHS terms and 72 sign cells. No shared-cost result is implied.
+A prospective full-cross chart with no fixed indices initially stopped at the
+native cumulative sign-partition work budget. An explicitly approved retry
+changed only that work allowance to four million and the report cap to 128 MiB;
+the unchanged chart then passed native proof and checked export: eight sources,
+59 RHS terms and all 2,304 sign cells, with all 25 original terminals retained.
+The 50.5 MB export report exceeded the research wrapper's old 32 MiB reader cap
+after native success; the raw receipt was preserved and a bounded reader
+correction validated the existing report without rerunning native. No shared-cost
+claim follows from that export. Raw receipts are in ignored
+`TMP/rule-optimizer-20261003/candidates/gradient-source-build-v1/`.
+A fresh radial-control export from the optional-mode binary is byte-identical to
+the measured prescribed candidate. The generic shifted-gradient toy's first
+proof attempt exhausted a four-row source allowance with seven translated rows.
+An approved eight-row-budget retry, with unchanged equations and chart, passed
+native proof and checked export: seven sources, eight RHS terms, 18 sign cells,
+and its one original terminal retained. This is an independent shifted-family
+chart proof, not an operational-family or performance claim. Its input-grammar
+refusal (reserved label `J`, later renamed `N`) and first budget refusal remain
+in the raw evidence beside the successful retry.
