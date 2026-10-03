@@ -63,12 +63,10 @@ def test_singular_gram_gives_no_verdict_instead_of_a_false_excess():
     m2 = S("certificate::m2")
     ibp = hep.IBPFamily(bubble(masses=(m2, m2), invariant=E("0"), namespace="gram"))
     certificate = ibp.reduce_laporta([[2, 1]], max_depth=2).certify()
-    assert certificate.masters in ("no-verdict", "count-consistent")
-    assert certificate.excess_sectors == []
-    assert all(
-        reason == "singular external Gram matrix"
-        for reason in certificate.no_verdict.values()
-    )
+    assert (certificate.masters, certificate.excess_sectors) == ("no-verdict", [])
+    assert set(certificate.no_verdict) == set(certificate.residual_counts)
+    assert set(certificate.no_verdict.values()) == {"singular external Gram matrix"}
+    assert set(certificate.master_counts.values()) == {None}
 
 
 def test_certificates_cover_preferred_masters_cuts_and_seeds():
@@ -86,7 +84,14 @@ def test_certificates_cover_preferred_masters_cuts_and_seeds():
     cut = hep.IBPFamily(family, cut=[True, True]).reduce_laporta(
         [[2, 1], [1, 0]], max_depth=1
     )
-    assert cut.certify().reduction == "verified"
+    cut_certificate = cut.certify()
+    assert (cut_certificate.reduction, cut_certificate.masters) == (
+        "verified",
+        "count-consistent",
+    )
+    # Inside the cut the uncut count applies: one master in the bubble sector.
+    assert cut.residuals == [[1, 1]]
+    assert cut_certificate.master_counts == {(True, True): 1}
     assert cut.certify(count_masters=False).masters == "unchecked"
     assert "IBPCertificate(" in repr(cut.certify(count_masters=False))
 

@@ -158,11 +158,20 @@ impl MasterCounter {
                 limit: MAX_ACTIVE_DENOMINATORS,
             });
         }
+        // A singular Gram matrix decides the verdict; sampling would only cost.
+        if self.gram_singular {
+            return Ok(MasterCount::NoVerdict {
+                morse: None,
+                euler: None,
+                reason: NoVerdictReason::GramSingular,
+            });
+        }
         let mut outcomes = Vec::with_capacity(self.streams.len());
         for stream in 0..self.streams.len() {
+            self.streams[stream].reset_attempts();
             outcomes.push(self.sample(stream, &active)?);
         }
-        Ok(verdict(self.gram_singular, &outcomes))
+        Ok(verdict(&outcomes))
     }
 
     /// Morse and Moebius-inverted Euler counts of one sector at one sample,
@@ -272,7 +281,7 @@ impl Scaleless {
 
 /// Combine the samples into a verdict, reporting the most specific reason
 /// and the diagnostics of the first sample exhibiting it.
-fn verdict(gram_singular: bool, outcomes: &[SampleOutcome]) -> MasterCount {
+fn verdict(outcomes: &[SampleOutcome]) -> MasterCount {
     let no_verdict = |outcome: &SampleOutcome, reason| MasterCount::NoVerdict {
         morse: outcome.morse,
         euler: Some(outcome.euler),
@@ -286,9 +295,6 @@ fn verdict(gram_singular: bool, outcomes: &[SampleOutcome]) -> MasterCount {
             reason: NoVerdictReason::SampleDisagreement,
         };
     };
-    if gram_singular {
-        return no_verdict(first, NoVerdictReason::GramSingular);
-    }
     for reason in [
         NoVerdictReason::MorseNonIsolated,
         NoVerdictReason::NegativeEuler,
@@ -363,8 +369,8 @@ mod tests {
         SampleOutcome { morse, euler }
     }
 
-    fn reason(gram_singular: bool, outcomes: &[SampleOutcome]) -> Option<NoVerdictReason> {
-        match verdict(gram_singular, outcomes) {
+    fn reason(outcomes: &[SampleOutcome]) -> Option<NoVerdictReason> {
+        match verdict(outcomes) {
             MasterCount::NoVerdict { reason, .. } => Some(reason),
             _ => None,
         }
@@ -373,11 +379,11 @@ mod tests {
     #[test]
     fn agreeing_samples_count() {
         assert_eq!(
-            verdict(false, &[outcome(Some(4), 4), outcome(Some(4), 4)]),
+            verdict(&[outcome(Some(4), 4), outcome(Some(4), 4)]),
             MasterCount::Counted(4)
         );
         assert_eq!(
-            verdict(false, &[outcome(Some(0), 0), outcome(Some(0), 0)]),
+            verdict(&[outcome(Some(0), 0), outcome(Some(0), 0)]),
             MasterCount::Counted(0)
         );
     }
@@ -386,23 +392,19 @@ mod tests {
     fn reasons_follow_specificity() {
         let good = outcome(Some(2), 2);
         assert_eq!(
-            reason(true, &[good, good]),
-            Some(NoVerdictReason::GramSingular)
-        );
-        assert_eq!(
-            reason(false, &[good, outcome(None, -1)]),
+            reason(&[good, outcome(None, -1)]),
             Some(NoVerdictReason::MorseNonIsolated)
         );
         assert_eq!(
-            reason(false, &[outcome(Some(1), 3), outcome(Some(1), -1)]),
+            reason(&[outcome(Some(1), 3), outcome(Some(1), -1)]),
             Some(NoVerdictReason::NegativeEuler)
         );
         assert_eq!(
-            reason(false, &[good, outcome(Some(1), 3)]),
+            reason(&[good, outcome(Some(1), 3)]),
             Some(NoVerdictReason::MorseEulerMismatch)
         );
         assert_eq!(
-            reason(false, &[good, outcome(Some(3), 3)]),
+            reason(&[good, outcome(Some(3), 3)]),
             Some(NoVerdictReason::SampleDisagreement)
         );
     }
@@ -410,7 +412,7 @@ mod tests {
     #[test]
     fn diagnostics_come_from_the_offending_sample() {
         assert_eq!(
-            verdict(false, &[outcome(Some(2), 2), outcome(None, 5)]),
+            verdict(&[outcome(Some(2), 2), outcome(None, 5)]),
             MasterCount::NoVerdict {
                 morse: None,
                 euler: Some(5),

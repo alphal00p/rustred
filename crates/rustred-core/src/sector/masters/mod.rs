@@ -16,6 +16,13 @@
 //!   of `G_T = 0`, the masters supported on `T` and its subsectors for
 //!   generic indices.
 //!
+//! For integer indices `c(T)` can fall below the number of masters when null
+//! external shifts form a cycle, for example in an equal-mass box with
+//! light-like legs. The per-sector split then fails only on faces such as the
+//! adjacent null bubbles, whose Morse locus is non-isolated or whose Euler
+//! count is negative, so they receive no verdict. Do not use `c(T)` as a bound
+//! on the residuals of several sectors together.
+//!
 //! A sector is [`MasterCount::Zero`] when the zero-sector analyzer proves it
 //! scaleless or `G_S` vanishes identically. It is [`MasterCount::Counted`]
 //! only when `mu` is finite and `mu == e` agree across every sample and the

@@ -101,6 +101,11 @@ impl SampleStream {
             .ok_or(exhausted)
     }
 
+    /// Give one sector's count a fresh attempt budget.
+    pub(super) fn reset_attempts(&mut self) {
+        self.attempts = 0;
+    }
+
     /// Discard an unlucky point; the next request draws a fresh one.
     pub(super) fn discard(&mut self) {
         self.point = None;

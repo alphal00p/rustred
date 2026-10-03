@@ -13,20 +13,36 @@ use rustred::{
 
 use crate::LaportaRecord;
 
-/// One sector of the residuals, compared with its master count.
+/// One sector of the residuals, compared with its master count. A count that
+/// could not be computed is kept as its error message.
 struct SectorCheck {
     sector: Vec<bool>,
     residuals: usize,
-    count: MasterCount,
+    count: Result<MasterCount, String>,
 }
 
 impl SectorCheck {
     fn exceeds(&self) -> bool {
         match self.count {
-            MasterCount::Zero => true,
-            MasterCount::Counted(masters) => self.residuals > masters,
-            MasterCount::NoVerdict { .. } => false,
+            Ok(MasterCount::Zero) => true,
+            Ok(MasterCount::Counted(masters)) => self.residuals > masters,
+            Ok(MasterCount::NoVerdict { .. }) | Err(_) => false,
         }
+    }
+
+    fn no_verdict(&self) -> Option<String> {
+        let reason = match &self.count {
+            Ok(MasterCount::NoVerdict { reason, .. }) => match reason {
+                NoVerdictReason::GramSingular => "singular external Gram matrix",
+                NoVerdictReason::MorseNonIsolated => "non-isolated critical points",
+                NoVerdictReason::MorseEulerMismatch => "critical-point counts disagree",
+                NoVerdictReason::NegativeEuler => "negative Euler characteristic",
+                NoVerdictReason::SampleDisagreement => "samples disagree",
+            },
+            Err(error) => return Some(format!("counting failed: {error}")),
+            Ok(_) => return None,
+        };
+        Some(reason.to_owned())
     }
 }
 
@@ -49,8 +65,11 @@ impl SectorCheck {
 ///   than what IBP relations reach; see ``no_verdict``.
 /// - ``"unchecked"``: counting was not requested.
 ///
-/// The counts are probabilistic but checked on two independent samples.
-/// ``stable_depth`` repeats the solution's ``until_stable`` result.
+/// The counts are probabilistic but checked on two independent samples. They
+/// compare sector by sector, so a relation the search misses between
+/// integrals of different sectors, such as two equal-mass tadpoles related
+/// by a light-like shift, is not detected. ``stable_depth`` repeats the
+/// solution's ``until_stable`` result.
 #[pyclass(name = "IBPCertificate", module = "symbolica.community.hepkit", frozen)]
 pub struct PyIbpCertificate {
     replay: Option<ReductionCertificate>,
@@ -107,7 +126,7 @@ impl PyIbpCertificate {
             .map(|(sector, residuals)| {
                 let mask =
                     Mask::try_new(sector.iter().copied()).map_err(|error| error.to_string())?;
-                let count = counter.count(&mask).map_err(|error| error.to_string())?;
+                let count = counter.count(&mask).map_err(|error| error.to_string());
                 Ok(SectorCheck {
                     sector,
                     residuals,
@@ -153,10 +172,7 @@ impl PyIbpCertificate {
         };
         if sectors.iter().any(SectorCheck::exceeds) {
             "incomplete"
-        } else if sectors
-            .iter()
-            .any(|check| matches!(check.count, MasterCount::NoVerdict { .. }))
-        {
+        } else if sectors.iter().any(|check| check.no_verdict().is_some()) {
             "no-verdict"
         } else {
             "count-consistent"
@@ -168,9 +184,9 @@ impl PyIbpCertificate {
     fn master_counts<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
         self.sector_dict(py, |check| {
             Some(match check.count {
-                MasterCount::Zero => Some(0),
-                MasterCount::Counted(masters) => Some(masters),
-                MasterCount::NoVerdict { .. } => None,
+                Ok(MasterCount::Zero) => Some(0),
+                Ok(MasterCount::Counted(masters)) => Some(masters),
+                Ok(MasterCount::NoVerdict { .. }) | Err(_) => None,
             })
         })
     }
@@ -195,16 +211,7 @@ impl PyIbpCertificate {
     /// Why a sector has no count verdict.
     #[getter]
     fn no_verdict<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
-        self.sector_dict(py, |check| match check.count {
-            MasterCount::NoVerdict { reason, .. } => Some(match reason {
-                NoVerdictReason::GramSingular => "singular external Gram matrix",
-                NoVerdictReason::MorseNonIsolated => "non-isolated critical points",
-                NoVerdictReason::MorseEulerMismatch => "critical-point counts disagree",
-                NoVerdictReason::NegativeEuler => "negative Euler characteristic",
-                NoVerdictReason::SampleDisagreement => "samples disagree",
-            }),
-            _ => None,
-        })
+        self.sector_dict(py, SectorCheck::no_verdict)
     }
 
     #[getter]

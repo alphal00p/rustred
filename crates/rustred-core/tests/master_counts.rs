@@ -380,3 +380,70 @@ fn power_shifts_arity_and_sampling_are_explicit_errors() {
         }
     );
 }
+
+/// A regular family Gram matrix can still hold a sector whose own momentum is
+/// light-like. There the count must agree with what IBP actually reduces.
+#[test]
+fn null_leg_bubble_inside_a_regular_triangle_matches_the_reduction() {
+    use rustred::sector::CutConstraint;
+    use rustred::solver::bridge::{DynamicSolveOptions, solve_laporta};
+
+    let c = CoefficientContext::try_new(["d", "M", "m", "s", "b"]).unwrap();
+    let (big, small, b) = (p(&c, "M"), p(&c, "m"), p(&c, "b"));
+    // p1^2 = 0, p2^2 = b and (p1 + p2)^2 = s.
+    let half = &(&p(&c, "s") - &b) / &c.integer(2);
+    let triangle = family(
+        1,
+        &c,
+        vec![vec![c.zero(), half.clone()], vec![half, b]],
+        &[
+            (&[1, 0, 0], big.clone()),
+            (&[1, 1, 0], small),
+            (&[1, 1, 1], big),
+        ],
+    );
+    let sectors = ["111", "110", "101", "011", "100", "010", "001"];
+    let counted = counts(&triangle, &sectors);
+    assert_eq!(counted[1], Counted(0), "the null unequal-mass bubble");
+    let options = DynamicSolveOptions {
+        max_depth: 4,
+        until_stable: true,
+        ..Default::default()
+    };
+    let targets = [
+        vec![1, 1, 1],
+        vec![2, 1, 1],
+        vec![1, 1, 0],
+        vec![2, 1, 0],
+        vec![1, 2, 0],
+        vec![1, 0, 1],
+        vec![0, 1, 1],
+    ];
+    let solution = solve_laporta(
+        &triangle,
+        &CutConstraint::none(3).unwrap(),
+        &targets,
+        &[],
+        options,
+    )
+    .unwrap();
+    assert!(solution.stable_depth.is_some());
+    for (sector, count) in sectors.iter().zip(&counted) {
+        let residuals = solution
+            .residuals
+            .iter()
+            .filter(|residual| {
+                residual
+                    .iter()
+                    .map(|&power| if power > 0 { '1' } else { '0' })
+                    .eq(sector.chars())
+            })
+            .count();
+        if let Counted(masters) = count {
+            assert!(
+                residuals <= *masters,
+                "sector {sector}: {residuals} > {masters}"
+            );
+        }
+    }
+}

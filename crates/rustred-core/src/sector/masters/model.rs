@@ -11,8 +11,8 @@ pub struct MasterCountOptions {
     pub samples: usize,
     /// Seed of the deterministic prime and point streams.
     pub seed: u64,
-    /// Points one sample may draw before inadmissible kinematics or unlucky
-    /// Euler exponents exhaust it.
+    /// Points one sample may draw for one sector before inadmissible
+    /// kinematics or unlucky Euler exponents exhaust it.
     pub max_attempts: usize,
 }
 

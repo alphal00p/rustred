@@ -198,6 +198,11 @@ of that plateau, or `None` if `max_depth` came first. This is a heuristic.
   external Gram matrix (light-like or forward kinematics), where the
   parametric count can be lower than what IBP reaches. `master_counts`,
   `residual_counts`, `excess_sectors`, and `no_verdict` give the details.
+  Counts compare sector by sector, so a relation the search misses between
+  integrals of different sectors, such as two equal-mass tadpoles related by
+  a light-like shift, is not detected. Counting computes one Groebner basis
+  per subsector of each residual sector: milliseconds at one loop and about a
+  second for a massive two-loop top sector in a release build.
 
 ```python
 d, k, p, s = S("d", "k", "p", "s")
