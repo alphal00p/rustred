@@ -2,7 +2,7 @@ use std::fmt;
 
 /// Typed failures at the private streaming modular boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SpiredModularError {
+pub enum SpiredModularError {
     UnsupportedEvenModulus {
         modulus: u64,
     },

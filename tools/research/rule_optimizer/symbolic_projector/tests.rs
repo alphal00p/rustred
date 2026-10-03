@@ -315,9 +315,10 @@ fn refinement_is_typed_monotone_and_non_descent_stops_do_not_mutate_f() {
 fn wrong_forbidden_shift_and_resource_caps_refuse_before_authority() {
     let c = context();
     let rows = vec![project::Row::from([(shift(0), c.one())])];
-    for f in [BTreeSet::from([shift(0)]), BTreeSet::from([shift(3)])] {
-        assert!(project::project(&c, &rows, &shift(0), &f, &[], limits()).is_err());
-    }
+    // Absent columns are now accepted as exact structural zeros; the separate
+    // selected-subbank fixture covers that. The target itself remains forbidden.
+    let f = BTreeSet::from([shift(0)]);
+    assert!(project::project(&c, &rows, &shift(0), &f, &[], limits()).is_err());
     let mut cap = limits();
     cap.nonzeros = 1;
     assert!(matches!(
@@ -356,7 +357,7 @@ expression="q^2-1"
 [target]
 powers=[1]
 "#;
-fn tadpole() -> (Vec<u8>, Value) {
+pub(crate) fn tadpole() -> (Vec<u8>, Value) {
     let bytes = rustred_app::family_candidates(rustred_app::FamilyCandidatesRequest::new(TADPOLE))
         .unwrap()
         .bundle()
@@ -1064,4 +1065,99 @@ fn direct_l_native_empty_dependent_and_full_rank_append_contract() {
     assert_eq!(reducer.add_row(&[c.one().raw().clone()], &[0]), None);
     assert_eq!(reducer.u().nrows(), 2);
     assert_eq!(reducer.l().nrows(), 3);
+}
+
+#[test]
+fn selected_subbank_preserves_full_forbidden_structural_zero_columns() {
+    let c = context();
+    let rows = vec![project::Row::from([
+        (shift(0), c.integer(2)),
+        (shift(-1), c.one()),
+    ])];
+    let full_f = BTreeSet::from([shift(1), shift(2)]);
+    let (a, b) = compare_direct(&c, &rows, &full_f, limits());
+    assert_eq!(a.prefix_rows, 1);
+    assert_eq!(a.image.get(&shift(0)), Some(&c.one()));
+    assert!(
+        full_f
+            .iter()
+            .all(|s| !a.image.contains_key(s) && !b.image.contains_key(s))
+    );
+    for backend in [project::project, direct_l::project] {
+        assert!(
+            backend(
+                &c,
+                &rows,
+                &shift(0),
+                &BTreeSet::from([shift(0)]),
+                &[],
+                limits()
+            )
+            .is_err()
+        );
+        let mut narrow = limits();
+        narrow.columns = 2;
+        assert!(backend(&c, &rows, &shift(0), &full_f, &[], narrow).is_err());
+        let no_target = vec![project::Row::from([(shift(-1), c.one())])];
+        assert!(matches!(
+            backend(&c, &no_target, &shift(0), &full_f, &[], limits()).unwrap(),
+            project::Projection::NoTarget { .. }
+        ));
+    }
+}
+
+#[test]
+fn structurally_absent_forbidden_column_must_have_bound_context_arity() {
+    let base = CoefficientContext::try_new(["d"]).unwrap();
+    let family = rustred::family::IntegralFamily::new(
+        "forbidden-arity-fixture",
+        vec!["k1".into(), "k2".into()],
+        Vec::new(),
+        base.clone(),
+        base.parameter("d").unwrap(),
+        vec![
+            rustred::family::AffineDenominator::new(
+                base.integer(-1),
+                vec![base.one(), base.zero(), base.zero()],
+            ),
+            rustred::family::AffineDenominator::new(
+                base.integer(-1),
+                vec![base.zero(), base.one(), base.zero()],
+            ),
+            rustred::family::AffineDenominator::new(
+                base.zero(),
+                vec![base.zero(), base.zero(), base.one()],
+            ),
+        ],
+        Vec::new(),
+        vec![base.zero(); 3],
+    )
+    .unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let prepared = generator.prepare_ordinary_ibp().unwrap();
+    let generated = (0..prepared.len()).map(|i| prepared.generate(i)).collect();
+    let completed = prepared.complete(generated).unwrap();
+    let batch = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            [TranslatedSourceRequest::new(
+                0,
+                IntegralShift::try_new([0, 0, 0]).unwrap(),
+            )],
+            Default::default(),
+        )
+        .unwrap();
+    let target = batch.sources()[0]
+        .terms()
+        .keys()
+        .find(|s| s.values().iter().all(|&v| v == 0))
+        .unwrap();
+    let c = generator.context();
+    let rows = vec![project::Row::from([(target.clone(), c.one())])];
+    for backend in [project::project, direct_l::project] {
+        let error = backend(c, &rows, target, &BTreeSet::from([shift(1)]), &[], limits())
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("forbidden shift arity differs"));
+    }
 }

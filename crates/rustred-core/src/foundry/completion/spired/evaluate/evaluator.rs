@@ -57,21 +57,21 @@ impl DirectShiftedSourceCorpusCensus {
 /// source barrier. Structural-coordinate limits are checked before each
 /// caller-owned output row is materialized.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DirectShiftedSourceLimits {
-    pub(crate) max_source_rows: usize,
-    pub(crate) max_point_coordinates: usize,
-    pub(crate) max_conditions_per_source: usize,
-    pub(crate) max_terms_per_source: usize,
+pub struct DirectShiftedSourceLimits {
+    pub max_source_rows: usize,
+    pub max_point_coordinates: usize,
+    pub max_conditions_per_source: usize,
+    pub max_terms_per_source: usize,
     /// Conditions plus separate numerator and denominator outputs.
-    pub(crate) max_scalar_outputs_per_source: usize,
+    pub max_scalar_outputs_per_source: usize,
     /// Sparse terms across one source's conditions, numerators, and denominators.
-    pub(crate) max_polynomial_terms_per_source: usize,
+    pub max_polynomial_terms_per_source: usize,
     /// Aggregate scalar outputs represented by the complete source corpus.
-    pub(crate) max_corpus_scalar_outputs: usize,
+    pub max_corpus_scalar_outputs: usize,
     /// Aggregate sparse polynomial terms in the complete source corpus.
-    pub(crate) max_corpus_polynomial_terms: usize,
+    pub max_corpus_polynomial_terms: usize,
     /// `source_terms * integral_arity` for one caller-owned structural row.
-    pub(crate) max_shift_coordinate_cells_per_source: usize,
+    pub max_shift_coordinate_cells_per_source: usize,
 }
 
 impl Default for DirectShiftedSourceLimits {

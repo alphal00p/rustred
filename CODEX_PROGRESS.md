@@ -14,14 +14,188 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | --- | --- | --- | --- |
 | Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
 | Incumbent-informed source recovery | `rule_cost_profiles` | Large augmented runs censored | Preserve the5,796-source results; delayed weight recovery and modular source nomination are the next measured alternatives. |
-| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe active | Thirty-nine combined tests and checked-byte controls pass; wait for the unchanged actual-bank result before any speed claim. |
-| Modular support nomination | `rule_optimizer_impl` + independent auditor | Active narrow API implementation | Reuse the existing Spired modular rank/dependency kernel; nominate typed sources only, then run unchanged exact proof. No custom CAS or modular authority. |
+| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe censored | Preserve the completed controls; full exact elimination is still expensive, so use modular nomination before another large lift. |
+| Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered /36 core +43 research tests pass | All three full-bank samples miss; investigate the source-contract gap before attempting another large exact solve. |
+| Matrix incidence / arithmetic ordering | `rule_cost_profiles` + independent auditor | Census delivered; native permutation runs parked | Only208 rows disconnect under full F, all projected-zero; permutations cannot repair the measured rank misses. Reopen on a bank with a target. |
+| Incumbent source-contract gap | Implementation + profiler + auditor | Active diagnosis | Native37-mask census is inconclusive throughout; inspect actual saved basis/replay and independently cross-check modular/source coordinates. No guard or zero waiver. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Complete zero census and source-contract checks — October3, 19:25 UTC
+
+[M] The actual full-F census completes: all6,448 forbidden shifts map uniquely
+to37 constant support masks, and native analysis returns37 `Inconclusive`,
+zero `ProvedZero`. Native analysis takes5.031s, outer7.700s, with clean process
+drain. The only recorded analyzer domain condition is the constant−1024 basis
+determinant numerator. Independent review confirms full mask coverage. This
+does not establish that those sectors are nonzero, but supplies no authority
+to remove any forbidden column. Evidence:
+`TMP/rule-optimizer-20261003/incidence-study/fullF-zero-summary-v1.json`
+(`db36b697…`), raw `1bdfc0c3…`.
+
+[M] Read-only source checks find no index-content division: denominator
+normalization multiplies polynomial LCMs, replay checks those multipliers, and
+preconditioning combines rows polynomially at the same physical translations.
+The stored plain solver order and persisted order use opposite comparator
+polarities consistently. None of the1,668 incumbent RHS shifts nonzero at the
+frozen point intersects fullF6448. The remaining symbolic term and actual
+saved basis/replay contract still need inspection; no source or production bug
+is inferred from the sampled misses alone.
+
+[E] Two independent lanes now check the remaining distinction: the implementer
+inspects actual source-basis provenance and all symbolic RHS keys; the profiler
+cross-checks shifted modular evaluation and physical-coordinate conventions.
+The auditor retains the mathematical publication boundary. No blind source-bank
+expansion or repeated long exact elimination is authorized in this diagnosis.
+The source-frozen modular slice has36 focused core and43 research tests passing,
+with independent audit, and is being committed separately from unrelated edits.
+
+### Modular full-bank result changes the next decision — October3, 19:15 UTC
+
+[M] The unchanged5,796-row/F6448 modular batch completes in13.966s inclusive,
+3.446GB peak RSS. Its three explicit samples each visit all5,796 rows and
+120,959 structural terms; rank(F)=rank([F,target])=4,932 in every sample.
+Sample elapsed times are0.708251/0.702244/0.695206s. All return `SAMPLED_MISS`,
+with no target support, proof, export or exact nonexistence claim. Native65
+and supervisor66 drain cleanly. Evidence:
+`candidates/symbolic-owner66-modular5796-v1/`; report `ba0e7740…`, normal
+driver `4193615b…`. The independent auditor verifies the actual input/binary
+and lifecycle. The corrected43-test research gate subsequently passes with
+no runtime changes, complementing the36 core regression tests.
+
+[E] Source or F-column permutations cannot change these completed sampled rank
+misses. Root therefore parks native ordering trials for this frozen bank and
+does not implement an exact-shortlist path when there is no shortlist. The next
+decision is the difference between the incumbent's derivation and the literal
+ordinary-source publication contract: zero-sector projection, normalization,
+specialization and ordering. No new oversized source shells or unproved guard
+waivers follow from the missing target. Modular discovery has made this
+diagnosis cheap; it has not supplied a new rule.
+
+[M] The full-F conservative incidence census contains55,120 projected edges,
+5,588 target-connected source rows and208 disconnected rows; all208 are
+projected-zero. Every forbidden column is in the target component. This small
+3.59% removal is not a measured elimination gain. Independent review also
+distinguishes column ordering (same first-hit rank/basis, primarily arithmetic
+cost) from source visitation (can change the chosen circuit). The existing
+native zero diagnostic can cover all37 forbidden support masks,10 new beyond
+the prior27, with no code change: all masks are constant on D2>=3 because the
+minimum shift on that axis is−2. Root authorizes that complete input-only
+census on65/66,90/100/120s,32GiB and150GB host reserve.
+
+[E] A concrete later arithmetic lead is retained, not implemented: the research
+projector preserves16 polynomial variables after14 fixed substitutions, while
+the existing production `FrameVariables` adapter compresses active variables.
+Symbolica's packed heap-division path has a variable-count threshold; this
+could explain part of the observed arithmetic cost. It does not repair the
+current rank miss, and no compression speedup is claimed without measurement.
+
+### Next source-selection experiment and matrix-order hypothesis — October3, 19:06 UTC
+
+[M] Core gates now total36 actual passes:5 nomination,21 existing modular kernel
+and10 shifted evaluator tests, with no ignored tests. The corrected kernel
+filter uses the same compiled test binary. The isolated app link completes in
+442.119s. The first research-test compile finds two test-local name-shadowing
+errors; the fix qualifies `crate::run` in those refusal assertions only, while
+the normal executable continues unchanged. First actual-bank nomination is
+frozen at three explicit points: D2/d/prime =31/101/2147483647,
+47/107/1000000007, and actual D2=3/d113/2147483647. All other fixed indices,
+all5,796 sources, full F6448, order and chart are preserved; samples are discovery
+evidence only. Native65/supervisor66,120/150/180s and32GiB are allocated.
+
+[E] Root delegates a separate small mechanism study to the profiler: exact
+row/column incidence components around the target and low-incidence source/
+forbidden-column ordering. The current lexicographic F-column order is an
+arithmetic choice, distinct from the common integral descent order; permuting
+those cancelled columns need not change rule admissibility. Expected benefit
+is lower fill/trace cost; a representative no-improvement result falsifies that
+proposal. Any graph pruning must use exact structural incidence, preserve full
+F and input conditions, and be recomputed from the full bank after refinement.
+Disconnected lower-only null relations can still improve final cost, so their
+absence cannot establish globally optimal rules or full-rule infeasibility.
+No speculative CAS implementation, production change or measured gain follows.
+
+[M] Production at19:05UTC remains read-only and running:108,345,960 discovered,
+15,568,140 pending,zero frontiers,97.892GB RSS. The13/67-root closure snapshot
+is2,449s old; a modest pending decrease since the earlier observation is not
+used to predict eventual closure.
+
+### Large exact probe drained; finite-interval result — October3, 18:54 UTC
+
+[M] Direct-L5,796-source/F6448 ends at its unchanged cooperative deadline,
+with all owned groups drained:1,505.086s outer,1,500.929s guard elapsed,
+1,484.561s waited child CPU and3,674,177,536B sampled peak RSS. It produces no
+target, recovery, proof or artifact. Its final heartbeat is only a lower bound:
+3,181 rows at1,116.154s, U166,679/L132,365. Both large exact variants are
+censored; no completed speedup or all-bank miss can be claimed. Further full
+exact repetitions are parked pending source pruning or another justified change.
+
+[M] The input-only finite D2=3..5 interval test completes in84.657s outer with
+the unchanged1,062-source bank,14 fixed axes and no initial caller F. The287
+root-preserving columns grow through536 exact descent refinements to823,
+independently equal to the previous ray's final set. All1,062 rows are visited;
+the final result is a miss in that constrained symbolic span. No export occurs.
+An independent audit checks actual inputs, outcomes and complete process drain.
+Because forcing a whole shift's coefficient identically zero can be stronger
+than requiring zero on a finite subcell, this does not establish finite-chart
+nonexistence. Root authorizes three input-only prove diagnostics at the exact
+already frozen powers3,4,5, preserving all three outcomes; they are singleton
+studies, not ray coverage or permission to shrink the frozen campaign request.
+
+[M] The new optimized modular core builds in121.895s. The first standalone
+test compile misses Cargo's `CARGO_CRATE_NAME` environment variable required by
+existing parse macros; this setup failure is retained. Only that environment is
+corrected for a fresh test-build phase, without source changes. Its executable
+test gate remains pending at this update.
+
+[M] Follow-up19:00UTC: all three fixed-power probes complete, retaining the
+entire frozen set. D2=3/4/5 take80.975/81.524/81.625s inclusive and
+74.601/75.187/75.494s native report time, approximately3.43GB each. Every
+probe has537 attempts,536 refinements,all1,062 rows visited and exactly the
+same final F823 as the interval/ray diagnostic; none yields a target or export.
+All15 indices really are specialized in the native algebra. Thus narrowing
+this particular bank to these fixed cases does not rescue it. The probes run
+concurrently on separate65/66,67/68,69/70 native/supervisor pairs and drain;
+these cores are released. Summary:
+`candidates/singleton-D2-3-4-5-1062-summary-v1.json`.
+
+[M] The corrected core test executable passes all five new nomination tests.
+The first existing-kernel regression filter selects zero tests and is not
+counted as coverage; the engineer corrects only that filter. Existing evaluator
+tests and the correctly named kernel group are checked separately. App/research
+linking and the first actual-bank modular nomination remain pending.
+
+### Bounded-chart diagnostic and modular build — October3, 18:47 UTC
+
+[M] The independent nomination-wrapper source audit passes; implementation now
+freezes an isolated optimized core build and a focused test build, without
+overwriting libraries used by active probes. The existing shifted evaluator and
+modular dependency kernel remain the algebraic implementation. Its output is
+only a source shortlist, with the exact materialization/publication gates still
+required. Root confirms existing Symbolica source-weight reconstruction in
+`solver/discovery/semi_numerical/source_weights.rs` as a possible later fallback;
+no competing reconstruction implementation is authorized or needed.
+
+[E] The infinite D2 ray is stronger than the measured physically capped face.
+With the other14 indices fixed, A=D=D2+9 and R=0; the prospective adjacent
+cohort covers physical D2=3,4,5. A finite chart can permit coefficients whose
+higher tails vanish at all included integers without vanishing on an infinite
+ray. Root authorizes an input-only diagnostic over that exact finite chart,
+with cofinal planning off and the existing complete source proof. It cannot
+reuse infinite-ray F constraints as though they were necessary there. No finite
+upper-bound exporter change, production narrowing, or singleton-to-ray inference
+is authorized. The ordinary fallback and all frozen queries remain unchanged.
+
+[M] The auditor also checks source-preconditioning provenance without rebuilding
+the giant circuit: its DAG combines rows with scalar polynomial factors and has
+no hidden translation node. The source inspector's symbolic/fixed offset mapping
+agrees with existing original-source replay, and denominator clearing preserves
+shift support. Source exclusions and certified-zero quotients remain possible
+differences; an invented preconditioning offset expansion is not supported.
 
 ### Optional exact-search improvements integrated — October3, 18:40 UTC
 
@@ -31,8 +205,8 @@ checked toy byte controls. The independent auditor checks the main promotion:
 `direct_l.rs` is byte-identical to the tested private file; the other post-build
 differences are formatting and test placement only. The augmented backend and
 cofinal-off defaults remain unchanged. Neither production executable nor rule
-pool changes. The active modular-core wrapper is a separate unfinished slice
-and is excluded from this integration commit.
+pool changes. This milestone is committed and pushed as `b2426431`; the active
+modular-core wrapper is a separate unfinished slice excluded from that commit.
 
 [M] The augmented5,796-row/cofinal-F6448 run stops cooperatively and drains:
 1,505.557s outer,1,500.968s guard elapsed,1,484.055s child CPU,3.862GB sampled

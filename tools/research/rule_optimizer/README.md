@@ -556,8 +556,8 @@ not chart, closure, irreducibility or performance claims.
 the `rule_optimizer_symbolic_projector` Cargo example. Build it with
 `cargo build --release -p rustred-app --example rule_optimizer_symbolic_projector`;
 run its focused fixtures with the corresponding `cargo test --release` command.
-The CLI is `validate REQUEST`, `inspect OWNER REQUEST`, `prove OWNER REQUEST`,
-or `export OWNER REQUEST FRESH_DIRECTORY`. It never runs a recursive walk or
+The CLI is `validate REQUEST`, `inspect OWNER REQUEST`, `support-inspect OWNER REQUEST`,
+`nominate OWNER REQUEST`, `prove OWNER REQUEST`, or `export OWNER REQUEST FRESH_DIRECTORY`. It never runs a recursive walk or
 changes an installed owner. Exported candidates must still be tested with the
 same frozen campaign executable and shared owner pool as their baseline.
 
@@ -824,3 +824,54 @@ from the source-replay fixtures and checked exports. Receipts are in ignored
 `candidates/direct-l-cofinal-controls-v1/`, and
 `candidates/direct-l-fixed1062-comparison-v1.json`. None is a downstream cost,
 closure, or campaign-speed claim. The larger 5796-source trial is separate.
+
+`nominate OWNER REQUEST` is an observation-only mode using the same complete
+ordered source bank, chart, saved order, and root/cofinal F preparation as exact
+projection. Add a `modular_nomination` object with positive `max_samples`,
+`max_reducer_dense_scan_work`, and an explicit `samples` array. Each sample has
+a native-validated `prime`, named `base_parameter_residues`, and exact signed
+`physical_indices` inside the unchanged chart. The explicit scan allowance
+bounds cumulative native dual-reducer width work; the other source, matrix,
+trace and coordinate caps derive from the existing request limits and are
+reported. There is no automatic prime or point retry.
+
+The public `rustred::foundry::modular_nomination::PreparedOrdinaryNomination`
+borrows one validated exact ordinary-source corpus across samples. It reuses
+the existing direct shifted evaluator and Spired modular kernel, including
+complete structural-F registration even when a residue is zero. Reports retain
+sample ranks, source visitation positions, dependency-ordered original source
+requests, trace size and elapsed time, but no sampled weights or proof token.
+Singular conditions/denominators are unlucky samples; a sampled hit or miss can
+both be misleading through rank specialization. Prove/export modes reject the
+sample configuration, and nomination returns before any exact proof/export.
+
+Any later shortlist must retain the complete original F (absent selected-row
+columns are structurally zero, not removed), unchanged chart/order, and all
+explicit original/input assumptions. Both exact projection backends validate
+F arity and forbid the target in F while accepting these exact zero columns.
+Only independently regenerated full source replay and native chart/guard/order
+proof can authorize export. The new core wrapper's five focused tests, 21
+existing modular-kernel tests and ten shifted-evaluator tests passed with
+semantic opt0 tests against optimized dependencies; the public runtime library
+was separately built at opt2 with LTO disabled. Old libraries and campaign
+binaries were not overwritten.
+
+The merged nomination driver and structural-zero F handling passed all 43
+optimized research tests. The original standalone cfg-test environment omission,
+two test-call qualification errors, and the obsolete absent-F rejection
+expectation are preserved with their corrected attempts; none required a
+runtime algebra change. The observation-only sample batch was explicitly
+authorized while that last test-only link was pending; the 43-test gate is now
+complete. Actual receipts are under ignored `candidates/modular-nomination-*`,
+`modular-existing-tests-v3/`, and `modular-driver-*`.
+
+The first unchanged owner66 5,796-row bank nomination completed three explicit
+samples on the same `D2 >= 3` chart and complete F of 6,448 columns. At free
+physical powers 31, 47 and 3 (two validated primes, distinct dimension residues),
+each visited all 5,796 rows and 120,959 structural terms. All three returned
+`SAMPLED_MISS`, with forbidden and augmented ranks both 4,932, in approximately
+0.7 seconds per sample. There was no nominated support to lift, no exact
+nonexistence conclusion and no exported owner. The entire guarded observation
+took 13.97 seconds; source preparation and bounded report rendering are separate
+from the sample times. Evidence is under ignored
+`candidates/symbolic-owner66-modular5796-v1/`.

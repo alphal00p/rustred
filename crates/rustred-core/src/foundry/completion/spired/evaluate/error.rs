@@ -5,7 +5,7 @@ use std::fmt;
 /// Vanishing conditions and term denominators denote singular modular samples.
 /// They are retry outcomes, never exact algebraic or publication evidence.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DirectShiftedSourceError {
+pub enum DirectShiftedSourceError {
     IncompleteOrdinarySourceLayout {
         actual: &'static str,
     },

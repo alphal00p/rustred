@@ -343,10 +343,14 @@ pub fn project(
         .flat_map(|r| r.keys().cloned())
         .collect::<BTreeSet<_>>();
     require(!forbidden.contains(target), "target cannot be forbidden")?;
-    require(
-        forbidden.is_subset(&universe),
-        "forbidden shift outside frozen image universe",
-    )?;
+    // A selected source subbank may have no term in an original forbidden
+    // column. Keep that column explicitly: its exact projection is zero.
+    for shift in forbidden {
+        require(
+            shift.values().len() == c.index_count(),
+            "forbidden shift arity differs",
+        )?;
+    }
     bound(universe.len(), limits.columns, "image shift columns")?;
     let width = add(add(forbidden.len(), 1)?, rows.len())?;
     bound(width, limits.columns, "augmented projection columns")?;

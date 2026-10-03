@@ -7,6 +7,16 @@ remains live and read-only. The active objective remains
 
 ## Latest heavy-owner search: repeated refinement, not a completed miss
 
+**Latest decision:** the new modular nominator completes the full5,796-source,
+6,448-forbidden-column bank at three explicit points, about0.7s per sample
+(13.966s whole invocation,3.446GB peak RSS). Each visits every row and returns
+equal forbidden/augmented ranks4,932: a sampled miss, not exact nonexistence.
+This gives no candidate to lift. Permuting this same matrix cannot change those
+sampled ranks; the next investigation is the difference between the incumbent
+derivation and the literal source/guard/zero/order contract, not another long
+blind exact solve. The optional API and driver pass36 core and43 optimized
+research tests with independent audit. Production remains unchanged.
+
 The small completed comparisons below do not yet justify a production switch.
 The next pressure target is the actual expensive owner66 recurrence, whose
 application to the frozen physical point creates1,668 nonzero children. Replacing
@@ -470,10 +480,55 @@ or artifact. Its last heartbeat is2,604 visited rows at1,233.310s; that is not
 an exact final row count. A15s instrumented window attributes40.91% of self
 samples to Symbolica polynomial heap division, with GCD/rational-addition
 callers. This does not attribute the whole run or constitute an uninstrumented
-paired timing. The direct-L alternative is still running at this update.
+paired timing. The direct-L alternative also stops cooperatively:1,505.086s
+outer,1,484.561s waited child CPU and3.674GB sampled peak RSS, without a target,
+proof or artifact. Its last heartbeat is3,181 rows at1,116.154s. Both full-bank
+attempts are censored, not successful timings or evidence of nonexistence.
 
 A smaller actual1,062-source/F823 comparison finishes in both backends with
 identical reports after removing only timing and backend choice: no target,
 2,709 columns,47 conditions. Projection intervals0.455/0.199s do not establish
 full-process improvement: native totals5.371/5.130s and outer9.844/12.393s are
 close/noisy and ordered. No campaign-level benefit is claimed.
+
+An input-only finite-chart follow-up covers physical D2=3,4,5 with all other
+indices fixed, using the original1,062-row bank and no cofinal seeding. It
+finishes in84.657s outer,78.739s native report time. Root-preserving F287 grows
+through536 exact descent refinements to823, exactly the previous ray's final
+set; the final projection visits all1,062 rows without a target. This proves
+only a miss under those whole-column cancellation constraints. It does not
+exclude a finite-chart rule whose coefficient vanishes on particular finite
+cells rather than identically. Three separately labelled singleton diagnostics
+at the already frozen powers are the next input-only test, not a substituted
+smaller acceptance cohort.
+
+All three singleton diagnostics subsequently finish without a target: each
+visits1,062 rows after536 descent refinements to the same F823. Native times
+are74.601/75.187/75.494s, outer80.975/81.524/81.625s for D2=3/4/5. All indices
+really are fixed in these checks. This negative result does not narrow the
+acceptance cohort or prove impossibility with a different source bank.
+
+## Modular full-bank diagnosis
+
+The new bounded nomination adapter borrows the exact ordinary-source corpus
+and reuses RustRed's Symbolica shifted evaluator and sparse modular kernel.
+It returns only source ordinals/dependencies or typed sampled misses; no modular
+result can publish a rule. Full forbidden-column identity and all source
+conditions remain intact. Focused core tests36 and research-driver tests43
+pass, with independent implementation and mathematical review.
+
+The unchanged5,796-row/F6448 bank completes three samples in0.708251,
+0.702244 and0.695206s respectively. Every sample visits all rows and has
+rank(F)=rank([F,target])=4,932; all return `SAMPLED_MISS`. Whole-command time
+is13.966s and sampled peak RSS3.446GB. No target, exact proof or artifact is
+produced. This is not an exact nonexistence proof. Evidence:
+`candidates/symbolic-owner66-modular5796-v1/`, report `ba0e7740…`.
+
+Row or column permutations cannot repair those same sampled rank misses.
+Further large exact runs on this frozen bank are therefore parked while the
+actual incumbent's source/replay contract is investigated. An exhaustive
+native zero diagnostic on all37 constant forbidden support masks returns
+37 `Inconclusive`, no `ProvedZero`, in5.031s native/7.700s outer. It supplies
+no permission to discard columns. Preliminary source inspection finds neither
+hidden preconditioner translations nor index-content division; no specific
+bug or production-rule invalidity has been established.

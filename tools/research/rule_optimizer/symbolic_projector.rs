@@ -7,6 +7,8 @@ mod cofinal;
 mod direct_l;
 #[path = "symbolic_projector/inspect.rs"]
 mod inspect;
+#[path = "symbolic_projector/nominate.rs"]
+mod nominate;
 #[path = "symbolic_projector/progress.rs"]
 mod progress;
 #[path = "symbolic_projector/project.rs"]
@@ -311,6 +313,19 @@ fn error_json(error: &SourcePortAuditError) -> Value {
 }
 
 fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, Option<Vec<u8>>)> {
+    require(
+        r.get("modular_nomination").is_none(),
+        "modular samples are nomination-only; use nominate mode",
+    )?;
+    run_mode::<N>(bytes, r, export, false)
+}
+fn run_mode<const N: usize>(
+    bytes: &[u8],
+    r: &Value,
+    export: bool,
+    nomination_only: bool,
+) -> Result<(Value, Option<Vec<u8>>)> {
+    require(!(export && nomination_only), "nomination cannot export")?;
     let started = Instant::now();
     progress::reset();
     progress::event(
@@ -485,6 +500,18 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
         ));
     };
     let mut attempts = Vec::new();
+    if nomination_only {
+        let report = nominate::run(r, c, &completed, &requested, &forbidden, &target)?;
+        return Ok((
+            cofinal::annotate(
+                report,
+                cofinal_enabled,
+                &cofinal_witnesses,
+                cofinal_new_count,
+            ),
+            None,
+        ));
+    }
     let mut added = 0;
     let mut candidate = None;
     let mut status = "REFUSED_OR_INCOMPLETE";
@@ -699,9 +726,10 @@ fn main_result() -> Result<()> {
         (args.len() == 2 && args[0] == "validate")
             || (args.len() == 3 && args[0] == "inspect")
             || (args.len() == 3 && args[0] == "support-inspect")
+            || (args.len() == 3 && args[0] == "nominate")
             || (args.len() == 3 && args[0] == "prove")
             || (args.len() == 4 && args[0] == "export"),
-        "usage: symbolic_projector validate REQUEST | inspect OWNER REQUEST | support-inspect OWNER REQUEST | prove OWNER REQUEST | export OWNER REQUEST FRESH_DIRECTORY",
+        "usage: symbolic_projector validate REQUEST | inspect OWNER REQUEST | support-inspect OWNER REQUEST | nominate OWNER REQUEST | prove OWNER REQUEST | export OWNER REQUEST FRESH_DIRECTORY",
     )?;
     let request_bytes = read(
         Path::new(&args[if args[0] == "validate" { 1 } else { 2 }]),
@@ -727,7 +755,17 @@ fn main_result() -> Result<()> {
             args[0] != "inspect" && args[0] != "support-inspect",
             "inspection modes need their separate read-only schemas",
         )?;
-        validate(&r)?
+        let n = validate(&r)?;
+        if args[0] == "nominate" || (args[0] == "validate" && r.get("modular_nomination").is_some())
+        {
+            nominate::validate(&r, n)?;
+        } else {
+            require(
+                r.get("modular_nomination").is_none(),
+                "modular samples are nomination-only",
+            )?;
+        }
+        n
     };
     let (report, candidate) = if args[0] == "validate" {
         (json!({"status":"INPUT_SHAPE_VALID","arity":n}), None)
@@ -739,7 +777,7 @@ fn main_result() -> Result<()> {
         (support_inspect::run(&bytes, &r)?, None)
     } else {
         let bytes = read(Path::new(&args[1]), limit(&r, "max_owner_bytes")?)?;
-        macro_rules! dispatch{($($n:literal),*)=>{match n{$($n=>run::<$n>(&bytes,&r,args[0]=="export"),)*_=>Err("unsupported arity".into())}};}
+        macro_rules! dispatch{($($n:literal),*)=>{match n{$($n=>run_mode::<$n>(&bytes,&r,args[0]=="export",args[0]=="nominate"),)*_=>Err("unsupported arity".into())}};}
         dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?
     };
     let text = checked(serde_json::to_string_pretty(&report))?;

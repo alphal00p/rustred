@@ -24,6 +24,7 @@ mod guard_cases;
 mod inactive_activation;
 mod materializer;
 mod modular;
+pub use modular::nomination as modular_nomination;
 mod schedule;
 mod serial_driver;
 mod source_basis;

@@ -4,10 +4,11 @@ mod error;
 mod kernel;
 mod limits;
 mod model;
+pub mod nomination;
 
-pub(crate) use error::SpiredModularError;
+pub use error::SpiredModularError;
 pub(crate) use kernel::{SpiredModularKernel, SpiredValidatedPrime};
-pub(crate) use limits::SpiredModularLimits;
+pub use limits::SpiredModularLimits;
 pub(crate) use model::{
     SpiredDependencyTrace, SpiredDependencyTraceNode, SpiredForbiddenTerm, SpiredModularHit,
     SpiredModularRow, SpiredModularStreamOutcome, SpiredPostHitCandidate,

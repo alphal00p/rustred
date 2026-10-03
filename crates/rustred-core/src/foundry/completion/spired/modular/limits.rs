@@ -31,32 +31,32 @@ pub(super) const TRACE_WORKSPACE: &str = "dependency-trace workspace";
 /// checked immediately afterwards; every post-mutation failure poisons the
 /// lane and drops both reducers so partial or over-limit state cannot remain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SpiredModularLimits {
-    pub(crate) max_rows: usize,
+pub struct SpiredModularLimits {
+    pub max_rows: usize,
     /// Bounded comparison window after the first target pivot.  These rows
     /// remain subject to every aggregate row, term, fill, and trace cap too.
-    pub(crate) max_post_hit_rows: usize,
-    pub(crate) max_request_shift_components: usize,
-    pub(crate) max_forbidden_columns: usize,
-    pub(crate) max_structural_terms_per_row: usize,
-    pub(crate) max_structural_terms: usize,
-    pub(crate) max_retained_nonzeros: usize,
+    pub max_post_hit_rows: usize,
+    pub max_request_shift_components: usize,
+    pub max_forbidden_columns: usize,
+    pub max_structural_terms_per_row: usize,
+    pub max_structural_terms: usize,
+    pub max_retained_nonzeros: usize,
     /// Simultaneously retained finite-field scratch coordinates across both
     /// reducers. This is a width bound, not a row-work budget.
-    pub(crate) max_reducer_scratch_cells: usize,
+    pub max_reducer_scratch_cells: usize,
     /// Conservative cumulative row-reduction work, charging every admitted
     /// row once at the two reducers' width used for that row.
-    pub(crate) max_reducer_dense_scan_work: usize,
-    pub(crate) max_reducer_entries: usize,
-    pub(crate) max_trace_nodes: usize,
-    pub(crate) max_trace_edges: usize,
-    pub(crate) max_retained_request_shift_components: usize,
-    pub(crate) max_support_requests: usize,
-    pub(crate) max_dependency_order_requests: usize,
-    pub(crate) max_hit_trace_edges: usize,
+    pub max_reducer_dense_scan_work: usize,
+    pub max_reducer_entries: usize,
+    pub max_trace_nodes: usize,
+    pub max_trace_edges: usize,
+    pub max_retained_request_shift_components: usize,
+    pub max_support_requests: usize,
+    pub max_dependency_order_requests: usize,
+    pub max_hit_trace_edges: usize,
     /// Aggregate shift-coordinate ownership in the hit's canonical support,
     /// dependency order, request-bearing DAG, and direct-dependency sidecar.
-    pub(crate) max_hit_request_shift_components: usize,
+    pub max_hit_request_shift_components: usize,
 }
 
 impl Default for SpiredModularLimits {

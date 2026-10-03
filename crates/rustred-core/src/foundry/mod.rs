@@ -27,6 +27,7 @@ pub mod cell;
 // will eventually own K = 6 closure.
 #[allow(dead_code)]
 pub(crate) mod completion;
+pub use completion::modular_nomination;
 pub mod dependency;
 pub mod parametric;
 pub mod search;

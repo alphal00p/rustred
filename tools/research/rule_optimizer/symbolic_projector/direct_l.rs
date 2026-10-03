@@ -188,10 +188,14 @@ pub fn project(
         .flat_map(|row| row.keys().cloned())
         .collect::<BTreeSet<_>>();
     require(!forbidden.contains(target), "target cannot be forbidden")?;
-    require(
-        forbidden.is_subset(&universe),
-        "forbidden shift outside frozen image universe",
-    )?;
+    // Preserve full caller F even when a selected subbank has structural
+    // zeros in some columns. Native reduction and replay still see all F.
+    for shift in forbidden {
+        require(
+            shift.values().len() == c.index_count(),
+            "forbidden shift arity differs",
+        )?;
+    }
     bound(universe.len(), limits.columns, "image shift columns")?;
     let width = add(forbidden.len(), 1)?;
     bound(width, limits.columns, "physical projection columns")?;

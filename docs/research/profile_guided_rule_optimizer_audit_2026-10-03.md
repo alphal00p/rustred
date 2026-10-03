@@ -3182,4 +3182,192 @@ The separately authorized large direct-L request changes only the backend
 selector relative to the frozen cofinal 5,796-row request, on native67/guard68
 with 128 GiB, 150-GB reserve and 1500/1620/1800-second deadlines. It does not
 change the augmented execution on 65/66, which subsequently censors as recorded
-above. The large direct-L result remains pending here.
+above. The large direct-L run subsequently also censors: outer elapsed
+1,505.086 seconds, guard inclusive elapsed 1,500.929 seconds, cooperative
+exit `-2`, no hard stop or failure, and all owned groups drained. Waited child
+CPU is 1,484.561 seconds and sampled RSS 3,674,177,536 bytes. The trace has one
+projection, no target/recovery/proof event, and a last heartbeat of 3,181 rows
+at 1,116.154 seconds (U166,679/L132,365/F6448). This is a lower bound on work
+visited, not the final exact row count. Empty final stdout and no artifact
+provide neither an all-bank miss nor a completed performance comparison.
+
+The separately authorized finite diagnostic keeps the ordered 1,062-row
+bank, owner, common order and all algebra/ingress allowances unchanged, but
+asks for the exact three-point chart `D2=3,4,5`, with the other 14 coordinates
+fixed. It starts with no caller F, derives only fixed-outside-root columns,
+and disables cofinal bans. Its prove-only 150/165/180-second execution is a
+new finite-scope diagnostic, not an unbounded rule or a narrowed replacement
+for the original residual campaign. No publication or downstream claim follows
+from this input review.
+
+That finite diagnostic subsequently completes in 84.657 seconds outer elapsed
+(78.739 seconds in the final native report), with clean exit zero, no stop and
+drained groups. Starting from 287 root-derived columns, all 536 refinements
+are new typed descent obligations with successful full original-product replay.
+Independent reconstruction gives final F823, exactly equal to the earlier
+ray's final set despite not preseeding it here. The last attempt visits all
+1,062 rows and reports no target under that F; no artifact is exported. This
+is not finite-chart impossibility: forbidding a whole rational column can be
+stronger than allowing its coefficient to vanish on the finite failed cells.
+
+Three further preregistered singleton diagnostics specialize all 15 indices,
+separately at physical `D2=3,4,5`, with the same ordered bank and limits, empty
+caller F and cofinal nomination disabled. Each completes with 536 new typed,
+fully replayed refinements and a final all-1,062-row miss under F823. All three
+reconstructed F sets equal the interval/ray set; their raw receipts and clean
+drain were independently checked. Retained final full-circuit coefficients
+contain no index variables, confirming actual fixed specialization rather
+than merely singleton geometric bounds. Native times are 74.601, 75.187 and
+75.494 seconds; outer times are 80.975, 81.524 and 81.625 seconds. No artifact
+or performance claim follows. These tests address a possible free-index
+obstruction within this bank at those points, not other spans, zero-quotient
+rules or family irreducibility.
+
+### Modular nomination boundary: source review
+
+The frozen native wrapper `nomination.rs` (`e24227f2…`) and five grouped tests
+(`7b5aa9f9…`) pass independent source review; compilation and execution are
+still pending at this entry. The public API borrows an authenticated complete
+ordinary corpus and an immutable ordered request bank. It delegates modular
+evaluation and dependency tracing to the existing native implementations,
+preregisters all forbidden columns, preserves structural zero residues and
+requires exact fixed-coordinate equality rather than modular congruence.
+Full application bounds and common order remain the exact caller's contract.
+Returned source positions and dependency-ordered requests are nominations,
+never numeric source weights, guard waivers or proof tokens.
+
+Preparation bounds the whole bank's translated coordinates before map
+allocation; sample-coordinate and per-row forbidden-term bounds precede their
+respective allocations. Singular source conditions and term denominators are
+reported as unlucky samples, not source deletions or mathematical misses.
+The fixtures explicitly distinguish a modular false hit from an exact target,
+and a sampled miss from a genuine symbolic backward tadpole recurrence. The
+positive fixture regenerates that ordinary row, derives its normalization
+symbolically and invokes the unchanged original-source checker on `n>=2`.
+Visibility changes expose existing limits/errors without changing their
+defaults or native algorithms. No executable success is inferred from review.
+
+The subsequent executable gate passes all five new tests with no ignored
+tests. Optimized core artifact `aa45f12a…` and semantic cfg-test executable
+`c2c49b61…` independently rehash to their receipts; all groups drain. The first
+cfg-test compile failed only because the standalone invocation lacked
+`CARGO_CRATE_NAME`, and the retained retry supplies it without source changes.
+An initial existing-modular regression invocation selected zero tests and was
+correctly refused by the wrapper; it is not counted as a regression pass.
+The corrected invocation then passes all 21 existing modular-kernel tests;
+all 10 existing shifted-evaluator tests also pass. Thus the actual focused
+core gate is 36 tests, with no ignored tests or failed lifecycle checks. The
+isolated optimized app link against the new core also completes. Research
+driver tests are still separate: their first compilation exposes two test-local
+`run` name-shadowing errors; qualifying the intended `crate::run` preserves
+the prove/export-refusal assertions without changing runtime behavior.
+
+The accompanying exact-backend adapter change also passes source review.
+Forbidden columns absent from a selected subbank now remain explicit zero
+columns in both native projection widths and the final full-image replay.
+The old selected-universe subset check is replaced by exact arity validation;
+target-in-F refusal, column ceilings and full-bank request binding remain.
+Two additional fixtures cover absent-column hits/misses, backend equivalence,
+arity mismatch and resource refusal. Their executable gate remains pending.
+
+The nomination-only driver subsequently runs the unchanged 5,796-row chart
+with full F6448 at three explicit `(prime,n_D2,d)` samples:
+`(2147483647,31,101)`, `(1000000007,47,107)` and
+`(2147483647,3,113)`. Each visits all rows and 120,959 structural terms,
+reporting forbidden rank and augmented rank both 4,932: all three are sampled
+misses, with no support, proof or export. Raw report `ba0e7740…` and actual
+binary `4193615b…` were independently rehashed. The request preserves the
+bank/chart/order/algebra limits and explicitly allows 100-M modular dense-scan
+work, so no budget refusal is being called a sampled miss. Lifecycle is clean
+and drained, with 13.966 seconds outer elapsed and 3.446-GB sampled RSS.
+The driver regression correction was explicitly pending at this exploratory
+launch; this entry does not claim that test gate had already passed. These
+observations do not prove exact symbolic impossibility, especially because
+the sampled forbidden rank is below the number of rows.
+
+The corrected optimized driver gate then passes all 43 tests, none ignored;
+test executable `cbaf21f9…` is independently rehashed and all groups drain.
+Besides test-local name qualification, the correction removes an obsolete
+assertion that an absent F column must refuse. New structural-zero positive,
+arity and cap fixtures now test the intended contract. Runtime nomination
+binary `4193615b…` is unchanged; the pending-at-launch qualification remains
+part of the original exploratory receipt rather than being rewritten.
+
+### Saved preconditioning does not conceal additional source translations
+
+The offset convention was checked against the actual replay path, rather than
+inferred from serialized basis ordinals. In
+`source_port/certificate.rs::source_offset`, a symbolic coordinate uses the
+saved seed shift plus canonical translation; a fixed coordinate uses saved
+seed power minus target power. The support inspector implements those same
+formulas and validates that coefficient shifts agree with physical seeds.
+The inspected owner66 record's canonical translation is zero.
+
+`solver/precondition/provenance.rs` contains only source nodes and forward
+polynomial multiply/subtract nodes. There is no integral-shift or coefficient
+translation operation in that DAG. Its composition adapter transforms each
+scalar with the same seed and canonical translation as the associated source
+row. Finally, `source_port/normalization.rs::checked_scale` verifies a single
+nonzero polynomial multiplier against every original term on identical shift
+support; normalization is translated before fixed specialization. Thus these
+mechanisms do not require additional hidden offsets beyond the saved seeds.
+
+The 212-offset by 25-row inventory is therefore the relevant ordinary-source
+superspan nomination for those seed records, subject to the original source
+domain and normalization. This is not a claim that the incumbent's literal
+RHS belongs to that full span without its saved exclusions or certified-zero
+quotient: ordinary replay explicitly distinguishes full source identities
+from projected discovery. A future completed bank miss should investigate
+those concrete domain/quotient differences, not assume an unobserved
+preconditioner translation or infer family irreducibility.
+
+The earlier native zero census of 27 masks concerns only inherited F823,
+not the later cofinal F6448. If a modular full-bank sample misses, that remains
+a sampled miss under the literal zero-free source contract. A later targeted
+zero census must use the actual additional forbidden supports; only native
+`ProvedZero` certificates would motivate checking the original producer's
+empty zero census against the persisted source port's authenticated-zero
+path. Inconclusive results do not authorize dropping any column.
+The completed modular report subsequently permits an exact discrete inventory:
+F6448 contains 37 distinct child masks, ten beyond the old 27. All are constant
+on the whole `D2>=3` ray, since their free-axis shifts range from -2 to +3 and
+the other 14 powers are fixed. This identifies the next census's scope without
+assuming any of those masks is zero.
+
+### Projected incidence components: scope of a possible optimization
+
+The exact row/column incidence graph of `[F,target]` decomposes that projected
+matrix into independent components. Restricting a target certificate to the
+target's component preserves `u A_F=0` and `u A_target=1`. This supports a
+possible target-feasibility optimization, not a guarantee of an equally good
+or even equally admissible full RHS. Disconnected components and projected-zero
+rows can contribute null combinations that cancel a later rejected tail,
+alter genuine final-weight poles or improve cost. If native refinement adds
+a column to F, components must be recomputed from the full frozen bank so
+previously omitted rows can return. Edges must use exact nonzero coefficients
+after fixed specialization, never merely nonzero sampled residues. Full F,
+column bindings and input assumptions stay intact. Minimum-F-degree source
+visitation is only a deterministic, preregistered heuristic; no new runtime
+change or performance result is asserted here.
+
+Permuting only F columns, while preserving source visitation and placing the
+target after all F, preserves every prefix rank and the first target rank gain.
+It also preserves the chronological independent physical-row basis. The
+normalized target combination on that independent basis is unique, so its
+canonical exact source weights and RHS should agree when both runs complete
+the same algebraic path. Column order is primarily a fill/pivot-cost lever;
+computational guard provenance and resource stops can still differ. The same
+fixed finite-field matrix has the same invariance, even if its rank is unlucky
+relative to the generic matrix. Source-row permutations, unlike this column
+permutation alone, can select a genuinely different basis and circuit.
+
+The first ignored metadata control uses caller F823 only, not full cofinal
+F6448. Its pinned native report contains generic translated source matrices
+before point specialization. De-translating their support yields 25 ordinary
+rows with 522 terms, consistently across all 400 retained translations.
+Independent discrete recomputation of the 5,796-row bank gives 120,959 generic
+entries, a target component of 5,132 rows and 664 disconnected rows, all of
+which are projected-zero in this control. No coefficient display is parsed,
+no source is deleted and no native algebra run is added. This conservative
+supergraph can establish disconnection, but may miss pruning after exact
+specialization; its degree counts are not exact specialized costs.

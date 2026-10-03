@@ -9,10 +9,10 @@ pub(crate) use buffer::{
     ShiftedModularResidueBuffer, ShiftedModularSourceBuffer, ShiftedModularTerm,
     ShiftedModularTerms,
 };
-pub(crate) use error::DirectShiftedSourceError;
+pub use error::DirectShiftedSourceError;
+pub use evaluator::DirectShiftedSourceLimits;
 pub(crate) use evaluator::{
-    DirectShiftedSourceCorpusCensus, DirectShiftedSourceEvaluator, DirectShiftedSourceLimits,
-    ValidatedDirectShiftedSources,
+    DirectShiftedSourceCorpusCensus, DirectShiftedSourceEvaluator, ValidatedDirectShiftedSources,
 };
 
 #[cfg(test)]
