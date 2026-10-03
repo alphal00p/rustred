@@ -5,9 +5,49 @@ change to production. The user has stopped the old campaign; the new37 campaign
 remains live and read-only. The active objective remains
 [the profile-guided optimization plan](../../PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
 
-## Latest heavy-owner search: repeated refinement, not a completed miss
+## Current result: exact chart proof and a cost-directed candidate
 
-**Latest decision:** the new modular nominator completes the full5,796-source,
+The source-inspector recentering correction below changes the interpretation of
+the older misses. With an explicit common minus-one D2 translation, the complete
+5796-row bank admits modular targets. A structural visitation order nominates
+2823 rows for exact recovery, retaining all original sources and F6274.
+
+| Corrected-bank probe | Inclusive wall | Peak tree RSS | Result |
+| --- | ---: | ---: | --- |
+| Selected exact frame,16M retained-term allowance |743.686s|4.057GB|Typed coefficient-term budget refusal; no target proof |
+| Same frame,only allowance raised to64M |1035.113s|5.389GB|Full original-source/chart proof passes; runtime export refuses guard representation |
+| Forbid all717 incumbent complexity-increasing tails |10.024s|3.457GB|Allthree modular probes miss; no exact impossibility claim |
+| Seven independent destination blocks of those717 tails |70.093s total|See individual receipts|Only one55-tail block admits targets in allthree probes |
+
+The completed exact proof has1822 ordinary contributions,2039 RHS terms and two
+cells covering physical D2=3 and D2>=4. It preserves the original request,
+ordering and terminals, but it is **not an exported or improved rule**. Its
+13743 retained arithmetic conditions fail the exporter's guard-transport gate,
+and its RHS is larger than the1669-term incumbent. The existing F6274 itself
+forbids no incumbent RHS term, so this attempt calibrates materialization rather
+than demonstrating a cheaper recurrence. The16M attempt included one short
+profile; do not use these runs as a pristine backend speed comparison.
+
+The separate cost-directed candidate forbids55 specified incumbent successors
+that increase A+R. The corresponding destination support is selected from input
+evidence, not built into the engine. Allthree samples nominate the same2933
+sources against F6329; no exact lift or downstream benefit has yet been shown.
+Other newly introduced tails could offset the intended gain. The next test uses
+the new additive arbitrary-F adapter to RustRed's existing Symbolica source-weight
+reconstruction service, followed by unchanged exact source/chart/guard/descent
+proof and matched shared-owner traversal if export succeeds.
+
+That core adapter has46 distinct focused tests passing (including8 new tests),
+an exact-only feature-disabled typecheck and matching optimized core/app builds.
+Research integration tests remain pending. No new reconstruction/CAS kernel or
+production change was introduced. Evidence under ignored
+`TMP/rule-optimizer-20261003/`: `candidates/projected-source-weight-core-gates-v1.json`,
+`candidates/symbolic-owner66-recenter-target-distance-selected-compact-terms64m-v2/`,
+and `incidence-study/recenter-cost-groups-v1/`.
+
+## Earlier heavy-owner search: repeated refinement, not a completed miss
+
+**Historical decision, superseded by the recenter correction:** the new modular nominator completes the full5,796-source,
 6,448-forbidden-column bank at three explicit points, about0.7s per sample
 (13.966s whole invocation,3.446GB peak RSS). Each visits every row and returns
 equal forbidden/augmented ranks4,932: a sampled miss, not exact nonexistence.

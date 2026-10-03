@@ -22,6 +22,33 @@ pub(super) struct FrameVariables {
 }
 
 impl FrameVariables {
+    /// Explicit-map preparation for a generic ordered-column source frame.
+    /// This preserves the original variable order and removes only globally
+    /// absent variables; it performs no coefficient specialization.
+    #[cfg(feature = "reconstruction")]
+    pub(super) fn from_coefficients<'a>(
+        original: Arc<Vec<PolyVariable>>,
+        values: impl IntoIterator<Item = &'a Coefficient>,
+    ) -> Result<Self, MaterializationError> {
+        let mut used = vec![false; original.len()];
+        for value in values {
+            Self::validate_map(value, &original)?;
+            for (axis, active) in used.iter_mut().enumerate() {
+                if !*active {
+                    *active = value.numerator.contains(axis) || value.denominator.contains(axis);
+                }
+            }
+        }
+        let active = Arc::new(
+            original
+                .iter()
+                .zip(used)
+                .filter_map(|(variable, used)| used.then(|| variable.clone()))
+                .collect(),
+        );
+        Ok(Self { original, active })
+    }
+
     pub(super) fn try_new<const N: usize>(
         rows: &[ExactRow<N>],
         order: CoefficientVariableOrder,

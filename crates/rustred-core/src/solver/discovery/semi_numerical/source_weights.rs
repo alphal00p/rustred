@@ -20,6 +20,7 @@ use super::{
 
 mod cache;
 mod probe;
+pub(super) mod projected;
 mod validation;
 use cache::ImageCache;
 #[cfg(test)]
@@ -169,6 +170,32 @@ fn materialize_frame(
     limits: Limits,
     observe: &mut dyn FnMut(Event),
 ) -> Result<Vec<(u32, Coefficient)>, MaterializationError> {
+    reconstruct_frame(
+        frame,
+        target_column,
+        variables,
+        limits,
+        observe,
+        &mut |_| Ok(()),
+    )
+    .map(|result| result.row)
+}
+
+struct ReconstructedFrame {
+    row: Vec<(u32, Coefficient)>,
+    /// Original source positions, including every reconstructed zero slot.
+    weights: Vec<Coefficient>,
+    prefix_len: usize,
+}
+
+fn reconstruct_frame(
+    frame: &ProbeFrame,
+    target_column: usize,
+    variables: &FrameVariables,
+    limits: Limits,
+    observe: &mut dyn FnMut(Event),
+    admit: &mut dyn FnMut(&Coefficient) -> Result<(), MaterializationError>,
+) -> Result<ReconstructedFrame, MaterializationError> {
     let mut cache = ImageCache::new(frame, target_column, limits);
     // Deterministic independent coordinates, never an affine-line sampling
     // pattern. These images propose a prefix/support, not exact zero claims.
@@ -229,6 +256,7 @@ fn materialize_frame(
                 "target column {column} reconstruction failed: {error}",
             ))
         })?;
+        admit(&coefficient)?;
         observe(Event::Coefficient {
             column: column as usize,
             probes: stats.probes,
@@ -254,15 +282,15 @@ fn materialize_frame(
             limits.max_primes,
         );
         cache.check_failure()?;
-        weights.push(
-            reconstruction
-                .map_err(|error| {
-                    invalid(format!(
-                        "source weight {source} reconstruction failed: {error}",
-                    ))
-                })?
-                .0,
-        );
+        let coefficient = reconstruction
+            .map_err(|error| {
+                invalid(format!(
+                    "source weight {source} reconstruction failed: {error}",
+                ))
+            })?
+            .0;
+        admit(&coefficient)?;
+        weights.push(coefficient);
     }
     observe(Event::WeightsFinished {
         nonzero_weights: weights.iter().filter(|value| !value.is_zero()).count(),
@@ -277,7 +305,11 @@ fn materialize_frame(
     observe(Event::ProductFinished {
         output_terms: output.len(),
     });
-    Ok(output)
+    Ok(ReconstructedFrame {
+        row: output,
+        weights,
+        prefix_len,
+    })
 }
 
 #[cfg(test)]

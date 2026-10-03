@@ -21,6 +21,12 @@ mod semi_numerical;
 mod target_only;
 mod variables;
 
+#[cfg(feature = "reconstruction")]
+pub use semi_numerical::{
+    ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
+    ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+};
+
 #[cfg(all(test, feature = "reconstruction"))]
 mod source_weight_pipeline_tests;
 

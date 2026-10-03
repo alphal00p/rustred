@@ -19,6 +19,30 @@ pub(super) struct ProbeFrame {
 }
 
 impl ProbeFrame {
+    /// A validated generic physical column layout, including exact-zero
+    /// columns absent from the supplied rows. No column order is inferred.
+    pub(super) fn from_ordered_rows(
+        rows: Vec<Vec<(u32, Coefficient)>>,
+        columns: usize,
+    ) -> Result<Self, MaterializationError> {
+        let columns_with_sentinel = u32::try_from(columns)
+            .ok()
+            .and_then(|n| n.checked_add(1))
+            .ok_or(MaterializationError::TooManyColumns)?;
+        if rows.iter().any(|row| {
+            row.iter().any(|(i, _)| *i >= columns_with_sentinel - 1)
+                || row.windows(2).any(|p| p[0].0 >= p[1].0)
+        }) {
+            return Err(MaterializationError::InvalidTargetSelection(
+                "generic source columns are not sorted, distinct and in range",
+            ));
+        }
+        Ok(Self {
+            rows,
+            columns_with_sentinel,
+        })
+    }
+
     /// Prepared immutable coefficients and physical column IDs. This is layout
     /// access, not an alternative arithmetic implementation.
     pub(super) fn rows(&self) -> &[Vec<(u32, Coefficient)>] {

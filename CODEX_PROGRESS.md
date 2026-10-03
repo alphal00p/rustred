@@ -16,14 +16,177 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Incumbent-informed source recovery | `rule_cost_profiles` | Large augmented runs censored | Preserve the5,796-source results; delayed weight recovery and modular source nomination are the next measured alternatives. |
 | Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe censored | Preserve the completed controls; full exact elimination is still expensive, so use modular nomination before another large lift. |
 | Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered; corrected-bank discovery succeeds | All three minus-one-recenter samples nominate the same3549-source trace; exact full-source materialization remains required. |
-| Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Reopened on target-bearing corrected bank | Input-only structural source-visitation trials may reduce trace cost; preserve all5796 sources/F/chart. No column-permutation cure is claimed. |
-| Incumbent source-contract gap | Implementation + profiler + auditor | Recentring defect identified in research inspector | Recover the raw winning target's translation; saved canonical target cannot determine it. Correct nomination, retain old-bank negative evidence, rerun modular probes. |
+| Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Delivered input-only discovery improvement | Target-distance/low-F-degree ordering nominates2823 rather than3549 rows; exact lift running, no downstream benefit claimed. |
+| Incumbent source-contract gap | Implementation + profiler + auditor | Research inspector corrected and pushed | Explicit minus-one nomination restores modular feasibility; it is not yet a replay of the saved incumbent. |
+| Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Implemented/source-audited; compiled gates pending | Additive arbitrary-F bridge reuses existing Symbolica reconstruction; mechanical import/test-environment fixes after first compile, no new CAS. |
+| Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H717 negative; one of seven blocks feasible | H55 has2933-source support in allthree samples. Exact reconstruction/proof and unchanged graph costs are next, no gain claimed. |
+| Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
-| Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
+| Fresh direct certificates | Implementation + auditor | Reopened for mathematical audit | The64M exact proof succeeds but export rejects guard transport; distinguish computational prefix pivots from actual source/weight poles before any change. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Core reconstruction bridge compiled and independently verified — October3, 20:49 UTC
+
+[M] Additive arbitrary-F source-weight reconstruction bridge passes46 distinct
+tests:35 source-weight/cache tests including8 new,2 existing pipeline tests,
+9 variable-map tests; no failures or ignored tests. Runtime core is optimized
+opt2 (`87be9136…`), matching app `c2dda031…` builds in535.982s; semantic cfg
+tests use opt0 with optimized dependencies. A feature-disabled metadata
+typecheck also passes (not a runtime gate). All owned build groups drain.
+Independent audit verifies these receipts. Gate summary:
+`candidates/projected-source-weight-core-gates-v1.json` (`91af4206…`).
+
+[E] Research executable/test links run against frozen sources separately.
+Independent mathematical review also approves a narrow **new** original-source
+certificate policy for ordinary identity/permutation spans: preserve all
+original input assumptions and exact full-original replay, then let the native
+checker derive final source-weight/RHS poles with their actual provenance.
+Do not duplicate computational elimination poles as caller assumptions or edit
+an older proof seal. The profiler now implements this research-only opt-in with
+positive full-prefix and genuine-pole/input-condition negative fixtures. The
+default conservative proof path and production exporter remain unchanged.
+
+### First corrected exact chart proof succeeds; export remains blocked — October3, 20:40 UTC
+
+[M] The64M-only retry finishes cleanly in1035.113s inclusive, peak5.389GB.
+Forward elimination reaches target rank2823 at738.79s, L recovery ends971.19s,
+full image2040 terms is checked at981.94s, and regenerated original-source/chart
+proof passes both cells at1010.00s. Circuit:1822 original contributions,2039
+RHS terms,13743 retained conditions; zero refinements. The exporter refuses at
+1030.90s: `priority proof guard is not retained by a surviving runtime RHS
+denominator`. Status is `EXACT_CHART_PROVED_EXPORT_REFUSED`, no artifact and no
+downstream run. Evidence: `candidates/symbolic-owner66-recenter-target-distance-
+selected-compact-terms64m-v2/` (98MB native report). No more exact budget retries.
+
+[E] This establishes an actual full-source/chart proof for the corrected bank,
+not an improved or deployable rule: the new RHS is larger than the1669-term
+incumbent and the optional cost block was not part of this calibration. The
+source-weight reconstruction service produces a fresh source-circuit proof,
+without requiring every computational forward pivot as a runtime condition;
+genuine original/weight poles remain mandatory. Independent audit now checks
+whether the same fresh-certificate policy can safely serve the exact backend,
+without deleting assumptions from an existing seal or waiving genuine poles.
+
+### One changed-tail candidate survives the seven-block screen — October3, 20:35 UTC
+
+[M] All seven independent support-block nominations complete in70.093s total,
+with clean owned-process drain. Blocks of sizes154,147,129,124,65 and43 miss
+in allthree samples. Only H55, destination support `011101110101000`, hits
+allthree: fullF6329, first-hit prefix5239, ranks4729→4730 and identical2933
+typed source requests/ordinals. The independent auditor checks all21 sample
+outcomes and the preregistered largest-feasible-block selection. Evidence:
+`incidence-study/recenter-cost-groups-v1/`, winning raw `56e456d3…`, batch
+receipt `55d5c99c…`. These input-selected masks are evidence labels, not
+hard-coded solver dispatch.
+
+[E] The first operational source-weight reconstruction attempt will use H55
+after its actual native test gates, rather than spend another attempt solely
+recovering the calibration rule. It must eliminate those55 keys exactly and
+still prove the unchanged chart; it may introduce other growth tails, so no
+net benefit is assumed. The same frozen full67-owner point and adjacent cohorts
+remain the downstream tests. The64M calibration retry continues separately.
+
+[M] The additive core bridge and three research adapter tests have source-audit
+approval, including all-column exact product, restored source weights, retained
+input/weight poles, constant/dependent-prefix typed refusals and native bounds.
+The first compile fails mechanically before codegen: missing Symbolica
+`SelfRing` import for `is_one`; standalone cfg-test environment also needs
+`CARGO_CRATE_NAME=rustred` for existing parse macros. Both attempts are retained,
+with a fresh corrected build planned. No runtime result or compiled-test pass
+is inferred from source audit.
+
+### Whole growth-tail cancellation misses; one structured correction — October3, 20:29 UTC
+
+[M] H717 modular feasibility completes in10.024s inclusive, peak3.457GB,
+clean/drained. The unchanged three samples each visit5796 rows/120959 terms;
+fullF6991 has rank5194 both without and with target. All are `SAMPLED_MISS`.
+The independent audit confirms717 distinct incumbent keys:521 raise A+R by1,
+196 by2, all sign-stable strict-subsector tails on the chart. Evidence:
+`incidence-study/recenter-cost-H717-v1/guard/stdout` (`6cf31c5d…`). No exact
+nonexistence, proof, candidate artifact or speed benefit follows.
+
+[E] One evidence-backed correction is authorized: partition H717 by its seven
+destination support masks, testing each block separately in descending block
+size/mask-tie order. Freeze all seven requests before measurements; preserve
+bank/order/chart/samples and the blanket-block negative. The complete
+modular-only series has a ten-minute inclusive limit; no automatic source-bank
+growth, exact attempt or greedy combination. This identifies removable structural
+branches, not measured child costs. A feasible candidate still needs exact
+source reconstruction, full proof and completed downstream comparisons.
+
+### Distinguish valid-rule recovery from a cheaper-rule objective — October3, 20:25 UTC
+
+[M] Implementer's independent objective check confirms the current F6274
+contains only287 root and5987 cofinal exclusions. It overlaps none of the1669
+incumbent symbolic RHS shifts. Consequently a successful corrected-bank exact
+lift may only recover an equally expensive recurrence; it is a necessary
+pipeline calibration, not intrinsically an optimization result.
+
+[E] One additional modular-only nomination is authorized on the unchanged
+corrected5796-row bank, ordering, chart and three samples. Add all717 frozen
+incumbent successors with positive change in A+R to F. They lie in strict
+subsectors and have free-axis displacements between−1 and+1, so the positivity
+classification is constant over the full D2>=3 chart. This targets actual
+complexity-increasing fanout, not merely an alternative exact certificate.
+Independent audit checks the set and execution binding. A miss does not prove
+impossibility and does not automatically trigger bank expansion; a hit still
+requires exact lifting and completed shared downstream comparisons.
+
+[M] The one64M retained-term retry starts at20:22:03UTC with the previously
+audited identical request except that allowance. No current production input,
+query, helper, rule or checkpoint is modified.
+
+### Corrected exact attempt hits a resource allowance, not a rank miss — October3, 20:20 UTC
+
+[M] The first corrected selected-frame attempt completes cleanly in739.442s
+native/743.686s inclusive, peak4.057GB, with typed refusal `budget exhausted:
+retained native U/L coefficient terms`. It reaches the16M cumulative retained
+coefficient-term allowance; no target/proof/artifact is produced. Last progress
+event is2780 visited rows, not necessarily the exact refusal row. This is not
+an exact no-target result or a proof that the desired recurrence is impossible.
+Independent audit verifies raw report `6be9808e…`, exit0 and drained process
+group. Evidence remains in the first selected-compact attempt directory.
+
+[E] One controlled retry is being prepared by `rule_optimizer_impl`, changing
+only that allowance to64M, keeping source bank, shortlist, fullF, chart, binary
+and outer25/27/30-minute guard unchanged. In parallel `rule_cost_profiles`
+implements an additive bridge to the existing native source-weight
+reconstruction service; root owns research dispatch and the independent auditor
+checks both. Sampled pivot discovery is not publication; exact full-column
+weights/source replay and unchanged chart/guard/descent gates remain mandatory.
+
+### Corrected-source checkpoint pushed; exact arithmetic remains hot — October3, 20:15 UTC
+
+[M] Independently audited source-inspector correction, exact source selection
+and native variable compaction committed/pushed to main as `4201cc8d`. Actual
+gates are9 app tests,53 research tests and3 byte-identical native checked-export
+controls. Unrelated FeynKit edits and untracked work remain untouched.
+
+[M] Corrected exact run still operates on full5796 originals/F6274 and selected
+2823 rows. Its last emitted row event is2780 at233.499s; at9m29s the native
+process remains CPU-active with approximately3.40GB RSS, without target,
+source replay or export yet. A single15s/99Hz user-space profile on the verified
+owned PID observes1463 samples, zero lost. Overlapping inclusive shares are
+72.44% polynomial GCD and71.88% rational addition; packed-exponent division is
+8.43% self. These shares are not additive, and the profiled run is not a pristine
+matched timing. Evidence: `incidence-study/selected-exact-perf-v1/summary.json`
+(`e90b60f9…`). Native arithmetic, not supervisor work, remains the bottleneck.
+
+[E] Profiler is checking the existing `SemiNumericalSourceWeights` service,
+which already uses Symbolica rational reconstruction and exact full-column
+source-product validation without characteristic-zero GPLU. An arbitrary-F
+target adapter may avoid this measured GCD bottleneck; no improvement is
+assumed before implementation, tests and an actual completed attempt.
+
+[M] Read-only production snapshot:116,382,197 discovered,78,509,504 locally
+completed,15,424,062 pending, zero frontiers,103.624GB RSS. The recursive lower
+bound is16,433,237 closed and13/67 roots, with366s-old snapshot. This is genuine
+new recorded recursive progress relative to the earlier14,310,736 lower bound,
+not scoped closure, a trend guarantee or a completion estimate. No production
+lifecycle or inputs were changed.
 
 ### First corrected exact lift launched — October3, 20:05 UTC
 

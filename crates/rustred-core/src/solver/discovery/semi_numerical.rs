@@ -32,6 +32,10 @@ use frame::ProbeFrame;
 mod source_weights;
 
 pub(super) use source_weights::materialize as materialize_source_weights;
+pub use source_weights::projected::{
+    ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
+    ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+};
 
 type Fp = FiniteFieldElement<u64>;
 type CacheKey = (u64, Vec<u64>);

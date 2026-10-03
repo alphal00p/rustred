@@ -71,6 +71,11 @@ pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_line
 pub use discovery::{
     CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend,
 };
+#[cfg(feature = "reconstruction")]
+pub use discovery::{
+    ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
+    ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+};
 pub use discovery_strategy::{
     SectorVisitOrder, SourceDiscoveryStrategy, SourceRowFeature, SourceRowFeatures,
     SourceRowPriority, SourceVisitOrder,

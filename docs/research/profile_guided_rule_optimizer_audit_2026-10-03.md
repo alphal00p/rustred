@@ -3556,3 +3556,136 @@ deadlines remain bound; the report reader now honors the declared bounded
 report allowance. At this audit point exact replay, chart proof and checked
 export are still pending. No production change or downstream-gain claim is
 authorized by the shortlist or its successful boot.
+
+That exact attempt subsequently ends cleanly with a resource refusal, not a
+target miss or a failed mathematical proof. The sole attempt reports
+`SYMBOLIC_PROJECTION_REFUSED: budget exhausted: retained native U/L coefficient terms`;
+there are zero refinements and no complete recovered source product, chart
+certificate or exported artifact. Native elapsed is 739.442 seconds, outer
+elapsed 743.686 seconds, sampled peak RSS 4,057,157,632 bytes. Exit is zero,
+no deadline/hard stop occurred, and owned groups drain. Raw report
+`symbolic-owner66-recenter-target-distance-selected-compact-v1/guard/stdout`
+hashes to `6be9808eaa16161f671875726d1bac97a3553aefac8bacc167ea10617c95f894`.
+The last 64-row heartbeat names row 2,780; it is not an exact final visited-row
+count. A separate bounded 15-second, 99-Hz user-cycle sample of this owned
+process observes native forward elimination/GCD before target recovery.
+Its inclusive call-chain percentages overlap and are not additive; the
+observed compacted run uses packed-exponent division, without a matched
+default-off sample establishing that compaction uniquely enabled it.
+
+The prospective alternative reuses native `SemiNumericalSourceWeights`,
+not the older semi-numerical path that reruns exact GPLU. A sampled nonzero
+harder-prefix minor certifies generic rank over the rational-function field,
+not nonvanishing throughout the integer chart. Reconstructing every source
+weight and checking the exact complete product W*A, including all F and tail
+columns, can establish a fresh identity without importing computational
+sampling/elimination pivots as everywhere-nonzero assumptions. It cannot
+remove genuine source, input, final-weight or normalization poles. The new
+research adapter retains all original conditions, restores the complete
+coefficient context, independently replays reconstructed weights, and still
+uses unchanged original-source chart proof/export. Its source review passes;
+new core bridge and compiled adversarial gates remain pending. The existing
+reconstruction admission additionally requires independent harder rows in
+the entire frozen first-hit prefix, including zero/dependent slots; a miss
+of this stronger eligibility test is not mathematical nonexistence.
+
+A separate cost-directed nomination bans 717 incumbent RHS shifts whose
+secondary degree A+R increases: 521 by one and 196 by two. Independent
+recomputation from all 1,669 native saved RHS shapes matches the 717 actual
+guarded-application keys. These H-specific D2 shifts lie in [-1,+1], so D2
+stays positive on D2>=3 and both strict-subsector support and the degree
+difference are constant throughout that ray. This statement does not extend
+to every incumbent term: the full 1,669-shift range is [-3,+1]. All incumbent
+shifts are disjoint from mandatory F6274; adding H therefore gives F6991.
+Only caller H changes; bank, visitation, chart, order, samples and limits stay
+fixed. All three native samples then miss, with rankF=rankAugmented=5,194
+after every 5,796 row and 120,959 structural term. The clean/drained run takes
+10.024 seconds outer elapsed, peak RSS 3.457 GB; raw `recenter-cost-H717-v1`
+report hashes to `6cf31c5d…`. This is a bounded sampled negative for removing
+all 717 keys together, not nonexistence. A+R is a structural proxy, not
+measured child cost; even a hit would not prohibit different new growth
+tails or establish a downstream improvement.
+
+The next explicitly authorized training batch partitions H717 into seven
+disjoint child-support blocks of sizes 154, 147, 129, 124, 65, 55 and 43.
+Every input is frozen before execution and differs from the same baseline
+only by its own H block; there is no greedy accumulation. Independent audit
+of all 21 native sample observations confirms six blocks miss. Only H55,
+child mask `011101110101000`, hits all three: F6329, first-hit prefix 5,239,
+rank 4,729 to 4,730 and exactly matching 2,933 typed source ordinals in each
+sample. This is the sole eligible result under the preregistered all-three-hit,
+largest-H selection policy. All seven phases exit cleanly/drain; total outer
+elapsed is 70.093 seconds. Positive report `group-5-011101110101000/guard/stdout`
+hashes to `56e456d3…`. The result nominates a changed-tail objective, not an
+exactly proved rule or completed cost improvement.
+
+The single explicitly authorized 64M-coefficient-term retry subsequently
+completes the unchanged 2,823-row exact calibration. The recovered circuit
+has 1,822 nonzero ordinary contributions and 2,039 RHS terms; full original
+source replay passes, with zero refinement steps. Native original-source
+proof covers exactly physical D2=3 and D2>=4 as two cells, together the full
+requested D2>=3 ray with the same 14 fixed indices. The first cell has 2,038
+surviving RHS terms and the second 2,039; both have 370 deduplicated guards.
+There are 13,743 retained condition entries before native deduplication.
+The final status is `EXACT_CHART_PROVED_EXPORT_REFUSED`, specifically
+`priority proof guard is not retained by a surviving runtime RHS denominator`.
+No artifact is produced. Native elapsed is 1,031.006 seconds and outer
+elapsed 1,035.113 seconds, sampled peak RSS 5,389,410,304 bytes; exit is zero,
+no stop or hard stop occurs, and owned groups drain. Raw report
+`symbolic-owner66-recenter-target-distance-selected-compact-terms64m-v2/guard/stdout`
+hashes to `fe04f53cf84eb8b969cd9b4311db6fc3b635c6c7aca936c9c24956ad554cb150`.
+This establishes an exact chart identity, not publication or an improvement
+over the incumbent's 1,669-term expression, and no downstream run follows
+from the refused export.
+
+The actual retained-condition origins distinguish 555 forward-pivot entries
+(324 numerator and 231 denominator) from 13,188 arithmetic weight/product
+entries. The latter comprise 3,644 span-weight, 4,078 full-product-result,
+1,822 pre-composition u, 1,822 uW and 1,822 coalesced-weight entries. These
+origin names are diagnostic, not authority to delete guards. In particular,
+the exporter error does not identify which guard fails, and displayed
+polynomial strings do not establish native associate or factor relations.
+It is not justified to label the refusal exclusively an artificial-pivot
+failure.
+
+A separate opt-in **fresh original-source certificate** is mathematically
+legitimate for a verified ordinary identity/permutation span. Keep the full
+composition and independent equality of its complete original product, then
+construct a new request from the canonical nonzero final ordinary weights,
+unchanged RHS/chart/order, and the original `Span.guards`. Do not mutate the
+already checked conservative certificate. Native `original_combination.rs`
+regenerates translated sources, preserves their conditions and every source
+coefficient's fixed-specialization witness, and derives each actual final
+weight denominator as `SourceCombinationDenominator`; `original_producer.rs`
+also derives RHS denominators. Temporary GPLU or intermediate uW poles need
+not become immutable caller assumptions of this newly replayed identity.
+Weighted/kernel spans remain unsupported initially: their genuine original
+assumptions cannot be inferred by merely recognizing the final weights.
+
+This distinction also addresses a concrete conservative provenance issue.
+The current research driver passes all replay/composition guards as caller
+`retained_conditions`, so a final weight pole can receive both native weight
+and caller-condition origins. `priority.rs` only treats a base-field pole as
+a unit when its origins are exclusively native weight origins. The existing
+classifier regression explicitly rejects a mixed weight/caller origin for
+the same polynomial. The existing two-source tadpole independently reaches
+the same final ordinary contributions as the successful backward-only rule,
+but retains an unused forward pivot and refuses export. It supplies a small
+positive differential for a fresh-policy implementation. Required negative
+gates remain: the genuine 1/(n-1) boundary must fail after complete replay,
+an explicit original input guard must survive, weighted/nonidentity spans
+must refuse, and default conservative behavior must remain unchanged. This
+is not an exporter relaxation; genuine final poles, nonconstant source
+assumptions, and unsupported runtime guard transport can still block export.
+
+The additive native source-weight reconstruction bridge now has actual
+compiled gates: 35 source-weight tests (including the eight new tests), two
+pipeline tests and nine coefficient-variable tests, all passing with none
+ignored. These are 46 distinct semantic tests, not 54. The test executable
+uses opt0, while new core and app libraries use opt2 without LTO. The matching
+app library independently rehashes to `c2dda0316d8944febfcdcca927424f212fe0c9cf5c070c006b5bd1efabc9038e`;
+its build drains cleanly in 535.982 seconds outer elapsed. A separate
+no-reconstruction-feature metadata-only typecheck passes and rehashes to
+`d830e12c536738824c2121df20927cc61095526de8b0c9c589e1b908f29d4937`.
+Neither this typecheck nor the core tests substitute for the pending
+research-driver executable gate or the prospective H55 exact proof.
