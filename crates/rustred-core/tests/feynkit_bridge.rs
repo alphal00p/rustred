@@ -954,3 +954,60 @@ fn until_stable_reports_the_first_reproduced_depth() {
     let short = solve_laporta(&bubble, &uncut(&bubble), &[vec![3, 1]], &[], options(2)).unwrap();
     assert_eq!((short.stable_depth, short.depth), (None, 2));
 }
+
+#[test]
+fn certificates_accept_integrals_proved_zero_by_ibp() {
+    // [k.k - m2, k.p] with p.p = s: the numerator integral I(1,-1) is zero.
+    let c = CoefficientContext::try_new(vec!["d", "m2", "s"]).unwrap();
+    let family = IntegralFamily::new(
+        "tadpole-numerator",
+        vec!["k".into()],
+        vec!["p".into()],
+        c.clone(),
+        c.parameter("d").unwrap(),
+        vec![
+            AffineDenominator::new(-c.parameter("m2").unwrap(), vec![c.integer(1), c.zero()]),
+            AffineDenominator::new(c.zero(), vec![c.zero(), c.integer(1)]),
+        ],
+        vec![vec![c.parameter("s").unwrap()]],
+        vec![c.zero(); 2],
+    )
+    .unwrap();
+    // Odd powers of k.p vanish; I(1,-2) does not.
+    for (targets, depth) in [(vec![vec![1, -1]], 1), (vec![vec![2, -1], vec![1, -2]], 2)] {
+        let options = DynamicSolveOptions {
+            max_depth: depth,
+            ..Default::default()
+        };
+        let solution = solve_laporta(&family, &uncut(&family), &targets, &[], options).unwrap();
+        let rules = reductions(&solution);
+        assert!(rules[&targets[0]].is_empty());
+        certify_laporta(&family, &uncut(&family), &solution, false).unwrap();
+    }
+
+    // A returned rule must use residuals only.
+    let (bubble, _) = bubble(true, false);
+    let options = DynamicSolveOptions {
+        max_depth: 1,
+        ..Default::default()
+    };
+    let targets = [vec![1, 1], vec![2, 1], vec![1, 2]];
+    let mut solution = solve_laporta(&bubble, &uncut(&bubble), &targets, &[], options).unwrap();
+    let rule = solution
+        .rules
+        .iter_mut()
+        .find(|rule| rule.target.iter().map(|power| power.value).eq([2, 1]))
+        .unwrap();
+    rule.rhs[0].powers = vec![
+        rustred::solver::bridge::DynamicPower {
+            symbolic: false,
+            value: 1,
+        },
+        rustred::solver::bridge::DynamicPower {
+            symbolic: false,
+            value: 2,
+        },
+    ];
+    let error = certify_laporta(&bubble, &uncut(&bubble), &solution, false).unwrap_err();
+    assert!(error.to_string().contains("not a residual"), "{error}");
+}

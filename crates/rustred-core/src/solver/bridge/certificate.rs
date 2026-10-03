@@ -11,12 +11,14 @@
 //!    drops integrals of zero sectors, and requires the rule to lie in their
 //!    exact span over the coefficient field.
 //! 3. Every derived rule must strictly descend in the search order.
-//! 4. Every returned rule, with preferred masters mapped back to their
-//!    original reductions, must reduce to zero through the derived rules.
+//! 4. Every returned rule must use only residuals, and, with preferred masters
+//!    mapped back to their original reductions, reduce to zero through the
+//!    derived rules.
 //! 5. Every requested integral must have a rule or be a residual.
 //!
-//! This verifies the reduction; it says nothing about whether the residuals
-//! are a minimal or independent master basis.
+//! This verifies the reduction. It does not check that the nonzero conditions
+//! cover every pole, and it says nothing about whether the residuals are a
+//! minimal or independent master basis.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,7 +54,8 @@ pub struct ReductionCertificate {
 }
 
 /// Check a [`super::solve_laporta`] solution; see the module documentation.
-/// Any failure is [`SolverError::ExactReplay`].
+/// A failed check is [`SolverError::Certification`]; a family or cut that does
+/// not match the solution can also be [`SolverError::InvalidInput`].
 pub fn certify_laporta(
     family: &IntegralFamily,
     cuts: &CutConstraint,
@@ -70,7 +73,7 @@ pub fn certify_laporta(
 }
 
 fn fail(message: String) -> SolverError {
-    SolverError::ExactReplay(format!("certification failed: {message}"))
+    SolverError::Certification(message)
 }
 
 fn certify<const N: usize>(
@@ -135,6 +138,13 @@ fn certify<const N: usize>(
     }
 
     let (relations, offset) = original_relations(family, include_lorentz)?;
+    // One over the identities' variable map, which the solver's rules share.
+    let one = relations
+        .iter()
+        .flat_map(|relation| relation.terms().values())
+        .next()
+        .map(|coefficient| unit(coefficient.raw()))
+        .ok_or_else(|| fail("the family has no identities".into()))?;
     let field = RationalPolynomialField::new(Z);
     for (seeds, rules) in by_seeds {
         let mut rows: Vec<Combination> = Vec::new();
@@ -147,22 +157,19 @@ fn certify<const N: usize>(
             }
         }
         certificate.identities += rows.len();
+        // target - sum_j c_j I_j, which is just the target for a zero rule.
         let desired: Vec<(Vec<i16>, Combination)> = rules
             .iter()
             .map(|rule| {
                 let target = values(&rule.target);
                 let mut row = Combination::new();
-                if let Some(term) = rule.rhs.first() {
-                    add(&mut row, target.clone(), unit(&term.coefficient));
-                } else {
-                    return Err(fail(format!("the rule for {target:?} has no terms")));
-                }
+                add(&mut row, target.clone(), one.clone());
                 for term in &rule.rhs {
                     add(&mut row, values(&term.powers), -term.coefficient.clone());
                 }
-                Ok((target, row))
+                (target, row)
             })
-            .collect::<Result<_, _>>()?;
+            .collect();
         let mut columns: Vec<&Vec<i16>> = rows
             .iter()
             .chain(desired.iter().map(|(_, row)| row))
@@ -202,8 +209,8 @@ fn certify<const N: usize>(
         }
     }
 
-    // Returned rules: map preferred masters back, then eliminate the hardest
-    // derived target until only search residuals remain.
+    // The search residuals: before any basis change, the replaced residuals
+    // were residuals and the replaced preferred masters had rules.
     let (back, search_residuals) = match &solution.basis_change {
         Some(change) => {
             let back: BTreeMap<Vec<i16>, &DynamicRule> = change
@@ -225,57 +232,90 @@ fn certify<const N: usize>(
             solution.residuals.iter().cloned().collect(),
         ),
     };
-    let mapped_rules = solution.rules.iter().chain(back.values().copied());
-    for rule in mapped_rules {
+
+    // Reduce every derived target once, easiest first; strict descent makes
+    // every right-hand side already reduced or a search residual.
+    let mut reduced = BTreeMap::<Vec<i16>, Combination>::new();
+    let mut targets: Vec<&Vec<i16>> = derived
+        .keys()
+        .filter(|target| !search_residuals.contains(*target))
+        .collect();
+    targets.sort_by(|left, right| compare(right, left));
+    for target in targets {
+        let mut combination = Combination::new();
+        for term in &derived[target].rhs {
+            let powers = values(&term.powers);
+            if search_residuals.contains(&powers) {
+                add(&mut combination, powers, term.coefficient.clone());
+            } else if let Some(inner) = reduced.get(&powers) {
+                for (integral, coefficient) in inner {
+                    add(
+                        &mut combination,
+                        integral.clone(),
+                        &term.coefficient * coefficient,
+                    );
+                }
+            } else {
+                return Err(fail(format!(
+                    "{powers:?} in the rule for {target:?} is neither derived nor a residual"
+                )));
+            }
+        }
+        reduced.insert(target.clone(), combination);
+    }
+    let expand = |row: &mut Combination, integral: Vec<i16>, coefficient: Coefficient| {
+        if search_residuals.contains(&integral) {
+            add(row, integral, coefficient);
+        } else if let Some(inner) = reduced.get(&integral) {
+            for (key, value) in inner {
+                add(row, key.clone(), &coefficient * value);
+            }
+        } else {
+            return Err(fail(format!(
+                "{integral:?} is neither derived nor a residual"
+            )));
+        }
+        Ok(())
+    };
+
+    // Every returned rule, with replaced preferred masters standing for their
+    // original reductions, must vanish once expressed in search residuals.
+    let residuals: BTreeSet<&Vec<i16>> = solution.residuals.iter().collect();
+    for rule in &solution.rules {
+        let target = values(&rule.target);
+        if residuals.contains(&target) {
+            return Err(fail(format!(
+                "{target:?} is both a residual and a rule target"
+            )));
+        }
+        if let Some(term) = rule
+            .rhs
+            .iter()
+            .find(|term| !residuals.contains(&values(&term.powers)))
+        {
+            return Err(fail(format!(
+                "the rule for {target:?} uses {:?}, which is not a residual",
+                values(&term.powers)
+            )));
+        }
+    }
+    for rule in solution.rules.iter().chain(back.values().copied()) {
         let target = values(&rule.target);
         let mut row = Combination::new();
-        let unit = match rule.rhs.first() {
-            Some(term) => unit(&term.coefficient),
-            None => {
-                // A zero rule must be derived as zero.
-                match derived.get(&target) {
-                    Some(origin) if origin.rhs.is_empty() => {
-                        certificate.returned_rules += 1;
-                        continue;
-                    }
-                    _ => return Err(fail(format!("the zero rule for {target:?} is not derived"))),
-                }
-            }
-        };
-        add(&mut row, target.clone(), unit);
+        expand(&mut row, target.clone(), one.clone())?;
         for term in &rule.rhs {
             let powers = values(&term.powers);
-            // A replaced preferred master stands for its original reduction.
             match back.get(&powers) {
                 Some(original) => {
                     for inner in &original.rhs {
-                        add(
+                        expand(
                             &mut row,
                             values(&inner.powers),
                             -(&term.coefficient * &inner.coefficient),
-                        );
+                        )?;
                     }
                 }
-                None => add(&mut row, powers, -term.coefficient.clone()),
-            }
-        }
-        loop {
-            let hardest = row
-                .keys()
-                .filter(|key| !search_residuals.contains(*key))
-                .min_by(|left, right| compare(left, right))
-                .cloned();
-            let Some(key) = hardest else {
-                break;
-            };
-            let Some(derivation) = derived.get(&key) else {
-                return Err(fail(format!(
-                    "{key:?} in the rule for {target:?} is neither derived nor a residual"
-                )));
-            };
-            let factor = row.remove(&key).expect("the hardest key is present");
-            for term in &derivation.rhs {
-                add(&mut row, values(&term.powers), &factor * &term.coefficient);
+                None => expand(&mut row, powers, -term.coefficient.clone())?,
             }
         }
         if !row.is_empty() {
@@ -291,7 +331,6 @@ fn certify<const N: usize>(
         .iter()
         .map(|rule| values(&rule.target))
         .collect();
-    let residuals: BTreeSet<&Vec<i16>> = solution.residuals.iter().collect();
     for integral in &solution.requested {
         if !solved.contains(integral) && !residuals.contains(integral) {
             return Err(fail(format!(

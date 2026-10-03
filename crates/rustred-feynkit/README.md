@@ -180,11 +180,13 @@ of that plateau, or `None` if `max_depth` came first. This is a heuristic.
 `solution.certify(count_masters=True, replay=True, seed=0)` returns an
 `IBPCertificate` of a `reduce_laporta` solution:
 
-- `replay` derives every rule again from the family's original IBP (and, if
-  used, Lorentz) identities at the seeds the search recorded, after an
-  independent zero-sector census, checks strict descent, and checks that every
-  returned rule, including any basis change, follows from them. A failure
-  raises `ValueError`; success sets `certificate.reduction = "verified"`.
+- `replay` recomputes the zero-sector census, derives every rule of the
+  search again from the family's original IBP (and, if used, Lorentz)
+  identities at the seeds the search recorded, checks strict descent, and
+  checks that every returned rule uses only residuals and, including any basis
+  change, follows from the derived rules. A failure raises `ValueError`;
+  success sets `certificate.reduction = "verified"`. The nonzero conditions
+  are not checked against the coefficients' poles.
 - `count_masters` counts the master integrals of each residual sector without
   symmetries from critical points of the Lee–Pomeransky polynomial `U + F`,
   computed exactly at random finite-field kinematics chosen by `seed` and

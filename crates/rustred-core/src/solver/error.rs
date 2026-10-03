@@ -6,9 +6,14 @@ use super::PowerError;
 pub enum SolverError {
     InvalidInput(String),
     Power(PowerError),
-    SearchExhausted { depth: u32, rows: usize },
+    SearchExhausted {
+        depth: u32,
+        rows: usize,
+    },
     UnluckySample,
     ExactReplay(String),
+    /// A solution failed an independent certificate check.
+    Certification(String),
 }
 
 impl fmt::Display for SolverError {
@@ -24,6 +29,7 @@ impl fmt::Display for SolverError {
             }
             Self::UnluckySample => write!(f, "the modular sample lies on a coefficient pole"),
             Self::ExactReplay(message) => write!(f, "exact pivot replay failed: {message}"),
+            Self::Certification(message) => write!(f, "certification failed: {message}"),
         }
     }
 }

@@ -33,8 +33,9 @@ impl SectorCheck {
 /// Checks of a ``reduce_laporta`` solution, from ``IBPSolution.certify()``.
 ///
 /// ``reduction`` is ``"verified"`` when every rule was derived again from the
-/// family's original identities, or ``"unchecked"``; a failed derivation raises
-/// instead. ``masters`` compares each residual sector with its number of master
+/// family's original identities and every returned rule follows from them, or
+/// ``"unchecked"``; a failed check raises instead. Nonzero conditions are not
+/// checked against the coefficients' poles. ``masters`` compares each residual sector with its number of master
 /// integrals, counted without symmetries from critical points of ``U + F`` at
 /// random finite-field kinematics:
 ///

@@ -138,18 +138,17 @@ impl PyIbpFamily {
         solution: DynamicSolution,
         include_lorentz: bool,
     ) -> PyResult<PyIbpSolution> {
-        let record = LaportaRecord {
+        let mut converted = self.solution(&solution)?;
+        converted.laporta = Some(Arc::new(LaportaRecord {
             family: Arc::clone(&self.family),
             cuts: self.cuts.clone(),
             include_lorentz,
-            solution: solution.clone(),
-        };
-        let mut converted = self.solution(solution)?;
-        converted.laporta = Some(Arc::new(record));
+            solution,
+        }));
         Ok(converted)
     }
 
-    fn solution(&self, solution: DynamicSolution) -> PyResult<PyIbpSolution> {
+    fn solution(&self, solution: &DynamicSolution) -> PyResult<PyIbpSolution> {
         let mut replacements = self.parameters.clone();
         for (internal, visible) in solution.index_variables.iter().zip(&self.indices) {
             let PolyVariable::Symbol(symbol) = internal else {
@@ -161,7 +160,7 @@ impl PyIbpFamily {
         let cut: Arc<[bool]> = self.cuts.required_active().active_bits().into();
         let rules = solution
             .rules
-            .into_iter()
+            .iter()
             .map(|rule| PyIbpRule {
                 target: rule.target.clone(),
                 rhs: rule
@@ -184,7 +183,7 @@ impl PyIbpFamily {
                     .iter()
                     .map(|branch| branch.iter().map(|p| rename(p.to_expression())).collect())
                     .collect(),
-                sector: rule.sector,
+                sector: rule.sector.clone(),
                 indices: self.indices.clone(),
                 cut: cut.clone(),
             })
@@ -217,11 +216,12 @@ impl PyIbpFamily {
             .unwrap_or_default();
         let replaced = solution
             .basis_change
-            .map(|change| change.replaced)
+            .as_ref()
+            .map(|change| change.replaced.clone())
             .unwrap_or_default();
         Ok(PyIbpSolution {
             rules,
-            residuals: solution.residuals,
+            residuals: solution.residuals.clone(),
             stats,
             arity: self.indices.len(),
             cut,
@@ -380,7 +380,7 @@ impl PyIbpFamily {
                 )
             })
             .map_err(value_error)?;
-        self.solution(result)
+        self.solution(&result)
     }
 
     /// Run exact finite-target Laporta elimination with a bounded seed search.

@@ -97,3 +97,49 @@ def test_parametric_solutions_are_not_certified():
     assert parametric.depth is None and parametric.stable_depth is None
     with pytest.raises(ValueError, match="requires a reduce_laporta solution"):
         parametric.certify()
+
+
+def test_integrals_proved_zero_by_ibp_are_certified():
+    d, k, p, s, m2 = S("zero::d", "zero::k", "zero::p", "zero::s", "zero::m2")
+    kin = hep.Kinematics(d, momenta=[k, p]).with_scalar_product(p, p, s)
+    family = hep.IntegralFamily(
+        [k], [p], [kin.scalar_product(k, k) - m2], kinematics=kin
+    ).complete()
+    ibp = hep.IBPFamily(family)
+    for targets, depth in (([[1, -1]], 1), ([[2, -1], [1, -2]], 2)):
+        solution = ibp.reduce_laporta(targets, max_depth=depth)
+        # Odd powers of k.p vanish; I(1,-2) does not.
+        assert solution.reduce(targets[0]) == []
+        assert solution.certify(count_masters=False).reduction == "verified"
+
+
+def test_sunrise_with_several_preferred_masters_is_certified():
+    d, k1, k2, p, s, m2 = S(
+        "sunrise::d",
+        "sunrise::k1",
+        "sunrise::k2",
+        "sunrise::p",
+        "sunrise::s",
+        "sunrise::m2",
+    )
+    kin = hep.Kinematics(d, momenta=[k1, k2, p]).with_scalar_product(p, p, s)
+    family = hep.IntegralFamily(
+        [k1, k2],
+        [p],
+        [
+            kin.scalar_product(k1, k1) - m2,
+            kin.scalar_product(k2, k2) - m2,
+            kin.scalar_product(k1 + k2 - p, k1 + k2 - p) - m2,
+        ],
+        kinematics=kin,
+    ).complete()
+    solution = hep.IBPFamily(family).reduce_laporta(
+        [[2, 1, 1, 0, 0], [1, 1, 1, 0, 0]],
+        max_depth=1,
+        preferred_masters=[[1, 1, 1, -1, 0], [2, 1, 0, 0, 0]],
+    )
+    assert [status for _, status in solution.preferred_masters] == [
+        "replaced",
+        "replaced",
+    ]
+    assert solution.certify(count_masters=False).reduction == "verified"
