@@ -21,14 +21,51 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Delivered; H55 checked export in468.915s | Same bytes as sparse-exact1220.975s; smaller-cache run censored. Preserve controlled cache result, not a campaign gain. |
 | Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | Rejected on completed shared-work gate | H55 point385477→387421 domains; joint envelope also near-null/negative. No further parent-mask pruning without a different mechanism. |
 | Native positive-power envelope | `rule_optimizer_impl` + independent auditor | Delivered capability; tested candidate rejected | 68 optimized tests pass; exact joint export valid but386131→387578 domains. No A-only lift or more local filters. |
-| Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Actual matching/shapes/support delivered; guarded application active | Numerator-stratified probes, then owner3rule146 small-bank modular calibration. Preserve held-out owners. |
+| Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Four-point graph completed and audited; marginal A-raising cost negligible | Profile broader reusable recurrence/dispatch mechanisms; preserve held-out owners. |
+| Lower-owner exact alternative | `lower_rule_evaluation` + independent auditor | One negative-ray rule proved/exported in2.486s | Fresh matched four-point full-context traversal, with explicit activation and cold verification. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
-| Mathematical and measurement review | `exact_and_cost_audit` | Active | Continue the completed independent source/witness audits; preflight the single joint lift and audit lower-owner matching. |
+| Mathematical and measurement review | `exact_and_cost_audit` | Active | Four-root graph and lower-owner exact lift pass; preflight/audit the matched candidate traversal. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Lower-owner exact proof and completed shared graph — October3, 23:26 UTC
+
+[M] The four-point baseline completes in177.19s inclusive, with19074 domains,
+101338 edges and17458 independently reinspected native records. Cold-All/Off
+passes for all four roots; no pending work, frontiers or owned processes remain.
+The independent auditor reconstructs all four RHS-to-edge bijections and the
+full shared adjacency. Removing the four owner3/rule146 A-raising root edges
+makes only one node unreachable; three targets are still reached elsewhere.
+That sole node costs33 native operations and0.000497 summed inspection seconds.
+This frozen-graph result is not a causal bound on arbitrary replacements, but
+it rejects A-raising suppression as the next isolated optimization here.
+
+[M] The single no-H, +eD14 exact lift then finishes in2.486s inclusive
+(1.855s native),258MB peak, with no refinement. It proves a fresh42-source,
+89-term ordinary identity using the178 nominated rows from the complete250-row
+bank, preserving the319 mandatory forbidden columns. The checked alternate has
+two exact cells, D14=-1 and D14<=-2, with D3=-1 and all other indices fixed.
+Both carry their regenerated guards. The exported owner goes584->585 rules,
+retains all58 terminals and uses whole-piece alternate dispatch. Candidate SHA
+`5bc54749f4344e94268ea31ce17b51b4ab2fdbf1af7fae63c36d8751e85226a2`.
+Independent full source/product/chart/export audit passes. The88 broad RHS
+terms in the second cell are not yet point-specialized or a cost improvement.
+
+[E] `lower_rule_evaluation` replaces the completed implementation agent for
+one fresh matched four-point pair, retaining all67 owners,8246 routes and both
+repair overlays. Only the proved owner3 payload may differ. The first owner3
+point lies in the new chart; the second lies outside it and must retain its
+baseline dispatch. `lower_sector_discovery` investigates broader, reusable
+recurrence/dispatch mechanisms in the completed graphs, including bounded
+composition and coefficient cancellation, rather than further parent filters.
+Production remains untouched; no switch recommendation is justified yet.
+
+Evidence: `profiles/lower-owner-0-3-pointgraph-result-v1.json` and
+`candidates/symbolic-owner3-rule146-ray-plus-e13-noH-direct-v1/` under
+`TMP/rule-optimizer-20261003/`. All comparisons retain their limited scope.
 
 ### Lower-owner probes identify a small exact search — October3, 23:16 UTC
 

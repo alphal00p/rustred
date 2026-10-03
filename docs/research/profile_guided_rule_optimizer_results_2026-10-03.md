@@ -822,3 +822,32 @@ source selection and reducing dispatch fragmentation are the next hypotheses.
 Existing exact transport, ordinary-source generation and Symbolica arithmetic
 remain the authority boundaries; no handwritten CAS or topology-specific rule
 has been introduced.
+
+## Small lower-owner alternative and shared-graph test
+
+A separate four-point baseline retains two actual R3 members of owner3rule146
+and R1/R2 members of owner0rule1, with the full owner/routing/repair context.
+It completes in177.19s inclusive:19074 nodes,101338 edges,17458 native records
+reinspected by fresh cold-All checking, all four roots verified and no debt.
+An independent full adjacency reconstruction verifies every guarded RHS key.
+Deleting all four A-raising owner3 root edges makes only one node unreachable;
+the other three targets remain reachable. That one native record costs33
+operations. This hypothetical frozen-graph cut is neither a valid identity nor
+a predicted replacement speedup; it argues against another local A-raising ban.
+
+On the explicit chart D3=-1,D14<=-1, with other inactive indices zero and active
+indices one, a250-row ordinary bank at zero recenter misses three modular
+samples. A single +eD14 recenter, nominated from the actual source universe,
+hits all three and identifies the same178 rows. Exact materialization then
+completes in2.486s inclusive/1.855s native,258MB peak. The new42-source identity
+passes original-source replay, strict descent, regenerated guards and checked
+export. It has exact D14=-1 and D14<=-2 cells with55 and88 broad RHS terms.
+All58 existing owner terminals remain unchanged. This is a proved alternative
+on one reusable ray, not historical-incumbent replay or whole-owner coverage.
+
+Artifact SHA:
+`5bc54749f4344e94268ea31ce17b51b4ab2fdbf1af7fae63c36d8751e85226a2`.
+The first selected R3 point lies in the second cell; the other R3 point has
+D13=-1 and is outside the chart. A fresh matched full-context traversal is
+being prepared, including explicit activation checks. Shorter symbolic output
+alone is not evidence of reduced shared work or a reason to replace production.

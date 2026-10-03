@@ -4132,3 +4132,45 @@ This nomination finishes cleanly in 2.037451 seconds, with no exact solve,
 source-proof/export authority, retries or automatic recenter sweep. Native
 reports hash to `8bde1d8d...20605a` and `10cd43ec...29caa6` under
 `incidence-study/owner3-rule146-ray-{recenter0,plus-e13}-v1/`.
+
+The baseline-only graph subsequently completes with native cold All/Off PASS:
+all four roots and all 17,458 native/G2 inspections are verified. Independent
+audit rehashes 9,791,607 input bytes, rebuilds adjacency and reachability,
+rejoins all four complete RHS sets and decodes all 19,074 records. Every cut,
+overlap count and owner/cut work aggregation agrees. The graph has 101,338
+edges; all nodes remain reachable from the four roots before cuts. Removing
+the two A-raising edges at the first owner3 root loses one native node,
+0.000497112 summed inspector seconds; the second pair loses none. Jointly
+removing all four still loses only that one node. Controls cutting the other
+101 and 69 tails lose 239 and 36 nodes (0.041784294 and 0.003504328 summed
+seconds). This preserves all roots, alias/G2 dependencies and shared paths;
+it is a strong local falsifier for an A-raising-only cost focus, not a valid
+replacement or causal savings measurement. Evidence:
+`profiles/lower-owner-0-3-pointgraph-result-v1.json`.
+
+The separately authorized single no-H exact calibration also passes final
+authority audit. Its request differs from the successful +e13 nomination
+only by removing modular samples and adding the identical 178 exact ordinals,
+native direct-L backend, compact coefficient variables and fresh original
+certificate. All 250 original rows and their guard inventory are regenerated
+before selection. Native F319 (319 cofinal columns, zero additional fixed-root
+columns) exactly equals nomination F. The sole attempt has zero refinements:
+42 distinct ordinary contributions lie in the selected inventory, and their
+89-shift full product has target coefficient one and no forbidden shift.
+
+The proved cells are exactly D14=-1 and D14<=-2, with 55 and 88 RHS terms;
+the other 14 fixed coordinates do not change. The first guarded R3 point is
+covered, but the second, with D13=-1, is outside this chart. Both cells carry
+the same two native-regenerated guards, `-6-2*n13+2*d` and `-3-n13+d`. The
+383 projection conditions are not substituted for native final guard
+authority; the complete original source-condition inventory is empty.
+Checked export rechecks the source proof, preserves 58 terminals and the
+584-rule suffix, and adds one `AfterBaselinePartitionWholePiece` rule.
+The raw report `9b84679f...d369d5` equals proof export
+`41633d0d...7c639` plus its final newline. The 22,940,468-byte candidate
+rehashes to `5bc54749f4344e94268ea31ce17b51b4ab2fdbf1af7fae63c36d8751e85226a2`.
+Native time is 1.855231 seconds, inclusive time 2.485941 seconds and sampled
+peak RSS 258,183,168 bytes, with clean exit and complete drain. This accepts
+a source-proved guarded alternative on one declared ray, not historical
+pivot recovery, incumbent replay, whole-case coverage or downstream gain.
+Evidence: `candidates/symbolic-owner3-rule146-ray-plus-e13-noH-direct-v1/`.
