@@ -1,12 +1,81 @@
 # Codex progress: five-loop optimization and controlled deployment
 
 Authoritative current plan:
-[ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md](ASTER_FINAL_PUSH_FOR_ALL_OPTIMIZATION.md).
+[PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md](PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
 Earlier plans and measurements below remain historical evidence, not a launch
 instruction. The user launched the frozen generation-first trial on September30;
 root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
+
+## Current workboard — October3 profile-guided rule optimization
+
+The user explicitly starts an ambitious program to use existing campaign data
+to discover more efficient rules, rather than only repair frontiers. A new
+tool-managed goal is assigned to root; its full objective and acceptance gates
+are in the linked plan. The previous repair goal is complete, not reopened.
+
+[M] At 11:51 Europe/Zurich (09:51 UTC), both user-launched repaired campaigns
+are running: oldsavedpool native PID2941004 on CPUs64–95, currentnew37pool
+PID2941870 on96–127. Supervisors are2940123/2941420. Both use CLI8ef80b52…,
+32 workers and600GB requested ceilings. The historical Oct1/Oct2 runs and
+their saved records are retained. No production lifecycle action is taken.
+
+Initial lanes: independent campaign cost/region profiling; exact-candidate
+portfolio and downstream-evaluator architecture; adversarial mathematical/code
+and measurement review. Root owns this log, the plan, resource allocation and
+integration. First outputs must be evidence-backed hotspots and a preregistered
+training/validation panel, not another blind source-order sweep. Existing
+FirstValid/BoundedPortfolio, source controls, exact source replay and whole-piece
+alternate dispatch should be reused. Two unrelated HepKit source/test edits and
+all pre-existing untracked work remain outside this program.
+
+| Lane | State | First deliverable |
+| --- | --- | --- |
+| Campaign profile and work attribution (`rule_cost_profiles`) | Active | Bounded-read evidence inventory, recurrent expensive regions, sampling limits |
+| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Active | Existing API audit and minimal generic candidate/export/scoring boundary |
+| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Active | Rejection criteria, audit of profiling/experimental design, relevant primary sources |
+| Matched downstream experiments | Pending | Frozen evidence-derived panels and baseline measurements |
+| Improved pool and deployment | Pending | Exact, cold-loadable, measured candidate; user-only production launch |
+
+[M] The third new-agent spawn hit the thread limit; reassigning the independent
+former delivery agent succeeded, so all three lanes are staffed. The current
+record-cost helpers target CP5 JSONL, while these campaigns use CP6 framed binary
+records. The profiler therefore owns a narrow generic sampler and tests under
+`tools/research/rule_optimizer/profile*`. Root approved at most32MiB of
+preregistered immutable-segment windows initially, with validated framing and
+explicit byte-weighted sampling limitations. This is diagnostics, not checkpoint
+authentication, a full census or mathematical authority. No per-rule timings
+may be invented from phase-level statistics. Native reinspection of selected
+regions can later supply actual selected-rule identities.
+
+[M] CPU32–47 are distinct physical cores outside both production reservations.
+Other host workloads and a socket1 lock are present, so no heavy job or build
+has yet been admitted. Root will recheck affinity/locks and allocate resources
+before matched pilots. All three current lanes are light read-only research or
+isolated tooling work, not production mutations.
+
+[M] Independent bootstrap review accepts the plan as an experimental protocol,
+not a demonstrated optimization. The first evaluator gate is a complete A/A
+combined4L run, with preregistered work/time boundaries and independent cold
+validation. The existing old4L report illustrates why raw status flags are
+insufficient: a stale incomplete snapshot can coexist with pending0 and an
+independent cold-All complete result. The evaluator must report these distinct
+facts, not substitute `native_finished` for completed scope.
+
+[M] Exact old-run aggregate evidence from the profiler:4,151,342,058 inspector
+lookup queries and3,816,788,495 stored hits; coordinator P2/P3 wall totals about
+55,224/40,809s. Inspector lookup timings are summed across inspectors and must
+not be added to coordinator wall phases. This motivates reducing propagated
+shared work, not yet any specific new rule. Per-rule attribution remains pending.
+
+[M] Implementation agent identified two separate gaps: portfolio trials discard
+unselected exact candidates, while existing partial overlays only append and
+cannot replace a covered rule. The source-proved priority-owner exporter exists
+but takes OriginalSourceCombination, not an arbitrary SectorRule. Begin with
+the narrow existing-artifact evaluator and actual A/A control; defer core API
+changes until the profile supplies concrete targets. Source-proof provenance
+and native traversal cold reinspection are separate acceptance gates.
 
 ## Current workboard — October3 frontier repair
 

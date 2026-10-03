@@ -1,5 +1,24 @@
 # RustRed project goal
 
+## Active October3 program — profile-guided rule optimization
+
+At the user's explicit request, implement
+`PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md` as the new active goal. Use the existing
+campaign evidence to identify costly shared descendant mechanisms, generate
+competing exact parametric rules and measure whole-program effects. Root chiefly
+coordinates independent profiling, implementation and adversarial review agents.
+Seek a reproducible material reduction (target at least 20%) in representative
+five-loop completed-cohort work or cost, with complete four-loop and held-out
+five-loop validation, before proposing a new frozen campaign. Do not mistake
+local applicability, shorter rules or a completed tool for this objective.
+
+Preserve the entire 116-required/67-helper physical request, exact authority and
+all successor obligations. Both user-launched October3 campaigns remain
+untouched; production lifecycle belongs to the user. Generic algorithms and
+Symbolica-only CAS remain required. Record progress in CODEX_PROGRESS.md and
+commit/push audited milestones on main. This directive supersedes earlier
+stopping instructions; the frontier-repair task below is completed history.
+
 ## October3 active directive — repair the older campaign's new frontier
 
 Analyze the frontier that stopped the older campaign, resolve its underlying
