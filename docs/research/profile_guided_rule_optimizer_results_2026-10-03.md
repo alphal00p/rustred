@@ -758,3 +758,67 @@ Evidence: `profiles/H55-graph-preregistration-v1.json`,
 the ignored October3 evidence directory. The actual-universe envelope is still
 one bounded falsifier; repeated root-mask pruning is not the strategy going
 forward unless shared-graph evidence supports the chosen block.
+
+## Envelope follow-up and lower-owner diagnosis
+
+The default-off native-universe envelope is implemented and independently
+audited, with 68 optimized tests passing. Three frozen modular samples all
+nominate the same support in each of two controls: A-only selects 2803 sources
+with F7141; H55+A selects 2914 with F7196. These are discovery results, not proof.
+Only the joint candidate receives the preregistered exact lift.
+
+That lift completes in 437.746s inclusive (433.653s reported native work), with
+8.134GB peak RSS. It reconstructs 1854 ordinary-source contributions and replays
+their full 2027-term identity. The checked export retains the original 800
+rules and 116 owner terminals, adding one alternate with whole-piece dispatch.
+Its exact cells cover D2=3 and D2>=4 with the other 14 coordinates fixed; all
+54 source/weight/RHS guards are regenerated. Independent authority audit passes.
+Artifact SHA: `e298b32c420bf8fc231e2bdf53a670c4804bf7bc9074cf92e721cf66cf52fab8`.
+
+The envelope eliminates all positive-power growth on this whole ray and all
+H55 columns, but retains every incumbent same-support term and adds 12. It is
+therefore not enough to inspect these local changes. The unchanged full-context
+point comparison completes, with fresh cold reinspection passing in both arms:
+
+| Completed point cohort | Baseline | H55 + positive-power envelope |
+| --- | ---: | ---: |
+| Scheduled domains | 386,131 | 387,578 |
+| Native inspections | 315,254 | 316,860 |
+| Successor events | 5,344,787 | 5,329,690 |
+| Traversal seconds | 27.5568 | 28.2121 |
+| Whole-arm seconds | 224.6086 | 226.6268 |
+
+All pending/frontier/abandoned counts are zero and all owned groups drain;
+the full pair takes454.148s. The primary metric increases0.3747%, rather than
+meeting the20% improvement target. Reject this candidate and retain the baseline.
+Small timing differences are not a robust speed claim. As preregistered, close
+this parent-local pruning experiment: no A-only lift, more local filters or
+automatic bank expansion. The generic tested option remains available, but no
+campaign switch follows from either exact export.
+
+The complete record census meanwhile attributes 40.530 and 19.497 summed
+inspection seconds to shared owners0 and3 out of 116.197 total. These are
+overlapping worker intervals, not wall-time shares. Four recorded whole-domain
+queries have been rerun through the native matcher: all counters reproduce
+exactly, with 245 selected-rule pieces and seven terminals in 106.344s including
+preparation. Actual matching takes 0.09655s. The 835-tuple owner0 stress region
+uses 46 different rules across 193 selected pieces; the 56-tuple owner3 region
+uses 21 rules across 50 selected pieces. Neither stress representative is
+claimed typical of production.
+
+Six compact saved-rule inspections establish both simple and more complex
+possibilities: owner0 rules97/1/15 have 20/14/23 RHS terms and 4/1/1 retained
+sources; owner3 rules21/93/146 have 13/99/165 terms and 1/17/54 sources. Actual
+guarded evaluation is needed before assigning cost to those symbolic terms.
+Read-only source support nominates 25 and 250 row-offset pairs for owner0rule1
+and owner3rule146, respectively. The winning source recenter remains unknown;
+stored seed offsets do not themselves replay the incumbent.
+
+Structural review rejects a simple product-factorization shortcut: the first
+support is a connected five-loop banana, and the second has overlapping
+circuits. Scalar-only permutation symmetry is not the primary lead either:
+most measured local work concerns numerator-bearing regions. Numerator-aware
+source selection and reducing dispatch fragmentation are the next hypotheses.
+Existing exact transport, ordinary-source generation and Symbolica arithmetic
+remain the authority boundaries; no handwritten CAS or topology-specific rule
+has been introduced.

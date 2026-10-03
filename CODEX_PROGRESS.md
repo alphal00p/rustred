@@ -19,9 +19,9 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Delivered input-only discovery improvement | Target-distance/low-F-degree ordering nominates2823 rather than3549 rows; exact calibration completed, no downstream benefit claimed. |
 | Incumbent source-contract gap | Implementation + profiler + auditor | Research inspector corrected and pushed | Explicit minus-one nomination restores modular feasibility; it is not yet a replay of the saved incumbent. |
 | Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Delivered; H55 checked export in468.915s | Same bytes as sparse-exact1220.975s; smaller-cache run censored. Preserve controlled cache result, not a campaign gain. |
-| Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H55 exact export succeeds; downstream negative | Full-context point385477→387421 domains. Diagnose replacement tails/shared dependencies before proposing another block. |
-| Native positive-power envelope | `rule_optimizer_impl` + independent auditor | 68 optimized tests pass; both modular controls hit | One joint H55+A exact lift only, then unchanged point gate; no automatic A-only lift or further local filters. |
-| Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Complete developer graph and record census delivered | Native-match four frozen whole-domain representatives for owners0/3; preserve existing held-out owners. |
+| Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | Rejected on completed shared-work gate | H55 point385477→387421 domains; joint envelope also near-null/negative. No further parent-mask pruning without a different mechanism. |
+| Native positive-power envelope | `rule_optimizer_impl` + independent auditor | Delivered capability; tested candidate rejected | 68 optimized tests pass; exact joint export valid but386131→387578 domains. No A-only lift or more local filters. |
+| Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Actual matching/shapes/support delivered; guarded application active | Numerator-stratified probes, then owner3rule146 small-bank modular calibration. Preserve held-out owners. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Continue the completed independent source/witness audits; preflight the single joint lift and audit lower-owner matching. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -29,6 +29,116 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Lower-owner probes identify a small exact search — October3, 23:16 UTC
+
+[M] Four guarded native applications finish in105.288s inclusive,5.13GB peak,
+with independent typed-geometry audit passing. The two owner3rule146 R3 points
+emit103 and71 distinct successors (30/14 same-support,73/57 strict-subsector).
+Each has two A7->8 terms, accompanied by a one-unit rank decrease. No sampled
+tail raises rank. Owner0rule1 emits seven same-support terms at each R1/R2 point,
+without raising A or R. This does not yet assign downstream cost to any term.
+
+[M] On an explicit reusable owner3 chart D3=-1,D14<=-1 (all other inactive
+indices zero and active indices one), the250-row ordinary-source nomination at
+recenter zero misses in all three samples: rankF240=rankAug240. A single
+prospectively justified +eD14 recenter then hits in all three, with identical
+178-source support, F319, ranks232/233, prefix236. A native actual-universe
+-eD14 column motivated that hypothesis; it is not recovery of the saved rule's
+historical pivot. The two guarded pilots take2.009s and2.037s and drain cleanly.
+No exact or nonexistence claim follows from either modular result.
+
+[E] One small no-H exact materialization is authorized after independent
+preflight, using all original sources/guards before selecting the178-row frame.
+This calibrates the new source/chart and may produce an alternative, without
+presupposing a gain. The proposed two A-raising-column bans remain parked until
+their shared downstream contribution is measured: exchanging rank for dots is
+not intrinsically harmful. No new algebra primitive or engine rebuild is needed.
+
+[M] A baseline-only four-point cohort is running under the existing bounded
+controller on32–47; it keeps all four guarded inputs, restores their original
+correlated bounds, and retains the full owner/routing/overlay context. Its walk
+has exhausted19074 domains with zero pending/frontiers; fresh cold-All checking
+is still running, so closure is not yet accepted. This is diagnostic evidence,
+not a paired performance comparison or replacement for the original full cohort.
+
+### Parent envelope does not improve shared workload — October3, 23:07 UTC
+
+[M] The second full-context point pair finishes in454.148s, both arms fresh
+cold-All/Off PASS, no pending domains/frontiers/abandonment, all owned processes
+drained. Baseline:386131 scheduled,315254 native,5344787 events,27.5568s walk,
+224.6086s full arm. Joint H55+A:387578,316860,5329690,28.2121s,226.6268s.
+The valid alternative increases domains by0.3747% and full-arm time by0.8985%.
+It does not meet the20% work target; retain the baseline. Small differences
+are not a strong timing claim, and no promotion repeat is warranted.
+
+[E] This closes the parent-local H55/envelope lane as preregistered. No A-only
+exact lift, further local filters or bank expansion are authorized for that
+target. The generic optional envelope remains a tested research capability,
+not a production optimization. Independent final measurement review continues.
+
+[M] The next discovery probes use actual owner0rule1 members at R1 and R2,
+and two owner3rule146 members at R3. This prospective stratification replaces
+the unrun scalar/R1 v1 selection before any RHS output, because measured work
+is predominantly numerator-bearing. The four-query guard runs on69/70 under
+the existing600s inclusive limit. A separate, small250-source modular calibration
+for owner3rule146's explicit D3=-1,D14<=-1 ray is authorized on65/66, without
+new cost bans or an exact lift. Recenter zero is explicitly an unproved search
+nomination; misses must not be reported as nonexistence.
+
+### Joint envelope proved; shared-work test started — October3, 23:00 UTC
+
+[M] The single H55+A lift finishes in 437.746s outer / 433.653s native,
+8.134GB peak RSS, clean and drained. It reconstructs 1854 source contributions
+and a 2027-term full identity, checks the original-source product, proves the
+two D2=3 / D2>=4 cells, regenerates all 54 guards and exports one alternate
+without changing the 116 existing owner terminals. Independent authority audit
+passes. Artifact digest `e298b32c…2fab8`; proof `a808f886…df5fc`. This is a valid
+alternative, not a workload improvement. All 47 old same-support terms remain,
+with 12 added; positive-power growth is excluded on the full tested ray.
+
+[M] Root starts the unchanged complete physical-point pair, session45520,
+CPUs32–47, under the existing 30-minute inclusive guard. Both arms retain all
+67 owners, 8246 routes and two overlays; only owner66's checked payload differs.
+Command: `python -B TMP/rule-optimizer-20261003/run_pair.py --plan
+TMP/rule-optimizer-20261003/candidates/owner66-h55-envelope-point-fullcross-v1/plan.json`.
+No second local filter or automatic bank expansion follows a near-null result.
+
+[M] Lower-owner matching completes in 106.344s inclusive, 5.140GB peak RSS,
+all four queries locally applicable. All original matching counters reproduce
+exactly: 245 selected-rule pieces and seven terminals. Six existing native
+shape inspections finish in 5.84s: owner0 rules97/1/15 have20/14/23 terms,
+owner3 rules21/93/146 have13/99/165. Source-support reads and actual guarded
+application are next; piece frequency and expression length remain heuristics.
+
+[E] Independent structural review rules out scalar product factorization of
+these full supports. Owner0 is a connected five-loop banana; owner3 has
+overlapping circuits. Scalar-only symmetry is parked as the main approach:
+owner0's rank-cap-zero records account for only 0.715 of its 40.530 summed
+inspection seconds (not an upper bound on scalar members in higher-cap boxes).
+The main measured work therefore needs numerator-aware rules or less fragmented
+dispatch, not an assumed isolated-tadpole shortcut.
+
+### Audited searches running in parallel — October3, 22:51 UTC
+
+[M] Research milestone `56d77339` is committed and pushed to main. The
+independent exact preflight passes: unchanged5796-source bank, all mandatory
+forbidden columns and exact publication gates retained, only the approved
+envelope plus selected2914-source frame differ. The implementation agent starts
+the single joint lift (session50972, CPUs65/66). At10.21s its target scalar is
+reconstructed, but the full identity/replay/export is not yet available.
+
+[M] The lower-owner matching diagnostic starts (session31417, CPUs32–47),
+using the unchanged prepared command. Independent audit reproduces all four
+original whole-frame geometries and tuple counts1/835/1/56 by decoding only3873
+bytes. This is discovery of actual selected rules, not recursive closure.
+
+[M] Production observation at22:48 UTC:133391352 domains,15777706 pending,
+zero frontiers, about120.0GB process-tree RSS. The recorded13/67 roots and
+18005178 closed lower bound are2576s stale. The hour-window pending delta is
+-0.0308 per local completion, but the conservative discovered-minus-closed
+gap still grows; neither statistic proves convergence or eventual completion.
+The user-controlled production process and checkpoint remain untouched.
 
 ### Delegation refreshed; source milestone frozen — October3, 22:46 UTC
 

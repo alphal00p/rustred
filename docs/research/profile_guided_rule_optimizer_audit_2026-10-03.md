@@ -3943,3 +3943,192 @@ respectively, each at visitation prefix 5,239. These are first-hit sampled
 supports, not full-span ranks, exact certificates or cheaper recurrences.
 Evidence: `incidence-study/positive-power-envelope-v2/` and
 `candidates/projector-envelope-build-v2/`.
+
+## Lower-owner mechanism and cost follow-up
+
+Independent read-only review passes the four-query owner0/3 matching input
+bindings. All 67 owners, 8,246 routes and two repair overlays, including
+owner0's repair, remain present. Decoding only the four retained source frames
+(3,873 bytes) reproduces every coordinate, rank and A/D bound. Independent
+integer counting gives 1, 835, 1 and 56 tuples. The owner0 singleton is R0;
+its stress region contains 16 R0, 144 R1 and 675 R2 tuples. The owner3
+singleton is R2, with numerator D7 D11, and all 56 stress tuples are R3.
+Minimum frame hash means a stable whole-record choice, not modal geometry;
+largest emitted count is a deliberate stress choice. These queries discover
+actual rules and partitions, not recursive closure or a replacement benchmark.
+
+The common A5 momentum list gives a structural falsifier for simple product
+factorization. Write q_i for the momentum whose square minus one is D_i.
+Owner0, `000011001001011`, has active D5,D6,D9,D12,D14,D15. The first five
+forms q5,q6,q9,q12,q15 are an integer basis of determinant -1, and
+q14=q5+q6+q9+q12+q15: this is one five-loop banana block, not a lower-loop
+product. Owner3, `010111011000001`, has active D2,D4,D5,D6,D8,D9,D15.
+Its circuits q2-q4-q9-q15=0 and q4-q5+q6-q8+q15=0 overlap and cover all
+seven lines; q2,q4,q5,q8,q9 form an integer basis of determinant +1.
+Neither full active support splits into independent denominator blocks.
+These are deductions from the supplied input forms and elementary integer
+checks, **not newly generated native factorization or symmetry certificates**.
+No native job was run for this review.
+
+Existing authenticated product-moment execution supports independent tadpoles
+or one correlated factor plus tadpoles. It cannot supply the missing product
+decomposition here. Owner0's six-line permutation symmetry suggests a narrower
+scalar mechanism: the stress region's 16 scalar tuples have eight active-power
+multisets. Its singleton's active powers are already descending by active-axis
+order. The existing selection has only one identity same-mask route for each
+owner, not evidence of powered-integral orbit canonicalization. However,
+owner0's rank-cap-zero census strata account for only 1,380 inspections and
+0.714549255 summed inspection seconds, versus 17,798 and 40.530142533 in all
+its Apply strata. The other strata carry 39.815593278 seconds. Rank-cap labels
+do not prove that every member has positive numerator rank, and these sums
+overlap workers; they are not wall time or a global scalar-savings bound.
+Together with the stress-region composition, this parks scalar-only
+permutation as the primary cost lead and directs inspection toward numerator
+rules. The earlier H55 cut's 93 unreachable nodes likewise remain a hypothetical
+fixed-graph result, not savings achieved by a valid replacement.
+
+Numerator transport needs its complete affine witness. For example, owner3's
+support symmetry k2<->k4 maps D7 D11 to
+`(D1+D2-D4+D7+D10-D14+1) D13`, potentially seven terms. Native
+`sector::symmetry::verify` and concrete `integral_transport` can verify such
+maps and expand fixed numerator powers. The generic canonicalizer instead
+requires a unit permutation of every family denominator. Finite terminal
+normalization supplies neither arbitrary-rank parametric dispatch nor closure.
+The ordinary-source checker also rejects symmetry provenance: publication
+needs recovered ordinary-source weights through the unchanged proof/export
+path, or a separately authenticated symmetry path with whole-chart geometry,
+guards, saved-order descent and existing terminal/fallback authority. A future
+narrow falsifier would verify maps, transport the frozen numerator cases and
+reject non-descending or costly new tails before a shared-graph comparison;
+no symmetry implementation or new native experiment is authorized by this note.
+Evidence: `profiles/lower-owner-0-3-match-*-v1.json`,
+`profiles/H55-record-census-result-v1.json` and
+`profiles/H55-shared-graph-findings-v1.json`.
+
+The four-query native matching result subsequently passes independent receipt
+and input-command audit. All four classifications complete without error,
+gap, unresolved piece or truncation. Every one of the 11 matching counters
+equals its original record; selected-piece counts are 1, 193, 1 and 50.
+The 252 retained pieces comprise 245 selected and seven terminal pieces.
+All selected rules are in batch0: singleton rules are owner0/rule97 and
+owner3/rule21; the stress regions use 46 and 21 distinct rules respectively.
+The invocation exits cleanly and drains in 106.343940 seconds inclusive,
+with sampled peak RSS 5,140,447,232 bytes. It expands no RHS and claims no
+closure. Native report `discovery-lower-owner-0-3-match-v1/result.json`
+rehashes to `d784ff6e6f201d373c903f161aa29cc27991853b2b46d65ec3530e7348d13e43`.
+
+## Joint H55/envelope exact outcome
+
+The sole authorized source-weight attempt passes independent final authority
+audit. All frozen input, build and execution bindings remain intact. The
+5,796-source bank and 2,914 selected ordinals produce 1,854 distinct ordinary
+contributions, each belonging to the selected source inventory. Their native
+replayed full product has 2,027 unique shifts, including target coefficient
+one. Independent set checks reproduce mandatory F6274, its union with H55
+at F6329, and the final F7196 after the 867 envelope additions. This final
+set equals the modular nomination exactly, and none of its shifts survives.
+There is one attempt and zero refinements.
+
+The two native proof cells are exactly physical D2=3 and D2>=4 with the other
+14 fixed coordinates unchanged. They have 2,025 and 2,026 surviving RHS terms
+and identical inventories of 54 regenerated guards. The original caller-guard
+inventory is empty; final source/weight/RHS conditions remain native-derived,
+and no sealed proof is modified. Checked export independently rechecks the
+source proof, preserves 116 terminals and the old 800-rule suffix, and adds
+one `AfterBaselinePartitionWholePiece` rule. The frozen physical point lies
+in the first cell; actual selection/application still needs its downstream
+receipt. All broad candidate shifts have nonpositive A excess at the exact
+lower corner, the previously proved whole-ray maximum. This is envelope
+compliance, not a downstream-cost result.
+
+Native time is 433.653190 seconds, inclusive time 437.746277 seconds and peak
+sampled tree RSS 8,134,459,392 bytes. Exit is zero, with no stop/hard stop and
+all owned groups drained. Stdout hashes to `9b36f74f...1a4fff` and equals
+`artifact/proof-export.json` (`a808f886...8df5fc`) plus its final newline.
+The 745,053,056-byte candidate independently rehashes to
+`e298b32c420bf8fc231e2bdf53a670c4804bf7bc9074cf92e721cf66cf52fab8`.
+Evidence: `candidates/symbolic-owner66-recenter-H55-envelope-reconstructed-v1/`.
+This accepts the candidate for the unchanged full-context point comparison;
+it does not promote it. The broad shape still retains all 47 incumbent
+same-support terms and adds 12, so the previous H55 cost failure remains
+relevant. No additional native algebra run was performed by this auditor.
+
+The unchanged-point joint-envelope comparison subsequently completes and
+passes independent input, execution, activation and cold audit. The same
+query bytes, all 67 owners, 8,246 routes and two overlays remain; only owner66's
+payload changes. Native commands agree after arm-path normalization. Both
+worklists exhaust with joined workers, zero pending/reserved/error/frontier/
+abandoned/exhausted ledger entries and clean owned-process drains. Cold All/Off
+reinspects all 315,254 baseline and 316,860 candidate natives, verifies the sole
+required root and matching request/owner bindings, and reports no violations.
+Raw exit4 and `incomplete` again reflect stale engine closure snapshots, not
+resource censoring; the independent cold receipt supplies regional closure.
+
+A bounded 966-byte first-frame read per arm confirms actual candidate use on
+the identical point and caps. Baseline emits 1,668 successors (47 same-support,
+1,621 strict-subsector); candidate emits 2,025 (59 and 1,966). Candidate's
+2,026 term visits minus one zero agree with the proved D2=3 cell. First-frame
+digests are `ba604df1...67c57e` and `7ca0651a...b41201`; this diagnostic read
+does not replace native cold authentication.
+
+Scheduled domains are 386,131 to 387,578 (+0.3747%), native inspections
+315,254 to 316,860 (+0.5094%), and events 5,344,787 to 5,329,690 (-0.2825%).
+Traversal is 27.556756 to 28.212143 seconds (+2.3783%); complete arms are
+224.608635 and 226.626755 seconds (+0.8985%). The pair takes 454.148034 seconds
+inclusive. These complete results reject the 20% work-gain criterion, without
+claiming a precise causal estimate of the small slowdown. Source validity and
+A-envelope compliance did not produce a useful shared-graph improvement.
+Retain the incumbent and close this parent-local envelope lane: no A-only
+exact attempt, extra local filter or reverse pair is needed to reject it.
+Evidence: `candidates/owner66-h55-envelope-point-fullcross-v1/`.
+
+## Numerator-bearing lower-owner diagnostics
+
+The prospective guarded-v2 amendment selects owner0/rule1's first feasible
+lexicographic R1 and R2 members, not the unexecuted v1 scalar/R1 pair. Owner3/
+rule146 retains its first two actual singleton R3 pieces. Independent audit
+checks all four points against the original matching pieces and correlated
+parent bounds. Native guarded application completes 4/4, cleanly drained in
+105.288282 seconds, without errors, problems, refusals or truncation. All 188
+typed successor events independently reconcile with their shifts, physical
+coordinates, distinctness, support and A/R/D summaries; expression strings
+are not parsed as algebraic authority.
+
+Owner3's A7/R3 points emit 103 and 71 distinct successors: respectively
+30/73 and 14/57 same-support/strict-subsector. Each has two A-raising tails
+(maximum A8) and no R-raising tail. Owner0's A9/R1 and A9/R2 points each emit
+seven same-support tails, with neither A nor R increase. Every retained
+coefficient is natively classified uniform under its admitted guard. Each
+query nevertheless retains `IncomingComplement`; these are conditional RHS
+diagnostics, not first-priority dispatch, whole-chart proof or closure.
+Evidence: `profiles/lower-owner-0-3-guarded-result-v2.json` and native
+`discovery-lower-owner-0-3-guarded-v2/result.json` (`fa7c9571...8f1729`).
+
+The separately authorized baseline-only four-point graph preregistration
+passes input audit: exactly these literal points, original parent power
+bounds restored, four required roots, and the unchanged 67-owner/8,246-route/
+two-overlay context. No candidate runs or comparison are authorized by that
+baseline request. Actual dispatch, complete cold All/Off closure, full RHS
+bijections and root-overlap-preserving cuts are still required before any
+shared-cost interpretation; the guarded fanouts alone establish no savings.
+
+Two separately authorized no-H owner3/rule146 negative-ray calibrations also
+pass independent input and final-receipt audit. The chart fixes all active
+powers to one, D3=-1 and the other inactive coordinates to zero, leaving
+D14<=-1. The 250-row bank is the full native 10-offset by 25-ordinary-source
+product; its original recenter provenance is unknown. A zero-recenter
+hypothesis gives three `SAMPLED_MISS` observations (F381, rank240=augmented240,
+250 rows/5,220 structural terms), cleanly in 2.008558 seconds. This says
+nothing about whole-span impossibility or incumbent validity.
+
+Exactly one follow-up adds +1 to axis13 of every source offset, motivated by
+an actual native -e13 cofinal column, not a recovered historical pivot. An
+independent restoration check confirms that this is the only algebraic
+change: samples, chart, native fixed-root/cofinal policy and empty caller F
+remain unchanged; there is no H or A envelope. All three samples then give
+`SAMPLED_TARGET_SUPPORT` (F319, rank232 to augmented233, 236-row prefix/4,937
+terms). The identical 178 ordinals join exactly to their typed source rows.
+This nomination finishes cleanly in 2.037451 seconds, with no exact solve,
+source-proof/export authority, retries or automatic recenter sweep. Native
+reports hash to `8bde1d8d...20605a` and `10cd43ec...29caa6` under
+`incidence-study/owner3-rule146-ray-{recenter0,plus-e13}-v1/`.
