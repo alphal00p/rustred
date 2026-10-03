@@ -2894,3 +2894,159 @@ geometry census is not a zero classification. Native certificate overlap for
 those 27 masks, rather than a blanket possible-zero argument or a whole-family
 census, should decide whether this extension is relevant to the observed
 negative. No zero-producer/export extension is implemented by this audit.
+
+### Merged gate and prospective bounded lower-cut encoding
+
+The combined source-support/root-policy research build passes all twenty-one
+optimized tests, with independently rehashed test executable `3809d5b0…` and
+normal executable `7e92d338…`; all recorded source pins match and groups drain.
+Actual native checked exports from frozen `7a24613c…` and merged `7e92d338…`
+produce identical toy bytes `915c3875…`. This is the integration control, not
+a new owner66 rule or performance result.
+
+The proposed lower-cut export extension is mathematically exact for integer
+sector coordinates. For each free axis with local lower bound `lo`, append
+separate singleton exclusion branches for local values `0..lo-1`: active
+physical roots `1..lo`, inactive physical roots `0,-1,...,-(lo-1)`. OR across
+branches and axes leaves precisely the requested lower orthant. Fixed axes
+remain exact; finite free upper bounds remain unsupported. Axis-major,
+ascending-local append order preserves existing lo=0/1 artifact bytes.
+
+Implementation must precharge the checked sum of boundary branches, endpoint
+conversions and combined existing/new exception storage before allocation or
+CAS work. Exact native subtraction constructs the polynomials. Whole-chart
+source proof remains unchanged; exclusions do not manufacture proof for a
+wider box. An after-baseline alternative must fall back on an existing piece
+that crosses the cut, not split that piece to force its selection. Runtime
+guard matching can remain conservative; if boundary exclusions are ever used
+as additional entailment evidence, restrict the first scope to exact native
+primitive associates of actually encoded boundary polynomials after identical
+cell specialization, not informal positivity or factor guesses. Required
+tests include active/inactive lo=2/3, every excluded singleton, exact-bound
+and above-bound selection, crossing-piece fallback, multi-axis OR semantics,
+fixed/finite-upper/overflow/cap refusals and unchanged suffix/terminals and
+lo=0/1 bytes. This paragraph is a preimplementation review.
+
+### Native zero-overlap result and lower-cut source review
+
+The bounded native zero diagnostic is now complete. Its independently rehashed
+report `zero-overlap-v1/probe/guard/stdout` (`0598adea…`) assigns exactly the
+823 inherited forbidden shifts to the 27 predicted masks, with no duplicates
+or omissions. The report's chart equals the unchanged D2>=3 request; all
+fourteen finite axes are explicitly fixed, and translated D2 is positive at
+the lower endpoint, hence on the entire ray. The same-family native analyzer
+reports **27 Inconclusive, zero ProvedZero, zero Excluded**. Its only generic
+domain condition is the nonzero constant basis determinant `-1024`.
+
+The pinned executable `cea6b930…` matches both actual compile and probe
+receipts. The probe exits zero without a stop and drains its owned group;
+15.423 seconds is the complete outer elapsed time (native report 7.094
+seconds). This supplies no certified-zero reason to relax any inherited F
+column. Inconclusive is not a global nonzero theorem, and this diagnostic
+does not classify all newly introduced 5,796-bank columns. The separately
+retained pretty and minified 5,796-row requests compare exactly as JSON.
+
+The lower-cut implementation is an encoding-only change: native source
+coefficients, weighted identity, requested proof chart and runtime guard
+admission remain unchanged. Its new helper checks total boundary count and
+largest signed physical endpoint before boundary-sized allocation/native
+arithmetic, and checks combined existing/new exclusion entries and branches.
+It appends the exact singleton OR predicates in the existing deterministic
+order. Source review finds no authority broadening. Authored tests cover
+active/inactive cuts, excluded points, above-cut points, multi-axis OR,
+resource/overflow refusals, unchanged suffix/terminals, and an unchanged old
+piece crossing the cut. The added companion test requires local `[2,5]` to
+select the new rule with identical geometry, while crossing `[1,5]` retains
+the old partition and fallback. All fourteen app priority tests now pass in
+the semantic test binary `d4e45669…`; the optimized app library `a2fe5592…`
+also compiled successfully, with actual artifacts independently rehashed.
+The corrected optimized projector gate also passes all twenty-one tests
+(`lower-cut-testfix-build-v1`, test binary `89f9543c…`). The initial failed
+expectation is preserved: its two-step H-cancellation chart proves, but export
+still refuses an unrepresented factor guard under the unchanged matcher.
+Only the test expectation was corrected to assert that precise guard refusal;
+it was not reclassified as a lower-bound encoding failure or waived.
+A valid chart alone is not evidence that a broad baseline piece will select
+the new alternative.
+
+Final compatibility controls are also complete. Actual checked exports from
+old/new toy producers are byte-identical `915c3875…`; old/new prescribed radial
+exports are byte-identical `1c8b6d7c…`. All four phases exit zero, have no stop
+or hard-stop/failure, and drain their owned groups. The corrected test artifact
+`89f9543c…`, normal projector `402f2998…`, relevant source pins and both artifact
+pairs were independently rehashed. Evidence is in `lower-cut-build-v1`,
+`lower-cut-testfix-build-v1` and `lower-cut-controls-v1`. No source coefficient,
+runtime guard policy, production rule pool or checkpoint was changed by this
+bridge milestone.
+
+### Diagnostic overhead and a prospective no-identity projection
+
+The running frozen 5,796-row probe shares CPU65 with its owned-process monitor.
+Parent observation measured substantial monitor CPU consumption. Its wall
+time therefore does not isolate native algebra cost. The authorized next-run
+guard66/native65 split is an instrumentation allocation change, not a new
+algorithm or retrospective performance correction; the current run remains
+unchanged. Optional stderr progress likewise must preserve final mathematical
+output and checked bytes, but cannot promise zero timing overhead.
+
+Source inspection confirms a possible separate algebra-cost issue: the
+research projector eliminates `[F,target,I]`, retaining both expanded identity
+tails and native L. Spired's modular stream uses direct L-pattern dependencies
+and a zero sentinel, but the existing exact frame/rooted lift and parametric
+reducers still augment identity. There is no already-public exact no-identity
+projector to invoke unchanged.
+
+The public native sparse API is sufficient for a bounded alternative without
+new elimination code. Reduce only `[F,target]` with full L, recording the
+mapping from accepted physical basis rows to original source ordinals. If
+the accepted-row matrix satisfies `A_I = L_I U`, recover the target weights
+once with native `SparseMatrix::solve` on `L_I^T w = e_target`, then independently
+replay `w^T A_I` against **all** original columns. Construct the square block
+with native sparse triplets; do not compute an inverse. Dependent inputs can
+append L without U, while empty/full-rank early returns append neither, so
+input ordinal must not be confused with native L/U row ordinal.
+
+For the first implementation, retain all current input and physical-prefix
+pivot conditions; coupling weight-recovery optimization to guard pruning would
+change two semantics at once. Exact controls should compare first target
+prefix, canonical original weights/full image, guard obligations, source proof
+and export bytes on dependent, empty and nonmonotone-pivot fixtures. This is
+only an API/mathematical proposal: progress evidence has not yet established
+which operation dominates the large probe.
+
+The frozen 5,796-row execution subsequently stops at its original cooperative
+deadline: `symbolic-owner66-union5796-D2ge3-export-v1/guard/result.json` records
+SIGINT exit `-2`, `inclusive_cooperative_deadline`, no hard stop/failure and
+complete owned-group drain. Outer elapsed time is 1,501.353 seconds; waited
+child CPU is 1,097.535 seconds and sampled peak tree RSS is 3.567 GB. Both
+stdout and stderr are empty and no artifact exists. The exact frozen request,
+binary, 128-GiB ceiling and 1500/1620/1800-second schedule are unchanged.
+Its mathematical stage/outcome is unknown: this is neither a finite-bank
+no-target result nor a source/descent refusal.
+
+The next observational controls explicitly bind an absolute `taskset` command
+to native CPU65 while the unchanged collector runs on CPU66, acquiring both
+dedicated locks. Owned descendant discovery, memory accounting, stop/drain
+checks and inclusive deadlines remain in the existing controller. Source
+review also verifies default-off lazy stderr events and row heartbeats gated
+by both 64 rows and one second across projections. Enabled/disabled native
+report equivalence and checked artifact-byte controls remain execution gates.
+
+Those progress gates subsequently pass: 23 optimized tests, independently
+rehashed test/normal binaries `964d9f89…`/`6b3f534d…`, and matching source,
+driver and absolute taskset pins. Actual old-binary, new-default-off and
+new-enabled checked exports all yield bytes `915c3875…`. Their complete
+native reports are identical after removing only `seconds`; enabled events
+appear only on stderr. All controls exit zero without stops and drain their
+owned groups under the separately recorded guard66/native65 allocation.
+
+The authorized short unchanged-bank diagnostic then establishes a more
+specific bottleneck: source assembly finishes at 6.358 seconds, followed by
+122 target/proof-refusal/refinement cycles by 148.169 seconds, with accepted
+target prefix 1,063→1,184 and F823→945. The 205-KB stderr trace records each
+typed descent obligation. It then stops cooperatively and drains at 154.295
+seconds outer elapsed, with no final stdout report or artifact. This is
+evidence of repeated projection/proof cycles, not an initial elimination
+stall or a completed bank outcome. Batch nomination of cofinally higher
+columns is therefore the directly motivated prospective optimization; the
+separate no-identity backend remains a scaling hypothesis to test.

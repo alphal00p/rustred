@@ -16,6 +16,7 @@ use super::super::{
 use super::*;
 
 mod after_baseline;
+mod lower_cuts;
 
 const FAMILY: &str = r#"
 schema = "rustred.project.toml.v1"
@@ -346,7 +347,7 @@ fn checked_priority_refuses_unpersisted_parameter_guard_without_changing_base() 
 #[test]
 fn checked_priority_refuses_unrepresentable_bounds_and_widened_fixed_face() {
     let (bytes, family) = base();
-    for upper in [None, Some(4)] {
+    for upper in [Some(4)] {
         let (_, mut proposal) = request(&family);
         proposal.lower[0] = 2;
         proposal.upper[0] = upper;

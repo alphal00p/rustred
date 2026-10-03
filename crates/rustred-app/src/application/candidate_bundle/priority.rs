@@ -23,6 +23,8 @@ use symbolica::prelude::*;
 use super::{CandidateBundleLimits, codec, order};
 use crate::AppError;
 
+mod lower_cuts;
+
 /// Immutable, proof-bound candidate bytes. Loading the bytes alone does not
 /// replay this proof or confer certification, coverage, or basis minimality.
 #[derive(Debug)]
@@ -55,8 +57,9 @@ impl CheckedPriorityOwnerExport {
 /// Prepend one checked coordinate-domain rule to a single saved owner.
 ///
 /// This deliberately narrow bridge accepts only declared fixed coordinates
-/// and free local axes `[0, infinity)` or `[1, infinity)`. The latter is encoded
-/// by an exact excluded boundary, not a widened application domain. Unsupported
+/// and free local axes `[lower, infinity)`, with a bounded finite `lower`.
+/// Missing integer boundary slices are encoded as exact exclusions, not a
+/// widened application domain. Unsupported
 /// guards refuse the entire export: no shared family condition is strengthened.
 /// Pure base-field poles arising only from contribution weights may be
 /// discharged as generic-field units after the complete identity check. Their
@@ -129,7 +132,12 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
         .as_slice()
         .try_into()
         .map_err(error)?;
-    let (face, boundary_axes) = representable_case::<N>(&proposal, &sector)?;
+    let boundary_limit = proof_limits
+        .cell
+        .max_guards
+        .min(proof_limits.rule.max_rule_guards)
+        .min(bundle_limits.max_collection_entries);
+    let (face, boundary_cuts) = representable_case::<N>(&proposal, &sector, boundary_limit)?;
     let fixed: Vec<_> = proposal
         .fixed
         .iter()
@@ -187,20 +195,9 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     let base_variables = context.base().one().get_variables().len();
     let indices = std::array::from_fn(|axis| base_variables + axis);
     let mut exceptions = extract_exceptions(&candidate, &indices, &sector).map_err(error)?;
-    for axis in boundary_axes {
-        let boundary = context
-            .sub(
-                &context.index(axis).map_err(error)?,
-                &context.integer(if sector[axis] { 1 } else { 0 }),
-            )
-            .map_err(error)?;
-        exceptions.branches.push(vec![
-            context
-                .numerator_condition_with_limits(&boundary, algebra.exact_algebra)
-                .map_err(error)?
-                .raw()
-                .clone(),
-        ]);
+    boundary_cuts.check_existing(&exceptions.branches, boundary_limit)?;
+    for boundary in boundary_cuts.polynomials(context, &sector, algebra.exact_algebra)? {
+        exceptions.branches.push(vec![boundary.raw().clone()]);
     }
     let rule = SectorRule {
         dispatch_policy: RuleDispatchPolicy::Partition, // Equation-only transport below.
@@ -297,7 +294,8 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
 fn representable_case<const N: usize>(
     proposal: &OriginalSourceCombinationRequest,
     sector: &[bool; N],
-) -> Result<(CoordinateCase<N>, Vec<usize>), AppError> {
+    boundary_limit: usize,
+) -> Result<(CoordinateCase<N>, lower_cuts::LowerCuts), AppError> {
     if proposal.lower.len() != N || proposal.upper.len() != N || proposal.fixed.len() > N {
         return Err(error("priority coordinate-domain arity mismatch"));
     }
@@ -323,25 +321,18 @@ fn representable_case<const N: usize>(
         }
         fixed[axis] = Some(i16::try_from(value).map_err(error)?);
     }
-    let mut boundary_axes = Vec::new();
-    for axis in 0..N {
-        if fixed[axis].is_some() {
-            continue;
-        }
-        if proposal.upper[axis].is_some() || proposal.lower[axis] > 1 {
-            return Err(error(
-                "priority bridge cannot exactly encode this free-axis bound",
-            ));
-        }
-        if proposal.lower[axis] == 1 {
-            boundary_axes.push(axis);
-        }
-    }
+    let boundary_cuts = lower_cuts::LowerCuts::new(
+        &proposal.lower,
+        &proposal.upper,
+        &fixed,
+        sector,
+        boundary_limit,
+    )?;
     let face = CoordinateCase::new(fixed).map_err(error)?;
     if !face.is_in_sector(sector) {
         return Err(error("priority fixed face is outside its owner"));
     }
-    Ok((face, boundary_axes))
+    Ok((face, boundary_cuts))
 }
 
 fn check_runtime_guards(

@@ -13,15 +13,149 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Lane | Responsible agent | State | Next executable decision |
 | --- | --- | --- | --- |
 | Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
-| Incumbent-informed source recovery | `rule_cost_profiles` | Active | Test the frozen 5,796-source union on D2>=3 with exact replay and unchanged publication gates. |
+| Incumbent-informed source recovery | `rule_cost_profiles` | First large attempt censored | Preserve the5,796-source result; profile the exact same bank with native progress before another completion attempt. |
+| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Active implementation | Replace optional per-row identity augmentation by one native triangular weight solve after a target hit; require exact agreement with the old path. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
-| Cofinal higher-column planning | Implementation + auditor | Read-only design | Check existing native order APIs and exact scope restrictions before replacing repeated one-column refinement. |
+| Cofinal higher-column planning | Implementation + auditor | Private implementation / audit | The instrumented bank repeats122 refinement cycles in148s; batch only columns proved necessarily higher on the infinite ray, then retain full native proof. |
 | Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
-| Exact lower-cut publication | Implementation + auditor | Active design / implementation | Encode finite excluded coordinate boundaries using the existing native exception representation; preserve exact fallback scope and resource bounds. |
+| Exact lower-cut publication | Implementation + auditor | Delivered / final audit | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
 
+### Direct-L first gate catches two issues — October3, 18:02 UTC
+
+[M] The private direct-L variant compiles but its first optimized gate passes
+28 of30 tests. A long synthetic chronology fixture exceeds its test U/L storage
+budget; the tadpole differential fixture reaches chart proof but refuses export
+where the augmented reference exports. The latter requires a genuine guard/
+origin diagnosis, not a weaker assertion. Raw failures remain in
+`candidates/projector-direct-l-build-v1/run_tests/`. Root keeps real-bank
+comparisons gated on a correction and independent audit. This is not a deployed
+regression; the reference projection remains the default and main is unchanged.
+
+[M] Follow-up diagnosis places the tadpole assertion on the **augmented reference**
+before any direct-L comparison: the wrong two-source fixture already refuses
+export. The correction retains that fixture's old/new status equivalence and
+uses the existing successful backward fixture for the required checked-byte
+comparison. The synthetic1,062-row test alone receives a storage allowance
+based on its identity fill; no runtime/input budget changes. Both corrected
+gates still require execution and independent review. Root also reruns21 cheap
+Python evaluator/profile regressions: all pass in0.100s, with temporary files
+confined to the workspace TMP area.
+
+### Lower-cut implementation gates complete — October3, 18:01 UTC
+
+[M] The encoding-only bridge completes all14 app tests and21 corrected optimized
+research tests. Actual old/new toy bytes both hash `915c3875…`; old/new radial
+chart exports both hash `1c8b6d7c…`. The latter controls take9.765s and7.790s
+inclusive, respectively, but are byte-preservation checks, not a claimed speedup.
+Evidence: `candidates/lower-cut-controls-v1/`, alongside the app/research build
+receipts above. All owned processes drain normally. No core, production CLI,
+live rule pool or campaign input changes. The independent final audit passes;
+root also checks formatting through Nix and reruns the21 Python regressions.
+Root prepares a scoped commit; cofinal/direct-L experiments remain private.
+
+### Instrumentation identifies repeated searches — October3, 17:55 UTC
+
+[M] The progress-only adapter passes23 optimized tests. Default-off and enabled
+checked exports both match the preceding binary byte-for-byte; normalized
+reports agree and events remain stderr-only. The independent auditor verifies
+the gates and the separate supervisor66/native65 affinity arrangement.
+
+[M] A short unchanged5,796-source diagnostic prepares5,796 rows and12,230 image
+columns in6.358s, then performs122 target/proof-refusal/refinement cycles by
+148.17s. The forbidden set grows from823 to945. The last reported target uses
+a1,184-row prefix,232 source weights and460 full-product terms. Cooperative
+stopping takes154.295s inclusive at3.451GB sampled peak RSS; no accepted rule
+or artifact results. Evidence: `candidates/symbolic-owner66-union5796-progress-baseline-v1/`
+under `TMP/rule-optimizer-20261003/`. This diagnoses repeated searches rather
+than a stall in the first elimination; it does not isolate identity augmentation
+as the dominant algebraic cost.
+
+[E] Root prioritizes the already designed cofinal higher-column planner alongside
+optional direct-L recovery. Its exact single-free-axis sign/order theorem can
+preplan necessary cancellations once, avoiding a sequence of rejected target
+relations. The stage aggregate identifies all122 refusals as unproved descent:
+122 completed projection intervals total92.004s (median0.742s), proof intervals
+total17.531s (median0.140s); these are native event intervals, not a new
+whole-campaign timing. It may not ban a column from one sampled point, alter root/guard
+obligations or replace final native descent proof. Direct-L remains a separate
+optional experiment with exact differential tests. Neither is deployed.
+
+[M] The lower-cut bridge passes14 native app tests, including a whole piece
+strictly above the cut and unchanged fallback for a piece crossing it. Its
+optimized research run exposed the existing conservative factor-guard refusal
+in the two-step H fixture. Only that fixture's expected refusal is corrected;
+no guard or mathematical claim is weakened. Final research and byte-identity
+controls are still pending before this bridge is committed.
+
+### Large probe censored; direct dependency recovery prioritized — October3, 17:40 UTC
+
+[M] The5,796-source attempt stops at its predeclared cooperative deadline:
+1,501.353s inclusive,1,097.535s waited native CPU,3.567GB sampled peak RSS,
+SIGINT exit, no hard stop and all owned processes drained. No native report or
+artifact was produced. Its exact stage, number of refinements and final rank
+are unknown; it is **not** a completed span miss. The unchanged production
+campaign is unaffected. The optional native progress adapter is being tested
+before a short same-bank diagnostic with the monitor moved off the native core.
+
+[E] Root and the independent auditor identify a concrete structural candidate:
+the research projector currently augments `[F,target]` with the full source
+identity, propagating expanded weights through every row. An optional direct-L
+variant can retain native elimination dependencies, then solve the accepted
+triangular system `L^T w = e_target` once using Symbolica's public sparse solver.
+It must regenerate the identical full original-source product and retain all
+existing input and physical-pivot guards. No custom linear-algebra kernel or
+matrix inverse is planned. Dependent input rows require explicit chronological
+mapping; empty/full-rank behavior and target-prefix equality receive dedicated
+tests. This is a code-supported hypothesis, not yet a measured bottleneck or
+speedup. `rule_cost_profiles` implements; `frontier_oct3_resume` audits.
+
+[E] The exact lower-cut export bridge continues in a separate app build, and
+cofinal higher-column planning remains an orthogonal potential reduction of
+repeated searches. Neither will be used to reinterpret the censored result or
+relax source, guard, root, descent or fallback requirements.
+
+### Serial research monitoring contention measured — October3, 17:36 UTC
+
+[M] During the frozen5,796-source probe, native PID2889068 uses73.2% of one
+CPU while its outer Python guard PID2888432 uses26.0%; both are pinned to65.
+At about22minutes elapsed their accumulated CPU times are approximately
+16minutes and5minutes44seconds, respectively. This is substantial same-core
+monitoring contention, not evidence that Symbolica itself can use only73% of
+a core. No cgroup CPU throttling was observed in the inspected host counters.
+
+[E] For future serial probes root assigns supervisor CPU66 separately from
+native CPU65, retaining process-tree memory, host reserve, ownership, drain
+and deadline guards. The current frozen run is not modified. Any new elapsed
+time must disclose this scheduling change; its benefit cannot be presented as
+an algebraic speedup or extrapolated to the live production supervisor. The
+profiler implements and the independent auditor checks this harness change.
+
+### Zero-sector hypothesis tested directly — October3, 17:28 UTC
+
+[M] The existing Symbolica-backed native zero analyzer returns `Inconclusive`
+for all27 distinct supports of the823 inherited forbidden columns; none is
+`ProvedZero`. Exact sign geometry establishes that each support is constant
+over the entire D2>=3 chart. The diagnostic completes in15.423s inclusive;
+its separate optimized helper compilation takes75.667s. Evidence:
+`candidates/zero-overlap-v1/`. This supplies no grounds to drop any inherited
+forbidden column. It is not a theorem that these integrals are nonzero, nor
+does it classify new columns in the larger bank. No zero-aware production
+extension is justified by this diagnostic alone.
+
+[E] The 5,796-source run continues unchanged. Its lack of intermediate events
+motivates a small optional native stderr progress observer for future research
+runs: source preparation, projection rows/fill, refinement and proof/export
+phases, with no change to stdout or exact authority. `rule_cost_profiles` owns
+this separately from `rule_optimizer_impl`'s exact lower-cut publication work.
+
 ### Merged gate passes; two real semantic boundaries isolated — October3, 17:22 UTC
+
+[M] This integrated milestone is committed and pushed as `915c807b` on main;
+the remote branch was independently checked against the local commit. Only
+owned source, tests and documentation were staged. Unrelated FeynKit changes,
+reference material and campaign/evidence directories remain untouched.
 
 [M] All21 merged optimized research tests pass. Both standalone links finish
 in about125.19s; the new binary is `7e92d338…e831e45`. Actual old/new checked

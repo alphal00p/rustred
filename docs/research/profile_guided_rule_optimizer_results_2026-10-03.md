@@ -5,6 +5,48 @@ change to production. The user has stopped the old campaign; the new37 campaign
 remains live and read-only. The active objective remains
 [the profile-guided optimization plan](../../PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
 
+## Latest heavy-owner search: repeated refinement, not a completed miss
+
+The small completed comparisons below do not yet justify a production switch.
+The next pressure target is the actual expensive owner66 recurrence, whose
+application to the frozen physical point creates1,668 nonzero children. Replacing
+only a lower owner had negligible effect on this point's roughly386,000-domain
+completed graph. We therefore search for an alternative at the expensive parent.
+
+Read-only inspection of its saved derivation nominates212 translations of the25
+ordinary IBP directions. Their5,300 source pairs, united with the earlier1,062
+bank, give5,796 pairs. The chart fixes14 indices and leaves D2>=3 symbolic;
+the original owner root, common ordering and inherited823 forbidden columns
+remain unchanged. The saved derivation nominates sources only: it does not
+lend its proof, exclusions or zero-sector assumptions to a new candidate.
+
+| Probe | Inclusive wall | Native CPU | Peak tree RSS | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| First5,796-source attempt | 1,501.353s | 1,097.535s | 3.567GB | Cooperative time censor; no report or artifact |
+| Same bank, progress diagnostic | 154.295s | 147.881s | 3.451GB | Cooperative time censor;122 descent-refinement cycles observed |
+
+The first probe's supervisor and solver shared CPU65; its monitoring consumed
+roughly a quarter of that core. The diagnostic moves only the supervisor to66,
+with the native solver still on65 and the same exact mathematical input. This
+scheduling correction is not an algebraic speedup or a completed comparison.
+
+In the diagnostic, source preparation finishes in6.358s with12,230 image columns.
+There are122 candidate-target discoveries followed by122 unproved-descent
+refusals: F grows823→945 while the winning source prefix grows1,063→1,184.
+Completed projection intervals total92.004s (median0.742s); proof intervals total
+17.531s (median0.140s). The last candidate has232 source weights and460 full
+product terms. Neither probe produces a valid alternative or exhausts the bank.
+Evidence is under ignored `TMP/rule-optimizer-20261003/candidates/` in
+`symbolic-owner66-union5796-D2ge3-export-v1/` and
+`symbolic-owner66-union5796-progress-baseline-v1/`.
+
+This motivates exact up-front planning of columns that must cancel throughout
+the unbounded chart. A separate optional direct-L implementation will test
+recovering source weights only after a target hit using Symbolica's sparse
+solver, instead of carrying expanded weights during every projection. These
+are active experiments, not measured campaign improvements. All full-source,
+guard, root, descent and fallback checks remain required.
+
 ## Mechanism, not an extra master or a smaller request
 
 Campaign profiling identified repeated work associated with owner

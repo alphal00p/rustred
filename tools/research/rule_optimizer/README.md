@@ -229,8 +229,8 @@ Schema `rustred.prescribed-source-chart.v1` requires owner/family/order bindings
 `chart.lower`, `chart.upper` (`null` for infinity), sorted `chart.fixed` physical
 index/value pairs, `sources` with `source_row`, `offset`, and `weight: [p,q]`,
 and explicit resource limits. Coordinates are sector-local: active `n-1`,
-inactive `-n`. Nonfixed axes have lower 0 or 1 and no upper bound, matching the
-existing priority bridge. This format cannot encode correlated A/R/D predicates;
+inactive `-n`. This producer's current input validation restricts nonfixed axes
+to lower 0 or 1 and no upper bound. This format cannot encode correlated A/R/D predicates;
 a broader coordinate chart needs its own fresh exact proof.
 
 An optional `owner_load_limits` object supplies the seven native ingress limits
@@ -641,10 +641,12 @@ The first supervised optimized build passed all 11 example tests. They include
 genuine index-dependent forbidden cancellation, complete original-source replay,
 a raising tadpole relation refined to a backward chart proof, successful direct
 backward export with outside-chart fallback, and cancellation of an actual lower
-tadpole child. The latter's chart `n >= 3` proves exactly but is explicitly
-refused by the current priority exporter, which cannot encode that free-axis
-lower bound. Conservative extra pivot guards can likewise prevent export even
-when a chart proof passes; no guard pruning or chart widening is implied.
+tadpole child. The latter's chart `n >= 3` proved exactly but the original bridge
+refused its lower bound. The bounded lower-cut extension now encodes that bound;
+the same fixture still refuses export because retained pivot/source guards are
+not represented by the surviving runtime RHS denominator. The unchanged guard
+matcher does not infer divisibility or remove assumptions. No guard pruning or
+chart widening is implied.
 Build/test receipts, including the two corrected test-only failures, are in
 ignored `TMP/rule-optimizer-20261003/candidates/symbolic-projector-build-v{1,2,3}/`.
 The follow-up optimized core test target also passed 30 focused tests: all 18
@@ -743,3 +745,31 @@ found no target after 474 descent refinements (final F count 823 including the
 bank/chart result, not general irreducibility. Exact sources, full final circuits,
 native diagnostics, byte controls and lifecycle receipts are retained beneath
 ignored `candidates/projector-root-policy-*` and `candidates/symbolic-owner66-*`.
+
+The checked app exporter now supports a resource-bounded finite lower cut on a
+free axis with no upper bound. It appends separate native singleton exclusions
+for every omitted integer slice (active powers `1..lower`, inactive powers
+`0..-(lower-1)`). Multiple slices/axes are OR branches, not one conjunction.
+Total boundary count, physical endpoints, and existing-plus-new exclusion
+entries are checked before boundary-sized allocation/arithmetic. Fixed axes,
+finite-upper refusal, native source/chart proof, and runtime guard admission
+are unchanged. After-baseline whole-piece dispatch keeps a crossing baseline
+piece intact; it only substitutes the alternative when the whole piece fits.
+
+The extension passed 14 focused app semantic tests (opt0, optimized dependencies)
+and 21 optimized research tests against an opt2/no-LTO app library. Successful
+lower2/3 exports, below-bound fallback, above-bound whole-piece selection,
+crossing-piece fallback, active/inactive predicates, multi-axis OR, limits and
+unsupported guards are covered. The original one-fixture expectation failure
+is retained: the two-step tadpole now reaches the existing guard check rather
+than failing at bound encoding. Its corrected fixture asserts that exact native
+refusal. No core or campaign CLI rebuild was performed. Receipts are in ignored
+`candidates/lower-cut-build-v1/` and `lower-cut-testfix-build-v1/`.
+
+Actual before/after compatibility exports also passed: the unchanged symbolic
+tadpole and the unchanged radial candidate with free lower0/1 axes each produced
+byte-identical candidate payloads against their frozen older producers. The
+radial producer was relinked with the new app library without changing its
+source. These controls are recorded in ignored
+`candidates/lower-cut-controls-v1/`; they are export compatibility checks, not
+new downstream performance measurements.

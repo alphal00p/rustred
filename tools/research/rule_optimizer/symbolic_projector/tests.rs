@@ -564,7 +564,7 @@ fn native_lower_child_H_is_cancelled_symbolically_without_widening_export_chart(
         report["attempts"][0]["export_error"]
             .as_str()
             .unwrap()
-            .contains("free-axis bound")
+            .contains("proof guard is not retained by a surviving runtime RHS denominator")
     );
     let product = report["attempts"][0]["normalized_full_product"]
         .as_array()
@@ -651,8 +651,13 @@ fn fixed_root_policy_does_not_classify_unfixed_or_root_allowed_axes() {
     assert!(!root_policy::activates_fixed_outside_root(&root, &[(2, 0)], &[0, 0, 1]).unwrap());
     assert!(!root_policy::activates_fixed_outside_root(&root, &[(0, -2)], &[2, 0, 0]).unwrap());
     assert!(root_policy::activates_fixed_outside_root(&root, &[(0, -2)], &[3, 0, 0]).unwrap());
-    assert!(root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MAX)], &[i64::MAX]).unwrap());
-    assert!(!root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MIN)], &[i64::MIN]).unwrap());
+    assert!(
+        root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MAX)], &[i64::MAX]).unwrap()
+    );
+    assert!(
+        !root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MIN)], &[i64::MIN])
+            .unwrap()
+    );
     assert!(root_policy::activates_fixed_outside_root(&root, &[(3, 0)], &[0, 0, 0]).is_err());
     assert!(root_policy::activates_fixed_outside_root(&root, &[], &[0]).is_err());
 }
@@ -663,9 +668,21 @@ fn fixed_root_columns_use_only_actual_native_universe_and_leave_target() {
     let selected = root_policy::columns(&[false], &[(0, 0)], &universe).unwrap();
     assert_eq!(selected, BTreeSet::from([shift(1)]));
     assert!(!selected.contains(&shift(0)));
-    assert!(root_policy::columns(&[false], &[], &universe).unwrap().is_empty());
-    assert!(root_policy::columns(&[true], &[(0, 0)], &universe).unwrap().is_empty());
-    assert!(root_policy::columns(&[false], &[(0, -1)], &universe).unwrap().is_empty());
+    assert!(
+        root_policy::columns(&[false], &[], &universe)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        root_policy::columns(&[true], &[(0, 0)], &universe)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        root_policy::columns(&[false], &[(0, -1)], &universe)
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(universe.len(), 3); // No source/image/term was removed.
 }
 
@@ -691,14 +708,20 @@ fn native_constant_elision_preserves_zero_context_and_parameter_pole_gates() {
     let mut small = limits();
     small.guards = 1;
     for value in [c.one(), c.integer(-1), c.integer(7)] {
-        let polynomial = c.numerator_condition_with_limits(&value, Default::default()).unwrap();
+        let polynomial = c
+            .numerator_condition_with_limits(&value, Default::default())
+            .unwrap();
         project::retain(&c, &mut guards, polynomial, "constant", small).unwrap();
     }
     assert!(guards.is_empty());
-    let zero = c.numerator_condition_with_limits(&c.zero(), Default::default()).unwrap();
+    let zero = c
+        .numerator_condition_with_limits(&c.zero(), Default::default())
+        .unwrap();
     assert!(project::retain(&c, &mut guards, zero, "zero", small).is_err());
     let foreign = IndexedCoefficientContext::try_new(c.base(), "foreign", 2).unwrap();
-    let one = foreign.numerator_condition_with_limits(&foreign.one(), Default::default()).unwrap();
+    let one = foreign
+        .numerator_condition_with_limits(&foreign.one(), Default::default())
+        .unwrap();
     assert!(project::retain(&c, &mut guards, one, "foreign constant", small).is_err());
     let d = c.lift(&c.base().parameter("d").unwrap()).unwrap();
     let inv_d = c.div(&c.one(), &d).unwrap();
@@ -706,7 +729,10 @@ fn native_constant_elision_preserves_zero_context_and_parameter_pole_gates() {
     assert_eq!(guards.len(), 1);
     assert!(!guards[0].polynomial.is_nonzero_constant());
     let inv_n = c.div(&c.one(), &c.index(0).unwrap()).unwrap();
-    assert!(matches!(project::denominator(&c, &mut guards, &inv_n, "index pole", small), Err(project::Error::Budget(_))));
+    assert!(matches!(
+        project::denominator(&c, &mut guards, &inv_n, "index pole", small),
+        Err(project::Error::Budget(_))
+    ));
     project::denominator(&c, &mut guards, &inv_n, "index pole", limits()).unwrap();
     assert_eq!(guards.len(), 2);
 }
@@ -730,8 +756,19 @@ fn fixed_root_policy_checked_tadpole_export_fixture_and_default_identity() {
         assert!(directory.is_absolute());
         fs::create_dir(&directory).unwrap();
         fresh(&directory.join("base.rrbin"), &bytes).unwrap();
-        request.as_object_mut().unwrap().remove("forbid_fixed_outside_root_activations");
-        fresh(&directory.join("request.json"), &serde_json::to_vec_pretty(&request).unwrap()).unwrap();
-        fresh(&directory.join("new-test-candidate.rrbin"), &off_bytes.unwrap()).unwrap();
+        request
+            .as_object_mut()
+            .unwrap()
+            .remove("forbid_fixed_outside_root_activations");
+        fresh(
+            &directory.join("request.json"),
+            &serde_json::to_vec_pretty(&request).unwrap(),
+        )
+        .unwrap();
+        fresh(
+            &directory.join("new-test-candidate.rrbin"),
+            &off_bytes.unwrap(),
+        )
+        .unwrap();
     }
 }
