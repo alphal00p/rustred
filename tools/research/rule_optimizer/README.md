@@ -98,8 +98,11 @@ python -B tools/research/rule_optimizer/evaluate.py plan REQUEST.json
 python -B tools/research/rule_optimizer/evaluate.py plan REQUEST.json --write-plan
 ```
 
-The first command only prints. The second creates `plan.json` and each arm's
-`selection-source.json` in a fresh directory, refusing an existing destination.
+The first command only prints a compact summary. The second creates the full
+`plan.json` and each arm's `selection-source.json` in a fresh directory, refusing
+an existing destination, and prints their location and summary. Use `--full-plan`
+only when the complete planning JSON is needed on stdout: full five-loop routing
+metadata can otherwise flood the terminal with tens of megabytes.
 Exact stage/walk/cold argv arrays are included. The ordinary staging tool copies
 owner/overlay payloads and preserves query bytes. Replacing a base-bound repair
 overlay's owner requires a suitable native re-export; Python does not rebind it.
@@ -201,3 +204,45 @@ If F already avoids H, identical F/F+H results do not establish that the extra
 projection helped. Publication requires separate native original-source replay
 on the full declared chart, complete exceptional geometry and the shared-cohort
 evaluation gates above.
+
+# Prescribed symbolic-source chart producer
+
+`prescribed_source.rs` is separate from finite GPLU discovery. Its input names
+ordinary RowIds, translations and exact rational constant weights. Native source
+generation and checked indexed arithmetic form the full symbolic identity;
+only explicitly fixed coordinates are specialized. The target coefficient is
+derived from that full sum and used to normalize every source weight and RHS.
+All source poles and specialization/normalization witnesses survive cancellation.
+The existing original-source producer must then prove every sign cell under
+the saved global order. No point coefficient is generalized into a chart proof.
+
+```bash
+cargo test --release --locked --offline -p rustred-app --example rule_optimizer_prescribed_source
+cargo build --release --locked --offline -p rustred-app --example rule_optimizer_prescribed_source
+target/release/examples/rule_optimizer_prescribed_source validate REQUEST.json
+target/release/examples/rule_optimizer_prescribed_source prove OWNER.rrbin REQUEST.json
+target/release/examples/rule_optimizer_prescribed_source export OWNER.rrbin REQUEST.json FRESH_DIRECTORY
+```
+
+As above, use the existing resource supervisor for builds and native work.
+Schema `rustred.prescribed-source-chart.v1` requires owner/family/order bindings,
+`chart.lower`, `chart.upper` (`null` for infinity), sorted `chart.fixed` physical
+index/value pairs, `sources` with `source_row`, `offset`, and `weight: [p,q]`,
+and explicit resource limits. Coordinates are sector-local: active `n-1`,
+inactive `-n`. Nonfixed axes have lower 0 or 1 and no upper bound, matching the
+existing priority bridge. This format cannot encode correlated A/R/D predicates;
+a broader coordinate chart needs its own fresh exact proof.
+
+Export rechecks the source proof through the existing checked-priority encoder,
+including runtime guard representability and native codec roundtrip. It retains
+the old rule suffix, terminals and coefficient identities and marks the new
+rule `AfterBaselinePartitionWholePiece`. It writes only a fresh candidate file,
+request and proof receipt; it does not install an owner or launch traversal.
+Candidate bytes alone do not replay the original-source proof, and the JSON
+display/receipt is not an independent mathematical authentication mechanism.
+The actual matched baseline piece keeps its original A/R/D geometry.
+
+Three native tests exercise malformed source/chart refusal, wrong native
+family/order/RowId refusal, and a known unbounded tadpole proof/export with a
+boundary-pole refusal. Source-weight normalization, full-chart proof, priority
+export, shared-cohort closure and performance remain distinct gates.

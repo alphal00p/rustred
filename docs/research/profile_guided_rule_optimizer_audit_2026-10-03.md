@@ -1069,3 +1069,171 @@ removes the unique A=15 combination, leaving161 combinations and summed A=1686.
 Each allows s=1..A+2, so the total is1686+2*161=2008, agreeing with the sum of
 piece intersections. This does not upgrade the 39 explicitly contained pieces
 to applicable-rule or weighted-cost authority.
+
+The next separate producer request is now frozen at
+`candidates/prescribed-eightrows-broad-chart-v1.json`, SHA256
+`938265adaf39470722714091663e8e85471f5b3944cab6b80714b33b6a288d23`.
+Independent input review confirms all eight prescribed rational constant
+weights, native RowIds and recentered offsets; the same family/order binding;
+eight inactive powers fixed to zero; all six active powers free and positive;
+and D14 free with physical exponent<=-1. The request derives actual symbolic
+target normalization from the complete regenerated source sum and retains all
+source/specialization/normalization poles. It declares the broad chart as new
+scope, permits up to4096 sign cells, and requires unchanged suffix/terminals,
+runtime guard support and source proof before any checked export. This input
+review is not yet a review of the separate implementation or a native proof.
+
+A subsequent presentation-only evaluator change was independently source-reviewed:
+`plan()` and all comparison/native-command gates remain untouched. CLI planning
+now prints a compact `plan_summary` unless `--full-plan` is requested; with
+`--write-plan`, the complete plan and selections are written before the local
+stdout value is replaced by that summary. Compare mode rejects the new flag.
+The added test checks large-payload omission, role/inventory counts, plan-file
+labeling and deep equality of the untouched original plan. This does not change
+the already frozen A/A plan or native argv. Root reports21 Python tests passing;
+this additional review was source-only and did not rerun native workloads.
+
+A second, separately preregistered proof scope may also free the k1-independent
+inactive spectators D2,D4,D9,D12,D13. Their momenta contain no k1, so no selected
+ordinary derivative introduces their powers into the source identity. This
+leaves only D6,D7,D8 fixed at physical0; all other axes are free in their owner
+sector, with D14 additionally negative. In the generic request, fixed axes are
+5,6,7; lower is zero except axis13=1; upper is Some(0) on5,6,7 and None elsewhere.
+Use exactly the same eight weighted source requests. RHS shifts of these five
+spectators are zero, so no new sign cuts are expected solely from freeing them.
+Nevertheless original-source replay, all guards and native common-order descent
+must be rerun over this new scope. The profiler's199 wholly contained pieces,
+compared with39 for the narrower scope, measure geometry only. They neither
+prove the rule nor establish downstream value. Freeing D6/D7/D8 too is a
+different hypothesis: their k1-dependent numerator derivatives survive the full
+product rule and cannot be dismissed by the spectator argument.
+
+## Prescribed producer source audit and completed C19 A/A control
+
+The separate `prescribed_source.rs` implementation was reviewed completely
+before its native proof run. It accepts explicit rational constant source
+weights, regenerates all named ordinary translations, forms the full symbolic
+sum, specializes only declared fixed axes, derives its actual zero-shift target
+coefficient and normalizes every original weight/RHS by that coefficient.
+Original source, term, weight and specialization conditions are retained before
+zero removal; the request then goes through `check_original_source_combination`
+and, for export, the independently repeated checked-priority native path. There
+is no point-weight lifting, zero-sector deletion, installed owner or recursive
+walk. Output uses a fresh directory and create-new files after the complete
+bounded proof/report succeeds.
+
+One resource-wiring issue was found and fixed: translated-source relation
+arithmetic initially retained defaults instead of request exact/indexed limits.
+The revised policy applies those limits to inventory and selected translations.
+A native-binding refusal fixture was added for wrong family/order/RowId, giving
+three tests. The first standalone compile found a private `IndexShift::try_new`
+call; its small audited fix obtains the zero-shift key directly from the
+regenerated native product, still refusing an absent target. Current reviewed
+source SHA256 is
+`4170dbbdc13ee6ebcb4ee4d3b9e56dadb740eb18e99e4f3ceffd7a80f815c383`.
+The failed first build is retained; the fresh build/test/proof outcomes are
+separate later gates. No source-review blocker remained at this revision.
+
+At s=1 the tangent's *simplified cell coefficients* become units, but this does
+not imply the runtime original poles vanish. The exporter collects broad RHS
+denominators before sign-cell cancellation and specializes those retained
+polynomials during guard checking. Thus a broad normalization denominator may
+still be represented at that boundary. Keep all actual conditions and let the
+existing runtime guard gate decide; do not discard poles based on simplified
+display coefficients or silently broaden the base-field weight exemption.
+
+The C19 A/A operational control completed in
+`candidates/aa-five-loop-c19-v1/` with 376.532 seconds inclusive. Independent
+receipt review confirms the exact original old-saved pool: 67 owners, all8,246
+ordered routes and both repair overlays. Staged selections are identical across
+arms; all owner/overlay SHA256 inventories match the frozen plan and each other.
+The single unchanged query SHA256 is
+`35cde627a1a5daa7ab3ba24e56da37a72be518dab89d5f3a759586ef6c1732d0`.
+It is piece7 with its original R10,A14,D[-2,14] constraints, containing19 integer
+points. It is not the full116-required-root production cohort.
+
+Both arms use binary `8ef80b52...` unchanged before/after, the same16-worker
+CPU32–47 allocation and identical native argv after arm-path rebinding. Both
+drain with queued/abandoned0, joined workers, no failed native, no frontier or
+resource/observer/admission stop. Checkpoint-only exit4 and the stale native
+`incomplete` snapshot are not mistaken for closure. Each cold verifier separately
+passes All reinspection with reference levers Off, correct checkpoint/request/
+owner digest binding, all natives inspected, its one root independently verified,
+and zero errors, uncovered obligations, frontiers or violations. The cold claim
+is precisely re-derived saved dependency closure, coinductive on sealed cycles,
+plus reference-native coverage—not a new IBP source, descent, termination or
+family-closure proof.
+
+Baseline:99,671 domains,96,785 native inspections,1,858,445 events,7.468 seconds
+traversal and186.456 seconds complete arm. Identical-payload second arm:99,544
+domains,96,658 inspections,1,856,532 events,7.484 seconds traversal and186.625
+seconds complete arm. The roughly0.13% graph-work difference is observed
+operational variability, not a treatment effect. Rolling publication and
+snapshot leases can depend on arrival/refill timing; that is consistent with
+the difference, not an exact causal diagnosis from these receipts alone. No
+strict graph-count determinism was assumed. The comparer correctly records a
+completed unchanged-payload A/A with no comparison issues, no target observed,
+incumbent retained and no promotion authority.
+
+## Native prescribed-chart proof/export and dispatch receipt audit
+
+Both separately frozen scopes now pass original-source proof and checked
+priority export in `candidates/prescribed-source-build-v2/`. Independent
+read-only checks rehashed the reviewed source `4170dbbd...815c383`, the built
+producer `8f68f77cf2aa0dfa04dc030207505e59ba7d6f6ecc48a8668822a1341e121109`,
+the original owner `046a15ab...63f763`, both requests and exported artifacts.
+The successful build receipt pins the source and native libraries; the owned
+driver verifies that compiled binary digest before each proof/export. All
+guarded build/test/proof/export phases exit0, report no failure/resource stop,
+and drain their owned process groups. Three native tests pass, including
+invalid-family/order/source refusals and the tadpole normalization-pole refusal.
+The initial compile failure remains separate evidence, not a passing phase.
+
+For each scope, regenerated25 ordinary rows yield the requested8 translations
+and60 unspecialized source-product terms. Native symbolic normalization derives
+`(2+n13-d)/2`; it is neither an input assumption nor a lifted point weight.
+There are9 broad RHS terms. Independent receipt checks find exactly the full18
+sign cells: D1 local coordinates `{0}`, `{1}`, `[2,infinity)` crossed with the
+same D10 partition and D14 numerator rank `s={1}`, `[2,infinity)`. These retain
+the D1/D10 pinch and numerator-producing tails. Every s=1 cell has3 surviving
+RHS terms, and every s>=2 cell has9. All cells retain the normalization guard
+`-2-n13+d`, including s=1 where simplified RHS coefficients become units. No
+zero-sector term was deleted to obtain these proofs.
+
+The five newly free spectator axes stay free over all18 cells; only D6/D7/D8
+remain fixed0. The normalized full source weights, RHS and retained conditions
+are identical between the two scopes. Direct proof and repeated export proof
+match exactly for each request, and artifact `request.json`/`proof-export.json`
+match the native report. The loaded common Spired order and family remain
+unchanged. The exporter clones the original records, inserts one alternative,
+shifts existing dispatch indices, verifies every original coefficient ID/value
+and checks exact native codec roundtrip. It preserves all233 original rules
+and25 finite terminals; the new total is234 rules. This is stronger than merely
+comparing terminal counts. Unsupported runtime guards fail the checked export;
+the native gate actually succeeds here with all normalization poles retained.
+
+The spectator-free candidate SHA256 is
+`1c8b6d7ce72910c452b77b34c9e508dac7a0eae325058ed6c2d4b3781bf844ef`;
+its native proof/export receipt SHA256 is
+`23afd9f01fc94063b952ad3fea2b3b0d2c1f488e1c5a65761dc290c337ef8ed4`.
+These bytes are an `AfterBaselinePartitionWholePiece` alternative, not a new
+terminal or master declaration. Bytes alone do not replay the source proof;
+retain the bound request, source/build evidence and checked-export receipt.
+
+The separate local dispatch gate in `candidates/prescribed-source-dispatch-v2/`
+also passes independent receipt and input-digest checks. With the unchanged
+released CLI, original C19 uses baseline rule19 and candidate rule0. The whole
+piece keeps its exact lower/upper bounds, R10,A14,D[-2,14] predicates and all19
+integer points. Controls at s=0 and with cross numerator D6=-1 use original
+rule19 versus shifted suffix rule20, with identical geometry. All3 queries
+classify completely, without gaps, unresolved pieces, errors or truncated
+summaries; both owned groups drain. The first attempt's schema-only outer
+postcheck failure is retained and is not counted as this successful pair.
+
+This authorizes the candidate to enter isolated application and full-pool,
+unchanged-query C19 A/B/cold validation. It establishes neither recursive
+closure nor downstream benefit. The dispatch probe expands no RHS and visits
+only one owner. A broader symbolic algebra chart must not broaden C19's finite
+query, weaken the cold closure gates, remove the other66 owners, change either
+repair overlay, or erase any of the8,246 routes. No production deployment or
+full-five-loop efficacy claim follows from proof/export or local dispatch.

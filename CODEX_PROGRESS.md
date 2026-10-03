@@ -33,9 +33,9 @@ all pre-existing untracked work remain outside this program.
 | Lane | State | First deliverable |
 | --- | --- | --- |
 | Campaign profile and work attribution (`rule_cost_profiles`) | Delivered; cohort preparation active | Bounded sample, frozen panels, actual rule/partition attribution and candidate scope overlap |
-| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Evaluator and finite source diagnostic delivered; parametric producer active | Exact constrained circuits at five points; broad original-source proof and checked export next |
-| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Initial/code audits delivered; native receipt audit active | Separate authority/measurement checks; broader chart and generic source-nomination analysis |
-| Matched downstream experiments | A/A and known-negative4L controls complete | Completed-cohort metrics verified; new5L candidate comparisons pending |
+| Candidate generation and evaluator architecture (`rule_optimizer_impl`) | Generic parametric producer delivered; source-nomination design active | Exact source proof and checked spectator-free export passed; mixed-numerator extension next |
+| Independent criticism and focused research (`frontier_oct3_resume`, reassigned) | Producer/native proof audits delivered; comparison audit next | Separate algebra, dispatch and downstream-benefit gates |
+| Matched downstream experiments | A/A and known-negative4L controls, C19 five-loop A/A complete; first candidate A/B active | Unchanged shared pool, independent cold verification, then broader validation |
 | Improved pool and deployment | Pending | Exact, cold-loadable, measured candidate; user-only production launch |
 
 [M] The third new-agent spawn hit the thread limit; reassigning the independent
@@ -303,6 +303,118 @@ checked whole-piece priority export retaining the existing suffix and terminals,
 then a completed shared-cohort comparison and independent cold reinspection.
 The mathematical audit and implementation continue separately; a successful
 finite projection alone does not satisfy the optimization goal.
+
+### October3 parametric lift and first completed five-loop control
+
+[M] The finite projected-source diagnostic and independent evidence notes are
+pushed to main as `9ba2720b`. The previous goal turn therefore made concrete
+implementation and experimental progress; the full optimization goal remains
+active. Root verified both live production PIDs again before this continuation.
+
+[M] A fresh C19 A/A control is running through the same frozen CLI under the
+existing guard on CPUs32–47,16 workers,150GB process/host-reserve limits and a
+30-minute inclusive ceiling. The baseline arm has already finished and passed
+cold-All reinspection:99,671 domains,96,785 native inspections,1,858,445 events,
+zero pending/frontiers. Traversal took7.468s; setup+walk+cold took186.456s.
+The identical second arm is still running. This is the correlated19-point
+training chart under67 saved owners/8246 routes/two repairs, not the entire
+116-required/67-helper campaign scope. Evidence:
+`TMP/rule-optimizer-20261003/candidates/aa-five-loop-c19-v1/`.
+
+[M] Planning that full context exposed a console-output problem: the complete
+routing plan prints tens of megabytes even when written to disk. Root changed
+only the CLI presentation to a compact summary, with explicit `--full-plan` for
+the previous full stdout. Persisted plans, native commands and comparisons are
+unchanged. The independent auditor reviewed this change; all21 Python tests
+pass, including a no-mutation/bounded-summary regression. No production monitor
+or campaign format changes are involved.
+
+[E] The next candidate is a genuinely parametric, input-prescribed eight-source
+combination, with normalization derived from the full regenerated symbolic sum.
+It is distinct from both the three- and five-source finite GPLU circuits. The
+first chart frees all active powers and D14's numerator, keeping other inactive
+powers zero. A second separately registered chart will allow the five
+k1-independent inactive spectators too, fixing only the other three cross
+numerators. Native replay, sign cells, guards and saved-order descent decide
+admission in each case. Geometric whole-piece overlap rises39→199 for this
+extension; that is not a measured cost gain. The generic producer is isolated
+from the already-tested adapter and is under independent review before build.
+
+[M] To avoid confining the program to easy single-numerator faces, the profiler
+also froze mixed-numerator members of existing training pieces: primary piece1123
+(rule0;768,264 input tuples in its whole chart), and second-owner piece70 (rule40;
+17 correlated tuples). Their immediate RHS and downstream costs are not yet
+measured. Held-outs remain unused for fitting; no new record scan was needed.
+
+[M] C19 A/A completed in376.532s inclusive. The second arm cold-passes with
+99,544 domains,96,658 natives,1,856,532 events,7.484s traversal and186.625s
+complete arm. Both have zero pending/frontiers/debt. Identical rule payloads
+therefore produce about0.13% domain-work variation under this rolling schedule;
+the evaluator correctly classifies this as neutral A/A, not an improvement or
+strictly identical work graph. Both full saved owner/route/repair contexts and
+the exact query were preserved. The first baseline cold audit independently
+reinspected all96,785 natives and verified its sole root. Full scope is still
+only this19-point training control.
+
+[M] That completed control has one sealed56.13MB/99,671-record CP6 segment.
+Root approved a separately preregistered4MiB diagnostic sample (four1MiB windows
+at byte fractions1/8,3/8,5/8,7/8) to distinguish its downstream Apply/Route burden.
+No whole-record scan is authorized. Cold tallies include1,190,767 routed Admit
+effects and568,312 successor events; neither count means new graph nodes.
+The parametric producer build/tests used the heavy slot on CPU0–15/32;
+the metadata/sample lane was light and separate. Production remains untouched.
+
+### October3 first exact parametric candidate and downstream trial
+
+[M] A separate generic research producer, `prescribed_source.rs`, now accepts
+an exact coordinate chart and rational weights for translated ordinary sources.
+It regenerates and sums the complete symbolic identities using Symbolica,
+derives target normalization from the sum, retains every pole/guard, and invokes
+the existing original-source proof and checked priority-owner exporter. It does
+not fit finite-point weights, dispatch on topology names, clip zero-sector tails,
+change the integral order, or introduce terminals. Three native tests passed;
+the isolated optimized source/binary builds took119.50/121.75s. The first failed
+compile (private shift constructor) is retained and corrected through the
+existing public source identity, not a new algebra primitive.
+
+[M] Both broad parametric charts passed all18 native sign cells and checked
+export: all active powers are free, D14 is negative, with either all other
+inactive coordinates fixed zero or only the three other k1-cross numerators
+D6/D7/D8 fixed zero. The latter leaves five k1-independent spectator numerator
+coordinates free. Exact source replay, guard validation, common-order descent,
+codec roundtrip and preservation of all233 original rules/25 terminals passed;
+one priority rule is added. The native target coefficient is `(2+n13-d)/2`.
+Evidence: `TMP/rule-optimizer-20261003/candidates/prescribed-source-build-v2/`.
+The independent agent audited the source, tests and both actual proof/export
+receipts. Candidate spectator-free SHA256:
+`1c8b6d7ce72910c452b77b34c9e508dac7a0eae325058ed6c2d4b3781bf844ef`.
+
+[M] A local native dispatch check on the exact C19 input selects the new rule
+instead of oldrule19 while preserving the complete correlated query geometry.
+The s=0 and mixed-D6 controls select the unchanged old rule suffix. No recursive
+walk was involved; guarded pair3.26s. Evidence:
+`candidates/prescribed-source-dispatch-v2/`. This is applicability evidence, not
+an efficiency claim. The candidate's broad9-term RHS need not be cheaper than
+the incumbent's smaller immediate RHS; downstream sharing/routing must decide.
+
+[M] Root launched the first full-context C19 A/B comparison from
+`candidates/prescribed-spectator-c19-request.json`, using the compact planner
+and `TMP/rule-optimizer-20261003/run_pair.py --plan` with its persisted plan.
+Only owner101010000110001 changes. All67 owners,8246 routes, two repairs and
+exact query bytes remain in context.16 workers on32–47, inclusive30-minute
+guard, fresh staging/walk/cold verification for each arm; production64–127 is
+untouched. Results are pending. This19-point training case is not a substitute
+for broader training validation, held-outs,4L controls or the full frozen scope.
+
+[M] The separate bounded C19 profile sampled exactly4MiB/7539 frames from its
+completed baseline.3130 Apply inspections produced36,425 successors;4166 Route
+inspections produced90,607 domain events.3128 Apply inspections use owner1010
+but only3180 pieces: the sampled downstream burden is many small regions plus
+pinch-route fanout, not repeated1761-piece broad-parent fragmentation. Events
+are not new-node admissions, and the byte-stage-biased sample is not a census.
+Receipt/report: `profiles/c19-downstream-profile.json` and
+`profiles/C19_DOWNSTREAM_PROFILE.md`. The profiler is preparing a separately
+preregistered broader training-validation cohort, not changing the held-outs.
 
 ## Current workboard — October3 frontier repair
 

@@ -365,11 +365,27 @@ def compare(evaluation_plan, documents):
             "scope": evaluation_plan["scope"]}
 
 
+def plan_summary(evaluation_plan, written=False):
+    """Keep routing/family payloads on disk rather than flooding the console."""
+    return {"schema": SCHEMA, "cohort": evaluation_plan["cohort"],
+            "destination": evaluation_plan["destination"],
+            "plan_file": str(Path(evaluation_plan["destination"]) / "plan.json") if written else None,
+            "query_count": evaluation_plan["query_count"],
+            "query_role_counts": {key: len(value) for key, value in evaluation_plan["query_roles"].items()},
+            "arms": {name: {"owners": len(arm["inventory"]["owners"]),
+                            "routes": len(arm["selection"].get("initial_frontier_routes", [])),
+                            "overlays": len(arm["inventory"]["domain_rule_overlays"])}
+                     for name, arm in evaluation_plan["arms"].items()},
+            "resources": evaluation_plan["resources"], "budget": evaluation_plan["budget"],
+            "execution": evaluation_plan["execution"]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("mode", choices=("plan", "compare"))
     parser.add_argument("request", type=Path)
     parser.add_argument("--write-plan", action="store_true", help="create fresh plan and selection-source files; never launch")
+    parser.add_argument("--full-plan", action="store_true", help="print full planning JSON, including potentially large routing payloads")
     args = parser.parse_args()
     request = read_json(args.request)
     if args.mode == "plan":
@@ -382,8 +398,11 @@ def main():
                 path.parent.mkdir()
                 path.write_text(json.dumps(arm["selection"], indent=2) + "\n")
             (destination / "plan.json").write_text(json.dumps(result, indent=2) + "\n")
+        if not args.full_plan:
+            result = plan_summary(result, written=args.write_plan)
     else:
         require(not args.write_plan, "--write-plan is only valid for planning")
+        require(not args.full_plan, "--full-plan is only valid for planning")
         evaluation_plan = read_json(request["plan"])
         documents = {name: {key: read_json(path) for key, path in request["arms"][name].items()} for name in ARMS}
         result = compare(evaluation_plan, documents)

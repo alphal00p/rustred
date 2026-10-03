@@ -114,6 +114,19 @@ class EvaluatorTests(unittest.TestCase):
         self.assertFalse(result["cohort_target_observed"])
         self.assertEqual(set(result["candidate_over_baseline"].values()), {1.0})
 
+    def test_plan_summary_omits_large_payloads_without_changing_plan(self):
+        planned = E.plan(self.request)
+        planned["arms"]["baseline"]["selection"]["family_fingerprint"] = "large payload" * 10000
+        original = copy.deepcopy(planned)
+        result = E.plan_summary(planned, written=True)
+        self.assertEqual(result["plan_file"], str(self.root / "planned" / "plan.json"))
+        self.assertEqual(result["arms"]["baseline"], {"owners": 1, "routes": 1, "overlays": 0})
+        self.assertEqual(result["query_role_counts"], {"required": 1, "auxiliary": 1})
+        self.assertNotIn("large payload", json.dumps(result))
+        self.assertLess(len(json.dumps(result)), 4096)
+        self.assertEqual(planned, original)
+        self.assertIsNone(E.plan_summary(planned)["plan_file"])
+
     def test_known_regression_not_target(self):
         planned, documents = self.results()
         documents["baseline"]["walk"].update(scheduled_nodes=26025, native_processed_nodes=17957)
