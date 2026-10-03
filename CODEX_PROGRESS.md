@@ -480,6 +480,61 @@ one-dot directions without selecting on candidate eligibility. It is not full
 H1 validation; failure/timeout will not trigger an undisclosed smaller cohort.
 The independent agent checked these metadata/counts before execution.
 
+[M] Heldout331's baseline reached its preregistered cooperative deadline and
+saved a resumable checkpoint; all owned processes drained. Whole pilot730.102s,
+guarded walk724.619s, no hard stop or algebra/frontier failure. It had7,926,371
+scheduled domains,6,255,154 native inspections and76,227,728 events, with781,801
+pending and zero abandoned obligations. The live1/2 root closure count is not
+an independent cold result. The evaluator correctly stopped without cold,
+candidate arm, completed comparison or efficacy ratio. Its independent censor
+audit passed. This is a negative feasibility result for the allotted baseline
+pilot, not proof that the candidate fails or the family cannot close.
+
+[M] The input remains frozen. A fresh **candidate-only** feasibility diagnostic
+has been prepared with identical331-query bytes and full context, using the
+first-arm deadlines. It will explicitly omit A/B ratios and promotion even if
+it closes; no root/rank bound is changed. The isolated runner now supports
+`--only-arm` only for the first planned arm and writes a separate observation,
+never a completed-pair comparison. Native execution waits for the granted
+geometry build/test/proof slice, which is now active. The original censored
+baseline evidence/checkpoint is preserved untouched.
+
+[M] Geometry nomination now compiles and all nine native tests pass (0.15s test
+execution;121.565s test compile and121.522s optimized executable compile).
+It derives native weighted ordinary-source translations from the family and
+runtime-selected loop/numerator axes, using existing coefficient operations.
+The same-chart geometry proof/export and a preserved prescribed-mode export
+each pass in about2.2s guarded. **Both candidate files are byte-identical to
+the already measured `1c8b6d7c…` artifact.** This is exact reproduction by the
+generic nominator, not a different unmeasured rule. All owned jobs drained;
+final independent native-receipt review is pending before commit.
+Evidence: `candidates/geometry-source-build-v1/`.
+
+[M] At12:09UTC root launched the prepared candidate-only heldout331 diagnostic
+with `run_pair.py --only-arm candidate`, after the build released its locks.
+The exact prior heldout input/context and candidate bytes are unchanged. The
+runner's single-arm semantics received independent source review; no paired
+efficacy ratio or automatic promotion will be emitted. Its result is pending.
+
+[M] Independent geometry native-receipt audit now passes all builds/tests,
+proofs, source bindings and actual byte comparisons. Geometry adds136 constant
+pre-cancellation guard witnesses, so proof-origin indices differ legitimately;
+normalized source weights, full RHS, all18 cell geometries/guard polynomials
+and artifact bytes agree exactly. Prescribed-mode proof also matches its old
+proof exactly. No repeated C19 traversal is needed for identical payload bytes.
+
+[E] The literature/API lane identified a principled next step: protect selected
+denominator powers through logarithmic tangency or exact projected-source H
+constraints, rather than ban every raised power. Two bounded tests and explicit
+falsifiers are recorded in
+`docs/research/profile_guided_protected_sources_2026-10-03.md`: a mixed-target
+75-row F/F+H bank, and the existing public two-protected tangent plan. Old scratch
+drivers cannot run the mixed chart unchanged; this limitation must not be
+evaded by deleting spectator numerators. A further single-protected gradient
+construction could handle routing-shifted denominators without new CAS, but
+its coverage/descent/benefit remains untested. No new algebraic primitive is
+authorized merely by this research nomination.
+
 ## Current workboard — October3 frontier repair
 
 [M] The old campaign stopped with one native frontier, not an algebra crash or

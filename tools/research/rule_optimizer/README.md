@@ -246,3 +246,62 @@ Three native tests exercise malformed source/chart refusal, wrong native
 family/order/RowId refusal, and a known unbounded tadpole proof/export with a
 boundary-pole refusal. Source-weight normalization, full-chart proof, priority
 export, shared-cohort closure and performance remain distinct gates.
+
+## Geometry-derived source nomination
+
+The same producer accepts a separate `rustred.geometry-tangent-chart.v1` schema.
+Keep the exact owner/family/order, chart and limits fields, omit `sources`, and
+provide a runtime choice of coordinate loop and numerator axis, both zero-based:
+
+```json
+"nomination": {"differentiated_loop": 0, "numerator_axis": 13}
+```
+
+The numeric example is a request choice, not a built-in family dispatch. The
+selected numerator must be inactive and strictly negative throughout the declared
+chart. `validate` checks only input shape; `prove` and `export` still require an
+exact saved owner. The original prescribed schema and rational `[p,q]` source
+semantics are unchanged; mixing geometry nomination with `sources` is refused.
+
+`geometry_tangent.rs` checks native derivative incidence in the selected loop.
+It requires exactly one dependent active denominator with radial loop dependence.
+Half the selected numerator's off-diagonal scalar-product coefficients define
+the momentum `p`. Native affine expansions of `k²` and `k·p` then decompose
+`V = k² p - (k·p) k` into ordinary source RowIds and monomial translations.
+Rows are resolved through the completed native source inventory, not an assumed
+ordinal formula. Base-parameter coefficients remain authenticated native objects
+in-process; display strings are never reparsed or used as authority.
+
+This bounded nomination handles one explicit loop/numerator choice per request.
+It neither searches arbitrary loop-coordinate transformations nor adds source
+shells, solves tensor reductions, chooses a new descent order, or edits a chart.
+Limits bound source pairs (including intermediate coalescing), retained poles,
+and nomination work; native expression growth still requires the external
+RSS/deadline supervisor. Coefficient poles are retained before cancellations.
+
+Derivative-independent inactive axes are reported as spectators. Other dependent
+inactive axes are separately reported with their declared fixed/free intervals;
+they are not made into spectators by a nominal zero exponent. The shared ordinary
+source product retains every mixed-numerator derivative, zero-sector term and
+guard. A valid nomination is not a chart proof, and a single-numerator success
+does not imply mixed-cross descent or downstream improvement. Only the existing
+full original-source proof and checked exporter can admit the requested chart.
+
+Focused fixtures cover the existing eight-view identity, loop/denominator
+permutation, native parameter-valued weights and canceled poles, unsupported
+incidence/resource refusals, and full mixed tails versus genuine spectators.
+These join the original producer tests and a separate-schema input refusal test.
+Run them with the existing `rule_optimizer_prescribed_source` Cargo example test
+command above. New nomination code requires its own fresh build/test/proof
+receipts; an earlier frozen prescribed-producer binary does not contain it.
+
+The first guarded geometry build passed all nine tests. On the separately frozen
+spectator-free chart, native nomination derived eight sources and proved all
+18 sign cells; its checked export was byte-identical to the measured prescribed
+candidate. A fresh prescribed-mode export from the new binary was also identical.
+The geometry proof retains additional pre-cancellation witnesses, so its proof
+receipt's condition-origin ordinals differ even though the emitted owner bytes,
+exact source weights, RHS, chart cells and guard polynomials coincide. Raw receipts
+are preserved in ignored `TMP/rule-optimizer-20261003/candidates/geometry-source-build-v1/`,
+with `equivalence.json` recording the comparison. This validates nomination for
+that chart, not a mixed-cross chart or an additional performance measurement.

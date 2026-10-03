@@ -99,11 +99,15 @@ time is3.16% lower. Reverse-order repetition remains pending. Evidence:
 - This result does not estimate the fraction of production work saved. C19 is
   a selected training face; other cross numerators and other owners remain.
 - The12-root cohort broadens spectators, active powers and pinch-route controls
-  but remains profile-informed training validation. A separately frozen331-tuple
-  restricted owner-family heldout is running: all original bounds are preserved
-  except explicitly limiting its first root to A≤7/R≤2; the other root is kept
-  whole. Neither starting owner is the replaced owner. Failure will not justify
-  shrinking or dropping a root after seeing results.
+  but remains profile-informed training validation. The separately frozen331-tuple
+  restricted owner-family heldout retains all original coordinate bounds, with
+  its first root explicitly limited to A≤7/R≤2 and its other root kept whole.
+  Neither starting owner is the replaced owner. Its baseline was cooperatively
+  **censored**, not completed:7,926,371 domains,6,255,154 native inspections,
+  781,801 pending, zero frontiers, checkpoint saved and owned processes drained.
+  Whole pilot730.102s. No cold check or candidate arm ran, so there is no
+  completed heldout A/B result. The unchanged scope is retained for any further
+  diagnostic; roots will not be dropped or bounds reduced after this outcome.
 - No production switch is recommended yet. Source nomination, broader exact
   candidates, heldout checks and full controls remain active goal work.
 
@@ -113,6 +117,15 @@ Implementation milestone: `84554939` on main. Native producer tests3PASS;
 finite projected-bank tests4PASS; profiling/evaluator Python tests21PASS.
 The public Cargo examples are documented in
 [the research-tool README](../../tools/research/rule_optimizer/README.md).
+
+The subsequent family-geometry nominator passes nine native tests and produces
+the **same candidate bytes**, independently audited, from the selected loop and
+numerator axes rather than the prescribed eight-row recipe. The rebuilt old
+prescribed mode also reproduces those bytes. Its extra136 constant
+pre-cancellation witnesses change proof-receipt origin indices, not guards,
+source coefficients, cell geometry or runtime rules. This establishes the
+generic nomination path for the measured case, not new mixed-chart coverage.
+Evidence: `candidates/geometry-source-build-v1/equivalence.json`.
 
 Ignored evidence root: `TMP/rule-optimizer-20261003/`.
 

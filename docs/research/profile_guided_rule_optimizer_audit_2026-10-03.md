@@ -1377,3 +1377,71 @@ authority; nomination itself is not a proof. Nine authored tests cover old
 producer behavior, schema separation, exact eight-view reproduction, relabeling,
 parameter poles, unsupported/resource refusal and full mixed derivative versus
 spectator behavior. Their compile/native outcomes remain separate later gates.
+
+## Restricted heldout baseline censoring
+
+The first `candidates/prescribed-spectator-heldout331-v1/` baseline does not
+complete within its frozen allowance. Independent receipt review confirms the
+exact331-tuple two-query input, full67-owner/8,246-route/two-overlay context
+and planned native argv. The guard requests a cooperative stop at its inclusive
+deadline; exit4 saves resumable checkpoint generation1 and all workers/owned
+groups drain. It is not a hard kill, algebra failure or observed input frontier.
+
+Observed work is7,926,371 scheduled domains,6,255,154 native inspections and
+76,227,728 events, with781,801 queued/pending domains. Frontiers, failed natives
+and abandoned obligations are zero, but pending work is emphatically not zero.
+Guard elapsed time is724.619 seconds; whole attempted-pair time is730.102
+seconds. The live1/2-root closure count is a stale conservative snapshot, not
+an independently verified root result. No cold verifier or candidate arm ran,
+`completed_arms` is empty, and no comparison was emitted. Therefore there is
+no completed efficacy ratio for this heldout cohort.
+
+A fresh candidate-only diagnostic on exactly the same331-tuple scope and full
+context can test candidate feasibility and, if it finishes, complete cold
+closure. It must remain explicitly non-comparative: a candidate completion
+does not turn the censored baseline into a completed A/B result. Preserve the
+old receipts and recorded lower-bound work; do not shrink either root, silently
+resume with different semantics, claim full-H1 completion, or promote from a
+single censored-versus-complete observation.
+
+The small research-runner `--only-arm` extension was source-reviewed before
+the candidate-only diagnostic. It accepts only the first preregistered arm,
+preserving deadline slot0 and the existing stage/walk/cold commands, resource
+guards, locks and cleanup. It invokes the existing per-arm completeness parser,
+not the two-arm comparer, and writes an observation with
+`completed_comparison=false`, ratio null and promotion false. The new plan
+preserves the331 query bytes/roles, full inventories, native options, resources
+and deadlines, changing only destination, explicit diagnostic label and arm
+order. Its per-arm parser does not replace the later independent actual-command
+and resource-binding audit; the observation scope states that limitation. No
+candidate execution or completion is asserted by this planning/source review.
+
+## Compiled geometry-nomination equivalence
+
+The native geometry producer milestone now passes an independent receipt audit
+in `candidates/geometry-source-build-v1/`. All9 tests pass. Test/binary builds
+complete in121.565/121.522 seconds; source prove, geometry export and preserved
+prescribed-control export each complete in under2.25 seconds inclusive, within
+their20/25-second cooperative/hard and30-second acceptance ceilings. Every
+phase exits0, reports no stop/failure, and drains owned process groups. Audited
+source pins match the successful build; the resulting binary is
+`cfcd26673ee5e563a0f30304f59b6548b5092488644d60d4e6f192250c4d2ae2`.
+
+Actual byte-array comparison, not only a report flag, establishes that both the
+geometry-nominated export and the rebuilt prescribed control are identical to
+the measured candidate `1c8b6d7c...bf844ef`. Exact normalized source weights,
+RHS and pivot agree; the18 sign-cell geometries and guard polynomials agree.
+The prescribed control's full proof and227 retained conditions equal the old
+producer's output. Geometry prepends136 additional pre-cancellation witnesses,
+all constant1 or2 on this family, so its raw proof's condition-origin ordinals
+differ. Those distinct raw receipts are retained and are not called identical.
+All233 baseline rules and25 terminals remain unchanged, with234 total rules.
+
+This demonstrates that a bound-family geometry nomination can regenerate the
+already-measured program without manually prescribing its eight weights. It
+does not measure a new performance result, prove a mixed-cross chart, or require
+another C19 walk for these identical bytes. The accompanying
+[protected-source proposal](profile_guided_protected_sources_2026-10-03.md)
+was independently checked against its primary-paper sections and native API
+limits; its two next experiments and nonradial appendix remain proposals, not
+execution or expanded-chart authority.

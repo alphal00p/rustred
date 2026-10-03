@@ -1,8 +1,13 @@
 //! Input-prescribed ordinary-source chart proof and isolated priority export.
 //! This orchestrates existing native source/algebra/proof/codec services. It
-//! does not lift point weights, search sources, delete zero sectors or walk.
+//! does not lift point weights, delete zero sectors or walk. An isolated
+//! geometry-nomination module feeds the same full original-source proof path.
+mod geometry_tangent;
 use rustred::{
-    algebra::{ExactAlgebraLimits, IndexedAlgebraLimits, IndexedCoefficient, IndexedPolynomial},
+    algebra::{
+        ExactAlgebraLimits, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
+        IndexedPolynomial,
+    },
     foundry::{
         artifact::{
             CheckedOriginalSourceCombination, OriginalSourceCombinationLimits,
@@ -12,8 +17,8 @@ use rustred::{
         cell::FixedIndexRestriction,
     },
     identity::{
-        IndexShift, IntegralShift, ParametricIbpGenerator, TranslatedSourceLimits,
-        TranslatedSourceRequest,
+        IndexShift, IntegralShift, ParametricIbpGenerator, SelectedTranslatedSourceBatch,
+        TranslatedSourceLimits, TranslatedSourceRequest,
     },
     sector::Mask,
     solver::RuleDispatchPolicy,
@@ -91,7 +96,10 @@ fn fixed(r: &Value) -> Result<Vec<(usize, i64)>> {
 }
 
 fn validate(r: &Value) -> Result<usize> {
-    require(r["schema"] == SCHEMA, "unknown request schema")?;
+    require(
+        r["schema"] == SCHEMA || r["schema"] == geometry_tangent::SCHEMA,
+        "unknown request schema",
+    )?;
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
     let n = mask.len();
     require(
@@ -161,6 +169,23 @@ fn validate(r: &Value) -> Result<usize> {
             )?;
         }
     }
+    if r["schema"] == geometry_tangent::SCHEMA {
+        require(
+            r.get("sources").is_none(),
+            "geometry nomination cannot also prescribe sources",
+        )?;
+        let axis = nomination_index(r, "numerator_axis")?;
+        let loop_index = nomination_index(r, "differentiated_loop")?;
+        require(
+            axis < n && loop_index < n,
+            "nomination axis/loop exceeds input arity",
+        )?;
+        require(
+            mask.as_bytes()[axis] == b'0' && lower[axis].as_u64().unwrap() >= 1,
+            "nominated numerator chart must be strictly negative",
+        )?;
+        return Ok(n);
+    }
     let sources = array(r, "sources")?;
     require(
         !sources.is_empty() && sources.len() <= limit(r, "max_source_rows")?,
@@ -186,6 +211,13 @@ fn validate(r: &Value) -> Result<usize> {
         )?;
     }
     Ok(n)
+}
+
+fn nomination_index(r: &Value, key: &str) -> Result<usize> {
+    r["nomination"][key]
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| format!("nomination {key} must be an index"))
 }
 
 fn policies(r: &Value) -> Result<OriginalSourceCombinationLimits> {
@@ -241,6 +273,56 @@ fn proof_summary(proof: &CheckedOriginalSourceCombination) -> Value {
     }).collect::<Vec<_>>();
     json!({"family_fingerprint":proof.family_fingerprint(),"context_fingerprint":proof.context_fingerprint(),
         "requested_lower":proof.requested_bounds().0,"requested_upper":proof.requested_bounds().1,"checked_sign_cells":cells})
+}
+
+// Shared by prescribed and nominated sources: no incidence-dependent clipping.
+fn source_product(
+    c: &IndexedCoefficientContext,
+    sources: &SelectedTranslatedSourceBatch,
+    weights: &BTreeMap<TranslatedSourceRequest, IndexedCoefficient>,
+    mut conditions: Vec<IndexedPolynomial>,
+    r: &Value,
+) -> Result<(
+    BTreeMap<IndexShift, IndexedCoefficient>,
+    Vec<IndexedPolynomial>,
+)> {
+    require(
+        sources.requests().iter().eq(weights.keys()),
+        "canonical source order changed",
+    )?;
+    let exact = policies(r)?.cell.indexed_algebra.exact_algebra;
+    let mut product: BTreeMap<IndexShift, IndexedCoefficient> = BTreeMap::new();
+    let mut operations = 0usize;
+    for (source, weight) in sources.sources().iter().zip(weights.values()) {
+        conditions.push(checked(c.denominator_condition_with_limits(weight, exact))?);
+        for guard in source.nonzero_conditions() {
+            conditions.push(guard.polynomial().clone());
+        }
+        for (shift, term) in source.terms() {
+            operations = operations
+                .checked_add(2)
+                .ok_or("operation count overflow")?;
+            require(
+                operations <= limit(r, "max_term_operations")?,
+                "source product work exceeds allowance",
+            )?;
+            conditions.push(checked(c.denominator_condition_with_limits(term, exact))?);
+            let value = checked(c.mul_with_limits(weight, term, exact))?;
+            let value = match product.remove(shift) {
+                Some(old) => checked(c.add_with_limits(&old, &value, exact))?,
+                None => value,
+            };
+            if !value.is_zero() {
+                product.insert(shift.clone(), value);
+            }
+        }
+        require(
+            product.len() <= limit(r, "max_terms")?
+                && conditions.len() <= limit(r, "max_conditions")?,
+            "product/conditions exceed allowance",
+        )?;
+    }
+    Ok((product, conditions))
 }
 
 fn produce<const N: usize>(
@@ -306,62 +388,65 @@ fn produce<const N: usize>(
         })
         .collect();
     let mut weights = BTreeMap::new();
-    for source in array(r, "sources")? {
-        let ordinal = *ids
-            .get(source["source_row"].as_str().unwrap())
-            .ok_or("native source RowId absent")?;
-        let request = TranslatedSourceRequest::new(
-            ordinal,
-            checked(IntegralShift::try_new(integers(&source["offset"], N)?))?,
-        );
-        let q = integers(&source["weight"], 2)?;
-        let weight = checked(c.div_with_limits(&c.integer(q[0]), &c.integer(q[1]), exact))?;
-        require(
-            weights.insert(request, weight).is_none(),
-            "duplicate resolved source pair",
+    let mut nominated_conditions = Vec::new();
+    let mut nomination_report = None;
+    if r["schema"] == geometry_tangent::SCHEMA {
+        let nomination = geometry_tangent::nominate(
+            &family,
+            c,
+            &sector,
+            nomination_index(r, "differentiated_loop")?,
+            nomination_index(r, "numerator_axis")?,
+            geometry_tangent::Limits {
+                arithmetic: exact,
+                max_sources: limit(r, "max_source_rows")?,
+                max_conditions: limit(r, "max_conditions")?,
+                max_operations: limit(r, "max_term_operations")?,
+            },
         )?;
+        for ((row, offset), weight) in nomination.weights {
+            let ordinal = *ids
+                .get(&row.stable_string())
+                .ok_or("nominated RowId absent from native inventory")?;
+            require(
+                weights
+                    .insert(TranslatedSourceRequest::new(ordinal, offset), weight)
+                    .is_none(),
+                "duplicate nominated source pair",
+            )?;
+        }
+        nominated_conditions = nomination.conditions;
+        let mut report = nomination.report;
+        let restrictions = fixed(r)?;
+        report["other_dependent_inactive_chart"] = json!(report["other_dependent_inactive_axes"].as_array().unwrap().iter().map(|axis| {
+            let axis = axis.as_u64().unwrap() as usize;
+            json!({"axis":axis,"fixed_physical_value":restrictions.iter().find_map(|&(i,v)| (i==axis).then_some(v)),
+                "local_lower":r["chart"]["lower"][axis],"local_upper":r["chart"]["upper"][axis]})
+        }).collect::<Vec<_>>());
+        nomination_report = Some(report);
+    } else {
+        for source in array(r, "sources")? {
+            let ordinal = *ids
+                .get(source["source_row"].as_str().unwrap())
+                .ok_or("native source RowId absent")?;
+            let request = TranslatedSourceRequest::new(
+                ordinal,
+                checked(IntegralShift::try_new(integers(&source["offset"], N)?))?,
+            );
+            let q = integers(&source["weight"], 2)?;
+            let weight = checked(c.div_with_limits(&c.integer(q[0]), &c.integer(q[1]), exact))?;
+            require(
+                weights.insert(request, weight).is_none(),
+                "duplicate resolved source pair",
+            )?;
+        }
     }
     let sources = checked(generator.translate_selected_completed_source_rows(
         &completed,
         weights.keys().cloned(),
         policy.translated_sources,
     ))?;
-    require(
-        sources.requests().iter().eq(weights.keys()),
-        "canonical source order changed",
-    )?;
-    let mut product: BTreeMap<IndexShift, IndexedCoefficient> = BTreeMap::new();
-    let mut conditions: Vec<IndexedPolynomial> = Vec::new();
-    let mut operations = 0usize;
-    for (source, weight) in sources.sources().iter().zip(weights.values()) {
-        conditions.push(checked(c.denominator_condition_with_limits(weight, exact))?);
-        for guard in source.nonzero_conditions() {
-            conditions.push(guard.polynomial().clone());
-        }
-        for (shift, term) in source.terms() {
-            operations = operations
-                .checked_add(2)
-                .ok_or("operation count overflow")?;
-            require(
-                operations <= limit(r, "max_term_operations")?,
-                "source product work exceeds allowance",
-            )?;
-            conditions.push(checked(c.denominator_condition_with_limits(term, exact))?);
-            let value = checked(c.mul_with_limits(weight, term, exact))?;
-            let value = match product.remove(shift) {
-                Some(old) => checked(c.add_with_limits(&old, &value, exact))?,
-                None => value,
-            };
-            if !value.is_zero() {
-                product.insert(shift.clone(), value);
-            }
-        }
-        require(
-            product.len() <= limit(r, "max_terms")?
-                && conditions.len() <= limit(r, "max_conditions")?,
-            "product/conditions exceed allowance",
-        )?;
-    }
+    let (product, mut conditions) = source_product(c, &sources, &weights, nominated_conditions, r)?;
     let unrestricted_terms = product.len();
     let restrictions = fixed(r)?;
     let target = product
@@ -437,13 +522,16 @@ fn produce<const N: usize>(
         policy,
     ))?;
     let isolated_proof_seconds = proof_start.elapsed().as_secs_f64();
-    let mut report = json!({"schema":SCHEMA,"status":"EXACT_ORIGINAL_SOURCE_CHART_PROVED","request":r,
+    let mut report = json!({"schema":r["schema"],"status":"EXACT_ORIGINAL_SOURCE_CHART_PROVED","request":r,
         "ordinary_sources_generated":ordinary_count,"selected_sources":sources.len(),"unspecialized_product_terms":unrestricted_terms,
         "target_coefficient_derived":coefficient(&pivot),"normalized_sources":source_view,"normalized_rhs":rhs_view,
         "retained_pre_cancellation_conditions":conditions_view,"proof":proof_summary(&proof),
         "preparation_seconds":preparation_seconds,"isolated_proof_seconds":isolated_proof_seconds,
         "zero_sector_terms_discarded":false,"point_weight_lift":false,"recursive_walk":false,
         "production_modified":false,"coverage_or_cost_claim":false,"export_proof_attached_to_native_object_not_json":true});
+    if let Some(nomination) = nomination_report {
+        report["nomination"] = nomination;
+    }
     let mut candidate = None;
     if export {
         let export_start = Instant::now();
@@ -565,6 +653,25 @@ mod tests {
                 _ => r["sources"][0]["offset"] = json!([]),
             }
             assert!(validate(&r).is_err());
+        }
+    }
+    #[test]
+    fn geometry_schema_keeps_prescribed_sources_separate() {
+        let mut r = request();
+        r["schema"] = json!(geometry_tangent::SCHEMA);
+        r["owner_mask"] = json!("0");
+        r["nomination"] = json!({"differentiated_loop":0,"numerator_axis":0});
+        assert!(validate(&r).is_err());
+        r.as_object_mut().unwrap().remove("sources");
+        assert_eq!(validate(&r).unwrap(), 1); // Shape only; no family has been loaded.
+        for case in 0..3 {
+            let mut wrong = r.clone();
+            match case {
+                0 => wrong["chart"]["lower"] = json!([0]),
+                1 => wrong["nomination"]["differentiated_loop"] = json!(-1),
+                _ => wrong["owner_mask"] = json!("1"),
+            }
+            assert!(validate(&wrong).is_err());
         }
     }
     fn fixture() -> (Vec<u8>, Value) {
