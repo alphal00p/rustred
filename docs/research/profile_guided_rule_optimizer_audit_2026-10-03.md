@@ -4174,3 +4174,99 @@ peak RSS 258,183,168 bytes, with clean exit and complete drain. This accepts
 a source-proved guarded alternative on one declared ray, not historical
 pivot recovery, incumbent replay, whole-case coverage or downstream gain.
 Evidence: `candidates/symbolic-owner3-rule146-ray-plus-e13-noH-direct-v1/`.
+
+The fresh matched four-point pair passes independent final command, execution,
+activation and cold audit. Only owner3 changes; all four exact query/bound
+records and the 67/8,246/2 context remain fixed. Both arms exhaust their
+worklists with joined workers, zero pending/frontier/error/abandoned debt,
+and clean stage/walk/cold drains. Cold All/Off verifies all four roots and
+all 17,465/17,419 native inspections with matching request/owner bindings.
+As before, raw walk exit4 reflects stale engine closure snapshots, while
+the completed cold receipt supplies regional closure.
+
+Independent bounded root-record and outgoing-geometry reads establish actual
+first-root activation: the incumbent visits 165 terms, of which 62 vanish,
+and emits 103 successors (30 same-support/73 strict-subsector). The candidate
+visits 88 terms, none zero, and emits 88 (18/70). These 88 exact singleton
+images equal the complete proved original-product shift support minus its
+pivot, without parsing coefficient display strings. The other owner3 root
+and both owner0 roots retain identical complete RHS image sets, with 71, 7
+and 7 successors. First-root frame hashes are `8fee5bf5...3ea8f0a` and
+`9ea44943...cefaf65`.
+
+The paired scheduled-domain count is 19,080 to 18,949 (-131, -0.6866%), native
+inspections 17,465 to 17,419 (-0.2634%), and events 159,683 to 156,998
+(-1.6815%). Traversal is 0.830779 to 0.787210 seconds (-5.2444%); complete
+arms are 175.959681 and 174.873888 seconds (-0.6171%), with 353.687262 seconds
+inclusive for the pair. The fresh paired baseline differs by six nodes from
+the earlier baseline-only graph; ratios use this pair alone. The modest
+observed gain misses the 20% work target, so retain the baseline and do not
+promote this one-ray patch. It is not a robust broader performance result.
+Evidence: `candidates/lower-owner3-ray-noh-fourpoint-pair-v1/`.
+
+The optional mechanism census passes a narrower read-only audit of the sealed
+19,074-node baseline-only graph: independent root intersections, actual
+singleton A/R/shared-root counters, all motif totals and the 12 retained
+same-owner two-level motif counts agree. The top owner3 shift-pair motif
+occurs at 17 distinct parents with 127 pairwise common-grandchild counts.
+Owner3 work shared by its two roots is 396 inspections/0.373903 summed
+seconds out of 439/0.429367; owner0's corresponding overlap is 229/0.252986
+out of 953/0.884686. This is reconvergence, not coefficient cancellation,
+guard composability or measured savings: physical-shift keys can join nodes
+with different domain caps, and the graph already shares descendants.
+The large parent-census aggregate was reviewed as a direct sum of existing
+strata, not rescanned. Evidence: `profiles/lower-owner-mechanism-census-v1.json`.
+
+## Multi-free cofinal nomination and controlled generation preflights
+
+Independent source review accepts the narrow `CofinalOrthant` extension:
+componentwise exact sign stabilization on independent unbounded coordinates,
+all remaining axes explicitly fixed, plain Spired and unshifted family powers.
+Same-sector native shift keys cancel every free-index part; differing support
+uses native support-primary ordering. A nonzero rational coefficient cannot
+vanish on the entire product integer tail after nonzero polynomial guard/pole
+exclusions. This is a necessary-column filter only. Finite boundary faces,
+including possible outside-root activations, remain obligations of unchanged
+native exact replay/guard/descent/refinement; correlated or rank/power-capped
+geometry is rejected. Checked carrier overflow and witness-budget exhaustion
+refuse rather than clip infinity or weaken the claim.
+
+All 22 frozen orthant source files equal the reviewed tracked source. Against
+the certified envelope-v2 snapshot, only the cofinal module/tests and one main
+annotation call differ. The optimized build binds those sources and passes
+75 actual tests with zero failures, skips or filters, including the existing
+474-shift fixture and seven new compatibility/adversarial tests. The new
+binary hashes to `0050c7ccb94882783c94111a3aa8180f77ee932a1421140a4a796b3c1b25d94b`.
+Its real unchanged one-ray exact control independently reproduces the complete
+old report except seconds and the identical `5bc54749...85226a2` candidate
+bytes, cleanly in 2.546880 seconds. These tests do not prove any new multi-free
+candidate. Evidence: `candidates/projector-orthant-build-v1/` and
+`candidates/projector-orthant-one-ray-control-v1/`.
+
+The sole six-free modular preregistration passes input audit: exact saved
+nine-coordinate fixed face, free inactive axes 0,2,6,10,12,13 all <=0, the
+same ordered 250-source +e13 bank, three fixed generic samples and unchanged
+native resource limits. Old guard IDs are opaque provenance only, so this
+uncorrelated chart is intentionally broader than the old guarded recurrence.
+No exact selection, H, envelope, automatic bank growth, narrowing or retry is
+included. The inherited 5,220-term estimate belongs to the old fixed ray;
+only actual native limits constrain the lifted request. Plan
+`incidence-study/owner3-rule146-orthant-plus-e13-plan-v1.json` hashes to
+`084c5418...f86d58`.
+
+Whole-owner3 generation v2 was rejected before launch: a read-only parse probe
+against the frozen CLI confirmed that explicit finite-retention limits require
+`retain-rank-finite` and are incompatible with the archived `search` policy.
+Prospective v3 restores omission of those flags, preserves `search`, and checks
+the archived one-million/one-million defaults in the resulting report. Its
+family, nonpositive indices 10,12,13, Spired order, exact backend, numerical
+depth, rank and case/bundle limits match the archived controls. The strategy
+only adds ascending prepared-row positive-shift weights on the seven active
+axes before the existing terms/coefficient-monomials priorities; it changes
+neither the integral comparator nor proof authority. The bounded candidate-
+generation preflight is GO, not installation or source certification. The
+current generator binary differs from the archived generator, so strict
+strategy-only causal attribution additionally needs an appropriate control.
+`family-candidates` explicitly produces uncertified candidates: native source
+authority and exact terminal-key equality remain later gates. Evidence:
+`profiles/owner3-whole-program-mechanism-proposal-v3.json` (`ae5dbfda...aa6f42`).

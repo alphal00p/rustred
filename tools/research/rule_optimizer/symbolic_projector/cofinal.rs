@@ -1,4 +1,4 @@
-//! Opt-in necessary-column nomination on a single unbounded coordinate ray.
+//! Opt-in necessary-column nomination on an independent unbounded orthant.
 //! This is not a rule proof or a zero-sector quotient. Full sources stay intact.
 use super::{Result, checked, integers, require};
 use rustred::{
@@ -19,14 +19,13 @@ pub fn enabled(r: &Value) -> Result<bool> {
     }
 }
 
-pub struct Ray {
+pub struct CofinalOrthant {
     sector: Mask,
     order: OrderingPolicy,
-    free: usize,
-    lower: u64,
+    free: Vec<(usize, u64)>,
     fixed: BTreeMap<usize, i64>,
 }
-impl Ray {
+impl CofinalOrthant {
     pub fn new(r: &Value, order: &OrderingPolicy) -> Result<Self> {
         require(
             *order == OrderingPolicy::SpiredUncutV1,
@@ -38,6 +37,13 @@ impl Ray {
             "max_numerator_rank",
             "max_positive_degree",
             "max_total_degree",
+            "max_positive_power",
+            "min_power_difference",
+            "max_power_difference",
+            "power_bounds",
+            "rank_bounds",
+            "domain_constraints",
+            "affine_constraints",
             "constraints",
         ] {
             require(
@@ -75,10 +81,9 @@ impl Ray {
         )?;
         let free: Vec<_> = (0..n).filter(|&i| upper[i].is_null()).collect();
         require(
-            free.len() == 1,
-            "cofinal nomination needs exactly one genuinely unbounded axis",
+            !free.is_empty(),
+            "cofinal nomination needs at least one genuinely unbounded axis",
         )?;
-        let free = free[0];
         let mut fixed = BTreeMap::new();
         for pair in chart
             .get("fixed")
@@ -88,17 +93,17 @@ impl Ray {
             let pair = integers(pair, 2)?;
             let axis = checked(usize::try_from(pair[0]))?;
             require(
-                axis < n && axis != free && fixed.insert(axis, pair[1]).is_none(),
+                axis < n && !free.contains(&axis) && fixed.insert(axis, pair[1]).is_none(),
                 "cofinal fixed axes invalid",
             )?;
         }
         require(
-            fixed.len() == n - 1,
+            fixed.len() == n - free.len(),
             "cofinal nomination requires every finite coordinate explicitly fixed",
         )?;
         for i in 0..n {
             let x = lower[i].as_u64().ok_or("cofinal local lower must be u64")?;
-            if i == free {
+            if free.contains(&i) {
                 continue;
             }
             require(
@@ -118,33 +123,40 @@ impl Ray {
         Ok(Self {
             sector,
             order: order.clone(),
-            free,
-            lower: lower[free].as_u64().ok_or("cofinal lower required")?,
+            free: free
+                .into_iter()
+                .map(|axis| Ok((axis, lower[axis].as_u64().ok_or("cofinal lower required")?)))
+                .collect::<Result<_>>()?,
             fixed,
         })
     }
 
     /// Exact sign stabilization plus the native n-independent structural key.
     /// The finite i64 interior is only a checked carrier. The infinite-ray
-    /// conclusion uses cancellation of the common n-part of the plain Spired
-    /// key AFTER exact sign stabilization, not sampling or machine clipping.
+    /// conclusion uses cancellation of every common free-index part of the
+    /// plain Spired key AFTER componentwise exact sign stabilization, not
+    /// sampling, a diagonal restriction, or machine clipping.
     pub fn classify(&self, shift: &[i64]) -> Result<Option<Value>> {
         let n = self.sector.arity();
         require(shift.len() == n, "cofinal shift arity differs")?;
         if shift.iter().all(|&s| s == 0) {
             return Ok(None);
         }
-        let active = self.sector.active_bits()[self.free];
-        let crossing = if active {
-            -i128::from(shift[self.free])
-        } else {
-            i128::from(shift[self.free])
-        };
-        let start = i128::from(self.lower).max(0).max(crossing);
         let mut parent = (0..n)
             .map(|i| self.fixed.get(&i).copied().unwrap_or(0))
             .collect::<Vec<_>>();
-        parent[self.free] = checked(i64::try_from(if active { 1 + start } else { -start }))?;
+        let mut starts = Vec::with_capacity(self.free.len());
+        for &(axis, lower) in &self.free {
+            let active = self.sector.active_bits()[axis];
+            let crossing = if active {
+                -i128::from(shift[axis])
+            } else {
+                i128::from(shift[axis])
+            };
+            let start = i128::from(lower).max(0).max(crossing);
+            parent[axis] = checked(i64::try_from(if active { 1 + start } else { -start }))?;
+            starts.push(checked(u64::try_from(start))?);
+        }
         let child = parent
             .iter()
             .zip(shift)
@@ -152,7 +164,9 @@ impl Ray {
             .collect::<Result<Vec<_>>>()?;
         let child_mask = checked(Mask::try_from_indices(&child))?;
         require(
-            child_mask.active_bits()[self.free] == active,
+            self.free.iter().all(|&(axis, _)| {
+                child_mask.active_bits()[axis] == self.sector.active_bits()[axis]
+            }),
             "cofinal sign-stability invariant failed",
         )?;
         let (comparison, kind) = if child_mask == self.sector {
@@ -193,13 +207,38 @@ impl Ray {
         if comparison == Ordering::Less {
             return Ok(None);
         }
-        Ok(Some(
-            json!({"shift":shift,"free_axis":self.free,"cofinal_local_lower":checked(u64::try_from(start))?,
+        if self.free.len() == 1 {
+            // Keep the established single-axis receipt byte-for-byte stable.
+            return Ok(Some(
+                json!({"shift":shift,"free_axis":self.free[0].0,"cofinal_local_lower":starts[0],
             "child_support":child_mask.active_bits(),"native_carrier_parent":parent,"native_carrier_child":child,
             "reason":kind,"infinite_ray_reason":"All fixed coordinates stay fixed; the translated free coordinate has its parent sign forever after the exact threshold. The native structural key difference is then independent of the free index. A nonzero rational coefficient cannot vanish on that infinite integer tail.",
             "zero_sector_quotient":false,"rule_authority":false}),
+            ));
+        }
+        Ok(Some(
+            json!({"shift":shift,"free_axes":self.free.iter().map(|&(axis,_)|axis).collect::<Vec<_>>(),
+            "cofinal_local_lower":starts,"child_support":child_mask.active_bits(),
+            "native_carrier_parent":parent,"native_carrier_child":child,"reason":kind,
+            "infinite_orthant_reason":"After independent componentwise sign stabilization, the native structural key difference is independent of every free index. A nonzero rational coefficient cannot vanish on the entire product integer tail after finitely many nonzero polynomial guard or pole exclusions. Finite boundary faces are not classified here and still require exact descent/refinement.",
+            "zero_sector_quotient":false,"rule_authority":false}),
         ))
     }
+}
+
+fn admit_witness_storage(r: &Value, ray: &CofinalOrthant, columns: usize) -> Result<()> {
+    // A worst-case witness retains shift, child support, parent and child
+    // vectors, and for a multifree orthant its free axes and thresholds.
+    // Charge all possible witnesses before constructing
+    // per-column JSON; the report-byte cap and outer RSS guard still apply.
+    let coordinate_bound = columns
+        .checked_mul(ray.sector.arity())
+        .and_then(|n| n.checked_mul(if ray.free.len() == 1 { 4 } else { 6 }))
+        .ok_or("cofinal witness coordinate overflow")?;
+    require(
+        coordinate_bound <= super::limit(r, "max_coordinate_cells")?,
+        "cofinal witness coordinates exceed allowance",
+    )
 }
 
 pub fn columns(
@@ -211,19 +250,8 @@ pub fn columns(
         universe.len() <= super::limit(r, "max_augmented_columns")?,
         "cofinal universe exceeds column allowance",
     )?;
-    let ray = Ray::new(r, order)?;
-    // A worst-case witness retains shift, child support, parent and child
-    // coordinate vectors. Charge all possible witnesses before constructing
-    // per-column JSON; the report-byte cap and outer RSS guard still apply.
-    let coordinate_bound = universe
-        .len()
-        .checked_mul(ray.sector.arity())
-        .and_then(|n| n.checked_mul(4))
-        .ok_or("cofinal witness coordinate overflow")?;
-    require(
-        coordinate_bound <= super::limit(r, "max_coordinate_cells")?,
-        "cofinal witness coordinates exceed allowance",
-    )?;
+    let ray = CofinalOrthant::new(r, order)?;
+    admit_witness_storage(r, &ray, universe.len())?;
     let mut result = BTreeSet::new();
     let mut witnesses = Vec::new();
     for shift in universe {
@@ -241,6 +269,26 @@ pub fn annotate(mut report: Value, enabled: bool, witnesses: &[Value], new_count
         report["cofinal_higher_new_count"] = json!(new_count);
         report["cofinal_scope"] = json!(
             "One exact unbounded local coordinate; plain Spired, unprojected strict descent. Finite native carrier supports the n-independent structural argument and is not an infinite-domain certificate by itself."
+        );
+    }
+    report
+}
+
+pub fn annotate_for_request(
+    report: Value,
+    request: &Value,
+    enabled: bool,
+    witnesses: &[Value],
+    new_count: usize,
+) -> Value {
+    let mut report = annotate(report, enabled, witnesses, new_count);
+    if enabled
+        && request["chart"]["upper"]
+            .as_array()
+            .is_some_and(|upper| upper.iter().filter(|x| x.is_null()).count() > 1)
+    {
+        report["cofinal_scope"] = json!(
+            "Independent unbounded coordinate orthant; plain Spired, unprojected strict descent. Componentwise sign stabilization and native n-independent ordering keys give necessary column exclusions on the product tail only; finite boundary faces remain subject to unchanged exact proof/refinement. A finite native carrier alone is not an infinite-domain certificate."
         );
     }
     report

@@ -789,18 +789,26 @@ source. These controls are recorded in ignored
 new downstream performance measurements.
 
 `forbid_cofinally_higher_columns` is an optional boolean (default false) for
-the narrow case of one genuinely unbounded coordinate, every other coordinate
-fixed, unshifted family powers, and plain saved Spired order. It derives each
-actual source-image column's exact sign-stabilization threshold, then uses the
+an independent product of genuinely unbounded coordinates, every other
+coordinate fixed, unshifted family powers, and plain saved Spired order. It
+derives each actual source-image column's componentwise exact sign-stabilization
+thresholds, then uses the
 native support/shift ordering keys to identify columns that are higher on the
-entire infinite tail. A rational coefficient in a uniformly descending rule
-must annihilate such a column identically. The finite native interior is only
+entire product integer tail. A rational coefficient in a uniformly descending
+rule must annihilate such a column identically: a nonzero polynomial cannot
+vanish on that whole product tail, even after excluding finitely many nonzero
+guard/pole loci. This is a necessary exclusion, not full-chart descent; finite
+boundary faces still require the existing exact proof and refinement. The finite native interior is only
 a checked carrier, not an empirical or finite-box proof of cofinality. Unsupported
-orders, affine/correlated or multifree charts, finite rays, overflow, and witness
+orders, affine/correlated/rank-capped/power-capped charts, finite nonfixed axes,
+charts without an unbounded axis, overflow, and witness
 storage over budget refuse. This is the unprojected strict-descent contract;
 it does not waive known-zero sectors or delete any source/RHS terms. Derived
 mandatory columns are reported separately from caller-selected optional cost
 exclusions, and native full-source/chart/guard proof remains required.
+Single-axis witness and annotation formats are unchanged. Multifree witnesses
+report the free-axis list and its threshold vector, including an explicit
+product-tail scope when the derived exclusion list is empty.
 
 `RUSTRED_SYMBOLIC_PROJECTOR_PROGRESS=1` enables observational stderr JSON for
 source preparation, projection, proof/refinement and export. Sparse row

@@ -522,8 +522,9 @@ fn run_mode<const N: usize>(
     }
     let annotate = |report| {
         positive_power_envelope::annotate(
-            cofinal::annotate(
+            cofinal::annotate_for_request(
                 report,
+                r,
                 cofinal_enabled,
                 &cofinal_witnesses,
                 cofinal_new_count,

@@ -5,7 +5,37 @@ change to production. The user has stopped the old campaign; the new37 campaign
 remains live and read-only. The active objective remains
 [the profile-guided optimization plan](../../PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
 
-## Current result: exact chart proof and a cost-directed candidate
+## Latest assessment: shared work, not individual RHS size
+
+The parent H55 and joint-envelope candidates below have now completed their
+shared-context tests: neither reduces domain work. The exact lower-owner
+one-ray replacement gives a real but small 19,080 → 18,949 domain reduction
+(0.687%), with all four roots independently checked and no pending obligations.
+It is not a qualifying campaign improvement. The detailed chronology below
+retains earlier incomplete attempts and their subsequent outcomes.
+
+The next experiments address a different scale of intervention:
+
+- A generic independent-coordinate extension of cofinal source nomination
+  passes 75 optimized tests and preserves the real single-ray control's report
+  and artifact bytes. It proposes columns only; exact source, guard and descent
+  authority remain unchanged.
+- A fresh whole-owner3 source-order trial completes in 86.530 s native
+  generation time, producing 465 rules and 59 finite residuals. The saved owner
+  has 584 rules and 58 residuals, so this is not an interchangeable candidate
+  under the unchanged-terminal comparison. No owner is installed. The archived
+  and current generator binaries also differ; this is not yet a controlled
+  attribution to source order alone.
+- The completed graph exposes substantial reconvergence: two lower-owner roots
+  share 8,970 of their 9,211/9,037 reachable nodes. Seventeen repeated parents
+  contain a common two-child pattern. Exact block composition and broader
+  reusable recurrences are therefore research hypotheses worth testing;
+  overlapping graph paths do not prove coefficient cancellation or savings.
+
+Production remains unchanged. No new full-campaign speedup, termination claim
+or closure ETA follows from these results.
+
+## Historical stage: exact chart proof and a cost-directed candidate
 
 The source-inspector recentering correction below changes the interpretation of
 the older misses. With an explicit common minus-one D2 translation, the complete
@@ -848,6 +878,29 @@ on one reusable ray, not historical-incumbent replay or whole-owner coverage.
 Artifact SHA:
 `5bc54749f4344e94268ea31ce17b51b4ab2fdbf1af7fae63c36d8751e85226a2`.
 The first selected R3 point lies in the second cell; the other R3 point has
-D13=-1 and is outside the chart. A fresh matched full-context traversal is
-being prepared, including explicit activation checks. Shorter symbolic output
-alone is not evidence of reduced shared work or a reason to replace production.
+D13=-1 and is outside the chart. The fresh matched full-context pair completes
+in353.687s inclusive. Both arms pass fresh cold-All/Off verification with all
+four roots verified and no outstanding work. Independent activation checking
+joins all88 first-root successor keys to the exact proof; the other three
+root RHS sets are unchanged.
+
+| Completed four-point cohort | Baseline | Lower-owner alternate |
+| --- | ---: | ---: |
+| Scheduled domains | 19,080 | 18,949 |
+| Native inspections | 17,465 | 17,419 |
+| Successor events | 159,683 | 156,998 |
+| Traversal seconds | 0.830779 | 0.787210 |
+| Whole-arm seconds | 175.959681 | 174.873888 |
+
+The0.6866% domain reduction does not meet the20% target. Preserve the baseline;
+do not promote or repeat this narrow candidate merely because its algebraic
+output is shorter. Single-pair subsecond traversal differences are not robust
+speed claims. The fresh baseline has six more domains than the earlier
+baseline-only diagnostic; the comparison uses only its matched denominator.
+
+A bounded shared-graph census identifies a different, broader target:17
+owner3 parents with a negative D1 index have two recurring branches that reduce
+that numerator, raise D5 orD8 and reconverge. These parents lie outside the
+tested ray. This motivates multi-index source search and guarded recurrence
+composition, without assuming that graph reconvergence implies coefficient
+cancellation or that a new relation will improve total work.

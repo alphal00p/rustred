@@ -22,7 +22,10 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | Rejected on completed shared-work gate | H55 point385477→387421 domains; joint envelope also near-null/negative. No further parent-mask pruning without a different mechanism. |
 | Native positive-power envelope | `rule_optimizer_impl` + independent auditor | Delivered capability; tested candidate rejected | 68 optimized tests pass; exact joint export valid but386131→387578 domains. No A-only lift or more local filters. |
 | Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Four-point graph completed and audited; marginal A-raising cost negligible | Profile broader reusable recurrence/dispatch mechanisms; preserve held-out owners. |
-| Lower-owner exact alternative | `lower_rule_evaluation` + independent auditor | One negative-ray rule proved/exported in2.486s | Fresh matched four-point full-context traversal, with explicit activation and cold verification. |
+| Lower-owner exact alternative | `lower_rule_evaluation` + independent auditor | Paired traversal audited; small nonqualifying gain | 19080->18949 domains (-0.687%); retain baseline, no promotion repeat of this narrow chart. |
+| Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Implemented; 75 optimized tests pass | Actual one-ray report/artifact compatibility passes; audit and run one preregistered six-free-coordinate modular probe. |
+| Shared lower-sector program regeneration | Root + profiler + independent auditor | Delivered candidate; incompatible residual count | Generation finishes in 86.530 s with 465 rules / 59 finite residuals versus saved 584 / 58; do not install or claim benefit. |
+| Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Active | Investigate block recurrence composition, matrix-diagonal reduction and sector-adapted numerator bases; give each a mechanism, falsifier and small native pilot. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Four-root graph and lower-owner exact lift pass; preflight/audit the matched candidate traversal. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -30,6 +33,120 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Whole-sector candidate and multi-index discovery outcomes — October3, 23:53 UTC
+
+[M] The guarded whole-owner3 generation finishes cleanly: 86.530 s native
+total (4.340 s preparation, 81.826 s solve, 0.363 s encoding), 465 rules,
+59 finite residuals, about 21 MB artifact. The saved owner has 584 rules and
+58 residuals. This fails the unchanged-terminal comparison already at the
+count level; no owner installation or downstream pair is authorized. A smaller
+rule count alone says nothing about shared workload or completeness. Preserve
+the candidate for diagnosis rather than changing the comparison's terminal set.
+
+[M] Separately, the six-free-coordinate modular probe finishes in 2.023 s,
+167 MB, without hitting limits. All three samples find target support:
+356 forbidden columns, ranks 233 → 234, 238-row prefix and 180 nominated
+sources. This is discovery evidence only. The implementation agent prepares
+one compact exact materialization, keeping all original sources and guard
+obligations, with independent preflight before execution. Unlike the earlier
+one-ray candidate, its chart includes the D1<0 shared-graph motif.
+
+### Broader search and primary-literature review — October3, 23:50 UTC
+
+[M] The independent-coordinate cofinal nomination extension passes all 75
+optimized tests. A real one-ray rerun preserves the entire native report apart
+from elapsed time and produces the same artifact bytes (`5bc54749…26a2`). This
+is a search capability, not a production improvement or broader closure proof.
+The six-free-coordinate probe is preregistered and awaits independent preflight;
+it must not borrow the incumbent's excluded guard faces as authority.
+
+[M] Root launches the independently reviewed v3 whole-owner3 generation pilot
+in session 50239, on CPUs 48–63 with 16 workers, a 150 GB process guard and
+150 GB host reserve. Only prepared source visitation changes; the integral
+ordering and archived search policy remain fixed. The auditor caught and
+rejected v2 before execution because explicit finite-retention flags are illegal
+under the unchanged `search` policy. V3 retains the original implicit defaults
+and verifies them in the resulting report. No production owner is installed.
+Evidence: `profiles/owner3-whole-program-mechanism-proposal-v3.json`,
+`profiles/run_owner3_generation.py`, and
+`candidates/owner3-active-positive-generation-v1/` under the ignored evidence root.
+
+[E] Candidate generation is not source certification. Before any performance
+claim, compare exact terminal keys, admit through native checks, retain all
+67 owners/8246 routes/two overlays, and replay the necessary source authority.
+The archived generator differs from today's frozen executable; an improvement
+cannot yet be attributed solely to source visitation without a matched current
+generator baseline. One bounded attempt, no automatic retry or bank growth.
+
+[M] The three-point diamond probe completes in 108.906 s and identifies actual
+owner3 rules 487, 1 and 43 at parent4/children192,195. They nominate respectively
+425,25,25 ordinary source candidates; common recentering remains unknown.
+These are discovery inputs, not a replay of their saved derivations. The
+profiler now owns the requested primary-literature study, focusing on removing
+intermediate recurrence layers and changing the shared lower-sector program,
+not simply banning another few RHS terms. Production remains untouched.
+
+### Narrow lower-owner candidate measured; broader mechanisms retained — October3, 23:39 UTC
+
+[M] The fresh four-point pair finishes in353.687s inclusive. Baseline/candidate
+both cold-All/Off PASS with all four roots verified and zero pending/frontier/
+abandoned work; all owned processes drain. Scheduled domains19080->18949
+(-0.6866%), native inspections17465->17419 (-0.2634%), events159683->156998
+(-1.6815%). Traversal0.830779->0.787210s and whole-arm175.959681->174.873888s
+are observed single-pair timings, not robust speed claims. The fresh baseline
+differs by six domains from the earlier diagnostic run; compare matched arms,
+not whichever baseline makes the percentage look better.
+
+[M] Independent activation audit verifies the first root's complete103->88
+successor sets against the proof, while all other three root RHS sets remain
+identical. The alternate is genuinely used, but does not approach the20%
+completed-work target. Retain the running baseline; no promotion repeat of
+this narrow candidate is warranted. Its exact circuit remains useful as a
+calibration for the broader source-search interface.
+
+[M] Separate bounded census finds that the two owner3 root graphs share8970
+nodes out of9211/9037; owner0's R1 graph is contained in R2 apart from its root.
+A recurring owner3 pattern across17 shared parents lowers the D1 numerator
+while raising D5 orD8, then reaches common grandchildren. Such shared graph
+paths are candidate locations for exact composition, not evidence that their
+coefficients cancel. These parents have D1<0 and are outside the tested D1=0
+ray. A six-free-index rule, or a whole-lower-owner alternative, can therefore
+address a different and more widely reused mechanism. Source nomination,
+independent proof and downstream measurement remain separate gates.
+
+Evidence: `candidates/lower-owner3-ray-noh-fourpoint-pair-v1/` and
+`profiles/lower-owner-mechanism-census-v1.json` under the ignored evidence root.
+
+### Broader reusable-rule search authorized — October3, 23:32 UTC
+
+[M] Milestone `6dd4a843` records the independently audited lower-owner exact
+proof and completed graph diagnosis. The fresh matched pair is running in
+session71773, with unchanged full context and only the checked owner3 alternate.
+
+[E] Independent mathematical/API review supports a small extension of the
+research cofinal nominator from one free coordinate to an independent unbounded
+orthant. Stabilize every translated free coordinate beyond its exact sign
+crossing. The existing plain-SpIReD shift key is then independent of all free
+indices, or its support-primary comparison decides the order. A nonzero
+rational coefficient cannot vanish throughout the product integer tail.
+This only nominates necessary forbidden columns; boundary faces still pass
+through native exact source, guard and descent proof. Correlated/affine/rank-
+bounded inputs, nonfixed finite coordinates, unsupported orders and numerical
+carrier overflow must refuse explicitly, not be approximated.
+
+[E] `lower_rule_evaluation` owns this thin module/test extension, with
+`exact_and_cost_audit` independently reviewing it. No new CAS or mathematical
+publication authority is introduced. The purpose is to search for reusable
+multi-numerator rules instead of accumulating narrow ray patches. Existing
+single-axis/default results must remain identical. `lower_sector_discovery`
+continues graph-informed source/recurrence selection and checks whether a
+whole-lower-owner regeneration is a better experiment than local alternatives.
+
+[M] Production remains running,0 frontiers,138013767 discovered domains and
+about123.3GB process-tree RSS at the latest read-only observation. Its stored
+13/67 roots and18005178 closed lower bound are4914s stale; these are not a
+current closure rate or a completion forecast. No production input changed.
 
 ### Lower-owner exact proof and completed shared graph — October3, 23:26 UTC
 
