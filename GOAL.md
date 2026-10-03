@@ -1,5 +1,27 @@
 # RustRed project goal
 
+## October3 active directive — repair the older campaign's new frontier
+
+Analyze the frontier that stopped the older campaign, resolve its underlying
+cause with exact generic machinery, and deliver a tested optimized frozen build
+with precise restart instructions. Prefer preserving the old checkpoint when
+safe and tested. If incompatible, explicitly state that and ensure the latest
+build resolves the same frontier for the newer campaign as well. Preserve all
+required inputs and successor obligations. Do not stop, restart or mutate
+production in place; the user controls the eventual launch. This supersedes
+older pause and preparation-only instructions below.
+
+October3 delivery: the second frontier is repaired by a source-derived,
+cold-validated 11-rule overlay, with the actual parent and 84 finite cases
+passing. Full-pool routed smoke and independent staging audit pass their
+stated bounded gates. Two frozen fresh-traversal alternatives preserve the
+older and newer saved rule pools respectively. CP6's exact rule binding makes
+ordinary checkpoint continuation incompatible with the added rules; original
+checkpoints remain untouched. See
+`docs/research/five_loop_second_frontier_launch_2026-10-03.md` for user-only
+launch commands and all scope limits. This completes the local repair task,
+not the broader five-loop closure objective.
+
 ## October2 separate new-rule campaign preparation
 
 The user now requests an independent full-scope five-loop campaign incorporating

@@ -8,7 +8,7 @@ start a solver or modify the existing campaign.
 
 ```bash
 cd /common/dev/rustred
-nix develop path:/common/dev/rustred --command python -B \
+nix develop /common/dev/rustred --command python -B \
   /common/dev/rustred/campaigns/five-loop-a1-new-rules-20261002/steering/production_saved_owner_campaign.py \
   --campaign-directory /common/dev/rustred/campaigns/five-loop-a1-new-rules-20261002 \
   --start
@@ -16,8 +16,10 @@ nix develop path:/common/dev/rustred --command python -B \
 
 No Rust compilation or regeneration of the existing owners is needed. The
 campaign contains its own frozen native executable and supervisor/dashboard.
-Use the explicit `path:` flake form above, not a flake inside an untracked
-release directory. After a clean stop, resume this new campaign with the same
+Use the Git-aware absolute root path above, without the `path:` prefix. The
+explicit `path:` backend copies ignored build caches and campaign data and is
+unsuitable for this large workspace. Do not select an untracked nested flake.
+After a clean stop, resume this new campaign with the same
 command and `--resume` added. Do not import the other campaign's checkpoint:
 the changed rule pool intentionally starts with a fresh dependency graph.
 

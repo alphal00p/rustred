@@ -8,7 +8,107 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October 2, separate new-rule campaign preparation
+## Current workboard — October3 frontier repair
+
+[M] The old campaign stopped with one native frontier, not an algebra crash or
+work/memory cap. Its result records CP6 generation38/schema3/semantics4 saved,
+222,194,016 native inspections and6,985,518 pending domains. The newer campaign
+is confirmed live (native PID760894, supervisor760584); it remains untouched.
+
+Root coordinates resource use, integration and verification. Separate agents
+`frontier_oct3_diagnosis`, `frontier_oct3_resume` and `frontier_oct3_audit` own
+frontier extraction/reproduction, restart compatibility and independent
+mathematical/code audit respectively. First identify the actual failing domain
+before choosing a fix. Preserve116 required queries/67 helpers, exact replay,
+guards and descent; no deleting or treating the frontier as a terminal.
+
+Previous goal work delivered a verified isolated campaign. This continuation
+is a new repair task, not a stalled launch or permission wait. Next gates are
+an isolated exact reproduction, tested repair, safe restart mechanism, optimized
+frozen build and command, then commit/push. Production lifecycle remains with
+the user.
+
+Nix correction: use `nix develop /common/dev/rustred`, **without** `path:`.
+The explicit path backend copied ignored campaign/build directories; the
+Git-aware root path was successfully tested and avoids that copying. This
+corrects the prior preparation note; it does not require changing payloads.
+
+### October3 exact candidate and cold validation
+
+[M] Bounded extraction and independent native reproduction identify node259802965,
+owner `011001110110100`, physical indices
+`[-5,1,1,0,0,1,1,1,-5,1,1,0,1,-1,0]` (rank11). The saved rank10-generated owner
+has gaps on a diagonal exceptional face, not a native error or resource stop.
+The neighboring recurrence's denominator vanishes identically there. See
+`docs/research/five_loop_second_frontier_2026-10-03.md` for the guard and evidence.
+
+[M] Root ran the existing generic `probe_owner_case` with both affected indices
+free, depth2 and no search-rank cutoff:11 source-derived rules, zero residuals,
+14.442s inclusive (3.633s source search). Separate cold loading passed source,
+guard and strict-descent checks in8.335s inclusive. Payload827,554bytes, SHA256
+`7e1f93615282130555f29a885d1bbfe7b5b0c08074d7c2d1e542378b4457a86a`.
+No implementation or CAS primitive was needed for this candidate. The broad
+rectangular hull still has one unresolved classification, so unbounded coverage
+is not claimed. The finite actual-parent and held-out application gates follow.
+
+Exact commands/evidence: `TMP/frontier-repair-20261003/run_source_probe.py`
+with `--plan .../source-probe-two-free-plan.json --name two-free-depth2` and
+`--plan .../source-probe-two-free-cold-plan.json --name two-free-cold`.
+Both owned native groups drained. Agent `frontier_oct3_diagnosis` now checks
+84 finite points; `frontier_oct3_resume` prepares fresh saved-pool launch variants;
+`frontier_oct3_audit` independently reviews cold authority and routed smoke gates.
+The new production native PID760894 was confirmed alive at this update.
+
+[M] CP6 binds exact owner/overlay bytes and has no retry transition from a
+published NativeFrontier. Adding this repair therefore requires a fresh campaign
+with existing saved rules; no unsafe checkpoint rebind or rule regeneration.
+Old and new production inputs/checkpoints remain untouched.
+
+[M] Finite applicability PASS:84/84 complete,82 rule selections plus two old
+terminals; zero gaps, unresolved pieces or errors. The original diagonal and
+held-out ranks21,41,101,201 select the new rule. Compared with the old79-query
+screen, only its four gap rows change; all previously valid selections are
+identical. The actual correlated rank11/P8/D−3 parent is classified exactly
+into oldrule115 and newrule411, with no refinement needed. Inclusive times:
+9.133s for the84 queries,8.353s for the parent plus singleton (mostly cold load).
+Independent mathematical/code audit confirms these finite gates. It does not
+promote the unbounded-hull diagnostic to a coverage claim.
+
+[M] Root reran `python -B -m unittest discover -s examples/python -p
+'test_stage_saved_owner_campaign.py' -v` (26PASS) and corresponding
+`test_production_upgrade.py` (13PASS), using local `TMP/frontier-repair-20261003/test-tmp`.
+Next: full-pool routed smoke and isolated frozen launch preparation, then
+independent delivery audit and commit/push. No Rust source was changed.
+
+### October3 repair delivery acceptance
+
+[M] Full-pool routed smoke completed under the latest optimized CLI with both
+sidecars: all three initial domains inspected,2,000 scheduled,73 completed,
+64 routed,zero frontiers. Sole failure is the explicit scheduled-domain test
+allowance, leaving1,926 pending; this is not closure. Five conditional parent
+successors are retained. Inclusive138.964s, native preparation133.947s,
+peak process-tree RSS5.19GB; all owned groups drained. Evidence:
+`TMP/frontier-repair-20261003/route-smoke-currentnew37pool/`.
+
+[M] `frontier_oct3_resume` staged both complete fresh saved-rule pools with the
+new sidecar; `frontier_oct3_audit` independently checked every owner/overlay,
+exact query bytes,8,246 routes,latest executable and frozen nine-module steering.
+The original-pool replacement reserves CPUs64–95; the candidate37 replacement
+reserves96–127 and must not launch before the currently live campaign drains.
+Both retain32 workers,600GB ceiling,150GB host reserve and the existing Epoch
+settings. Root reviewed raw finite/parent/smoke results and launch metadata.
+
+Delivered instructions: `docs/research/five_loop_second_frontier_launch_2026-10-03.md`.
+No new engine implementation or full build was necessary: current optimized
+CLI `8ef80b52…` already consumes the exact repair. Full source generation is
+not repeated, but CP6 cannot safely rebind its rule identity: traversal must
+restart. Neither original production directory nor checkpoint was changed.
+The mathematical five-loop closure goal remains open; this is the requested
+frontier-repair and user-launch delivery, not a claim of eventual completion.
+Unbounded-hull applicability remains unproved, explicitly outside this local
+repair acceptance. Further exceptional cases may still appear.
+
+## October2 separate new-rule campaign preparation
 
 The user requests a new full five-loop comparison campaign, to be launched by
 the user in `codex_astra_new_rules`. Root integrates and independently checks
