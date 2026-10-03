@@ -3689,3 +3689,81 @@ no-reconstruction-feature metadata-only typecheck passes and rehashes to
 `d830e12c536738824c2121df20927cc61095526de8b0c9c589e1b908f29d4937`.
 Neither this typecheck nor the core tests substitute for the pending
 research-driver executable gate or the prospective H55 exact proof.
+
+The unchanged-policy reconstruction research driver subsequently passes its
+actual optimized 56-test gate, including checked tadpole byte identity and
+the genuine reconstructed-weight-pole boundary refusal after full replay.
+Both builds and the test run exit cleanly and drain. Independently rehashed
+normal binary is `be2f8498b84faca83481759bf40feff27e8eef92f8a621e6e1d70b170233bbab`
+and test binary `f853290924f77b39c9c07f82079dde52fe44b9d0f0c77d8dd04f22124b85ce3a`.
+The first build's missing `SelfRing` trait import is preserved as a failed
+receipt; the second changes that import only. This gate does not include
+the separately proposed fresh-certificate policy and does not establish
+the pending H55 large-bank result.
+
+The separate fresh-certificate implementation source audit passes at
+`certificate.rs` `82905685…`, `source.rs` `173fbae6…`, main `505d8cd9…` and
+six new fixtures `48cc55c1…`. It checks genuine ordinary constructor lineage,
+injective unit W rows, exact image/original equality, all binding arities,
+contexts and original guards, after unchanged complete composition. It
+retains the earlier arithmetic conditions as diagnostics and separately
+reports the genuine input-condition inventory supplied to the new native
+proof. Weighted identity-looking spans cannot opt in. The proposed 62-test
+gate includes successful full-two-source byte controls for all three
+backends, real index-pole and original-input negatives, mutation/foreign
+context refusals, and default-report compatibility. Subsequent actual gates
+preserve two cfg-only compile failures: the `#[path]`-loaded module initially
+resolved the wrong test file, then the new fixture's return type needed the
+native `Arc<IntegralFamily>`. Explicit child-path and return-type corrections
+leave runtime unchanged. The resulting actual run passes 61 tests, including
+five intended fresh-policy tests and all three backends' positive export
+comparison, but the sixth n=0 fixture fails: the native original checker,
+as well as the exporter, requires a nonempty RHS. No authority gate is
+weakened to accept that fixture.
+
+The corrected sixth fixture (`38eb7b77…`) uses the actual native rows at
+physical n=2, looking them up by offsets rather than assuming batch order:
+`-2 I(2)+(d-2) I(1)` and `d I(0)`. Weights derived as the inverse native
+target coefficient and `1/d` produce the complete identity
+`I(2)-(d-2)/2 I(1)+I(0)=0`. Both nonempty RHS terms are lower, and I(0) is
+retained rather than quotient-discarded. It requires native proof and checked
+same-sector export when d appears only as a genuine final weight pole, then
+export refusal when the same polynomial is added as a genuine original
+caller assumption. Source audit passes; the corrected full 62-test gate and
+large H55 outcomes remain pending at this point.
+
+The final corrected fresh-policy gate now passes all 62 optimized tests,
+with each of the six intended `certificate::tests` names independently
+checked, no failures and none ignored. The actual test binary rehashes to
+`602643216dc6fa744a717d0a672d0d71b94249a92c2ae7e4a6494ca209493476`;
+test compile takes 82.015 seconds outer elapsed and the test run 4.643
+seconds, both clean/drained. A preceding opt0 semantic 62-test gate also
+passes. The normal executable remains
+`dd4b5c5a415d4208c544c78033f3a41e7858849f2c641ee7a1c4279890174c4d`:
+subsequent corrections affect only test-module resolution and fixtures.
+In particular, the nonempty base-field fixture actually succeeds at native
+proof/export and then refuses after the genuine original d condition is
+added. This concretely validates the narrow provenance distinction; it does
+not waive the genuine index-pole or original-input guards, whose negatives
+also pass.
+
+Two first H55 exact pilots pass independent input and execution-binding
+preflight under the parent's standing authorization. Reconstructed request
+`70e15cd585450054aa966777b7bb76a81076389aceaf18b3d10164ed7766e2f7`
+and direct-L request
+`03f10a665e731dd525d79dc70ea979115ac5348833e603b4be9c1b388e33fde1`
+retain the same full 5,796-source order, 2,933 exact ordinals from the three
+matching H55 samples, caller H55 plus unchanged mandatory-F derivation,
+14 fixed indices, D2>=3 ray, saved owner/order and fresh-certificate policy.
+The full expected F is 6,329. Their JSON differs only in backend, direct-L's
+explicit variable-compaction flag and reconstruction-only options. Both use
+the common 64M retained-coefficient allowance; the earlier unrun 16M request
+remains preserved. Reconstructed execution uses native/supervisor CPUs67/68,
+direct-L uses 65/66, each with 128-GiB RSS, 150-GB host reserve and cumulative
+1500/1620/1800-second deadlines. Both bind the actual optimized 62-test gate
+and identical normal binary. Execution bounds independently rehash to
+`406e3b8468df0316bd6b9a77fbfe2ee0160d89e52fa62d73e1ac3ac3225edf35`
+and `8b78d9110d89c20e6d183a960a32eb3fc19f75cd2a68ce291accbcc096ec6a04`.
+No large-pilot result, published candidate or completed downstream gain is
+implied by these gates, and concurrent backend timings are diagnostic rather
+than an isolated comparative benchmark.

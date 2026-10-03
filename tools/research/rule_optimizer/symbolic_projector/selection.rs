@@ -114,7 +114,10 @@ mod tests {
         // control is the same backward source alone, without that arithmetic
         // detour; keep the full-bank F/product assertions above independently.
         let mut backward = r.clone();
-        backward.as_object_mut().unwrap().remove("exact_source_ordinals");
+        backward
+            .as_object_mut()
+            .unwrap()
+            .remove("exact_source_ordinals");
         backward["sources"] = json!([r["sources"][1].clone()]);
         let (reference, reference_artifact) = crate::run::<1>(&bytes, &backward, true).unwrap();
         assert_eq!(reference["status"], "CHECKED_PRIORITY_OWNER_EXPORTED");
@@ -127,7 +130,10 @@ mod tests {
         r["forbid_cofinally_higher_columns"] = json!(true);
         r["exact_source_ordinals"] = json!([0]);
         let (report, artifact) = crate::run::<1>(&bytes, &r, false).unwrap();
-        assert_eq!(report["status"], "NO_TARGET_IN_SELECTED_EXACT_FRAME_WITH_CURRENT_F");
+        assert_eq!(
+            report["status"],
+            "NO_TARGET_IN_SELECTED_EXACT_FRAME_WITH_CURRENT_F"
+        );
         assert!(artifact.is_none());
         assert_eq!(report["finite_bank_rows"], 2);
         assert_eq!(report["exact_projection_rows"], 1);
@@ -158,6 +164,7 @@ mod tests {
             .numerator_condition_with_limits(&c.index(0).unwrap(), Default::default())
             .unwrap();
         let mut span = source::Span {
+            provenance: source::SpanProvenance::Ordinary,
             bindings: (0..2)
                 .map(|i| source::SourceBinding {
                     row: RowId::OrdinaryIbp {

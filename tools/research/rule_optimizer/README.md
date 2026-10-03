@@ -926,3 +926,64 @@ against the established single-backward-source export; no guard is waived.
 Evidence: ignored `candidates/source-recenter-build-v1/`,
 `projector-selected-compact-build-v1/` and
 `projector-selected-compact-tests-v3-build-v1/`.
+
+### Native source-weight reconstruction
+
+The optional `projection_backend: "source-weights"` reuses RustRed's existing
+Symbolica-backed source-weight reconstruction service. It differs from accepting
+finite-field weights: Symbolica reconstructs rational functions, then an exact
+full-column source product must equal the reconstructed target identity. The
+explicit complete forbidden-column prefix, target, remaining image columns and
+original source positions are retained. Original coefficient maps are restored;
+globally absent variables are compacted internally without specialization.
+
+This backend requires an explicit `source_weight_reconstruction` object with
+positive `max_degree`, `max_probes`, `max_attempts`, `max_primes` (at least two),
+`max_cached_images`, `max_cached_values` and `max_weight_slots`. The existing
+matrix, coefficient and exact-arithmetic allowances still apply. Reconstruction
+budgets are not an aggregate wall-time/RSS limit: retain the outer process guard.
+There is no automatic exact-GPLU fallback after reconstruction failure and no
+claim that a sampled admission miss proves absence of an exact rule.
+
+All original conditions and input denominators remain mandatory. Actual
+reconstructed weight denominators enter the common exact replay **before**
+cancellation. Numerical pivot samples supply discovery only; their nonzero
+values are never promoted to everywhere-nonzero guard claims. The reconstructed
+identity still passes full original-source composition, regenerated-source
+checking, chart/guard/descent proof and checked export. By default this uses the
+existing conservative condition inventory; selecting this backend alone does
+not opt into the distinct fresh-condition policy below. The reconstruction
+integration passed 56 research tests; operational proof remains a separate gate.
+
+### Fresh original-source certificate (research opt-in)
+
+`fresh_original_source_certificate` defaults to false. When true, the driver
+first performs the unchanged complete source composition and exact full-image
+replay, then constructs a **new** native `OriginalSourceCombinationRequest` from
+the final ordinary contributions. It never edits an older sealed proof. Both
+constructor provenance and actual coefficients are checked: the current span
+must be an ordinary identity frame or an injective selection/permutation, with
+one unit weight per distinct original binding and each image exactly equal to
+that original row. Weighted/kernel constructors remain ineligible even when
+their supplied weight matrix happens to resemble an identity.
+
+The new request retains **all** original span assumptions, including unused
+source rows; there is no origin-string filtering. The native checker regenerates
+the actual final source, weight and RHS conditions with their proper origins.
+Genuine final poles remain mandatory. The earlier elimination/composition guard
+inventory remains visible as diagnostic evidence, separately from the fresh
+request's `retained_input_conditions`. The checked exporter, chart/root/order
+proof and publication rules are unchanged; this is not a guard waiver.
+
+All 62 tests pass in both semantic and optimized builds, including six new tests: default report
+identity; full two-row versus backward-only checked export bytes across all
+three backends; genuine index-pole refusal; preservation of an unused original
+guard; weighted/mutated/context rejection; and a base-field proof-origin
+differential with an explicitly nonempty RHS. Its revised fixed-index fixture
+retains both lower terms through full native replay: a genuine final source
+weight pole must be distinguished from an added original-domain assumption.
+The earlier empty-RHS fixture's native refusal and failed test-package receipts
+remain preserved. Optimized test binary `60264321…` runs the 62 tests in 1.32s;
+the frozen normal executable is `dd4b5c5a…`. Evidence:
+`TMP/rule-optimizer-20261003/candidates/projector-reconstructed-build-v6/`.
+These tests establish the research interface, not an operational five-loop gain.

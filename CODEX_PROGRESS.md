@@ -13,20 +13,74 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Lane | Responsible agent | State | Next executable decision |
 | --- | --- | --- | --- |
 | Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
-| Incumbent-informed source recovery | `rule_cost_profiles` | Large augmented runs censored | Preserve the5,796-source results; delayed weight recovery and modular source nomination are the next measured alternatives. |
-| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Implemented, audited; large probe censored | Preserve the completed controls; full exact elimination is still expensive, so use modular nomination before another large lift. |
+| Incumbent-informed source recovery | `rule_cost_profiles` | Corrected selected bank has a full exact chart proof | Preserve earlier censored runs; the completed proof is not an incumbent replay or an exported improvement. |
+| Direct-L exact projection | `rule_cost_profiles` + independent auditor | Calibration proof succeeds; export refused | Test the distinct H55 cost candidate with fresh proof construction; retain calibration and cost results separately. |
 | Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered; corrected-bank discovery succeeds | All three minus-one-recenter samples nominate the same3549-source trace; exact full-source materialization remains required. |
-| Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Delivered input-only discovery improvement | Target-distance/low-F-degree ordering nominates2823 rather than3549 rows; exact lift running, no downstream benefit claimed. |
+| Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Delivered input-only discovery improvement | Target-distance/low-F-degree ordering nominates2823 rather than3549 rows; exact calibration completed, no downstream benefit claimed. |
 | Incumbent source-contract gap | Implementation + profiler + auditor | Research inspector corrected and pushed | Explicit minus-one nomination restores modular feasibility; it is not yet a replay of the saved incumbent. |
-| Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Implemented/source-audited; compiled gates pending | Additive arbitrary-F bridge reuses existing Symbolica reconstruction; mechanical import/test-environment fixes after first compile, no new CAS. |
+| Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Core pushed `37dcdc00`; research62 tests pass | Run the bounded H55 reconstruction pilot with the existing Symbolica service; no new CAS. |
 | Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H717 negative; one of seven blocks feasible | H55 has2933-source support in allthree samples. Exact reconstruction/proof and unchanged graph costs are next, no gain claimed. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
 | Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
-| Fresh direct certificates | Implementation + auditor | Reopened for mathematical audit | The64M exact proof succeeds but export rejects guard transport; distinguish computational prefix pivots from actual source/weight poles before any change. |
+| Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Fresh certificate fully tested; two H55 backends ready — October3, 21:25 UTC
+
+[M] All 62 research tests now pass in both builds, including the actual six new
+test names. Semantic test link takes 26.229s, tests 2.92s native / 6.206s outer;
+optimized test link 82.015s, tests 1.32s native / 4.643s outer. Every owned group
+drains. Normal executable `dd4b5c5a…`, optimized test `60264321…`; matching core
+and app are unchanged from the earlier 46-test gate. Evidence:
+`candidates/projector-reconstructed-build-v6/`. The new nonempty fixed-power-two
+fixture proves and exports the exact two-source identity, while adding a real
+original assumption still blocks export. Earlier failed fixtures are retained.
+
+[M] Independent preflight checks the H55 pair: same full 5796-source bank,
+2933 selected rows, 6329 forbidden columns, original chart, ordering and 64M
+common coefficient allowance. Only the backend and its applicable controls
+differ. Exact sparse uses native/supervisor CPUs 65/66; reconstruction 67/68.
+Final execution bindings use the tested normal binary and optimized test receipt.
+No production campaign or input is modified; no deployment gain is claimed.
+
+### Research reconstruction gates and fresh-certificate source audit — October3, 21:04 UTC
+
+[M] Milestones `4201cc8d` and `37dcdc00` are pushed on main. The latter
+contains the generic core reconstruction bridge with 46 distinct passing tests;
+the matching research adapter separately passes 56 tests with optimized frozen
+dependencies. Normal research executable `be2f8498…` and test binary
+`f8532909…` build in 85.174s and 84.137s; actual tests take 1.28s. Evidence:
+`candidates/projector-reconstructed-build-v2/`. This is tooling validation,
+not a successful five-loop reconstructed rule or a deployment recommendation.
+
+[M] Independent source review approves the research-only fresh original-source
+certificate policy. Six new fixtures retain all original assumptions and test
+default identity, all three projection backends, source-binding mutations,
+genuine index poles and native proof-condition origins. A draft fixture's
+empty-RHS export expectation was rejected during audit. Actual testing then
+showed that the native proof checker itself also forbids empty RHSs: 61 tests
+pass and this fixture fails. Replace it with a genuine nonempty descending
+two-source tadpole identity at fixed power two; retain the failed receipt.
+No production exporter or mathematical acceptance gate was relaxed.
+The recursive research rebuild/test snapshot is next; the H55 pilot waits only
+for these actual gates and its updated execution binding. Two mechanical test
+packaging failures are preserved: the path-loaded module initially selected the
+wrong test file, then the actual new fixture exposed an `Arc<IntegralFamily>`
+return-type mismatch. The fixes only correct test loading/typing; no assertion
+or runtime behavior changed. The runner requires the six actual new test names
+as well as the total count. The independent Python evaluator/profiler suite
+also passes all 15 tests. Production is untouched.
+
+[E] Use independent development cores for the first H55 exact sparse and
+reconstructed trials. Both have the same frozen source bank, selected rows,
+forbidden keys, chart and 64M retained-coefficient allowance, with separate
+128GiB process-tree guards and an inclusive 30-minute bound. This tests two
+ways to materialize the same proposed cancellation without serializing their
+latency. Concurrent runs are not a pristine backend speed comparison. A
+valid export is still only a candidate for the unchanged shared-graph tests.
 
 ### Core reconstruction bridge compiled and independently verified — October3, 20:49 UTC
 

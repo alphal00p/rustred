@@ -1,6 +1,8 @@
 //! Finite symbolic source projection with conservative failed-descent refinement.
 //! Native Symbolica owns algebra; existing source/chart proof and exporter own
-//! authority. No numerical-weight lift, source-bank growth, chart change or walk.
+//! authority. No sampled-weight authority, source-bank growth, chart change or walk.
+#[path = "symbolic_projector/certificate.rs"]
+mod certificate;
 #[path = "symbolic_projector/cofinal.rs"]
 mod cofinal;
 #[path = "symbolic_projector/direct_l.rs"]
@@ -13,6 +15,8 @@ mod nominate;
 mod progress;
 #[path = "symbolic_projector/project.rs"]
 mod project;
+#[path = "symbolic_projector/reconstructed.rs"]
+mod reconstructed;
 #[path = "symbolic_projector/refine.rs"]
 mod refine;
 #[path = "symbolic_projector/root_policy.rs"]
@@ -197,7 +201,10 @@ fn validate(r: &Value) -> Result<usize> {
     trace::detail(r)?;
     root_policy::enabled(r)?;
     cofinal::enabled(r)?;
-    direct_l::enabled(r)?;
+    if !reconstructed::enabled(r) {
+        direct_l::enabled(r)?;
+    }
+    reconstructed::validate(r)?;
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
     let n = mask.len();
     require(
@@ -252,6 +259,7 @@ fn validate(r: &Value) -> Result<usize> {
     }
     selection::ordinals(r, sources.len())?;
     compact_coefficients(r)?;
+    certificate::enabled(r)?;
     let lower = array(&r["chart"], "lower")?;
     let upper = array(&r["chart"], "upper")?;
     require(lower.len() == n && upper.len() == n, "chart arity differs")?;
@@ -345,6 +353,7 @@ fn run_mode<const N: usize>(
     )?;
     let exact_selection = selection::ordinals(r, array(r, "sources")?.len())?;
     let compact = compact_coefficients(r)?;
+    let fresh_certificate = certificate::enabled(r)?;
     let started = Instant::now();
     progress::reset();
     progress::event(
@@ -549,20 +558,33 @@ fn run_mode<const N: usize>(
             "projection_requested",
             || json!({"attempt":attempts.len(),"refinements":added,"f_size":forbidden.len()}),
         );
-        let projection_function = if direct_l::enabled(r)? {
-            direct_l::project_with_compaction
+        let projected = if reconstructed::enabled(r) {
+            reconstructed::project(
+                r,
+                c,
+                &span.images,
+                &target,
+                &forbidden,
+                &span.guards,
+                limits,
+            )
         } else {
-            project::project_with_compaction
+            let projection_function = if direct_l::enabled(r)? {
+                direct_l::project_with_compaction
+            } else {
+                project::project_with_compaction
+            };
+            projection_function(
+                c,
+                &span.images,
+                &target,
+                &forbidden,
+                &span.guards,
+                limits,
+                compact,
+            )
         };
-        let projection = match projection_function(
-            c,
-            &span.images,
-            &target,
-            &forbidden,
-            &span.guards,
-            limits,
-            compact,
-        ) {
+        let projection = match projected {
             Ok(v) => v,
             Err(e) => {
                 progress::event(
@@ -614,10 +636,24 @@ fn run_mode<const N: usize>(
             rhs,
             retained_conditions: guards.iter().map(|g| g.polynomial.clone()).collect(),
         };
+        let request = if fresh_certificate {
+            checked(certificate::fresh(c, &span, request, limits))?
+        } else {
+            request
+        };
         let mut attempt = json!({"forbidden_shifts":forbidden.iter().map(|s|s.values()).collect::<Vec<_>>(),"first_target_prefix":proposal.prefix_rows,
             "normalized_full_product":row_json(&proposal.image),"conditions":guards_json(&guards),
             "ordinary_contributions":request.contributions.iter().map(|s|json!({"source_row":s.source_row.stable_string(),"offset":s.offset.values(),"weight":s.weight.raw().to_string(),"display_only":true})).collect::<Vec<_>>(),
             "full_original_product_replayed":true});
+        if fresh_certificate {
+            attempt["fresh_original_source_certificate"] = json!({
+                "constructor":"ordinary", "identity_selection_validated":true,
+                "all_original_conditions_retained":span.guards.len(),
+                "native_final_condition_origin_policy":"regenerate from final original contributions",
+                "retained_input_conditions":guards_json(&span.guards),
+                "sealed_proof_modified":false,
+            });
+        }
         progress::event("proof_start", || {
             json!({"source_contributions":request.contributions.len(),
             "rhs_terms":request.rhs.len(),"retained_guards":request.retained_conditions.len(),"f_size":forbidden.len()})

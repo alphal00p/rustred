@@ -5,6 +5,15 @@ use rustred::{
     foundry::artifact::OriginalSourceContribution,
     identity::{IntegralShift, RowId, SelectedTranslatedSourceBatch},
 };
+use std::collections::BTreeSet;
+use symbolica::domains::SelfRing;
+
+/// Construction provenance, not a promise inferred from displayed weights.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SpanProvenance {
+    Ordinary,
+    Weighted,
+}
 
 #[derive(Clone)]
 pub struct SourceBinding {
@@ -12,6 +21,7 @@ pub struct SourceBinding {
     pub offset: IntegralShift,
 }
 pub struct Span {
+    pub(super) provenance: SpanProvenance,
     pub bindings: Vec<SourceBinding>,
     pub originals: Vec<Row>,
     pub weights: Vec<Weights>,
@@ -74,6 +84,7 @@ impl Span {
         // rebuild and multiply the entire original frame once per source.
         let images = originals.clone();
         Ok(Self {
+            provenance: SpanProvenance::Ordinary,
             bindings,
             originals,
             weights,
@@ -118,12 +129,78 @@ impl Span {
         project::bound(guards.len(), limits.guards, "incoming span guards")?;
         let images = project::replay_many(c, &originals, &weights, &mut guards, limits)?;
         Ok(Self {
+            provenance: SpanProvenance::Weighted,
             bindings,
             originals,
             weights,
             images,
             guards,
         })
+    }
+
+    /// Fresh certification is restricted to an ordinary identity frame or an
+    /// injective selection/permutation of it. A weighted constructor cannot
+    /// become eligible merely because its numeric/symbolic W resembles I.
+    pub fn validate_fresh_ordinary(
+        &self,
+        c: &IndexedCoefficientContext,
+        limits: Limits,
+    ) -> Result<()> {
+        project::require(
+            self.provenance == SpanProvenance::Ordinary,
+            "fresh certificate requires ordinary constructor provenance",
+        )?;
+        project::require(
+            self.bindings.len() == self.originals.len() && self.images.len() == self.weights.len(),
+            "ordinary frame shape differs",
+        )?;
+        project::bound(self.originals.len(), limits.rows, "fresh original rows")?;
+        project::bound(self.guards.len(), limits.guards, "fresh original guards")?;
+        let mut bindings = BTreeSet::new();
+        for binding in &self.bindings {
+            project::require(
+                matches!(binding.row, RowId::OrdinaryIbp { .. }),
+                "nonordinary source binding",
+            )?;
+            project::require(
+                binding.offset.values().len() == c.index_count(),
+                "ordinary offset arity differs",
+            )?;
+            project::require(
+                bindings.insert((binding.row.clone(), binding.offset.clone())),
+                "duplicate ordinary binding",
+            )?;
+        }
+        // Include every original, not only the current selected frame.
+        for row in &self.originals {
+            for (shift, value) in row {
+                project::require(
+                    shift.values().len() == c.index_count(),
+                    "original shift arity differs",
+                )?;
+                c.validate_with_limits(value, limits.arithmetic)?;
+                project::require(!value.is_zero(), "explicit zero original coefficient")?;
+            }
+        }
+        for guard in &self.guards {
+            c.validate_polynomial_with_limits(&guard.polynomial, limits.arithmetic)?;
+            project::require(!guard.polynomial.is_zero(), "zero original condition")?;
+        }
+        let mut seen = BTreeSet::new();
+        for (weights, image) in self.weights.iter().zip(&self.images) {
+            project::require(weights.len() == 1, "ordinary W row is not one unit binding")?;
+            let (&ordinal, weight) = weights.first_key_value().expect("one entry checked");
+            c.validate_with_limits(weight, limits.arithmetic)?;
+            project::require(
+                weight.raw().is_one() && ordinal < self.originals.len() && seen.insert(ordinal),
+                "ordinary W is not an injective unit selection",
+            )?;
+            project::require(
+                *image == self.originals[ordinal],
+                "ordinary image differs from bound original",
+            )?;
+        }
+        Ok(())
     }
 
     pub fn compose(

@@ -39,11 +39,21 @@ proof and matched shared-owner traversal if export succeeds.
 
 That core adapter has46 distinct focused tests passing (including8 new tests),
 an exact-only feature-disabled typecheck and matching optimized core/app builds.
-Research integration tests remain pending. No new reconstruction/CAS kernel or
-production change was introduced. Evidence under ignored
+The unchanged-policy research adapter separately passes56 optimized tests.
+The research-only fresh-certificate opt-in subsequently passes all62 tests,
+including six new fixtures, in both semantic and optimized builds. It constructs a new original-source
+proof after full equality checking, retaining every original input assumption;
+it does not edit an old proof or relax the production exporter. No new
+reconstruction/CAS kernel or production change was introduced. Evidence under ignored
 `TMP/rule-optimizer-20261003/`: `candidates/projected-source-weight-core-gates-v1.json`,
 `candidates/symbolic-owner66-recenter-target-distance-selected-compact-terms64m-v2/`,
-and `incidence-study/recenter-cost-groups-v1/`.
+and `incidence-study/recenter-cost-groups-v1/`. Research gates are under
+`candidates/projector-reconstructed-build-v6/`; normal executable `dd4b5c5a…`,
+optimized test executable `60264321…`. The initial empty-RHS origin fixture was
+invalid and its failed receipt is retained. Its replacement uses a nonempty
+descending ordinary-source identity, requiring successful native proof/export
+for a final source-weight pole and refusal when the same polynomial is supplied
+as an original domain assumption. No proof/exporter gate changed.
 
 ## Earlier heavy-owner search: repeated refinement, not a completed miss
 
