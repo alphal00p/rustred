@@ -202,6 +202,28 @@ remain unchanged. The forthcoming Rust projected-bank adapter is unfinished
 and uncompiled at this checkpoint and is deliberately excluded from the tested
 tooling milestone. No new candidate efficacy claim is made.
 
+[M] Tested profiling/evaluation milestone `a1876711` is pushed to main.
+Root then ran a read-only guarded-application probe of batch0/rule19 at five
+exact members of selected piece7, using only the unchanged owner payload.
+All five finish without native/report problems or truncation. Each visits22
+source terms:14 cancel to zero,one goes to a zero sector,seven distinct
+successors remain. At the discovery point (D15 power2, D14 numerator power2),
+four successors move the dot from D15 to D3/D5/D10/D11 while preserving A7/R2.
+They are the first **structurally nominated** block H; their downstream cost
+has not been measured independently. The baseline does not increase A+R here.
+The protocol's retained IncomingComplement event is not a discovered frontier.
+Evidence: `TMP/rule-optimizer-20261003/discovery-rule19-guarded/`.
+
+Next executable experiment: the exact eight translated ordinary sources for
+the isolated-tadpole tangent vector, recentered to this target, then the same
+bank with/without the four dot-transfer columns in H. If both projections give
+the same rule, attribute the candidate to structured source selection rather
+than claim the additional projection helped. A reusable chart and checked
+priority-owner export follow only after exact source/order validation. The
+generic research adapter is drafted; its standalone optimized build and tests
+are the next implementation gate, using cached release libraries and a separate
+CPU0–15 build allocation. Full downstream cost and held-out checks remain open.
+
 ## Current workboard — October3 frontier repair
 
 [M] The old campaign stopped with one native frontier, not an algebra crash or
