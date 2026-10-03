@@ -7,8 +7,12 @@ mod inspect;
 mod project;
 #[path = "symbolic_projector/refine.rs"]
 mod refine;
+#[path = "symbolic_projector/root_policy.rs"]
+mod root_policy;
 #[path = "symbolic_projector/source.rs"]
 mod source;
+#[path = "symbolic_projector/support_inspect.rs"]
+mod support_inspect;
 #[cfg(test)]
 #[path = "symbolic_projector/tests.rs"]
 mod tests;
@@ -172,6 +176,7 @@ fn projection_limits(r: &Value) -> Result<project::Limits> {
 fn validate(r: &Value) -> Result<usize> {
     require(r["schema"] == SCHEMA, "unknown symbolic projection schema")?;
     trace::detail(r)?;
+    root_policy::enabled(r)?;
     let mask = r["owner_mask"].as_str().ok_or("owner_mask required")?;
     let n = mask.len();
     require(
@@ -416,6 +421,13 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
                 .ok_or_else(|| "forbidden shift outside frozen image universe".into())
         })
         .collect::<Result<BTreeSet<_>>>()?;
+    let derived_root_columns = if root_policy::enabled(r)? {
+        root_policy::columns(owner.owner_root(), &restrictions, &universe)?
+    } else {
+        BTreeSet::new()
+    };
+    let derived_root_new_count = derived_root_columns.difference(&forbidden).count();
+    forbidden.extend(derived_root_columns.iter().cloned());
     let Some(target) = universe
         .iter()
         .find(|s| s.values().iter().all(|&v| v == 0))
@@ -424,6 +436,8 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
         return Ok((
             json!({"schema":SCHEMA,"status":"NO_TARGET_COLUMN_IN_FROZEN_SPAN","request":r,
             "finite_bank_rows":span.originals.len(),"frozen_image_columns":universe.len(),"refinements":0,
+            "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
+            "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
             "source_proof_passed":false,"nonexistence_claim":false,"production_modified":false}),
             None,
         ));
@@ -569,6 +583,9 @@ fn run<const N: usize>(bytes: &[u8], r: &Value, export: bool) -> Result<(Value, 
     Ok((
         json!({"schema":SCHEMA,"status":status,"request":r,"ordinary_sources_generated":count,
         "finite_bank_rows":span.originals.len(),"nonzero_symbolic_images":span.images.iter().filter(|x|!x.is_empty()).count(),"frozen_image_columns":universe.len(),
+        "derived_fixed_outside_root_forbidden_shifts":derived_root_columns.iter().map(|s|s.values()).collect::<Vec<_>>(),
+        "derived_fixed_outside_root_new_count":derived_root_new_count,"bound_owner_root":owner.owner_root().as_slice(),
+        "guard_tautology_policy":"native nonzero constants omitted after context/zero checks; all nonconstant assumptions retained",
         "refinements":added,"attempts":attempts,"seconds":started.elapsed().as_secs_f64(),"production_modified":false,"recursive_walk":false,
         "point_weight_lift":false,"coverage_or_cost_claim":false,"finite_span_miss_is_not_nonexistence":true}),
         candidate,
@@ -595,16 +612,24 @@ fn main_result() -> Result<()> {
     require(
         (args.len() == 2 && args[0] == "validate")
             || (args.len() == 3 && args[0] == "inspect")
+            || (args.len() == 3 && args[0] == "support-inspect")
             || (args.len() == 3 && args[0] == "prove")
             || (args.len() == 4 && args[0] == "export"),
-        "usage: symbolic_projector validate REQUEST | inspect OWNER REQUEST | prove OWNER REQUEST | export OWNER REQUEST FRESH_DIRECTORY",
+        "usage: symbolic_projector validate REQUEST | inspect OWNER REQUEST | support-inspect OWNER REQUEST | prove OWNER REQUEST | export OWNER REQUEST FRESH_DIRECTORY",
     )?;
     let request_bytes = read(
         Path::new(&args[if args[0] == "validate" { 1 } else { 2 }]),
         1 << 20,
     )?;
     let r: Value = checked(serde_json::from_slice(&request_bytes))?;
-    let n = if r["schema"] == inspect::SCHEMA {
+    let n = if r["schema"] == support_inspect::SCHEMA {
+        support_inspect::validate(&r)?;
+        require(
+            args[0] == "validate" || args[0] == "support-inspect",
+            "support-inspection schema cannot prove or export",
+        )?;
+        r["owner_mask"].as_str().unwrap().len()
+    } else if r["schema"] == inspect::SCHEMA {
         inspect::validate(&r)?;
         require(
             args[0] == "validate" || args[0] == "inspect",
@@ -613,8 +638,8 @@ fn main_result() -> Result<()> {
         r["owner_mask"].as_str().unwrap().len()
     } else {
         require(
-            args[0] != "inspect",
-            "inspect needs its separate read-only schema",
+            args[0] != "inspect" && args[0] != "support-inspect",
+            "inspection modes need their separate read-only schemas",
         )?;
         validate(&r)?
     };
@@ -623,6 +648,9 @@ fn main_result() -> Result<()> {
     } else if args[0] == "inspect" {
         let bytes = read(Path::new(&args[1]), limit(&r, "max_owner_bytes")?)?;
         (inspect::run(&bytes, &r)?, None)
+    } else if args[0] == "support-inspect" {
+        let bytes = read(Path::new(&args[1]), limit(&r, "max_owner_bytes")?)?;
+        (support_inspect::run(&bytes, &r)?, None)
     } else {
         let bytes = read(Path::new(&args[1]), limit(&r, "max_owner_bytes")?)?;
         macro_rules! dispatch{($($n:literal),*)=>{match n{$($n=>run::<$n>(&bytes,&r,args[0]=="export"),)*_=>Err("unsupported arity".into())}};}

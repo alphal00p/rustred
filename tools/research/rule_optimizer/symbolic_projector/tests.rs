@@ -609,3 +609,129 @@ fn saved_rule_inspection_is_bounded_read_only_and_does_not_claim_source_authorit
     r["family_fingerprint"] = json!("wrong");
     assert!(inspect::run(&bytes, &r).is_err());
 }
+
+#[test]
+fn saved_seed_support_nomination_is_bound_and_has_no_authority() {
+    let (bytes, mut r) = tadpole();
+    r["schema"] = json!(support_inspect::SCHEMA);
+    r["rule_ordinal"] = json!(0);
+    for (name, value) in [
+        ("max_retained_seeds", 10000),
+        ("max_unique_offsets", 1000),
+        ("max_original_rows", 100),
+        ("max_nominated_pairs", 10000),
+        ("max_generated_terms", 10000),
+        ("max_generated_conditions", 10000),
+        ("max_inspection_bytes", 1 << 20),
+    ] {
+        r["limits"][name] = json!(value);
+    }
+    let report = support_inspect::run(&bytes, &r).unwrap();
+    assert_eq!(report["status"], "SAVED_SEED_SUPPORT_NOMINATED");
+    assert_eq!(
+        report["support"]["ordinary_source_rows"],
+        json!(["ordinary-ibp:0:0"])
+    );
+    assert_eq!(report["support"]["saved_basis_ordinals_validated"], false);
+    assert_eq!(report["source_replay_claim"], false);
+    assert_eq!(report["dispatch_claim"], false);
+    assert_eq!(report["closure_claim"], false);
+    assert!(validate(&r).is_err());
+    r["family_fingerprint"] = json!("wrong");
+    assert!(support_inspect::run(&bytes, &r).is_err());
+    r["limits"]["max_unique_offsets"] = json!(0);
+    assert!(support_inspect::validate(&r).is_err());
+}
+
+#[test]
+fn fixed_root_policy_does_not_classify_unfixed_or_root_allowed_axes() {
+    let root = [false, false, true];
+    assert!(root_policy::activates_fixed_outside_root(&root, &[(0, 0)], &[1, 0, 0]).unwrap());
+    assert!(!root_policy::activates_fixed_outside_root(&root, &[(0, 0)], &[0, 1, 0]).unwrap());
+    assert!(!root_policy::activates_fixed_outside_root(&root, &[(2, 0)], &[0, 0, 1]).unwrap());
+    assert!(!root_policy::activates_fixed_outside_root(&root, &[(0, -2)], &[2, 0, 0]).unwrap());
+    assert!(root_policy::activates_fixed_outside_root(&root, &[(0, -2)], &[3, 0, 0]).unwrap());
+    assert!(root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MAX)], &[i64::MAX]).unwrap());
+    assert!(!root_policy::activates_fixed_outside_root(&[false], &[(0, i64::MIN)], &[i64::MIN]).unwrap());
+    assert!(root_policy::activates_fixed_outside_root(&root, &[(3, 0)], &[0, 0, 0]).is_err());
+    assert!(root_policy::activates_fixed_outside_root(&root, &[], &[0]).is_err());
+}
+
+#[test]
+fn fixed_root_columns_use_only_actual_native_universe_and_leave_target() {
+    let universe = BTreeSet::from([shift(-1), shift(0), shift(1)]);
+    let selected = root_policy::columns(&[false], &[(0, 0)], &universe).unwrap();
+    assert_eq!(selected, BTreeSet::from([shift(1)]));
+    assert!(!selected.contains(&shift(0)));
+    assert!(root_policy::columns(&[false], &[], &universe).unwrap().is_empty());
+    assert!(root_policy::columns(&[true], &[(0, 0)], &universe).unwrap().is_empty());
+    assert!(root_policy::columns(&[false], &[(0, -1)], &universe).unwrap().is_empty());
+    assert_eq!(universe.len(), 3); // No source/image/term was removed.
+}
+
+#[test]
+fn optional_fixed_root_policy_defaults_off_and_rejects_nonboolean() {
+    let (_, mut request) = tadpole();
+    assert!(!root_policy::enabled(&request).unwrap());
+    for value in [false, true] {
+        request["forbid_fixed_outside_root_activations"] = json!(value);
+        validate(&request).unwrap();
+        assert_eq!(root_policy::enabled(&request).unwrap(), value);
+    }
+    for value in [json!(null), json!(0), json!("true"), json!([])] {
+        request["forbid_fixed_outside_root_activations"] = value;
+        assert!(validate(&request).is_err());
+    }
+}
+
+#[test]
+fn native_constant_elision_preserves_zero_context_and_parameter_pole_gates() {
+    let c = context();
+    let mut guards = Vec::new();
+    let mut small = limits();
+    small.guards = 1;
+    for value in [c.one(), c.integer(-1), c.integer(7)] {
+        let polynomial = c.numerator_condition_with_limits(&value, Default::default()).unwrap();
+        project::retain(&c, &mut guards, polynomial, "constant", small).unwrap();
+    }
+    assert!(guards.is_empty());
+    let zero = c.numerator_condition_with_limits(&c.zero(), Default::default()).unwrap();
+    assert!(project::retain(&c, &mut guards, zero, "zero", small).is_err());
+    let foreign = IndexedCoefficientContext::try_new(c.base(), "foreign", 2).unwrap();
+    let one = foreign.numerator_condition_with_limits(&foreign.one(), Default::default()).unwrap();
+    assert!(project::retain(&c, &mut guards, one, "foreign constant", small).is_err());
+    let d = c.lift(&c.base().parameter("d").unwrap()).unwrap();
+    let inv_d = c.div(&c.one(), &d).unwrap();
+    project::denominator(&c, &mut guards, &inv_d, "base parameter pole", small).unwrap();
+    assert_eq!(guards.len(), 1);
+    assert!(!guards[0].polynomial.is_nonzero_constant());
+    let inv_n = c.div(&c.one(), &c.index(0).unwrap()).unwrap();
+    assert!(matches!(project::denominator(&c, &mut guards, &inv_n, "index pole", small), Err(project::Error::Budget(_))));
+    project::denominator(&c, &mut guards, &inv_n, "index pole", limits()).unwrap();
+    assert_eq!(guards.len(), 2);
+}
+
+#[test]
+fn fixed_root_policy_checked_tadpole_export_fixture_and_default_identity() {
+    let (bytes, mut request) = tadpole();
+    request["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    request["max_refinements"] = json!(0);
+    let (off, off_bytes) = run::<1>(&bytes, &request, true).unwrap();
+    request["forbid_fixed_outside_root_activations"] = json!(true);
+    let (on, on_bytes) = run::<1>(&bytes, &request, true).unwrap();
+    assert_eq!(off["status"], "CHECKED_PRIORITY_OWNER_EXPORTED");
+    assert_eq!(on["status"], off["status"]);
+    assert_eq!(on["derived_fixed_outside_root_forbidden_shifts"], json!([]));
+    assert_eq!(on_bytes, off_bytes);
+    // Optional fresh fixture for external comparison against the immutable
+    // pre-elision binary; that cross-binary gate belongs to the owned runner.
+    if let Some(directory) = std::env::var_os("RUSTRED_PROJECTOR_CONTROL_DIRECTORY") {
+        let directory = std::path::PathBuf::from(directory);
+        assert!(directory.is_absolute());
+        fs::create_dir(&directory).unwrap();
+        fresh(&directory.join("base.rrbin"), &bytes).unwrap();
+        request.as_object_mut().unwrap().remove("forbid_fixed_outside_root_activations");
+        fresh(&directory.join("request.json"), &serde_json::to_vec_pretty(&request).unwrap()).unwrap();
+        fresh(&directory.join("new-test-candidate.rrbin"), &off_bytes.unwrap()).unwrap();
+    }
+}

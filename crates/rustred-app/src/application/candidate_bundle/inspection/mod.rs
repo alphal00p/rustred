@@ -1,11 +1,18 @@
 //! Native, dynamically sized diagnostic views of saved candidate programs.
-//! No search, source generation, zero census, replay or dispatch is performed.
+//! Shape inspection performs no search, source generation, zero census, replay
+//! or dispatch. The separate opt-in source-support API completes the ordinary
+//! inventory solely to name its rows; it does not replay or certify a rule.
 
 mod model;
+mod source_support;
 #[cfg(test)]
 mod tests;
 
 pub use model::*;
+pub use source_support::{
+    CandidateSourceSupportInspection, CandidateSourceSupportOptions,
+    inspect_generated_candidate_source_support,
+};
 
 use std::collections::BTreeSet;
 use std::io::Write;

@@ -10,6 +10,169 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 ## Current workboard — October3 profile-guided rule optimization
 
+| Lane | Responsible agent | State | Next executable decision |
+| --- | --- | --- | --- |
+| Source-support inspection | `rule_optimizer_impl` | Delivered and integrated | All21 merged optimized tests and cross-binary toy export identity pass. |
+| Incumbent-informed source recovery | `rule_cost_profiles` | Active | Test the frozen 5,796-source union on D2>=3 with exact replay and unchanged publication gates. |
+| Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
+| Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
+| Cofinal higher-column planning | Implementation + auditor | Read-only design | Check existing native order APIs and exact scope restrictions before replacing repeated one-column refinement. |
+| Fresh direct certificates | Implementation + auditor | Deferred | Reopen only for a computational-pivot guard obstruction; never remove a genuine final-weight pole. |
+| Exact lower-cut publication | Implementation + auditor | Active design / implementation | Encode finite excluded coordinate boundaries using the existing native exception representation; preserve exact fallback scope and resource bounds. |
+| Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Merged gate passes; two real semantic boundaries isolated — October3, 17:22 UTC
+
+[M] All21 merged optimized research tests pass. Both standalone links finish
+in about125.19s; the new binary is `7e92d338…e831e45`. Actual old/new checked
+toy exports are byte-identical (`915c3875…`), with all owned processes drained.
+The seven app semantic tests and optimized app library remain independently
+bound to their earlier receipts. No production executable or input is changed.
+
+[M] The 5,796-source run is active on CPU65. Its original pretty JSON exceeded
+the research CLI's one-MiB request cap, caught before launch. The executed
+compact request is structurally JSON-identical,476,810bytes; neither algebra
+nor any engine limit changed. Native progress is not available mid-solve, so
+elapsed time and RSS are not reported as a source-row completion estimate.
+
+[E] Two distinct follow-ups are now concrete. First, the forbidden823 shifts
+have only27 distinct child supports, constant along the chart; a bounded native
+zero-sector analysis can test whether the incumbent's zero quotient matters.
+Second, priority export currently represents only free local lower bounds0/1.
+It would refuse our bound2 even after a successful proof. Existing exception
+branches can encode the finite omitted coordinate values exactly; an audited,
+resource-bounded generic extension is being prepared, retaining old bound0/1
+behavior and fallback. Neither issue is grounds to relax a mathematical gate.
+
+### The informed recovery bank replaces small-shell search — October3, 17:08 UTC
+
+[M] The guard diagnostic identifies a genuine final denominator proportional
+to `(D2-2)*(d-D2-2)`. A separate D2>=3 attempt therefore preserves the old
+fallback below that chart, rather than dropping the pole. It completes without
+an export: 474 further descent failures leave no target in all 1,062 sources
+(141.132s native; outer receipt reported separately). Independent audit finds
+all474 bans necessary over the whole ray: 452 higher same-support terms and22
+strictly larger supports. The earlier guard refusal occurred **before** these
+remaining descent checks; the 135-tail expression was never otherwise proved.
+Source permutations of that exhausted span cannot fix this obstruction.
+
+[E] The next bounded experiment uses the incumbent's actual source translations.
+Its5,300 nominated ordinary pairs overlap the prior bank in566 pairs; their
+union has5,796. Root selects this union, retaining the old prefix and appending
+the4,734 new pairs by translation depth/offset/native source order. Reuse of
+the final forbidden set avoids repeating the known474 failures. The raw bank,
+same chart, order, owner-root restrictions and full exact replay remain explicit
+inputs. `rule_optimizer_impl` prepares the inventory; `rule_cost_profiles`
+executes on CPU65 with128GiB tree cap,150GB host reserve and an inclusive
+30-minute pilot ceiling; `frontier_oct3_resume` independently audits.
+
+[E] This is a source-recovery test, not a claim of a cheaper rule. The saved
+derivation's preconditioning uses these same offsets, but the nomination alone
+does not validate its weights, exclusions or independently proved zero products.
+Fresh-direct certificate work is deferred because the current failure is an
+exhausted finite span, not merely a canceled computational-pivot guard.
+
+### Source-informed search reaches the guard boundary — October3, 17:00 UTC
+
+[M] The private fixed-root pruning and constant-tautology elision pass 20
+optimized tests and produce byte-identical checked toy exports versus the
+previous frozen projector. The otherwise unchanged 1,062-source experiment
+now finishes in 30.703s inclusive, at 3.416GB peak RSS. It precludes 287 actual
+fixed-coordinate root violations, then refines 163 descent failures. Its final
+40-source combination has 136 full-product terms and replays exactly. Native
+publication still refuses an unproved guard zero locus: this is **not** an
+accepted replacement or a source-span miss. `rule_cost_profiles` is identifying
+the actual guard and whether it is a genuine final-weight pole or retained
+search-pivot condition. No condition has been discarded speculatively.
+
+[M] The independent saved-source inspector is fully gated: seven semantic app
+tests and 16 optimized research tests pass. Optimized app compilation completes
+in 797.045s; the proposed fallback is unnecessary. Two research links take
+123.895s and 125.622s. The read-only actual-owner inspection takes 6.223s and
+finds 1,969 seed records, 212 distinct validated translations and 25 original
+ordinary IBP directions: 5,300 possible source pairs. This is a nomination
+superspan, not a reconstructed certificate. `rule_optimizer_impl` is comparing
+its geometry with the current bank before choosing a bounded follow-up.
+
+[M] `frontier_oct3_resume` independently confirms the test receipts, export
+identity and source counts. Its contract audit also establishes that owner-root
+containment is enforced by production application, before cross-owner routing;
+an existing route alone cannot legitimize a tail outside that root. The current
+search correctly keeps that restriction. All build lanes are now drained.
+
+[M] Read-only production snapshot: 92,168,901 discovered domains, 14,662,957
+pending, zero frontiers, 83.25GB RSS and 2.75 observed cores. The conservative
+root count is 13/67, with a roughly20-second-old closure snapshot. This does not
+establish an ETA or eventual convergence. Only the new37 campaign remains live.
+
+### Expanded-bank bottleneck and active parallel slices — October3, 16:48 UTC
+
+[M] The 1,062-source bank has 2,709 nonzero-image columns after fixed-index
+specialization. Its first attempt reaches the 100,000 retained-condition
+allowance before selecting a target. A separate allowance-only retry at one
+million conditions finishes in 85.187s inclusive, with 3.481GB peak RSS and
+no resource stop. After 128 refinements it selects a three-source, 16-term
+full product, but native proof rejects activation of D5 outside the owner root.
+This is not a proved rule or an exhausted source span. Nine of its 15 tails
+activate D5; ten of the 15 are higher in the common order, with overlapping
+categories. All 128 preceding descent bans are independently necessary on the
+whole ray. Evidence: `candidates/union1062-typed-root-audit-v1.json`.
+
+[E] `rule_cost_profiles` implements two small, independently reviewed private
+adapter changes: preseed actual source columns that activate fixed coordinates
+outside the loaded owner root, and omit only nonzero constant guard tautologies
+using the existing native `IndexedPolynomial::is_nonzero_constant` API. No
+unfixed-coordinate ban, post-proof term deletion or nonconstant guard removal
+is allowed. The prior final circuit recorded 101,520 guard entries, 99.91% of
+which rendered as units. Twenty tests and an old/new export-byte control gate
+the next otherwise unchanged 1,062-source probe.
+
+[M] In parallel, `rule_optimizer_impl` has implemented the read-only incumbent
+source-support inspector. Four new and three existing app inspection tests
+pass (semantic app test build, optimized dependencies); the optimized app
+library and 16 optimized research tests remain pending. App build lanes0/1
+use CPUs0–31. Private projector links use separate lanes2/3 on CPUs48–63 and
+80–95. Native probes use64/65, apart from production's96–127 reservation.
+
+[E] `frontier_oct3_resume` audits both slices and investigates two precise
+future possibilities without changing any gate: a fresh direct original-source
+certificate may avoid canceled *computational* pivot assumptions, and some
+cross-root relations might be useful if the routing/publication contracts
+can support them exactly. Neither possibility cures the current refused
+candidate by itself; original conditions, real poles, descent and successor
+coverage remain mandatory. Root coordinates integration and logs the actual
+outcomes, not hypothetical gains.
+
+### Larger-bank result observed; audited milestone pushed — October3, 16:24 UTC
+
+[M] Milestone `89a19b28` is committed and pushed to `origin/main`: symbolic
+source projection, selective kernel support, typed descent feedback, bounded
+native ingress and compact diagnostics. Focused gates are 30 optimized core,
+15 optimized projector, eight kernel, 22 producer and 21 Python tests, with
+independent implementation and mathematical review. Unrelated user work and
+campaign outputs were not staged. This is a research-tool milestone, not a
+production switch recommendation.
+
+[M] The unchanged 362-source probe now completes with a readable summary:
+121 further forbidden shifts, 122 attempts, and no target after all 362 rows.
+Inclusive time is 32.287s, peak tree RSS 3.436GB, no resource stop, and every
+owned process drains. The full final candidate is retained. The earlier
+output-censored run's unknown result is not rewritten retroactively.
+
+[E] The auditor is checking whether all newly rejected shifts are necessarily
+higher on the whole ray, as the earlier 94 were. If confirmed, root has
+authorized one 1,062-source expansion combining the existing bank with the
+complete signed-L1 shell, retaining the original prefix and F62 seed. Explicit
+new row/term/column limits cover its measured structural envelope; this is a
+new finite experiment, not an automatic unbounded search. Source-order variants
+remain parked if they cannot overcome a genuine span obstruction.
+
+[M] Read-only live campaign observation: about 88.61 million discovered,
+14.67 million pending, zero frontiers, 80.38GB RSS and 4.72 observed cores.
+The conservative 13/67 root snapshot is roughly39 minutes old; no convergence
+or completion-time conclusion is inferred. The stopped old campaign remains
+stopped and no production inputs or checkpoints are modified.
+
 ### Compact trace gate and next implementation boundary — October3, 16:19 UTC
 
 [M] All 15 optimized projector tests pass, independently checked. They include

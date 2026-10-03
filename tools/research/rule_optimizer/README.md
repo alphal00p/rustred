@@ -573,6 +573,32 @@ read-only `rustred.symbolic-source-inspection.v1` request selects one saved rule
 through the existing public inspector, returning its actual coordinate/affine
 case and a bounded RHS-shape summary, not source or dispatch authority.
 
+The separate `support-inspect OWNER REQUEST` mode accepts
+`rustred.symbolic-source-support-inspection.v1`. It nominates all completed
+native ordinary RowIds at every distinct physical seed offset of one saved
+coordinate rule. Symbolic offsets include the saved target's canonical
+translation; fixed offsets are the seed's absolute index minus the fixed
+target value, not the saved coefficient shift (which must be zero there).
+The output is factored into offset and RowId lists, with exact case/target and
+saved exclusion-ID metadata. Basis ordinals and weights are not interpreted or
+exported; an empty source list, inconsistent seed transport or affine case
+refuses. This is a proposed superspan, not an incumbent certificate: zero-sector
+projection and guards still require full original-source regeneration and proof.
+Explicit limits bound the retained-seed scan, distinct offsets, ordinary rows,
+Cartesian pair count and output. Generated term/condition totals are retained
+inventory bounds checked after native completion, not scratch allocation caps;
+native arithmetic limits and external time/RSS supervision remain necessary.
+The source-support slice passed seven focused app tests (an unoptimized semantic
+test binary with optimized dependencies) and all 16 optimized research-example
+tests. Its app library and research producer were optimized; the core and campaign
+CLI were not rebuilt. The first read-only owner66/rule698 inspection completed
+in 6.223 seconds: 1,969 saved seeds yielded 212 unique physical offsets and 25
+native ordinary RowIds, or 5,300 factored pairs. The saved canonical translation
+was verified to be zero. This is not evidence that all 5,300 rows should be fed
+to an unrestricted symbolic solve. Frozen build/test and inspection receipts are
+under ignored `candidates/source-support-build-v1/` and
+`candidates/symbolic-owner66-source-support-v1/` beneath the TMP root below.
+
 Symbolica reduces the augmented `[forbidden | target | identity]` matrix over
 the native indexed field. Its identity tail is multiplied by the complete source
 image, then composed back to named original source rows and replayed again.
@@ -685,3 +711,35 @@ requests/refusals remain under ignored `candidates/symbolic-owner66-union362-*`
 and `candidates/projector-endpoints-build-v1/`. Copied nested raw75 provenance
 describes ancestors only; the union preregistration and actual request fields
 define the larger experiment.
+
+The optional boolean `forbid_fixed_outside_root_activations` (default false)
+adds actual source-image columns to F when an explicitly fixed physical index,
+plus that column's shift, becomes positive outside the loaded owner's root.
+The checked widened sum does not classify unfixed axes. Derived columns and the
+bound native root are reported separately; this is projection input selection,
+never removal of a term from a proposed RHS. Native source replay and full chart
+guard/descent proof remain mandatory.
+
+Guard retention validates context and resource limits, rejects zero, then uses
+the existing native `IndexedPolynomial::is_nonzero_constant()` to omit only
+tautologies. Base-parameter and index-dependent guards remain live. A private
+snapshot passed 20 tests and produced byte-identical checked tadpole exports
+against the earlier immutable producer before these changes were transferred.
+The combined tree also retains the independently tested source-support inspector.
+Its merged 21-test optimized integration gate passed against the new optimized
+app library, with no core or campaign CLI rebuild. The merged executable and
+the immutable pre-change reference independently exported the same checked
+tadpole candidate bytes. These actual build/test/control receipts are separate
+from the private snapshot evidence, under ignored
+`candidates/projector-combined-build-v1/` and `projector-combined-control-v1/`.
+
+The signed-shell-enriched owner66 bank of 1,062 rows first stopped at the
+100,000-condition entry cap, then at a genuine outside-root RHS after an explicit
+one-million-entry retry. With fixed-root column selection, 287 root exclusions
+were derived before solving. On `D2 >= 2`, proof stopped at a genuine final-source
+`D2 - 2` pole. A separately registered `D2 >= 3` trial visited all 1,062 rows and
+found no target after 474 descent refinements (final F count 823 including the
+287 root exclusions). No owner artifact was exported. This remains a finite
+bank/chart result, not general irreducibility. Exact sources, full final circuits,
+native diagnostics, byte controls and lifecycle receipts are retained beneath
+ignored `candidates/projector-root-policy-*` and `candidates/symbolic-owner66-*`.

@@ -92,6 +92,11 @@ pub fn retain(
         !polynomial.is_zero(),
         "required pre-cancellation guard is identically zero",
     )?;
+    // Native predicate considers ALL base/index variables. Only authenticated
+    // nonzero constants are tautologies; parameter-only conditions stay live.
+    if polynomial.is_nonzero_constant() {
+        return Ok(());
+    }
     bound(add(guards.len(), 1)?, limits.guards, "retained conditions")?;
     guards.push(Guard {
         polynomial,

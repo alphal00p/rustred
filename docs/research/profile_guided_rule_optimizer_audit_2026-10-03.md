@@ -2551,3 +2551,346 @@ The standalone executable subsequently links in 122.837 seconds inclusive,
 exits zero and drains without stops; its independently rehashed bytes are
 `7a24613c98ee4778fc7209407109dd16051147295c6c1d10c709c513b8bc6e8a`.
 It uses the existing authenticated native libraries, with no core rebuild.
+
+The same-math summary-mode raw362 retry now completes rather than being
+output-censored. Report `8a4de177…` is 13,372,750 bytes: 121 typed additions,
+122 attempts, F62→183, and `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F` after
+visiting all 362 rows. Every added shift is new, retains its actual nonzero
+full-product coefficient and a native complete-replay flag. The last actual
+circuit remains full and excludes its prior F. Native time is 27.820 seconds,
+outer inclusive time 32.287 seconds, peak RSS about 3.436GB; exit zero, no
+stops, drained groups, no proof or artifact.
+
+Independent classification checks all 121 additions, not a sample. Of their
+reported failure intervals, 118 are unbounded and three are D2=2 singletons.
+Every shift nevertheless preserves support and is strictly higher over the
+entire unchanged D2≥2 ray. Together with the previously established necessary
+F62, this makes all F183 columns necessary for uniform rational descent on
+the exact fourteen-fixed chart. The completed target miss therefore excludes
+a uniformly descending rational circuit in this particular 362-row span/chart;
+it is not a statement about larger banks or the family. Reordering that same
+span cannot fix this feasibility obstruction. Full per-shift evidence and
+request/report/lifecycle hashes are retained in
+`union362-completed-necessary-shift-audit-v1.json` (`4f56b224…`). This satisfies
+the mathematical condition for the root's separately authorized 1,062-row
+expansion; the audit file itself grants no execution or publication authority.
+
+The conditional 1,062-row input preserves the entire 362-row visitation prefix
+and appends 700 unique typed pairs. Independent set comparison confirms the
+union with all 25 native ordinary directions at zero and every signed unit
+translation (775 shell pairs, 75 overlapping). Chart, saved order, F62, family,
+owner and ingress are unchanged; only the explicitly declared bank/refinement,
+term and augmented-column allowances grow.
+
+Its actual result is resource-limited, not a target miss. Report `09d0edd6…`
+materializes 1,062 nonzero source images and 2,709 physical columns, then the
+first symbolic projection returns `budget exhausted: retained conditions` at
+the unchanged 100,000-condition ceiling. There are zero refinements and no
+target/proof/export outcome. Native time is 7.274 seconds, outer inclusive
+13.200 seconds, about 3.430GB peak RSS, exit zero/no stops/drained groups.
+The precise caller within the initial projection is not identified by this
+receipt; repeated pre-cancellation witnesses plausibly explain the scale but
+are not an observed guard-count measurement. No deduplication, guard pruning,
+automatic cap increase or finite-span impossibility claim follows.
+
+### Bounded saved-source-support inspector: source review
+
+The new separate app API `inspect_generated_candidate_source_support` and
+research `support-inspect` schema pass structural review before execution.
+They decode one rule, refuse affine cases, validate the saved target/seed
+symbolic pattern and coefficient shifts, and compute physical offsets using
+the same convention as native ordinary replay: symbolic seed shift plus
+canonical target translation; fixed seed power minus target power. Exact
+offsets are deduplicated and paired with every RowId from completed native
+ordinary generation, never with guessed preconditioned basis ordinals.
+
+This is a source-bank nomination, not a frame-weight replay or membership
+certificate. The report explicitly marks saved basis ordinals unvalidated
+and source/dispatch/closure claims false. Exclusion coefficient IDs remain
+payload-local metadata and cannot be borrowed as guards. Seed scan, offset,
+row, pair and serialized-output limits are explicit; aggregate generated
+term/condition limits are honestly post-completion retained-output bounds,
+not pre-allocation scratch bounds. Native arithmetic limits and outer RSS/time
+supervision remain necessary. Four app tests plus one example test cover
+typed transport, fixed displacement, deduplication, malformed/affine/empty
+refusals, caps and no-authority reporting, including a positive generated-term
+cap refusal added during review. This section records source review only,
+not an executable gate or a successful owner66 nomination.
+
+### Computational pivot guards versus a fresh original-source certificate
+
+A separate certificate can legitimately have a larger domain than the
+elimination computation that discovered it. Over the generic rational
+function field, suppose canonical final weights of distinct original ordinary
+rows satisfy `w A = target − RHS` by a complete exact replay. That identity is
+then valid wherever those regenerated original sources, final weights and RHS
+are defined. A canceled intermediate GPLU pivot need not define the new
+certificate at its zero: no claim is made that the old elimination computation
+was valid there. This is fresh certificate recovery, not deletion of an
+assumption from an existing checked object.
+
+The existing public `check_original_source_combination` already embodies the
+relevant authority boundary. `original_producer.rs` regenerates native source
+Rows/offsets, rejects duplicate contributions, and treats `retained_conditions`
+as additional assumptions rather than a waiver of regenerated poles.
+`lower/original_combination.rs` retains the final supplied weight denominator,
+each original source condition and source-coefficient denominator before
+specialization/product cancellation; RHS specialization conditions are also
+retained. Its full identity, root, chart and strict-descent checks must still
+pass, and checked export independently replays them. Neither a simplified RHS
+nor a finite-point check suffices.
+
+The canceled-weight tests are consistent with this distinction. The current
+weighted-span fixture starts from weights `1/n` and `−1/n`; its conservative
+derived certificate retains `n != 0` even when the composed original weight
+is one. That old trace must remain restricted. A genuinely new direct
+ordinary-source request with weight one could instead be checked from scratch
+without asserting that `1/n` was defined at zero. Conversely, if the *final*
+original weight is still `1/n`, cancellation against an `n` factor in a source
+term or RHS does not remove its source-combination denominator. Duplicate
+`1/n`/`−1/n` entries cannot evade this: the native checker rejects them before
+joining. Likewise an explicitly supplied additional guard remains an
+assumption of that request even when algebraically unnecessary.
+
+Any prospective recovery must preserve immutable family/source/basis-domain
+conditions and genuine input assumptions. It may separate only demonstrably
+computational pivot/normalization factors that disappear from the new
+canonical original weights and RHS. Source-domain singularities, surviving
+weight poles, fixed-specialization witnesses, chart exclusions, common order
+and owner-root restrictions cannot be discarded by this argument. A fresh
+recipe that removes an old weighted-span assumption must be described as a
+new independently replayed recipe, not as validating the old one on its
+singular face. Existing string origin labels are not sufficient authority for
+automatic filtering. All current guards and tests remain unchanged; no such
+recovery mode is implemented or executed here.
+
+The actual 1,062-row condition-budget retry illustrates a different issue.
+After the explicitly authorized increase to one million retained conditions,
+it makes 128 typed additions and stops at prefix 386 on native owner-root
+activation, not on a pivot guard or a complete-bank target miss. All 128
+descent additions are independently higher throughout the same ray (125
+unbounded reports, three singleton reports), reaching F190. Its final three
+ordinary contributions replay a target plus fifteen tails. Nine tails activate
+fixed-zero D5, outside the saved root, on the whole ray; their coefficients
+are generically nonzero. Across all fifteen tails, ten are higher and five
+lower. These counts overlap: two root-inadmissible tails are lower. Thus
+clearing root activation would still not prove this circuit's descent.
+Native time is 80.034 seconds, inclusive 85.187 seconds, about 3.481GB RSS,
+exit zero/no stops/drained, no artifact. Full per-shift and final-tail evidence
+is `union1062-typed-root-audit-v1.json` (`12dfa956…`), binding report
+`b4bc4afe…`. Fresh pivot-certificate recovery would not cure this refusal.
+
+### Executed support inspector and limits of the 5,300-row nomination
+
+The subsequent executable gates pass independently: seven app semantic tests
+(explicitly opt-level zero with optimized dependencies), sixteen optimized
+research tests, and optimized app/library links. The new research executable
+rehashes to `51943aa3…`; all groups drained. Native owner66 inspection takes
+6.223 seconds inclusive and reports 1,969 retained seeds, 212 distinct physical
+offsets, 25 completed native ordinary RowIds, and 5,300 nominated pairs. Its
+ordinary inventory has 522 terms and no source conditions. Report `7005c389…`
+preserves the exact fourteen-fixed case, target, root, family and saved order,
+with source-replay, dispatch and closure authority explicitly false.
+
+This is the same offset/direction universe constructed by native
+`source_port/ordinary.rs:58–127`; `certificate.rs::source_offset` uses the same
+transport convention. Regenerated preconditioning composes polynomial scales
+and additions at the same seed (`ordinary/provenance.rs`), so it does not itself
+require additional translated seeds. Conditional on validating that stored
+derivation, the 5,300 rows therefore contain its preconditioned source span
+over the generic coefficient field, with row-normalization factors absorbed
+into weights. They do not yet certify the saved RHS on a chart with its
+exclusions removed. Existing original replay permits only independently
+proved zero residual products; source, weight and normalization domains still
+matter. The inspector deliberately does not authenticate saved basis ordinals.
+The decisive future check is desired-identity membership followed by complete
+original replay/zero-product and whole-chart guard checks, not a raw target
+pivot or a claim that all incumbent exclusions are unnecessary.
+
+### Fixed-root preprojection and constant-tautology gate
+
+The separately built private variant passes twenty optimized tests and an
+actual cross-executable checked-export control. Frozen old executable
+`7a24613c…` and private `6a3b9b78…` produce identical toy candidate bytes
+`915c3875…`; both native exporter calls complete and drain. The compile-only
+v1-to-v2 correction changes two JSON array displays to `.as_slice()` and no
+algebra. Source review confirms that the optional root policy uses only actual
+image-universe columns activating an explicitly fixed axis outside the loaded
+saved root. It never removes a source/RHS term or classifies an unfixed axis.
+The other change omits only native `is_nonzero_constant()` polynomials after
+context/resource validation and zero rejection. Index/base-parameter poles,
+input conditions and computational nonconstant pivots remain retained.
+
+The actual 1,062-row run (`86706b73…`) adds 287 fixed-root forbidden columns:
+94 activating D5, 99 D14, and 94 D15. All 163 subsequent typed descent additions
+are independently higher throughout the entire unchanged D2>=2 ray: 125 by
+corner distance, 37 by numerator degree, one by reversed D10 excess. Native
+reported intervals are 160 unbounded and three finite; the fixed fourteen
+coordinates and positive D2 sign make each key difference constant over the
+whole ray. Every failed nonzero product witness, monotone F update and replay
+flag was checked. Final F has 512 columns; the final 136-term product omits F
+and has no forbidden-root activation. Full evidence is
+`union1062-fixed-root-policy-audit-v1.json`.
+
+The run nevertheless refuses a whole-chart guard at prefix 457, with forty
+original contributions and 488 nonconstant conditions. It is not an exhausted
+bank/target miss and exports nothing. Inclusive time is 30.703 seconds, peak
+RSS about 3.416GB, exit zero/no stops/drained. Final canonical source weights
+and surviving RHS include genuine `1/(n1-2)` factors, where native index `n1`
+is physical D2. Thus the required D2=2 boundary cannot be recovered merely by
+removing computational pivot history from this same final formula. This
+observation is independent of which guard the native diagnostic first reports.
+
+### Cross-root containment is a runtime contract, not only export policy
+
+The production epoch walker calls
+`owners/domains/applied/engine.rs:558–575`: a nonzero child outside its saved
+owner root emits `InvalidChildRoot` before routing. The app's
+`walking/inspection.rs:572` turns that into an RHS-obligation frontier. The
+exact concrete evaluator separately rejects such children in
+`candidate_reduction/evaluator.rs::validate_target`. Existing saved rules can
+contain syntactic outside-root terms that vanish on a cell, but no nonzero
+applied successor legally escapes that saved root under these contracts.
+Adding a route or noting that another of the 67 owners exists does not bypass
+the source-owner root check.
+
+Do not conflate saved root with selected owner sector. Epoch domain traversal
+can emit a lower support swap within a wider saved root and route it to an
+installed owner (`walking/inspection.rs:538–566`); its unsupported-support
+counter is observational. The concrete routed-target scheduler is stricter:
+`routed/campaign/worker.rs::child` permits only the same selected support or a
+strict subset. Existing tests explicitly distinguish these cases. The
+`applied_zero_activation_is_removed_before_child_root_but_saved_root_is_authority`
+test supplies the smallest current falsifier: zero activation is discarded;
+nonzero activation outside root is rejected before routing. The support-swap
+test then demonstrates that merely widening root still does not establish the
+concrete scheduler's support-transition obligation.
+
+A future cross-root publication path would consequently require an explicitly
+expanded/reproved source-owner scope and compatible runtime contracts, not
+just a different priority proof gate. Current priority export also requires
+the proposed root to equal the immutable saved root (`priority.rs:98–110`);
+loading preserves that root and prepares zero-sector information for its
+downset. Existing routes might suffice for the eventual new children, but
+that requires an actual route/guard/coverage audit and does not authorize
+changing scope now. The current constrained experiment remains unchanged.
+
+### Proposed fresh-direct mode: independent certificate, unchanged defaults
+
+The smallest safe prospective mode is explicit and raw-ordinary-only. It must
+recognize an internally constructed `Span::ordinary` with identity W, not a
+caller-supplied label or a weighted span that happens to simplify to identity.
+Keep the complete discovery trace and its guards intact. Construct a *new*
+request from the exact canonical final original contributions and full
+normalized RHS, with unchanged chart, root, order, bank and F. Preserve genuine
+raw-source conditions, original pre-specialization denominators, fixed
+witnesses and explicit input assumptions; conservatively retaining all raw
+`Span::ordinary` guards is an adequate first boundary. Do not select guards by
+human-readable origin strings. Computational GPLU/composition history belongs
+to the old discovery certificate, not to this new direct recipe.
+
+The unchanged native original-source checker must regenerate sources and all
+final weight/source/RHS poles, reject duplicate contributions, replay the full
+identity, and prove every whole-chart root/guard/descent obligation. Export
+must recheck this new request. Default retain-all behavior and old certificate
+tests remain unchanged. Adversarial gates include a removable unused pivot
+positive control; genuine final `1/(n-1)` and `1/(n1-2)` boundary refusals;
+canceled source/family poles; duplicate canceling contributions; rejection of
+weighted-span use; changed offset/context/weight/RHS; unchanged root and
+non-descent failures; no chart narrowing or F refinement from guard/resource
+errors; and old suffix/terminal/fallback checked-export controls. No such mode
+is implemented or executed by this audit.
+
+### D2>=3 continuation: finite 1,062-row exhaustion, not a guard-only success
+
+The separately authorized request changes only the physical D2 lower bound
+from two to three. Actual report `2131559c…` completes 474 typed refinements
+and visits all 1,062 rows before exact `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`.
+The 62 inherited necessary columns, 287 fixed-root columns and 474 new columns
+are disjoint, totaling F823. Native time is 141.132 seconds, outer inclusive
+145.829 seconds, about 3.432GB peak RSS, no stops/drained, no proof or export.
+
+Every new reported failure cell is unbounded. Independent whole-ray analysis
+finds 452 same-support strictly higher columns (413 by corner distance, 38 by
+numerator degree, one by reversed D10 excess) and 22 strict-super-support
+columns (nine activating D9, thirteen D13, without a pinch). All shifted D2
+powers remain positive from three onward; the other fourteen powers are
+fixed, so the comparison holds on the entire ray. Full typed witnesses,
+replays and F progression are bound in
+`union1062-D2ge3-necessary-columns-audit-v1.json`. No same-bank source visitation
+can restore a uniformly descending rational circuit under this exact
+root/chart contract. The earlier D2>=2 guard refusal occurred *before* the
+remaining descent checks; it never proved that the other 135 tails were lower.
+
+The strongest qualification for the upcoming saved-seed bank is explicit in
+the APIs: `original_producer.rs:364` supplies an empty known-zero-sector list.
+By contrast, saved-rule replay passes independently known zero sectors into
+`ordinary::weights`, and its complete residual check may accept products
+proved uniformly zero on the actual application domain. Thus a valid stored
+rule may be represented in the ordinary source span only modulo those proved
+zero-integral products, not as the literal target-minus-stored-RHS identity.
+Necessary-column negatives here concern the present unprojected strict-lower
+producer, not irreducibility modulo known-zero sectors. A 5,300-row failure
+would require distinguishing this semantic difference and genuine guard
+conditions from missing source span before proposing arbitrary new shells.
+
+### Prospective cofinal batch classification
+
+For an exactly specified coordinate chart with one genuinely unbounded
+physical index and all others fixed, the relative plain-Spired key becomes
+constant beyond the analytically determined target/child sign thresholds.
+All shifts are fixed integers. A column strictly higher on that infinite ray
+must have identically zero rational coefficient in any uniformly descending
+rule: finitely many coefficient roots or guard exceptions cannot erase an
+infinite cofinal set. This permits nominating all such forbidden columns in
+one batch rather than rediscovering them through hundreds of candidates.
+
+This is not permission to sample a large integer, discard individual source
+terms, or infer a general ordering theorem. It needs exact threshold/sign
+reasoning and the actual supported saved-order comparison, with overflow
+refused rather than clipped. Affine/multiple-free charts, bounded degree
+constraints that destroy the infinite ray, unsupported cut/programmed/order
+weights, or a known-zero-integral quotient require their own proof. Projection
+must cancel whole columns, retaining every original term and condition; the
+unchanged whole-chart native proof still checks finite boundaries, poles,
+root containment and descent. This section is a mathematical proposal only.
+
+### Known-zero extension: existing authority and a publication boundary
+
+Existing native services make a proof-bearing extension plausible without a
+new algebra engine. `sector::zero::Analyzer` returns `Decision::ProvedZero`
+with a sealed `Certificate`: the primitive integer kernel has been replayed
+natively, and the certificate binds family, raw/effective support and generic
+coefficient-domain conditions. `Excluded`, `Inconclusive`, a resource error,
+or a bare caller-supplied mask is not such authority. The source-port auditor
+already constructs/rechecks these certificates; its zero evidence is global
+because a complete translated original identity may use zero products beyond
+the declared entry root.
+
+`PreparedOriginalDomain` already compiles the full original weighted sum and
+all source/weight poles before any zero deletion. Its `verify_cell` accepts a
+family-authenticated zero census for exact residual-product checking. A narrow
+new API could take sealed same-family certificates, retain their domain
+assumptions, sign-partition the full RHS, and omit only certified-zero products
+before root/descent. Every original and omitted-RHS denominator must remain
+an obligation; zero times an undefined coefficient is not a valid shortcut.
+The full weighted identity and all nonzero residual products must still be
+checked, and cold/export paths must retain or recompute the same authority.
+
+There is an additional app boundary: `priority.rs` serializes the broad RHS
+directly from the request, not the cell-filtered RHS returned by the producer.
+Merely changing the producer's zero list would therefore leave zero tails in
+the runtime formula, where outside-root validation precedes zero lookup. A
+minimal broad-rule export would need an omitted tail proved zero on *every*
+sign cell of the unchanged chart. A tail zero only on some cells requires a
+supported piecewise representation, not a rectangular hull. Surviving runtime
+guards must still represent retained denominators; an omitted term's unique
+pole may legitimately cause export refusal. This is not a root-policy waiver.
+
+The immediate evidence question is small: all F823 child supports are constant
+on D2>=3 and occupy only 27 masks: one parent mask (514 columns), five
+single-activation super-support masks, and twenty-one swaps. This exact
+geometry census is not a zero classification. Native certificate overlap for
+those 27 masks, rather than a blanket possible-zero argument or a whole-family
+census, should decide whether this extension is relevant to the observed
+negative. No zero-producer/export extension is implemented by this audit.
