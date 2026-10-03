@@ -615,3 +615,103 @@ new selected/compacted direct-L—produce identical checked toy bytes. The actua
 five-loop exact lift is in progress, with all original-source guards and full F
 retained and native16→2 coefficient-map compaction observed. No owner66 exact
 export or downstream gain is claimed until that run and subsequent checks finish.
+
+## H55 exact export and completed downstream test
+
+The corrected source bank now produces an independently checked replacement
+for owner66. The candidate cancels 55 incumbent tails in one pinch-support
+block, in addition to all 6,274 mandatory forbidden columns. Three modular
+samples select the same 2,933 ordinary sources. Modular selection is only
+discovery; both successful backends subsequently regenerate the full ordinary
+source identity, check strict descent and guards on the two exact chart cells,
+and use the unchanged checked exporter.
+
+| Materialization | Inclusive seconds | Peak process-tree RSS | Outcome |
+| --- | ---: | ---: | --- |
+| Sparse exact, direct-L | 1,220.975 | 8.036 GB | Checked export |
+| Symbolica reconstruction, 1,024 cached images | 1,501.262 | 3.443 GB | Cooperatively censored; no export |
+| Symbolica reconstruction, 8,192 cached images | 468.915 | 8.142 GB | Checked export |
+
+Only two cache-capacity inputs change between the reconstruction arms: retained
+images 1,024→8,192 and retained scalar slots 50M→250M. All mathematical inputs,
+ordering, sample budgets, executable and proof policy are unchanged. The two
+successful artifacts are byte-identical (`636f26ea8d439872…`), 745,251,568 bytes,
+with 801 owner rules and the same 116 owner terminals. These terminals are not
+the campaign's separately defined 116 required queries. All 6,329 forbidden
+columns vanish exactly. The proof has 1,882 source contributions and a
+2,055-term full image. This is one replacement rule, not a five-loop solve.
+The cache comparison is a controlled input change, but concurrent host work
+and different start times mean these are not repeated pristine speed timings.
+The small-cache censor is not an algebraic miss or a completed timing.
+
+Evidence: `candidates/H55-backend-identity-summary-v1.json` and
+`profiles/H55-reconstruction-cache-observation-v1.json`, under the ignored
+`TMP/rule-optimizer-20261003/` evidence directory. The research adapter passes
+62 optimized tests; its implementation is committed as `eb15be6c`.
+
+The preregistered physical-point test then runs the **full unchanged shared
+context**: all 67 owners, 8,246 routes and both repair overlays, changing only
+the checked owner66 payload. Both arms finish with zero pending domains and
+zero frontiers, and pass independent fresh-process AllOff cold reinspection.
+
+| Full-context point | Baseline | H55 candidate |
+| --- | ---: | ---: |
+| Scheduled domains | 385,477 | 387,421 |
+| Native inspections | 314,824 | 316,781 |
+| Events | 5,337,333 | 5,331,385 |
+| Traversal seconds | 27.708 | 28.520 |
+| Whole arm, including preparation and cold check | 224.904 | 227.704 |
+
+**Negative result:** canceling this growth block increases scheduled work by
+0.50%; it does not meet the promotion target. Retain the baseline. There is no
+reason to spend additional promotion pairs on this candidate unless a distinct
+mechanism is demonstrated. The comparison is in
+`candidates/owner66-h55-point-fullcross-v1/comparison.json`. The next inquiry is
+which replacement tails and shared descendants offset the local cancellation,
+not whether a shorter or superficially better rule can be advertised as faster.
+Production remains untouched; no improved campaign is ready for deployment.
+
+### Why the local cancellation did not pay off
+
+Independent bounded decoding of the actual first native checkpoint record
+confirms activation: the baseline root has1,668 surviving successors; the
+candidate has2,053. The latter is59 same-support and1,994 strict-subsector
+successors, versus47 and1,621. Both arms retain the same query, bounds, owner
+context, routing and fallback. Whole-piece alternate dispatch replaces a
+selected piece; it does not union the two right-hand sides or introduce new
+parent cuts.
+
+The broad symbolic shift inventories—not pointwise nonzero coefficient counts—
+have1,398 common keys,271 removed keys and656 added keys. All47 incumbent
+same-support tails remain;12 more appear. All10 support masks remain present.
+Even the support containing H55 grows from133 to159 terms:58 disappear,
+including the55 requested cancellations, but84 others appear. The replacement
+also introduces29 tails at positive-power total13 for the power-total12 input,
+which the incumbent does not have. This is direct evidence that eliminating a
+selected block did not eliminate its downstream support. It does not attribute
+the extra1,944 scheduled domains causally to any one of those added terms.
+
+One bounded next falsifier is to retain all mandatory F and H55 while also
+forbidding positive-power inflation over the full chart. With one positive
+index n varying over n>=3 and all other indices fixed, an individual shift's
+positive-power excess is
+
+`A(child)-A(parent) = C + max(n+s, 0) - n`.
+
+This is nonincreasing on that ray, so its maximum is exactly at the lower
+endpoint. This integer-geometry test includes sign crossings; a sample of
+coefficients is not needed or used as authority. It must operate on the native
+fixed-specialized source-column universe (12,230 keys here), not the structural
+translation supergraph (21,662 keys, including columns which vanish on the fixed
+face), nor only the29 observed offending terms of this particular candidate.
+The current research report does not expose the whole actual universe. A small
+default-off research boundary after native specialization is therefore needed
+unless an existing complete native inventory is found. The constraint is a
+search policy only: misses do not establish nonexistence, and descendants are
+never clipped to the proposed bound.
+
+If this single revised hypothesis fails, return to marginal shared descendant
+and anchor reachability, rather than repeatedly stacking local RHS proxies.
+The full frozen cohort and held-out gates remain unchanged. This experiment has
+**not run**: the sandbox launcher began failing before command execution due to
+missing `bwrap`. No escalation, bypass or production changes were attempted.

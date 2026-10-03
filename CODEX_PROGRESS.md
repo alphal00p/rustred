@@ -18,15 +18,125 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Modular support nomination | `rule_optimizer_impl` + independent auditor | Delivered; corrected-bank discovery succeeds | All three minus-one-recenter samples nominate the same3549-source trace; exact full-source materialization remains required. |
 | Matrix incidence / arithmetic ordering | `rule_optimizer_impl` + independent auditor | Delivered input-only discovery improvement | Target-distance/low-F-degree ordering nominates2823 rather than3549 rows; exact calibration completed, no downstream benefit claimed. |
 | Incumbent source-contract gap | Implementation + profiler + auditor | Research inspector corrected and pushed | Explicit minus-one nomination restores modular feasibility; it is not yet a replay of the saved incumbent. |
-| Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Core pushed `37dcdc00`; research62 tests pass | Run the bounded H55 reconstruction pilot with the existing Symbolica service; no new CAS. |
-| Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H717 negative; one of seven blocks feasible | H55 has2933-source support in allthree samples. Exact reconstruction/proof and unchanged graph costs are next, no gain claimed. |
+| Source-weight reconstruction alternative | `rule_cost_profiles` + independent auditor | Delivered; H55 checked export in468.915s | Same bytes as sparse-exact1220.975s; smaller-cache run censored. Preserve controlled cache result, not a campaign gain. |
+| Complexity-growth cancellation | `rule_optimizer_impl` + independent auditor | H55 exact export succeeds; downstream negative | Full-context point385477→387421 domains. Diagnose replacement tails/shared dependencies before proposing another block. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `frontier_oct3_resume` | Active | Audit the new bank outcome; distinguish literal ordinary identities from identities using proved zero sectors. |
-| Whole-context cost comparison | Root | Pending valid candidate | Bind the checked owner66 replacement to the unchanged singleton and adjacent-power cohorts; run fresh paired walks and cold reinspection. |
+| Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Execution restored; controlled experiment resumes — October3, 22:24 UTC
+
+[M] With the restored permission profile, ordinary Git status, source reads,
+diff checking and process observation now succeed. The tool-managed goal is
+active again. No workaround or escalation was used. The last completed source
+milestone remains `eb15be6c`; pending local edits are the three evidence docs
+plus unrelated user work, preserved separately. Agents resume implementation of
+the small default-off native-universe envelope filter, independent audit, and
+bounded shared-graph cost attribution. No new candidate is promoted.
+
+[M] Read-only live status:130865024 discovered,15996241 pending, zero frontiers,
+117.658GB RSS. Native PID2941870 is observed alive. The conservative recursive
+snapshot reports18005178 closed and13/67 roots, but is1111.8s old; it is not a
+current closure-rate measurement or a completion forecast. The live campaign
+and its inputs/checkpoint are unchanged.
+
+### Execution environment interruption — October3, 22:15 UTC
+
+[M] After a sandbox-profile change, root shell commands fail before launch:
+`bubblewrap is unavailable: no system bwrap was found on PATH and no bundled
+codex-resources/bwrap binary was found next to the Codex executable`.
+No escalation or sandbox bypass is attempted. The user has been asked to repair
+the launcher configuration. The completed H55 pair and native generation groups
+were already drained. No new envelope pilot was launched; production remains
+user-controlled. New process observations, tests and Git publication cannot be
+claimed while this environment failure persists. One later `pwd` succeeds, but
+ordinary `rg`, `ls`, `sed`, `jq` and Git commands still fail with the same launcher
+error; this is not a demonstrated recovery. Further command retries are parked
+pending an environment change. Documentation edits through `apply_patch` work.
+At22:20UTC the next goal continuation rechecks Git status and read-only `rg`:
+both still fail before command execution. No filesystem/runtime MCP alternative
+is configured. This is the second consecutive goal turn with the same external
+blocker; no untested envelope implementation has been written or launched.
+At22:21:46UTC a third consecutive goal turn confirms the identical failure on
+read-only `rg`. Safe command/resource alternatives are exhausted; meaningful
+implementation, native tests and publication now require launcher repair. The
+root marks the tool-managed goal blocked, not complete or voluntarily paused.
+Resume by rechecking ordinary workspace reads and Git status, then implement
+and test the default-off actual-universe envelope proposal with the existing
+optimized dependencies. Preserve the completed negative and the pending local
+documentation changes; do not modify production or manufacture a switch claim.
+
+[M] The independent auditor finishes the completed comparison review from
+already available evidence: the candidate actually supplies2053 root successors
+versus1668, so it was not shadowed. Both cold All/Off checks independently close
+the sole required root and replay all314824/316781 native inspections without
+violations. The raw exit4/incomplete status reflects the stale conservative
+recursive snapshot, not an unfinished comparison. The candidate remains rejected.
+
+[E] Next bounded hypothesis: preserve all mandatory F and H55, and additionally
+forbid positive-power inflation over the entire D2>=3 ray. For one varying index,
+A_child-A_parent = C + max(n+s,0)-n; this is nonincreasing, so its largest value
+is at the chart's lower endpoint. The constraint is a heuristic for rule search,
+not a reason to omit descendants. It must be constructed from the **actual
+fixed-specialized native source universe**, not only29 observed A13 tails or a
+larger structural supergraph containing columns that vanish on the fixed face.
+One modular falsifier precedes any exact lift. If unsuccessful, do not keep
+stacking local proxies: inspect marginal shared descendant/anchor reachability.
+
+### H55 is valid but does not improve the shared graph — October3, 21:57 UTC
+
+[M] Both backends complete original-source replay and checked export: sparse
+exact1220.975s outer /8.036GB peak; Symbolica reconstruction with8192 cached
+images468.915s /8.142GB. Identical artifact SHA `636f26ea8d439872…`, identical
+1882-source circuit, full2055-term identity and two chart cells. The1024-image
+reconstruction arm is cooperatively censored at1501.262s, not a completed solve.
+Only cache image/slot capacities differ between the reconstruction requests.
+Independent mathematical and implementation audit passes; all native groups drain.
+
+[M] The unchanged full-context physical-point comparison finishes both arms
+and passes fresh AllOff cold reinspection, zero pending/frontiers. Baseline:
+385477 scheduled /314824 native /27.708s walk /224.904s whole arm. Candidate:
+387421 /316781 /28.520s /227.704s. H55 cancellation therefore gives **0.50% more
+domain work**, not the desired gain. No production deployment is justified.
+Evidence: `TMP/rule-optimizer-20261003/candidates/owner66-h55-point-fullcross-v1/`.
+Exact command: `python -B TMP/rule-optimizer-20261003/run_pair.py --plan
+TMP/rule-optimizer-20261003/candidates/owner66-h55-point-fullcross-v1/plan.json`.
+The16-worker pair uses CPUs32–47, inclusive455.828s. Concurrent source-generation
+controls are recorded; no claim of a pristine backend or campaign speed ratio.
+
+[E] Lanes continue separately: profiler attributes replacement/shared-tail
+costs; implementation agent proposes the next source/dispatch mechanism;
+independent auditor checks actual activation, complete comparisons and mathematical
+interpretation. Do not repeat a losing candidate merely to gather promotion pairs.
+Core/research code is already pushed (`37dcdc00`, `eb15be6c`); result documentation
+is being consolidated. Production and its checkpoint remain read-only.
+
+### H55 exact recovery and an input-only cache control — October3, 21:44 UTC
+
+[M] Exact sparse reaches its target at 892.135s and begins L-transpose recovery
+with 134046 nonzeros. Full original-product replay, proof and export are still
+pending. The reconstruction arm reaches 80 completed target/RHS coefficients
+by 1026.780s, not the source-weight phase. Several later scalar completions take
+roughly two minutes after the earlier fast burst; no cache-hit counters exist.
+
+[E] Native cache/API inspection identifies a testable capacity mechanism, not
+an established cause: strict LRU stores 1024 modular images, while a scalar can
+report more than 1100 oracle calls. Those calls are not distinct cache misses.
+Each retained image contains its row, weights and chronology, not U/L matrices.
+For this frame the conservative bound is 18999 charged slots per image.
+
+[M] One isolated cache-capacity control starts at 21:42:55 UTC on native CPU70,
+supervisor71. Only the image cap (1024 to8192) and retained-slot cap (50M to250M)
+change; the latter avoids silently becoming the effective smaller image cap.
+The same 128GiB process-tree guard, 150GB host reserve and 30-minute lifecycle
+remain. Source, selected rows, chart, forbidden keys, degree/probe/prime limits,
+proof policy and binary are identical. Root and the independent auditor verify
+the two-field input delta. Existing runs continue unchanged; no automatic retry.
+Evidence: `candidates/symbolic-owner66-recenter-H55-reconstructed-cache8192-v1/`.
 
 ### Fresh certificate fully tested; two H55 backends ready — October3, 21:25 UTC
 
@@ -45,6 +155,17 @@ common coefficient allowance. Only the backend and its applicable controls
 differ. Exact sparse uses native/supervisor CPUs 65/66; reconstruction 67/68.
 Final execution bindings use the tested normal binary and optimized test receipt.
 No production campaign or input is modified; no deployment gain is claimed.
+
+[M] The audited implementation and documentation are pushed as `eb15be6c`.
+Both pilots start at approximately 21:25:58 UTC. Reconstruction prepares 2933
+rows / 9960 columns with variable compaction from 16 to 2. Its target
+normalization scalar finishes at 9.923s. The first nontrivial RHS scalar takes
+until 254.068s (911 reported probes, three primes), followed by 70 more RHS
+scalars by 254.588s. This burst is consistent with amortized shared modular
+images; do not sum per-scalar probe counts as distinct sparse eliminations.
+Exact sparse reaches row 2891/2933 at 315.457s, with 161985 U and 112352 L
+nonzeros. Neither observation is yet a complete exact candidate or a wall-time
+forecast. The agents monitor each backend separately; production stays untouched.
 
 ### Research reconstruction gates and fresh-certificate source audit — October3, 21:04 UTC
 
