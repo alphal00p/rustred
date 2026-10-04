@@ -99,6 +99,33 @@ dispatch alternatives on those singleton domains, not their full successor
 obligations, fresh source replay or a policy gain. Evidence:
 `TMP/rule-optimizer-20261003/profiles/preferred-overlap-match-v1/`.
 
+**Complete native boundaries, October4:** the new read-only observer records
+all67 applications per arm before publication-dependent containment. All134
+native counter maps and selected rules match the archived controls exactly.
+The pair completes in198.814s inclusive, mostly input preparation
+(88.899/89.738s); the serial native calls plus recording take0.406/0.373s.
+These are observation timings, not completed reductions or IBP generation.
+Baseline/preferred emit7,991/7,349 successors, with3,043/2,799 distinct exact
+child domains and2,576 common. Every nonzero tail, original power/rank cap and
+native binary coefficient is retained. The independent audit reconciles every
+source-plus-shift image and all outcomes, without adding closure authority.
+
+Both owner3 starting points select the same baseline146/preferred110 pair.
+Their immediate child union is159 for baseline/baseline and136 for
+preferred/preferred. The hypothetical mixed rows give146 and149, but cannot
+be implemented by a simple saved-rule subset because both points use the same
+rule pair; those rows would need a separate domain-valid predicate. None of
+these immediate unions establishes a reduction in eventual shared work.
+Indeed the already completed all-preferred pilot increased domains slightly.
+
+This motivates a narrower, generic **saved-rule eligibility view**, retaining
+fully admitted payloads, original rule ordinals and exact baseline fallback.
+The first candidate can prefer the common starting rule but leave other rules
+unchanged. That is a hypothesis, not a measured win, and it must be tested on
+the complete unchanged shared cohort. A prepared-bank API could later amortize
+input loading; it is not necessary to test this first candidate and is deferred.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-overlap-applied-v2/`.
+
 ### Other literature directions: what is genuinely different here?
 
 Smith–Zeng's operator-level work constrains propagator growth, fixes positive
@@ -203,6 +230,72 @@ their union supplies missing circuit weights. See the saved
 [shape/support receipts](../../TMP/rule-optimizer-20261003/discovery-owner3-shared-diamond-v1/).
 
 ## What the primary literature contributes—and what it does not
+
+### October4 follow-up: delay an expensive symmetry map, not symmetry itself
+
+Kira3 makes a particularly relevant change: it generates IBP equations even in
+sectors that can be mapped away by symmetry. With numerator powers, the symmetry
+equations can become denser and more expensive than local IBPs. It also revises
+inherited seed bounds; these are separate changes, not a proof that discarding
+subsector obligations is safe. [Kira3, §§3.1.1–3.1.2](https://arxiv.org/html/2505.20197v1#S3.SS1.SSS1).
+
+**RustRed hypothesis, not a result of that paper:** choose *when to change the
+numerator coordinate frame*. At a measured expensive cross-owner routing seam,
+try reducing the numerator in its source frame first, then route the resulting
+smaller complete boundary. This is stronger than changing the order in which
+already-generated domains are scheduled. It could change the branching factor
+itself, while keeping symmetry and cross-owner reuse at the eventual boundary.
+
+A synthetic example makes the mechanism concrete. A routing map `x = y+z`
+turns `x^R` into `R+1` monomials before any cancellations. A sum of `k` independent
+monomials gives up to `binomial(R+k-1,k-1)` terms. If a valid local recurrence
+first reduces the relevant power to one, that particular expansion has only
+`k` terms. This is not a RustRed measurement or an IBP identity: a real local
+recurrence has other tails, coefficients and exceptional faces, all of which
+must be retained. Native routing can already collect cancellations and exploit
+geometry, so the raw binomial count is neither its cost nor a performance bound.
+
+The intended mechanism is **selective local reduction before transport**, not
+another indiscriminate layer of broad helper roots. A helper may incidentally
+provide such relations, but its added starting domain is extra work. A useful
+implementation would install a native-frame alternative only for an actual
+expensive request, retain the original routing fallback, and charge the entire
+new successor union. It must not trim the frozen116 required requests or change
+the terminal basis. A change of frame also cannot silently invalidate the
+common strict-descent ordering.
+
+Before implementation, check three things on existing evidence:
+
+1. Identify high-fanout Route records with exact source geometry, rank/power
+   caps and routing witness. Distinguish coefficient expansion from geometric
+   overcoverage and publication-dependent containment. CP6 edge count alone
+   cannot establish the cause.
+2. Check whether the source frame already has applicable local IBPs and whether
+   existing helper/preparation policies already perform this optimization. A
+   merely renamed helper or existing local chart is not a new candidate.
+3. Only nominate a seam where a complete local-rule boundary can plausibly avoid
+   substantial *exclusive* downstream work after sharing. The native paired
+   experiment must include all tails, guard cases, routing, preparation and
+   cold validation. Reject it if local work offsets the avoided transport.
+
+**Prior negative found by the independent auditor:** a completed combined4L
+local-reduction-before-routing experiment already increased domains from26,025
+to27,256 (+4.73%) and inspections from17,957 to19,087 (+6.29%), despite fewer
+routed admissions. Both arms cold-passed. Thus the broad mechanism is not new,
+and rereading Kira3 does not reopen that rejected intervention. A future test
+would need a genuinely selective, native-provenance high-cost seam absent from
+that earlier policy, not just another helper order or global switch. Until
+then this direction remains parked. See the historical local-routing result
+in `CODEX_PROGRESS.md` and `CODEX_NEW_RULES_STUDY.md`. No regeneration, new
+pilot or production change follows from this literature review.
+
+**Search-policy literature does not remove the cost-model problem.** Zeng's
+reinforcement-learning/metaheuristic study optimizes seed/operator and pivot
+priorities using arithmetic-operation counts on a massive one-loop bubble.
+It reports improved sequences, but also the cost of thousands of trial solves.
+For RustRed this supports a bounded search over a measured downstream objective,
+not training a model before establishing useful alternatives. The five-loop
+transfer remains unproved. [Primary paper, cost model and conclusions](https://arxiv.org/html/2504.16045v1).
 
 **Selected-integral blocks.** Blade §3.1 first obtains numerical reductions,
 then reconstructs polynomial-coefficient relations within a selected set of

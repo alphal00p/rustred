@@ -29,16 +29,182 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
 | Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique |93 tests and both registered4L pairs audited; fixed ansatz parked | Common original-weight factor is removable, but the normalized endpoint still fails the stronger protected face. No artifact/gain; literature follow-up on target-normalization-aware discovery only. |
 | Target-normalization-aware search | `lower_sector_discovery`, `lower_rule_evaluation`, independent auditor | Delivered capability; fixed4L pair negative |102 optimized tests and exact default-off identity pass. Both target templates exhaust144 unknowns with no target; no export. Park this finite ansatz; primitive exponent-offset bug corrected. |
-| Joint sharing-aware rule policy | Root, `lower_rule_evaluation`, independent auditor | Research, inventory and dispatch census delivered |45 distinct rule pairs confirmed across67 exact owner3 domains. Need cap-preserving pre-containment native RHS provenance before any joint-policy cost test. No selector implementation yet. |
+| Joint sharing-aware rule policy | Root, `lower_rule_evaluation`, independent auditor | Research, inventory and complete native boundaries delivered |45 distinct rule pairs across67 exact owner3 domains. Design a saved-rule subset view with baseline fallback; defer preparation reuse. No selected policy or campaign gain yet. |
+| Pre-containment applied-obligation observer | `lower_sector_discovery` implementation, `lower_rule_evaluation` paired runner, `exact_and_cost_audit` review | Delivered;11 tests and all134 native observations independently audited | Both arms reproduce archived counters and dispatch. Complete boundaries preserve all caps and native binary coefficients; not a performance/closure claim. |
 | Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
 | Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Delivered/pushed `014b351b`;327 native+47 Python tests and combined4L control pass | Generic composition is usable. First5L alternative fails performance gate; keep baseline, confirm actual local dispatch only. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
-| Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
+| Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work and102 target-template tests/results audited. Review new observer source/tests and actual paired receipts; independently challenge the joint-policy opportunity. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Complete native boundary evidence; next policy experiment narrowed — October4, 04:18 UTC
+
+[M] The sole67-domain observation pair completes in198.813873s inclusive, with
+both groups cleanly drained. Preparation takes88.899119/89.737718s; serial native
+visitation plus recording0.405915/0.372699s; peak tree RSS5.16/5.24GB. The latter
+subsecond numbers are **observation costs**, not full reduction or rule generation.
+All134 query outcomes reproduce the archived native counters and selected rules
+exactly. Independent audit checks all15,340 source-plus-shift singleton images
+and translated rank/A/D constraints, with zero problems or optional refusals.
+Coefficients remain in native Symbolica binary tables. The same11-test binary
+also passes with explicitly workspace-local TMPDIR in3.674309s; all jobs drained.
+
+[M] Baseline/preferred produce7,991/7,349 successor events and3,043/2,799 distinct
+exact child domains;2,576 are common. Both observed owner3 starting points use
+the same saved-rule change146->110. Their immediate union falls159->136 if both
+use the alternative. This does not contradict the earlier complete pilot's
+19,109->19,279 domain increase: fewer immediate tails are not less shared work.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-overlap-applied-v2/`,
+especially `execution-result.json`, `boundary-inventory.json` and
+`starting-boundary-union-screen-v2.json`. Audit document records independent joins.
+
+[E] Next executable hypothesis: select a **subset** of valid preferred rules,
+including a starting-rule-only control, instead of preferring the entire program.
+Rule numbers are experiment input, never engine dispatch. Root has assigned
+`lower_sector_discovery` a narrow cold-path API design, `lower_rule_evaluation`
+fresh primary-source research and bounded evidence screens, and
+`exact_and_cost_audit` independent criticism. Preserve full admitted payloads,
+saved ordinals, original terminals and every candidate-only fallback hole.
+Defer the prepared-bank reuse seam: roughly90s input loading is tolerable for
+the first decisive whole-context trial, and preparation optimization must not
+delay testing whether any rule selection actually helps. No subset implementation
+or additional native trial is authorized until the narrow design/audit is reviewed.
+
+[E] The broader shared-DAG and selective source-frame research remains active;
+prior negative local-before-routing and finite target-template experiments remain
+parked. No full5L closure, new measured campaign gain or restart recommendation.
+Production stays read-only and user-controlled.
+
+### Native observer tested and sole paired observation launched — October4, 04:00 UTC
+
+[M] Eleven optimized focused tests pass with no failures, ignored or filtered
+cases; guarded3.446657s(body0.02s). Test compilation79.096328s and final
+optimized linking85.711851s are separate from observation timings. Root and
+independent audit verify matching frozen/live sources, binary receipts and
+drained groups. Binary SHA256:
+`46d8ddce51fcb37273266773b855b46fd0f62b2f15a1ffbac9f7339860edef41`.
+The earlier4.166s compile failure was two borrowed-versus-owned String arguments;
+retain its receipt and the narrow correction, with no algebra/engine change.
+
+[M] Evaluator launches the single frozen v2 pair on32–47 with16workers,
+600s inclusive and150GB+150GB reserve, full input context and all67 original
+caps. Independent final plan SHA prefix `5f78c56d` passes. No production or
+recursive traversal is invoked. Request and output bindings preserve the
+cap-sensitive native semantics; complete results and raw count comparison are
+pending. No additional experiment is authorized at this point.
+
+[M] Root additionally asks for the same existing test binary to be rerun with
+explicit workspace-local TMPDIR; the first test fixture used the system default
+temporary directory. The paired observer already sets local TMPDIR. This is
+workspace hygiene, not a change to the tested binary, algebra or native controls.
+A normal Cargo example entry and README usage make the tool independently
+buildable, rather than depending on local cached-library build receipts.
+
+### Observer preflight corrections and future policy-loop boundary — October4, 03:51 UTC
+
+[M] Before any native measurement, independent audit catches that the archived
+comparison used `--unbounded-work`, including bounded-refinement allowance,
+whereas the first prepared observer input copied finite defaults. Preserve the
+unrun v1 preparation; evaluator prepares v2 with exactly eight matching and six
+application aggregate counters unlimited, unchanged scratch/algebra/FiniteAxes
+and cell-refinement-Off settings. Recorder, time and RSS guards remain finite.
+Literal selections, all67 query caps and full owner/routing context are unchanged.
+
+[M] Draft observer source review passes its substantive contract. It reuses
+native coefficient-table binary persistence, not coefficient-display parsing;
+handles cancelled preparation explicitly; reconciles all event/finish counters;
+and fails the complete-outcome flag on native errors, problems or optional
+refusals. Output accounting and focused tests are being finalized before build.
+Generic adapter arities1..16 and workers1..50 mirror current native loader
+limits; the actual paired reservation remains16workers, not a new engine cap.
+
+[E] A future cheap joint-policy evaluator would need a small prepared symbolic
+walk seam plus a preference view over admitted rule batches. Existing public
+sessions share immutable programs/routes, but concrete `trace_targets` is not
+the same capped symbolic workload, and append-only `with_programs` correctly
+refuses replacement policies. No API bypass or ledger reuse is proposed. If the
+67-domain boundary evidence justifies a policy search, prepare immutable data
+once but create fresh walk/memo/closure state per policy; retain separate cold
+promotion checks. This is a conditional design, not another implementation lane.
+
+### Independent shared-work opportunity screen — October4, 03:44 UTC
+
+[M] Auditor's read-only graph experiment retains all four roots and removes
+only outgoing edges at a declared set of nominees. In the fixed19,109-node
+baseline, deleting every edge at all67 owner3 nominees removes8,517 recorded
+nodes(44.57%). Keeping the two starting applications unchanged and deleting
+edges only at65 interior nominees removes3,657(19.14%), below3,822 required
+for20%. Each scan takes~1.2s; no native solve or production mutation. Reproducible
+decoding/inputs and route census are recorded in the independent audit document.
+
+[E] These are deliberately impossible zero-tail graph interventions, not valid
+IBPs or transferable savings bounds: native tails, publication-dependent reuse
+and new domains remain uncharged. They do establish that the current tiny
+owner3 Apply count alone is not a no-go, and that a serious proposal on this
+model must change the starting rules rather than only patch interior choices.
+The new observer will provide actual complete obligations. No selector or
+performance claim is authorized by the graph screen alone.
+
+### Fresh literature: source-frame reduction before costly routing — October4, 03:38 UTC
+
+[E] Root rereads Kira3 §3.1.1: numerator symmetry equations can be more expensive
+than local IBPs, so the package now also generates IBPs in symmetry-equivalent
+sectors. Proposed transfer is selective local reduction *before* an expensive
+cross-owner numerator transformation, then routing the complete smaller boundary.
+This is not a new claim about helpers or a permission to add broad helper roots.
+The generic binomial expansion example explains the possible mechanism, not a
+measured campaign gain. Auditor checks overlap with existing local-frame/helper
+machinery and a cheap native-provenance screen. No new solve is authorized.
+Research/primary links are saved in
+`docs/research/profile_guided_bold_directions_2026-10-03.md`.
+
+[M] Independent critique finds the same broad local-before-routing mechanism
+already tested: complete combined4L cold-PASS but26,025->27,256domains(+4.73%)
+and17,957->19,087inspections(+6.29%). The research note now explicitly retains
+that negative. A new paper citation does not reopen it; only measured selective
+seam evidence could. Keep this lane parked while the native observer finishes.
+
+[M] Production read-only snapshot at approximately03:36:160,876,774 discovered,
+116,716,608 local completions,15,724,012 pending,zero frontiers,about141.7GB RSS.
+Recorded recursive closure remains21,548,521 and13/67 roots; scan age~42minutes.
+The one-hour pending growth per completion is near+0.0075, but recorded discovery
+still exceeds closure and the scan is stale. Neither temporary queue improvement
+nor zero frontiers establishes convergence. Checkpoint17 remains resumable with
+no abandoned obligations. User alone controls this production run.
+
+### Tested milestone pushed; native pre-containment observer authorized — October4, 03:29 UTC
+
+[M] Pushed `4c01cb8d` to main: target-template search, corrected primitive
+membership,102 passing tests, negative controls and the shared-policy literature
+study. Root verifies clean owned paths; unrelated FeynKit/untracked work remains
+untouched. Production inputs, executable and checkpoints are unchanged.
+
+[M] Evaluator identifies an existing public native service:
+`CandidateOwnerPrograms::visit_power_bounded_owner_applied_successors`, the
+same visitor invoked by campaign inspection before snapshot containment.
+Its events include selected batch/rule, source piece, complete target geometry
+and power bounds, typed coefficients/nonzero classification, problems, optional
+refusals and rule completion. This avoids a new algebra or core-engine service.
+
+[E] Root authorizes a standalone, generic research observer around that service.
+Implementation: `lower_sector_discovery`; exact-input/measurement preparation:
+`lower_rule_evaluation`; independent contract/code/measurement audit:
+`exact_and_cost_audit`. Preserve all original caps and full selection context.
+No coefficient-display parsing, altered rules, new terminals, successor walk,
+policy extraction or stronger proof authority. Every refusal/incomplete event
+must prevent a complete-outcome claim. Native typed algebra remains in Symbolica.
+
+After focused tests and independent source review, only one baseline/preferred
+observation of the already frozen67 domains is authorized: <=600s inclusive on
+32–47,16workers,150GB process budget plus150GB host reserve. Compilation is
+separate in build0 against existing optimized preferred-program libraries.
+The falsifier is inability to obtain complete, comparable whole-rule obligations
+or negligible paired shared-work opportunity. Observation alone cannot establish
+savings; every later policy candidate still needs full-context native evaluation.
 
 ### Fixed target-template test completes with two bounded misses — October4, 03:25 UTC
 

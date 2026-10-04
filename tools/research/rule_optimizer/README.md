@@ -1,5 +1,58 @@
 # Bounded campaign profiling
 
+## Native applied-obligation observation
+
+The `rule_optimizer_applied_observer` Cargo example is a read-only research
+adapter for `CandidateOwnerPrograms::visit_power_bounded_owner_applied_successors`.
+It records the native selected rule and its complete nonzero successor events
+**before** campaign snapshot containment can replace them with dependency links.
+It does not follow successors, generate rules, select a policy or certify closure.
+
+```bash
+cargo build --release --locked -p rustred-app --example rule_optimizer_applied_observer
+target/release/examples/rule_optimizer_applied_observer REQUEST.json FRESH_OUTPUT_DIRECTORY
+```
+
+The request names an unchanged saved-owner selection, its owner base, a
+`rustred.owner-domain-queries.json.v2` file with original rank/A-D bounds,
+preparation-only CSV targets, workers, and explicit native/recording limits.
+The input types and required fields are in `applied_observer/input.rs`.
+Current arities1–16 and workers1–50 mirror the existing native application
+loader, not a topology-specific algorithm. The actual experiment's CPU/RSS/time
+reservation must be enforced externally. Observation calls are serial; a worker
+reservation is not a claim that every core is used by the visitor.
+
+The fresh output directory contains input bindings, an event ledger, native
+statistics/completeness status, and a Symbolica-backed binary coefficient table.
+Coefficient references belong to that table and retain the original source
+coordinate context; they are not algebraic display strings to parse. Guard
+provenance refers to immutable input payloads and selected batch/rule IDs, not
+a self-contained new ordinary-source certificate. Target-owner membership is
+not target applicability or recursive closure. Conditional tails remain
+obligations, not discarded zero terms.
+
+Errors, cancellation, truncated recording, unmatched rule completion counts,
+problems or optional coefficient refusals prevent a complete-outcome claim.
+Even a complete observation is not a completed reduction. Keep preparation,
+visitor-plus-recording, encoding and full process times separate. Compare exact
+owner/phase/box/rank/power-bound keys rather than merging equal-looking index
+tuples from different contexts.
+
+Run focused tests with a workspace-local temporary directory, for example:
+
+```bash
+mkdir -p TMP/applied-observer-tests
+TMPDIR="$PWD/TMP/applied-observer-tests" cargo test --release --locked -p rustred-app \
+  --example rule_optimizer_applied_observer -- --test-threads=1
+```
+
+The October4 frozen67-domain comparison and optimized cached-library build
+receipts are under ignored `TMP/rule-optimizer-20261003/profiles/preferred-overlap-applied-v2/`
+and `candidates/applied-observer-build-v2/` under the same evidence root.
+Those measurements use the archived campaign's effective native limits,
+including its unbounded cumulative-work settings; finite scratch/algebra,
+recording and external resource bounds still apply.
+
 `profile_records.py` reads diagnostic CP6 schema-1 record windows without
 restoring a checkpoint. It is a research reader, not native checkpoint
 authentication or algebraic authority. Its wire interpretation follows

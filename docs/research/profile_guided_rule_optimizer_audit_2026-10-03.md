@@ -4948,3 +4948,164 @@ baseline fallback observed in this nominated set. Different rule ordinals across
 payloads are provenance, not a claim of different rational identities. This does
 not supply raw RHS hyperedges or authorize combining checkpoint successors.
 Evidence: `profiles/preferred-overlap-match-v1/`.
+
+#### Fixed-publication opportunity screen, not a transferable savings bound
+
+Two lightweight read-only scans of the current four-point baseline take about
+1.18 and 1.16 seconds, with a 2GiB address-space and 30 CPU-second allowance;
+they launch no native job and write no graph. Inputs are the pinned inventory
+above and `candidates/preferred-owner3-fourpoint-pair-v1/baseline/checkpoints/main/`.
+The calculation decodes CP6 `state-5`, `inputs` and native record segments using
+the existing `profile_records.py`, verifies all 19,109 nodes are reachable from
+the four input roots, then reruns reachability while suppressing outgoing edges
+at a declared set of source nodes. All other recorded edges and all four roots
+remain present. It never treats checkpoint edges as original rule RHSs.
+
+Suppressing every outgoing edge at all 67 owner3 nominees removes 8,517 recorded
+nodes (44.57%); suppressing edges at all 439 owner3 Apply nodes removes exactly
+the same set size. The two owner0 roots alone reach 10,590 nodes, leaving 8,519
+outside their union. A 20% whole-union improvement needs at least 3,822 fewer
+nodes, roughly 44.9% of this optimistic owner3 opportunity. Thus a large gain
+is not ruled out just because owner3 has few native Apply records. However,
+keeping the two starting rule applications unchanged and suppressing all edges
+at only the 65 interior nominees removes just 3,657 nodes (19.14%). In this fixed
+recorded graph, even fictitious zero-tail interior rules cannot reach the 20%
+gate. Genuine alternatives still incur every replacement tail and new region.
+Containment/publication and changed downstream scheduling prevent transferring
+these oracle-cut numbers into a bound on a new run or its wall time.
+
+The same scan finds 15,800 Route records, including 14,832 native Route records,
+whose summed inspection durations are only 0.217593 seconds (not additive wall
+time). Native Route rank caps 0/1/2/3 occur 2,018/5,060/5,806/1,948 times. Example
+records 63, 65 and 66 in mask `010101011000001`, rank3, each examine 42 masks,
+prune 16 and emit one Apply plus 25 Route obligations, taking about 80--94
+microseconds. Native route counters can nominate fanout seams, but recorded
+adjacency cannot distinguish coefficient expansion, conservative geometric
+overcoverage and snapshot reuse. A delayed-routing candidate needs that
+discriminator plus exclusive downstream cost, not a route-CPU speedup claim.
+
+The prior literal449 four-loop intervention already tested local reduction
+before routing with no added helper start: 17 owners/507 routes instead of
+16/508, all 58 required inputs unchanged. Although routed admissions fell,
+domains rose 4.73% and native inspections 6.29%. This does not refute every
+selective five-loop seam, but the mechanism is not new. Kira3's rationale for
+local IBPs in symmetry-related numerator sectors must not erase this negative.
+Its seed restriction is also not permission to discard reduction obligations.
+[Kira3, §§3.1--3.2](https://arxiv.org/html/2505.20197v1#S3).
+
+The generating-function papers motivate selecting descendants from the remaining
+irreducible lattice and simplifying them globally; this repository already
+documents that programme and its ordinary-source/exceptional-wall obligations.
+It is not another independent identity space inside a failed fixed row bank.
+A meaningfully different research objective would be a complete symbolic
+regional transfer to a small shared output boundary, with coefficient and guard
+certificates and whole-union cost, rather than another isolated first-row
+recurrence. That is a conditional revival of the existing regional/finite-frame
+backlog, not a fresh implemented breakthrough or an authorized new solve.
+[Generating-function algorithm, §§3.2--3.5](https://arxiv.org/html/2605.09541v1#S3).
+
+### Applied-observer source and workload preflight
+
+The standalone `tools/research/rule_optimizer/applied_observer.rs` adapter uses
+the public `visit_power_bounded_owner_applied_successors` seam already called by
+`walking/inspection.rs`, before Epoch containment resolution. It neither walks
+successors nor changes rule selection. The source review preserves exact source
+cells, translated rank/A/D predicates, shifts, native coefficient-table records,
+conditional nonzero predicates, all problem/refusal events and full native stats.
+Coefficients remain in original source variables; table IDs are local to each
+output. Installed-owner membership is not target applicability. Guard provenance
+is the immutable full payload/context plus owner/batch/rule, not a new portable
+source certificate.
+
+Completeness requires native success, every selected piece's `RuleFinished`,
+matching delivered counts and zero problems and total optional refusals. Terminal
+and authenticated-zero classifications correctly require no `RuleFinished`.
+Native success alone does not override a stopped recorder or a coefficient-table
+encoding failure. All retained JSON, including binding, per-query ledgers and
+final receipt, is cumulatively bounded; the reviewed correction includes newline
+bytes and reserves failure/final receipts before event allocation. Native atom
+byte limits do not bound the preceding coefficient clone, so the external RSS
+and inclusive-time guard remains mandatory. Dispatch covers the native arity
+set 1--16; worker validation agrees with the public preparation API's 1--50,
+independent of the pilot's 16-worker reservation. Eleven focused tests are
+prepared; source GO authorizes their guarded build, not an untested native pair.
+
+The first build stops after 4.166 seconds on two adapter-only owned-`String`
+constructor mismatches. Its failure receipt remains intact. The v2 continuation
+changes only those two argument conversions; all four live source files are
+independently byte-equal to the tested freeze. Optimized test compilation takes
+79.096328 seconds; all 11 tests pass, with zero ignored/filtered tests, in 0.02
+test-body seconds / 3.446657 guarded seconds. Both processes drain cleanly.
+The actual native singleton fixture checks translated caps and coefficient-table
+round-trip, while failure tests cover partial event delivery, cancellation,
+table admission, count disagreement, optional-refusal totals and cumulative
+JSON output. Test artifact SHA: `00e2b477...03edc`. This verifies the observation
+adapter contract, not any five-loop result or new mathematical reduction.
+At root's request the same test binary is repeated with an explicitly
+workspace-local `TMPDIR`: again 11/11 pass, with no ignored/filtered tests, in
+3.674309 guarded seconds and clean drain. No source, binary or library changes
+are made for this repeat. The subsequent Cargo example registration and README
+usage are metadata/documentation only; the default `cli` feature supplies the
+existing signal-hook dependency.
+Final linking takes 85.711851 seconds, cleanly drains, and produces independently
+rehash-checked executable `46d8ddce...edef41`. Frozen paired plan
+`5f78c56d...a161bf` receives GO for exactly one baseline-first 67-domain observation
+on CPUs32--47, 16 preparation workers, 150GB process / 150GB host reserve and
+600 inclusive seconds. It changes no program or terminal authority and permits
+no recursive walk or retry.
+
+Unrun observer input v1 incorrectly substituted finite default aggregate caps
+for the archived walk's `--unbounded-work`, including disabling bounded matching
+refinement. This was caught before execution. Preserved v2 inputs reproduce all
+eight matching and six applied aggregate `usize::MAX` allowances from
+`walking/work_policy.rs::disable_work_limits`; scratch/algebra limits,
+`FiniteAxes`, guard degree64 and application-cell refinement `Off` are unchanged.
+Independent byte comparisons confirm both full selections and all 67 original
+queries/caps are unchanged. The CSV admits preparation only, not a trace or new
+workload. Outer recorder, memory and time limits remain finite. Evidence:
+`profiles/preferred-overlap-applied-v2/prepared-inputs.json` and the preserved
+unrun v1 preparation. The prospective result check compares every complete
+native stats map with the original CP6 record and dispatch with the independent
+67-point match census, never equating snapshot adjacency with original RHSs.
+
+#### Completed native observation and boundary inventory
+
+The sole frozen pair completes in 198.813873 inclusive seconds, with both native
+processes exiting zero and all owned groups drained; no stop, hard kill or
+failure occurs. Sampled peak resident memory is about 5.16/5.24GB. Independent
+checks verify every output SHA/length and all small input/selection/orchestration
+pins. All 134 complete per-query native stats maps match the respective archived
+CP6 native records exactly, and every selected batch/rule matches the independent
+67-query dispatch census. There are 67 selected and finished pieces per arm,
+zero problems and zero total optional refusals. All actual successor coefficients
+are classified Uniform; no conditional tail is removed.
+
+The baseline emits 7,991 successor events and the preferred arm 7,349. Independent
+integer-coordinate checks confirm all 15,340 physical source-plus-shift images
+equal their emitted target singletons and satisfy every translated rank/A/D
+predicate. All children remain in the inventory with source cells, full target
+geometry, shifts and per-arm native coefficient-table references. Coefficient
+tables contain 2,530/2,385 distinct native entries; IDs are not compared across
+arms. Preparation takes 88.899119/89.737718 seconds, versus 0.405915/0.372699
+seconds for serial visitation plus recording and 0.001737/0.001306 seconds for
+encoding. These are observation costs, not reduction or generation timings.
+
+The separate 0.839522-second read-only inventory has 3,043/2,799 unique exact
+child domains, 2,576 common and 3,266 in the union. Its stored child records are
+independently bijective with the raw native events. Of the distinct children,
+2,675/2,429 are Route obligations; owner membership does not make the remaining
+368/370 immediately applicable or free. Both observed owner3 starting points
+select baseline rule146 versus preferred rule110: their complete boundaries
+have 103 versus 93 children (80 common), and 71 versus 56 (46 common). The two
+owner0 starting points remain explicitly outside this 67-domain observation.
+
+Every emitted child has an exact phase/owner/box/rank/cap key in its own original
+graph, with none missing from both graphs. This makes the captured alternatives
+useful for a future checked shared-cost experiment, but does not authenticate
+mixing their downstream graphs. Those records still include original-policy
+containment resolution, shared reachability and cycles. Physical-point matches
+with different caps are not promoted to aliases, and fewer local events or
+boundary keys establish neither closure, termination nor a 20% campaign gain.
+No policy is selected or installed and no additional native run follows.
+Evidence: `profiles/preferred-overlap-applied-v2/execution-result.json`
+(`b9252659...498643`) and `boundary-inventory.json` (`25ad0341...197bb4`).
