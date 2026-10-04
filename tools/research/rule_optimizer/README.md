@@ -1282,6 +1282,40 @@ comparison followed. See the source-nomination section of
 `docs/research/banana_moment_nomination_2026-10-04.md` for the bounded result
 and its distinction from the earlier unconstrained first-target negative.
 
+### General ordinary-span obstruction diagnostic (experimental)
+
+Set top-level `source_obstruction_diagnostic: true` on a general
+`symbolic_projector prove` request to diagnose a completed ordinary-bank
+`NoTarget`. The default is off. This mode requires zero refinements and refuses
+export, selected-row frames, modular nomination, reconstructed weights and
+boundary-polynomial/correction modes. It does not alter the original miss,
+source bank, forbidden columns, chart or saved order.
+
+Two additional positive fields in `limits` are required only when enabled:
+
+- `max_obstruction_preimage_sources`: maximum complete deduplicated diagnostic
+  source census, not the projection's `max_source_rows` allowance.
+- `max_obstruction_translated_terms`: native term-entry allowance for that
+  diagnostic translation. Other arithmetic, matrix, coefficient, guard,
+  coordinate, report and external time/RSS limits remain in force.
+
+The shared native Symbolica service solves for one separator on the complete
+`F ∪ {target}` columns and independently checks every source product is zero
+and the target coordinate is one. Its one normalization equation is charged
+separately from the actual source-bank cap. The diagnostic then enumerates
+raw ordinary-support preimages `t=f−tau`, translates before fixed restriction,
+and computes exact unnormalized pairings without pinch, rank, activation or
+target-presence filters. A census/translation refusal never selects a prefix.
+
+Results appear under `attempts[].source_obstruction_diagnostic`, with separate
+separator and preimage completion states. This is a generic rational-function
+finite-span witness, not a rule, pointwise impossibility or family certificate.
+Incoming and coefficient-pole conditions remain explicit. A nonzero pairing
+may vanish on every point of a correlated finite demand, and new columns may
+introduce additional forbidden obligations; it is not evidence of feasibility
+or benefit. No source is automatically added. The shared-service revision
+passes all174 tests; the original168 remain included.
+
 ### Pinched-source boundary correction (experimental)
 
 The optional `boundary_correction` object requests a two-stage search. First,

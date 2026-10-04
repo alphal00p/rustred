@@ -13,6 +13,8 @@ mod cofinal;
 mod direct_l;
 #[path = "symbolic_projector/endpoint_locality.rs"]
 mod endpoint_locality;
+#[path = "symbolic_projector/exact_dual.rs"]
+mod exact_dual;
 #[path = "symbolic_projector/inspect.rs"]
 mod inspect;
 #[path = "symbolic_projector/nominate.rs"]
@@ -33,6 +35,10 @@ mod root_policy;
 mod selection;
 #[path = "symbolic_projector/source.rs"]
 mod source;
+#[path = "symbolic_projector/source_obstruction.rs"]
+mod source_obstruction;
+#[path = "symbolic_projector/source_preimage.rs"]
+mod source_preimage;
 #[path = "symbolic_projector/support_inspect.rs"]
 mod support_inspect;
 #[cfg(test)]
@@ -206,6 +212,7 @@ fn projection_limits(r: &Value) -> Result<project::Limits> {
 
 fn validate(r: &Value) -> Result<usize> {
     require(r["schema"] == SCHEMA, "unknown symbolic projection schema")?;
+    source_obstruction::validate(r)?;
     trace::detail(r)?;
     root_policy::enabled(r)?;
     cofinal::enabled(r)?;
@@ -359,6 +366,11 @@ fn run_mode<const N: usize>(
     nomination_only: bool,
 ) -> Result<(Value, Option<Vec<u8>>)> {
     require(!(export && nomination_only), "nomination cannot export")?;
+    source_obstruction::validate(r)?;
+    require(
+        !source_obstruction::enabled(r)? || !(export || nomination_only),
+        "source obstruction is a prove-only diagnostic",
+    )?;
     require(
         !boundary_correction::enabled(r) || !nomination_only,
         "boundary correction cannot run as nomination-only",
@@ -673,11 +685,24 @@ fn run_mode<const N: usize>(
                 } else {
                     "NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F"
                 };
-                trace::append(
-                    &mut attempts,
-                    json!({"status":status,"visited_rows":rows,"conditions":guards_json(&guards),"nonexistence_claim":false}),
-                    trace_detail,
+                let mut attempt = json!({"status":status,"visited_rows":rows,"conditions":guards_json(&guards),"nonexistence_claim":false});
+                source_obstruction::append_report(
+                    r,
+                    &generator,
+                    &completed,
+                    &inventory,
+                    &family,
+                    &span,
+                    rows,
+                    &target,
+                    &forbidden,
+                    &universe,
+                    &guards,
+                    p,
+                    limits,
+                    &mut attempt,
                 );
+                trace::append(&mut attempts, attempt, trace_detail);
                 break;
             }
             project::Projection::Target(proposal) => proposal,

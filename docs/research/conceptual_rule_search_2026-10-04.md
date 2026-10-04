@@ -1310,3 +1310,153 @@ next conceptual objective is avoiding this D11-face exit while retaining all
 other required terms and native proof,
 but only after saved-rule metadata and destination applicability are checked.
 No new source bank, candidate solve or whole-query ancestry is inferred.
+
+### Production D11-face test: valid baseline, fixed-span obstruction
+
+A combined read-only saved-rule inspection found rule4 has26 generic RHS
+terms, fixed D4=0,D14=1, and displayed exclusions D5−1 and D11. Rule14 has32
+generic terms, fixed D4=D11=0,D14=D15=1, and displayed exclusion D12−1.
+Each retains one saved seed, not necessarily one original ordinary row.
+Rule14 lowers D12 in every term; exactly two introduce D11=−1. Rule4 keeps
+D12 unchanged, raises D11 in25 terms and leaves it unchanged in one. The
+shared re-entry box satisfies rule4's visible case/guards, but earlier rules
+may preempt it; no dispatch observation or source replay was inferred from
+these diagnostic displays. Evidence is `profiles/owner31-rules4-14-inspection-v1/`;
+the1.017s read drained and passed independent receipt audit.
+
+The actual rule14 application remains the entire19-point region, not a chosen
+point. Its variable physical powers are D3,D8,D13∈[−2,0], D10∈[2,3] and
+D12∈[2,4]; ten other powers are fixed as recorded. The162-point coordinate
+box is reduced by R≤2,A≤20,D=18 to19 points: writing u=D10−2,v=D12−2 gives
+R=u+v≤2, hence1+2×3+2×6=19. These original application correlations are
+retained verbatim in the input, not substituted by a rectangle in any walk.
+
+One preregistered pair used all25 ordinary rows at the single offset−e_D12,
+with no supplied weights. Its proof domain deliberately enlarged only the five
+variable axes to rays D3,D8,D13≤0 and D10,D12≥2, keeping the ten fixed powers.
+This contains all19 points and retains the existing cofinal/root exclusions,
+saved ordering, fresh original-source proof and zero-refinement policy. The
+counterpart changed only `forbid_endpoint_changes_on_axes:[10]`: an all-support
+sufficient D11-face restriction, not a relaxation of final descent or a
+same-support-only theorem. It was gated on successful baseline proof.
+
+The baseline passed: all25 sources give120 native image columns; the selected
+combination has seven original contributions and24 RHS terms. Eight checked
+cells cover the zero/nonzero faces of the three varying numerator axes, with
+two D12−1-related guard entries each. Its two D11-exit shifts match the observed
+exit shapes, but coefficient equality to saved rule14 was not established.
+The counterpart then exhausted all25 rows with
+`NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`. Of eight columns changing D11, six
+were already among40 cofinal exclusions; the new restriction adds exactly two,
+giving42 forbidden columns. This is a discriminating negative for this frozen
+span and full constraint set, not a guard/descent refusal, a general face-rule
+impossibility, or an impossibility on the smaller correlated19-point region.
+
+Evidence is `profiles/production-rule14-face-v1/`, result SHA
+`3b07c5a2cf8dbdfa707911377467a68a2faf554efb93b89575d73ca225c19b53`.
+Both guarded calls drained in3.115s total. No source growth, refinement,
+export, application run, target-dispatch classification or cost comparison
+followed. Independent final receipt audit passed; it also checked that the
+baseline's two D11 exits are exactly the two newly forbidden columns, without
+reconstructing coefficients from display text.
+
+The already-reviewed [Seedless Reduction, §§III.1–III.3](https://arxiv.org/html/2602.22111v1#S3.SS2)
+provides a useful distinction: its double-box boundary operator needs level2
+after levels0/1 fail; residual coefficient freedom can suppress numerator
+growth in descendants; dotted-propagator operators relax ISP-nonraising while
+lowering dots. This motivates a face-preserving objective, not an existence or
+termination theorem for this massive five-loop family. It is not a newly
+discovered algorithm here; the paper's explicit double-box dotted operators
+supersede any broader historical wording that propagator lowering was entirely
+future work. Our pending alternative is to use an exact
+failed-span witness to nominate relevant shifts instead of uniform level
+growth. Complete lower-sector terms and relevance to the actual19 points must
+still be checked; no automatic port or campaign benefit follows.
+
+### Parked finite-demand composition alternative
+
+Saved rule4 has exactly one D11-preserving term: ordinal5 shifts−e_D5+e_D8,
+with displayed coefficient−n7/(n4−1). The native nonzero successor pieces of
+both exit terms give the same re-entry target with D11=−1, D5=4 and
+D8∈[−1,0], despite the original application's wider D8∈[−2,0]. This target
+bound comes from the retained native geometry, not coefficient-display algebra.
+If typed native specialization and provenance replay
+confirm the indicated zero at D8=0, at most one preserving step reaches
+D8=0,D5=3; a second rule4 application then has only D11-restoring terms.
+This suggests a depth-two composed identity on the actual derived demand,
+not on the five-ray proof domain. A finite dot budget alone is insufficient:
+on unrestricted negative D8 rays it can reach D5=1 while D11 remains negative,
+where the rule's guard fails.
+
+No coefficient string was used as algebra input, no composition was executed,
+and native dispatch to rule4 remains unproved. A future typed composition
+would need shifted guards, full lower-sector tails, exact coefficient
+collection and authenticated original-source reconstruction; loaded-rule
+applicability alone is not that reconstruction. It must retain the original
+rank/power correlations, not silently replace them by five rays or a point
+table. Flattening two stages can enlarge the boundary or duplicate shared
+work, so this is an orthogonal structural hypothesis, not a cost claim.
+
+### Bounded-box control and generic source obstruction
+
+An independent input-only control disabled the cofinal nomination filter,
+restored the finite162-point coordinate box, and allowed at most42 existing
+typed bad-shift refinements. The same25 ordinary rows, D11 preservation,
+root policy, ordering and final native proof remained unchanged; the original
+19-point R/A/D application was retained separately, not passed as imaginary
+box-prover constraints. Fifteen target proposals replayed exactly but failed
+native descent obligations. Excluding their reported shifts grew F from8 to23,
+then all25 rows gave `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`. Every added
+shift belonged to the prior cofinalF40; finalF23 is a subset of priorF42.
+This is an accumulated-F negative, not finite-domain infeasibility.
+
+The native call completed cleanly in1.560s; the summary observer then failed
+because intermediate refined attempts omit a `status` field. Its failure
+receipt remains intact. A separate retained-byte recovery checked all15
+products, proof-error shifts and F transitions without rerunning native work.
+Evidence is `profiles/production-rule14-finite-box-v1/`, including
+`recovered-observation.json` and `refinement-overlap.json`; independent audit
+passed.
+
+The next generic diagnostic returned an exact separator for the unchanged
+five-ray miss: all25 source products are zero and the target coordinate is
+one. Its13 supported columns comprise the target,11 old cofinal columns and
+the single new D11-exit shift−e_D11−e_D12+e_D13. Thus oldF40 plus this one
+exit already obstructs this fixed bank; it is not a functional annihilating
+all possible ordinary sources or a pointwise certificate for the19 inputs.
+In particular, its retained index-pole conditions are not valid everywhere
+on those inputs.
+
+The complete unfiltered inverse-support census has6,538 distinct RowId/offset
+pairs and6,786 raw witnesses. Translation was refused before its row loop:
+the exact retained-coordinate charge4,332,480 exceeded1,000,000. No Eλ
+pairing or useful-source nomination was produced. The2.004s guarded call
+drained cleanly and passed independent audit; evidence is
+`profiles/production-rule14-obstruction-v1/`. The original completed
+projection report was unchanged apart from the requested diagnostic and
+timing.
+
+One resource-only continuation raised coordinate retention to5,000,000,
+conditions to300,000 and report allowance to128MiB. The binary,25-row bank,
+chart,F, arithmetic policy and16GiB/300s outer guard were unchanged. It
+completed all6,538 pairings:1,594 zero and4,944 generically nonzero, across
+1,773 offsets. All20 nominees overlapping the old bank pair to zero. The
+native images contain115,623 terms, with no zero images;12,248 pairing
+operations and14,620 retained conditions were reported. The old separator,
+complete census and original failed-projection report remained identical.
+
+Evidence is `profiles/production-rule14-obstruction-v2/`. Native execution
+drained in4.128620s, versus4.390082s inclusive for the wrapper. Its95,648,362-byte
+report passed the native128MiB allowance but exceeded the reused summary
+helper's32MiB reader bound. That wrapper failure is preserved; a separate
+explicitly128MiB-bounded retained-file read reran only the observer checks,
+not native algebra. Independent final audit passed.
+
+These are generic witness-breaking rows, not4,944 useful rules or actual
+19-point demand hits. Only13 offsets have all25 images among the retained
+nominees; partial row unions must not be described as complete-block images.
+For other offsets, complete-block raw-shift unions are conservative bounds
+until translated/specialized natively. No source-rank inference from the
+unbounded inactive rays, coefficient-display calculation, source-bank solve,
+export, or efficacy claim follows. The next structural shortlist and separate
+finite-demand tests remain preregistration work.

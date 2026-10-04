@@ -24,12 +24,194 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Strict100 proves313→294 tails and93→81 numerator columns.168 tests pass. Separate fresh391-original-source reproof now exports C through unchanged runtime policy: same271 weights/294 tails,32 guards per cell; old weighted proof unchanged. H1 routing remains parked because all43 sampled production regions miss C. Actual production rule14's D11-face re-entry is the next source objective, pending source/chart inspection. No workload gain or production change claimed. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Delivered fresh-source C export/168 tests. H1 routing parked: all43 retained production regions miss C. Actual rule14 baseline proves on a five-ray chart, but protecting its D11=0 face gives a completed25-source span miss. Active: generalize exact dual-witness source nomination to this ordinary target problem, then test one evidence-selected compact enrichment. No workload gain or production change claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Complete exact preimage evaluation; rank-aware discriminator next — October4, 17:32 UTC
+
+[M] The sole resource-corrected diagnostic completes in4.129s native guard
+(4.390s wrapper), peak484.7MB, clean/drained. All6,538 translated candidates
+are evaluated exactly:1,594 zero pairings and4,944 nonzero, across1,773 offsets.
+It retains115,623 full-image terms,12,248 pairing operations and14,620 conditions.
+The old25-row miss and the prior separator/census are unchanged; all20 old-bank
+rows occurring in the nominee set pair to zero. This is not a6,538-row search
+bank, a selected correction, an all19-input certificate or a workload gain.
+
+The95,648,362-byte raw report fits the requested128MiB limit, but a historical
+32MiB reader cap in the summary helper refused it after native completion.
+Preserve that failure and recover the summary by bounded read-only parsing;
+do not rerun native algebra. Independent final audit passes. Evidence:
+`profiles/production-rule14-obstruction-v2/`, raw`cc639a32…`; the earlier
+coordinate refusal remains separately preserved. No further cap changes.
+
+[E] Discovery now ranks a small structural Pareto set of complete25-row offset
+blocks, distinguishing exact nominee images from conservative whole-block
+support bounds. Nonzero pairing count is not the cost metric or evidence of
+physical benefit. In parallel, prepare an input-only batch of all19 actual
+integer inputs using native fixed-chart proofs. It will test whether a common
+generic-field obstruction disappears on the physical rank domain; all outcomes,
+conditions and exact point-specific descent checks must be retained. No quotient
+implementation, source growth, runtime rule installation or production switch.
+
+### Exact obstruction found; complete nomination needs a storage allowance — October4, 17:28 UTC
+
+[M] The174-test optimized research binary linked cleanly in85.977s (digest
+`d81924a9…fc6427`), without rebuilding core/app. Independent final source,
+test and receipt review passed. Its single five-ray diagnostic takes2.004s
+and exactly reproduces the old completed25-row miss. Native Symbolica finds
+and independently replays a13-entry separator: target plus11 old forbidden
+columns and one of the two newly protected D11 exits. All6,538 raw-support
+preimages from6,786 inverse-support pairs are enumerated. Translation then
+refuses4,332,480 retained coordinate cells against the inherited1M allowance,
+before any pairing values are computed. This is a complete finite-span
+obstruction and an incomplete source nomination, not an algebraic miss for
+the prospective sources. Evidence: `profiles/production-rule14-obstruction-v1/`.
+
+[E] Authorize one input-only resource correction, justified before rerunning:
+5M coordinate cells,300k conditions and128MiB complete report. The independently
+reproduced structural charges are141,669 raw entries,7,844 intersections,
+at most15,688 pairing operations,28,776 retained guards under this polynomial
+source inventory, and1,046,154 two-copy coefficient terms. Existing16GiB/300s
+outer limits and all source-bank, matrix and arithmetic limits stay unchanged.
+Any further refusal parks the probe; no cascade of automatic limit increases.
+The witness's explicit poles and inherited pivot conditions also prevent
+claiming it applies to all19 physical inputs.
+
+[E] A separate read-only research lane examines rank-correlated vanishing
+conditions. A quotient on19 fixed integer tuples is algebraically a product
+of19 coefficient fields, not a field usable by ordinary Gaussian division.
+Without a shared low-degree weight ansatz it merely disguises19 point solves.
+Before any quotient implementation, inspect whether existing exact fixed-chart
+probes can supply a small decisive test. No competing CAS or new proof authority
+is authorized; bounded and generic claims must remain distinct.
+
+### Finite scope alone does not rescue the fixed source bank — October4, 17:18 UTC
+
+[M] One input-only test disabled cofinal nomination and used the finite162-point
+coordinate box containing every one of the19 physical inputs. Same25 ordinary
+sources, same protected D11 axis, same root/order/source/guard authority; the
+native producer does not directly encode the R/A/D correlations, so this was
+explicitly a stronger box proof, not a proof on exactly19 points. It completed
+in1.560s with15 typed descent refinements, then exhausted the bank without a
+target under the accumulated forbidden set. This is not an exhaustive
+finite-box impossibility result: each refinement conservatively bans a whole
+endpoint shift. No source growth, native retry, artifact or workload claim.
+The summary wrapper's missing intermediate-status key failed after the native
+successfully drained; recover the summary from retained raw output, not by
+rerunning the solver. Independent final receipt review is pending.
+
+[M] The new shared obstruction diagnostic passes174 tests (0failed/0ignored,
+4.315s inclusive). Its cached optimized test compile took87.141s; final link is
+underway, not a full engine rebuild. The first9.170s compile failed on a single
+new-test borrow/move, fixed only by cloning that fixture argument; the failed
+receipt is retained. Source and test design received a separate audit pass.
+
+[E] A distinct bounded-demand fallback remains parked: metadata suggests that
+at most two manually composed rule4 applications remove rule14's reintroduced
+D11 numerator. This depends on the actual D8∈[−1,0] target bound; it does not
+extend to the infinite five-ray chart. Native typed coefficient specialization,
+translated guards, original-source replay (including zero-sector provenance)
+and the complete downstream boundary would all be required. Fewer intermediate
+stages alone is not evidence of less work. No macro implementation or run yet.
+
+### Obstruction-directed source acquisition, not blind seed expansion — October4, 17:10 UTC
+
+[E] Implementation is confined to the research projector. The existing native
+Symbolica exact separator and raw-support preimage service are being shared
+between the earlier scalar correction and a new opt-in ordinary-source miss
+diagnostic. Actual source allowance remains25; the separator's normalization
+equation is separately charged. Two explicit diagnostic limits bound preimage
+enumeration and translated terms. Neither a witness nor its proposed sources
+can publish a rule or change the bank automatically. Separate implementation,
+input/geometry and adversarial audit agents remain active.
+
+The next input's proposed diagnostic caps32,768/1,000,000 cover the finite raw
+support bound (25 rows,522 shifts,43 witness columns; at most22,446 source
+preimages and606,042 translated entries before deduplication). Existing matrix,
+arithmetic, report and outer memory/time limits remain in force; a refusal is
+not permission to truncate or enlarge them. Native execution awaits source
+audit, old/new focused tests and a frozen cached research build.
+
+[E] Important interpretation constraints: a generic nonzero witness pairing
+may vanish on every physical R≤2 input; n_D3*n_D8*n_D13 is one example on this
+19-point demand. It is not evidence of physical benefit. Nominee-row support
+also cannot stand for the complete25-row block at its offset. Retain all rows,
+including zero-pairing cancellation partners, when subsequently testing a
+chosen block; recompute the full mandatory forbidden set and exact proof.
+
+[M] Production read-only17:06 snapshot:228.08M discovered,183.60M local
+completions,9.26M pending,zero frontiers and181.0GB aggregateRSS. Its conservative
+13/67 root-closure snapshot is3.54h old; no current closure rate or ETA follows.
+No production lifecycle or configuration changes, and no second campaign is
+recommended yet.
+
+### Face-preservation is a real source-span obstruction — October4, 16:57 UTC
+
+[M] The input-only paired test completes in3.115s, cleanly drained and independently
+audited. The baseline uses all25 ordinary rows at−eD12, with7 surviving source
+contributions,24 RHS terms and an exact eight-cell proof. Existing cofinal
+nomination requires nonfixed axes to be rays, so this proves the stronger
+five-ray chart D3,D8,D13≤0,D10,D12≥2 with ten fixed physical indices. The actual
+application remains the complete original19-point region with all R/A/D bounds.
+The protected variant exhausts all25 rows with an exact target-span miss:
+U has120 columns, old mandatory F has40, and axis10 adds precisely the baseline's
+two D11-exit columns to make42. There is no guard refusal, truncation, extra
+refinement, export or routing/cost claim. This is a fixed-bank negative, not
+impossibility on the19 points or with additional sources.
+
+Evidence: `profiles/production-rule14-face-v1/`, plan`f07071bc…12cd09e`,
+result`3b07c5a2…c19b53`, baseline`00dfbaef…cd3684`, constrained`f9d6e49d…0b4b78`.
+The inspection/proof work reused the frozen168-test binary; no Rust rebuild.
+
+[E] Next conceptual implementation: extend the successful obstruction-directed
+source search to a general completed target-span miss, rather than grow a blind
+shift shell or force this numerator region through the scalar-only correction
+hook. Reuse the existing Symbolica dual solve on F∪{target}, independently replay
+Aλ=0 and λ(target)=1, then nominate translated ordinary rows whose raw support
+can pair nontrivially with λ. A nonzero pairing breaks only this obstruction;
+new forbidden columns, additional obstructions and exceptional specializations
+remain possible. No automatic source-bank mutation or rule authority follows.
+Evaluator designs/implements the narrow shared service, discovery critiques
+candidate-block ranking against complete boundary costs, and a separate auditor
+reviews both. Default-off behavior and earlier168 controls must be preserved;
+no production changes or full campaign launch.
+
+### Milestone pushed; actual face-invariance test prepared — October4, 16:41 UTC
+
+[M] Committed/pushed the independently audited source reproof, guard diagnostic,
+sealed-record sampler and current evidence as `add53faf` on `main`. Root also
+reran all14 sealed-sampler tests successfully. Foreign work, campaign outputs,
+reference material and licenses were excluded. This is a research workflow
+milestone, not a production-switch recommendation.
+
+[M] Existing `candidate-inspect` reads actual saved rules4/14 in1.017s. Rule14
+has32 generic tails: all lower D12 by1;30 keep D11=0 and two reintroduce D11=−1.
+Its saved case fixes D4=D11=0 and D14=D15=1, with exclusion D12−1. Rule4 has26
+generic tails and keeps D12 unchanged; its case fixes D4=0,D14=1, with visible
+exclusions D5−1 and D11. The shared re-entry target fits these visible conditions,
+but earlier-rule preemption remains untested. Each saved rule retains one seed;
+that count alone does not identify an original ordinary-source circuit.
+Evidence: `profiles/owner31-rules4-14-inspection-v1/`, report`a57d4e2c…05e15a`;
+independent audit passes. The original29-point region splits into10/19 inputs
+on the two observed pieces, independently counted; these are not descendant
+work estimates.
+
+[E] Activate one fixed-span discriminator with the existing general projector:
+all25 ordinary sources translated by−eD12, comparing target isolation with
+complete D11-face invariance on the actual rule14 piece. Evaluator prepares
+the symbolic request; discovery supplies exact physical coordinates and the
+unchanged rank/A/D application domain; auditor checks the mechanism. A source
+proof may safely cover a larger box but cannot trim the original application
+scope. This is not a claim to reconstruct the saved seed. Use existing native
+Symbolica elimination; no new CAS, scalar-only correction hook, source-bank
+growth, ordering change or routing adapter. Review inputs before one ≤300s
+paired run. A span miss remains a finite-bank result; any successful identity
+must still improve the complete downstream destination union before a
+performance claim. The current production campaign remains unchanged.
 
 ### Exact correction becomes a runtime payload — October4, 16:31 UTC
 
