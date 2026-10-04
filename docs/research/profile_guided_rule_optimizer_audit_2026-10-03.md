@@ -5540,7 +5540,7 @@ coverage with no frontier; counters alone are insufficient. This would certify
 only the declared finite region, not a coefficient solution or enlarged hull.
 It needs an explicit checked disposition and identity; the present trace report
 is not that interface. Overlapping summaries need cumulative work admission and
-safe cache binding. Budget/unsupported/explicit frontier misses may decline a
+safe cache binding. Budget/ineligible-scope/explicit frontier misses may decline a
 summary; cancellation stops, and hard context, algebra, source-condition or
 non-descent errors must not be swallowed as ordinary fallback. No new CAS or
 mandatory serialized exact DAG follows from this design requirement.
@@ -5589,7 +5589,7 @@ attempt per walk. Reuse the already prepared reducer (`epoch/mod.rs:479`),
 not a second bank load; use a cancellation-aware caller-thread form of the
 existing checked kernel. No cache, new terminal, partial/G2 enumeration or
 cross-policy state is needed initially. Online explicit budget/frontier or
-unsupported misses may decline the optional summary; recorded success must
+ineligible-scope misses may decline the optional summary; recorded success must
 replay successfully in cold verification without fallback. Cancellation,
 algebra, source-condition, context or non-descent failures are not normal
 fallback. Tests must cover raw-pole cancellation, late failures, changed
@@ -5606,3 +5606,104 @@ overlapping summaries or cold replay may erase the local gain. Any later
 proved-key cache needs success-only publication, complete immutable-context
 identity and aggregate pre-work admission; per-call limit resets cannot serve
 as a cumulative workload bound.
+
+### Caller-thread source gate and banana chart proof (October 4)
+
+The new core caller-thread path has passed independent source and focused
+runtime review. It initializes the existing FIFO `Shared` state,
+intersects six aggregate allowances before entry admission and invokes the
+unchanged checked worker kernel without spawning a thread. Existing local
+algebra/scratch limits remain in force. Tests cover FIFO parity, fresh counters,
+mid-trace cancellation, failed/coalescing reservations, all three transport
+allowances, raw poles despite coefficient cancellation, late non-descent and
+panic. A finished trace with a frontier remains incomplete evidence. Explicit
+transport resource-limit variants may decline online; support-transition,
+context, source, algebra and descent failures must not become fallback.
+
+The optimized core compile and test guards drained cleanly. The corrected v2
+test binary (`af9b1850…6635cf`) passes all119 routed tests, including the seven
+new inline tests; a separate run repeats those seven. The unchanged production
+core also passes219 owner tests. These are338 distinct focused tests, not345.
+The original cancellation fixture's unsupported shift64 failure is retained;
+its test-only replacement uses a strictly descending400-child sunset fixture
+with indices at most22 and still cancels after256 actual expansions. The old
+parallel wrapper invokes the same checked processing loop with a no-op progress
+hook. This core gate does not approve the pending app summary/cold authority.
+
+The frontend review finds default-off identity preserved and enabled recipe
+version, scope and all six caps bound into checkpoint identity. Fresh CP6-only
+runtime admission is explicit. G2/initial-D-band optimizations elsewhere need
+not be disabled: only the actual whole original initial-ID0 singleton is
+eligible. Partial/G2 jobs fall through unchanged. Typed record publication,
+mandatory cold replay and mutation/negative tests are separate pending gates.
+
+The independent banana nomination has now passed the existing native
+original-source chart checker in the sole proof-only attempt
+`candidates/banana-owner0-rank1-chart-v1`. For `a=n_D12>=1`, `b=n_D15>=2`,
+`n_D13=-1`, arbitrary positive powers on D5/D6/D9/D14 and all other inactive
+indices zero, eight ordinary rows at source offset `+e13-e15` prove
+
+`I(a,b;-1)=I(a-1,b;0)+(d+b-1-2a)/(b-1) I(a,b-1;0)+I(a,b;0)-2a/(b-1) I(a+1,b-1;0)`.
+
+The vector field `(-∂k1-∂k2-∂k3-2∂k4)·(k3-k5)` leaves the other four
+active denominators fixed. Native replay reconstructs the full 37-term raw
+product, derives pivot `b-1`, and checks four RHS shifts on two sign cells
+`a=1` and `a>=2` covering the entire requested chart. Source-weight and RHS
+denominator provenance is retained in both cells. No symmetry identification,
+zero-sector term deletion or point-weight lift is used. The four coefficient
+displays agree with the independently derived formula; native source replay,
+not display parsing, supplies authority.
+
+The receipt is clean/drained: 1.992531 s inclusive, 1.130909 s preparation,
+0.002641 s isolated proof and 328,175,616 B sampled peak tree RSS. Raw report
+SHA-256 is `c0adaaa3c21714f531a182bc17dc51476336b662edc470bb580712b42805a029`.
+This is a reusable rank-one parametric identity, with its pinched tail retained,
+but no artifact was exported, installed or traversed and no cost gain is proved.
+
+The subsequent separately authorized isolated export also passes audit:
+`banana-owner0-rank1-export-v1` adds one post-baseline whole-piece rule
+(483→484) while retaining all83 original terminals. Its normalized sources,
+RHS, retained conditions and two-cell proof agree exactly with the proof-only
+receipt; the exporter independently repeats the original-source proof and
+checks native codec roundtrip and original suffix. Candidate size86,018,558 B,
+SHA-256 `9c00d51eeed0258c374e791e3991057a54df5d8646ee15c20c134cbfecc41ec9`;
+3.326640 s inclusive, 896,421,888 B sampled peak, clean/drained. Bytes alone
+do not carry a replayable source certificate. No composition, installation or
+traversal has occurred at this gate.
+
+### Targeted structural-identity literature check
+
+The useful distinction is better generators versus additional mathematical
+relations. [Böhm et al., §§III–V](https://arxiv.org/html/1712.09737) construct
+complete first-order logarithmic generators for fixed-dimension Baikov IBPs
+from Gram-matrix row operations. Their degree-one generators and the additional
+no-doubled-propagator constraint are different objects: the latter requires a
+module intersection. For a vacuum family their generator count is L². By the
+chain rule, these row operations correspond to ordinary loop-momentum linear
+vector fields; using them to nominate sparse combinations need not introduce
+a new proof system. This is not completeness of all higher-order annihilators
+or a guarantee of sparse reductions after special kinematic restrictions.
+[Lee](https://arxiv.org/html/0804.3008) separately establishes that Lorentz
+invariance identities supply no information beyond the IBP relations. Neither
+result supports advertising a new independent equation merely because its
+derivation used symmetry language.
+
+The concrete opportunity is to select a momentum-transfer derivative which
+annihilates unaffected propagators before expanding its ordinary-source sum.
+The proved banana identity is an actual example: its eight rows cancel those
+branches and retain the pinch. This is more specific than another source-order
+sweep, but still a cheaper presentation of ordinary IBPs. A falsifier is native
+full-image/descent failure or no meaningful full-context union-cost gain despite
+fewer local tails. Coefficient cancellations, exceptional faces and every
+pinched term must survive the test; unitarity-cut support alone is insufficient.
+
+There is a direct, unproved general-rank nomination using the same source
+offset, rather than a tensor engine. With `A=D12`, `B=D15`, `z=D13`, the
+transfer derivative satisfies `Dz=-2(A-B+1+z)`. Acting on `z^(r-1)` adds
+three rank-`r-2` tails proportional to `2(r-1)/(b-1)` to the four rank-`r-1`
+tails (and changes the second coefficient by that amount). At r=1 those
+three coefficients vanish; at a=1 or b=2 the corresponding pinches remain.
+This requires its own native full-chart proof, including the finite r=1 face;
+the rank-one receipt does not certify it. Even a seven-tail rank-two identity
+may fail the cost objective because the incumbent already has seven tails at
+one measured point. No additional native experiment is authorized by this note.

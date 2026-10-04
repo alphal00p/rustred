@@ -9,7 +9,7 @@ mod trace;
 
 pub use campaign::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
-    CandidateRoutedCampaignSnapshot, CandidateRoutedWork,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedWork, CandidateRoutedWorkBudget,
 };
 pub use domain_overcover::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

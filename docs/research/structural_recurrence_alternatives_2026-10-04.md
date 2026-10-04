@@ -109,6 +109,17 @@ Pfaffian matrix. It still must earn its cost on the unchanged shared workload.
 No moment representation, special-function CAS, or new tensor reducer is being
 implemented as part of this research note.
 
+**October4 implementation discriminator:** the numerator-bearing chart now has
+a native-checked ordinary-IBP certificate. A momentum-transfer vector field
+gives eight source rows and four scalar tails on D13=-1, with all six active
+powers free and D15≥2. Regenerated sources, both relevant sign cells, retained
+guards and current-order descent pass; a one-rule isolated export also passes.
+This is a useful outcome of the structural investigation without needing a
+new moment engine. It is not evidence of less shared downstream work yet.
+The existing repair overlay must be source-replayed against the replacement
+owner and cold-loaded before the complete-context comparison. See the
+[derivation and receipts](banana_moment_nomination_2026-10-04.md).
+
 ### Related results that must not be overinterpreted
 
 Flieger proves a compact set of annihilating operators for generic-mass banana

@@ -53,10 +53,26 @@ fn child<const N: usize>(
 }
 
 pub(super) fn run<const N: usize>(reducer: &RoutedCandidateReducer<N>, shared: &Shared<'_, N>) {
+    run_with_progress(reducer, shared, || {});
+}
+
+/// Reuses exactly the campaign processing kernel. The bounded progress hook
+/// runs between local expansions, never under the scheduler lock or inside CAS.
+pub(super) fn run_with_progress<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    shared: &Shared<'_, N>,
+    mut progress: impl FnMut(),
+) {
     // An unexpected native panic must leave a typed incomplete result and wake
     // peers/coordinator, not strand an active node or detach a worker.
+    let mut completed = 0usize;
     while let Some(node) = shared.take() {
         run_one(shared, node, |node| process(reducer, shared, node));
+        completed += 1;
+        if completed == 256 {
+            progress();
+            completed = 0;
+        }
     }
 }
 

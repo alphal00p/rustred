@@ -20,6 +20,17 @@ fn fixed_region<const N: usize>(powers: [i64; N]) -> RootRegionInput<N> {
     }
 }
 
+fn inline_budget() -> crate::solver::CandidateRoutedWorkBudget {
+    crate::solver::CandidateRoutedWorkBudget {
+        max_nodes: 10_000,
+        max_rule_applications: 10_000,
+        max_transport_calls: 10_000,
+        max_transport_operations: 1_000_000,
+        max_transport_endpoints: 1_000_000,
+        max_coalescing_additions: 1_000_000,
+    }
+}
+
 fn same_parallel<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     policy: &FiniteRootAdmission<N>,
@@ -29,6 +40,17 @@ fn same_parallel<const N: usize>(
     let serial = reducer
         .trace_targets_with_entry_admission(targets.clone(), admission)
         .unwrap();
+    let inline = reducer
+        .trace_targets_inline_with_entry_admission_and_observer(
+            targets.clone(),
+            admission,
+            inline_budget(),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    assert_eq!(inline.trace(), &serial);
+    assert!(inline.snapshot().finished);
     for workers in [1, 2, 6] {
         let parallel = reducer
             .trace_targets_parallel_with_entry_admission_and_observer(
@@ -219,6 +241,19 @@ fn explicit_admission_preserves_initial_and_descendant_source_guards() {
         assert_eq!(
             reducer.trace_targets_with_entry_admission([key([root])], admission),
             Err(expected.clone())
+        );
+        let inline = reducer
+            .trace_targets_inline_with_entry_admission_and_observer(
+                [key([root])],
+                admission,
+                inline_budget(),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap_err();
+        assert_eq!(
+            inline.reason(),
+            &CandidateRoutedCampaignFailure::Trace(expected.clone())
         );
         for workers in [1, 2, 6] {
             let error = reducer

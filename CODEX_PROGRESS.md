@@ -14,20 +14,135 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | --- | --- | --- |
 | Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered/pushed029e2bff;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
 | Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} matrix complete, all coldPASS: domain changes+1.99%/-0.403%/+1.45%; every whole arm slower. No promotion or automatic sweep. |
-| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Configuration-space banana nomination now has independently checked Symbolica toy recurrences; original-family numerator/contact/source lift remains open. No new CAS or speculative engine rewrite. |
+| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Banana investigation produced a native-replayed eight-source/four-tail ordinary IBP on a six-free rank-one chart; isolated export passes. Safe composition and shared-work measurement next. No new CAS. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
-| Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Design a cancellation-safe finite-demand replay summary, with shared-work and cold-cost gates; no engine change yet. |
-| Finite replay-summary implementation | Pending; root to delegate implementation separately from `exact_and_cost_audit` | Conditional designGO for an explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
-| Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Formal scalar recurrence delivered; contracted-derivative negative-q example explicitly recovers a missing contact term. Next: map the actual unequal-dot numerator-bearing hot point and seek ordinary-source replay/native descent before proposing an engine compiler. |
+| Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Caller-thread core implemented and compiled; app typed/cold replay integration under test. |
+| Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Original-source/descent proof and isolated rank-one export pass. Source-replayed repair-overlay re-export is being prepared, with original payload untouched. A broader positive-rank identity is prepared for one separately audited proof-only discriminator. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Caller-thread core milestone independently accepted — October4, 07:57 UTC
+
+[M] Corrected native test binary `af9b1850…6635cf` passes119 routed tests,
+including all7 new inline tests; the latter also pass in a separate run.
+Together with219 owner tests this is338 distinct focused tests, not345.
+Independent source/runtime audit approves the core-only milestone. Production
+core compile is optimized; semantic test compilation is opt0 with optimized
+dependencies and is not a performance measurement. Evidence is retained in
+`candidates/finite-replay-core-build-v1/` and `finite-replay-core-build-v2/`.
+
+[M] The new public API runs the existing checked FIFO kernel on its caller,
+with explicit cumulative allowances, cancellation and progress. It neither
+creates worker threads nor changes the existing parallel scheduling kernel.
+Finished results can still contain frontiers; the API does not claim closure.
+The optional CP6 summary, CLI controls and mandatory cold replay are a separate
+uncommitted integration slice awaiting app tests. No campaign switch follows
+from this core milestone. Root is compiling an immutable early app snapshot
+while the implementer and auditor cover its publication and restore boundaries.
+
+### Exported structural recurrence; native integration tests — October4, 07:49 UTC
+
+[M] Independently audited isolated rank-one export completes in3.326640s,
+896MB sampled peakRSS, clean/drained. It adds exactly one ordinary-source
+checked rule (483→484), preserves all83 residual records and the baseline
+suffix, and uses AfterBaselinePartitionWholePiece dispatch. No production
+input is changed. Owner0's repair overlay is digest-bound to the old owner;
+the evaluator found an existing public-API route to replay its original
+sources against the new owner, serialize anew and cold-load again. This is
+not manual digest rebinding or permission to discard the repair. Evidence:
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-rank1-export-v1/`.
+
+[M] Core v1 semantic tests:219 owner tests pass; routed tests118pass/1fail.
+The new mid-trace cancellation fixture erroneously requested Shift64 outside
+the supported range. The reviewed test-only correction uses400 children with
+legal shifts≤22, retaining cancellation after256 native expansions. The v1
+failure is retained; v2 test compilation is underway. Production core bytes
+are unchanged. Root also froze an early app compiler probe while the agent
+adds codec/mutation/cold-replay tests; this is not yet a final acceptance build.
+Exact commands use `candidates/run_replay_build.py` with the v2 core and v1
+app-probe plans. No skipped-test success or performance claim is accepted.
+
+[E] Fresh primary-source review confirms two useful distinctions. The
+Baikov logarithmic-generator construction at zero external legs reorganizes
+the ordinary momentum IBPs; it does not supply independent new physics.
+Its value here is choosing combinations that avoid costly tails. Tube seeding
+remains a potential target-local nomination policy, already recorded in earlier
+research, not a newly discovered universal closure theorem. Its published
+finite-field high-rank examples do not certify our symbolic guarded charts;
+the general path-convolution closure proof is explicitly left open. We will
+not reopen the rejected broad source banks merely under a new name.
+
+[M] Read-only production at approximately07:40UTC:180.866Mdiscovered,
+135.773Mlocal completions,14.340Mpending,zero frontiers,156.05GBRSS,
+checkpoint21. The13/67root count and23.871Mclosed count are from a6407s-old
+snapshot. Pending growth/completion is−0.129 over the observed hour, but this
+neither supplies a fresh closure rate nor an ETA. Production remains untouched.
+
+### A reusable ordinary-source chart, and the first inline build — October4, 07:33 UTC
+
+[M] The banana literature investigation now leads back to a simple ordinary
+IBP, avoiding a new moment compiler or symmetry as prerequisites. Root,
+`lower_rule_evaluation` and independent auditor derive the same eight-row
+vector-field combination. On D13=-1 with all other inactive powers zero,
+all six active powers remain free, a=D12≥1,b=D15≥2. The complete rule has
+four scalar tails, including the a=1 pinch, and retains the b−1 denominator.
+Native regenerated-original-source replay and strict descent PASS on two
+sign cells covering the whole requested chart. This is not a fixed-point lift.
+
+[M] Existing frozen prescribed-source executable, one proof-only attempt:
+1.992531s inclusive,1.131s preparation,0.002641s proof,328MB sampled peakRSS,
+clean process drain. It regenerates25 ordinary sources, selects8, checks the
+complete37-term pre-specialization product and derives four RHS terms. The
+previous observed rule has seven immediate successors, but shared-work impact
+is unmeasured. Receipt and pinned request:
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-rank1-chart-v1/`.
+Independent final receipt audit passes. No payload is installed or preferred;
+owner0's existing repair overlay must be preserved in any later comparison.
+The evaluator is preparing a source-checked export and assessing safe existing
+overlay composition. The exact proof remains distinct from a cold-loaded
+export or campaign speedup.
+
+[M] The separate finite-replay implementation has an independently reviewed
+caller-thread form of the existing checked FIFO kernel, using no nested
+threads or new algebra. Immutable core snapshot compilation completes in
+122.048s with cached optimized dependencies (opt2/noLTO/codegen8), artifact
+SHA738fdc5a…58945. Semantic test compilation is running under the existing
+build-0 lock/CPUs0–15 guard, not on production cores. Evidence:
+`candidates/finite-replay-core-build-v1/` beneath the same TMP root.
+Root has drafted the default-off Rust/CLI controls, full optional request
+binding and negative parser/binding tests. Typed CP6 recording, actual whole-ID0
+eligibility, attempt accounting and mandatory cold replay remain in development;
+compilation is not acceptance. G2/initial-D-band behavior remains available
+for other nodes. Exact aggregate-cap mapping is being checked prospectively
+against the measured H55 workload, not loosened after a failed pilot.
+
+### Implementation starts from the audited discrimination tests — October4, 07:10 UTC
+
+[M] Previous goal turn is progress: completed pinned experiments changed the
+next action and the audited research milestone was pushed as2c75ab61 on main.
+Current tracked changes outside this log belong to the concurrent FeynKit
+collaborator; they and unrelated untracked material are preserved. Production
+PID2941870 remains live; no lifecycle or input change is requested.
+
+[E] Root assigned separate implementation, original-family nomination and
+independent audit lanes. The finite-summary slice is an opt-in verification/
+traversal optimization reusing the unchanged parametric programs, not a new
+rule pool or a replacement definition of the full goal. Its first singleton
+test is deliberately a feasibility boundary: the116required/67auxiliary
+production request and20%shared-work target are unchanged. Publication cannot
+trust old trace counters; the recipe must be explicitly typed and cold-replayed.
+Banana nomination proceeds independently toward actual original-family rules.
+Root coordinates immutable build snapshots/cached dependencies, tests and
+the next full-context comparisons. No speed/deployment claim from the earlier
+different-output tracing contrast is carried forward as acceptance evidence.
 
 ### Same-build contrast and independent one-worker check — October4, 07:04 UTC
 

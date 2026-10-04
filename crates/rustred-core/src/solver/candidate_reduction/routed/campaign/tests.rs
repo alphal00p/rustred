@@ -4,7 +4,7 @@ use crate::solver::candidate_reduction::owner_test_support::*;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-fn diamond(
+pub(super) fn diamond(
     limits: ReductionLimits,
     routing: super::super::RoutedCandidateLimits,
 ) -> RoutedCandidateReducer<1> {
@@ -397,6 +397,45 @@ fn native_affine_route_and_pinch_match_legacy_with_shared_transport_budgets() {
         .unwrap();
     assert_eq!(old.visited_zeros().len(), 1);
     assert_eq!(old.declared_terminals().len(), 3);
+    let inline_budget = CandidateRoutedWorkBudget {
+        max_nodes: 10_000,
+        max_rule_applications: 10_000,
+        max_transport_calls: 10_000,
+        max_transport_operations: 1_000_000,
+        max_transport_endpoints: 1_000_000,
+        max_coalescing_additions: 1_000_000,
+    };
+    let inline = |budget| {
+        reducer.trace_targets_inline_with_entry_admission_and_observer(
+            [target.clone(), target.clone()],
+            CandidateEntryAdmission::SavedGenerationScope,
+            budget,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+    };
+    assert_eq!(inline(inline_budget).unwrap().trace(), &old);
+    for budget in [
+        CandidateRoutedWorkBudget {
+            max_transport_calls: 0,
+            ..inline_budget
+        },
+        CandidateRoutedWorkBudget {
+            max_transport_operations: 0,
+            ..inline_budget
+        },
+        CandidateRoutedWorkBudget {
+            max_transport_endpoints: 0,
+            ..inline_budget
+        },
+    ] {
+        let error = inline(budget).unwrap_err();
+        assert!(!error.snapshot().finished);
+        assert_eq!(error.snapshot().active_nodes, 0);
+        assert!(error.snapshot().transport_calls <= budget.max_transport_calls);
+        assert!(error.snapshot().transport_operations <= budget.max_transport_operations);
+        assert!(error.snapshot().transport_endpoints <= budget.max_transport_endpoints);
+    }
     for workers in [1, 4] {
         let result = reducer
             .trace_targets_parallel_with_observer(

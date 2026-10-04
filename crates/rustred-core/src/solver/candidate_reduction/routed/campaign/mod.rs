@@ -1,6 +1,8 @@
 //! Shared finite-target closure: one FIFO and one identity set across all
 //! entries. Algebra is local to a worker; only scheduling/accounting is locked.
+mod inline;
 mod model;
+pub use inline::CandidateRoutedWorkBudget;
 mod scheduler;
 #[cfg(test)]
 mod tests;
