@@ -34,13 +34,31 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Combined feature-gated FeynKit and default Python Rust checks PASS. Seven optimized app, three public core integration, eight Python coordinator/GIL and ten actual standalone Python tests PASS; independent final receipt/source review approved the native milestone for push. New community host and end-to-end tests remain pending. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a: combined feature-gated FeynKit and default Python Rust checks plus7app/3core/8Python-unit/10actual-import tests PASS, independently audited. Community pinned to that commit; host build and end-to-end tests remain pending. |
 | HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native old-host input-parity plus16 UI lifecycle/presentation tests pass; actual new-session generation/visual-live tests pending host build. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Native milestone pushed; embedded host build starts — October4 23:15 UTC
+
+[M] `f836862a0e0520e9d620057b942904ffe84441c4` is pushed to main with
+47 explicitly owned files/patches. Expanded collaborator rustdocs and tests,
+reference-only files and campaign outputs remain excluded. Independent review
+confirmed all final native-runtime gates and actual imported DSO/source pins.
+
+[M] Community Cargo now pins that exact pushed revision with `campaign-api`.
+Its narrow lock update changes only RustRed source pins and adds the app/Python
+packages. Offline dependency inspection confirms one Symbolica kernel
+(`community` revision98794d0d), one PyO3 version, and no `standalone` feature
+in embedded rustred-python. The host retains its existing ABI3 Python3.9 floor.
+The optimized wheel build runs under the reviewed workspace-only guard at
+`TMP/hepkit-community-native-build-20261004/`: CPU0–15, Cargo-j8,32GiB RSS
+ceiling,150GB host reserve, no build deadline. The temporary old-host symlink
+was removed before packaging; its external target is untouched. Actual host
+runtime and browser acceptance still await this build.
 
 ### Standalone extension runtime passes — October4 23:11 UTC
 

@@ -287,6 +287,16 @@ ordered cases, guards, shifts and exact terminal keys in original family
 coordinates. They are not a new persistence format or a closure certificate;
 see [candidate inspection](docs/CLI.md#inspect-saved-candidate-programs).
 
+For interactive Python clients, `rustred.start_family_candidates(...)` returns
+a native session with bounded structured events, retained progress snapshots,
+GIL-releasing waits and cooperative cancellation. `session.result().artifact()`
+provides paginated sector/rule/terminal views; selected coefficient polynomials
+are decoded and cached only on demand. HEPKit can use the same implementation
+through the optional `rustred-feynkit/campaign-api` feature and its existing
+native `IBPFamily`, sharing the host's Symbolica kernel rather than importing a
+second extension. See the [session API and lifecycle limits](crates/rustred-python/README.md#in-process-streamed-generation-and-lazy-exploration).
+Generated candidates and finite residual lists are not closure certificates.
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

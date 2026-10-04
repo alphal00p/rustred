@@ -1,5 +1,19 @@
 # RustRed project goal
 
+## October4 delivery checkpoint — goal remains active
+
+PR2 is merged and the separate banana485 five-loop campaign is frozen,
+validated and documented in
+`docs/research/five_loop_banana485_launch_2026-10-04.md`; only the user launches
+it. This is an experimental alternative, not a demonstrated global speedup or
+five-loop closure result. The arity change is pushed at `33fd03ec`, and the
+native streamed-session/lazy-artifact milestone at `f836862a` passes its
+focused optimized/runtime gates. The community checkout is pinned to that
+pushed revision. Its optimized host build, real four-loop notebook run,
+visual validation and BenRuijl-reviewer PR remain required before completion.
+AMFlow's adapter adoption was observed read-only; direct task messaging is
+unavailable, so the pushed handoff and user relay are the coordination record.
+
 ## October4 downstream requirement — AMFlow runtime arity
 
 The user requests coordination with the `AMFLow+DiffExp` task to remove the
