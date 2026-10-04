@@ -9,6 +9,8 @@ mod certificate;
 mod cofinal;
 #[path = "symbolic_projector/direct_l.rs"]
 mod direct_l;
+#[path = "symbolic_projector/endpoint_locality.rs"]
+mod endpoint_locality;
 #[path = "symbolic_projector/inspect.rs"]
 mod inspect;
 #[path = "symbolic_projector/nominate.rs"]
@@ -216,6 +218,7 @@ fn validate(r: &Value) -> Result<usize> {
         (1..=16).contains(&n) && mask.bytes().all(|b| b == b'0' || b == b'1'),
         "invalid owner mask/arity",
     )?;
+    endpoint_locality::Policy::parse(r, n)?;
     for k in ["family_fingerprint", "expected_order"] {
         require(
             r[k].as_str().is_some_and(|s| !s.is_empty()),
@@ -361,6 +364,7 @@ fn run_mode<const N: usize>(
     let compact = compact_coefficients(r)?;
     let fresh_certificate = certificate::enabled(r)?;
     let boundary_config = boundary::config(r)?;
+    let endpoint_locality = endpoint_locality::Policy::parse(r, N)?;
     require(
         !(nomination_only && boundary_config.is_some()),
         "boundary polynomial constraints require exact mode",
@@ -534,17 +538,23 @@ fn run_mode<const N: usize>(
     if let Some(e) = &envelope {
         forbidden.extend(e.columns.iter().cloned());
     }
+    // This uses every actual post-fixed source column, before exact frame
+    // selection. Nonlocal rows remain available for coefficient cancellation.
+    let locality_counts = endpoint_locality.extend_forbidden(r, &universe, &mut forbidden)?;
     let annotate = |report| {
-        positive_power_envelope::annotate(
-            cofinal::annotate_for_request(
-                report,
-                r,
-                cofinal_enabled,
-                &cofinal_witnesses,
-                cofinal_new_count,
+        endpoint_locality.annotate(
+            positive_power_envelope::annotate(
+                cofinal::annotate_for_request(
+                    report,
+                    r,
+                    cofinal_enabled,
+                    &cofinal_witnesses,
+                    cofinal_new_count,
+                ),
+                envelope.as_ref(),
+                envelope_new_count,
             ),
-            envelope.as_ref(),
-            envelope_new_count,
+            locality_counts,
         )
     };
     progress::event("source_ready", || {
@@ -660,6 +670,7 @@ fn run_mode<const N: usize>(
             project::Projection::Target(proposal) => proposal,
         };
         let (contributions, guards) = checked(span.compose(c, &proposal, limits))?;
+        endpoint_locality.verify_image(r, &proposal.image)?;
         let rhs = proposal
             .image
             .iter()

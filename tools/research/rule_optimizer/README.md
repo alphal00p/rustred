@@ -1197,3 +1197,37 @@ Each arm returned identical source ordinals across its three samples. Evidence:
 These are modular feasibility observations, not exact proofs or work savings.
 Only the joint arm is scheduled for exact reconstruction; the previous H55-only
 rule was source-proved but increased shared domain work by about 0.50%.
+
+### Endpoint-axis locality (research opt-in)
+
+`forbid_endpoint_changes_on_axes` is an optional sorted, unique list of
+zero-based index axes. Absent or `[]` preserves the existing search and report
+(apart from the literal request echo). A nonempty list adds every actual
+post-fixed source-image shift that changes any listed axis to F, before exact
+row selection or modular nomination. It unions, never replaces, the explicit,
+root, cofinal and envelope constraints. Nonlocal source rows remain available:
+Symbolica cancels their **combined endpoint coefficients**, not each row
+separately. This is a sufficient locality restriction, not a new identity space
+or a claim that all useful rules preserve these axes.
+
+The helper admits column count, worst-case additional F-coordinate storage and
+axis-inspection work against the existing `max_augmented_columns`,
+`max_coordinate_cells` and `max_term_operations` phase allowances before
+retaining shifts. Outer time/RSS limits still govern total work and native
+scratch. Reports add full-universe, locality-forbidden and newly-added counts
+only when enabled. Exact original-source replay has an additional residual
+locality check; all original conditions, pivot poles, chart/descent/root checks
+and checked-export gates remain unchanged. A modular hit is not a proof, and
+rejection of the first exact candidate does not exhaust other combinations.
+
+The cached-library optimized suite passes110 tests, including eight locality
+tests. New/old toy owner and request bytes agree, and the new native unit export
+matches the prior unit/native export exactly. Evidence is under
+`TMP/rule-optimizer-20261003/candidates/endpoint-locality-build-v1/`; this is
+implementation/default-off evidence. A subsequent fixed prove-only pair on
+the two previously nominated charts discovered both local seven-tail circuits
+from25 unweighted ordinary rows, with full native source/guard/descent proof.
+Charts/windows/spectator axes remained hand-informed; no export or new workload
+comparison followed. See the source-nomination section of
+`docs/research/banana_moment_nomination_2026-10-04.md` for the bounded result
+and its distinction from the earlier unconstrained first-target negative.

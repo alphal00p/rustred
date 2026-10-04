@@ -600,12 +600,12 @@ does not establish their generality. The consolidated raw summary is
 `candidates/banana-owner0-broad-currentpool-H1-validation-v2/censored-observations.json`.
 No alternative easier validation point or automatic retry was substituted.
 
-A separate, prepared-only discriminator would run the **same H1 point**
+A separate discriminator was prepared to run the **same H1 point**
 through the exact finite-key mechanism in both owner-treatment arms, retaining
 all source guards, routes, terminal boundaries and the checked repair overlay.
 That tests representation feasibility as well as the recurrence; it is not a
 timing comparison with the two censored symbolic observations. Concrete H1
-size is unmeasured, and the existing explicit aggregate limits may decline.
+size was unmeasured before that attempt, and explicit aggregate limits could decline.
 The initial unrun one-million-node proposal remains preserved. Before any
 concrete H1 observation, root registered a larger aggregate-budget request:
 16 million nodes/rule applications/transport calls, 1,024 million transport
@@ -614,9 +614,97 @@ identical in both arms. Seed, positive-layer, retained-seed-byte, per-formula,
 RSS and inclusive-time limits are unchanged. The earlier six-million-domain
 symbolic expansion motivates avoiding a prematurely small aggregate ceiling;
 it is not a concrete cardinality estimate. The prospective request is
-`candidates/banana-H1-finite-feasibility-v2/plan.json`; no execution or
-post-outcome tuning is implied. The separate finite-envelope engine controls
-take precedence.
+`candidates/banana-H1-finite-feasibility-v2/plan.json`; the actual V4 build
+and test receipts were later bound in `plan-v3-bound.json` without changing
+the inputs, commands or budgets. The successful four-loop, H55 and original
+260-seed engine controls preceded this attempt.
+
+The H1 baseline launched at10:02:52UTC. Its finite trace declined after
+67.113 seconds with `aggregate_budget`, at **exactly1,000,000 rule
+applications**, despite the requested16-million feature allowance. The
+complete persisted root diagnostic records2,577,437 scheduled operational
+states,1,888,757 completed states,688,679 queued states and2,572,537 physical
+keys. This is an incomplete prefix, not a closed count or a cardinality bound.
+The implementation configured concrete node/transport caps but retained the
+ordinary `ReductionLimits` defaults; the core's deliberate minimum
+intersection therefore imposed its one-million rule-application ceiling.
+The same retained policy also has one-million pending-frame and16-million
+coalescing caps. **The intended16-million-application experiment did not
+occur**: this is a configuration-composition finding, not evidence that16
+million is insufficient, nor a failure of the mathematical recurrence.
+
+After the trace declined, native execution fell back to the symbolic walk.
+Root stopped that experiment early because fallback could not establish the
+planned finite comparison. The original group clock ended at332.972 seconds;
+the verified experiment launcher received SIGINT, its controller propagated
+the signal to its owned native process, and all owned processes drained
+without a hard kill. Native exit was−2: **no final result or committed
+checkpoint was written**, so this interrupted attempt is not resumable.
+Only its already-flushed root frame, partial sidecar, events and guard receipts
+are retained. Cold verification and the candidate arm were never launched.
+No time/work ratio, closure claim, cap retuning or retry follows.
+
+Evidence:
+`candidates/banana-H1-finite-feasibility-v2/effective-limit-diagnostic-v1/receipt.json`
+(`6d3525c4…7af54aa`) pins the raw complete root frame, exact requested argv,
+frozen application/core/default-limit sources and stop/drain receipt. It
+explicitly does not authenticate the remainder of the interrupted sidecar.
+
+The next held-out experiment was separately versioned before execution.
+It adds explicit matching allowances of16 million applications,16 million
+pending frames and256 million coalescing additions, leaving all originally
+requested finite caps and the1,800-second group budget unchanged. Both arms
+must first pass native numeric requested/admitted/effective-policy checks
+before either owner pool is prepared; the live and cold budgets must then
+agree with those checks. This corrects policy composition rather than
+assuming the requested allowance reaches the core.
+
+Before any corrected16-million H1 outcome, root selected the combined485
+bank from the completed original-four-root training comparison. Therefore
+the new registered comparison is **original483 baseline versus combined485**,
+not the superseded484 candidate. The exact H1 row, caps, other66 owners,
+routes, second overlay, terminal boundary and resource budget remain fixed.
+The old corrected484 proposal is preserved as deferred, and failure will
+not silently switch back to it or select an easier target. This is an
+independent workload check with disclosed earlier H1 exposure, not globally
+unseen data. Prepared evidence is
+`candidates/banana-H1-combined-finite-feasibility-v1/plan.json`; the retained
+old proposal is under `banana-H1-finite-feasibility-v4/`.
+
+The corrected comparison launched at11:07:05UTC. Both native numeric
+preflights passed, and the actual baseline root record confirms the requested
+16-million node/application/pending allowances and256-million coalescing
+allowance reached the native kernel. The baseline nevertheless declined on a
+**different, correctly applied limit**: a routed expansion requested128,008,047
+aggregate endpoints against the frozen128,000,000 allowance. This is a bounded
+feasibility failure, not another effective-budget mismatch.
+
+At the refusal,253.003 seconds of finite work had scheduled7,278,128 operational
+nodes representing7,272,139 physical keys, completed5,522,744, and left1,755,383
+queued. It performed3,186,441 rule applications and2,002,310 transport calls,
+with127,999,479 admitted endpoints and530,580,163 transport operations;
+279 declared terminals and327,828 zeros were visited. It did not finish or
+close H1. These counters do not expose stack depth and cannot identify a
+particular recurrence corridor as the cause of endpoint growth.
+
+The existing symbolic fallback ran only until the registered cutoff. The group
+ended at601.851 seconds with a cooperative deadline, exit−2, no hard kill, and
+all owned processes drained. No candidate walk or cold replay ran; no final
+walk result or committed checkpoint exists. The retained first2,978-byte
+diagnostic frame is authenticated against its raw prefix, not authority for
+the rest of the interrupted sidecar. Evidence is
+`banana-H1-combined-finite-feasibility-v1/endpoint-refusal-diagnostic-v1/receipt.json`.
+There is **no completed paired ratio or held-out closure claim**.
+
+A separate candidate-only diagnostic was then prospectively frozen under
+`banana-H1-combined-candidate-feasibility-v1/plan-v2.json`. It keeps the same
+combined485 input, H1 point, numerical limits and600/630-second walk plus
+810/840-second cold deadlines on its own900-second clock. Its purpose is to
+measure the otherwise unrun treatment, not compare it to a censored baseline.
+Finite refusal retains the existing fallback only to the same cutoff; fallback
+closure would be reported separately, not as finite success. No budget growth,
+retry, switch to484, easier point, or ratio to the failed baseline is permitted.
+At this note update the separate diagnostic is prepared, not executed.
 
 ### Complementary face: a directly proved mirrored ordinary-source chart
 
@@ -680,8 +768,165 @@ RSS was 472,772,608 bytes. Evidence is
 `candidates/banana-owner0-mirrored-b1-proof-v1/{execution-result.json,guard/stdout}`
 under the same TMP tree; raw stdout SHA256 is
 `889e76546af33f8e07f2c01cd669b5edd118b5fe7e8dc1016855eae3e25f952f`.
-No export or installation followed. A future export must extend the existing
-`b≥2` candidate and natively rebind both repair rules to the new owner digest,
-preserving the exact terminal inventory and full comparison context. This
-fills one genuine omitted face without replacing the prior chart, but covers
-neither `a=b=1` nor mixed numerators and implies no campaign gain or closure.
+An isolated checked export subsequently extended the existing `b≥2` candidate
+from484 to485 rules in3.349 seconds inclusive. The exporter rechecked the
+complete original-source proof and native codec roundtrip, preserved all484
+prior rules and83 terminal keys, and retained both disjoint charts as
+`AfterBaselinePartitionWholePiece` alternatives. Normalized sources, RHS,
+pre-cancellation conditions and proof exactly match the prove-only receipt.
+The new owner SHA256 is
+`ebd0def4ae1c77cab74c2f377dc706ad5a9c03af4d0155781b022f3ed856b397`.
+
+The existing two-rule owner0 repair overlay was then natively re-exported,
+not manually rebound: old-context cold replay, unchanged scope/terminals,
+precharged clone, new-context original-source/guard/descent replay, actual
+new-digest encoding, independent output cold replay and old-digest refusal
+all passed. All three replay counts are two; the original one requested
+domain, zero overlay residuals and83 base terminal keys remain unchanged.
+This took36.421 seconds inclusive and produced220,735 bytes with SHA256
+`f330f7082f102a1dfd056be4904ca19ac90300ec0199e52620da73d1e4be38eb`.
+Both guards drained without stops/failures; the other owner's overlay was
+not changed. Evidence is under
+`candidates/banana-owner0-combined-mirrored-{export,overlay}-v1/`.
+
+No installation followed these artifact checks. The separately registered
+candidate-first484-versus485 comparison subsequently completed on the
+unchanged four required roots and full67-owner/8,246-route/two-overlay
+context, using the same optimized V4 executable with finite replay disabled
+in both arms. Both fresh arms passed independent cold All/Off verification
+with zero debt and all four roots certified; the whole pair drained cleanly
+in392.698 seconds.
+
+Broad484 versus combined485 gave14,132→11,291 scheduled domains
+(**20.10% less**),12,833→10,231 native inspections (20.28% less), and
+123,344→110,676 events (10.27% less). Traversal was0.7691→0.6493 seconds;
+whole-arm time195.755→193.595 seconds was nearly tied (1.10% less), dominated
+by88–89-second preparation and93–96-second cold checks. Waited descendant
+CPU was1,697.52→1,702.07 seconds; sampled peak tree RSS5.223→5.182GB.
+Concurrent app compilation and observed foreign host jobs are recorded;
+these are contemporaneous measurements, not historical timing comparisons.
+The fixed baseline-first repeat also completed and cold-passed, in384.438
+seconds inclusive:14,136→11,264 scheduled domains (**20.32% less**),
+12,830→10,215 native inspections (20.38% less), and124,124→110,158 events.
+Traversal was0.7554→0.6415 seconds; whole-arm191.127→189.739 seconds again
+nearly tied (0.73% less). Waited descendant CPU was1,684.84→1,689.09
+seconds and sampled peak RSS5.307→5.237GB. The two contemporaneous baselines
+differ by four domains, versus reductions of2,841 and2,872; both fixed
+comparisons cross the domain-work threshold without a material whole-arm
+regression. This supports a reproducible **local workload** improvement,
+not a20% end-to-end campaign-time claim. No further strategy or threshold
+adjustment followed the outcomes.
+
+The original owner0 roots have `a=1,b=2` and cannot themselves select the
+mirror. The completed candidate instead contains two whole-inspected
+singleton descendants on `a=2,b=1,r=1`, with the original exact inherited
+rank/A/D caps retained. All four recorded physical children of each are
+in bijection with the proved mirror shifts. Their old-bank counterparts
+had seven successors and28/27 term visits; the candidate has four
+successors and seven term visits with three native zero terms.
+Checkpoint support consistency alone was not treated as selected-rule
+evidence: a separately guarded full-pool native match, with no successor
+traversal, independently selected **batch0/rule0** at both exact domains,
+with matching counters identical to the archived native inspections.
+It completed in132.671 seconds including123.912 seconds preparation;
+the local match itself took0.002946 seconds. This confirms actual native
+dispatch and joins the retained complete boundary evidence, without
+claiming that independent descendant-cone costs can be added. The repeat
+contains the same two exact source geometries/caps, identical native matching
+counters and complete mirror-consistent boundaries; a retained read-only
+join connects these to the direct dispatch observation without another
+native owner load.
+
+Evidence: `candidates/banana-owner0-mirror-marginal-fourpoint-v1/` contains
+the complete pair, measurement summary and bounded read-only descendant
+census; `profiles/banana-mirror-native-activation-v1/` contains the native
+dispatch receipt. `candidates/banana-mirror-replicated-results-v1.json`
+retains all four arms' timing, CPU, memory and workload values, while the
+reverse-pair directory retains its independent boundary census and activation
+join. No production update follows. The two charts cover
+neither `a=b=1` nor mixed numerators and do not establish full five-loop
+closure or a20% end-to-end campaign-time improvement.
+
+## Source nomination after the raw25 locality miss
+
+The separately bounded raw25 probe supplied all25 ordinary rows, no weights,
+on the original483 owner and the two already nominated full charts/offsets.
+Both whole-chart source proofs passed, but the first selected identities had
+15 and10 RHS terms respectively, with nonzero shifts on spectator axes. They
+did **not** rediscover the proved local seven-tail mechanism. The5.122-second
+pair and independent source/guard/drain audit are retained under
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-raw25-rediscovery-v1/`.
+This is a first-selected-result negative, not absence of the known local
+combinations or a closure/performance test.
+
+A constant vector-field calculation explains a prospective restriction without
+supplying the eight source weights. Preserving the four massive spectators
+D5,D6,D9,D14 gives `v5=0`, `v1-v3=0`, `v2-v3=0`,
+`v1+v2-v4=0`, hence `v=(1,1,1,2,0)` up to scale. For a degree-zero
+logarithmic vector field, the mass constants force each proportionality factor
+to zero; with all five contractions the expected spectator-tangent space has
+dimension5. This is independently checked structural reasoning, not a native
+kernel receipt. Existing protected-source/logarithmic tools can express that
+kernel, but their point solve is not the full-chart proof bridge here. Merely
+applying an invertible rebasis before complete fixed-column RREF would not
+change its row space or canonical result.
+
+The smaller experiment instead changes the selected endpoint objective. The
+generic research option `forbid_endpoint_changes_on_axes: [4,5,8,13]` derives
+all offending columns from the **complete native post-fixed source universe**,
+then unions them with existing F before any exact row selection. No individual
+source is discarded: the unchanged Symbolica projector must cancel the whole
+weighted endpoint coefficient. Current raw25 receipts and support inspection
+do not expose the complete75-column universe, so constructing a supposedly
+complete explicit F from their displayed winning products would be unsound.
+The helper adds no algebra kernel and does not weaken source or rule proof.
+
+This remains hand-informed chart/window/spectator selection; only the source
+weights are discovered. The known eight-source proofs witness feasibility
+of the locality restriction, not that the first candidate will pass all guards
+or have seven tails. Any source replay, guard, descent or residual-locality
+failure stops the fixed attempt without automatic row/degree/chart growth.
+At `a=b=1`, the two unchanged translation windows have identically zero target
+columns because their raising prefactors specialize to `a-1` or `b-1`:
+this is a bank/window obstruction, not terminal authority. Neither locality
+search nor the proved charts claim mixed-numerator or full-family coverage.
+The software gate and fixed native test below were preregistered separately;
+neither authorized changing the bank, source order or charts after an outcome.
+
+The implementation gate subsequently passed110 optimized tests (eight new),
+including complete-bank-before-selection, collective native cancellation with
+retained poles, cap refusals and residual checks. Independent review verified
+the frozen source, raw test receipts and clean build drain. The old and new
+toy input/request and exported candidate bytes agree exactly.
+
+The sole authorized native pair then completed in5.045 seconds, with both
+process groups cleanly drained and no export or installation. Both full charts
+returned `EXACT_ORIGINAL_SOURCE_CHART_PROVED`, using the original483 owner,
+all25 unweighted ordinary inputs, unchanged order/offsets/caps, fresh native
+source certificates and zero refinements. Independent final receipt/source-proof
+and documentation review passed. Each actual post-fixed universe had
+75 columns; locality selected53, adding53 to broad-chart F and44 to mirror F
+(final F sizes53 and58). The first target appeared after24 and19 rows.
+
+Both resulting circuits have eight discovered original-source contributions
+and seven generic tails, versus15/10 tails in the unfiltered control. Every
+tail preserves all four nominated spectators. Native finite-face proofs retain
+four tails at rank one and seven at rank two, including all pinches; the broad
+and mirrored charts split into eight and four native cells respectively.
+Their final native cell guards are precisely `b-1` and `a-1`. The eight
+normalized original-weight **display strings** and their source/offset keys
+are literally equal to the corresponding previously proved hand-nominated
+circuits, and the RHS shift sets agree. No display was parsed, and this is
+not a separate algebraic equality certificate; validity rests on each fresh
+native original-source replay and full chart/guard/descent proof.
+
+Evidence is
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-endpoint-locality-v1/`
+(plan SHA`21bc6b73…81a4b8`, execution SHA`b42c4ccb…3ed258`). The frozen
+requests retain an inherited historical provenance sentence saying no
+spectator constraints were supplied; the actual new field and execution plan
+explicitly impose endpoint locality, and govern this experiment. This is a
+positive **hand-informed locality-to-source-weight discovery** result, not
+automatic topology/chart discovery, a new identity space, CP6 closure, or a
+new campaign performance measurement. The earlier raw25 negative remains
+evidence that unconstrained first-target selection misses this local mechanism.

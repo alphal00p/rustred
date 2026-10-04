@@ -23,12 +23,119 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e: whole-first-region v2 passes optimized4L/H55/original260 native+cold controls. New explicit aggregate-limit CLI and effective-budget diagnostics pass eight semantic groups and optimized app/CLI builds. Small default-off4L control and corrected H1 remain pending. No production activation or fullscope claim. |
 | Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Complementary mirror exported as combined485 rules/unchanged83 terminals; first fresh484→485 pair has20.10% fewer domains, actual new-rule activation audited. Reverse pair running; combined485 H1 follows V5 control. No production installation. |
-| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | All25 unweighted sources prove both nominated charts but select15/10-tail rules changing spectator powers, not the intended7-tail local mechanism. Negative compactness result retained; read-only investigation of existing protected-axis kernel/target-tail constraints. No blind retry or new CAS. |
+| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Endpoint-locality research tool implemented;110 tests pass. Native fixed pair recovers8-source/7-tail spectator-preserving rules from all25 unweighted sources in5.045s, both whole charts proved. Charts/axes/windows remain supplied, not automatically nominated. Original15/10-tail unconstrained negative retained; no new CAS. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Locality constraint recovers both compact rules — October4, 11:22 UTC
+
+[M] The sole frozen constrained pair passes in5.044586s, with clean guards,
+drained PIDs and peak sampled RSS328MB. Both native statuses are
+`EXACT_ORIGINAL_SOURCE_CHART_PROVED`. Each retains all25 unweighted ordinary
+sources and discovers eight contributions yielding seven generic tails,
+four at rank one and seven at rank two. All four spectator shifts vanish;
+all pinch terms remain. The complete post-fixed universe has75 columns;
+locality forbids53, adding53/44 after existing constraints. Native whole-chart
+proofs use8/4 cells. The exact RHS shift sets and literal normalized source-
+weight displays match the independently derived rules; display equality is
+diagnostic, not a separate algebraic certificate. No rule is exported or
+installed by this probe.
+
+[M] Independent final implementation/build/proof/receipt review passes.
+Frozen planSHA256 `21bc6b73bf699261b7381d6527987d05833cef9d4d30422351869ba5e181a4b8`;
+execution receipt prefix`b42c4ccb`, under
+`candidates/banana-owner0-endpoint-locality-v1/`. Only the explicit locality
+axis list was added to the prior25-source requests; inherited historical
+prose describing the earlier unconstrained test is not the current protocol.
+The research-tool option is topology/loop-count generic and delegates all
+weighted-column cancellation to existing Symbolica algebra. It is constrained
+coefficient discovery on supplied charts/windows/axes, not automatic graph
+nomination or a new whole-campaign speed measurement.
+
+[M] The original H1 pair ends at its registered cooperative cutoff in601.851s,
+exit−2, no hard stop/failure and all children drained. Its finite endpoint
+refusal is independently verified; symbolic fallback is censored with no
+final walk report or committed checkpoint. Candidate and cold never ran.
+Root grants the separately audited candidate-only protocol
+`banana-H1-combined-candidate-feasibility-v1/plan-v2.json` (SHA prefix`afc9b794`)
+with identical per-arm limits, fresh900s inclusive clock,600/630s walk and
+810/840s cold deadlines. It is a missing-treatment feasibility observation,
+never a completed-pair ratio. The candidate stays combined485; no bound
+increase, target adaptation, retry or484 fallback is permitted.
+
+### Hard baseline reaches its true endpoint allowance — October4, 11:16 UTC
+
+[M] The corrected H1 original483 finite trace declines after253.003s at the
+declared routed-endpoint limit: requested128,008,047 exceeds128,000,000.
+Its recorded work is7,278,128 operational states/7,272,139 physical keys,
+5,522,744 completed and1,755,383 queued;3,186,441 rule applications,
+2,002,310 transports,127,999,479 endpoints and530,580,163 transport operations.
+There are279 terminal keys and327,828 zero results, but the trace is unfinished.
+Actual16M application/node/pending allowances are confirmed: this is not the
+previous inherited one-million configuration failure. The ordinary symbolic
+fallback remains under the original registered600/630s baseline cut. No
+successful finite comparison or global nontermination conclusion follows.
+
+[E] Root asks evaluator to prepare, not launch, a separately labelled missing
+treatment observation after the failed pair drains: combined485 alone on the
+same H1 with identical per-arm caps and600/630s walk,810/840s cold deadlines,
+fresh outputs/clock. This will preserve the failed pair and cannot produce a
+completed-pair percentage. No bounds are raised and no484 fallback is allowed.
+The purpose is to determine whether the better rules change this concrete
+feasibility limit, rather than letting baseline failure prevent treatment
+measurement altogether. Independent review and a new native grant remain.
+
+[M] Research locality tests pass110/110 with zero failures/ignored cases,
+including all eight new regressions. Guarded test body0.94s; build85.153s,
+run4.408s. Optimized research binary link84.083s, SHA256
+`ac62f6ff1fd381fb012ce6f03a73e9a95c63bdf3d43b55046b6a83fcaa5f88c3`.
+Build0 releases cleanly. The fixed two-chart source-quality probe remains
+unlaunched pending receipt/protocol audit and H1 native resource handoff.
+
+### Corrected held-out test is live; locality tool builds — October4, 11:13 UTC
+
+[M] Previous goal turn is progress, not a wait: it completed the reverse
+shared-work pair, V5 full4L native control and pushed `eeaa7806`. Root confirms
+the current H1 launcher/native processes3964817/3965736 live on CPUs32–47.
+Both actual numeric preflights pass before heavy loading, independently
+audited:16M nodes/pending/rule applications/transport calls,1.024B transport
+operations,128M endpoints and256M coalescing additions. The native preflight
+does not admit owners or create a checkpoint. Baseline original483 is now
+inside finite replay; no result, refusal or cold verification yet. The inner
+trace does not expose live node/depth counts, so the outer single-domain
+heartbeat is not a measurement of its internal work.
+
+[M] Independent endpoint-locality source audit approves a research-tool-only
+test build. Full-universe constraints precede source selection; weighted row
+cancellation remains allowed and final source replay remains required. Agent
+freezes `endpoint-locality-build-plan-v1.json` (SHA prefix`1c2eba3c`) and starts
+test compilation on build0/CPUs0–15 using cached optimized core/app libraries.
+The expected110 tests include eight new locality regressions; execution is
+pending. The future native quality comparison changes only the axis constraint
+on the same25 sources/charts/windows, and waits until H1 releases native locks.
+Literal normalized coefficient-display equality may be reported as a
+diagnostic, but not as an independent algebraic certificate. No new CAS or
+production modification is introduced.
+
+### Tested budget-control milestone pushed — October4, 11:07 UTC
+
+[M] Root commits and pushes `eeaa7806` on main: explicit aggregate controls,
+effective numeric preflight, typed refusals and their regressions. Eight native
+semantic groups plus the optimized58-query4L walk/cold control pass; independent
+audit additionally compares all26,025 records' native semantics. Unrelated
+FeynKit/untracked/reference/campaign material is not staged. The optimized
+V5 binary is frozen separately in ignored evidence, not committed.
+
+[E] Corrected H1 final input/build binding passes independent audit:
+`banana-H1-combined-finite-feasibility-v1/plan-bound.json`, SHA prefix
+`a57e3c83`, wrapper `launch_banana_H1_combined_v1.py`. Root grants evaluator
+the original1800s inclusive native pair on CPUs32–47, with unchanged limits,
+same original baseline versus combined485, and both16M effective-budget
+preflights before either heavy preparation. No extension or484 fallback.
+Final outcomes remain pending; production stays untouched.
 
 ### Repeat confirms local benefit; V5 native four-loop control passes — October4, 11:05 UTC
 

@@ -10,6 +10,69 @@ executable rule selection from larger, still-unmeasured representation changes.
 
 ## October4: choose a cooperating set of rules, not local winners
 
+### Follow-up after the banana recurrence: recover local structure automatically
+
+Two ordinary-source charts now give a concrete structural clue: a derivative
+direction can leave four spectator propagators unchanged and act on only two
+active lines. The complementary chart is independently source-proved and now
+has two completed marginal shared-work wins, following the first chart's two
+wins. Neither is an automatic discovery
+algorithm yet. See the [derivation and measured scope](banana_moment_nomination_2026-10-04.md).
+
+A primary-source cross-check supports the mechanism, not a direct import.
+Forcer distinguishes useful simultaneous numerator/dot-lowering equations from
+the boundary equations still needed when a dot reaches one. It also describes
+combining recurrences to eliminate opposing shifts, warning that repeated
+self-composition can produce enormous coefficients. Its numerator choice and
+elimination order are part of the reduction design.
+[Forcer, §§3.1–3.2](https://arxiv.org/html/1704.06650v1).
+The published diamond formula requires massless lower and spectator lines,
+so it is not an identity for our fully massive vacuum input.
+[Diamond rule, §2](https://arxiv.org/pdf/1504.08258).
+
+**Prospective mechanism, not an authorized new implementation:** use the
+family's momentum-incidence matrix to nominate derivative directions that
+annihilate a large spectator set. Pair each with existing momentum contractions;
+these are constant combinations of the original ordinary IBPs, not new
+relations or topology-name dispatch. Search a small translated target window,
+then keep only candidates with exact target isolation, guards, descent and a
+favourable complete downstream boundary. Symbolica must supply any required
+exact nullspace/linear algebra; existing local-tangent and prescribed-source
+tools must be audited before adding another service.
+
+There is an important falsifier before any larger build: RustRed already
+computes a sector-ordered sparse RREF of the complete ordinary source corpus
+in `foundry/completion/spired/source_basis`. Merely replacing its input by an
+invertible basis cannot change the exact RREF for the same column order. A
+locality proposal therefore needs to affect *which valid target-isolating
+identity is retained before full elimination*, the target constraints, or
+measured intermediate fill. Another equivalent preconditioner alone is not
+an algorithmic breakthrough. Previous tangent-source negative results remain
+in force and cannot be discarded because this nomination has a new name.
+
+Smallest useful test, after the current export and held-out checks: can a
+topology-generic incidence-driven proposer rediscover both source-proved
+banana charts without their eight row weights being supplied? It must also
+explain the missing `a=b=1` face rather than silently extrapolate across it.
+Reject or defer if it only reproduces already retained rows with unchanged
+dispatch, requires equivalent full elimination, or wins local RHS size but
+not shared downstream work. No automatic proposer, new CAS kernel, massless
+formula import, or additional production rule is claimed by this note.
+
+The first all25-source test now gives a useful negative: with the two charts
+and translation windows held fixed, unconstrained target isolation proves
+valid15- and10-tail rules but changes spectator powers. It does not recover
+the intended seven-tail local recurrence. The next narrowly scoped research
+implementation therefore adds *endpoint* locality: forbid columns changing
+specified spectator axes in the complete translated source universe, while
+retaining all source rows for weighted cancellation. Existing Symbolica exact
+projection does the algebra; original-source replay, guards and strict descent
+still decide whether a rule is usable. This is not row filtering, automatic
+graph-based nomination, or a new CAS. Its code/tests and subsequent native
+two-chart experiment are pending; the negative unconstrained result remains
+recorded. The separate held-out runtime comparison has priority for native
+resources.
+
 The new whole-program experiment is a useful negative. Replacing owner3's
 584-rule program by a465-rule alternative, with exact baseline fallback for
 its extra residual, increases completed four-point work from19,109 to19,279

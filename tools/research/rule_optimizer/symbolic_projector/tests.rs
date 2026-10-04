@@ -5,6 +5,9 @@ use rustred::{
 };
 use std::{ops::ControlFlow, sync::atomic::AtomicBool};
 
+#[path = "endpoint_locality_tests.rs"]
+mod endpoint_locality_tests;
+
 fn context() -> IndexedCoefficientContext {
     IndexedCoefficientContext::try_new(
         &CoefficientContext::try_new(["d"]).unwrap(),
