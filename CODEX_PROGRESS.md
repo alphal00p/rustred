@@ -31,6 +31,34 @@ Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
 
+### Boundary milestone pushed; next diagnostic remains pending — October4, 14:11 UTC
+
+[M] Implementation,131-test result, both native negatives and literature notes
+are committed/pushed to main as `00813ef7`. Only six owned research/log files
+were committed. Foreign FeynKit changes, untracked work, reference material and
+campaign outputs remain untouched. Both local probes and all owned builds have
+drained. No production binary, inputs, checkpoint or lifecycle was changed.
+
+[E] Evaluator and independent mathematical auditor agree on the next smallest
+diagnostic. Let C be the25 correction rows restricted to the complete active
+forbidden columns, and b the incumbent on those columns. Recover a typed exact
+separator lambda satisfying C lambda=0 and b lambda=1, then independently replay
+both products with Symbolica. Existing research `logarithmic_kernel/linear.rs`
+has native left-kernel/replay machinery; apply it to the transpose, or obtain
+one separator directly without computing an unnecessary full basis. A small
+typed miss-diagnostic hook is needed; current report strings are display-only
+and must not become algebraic input.
+
+For a later proposed source block E, E lambda=0 means it cannot remove this
+obstruction. A nonzero pairing only identifies an independent direction, not
+a valid rule; other obstructions and new forbidden columns may remain. Extend
+the old witness by zero when the forbidden universe grows. This is a finite
+rational-function-space certificate, not infeasibility at every integer point:
+normalization zeros and poles require explicit exceptional-face handling.
+The proposed diagnostic stops after a replayed witness and does not itself
+authorize source growth or a solve retry. It is pending, not implemented, and
+must preserve native contexts, source/column bindings and resource limits.
+
 ### Rank-window ablation rules out support lock as the sole explanation — October4, 14:07 UTC
 
 [M] The generic research interface now permits an explicit whole-chart total
