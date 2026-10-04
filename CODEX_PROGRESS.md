@@ -24,12 +24,12 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Four-point graph completed and audited; marginal A-raising cost negligible | Profile broader reusable recurrence/dispatch mechanisms; preserve held-out owners. |
 | Lower-owner exact alternative | `lower_rule_evaluation` + independent auditor | Paired traversal audited; small nonqualifying gain | 19080->18949 domains (-0.687%); retain baseline, no promotion repeat of this narrow chart. |
 | Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Pushed `a808a7b2`; exact broad candidate and stronger-filter diagnostic complete | 75 optimized tests and one-ray byte identity pass. Full-chart exact candidate refused; stronger whole-column filter misses at all three samples. Park this finite-bank ansatz. |
-| Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate and matched A1 control delivered | Current A1 reproduces saved owner bytes in 93.672 s; alternate gives 465 rules / 59 residuals in 86.530 s versus 584 / 58. No installation or shared-work benefit claimed. |
+| Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate generated and measured with exact baseline fallback; rejected | Alternate465-rule program increases four-point shared domains by0.89%; fewer saved rules did not reduce shared work. No promotion repeat. |
 | Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
 | Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
 | Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique |93 tests and both registered4L pairs audited; fixed ansatz parked | Common original-weight factor is removable, but the normalized endpoint still fails the stronger protected face. No artifact/gain; literature follow-up on target-normalization-aware discovery only. |
 | Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
-| Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit |327 native tests and47 Python tests pass; optimized CLI frozen | Baseline terminals win, candidate-only residuals defer, only Uncovered falls through. Combined4L control precedes the prepared5L cost comparison. |
+| Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Delivered/pushed `014b351b`;327 native+47 Python tests and combined4L control pass | Generic composition is usable. First5L alternative fails performance gate; keep baseline, confirm actual local dispatch only. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -37,6 +37,93 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Next bounded slice authorized after independent research critique — October4, 02:58 UTC
+
+[E] Root authorizes one generic, opt-in target-template constraint after the
+primary-literature and native-API review. Keep144 original weight unknowns:
+choose a canonical nonzero template coefficient `P_p` over the base field and
+add `C_m*P_p-C_p*P_m=0` over the complete target/template monomial union. A
+nonzero `C_p` nominates `C0=lambda(d)*P`; full exact replay must verify that
+identity and all ordinary-source, original-condition, face, descent and export
+gates remain unchanged. No extra hidden lambda unknown, new CAS/classifier,
+target valuation sweep, bank growth or generic guard relaxation.
+
+Implementation: `lower_sector_discovery`; frozen input/measurement preparation:
+`lower_rule_evaluation`; independent mathematical/code critique:
+`exact_and_cost_audit`. Root integrates and owns final acceptance. Unit tests
+must cover zero/foreign templates, absent template monomials, genuine retained
+poles, false proportionality, complete union budgets and flag-off identity.
+After source/tests pass, run only the registered two-template4L test (`P=1`
+versus `P=d-3-n8-n9`), unchanged48 rows/degree-one weights/full chart,16GiB,
+300s inclusive on69/70. A miss or first-proposal proof refusal remains negative;
+there is no automatic degree increase or second candidate sweep. A valid export
+would still need separate shared-context cost controls before any5L deployment.
+
+### Actual preferred activation confirmed; target-aware research follow-up — October4, 02:54 UTC
+
+[M] The separate, existing-CLI owner-local match diagnostic completes in4.668088s,
+with both original owner3 query rows and A7/R3/D4 bounds unchanged. Baseline
+selects batch0/rule146 at both roots; composition selects preferred batch0/rule110
+at both. No fallback is observed at those two roots. Matching rule visits147→111
+do not imply lower downstream work: the completed shared pair already showed
+the opposite. The59 terminal checks count58 baseline terminals plus one residual
+hole test, not59 masters. No RHS is expanded in this diagnostic. Independent
+audit passes; native65/outer66 and all other owned experimental jobs are drained.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-owner3-match-v2/`.
+Its first prepared-only metadata inherited full-pool counts/roles; those were
+corrected before any execution without changing the selected query objects.
+
+[E] Primary-literature follow-up now distinguishes a stronger sufficient
+base-only pivot from a pinned safe target shape `C0=lambda(d)*P(d,n)`.
+This is linear over the base field; naively fixing a coefficient of `d` when
+unknown weights themselves depend on `d` is not. For the observed primitive
+shape `P=d-3-n8-n9`, existing native base-coefficient guard services already find
+the constant coefficient of `d` and prove no index-only zero locus. No new
+guard classifier is needed. This nominates a next bounded target-aware search,
+not a valid source identity or export. The profiler is documenting exact
+constraints, literature, falsifiers and the larger valuation/saturation
+alternative; implementation remains subsequent to that independent review.
+
+[M] Read-only production at02:52: running, zero frontiers,157,691,015 scheduled,
+113,681,104 local completions,16,050,347 pending and139.04GB RSS. The13/67 roots
+and19,717,751 closed are from a152-minute-old scan, so no current closure-rate
+or ETA conclusion follows. No campaign lifecycle or input change.
+
+### Full-context5L result is negative; tested capabilities pushed — October4, 02:49 UTC
+
+[M] Complete preregistered five-loop pair and independent audit finish cleanly:
+
+| Metric | Baseline | Preferred program | Interpretation |
+| --- | ---: | ---: | --- |
+| Scheduled domains |19,109|19,279|+0.890%, not a saving |
+| Native inspections |17,485|17,575|+0.515% |
+| Events |159,199|157,398|−1.131%, not sufficient |
+| Traversal seconds |0.969458|0.964341|Near-equal short bodies; no speed claim |
+| Complete arm seconds |191.311403|191.568885|+0.135%; includes preparation and cold verification |
+| Cold All/Off |PASS, all4 queries|PASS, all4 queries|Zero pending/frontier/abandoned debt |
+
+[M] Total paired385.717809s, every owned group drained. Baseline owners, routes,
+overlays, original query bytes and caps are unchanged; only the one preferred
+program is added. The registered20% gain gate fails. Keep baseline and do not
+repeat/promote this descriptor on the same cohort. This is not proof that every
+source-order policy or every5L input would behave identically. Abstract cyclic
+nodes944→1180 retain the stated dependency-coverage scope, not backsubstitution
+or a general termination claim. Historical-baseline variation remains explicit.
+
+[M] Pushed cleanly to main: `014b351b` (preferred-program dispatch, Rust/CLI/Python
+plumbing and tests) and `53314ad6` (opt-in native primitive-source normalization,
+93 tests and the boundary negative). Unrelated FeynKit/reference/untracked work
+is preserved. Frozen optimized binaries remain in the local evidence tree.
+No production restart/update is recommended from these results.
+
+[E] Profiler is doing a new primary-literature follow-up on target-normalization-
+aware boundary discovery; no further algebra run or bank growth. Implementation
+agent prepares only a short, isolated two-query native dispatch observation of
+the same owner3 points, using the existing match-only command. Its reduced
+diagnostic context is not the full-workload comparison and cannot authorize
+closure. Root remains focused on a material shared-work improvement, not fewer
+rules, more kernel vectors or a smaller local equation in isolation.
 
 ### Combined4L control passes; full-context5L comparison running — October4, 02:43 UTC
 

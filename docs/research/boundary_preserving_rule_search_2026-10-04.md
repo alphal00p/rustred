@@ -470,10 +470,148 @@ no target in the fixed bank/degree. General simultaneous valuation search is
 more involved because target valuation is unknown; guessing valuations or
 sweeping kernel combinations would be additional, separately bounded work.
 
-Recommendation: retain that base-only-pivot criterion as a small research
-backlog, not another automatic attempt on this parked ansatz. No implementation,
+At that checkpoint the base-only criterion was retained as research backlog.
+The follow-up below refines it to a prescribed target shape. No implementation,
 rerun, widened chart, new source bank, or performance promise is authorized by
 this discussion.
+
+### Follow-up research: prescribe a usable target, not an artificial zero
+
+This subsection is read-only research after the completed negative. The
+primitive target was displayed as `(d-3-n8-n9)/(d-3)`. Its index dependence is
+**not** the remaining obstruction: the numerator's coefficient of `d` is 1,
+so no integer-index specialization makes it the zero polynomial in generic
+`d`. The nonzero endpoint on axis 8 was the actual refusal. Thus making the
+target base-only is sufficient but unnecessarily restrictive. This observation
+does not evaluate at a numerical dimension, discard `d-3` or other poles, or
+turn the diagnostic display into source authority.
+
+**What the literature establishes.** Smirnov's sector-oriented `s`-reduction
+separately checks sector preservation and a nonzero leading coefficient before
+division; the `s`-form definition requires that leading coefficient to remain
+nonzero at translated sector corners. Usability of the pivot is therefore a
+construction obligation, not a consequence of finding an IBP kernel. This is
+a useful precedent, not an instruction to replace our fixed integral order or
+implement a new Gröbner engine.
+[Smirnov, §§3–4, especially reduction steps 8–10 and condition (ii)](https://arxiv.org/html/hep-ph/0602078v1#S4).
+Schabinger's explicit example shows that distinct bounded-degree kernel vectors
+can be polynomial multiples of an existing syzygy; they need not give new
+normalized relations.
+[Schabinger, §2, equations 14–16](https://arxiv.org/html/1111.4220v2#S2).
+
+**Smallest proposed experiment: target-template feasibility.** If separately
+authorized, retain the exact 48 rows, 144 degree-one weight coefficients over
+`Q(d)`, full two-index chart, 388 endpoint/cofinal equations, and every existing
+proof gate. Compare just two prospectively declared raw targets: `P=1`
+(base-only control) and `P=d-3-n8-n9` (the weaker index-dependent test).
+For each, solve `C_0=P` together with those same homogeneous endpoint equations,
+using native exact field elimination. Equivalently require `C_0=lambda(d) P`
+with nonzero `lambda`, then rescale all weights over the base field. This
+rescaling preserves the declared index-monomial ansatz; any introduced base
+denominator remains a retained condition. The template is an input hypothesis
+motivated by the negative, not a parsed certificate from its display.
+
+This is one fixed paired feasibility test, not a sweep of target shapes or
+kernel vectors. The six previously observed target coefficient slots suggest
+only a small linear extension; admit the exact union with template monomials
+before allocating. No source/degree growth is needed. A generic input-declared
+target-template constraint is the missing small search API; existing Symbolica
+arithmetic and original-source replay suffice, with no new CAS or guard
+classifier. A future preregistration should retain the previous 300-second,
+16-GiB envelope, without assuming the prior millisecond algebra time predicts
+new exact elimination costs.
+
+An inconsistent exact system refutes only that template in this finite ansatz.
+A first solution that fails retained guards or native proof rejects only that
+solution, not all solutions with the template. Success requires a reconstructed
+ordinary circuit, all normalized face tests and the unchanged producer/export
+proof; neither feasibility nor a kernel dimension is a performance result.
+The test cannot simply reuse the divided negative weights: their exposed
+endpoint fails the very equations being imposed. Protecting axis 8 remains
+stronger than the saved root. No experiment is authorized here.
+
+**Larger alternative: a bounded target-valuation stratification.** This is our
+inference, not a theorem supplied by the cited IBP algorithms. Fix a finite
+vector `r_ell` of target multiplicities on the required coordinate faces.
+Native coefficient extraction in powers of `ell=n_j+k` can impose
+`C_0 mod ell^r_ell = 0` and `C_s mod ell^(r_ell+1) = 0` for each endpoint
+requiring that face. These are linear conditions for a *fixed* stratum. Require
+the order-`r_ell` target coefficient to be nonzero as a polynomial, otherwise
+the selected relation belongs to a different stratum. Those are open
+conditions, not more homogeneous zero equations. In particular the `r=0`
+stratum allows general index-dependent targets and excludes the false
+whole-face pivot zero without demanding a base-only target.
+
+For a finite-dimensional exact solution space, each such identically-zero
+target restriction defines a linear subspace. Over infinite `Q(d)`, finitely
+many proper subspaces cannot cover the whole solution space. This can guide a
+bounded exact combination construction, but proves only generic face
+nonvanishing: exceptional subfaces, poles, provenance and descent still need
+the native checker. It is not permission to sample integer points or choose
+unboundedly many combinations. If raw coefficient degree is bounded by `D`
+and there are `q` distinct face hyperplanes, a naive valuation enumeration has
+up to `(D+1)^q` strata, with additional coefficient fill-in and intersection
+work. The [ordinary builder](/common/dev/rustred/crates/rustred-core/src/identity/generator/ordinary.rs:68)
+has index-linear coefficients and shifts `0`, `e_j`, or `e_j-e_k`.
+Together with degree-one weights this gives the structural upper bound `D=2`;
+the three fixed centers permit at most four distinct
+activation hyperplanes, hence up to 81 naive strata, not 182 independent
+face choices. This is a structural bound, not a measured factor census, and a
+complexity warning, not a proposed 81-run campaign.
+
+Positive target valuation is especially delicate. Even when the rational
+endpoint quotient is regular, the raw identity has zero pivot on that face.
+Our unchanged producer must still refuse it there unless a new, authenticated
+ordinary-source lift supplies the divided identity, or separate face and
+intersection circuits/fallbacks cover those cases. Endpoint division alone
+does not provide that lift. A larger regional compiler could use these strata
+to build an exact bulk/face program, but would need bounded case coverage and
+full endpoint/fragmentation accounting. This is more scope than the template
+test, and remains secondary to the preferred whole-program experiment.
+
+**Why saturation is not the missing acceptance gate.** The recent critical
+syzygy paper distinguishes the quotient `J:B` from saturation `J:B^mu` and
+explicitly removes the `B=0` component in the latter geometry. Its connection
+to critical surface terms has additional hypotheses and concerns Baikov
+variables/maximal cuts, not these integer-index faces.
+[Critical Points and Syzygies, §§3.2–3.4, equations 28–44](https://arxiv.org/html/2509.17681#S3.SS2).
+For an endpoint module `M`, membership in `M:ell^infinity` means some
+`ell^k R` belongs to `M`, not necessarily `R` itself. For example,
+`M=<ell e_0>` saturates to `<e_0>`; the first relation supplies no value of
+`e_0` at `ell=0`. A saturation computation may diagnose removable components
+or nominate a lift, but cannot certify extension onto the divisor it inverted.
+Full IBP shift operators also do not commute with index coefficients, so a
+commutative ideal computation is not automatically an Ore-module certificate.
+The safe finite-bank formulation remains an original-image module intersected
+with endpoint face/jet conditions, followed by explicit target usability and
+source membership. It is not another whole-column ban or a rebranding of the
+already-tested denominator-coordinate protected-source module.
+
+**Available native services and the precise gap.** Rechecking the pinned
+Symbolica 3.0.0 sources and current public 3.0.1 polynomial documentation found
+native grouping, exact restriction, GCD/quotient, and field elimination; the
+official guide also documents polynomial-ideal Gröbner bases. No generic
+module-saturation/Schreyer service was found in those reviewed interfaces.
+Ideal Gröbner availability alone does not supply original-row lifting or a
+budgeted module solver. Defer module saturation and multi-stratum search until
+that authority/complexity design earns a separate bounded proposal; the chosen
+next experiment is the fixed two-template test above.
+[Public polynomial API](https://docs.rs/symbolica/3.0.1/symbolica/poly/polynomial/struct.MultivariatePolynomial.html);
+[official Gröbner documentation](https://symbolica.io/docs/polynomials.html#groebner-basis).
+
+RustRed already splits guards by base-parameter monomials and recognizes a
+nonzero constant coefficient as an empty integer exceptional locus:
+[`base_coefficient_system`](/common/dev/rustred/crates/rustred-core/src/algebra/indexed/base_coefficients.rs:275),
+[`has_nonzero_constant_equation`](/common/dev/rustred/crates/rustred-core/src/algebra/indexed/base_coefficients.rs:206).
+These are internal services already used through native producer/matcher
+paths, not a new public classifier to duplicate. Merely nonzero on a generic
+face is weaker than this uniform integer-index certificate. All claims concern
+the declared independent generic parameters; physical specializations and
+pre-cancellation denominator witnesses remain mandatory. Finally, because the
+unknown weights lie in `Q(d)`, extracting a coefficient of `d` is not a
+`Q(d)`-linear operation on those unknowns. Use a fixed template for a linear
+search, or apply the existing coefficient witness **after** exact solving;
+do not smuggle a new bounded ansatz in `d` into the comparison.
 
 As a separate concrete motivation, native guarded application of the sole
 extra leaf of the 465-rule/59-terminal source-order variant selected baseline
@@ -487,6 +625,10 @@ then passed the 101-child physical RHS join and cold All/Off verification on
 `A8/R1/D7` singleton request. Its walk took 0.844 seconds after 99.924 seconds
 of preparation; all three execution receipts charge 422.497 seconds. This is sealed
 dependency coverage, not termination or coefficient back-substitution:
-549 abstract nodes lie on cycles. A valid candidate-to-baseline handoff remains
-a separate integration obligation. No candidate terminal was deleted or treated
-as free.
+549 abstract nodes lie on cycles. The formerly separate candidate-to-baseline
+handoff is now implemented generically and pushed as `014b351b`. Its completed
+same-binary five-loop comparison passed cold All/Off on all four roots, but
+increased scheduled domains from 19,109 to 19,279 (+0.890%): no performance
+benefit or promotion. See the
+[current paired result](/common/dev/rustred/CODEX_PROGRESS.md:41).
+No candidate terminal was deleted or treated as free.

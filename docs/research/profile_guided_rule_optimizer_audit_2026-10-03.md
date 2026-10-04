@@ -4682,6 +4682,45 @@ Inclusive time is 41.333960 seconds; candidate/baseline arm time is 1.0570, not 
 speedup claim. Evidence: `candidates/preferred-aa-whole58-v1/`. This clears the
 registered five-loop measurement gate, not promotion or a new source-proof seal.
 
+The sole fresh five-loop preferred-program pair completes in 385.717809 inclusive
+seconds. All six phase guards drain cleanly. Both Cold All/Off passes re-inspect
+all native records, independently certify all four required queries, bind the
+recorded owner bytes and request, and have zero errors/uncovered/frontier or
+pending debt. Candidate and baseline selection JSON are exactly equal after
+removing the candidate's sole preferred-owner entry; query bytes are identical.
+Baseline/candidate scheduled domains are 19,109/19,279 (+0.8896%), native records
+17,485/17,575 (+0.5147%), and events 159,199/157,398 (-1.1313%). Traversal takes
+0.969458/0.964341 seconds; complete arm time is 191.311403/191.568885 seconds
+(+0.1346%). The registered 20% domain-gain target is not observed: retain the
+baseline, with no promotion or saving claim. This is the full preferred-program
+and fallback cost, not an extrapolation from selected root formulas.
+
+The historical earlier ray-pair baseline had 19,080 scheduled domains, 17,465
+natives and 159,683 events. Its selection JSON, queries, resource/budget values
+and native controls match; command differences are executable and fresh output
+paths. Historical five-loop flag-off equality is therefore not established,
+and snapshot timing versus executable effects are not identified. Only the
+current same-executable fresh pair supplies this cost comparison. Cold reports
+contain 944/1,180 nodes on cycles; the evidence remains sealed dependency
+coverage under the current native verifier, not global termination or computed
+coefficients in the terminal basis. Evidence:
+`candidates/preferred-owner3-fourpoint-pair-v1/`; comparison SHA
+`8516623d...d16625`, execution SHA `ae49f872...228447`.
+
+A separately bounded two-point owner-local matching diagnostic confirms actual
+activation without extending the cost claim. Both original owner3 singleton
+queries retain their A7/R3/D4 bounds and select baseline batch0/rule146 versus
+composed preferred batch0/rule110. Neither root falls back. Both classifications
+are complete with one exact piece each and no gaps, unresolved cells, errors or
+truncation; no RHS is expanded. The two owned groups drain in 4.668088 inclusive
+seconds. The counter change from 58 to 59 terminal checks counts the explicit
+candidate-only residual-hole test in `DeferredPoints`, not an added terminal.
+Reduced-context inputs are expressly local dispatch evidence, not full-pool
+closure or independent timing. Stale inherited owner counts/query roles were
+corrected prospectively before execution. Evidence:
+`profiles/preferred-owner3-match-v2/`; raw result SHAs `a2b479c0...3e6e6a` and
+`fc607113...5fd403`.
+
 ### Boundary-polynomial backend: source and test gate only
 
 Independent source review approves the opt-in, finitely declared polynomial
