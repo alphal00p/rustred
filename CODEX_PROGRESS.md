@@ -24,12 +24,90 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Exact obstruction-guided strict100 trial succeeds:313→294 tails,93→81 numerator columns, no new numerator columns, all leading coefficients preserved.150 tests and independent native proof audit pass; guards32→40 per cell. Active: typed export and three-arm routed-boundary comparison (saved330/B0313/corrected294). Collective291 cancellation stays pending. No downstream-work gain or production change claimed. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Exact obstruction-guided strict100 succeeds:313→294 tails,93→81 numerator columns, no new numerator columns, leading coefficients preserved; guards32→40 per cell.154 tests and independent audit pass. B0 typed export succeeds; C refuses a proof guard not retained by surviving RHS denominators. Active: exact guard/provenance diagnosis; three-arm routed test is unstarted. Collective291 cancellation stays pending. No downstream-work gain or production change claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Actual corrected export refuses; exact identity remains proved — October4, 15:43 UTC
+
+[M] The paired native export group completes in5.106s including preparation
+and orderly drain. B0 admits:265→266 rules,43 unchanged terminals,4,695,932
+bytes, owner digest`ce1108a8…2447`. Corrected C returns
+`EXACT_CHART_PROVED_EXPORT_REFUSED` with the native diagnostic
+`priority proof guard is not retained by a surviving runtime RHS denominator`.
+No C artifact exists and the downstream three-arm probe has not started. The
+complete corrected source/product/proof report matches the prior strict100
+result except intended replay/export metadata. Independent receipt audit PASS.
+Evidence: paired-export execution`9a9e4124…fff19`, corrected raw
+`6496e97a…c43d4`; tested opt2 binary`f0728114…07f0c6`.
+
+[E] This is a genuine runtime-representation blocker, not an algebraic negative
+and not permission to remove assumptions. Current error omits guard identity,
+cell and origin; it might concern an old guard whose matching RHS denominator
+was eliminated, not only a newly introduced pivot condition. Evaluator and
+independent auditor now inspect three exact alternatives: native cell-level
+nonvanishing services; a separately reconstructed original-source proof with
+all true caller/source assumptions retained; or explicit exceptional-domain
+transport through the existing codec. No policy change or retry is authorized
+before the actual failing guards and the selected mechanism are understood.
+
+### Typed correction export passes focused tests — October4, 15:40 UTC
+
+[M] The minimal research-only bridge passes154 native tests, independently
+audited:0 failed/ignored/filtered,0.97s test body,4.742s guarded test command.
+Cached opt2/no-LTO test compilation takes87.963s; final linking is separate.
+An earlier153/154 run exposed only an incorrect test expectation: a requested
+pinch absent from B0 is refused before searching its correction span. The
+assertion now checks that precise refusal and absence of an output artifact;
+the failed receipt remains preserved. No production-code fix was needed.
+
+[E] The next paired export must carry C's actual successful typed source
+request, not substitute B0 or parse coefficient displays. Source provenance
+remains weighted (`fresh_original_source_certificate:false`); a distinct
+`original_source_replay_verified` field records exact native replay. Export
+retains the existing guard-admission gate and may honestly refuse. Positive
+unit export uses a zero-objective fixture, so it does not replace the real
+294-versus313 cold-payload check.
+
+The already authorized900s routed comparison is refined, before execution,
+to five native preparations: saved330 routing; B0 typed point application;
+B0 routing; C typed point application; C routing. Point applications establish
+the exact specialized nonzero source counts required by the existing routing
+tool; generic313/294 lengths are not assumed to equal those counts. Cumulative
+soft/hard limits270/285,420/435,570/585,720/735,870/885s include preparation and
+safe drain. The same W16/CPU64–79/resource/context reservation applies. No
+count-until-pass retries, fallback-rule substitution or recursive closure claim.
+
+### Exact-correction milestone pushed; typed deployment test is next — October4, 15:29 UTC
+
+[M] The150-test translated-pinch slice, independently audited strict100 result
+and literature notes are committed/pushed as `916178df` on main. No core
+engine, production owner or live process changed. The new source nomination
+milestone is separately preserved as `f3857752`.
+
+[E] Activate only the typed export bridge needed to evaluate this successful
+rule. B0 uses the existing ordinary-source export path; corrected C must carry
+its successful typed original-source request into the same checked exporter.
+Never parse report coefficients or export B0 accidentally when correction
+fails. Preserve weighted assumptions and existing guard-representability
+checks; export refusal is an honest possible result. Evaluator implements,
+independent auditor reviews, discovery prepares fixed inputs.
+
+Conditional on both exports being admitted, authorize a three-arm one-parent
+weighted-boundary probe using the unchanged native routed-cancellation tool:
+saved330, B0313 and C294, each against the same unmodified67-owner base and
+routing/overlay context at the recorded node2975 point. Confirm the actual
+selected rule/cell, retain every output and pole, and collect native equal-key
+cancellations. W16 on CPUs64–79, existing heavy/pilot locks,16GiB own memory
+plus150GB host reserve; sequential arms within900s including preparation and
+safe drain. Recheck foreign contention. This is a complete local-boundary
+comparison, not a recursive walk, cold closure or clean speed benchmark.
+Any export/guard/matcher refusal stops that arm without silently changing its
+counts, chart or accepted inputs. Production promotion remains gated on real
+completed-cohort improvement and the broader controls.
 
 ### First exact obstruction-guided correction succeeds — October4, 15:20 UTC
 

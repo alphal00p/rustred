@@ -360,8 +360,8 @@ fn run_mode<const N: usize>(
 ) -> Result<(Value, Option<Vec<u8>>)> {
     require(!(export && nomination_only), "nomination cannot export")?;
     require(
-        !boundary_correction::enabled(r) || (!export && !nomination_only),
-        "boundary correction is proof-only",
+        !boundary_correction::enabled(r) || !nomination_only,
+        "boundary correction cannot run as nomination-only",
     )?;
     require(
         !nomination_only || r.get("exact_source_ordinals").is_none(),
@@ -761,6 +761,7 @@ fn run_mode<const N: usize>(
                 break;
             }
             Ok(proof) => {
+                let mut request = request;
                 progress::event(
                     "proof_passed",
                     || json!({"cells":proof.cells().count(),"f_size":forbidden.len()}),
@@ -785,12 +786,18 @@ fn run_mode<const N: usize>(
                         &family,
                         p,
                         limits,
+                        export,
                     );
-                    let correction = match correction {
-                        Ok(report) => report,
+                    let boundary_correction::Outcome {
+                        report: correction,
+                        export_request,
+                    } = match correction {
+                        Ok(outcome) => outcome,
                         Err(detail) => json!({"schema":boundary_correction::SCHEMA,
                             "status":"BOUNDARY_CORRECTION_REFUSED_OR_INCOMPLETE", "detail":detail,
-                            "affine_infeasibility_claim":false}),
+                            "affine_infeasibility_claim":false,
+                            "original_source_replay_verified":false})
+                        .into(),
                     };
                     // The outer circuit remains the proved stage-one control;
                     // the nested report owns every stage-two outcome/circuit.
@@ -814,8 +821,18 @@ fn run_mode<const N: usize>(
                         _ => "BOUNDARY_CORRECTION_REFUSED_OR_INCOMPLETE",
                     };
                     attempt["boundary_correction"] = correction;
-                    trace::append(&mut attempts, attempt, trace_detail);
-                    break;
+                    match (export, export_request) {
+                        (true, Some(corrected)) => {
+                            request = corrected;
+                            attempt["export_source"] =
+                                json!("checked stage-two boundary correction");
+                        }
+                        _ => {
+                            // A miss/refusal never falls back to exporting B0.
+                            trace::append(&mut attempts, attempt, trace_detail);
+                            break;
+                        }
+                    }
                 }
                 if export {
                     progress::event("export_start", || json!({"base_bytes":bytes.len()}));
@@ -861,6 +878,9 @@ fn run_mode<const N: usize>(
                             attempt["export"] = json!({"base_rules":before.generated_rules,"candidate_rules":after.generated_rules,"terminal_count":after.finite_residuals,
                                 "source_rechecked_by_exporter":true,"bytes_alone_replay_source_proof":false,"dispatch_policy":format!("{:?}",owner.dispatch_policy())});
                             candidate = Some(owner.bytes().to_vec());
+                            if boundary_correction::enabled(r) {
+                                attempt["boundary_correction"]["exported"] = json!(true);
+                            }
                             status = "CHECKED_PRIORITY_OWNER_EXPORTED";
                         }
                     }

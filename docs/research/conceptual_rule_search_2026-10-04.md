@@ -1090,8 +1090,8 @@ coefficient-display reconstruction were used.
 
 The four cell boxes are unchanged: physical D1=2 or D1>=3, crossed with D2=3
 or D2>=4; the other13 indices remain fixed. **Guard scope is not unchanged:**
-all32 old entries are retained and eight added in every cell. The added native
-displays include `n0*(-23-12*n1+11*d)` and
+all32 old entries are retained and eight added in every cell. The added guard
+polynomials include forms such as `n0*(-23-12*n1+11*d)` and
 `n0*(-29-12*n1+11*d)`; they were not reparsed or discarded as apparent
 redundancies. The report retains1498 condition entries, not1498 distinct
 exceptional loci. `fresh_original_source_certificate:false` is the intended
@@ -1153,3 +1153,43 @@ The independently checked hand derivation therefore does not establish a new
 obstruction breaker or a cheaper recurrence. No transverse source was added,
 proved or benchmarked. This is distinct from the earlier isolated-owner2
 factorization discussion and does not evade the actual-family restrictions.
+
+### Checked export: baseline admitted, corrected guard representation refused
+
+The minimal typed export extension passed154 tests. A separate two-export
+group then used the same original owner31 for both artifacts, never stacking
+the correction on the baseline. B0 used the unchanged source input with only
+`boundary_correction` omitted; C used the exact successful strict100 request.
+The exporter rechecks original sources and typed target/RHS/case/exceptions
+through its native roundtrip. No coefficient report string is algebra input.
+
+B0 exported successfully:265 original rules became266, with all43 terminals
+retained. The4,695,932-byte artifact is
+`profiles/owner31-correction-exports-v1/baseline-export/candidate.rrbin` under
+the same research TMP root, SHA
+`ce1108a84e1d4db81895222426abc896ff3005d7b1f45f989b29743ce1ad2447`.
+C retained its complete successful mathematical proof and exact nested
+source/control report, but returned `EXACT_CHART_PROVED_EXPORT_REFUSED`:
+`priority proof guard is not retained by a surviving runtime RHS denominator`.
+No corrected artifact was written, no condition was relaxed, and no routing
+arm or count-capture pass started. This is an export/runtime-representation
+boundary, not a source-identity or descent counterexample. Conversely, the
+294-tail proof is not yet an admitted runtime replacement.
+
+The current check specializes guards on each checked cell and tests their
+native representation against surviving RHS denominator guards, with its
+existing constant and exclusively generic-field-weight-pole cases. Its error
+does not identify the first failing cell/guard. Retained C reports contain
+display-only polynomials, not a binary typed C payload; the cell guard lists
+also omit typed origins. A read-only census therefore cannot identify the
+offending polynomial by native algebra from these files. The eight added
+strings are not a license to factor, drop or reinterpret a condition.
+
+Evidence is `TMP/rule-optimizer-20261003/profiles/owner31-correction-exports-v1/`;
+corrected raw report
+`6496e97a70aca4aefcc05fa9ef1debd14bfaaf4e6ad6188649e7539ea28c43d4`,
+result `9a9e41249f2ced59aa3d05fbf9ea3d87aba7a62ea9d5f674a4c3167a424fff19`.
+Both native groups finished cleanly and drained in5.106s inclusive under the
+same69/70,16GiB+150GB reserve,300-second total guard. This remains feasibility
+accounting, not a timing comparison. The planned original330/B0313/C294
+full-context weighted-routing comparison is explicitly unexecuted.

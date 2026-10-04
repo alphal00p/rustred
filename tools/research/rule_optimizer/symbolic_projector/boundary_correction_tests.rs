@@ -460,7 +460,179 @@ fn native_zero_objective_control_reproduces_original_chart_without_export() {
     assert_eq!(nested["zero_control"]["cell_coverage_equal"], true);
     assert_eq!(nested["zero_objective_control_only"], true);
     assert_eq!(nested["exported"], false);
-    assert!(crate::run::<1>(&bytes, &r, true).is_err());
+    assert_eq!(nested["original_source_replay_verified"], true);
+    assert_eq!(nested["fresh_original_source_certificate"], false);
+}
+
+fn native_export_fixture() -> (Vec<u8>, Value) {
+    let (bytes, mut r) = crate::tests::tadpole();
+    r["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    r["max_refinements"] = json!(0);
+    r["chart"] = json!({"lower":[1],"upper":[1],"fixed":[[0,2]]});
+    r["boundary_correction"] = config()["boundary_correction"].clone();
+    r["boundary_correction"]["correction_sources"][0]["offset"] = json!([-2]);
+    r["boundary_correction"]["cancel_rank_positive_shifts"] = json!([]);
+    (bytes, r)
+}
+
+#[test]
+fn boundary_typed_export_rechecks_and_cold_loads_without_changing_prove_path() {
+    let (bytes, r) = native_export_fixture();
+    let (proved, none) = crate::run::<1>(&bytes, &r, false).unwrap();
+    assert!(none.is_none());
+    let (exported, payload) = crate::run::<1>(&bytes, &r, true).unwrap();
+    assert_eq!(
+        exported["status"], "CHECKED_PRIORITY_OWNER_EXPORTED",
+        "{exported}"
+    );
+    let payload = payload.unwrap();
+    let b = &exported["attempts"][0]["boundary_correction"];
+    assert_eq!(b["fresh_original_source_certificate"], false);
+    assert_eq!(b["original_source_replay_verified"], true);
+    assert_eq!(b["exported"], true);
+    assert_eq!(
+        b["proof_cells"],
+        proved["attempts"][0]["boundary_correction"]["proof_cells"]
+    );
+    assert_eq!(
+        b["normalized_full_product"],
+        proved["attempts"][0]["boundary_correction"]["normalized_full_product"]
+    );
+    assert_eq!(
+        exported["attempts"][0]["export_source"],
+        "checked stage-two boundary correction"
+    );
+    let before = inspect_generated_candidate_bundle(&bytes, Default::default()).unwrap();
+    let after = inspect_generated_candidate_bundle(&payload, Default::default()).unwrap();
+    assert_eq!(after.generated_rules, before.generated_rules + 1);
+    assert_eq!(after.finite_residuals, before.finite_residuals);
+    let mask = Mask::try_new([true]).unwrap();
+    let (_, programs) = load_generated_candidate_owners::<1>(
+        &[CandidateOwnerBundle {
+            bytes: &payload,
+            owner_sector: &mask,
+        }],
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let mut dispositions = Vec::new();
+    programs
+        .visit_owner_domain_matches(
+            [true],
+            &[1],
+            &[Some(1)],
+            Some(0),
+            Default::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+            |piece| {
+                dispositions.push(piece.disposition());
+                std::ops::ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        dispositions,
+        vec![rustred::solver::OwnerDomainMatchDisposition::SelectedRule { batch: 0, rule: 0 }]
+    );
+    let again = crate::run::<1>(&bytes, &r, false).unwrap().0;
+    assert_eq!(proved["attempts"], again["attempts"]);
+}
+
+#[test]
+fn boundary_missing_objective_never_exports_the_proved_baseline() {
+    let (bytes, mut r) = native_export_fixture();
+    r["boundary_correction"]["cancel_rank_positive_shifts"] = json!([[-3]]);
+    let (report, payload) = crate::run::<1>(&bytes, &r, true).unwrap();
+    assert_eq!(
+        report["status"], "BOUNDARY_CORRECTION_REFUSED_OR_INCOMPLETE",
+        "{report}"
+    );
+    assert!(payload.is_none());
+    assert_eq!(
+        report["attempts"][0]["boundary_correction"]["detail"],
+        "selected pinch absent from actual stage-one product"
+    );
+    assert_eq!(
+        report["attempts"][0]["boundary_correction"]["original_source_replay_verified"],
+        false
+    );
+    assert!(report["attempts"][0].get("export").is_none());
+}
+
+#[test]
+fn boundary_export_copy_admission_counts_weights_rhs_guards_and_coordinates() {
+    let c = context("export-copy");
+    let mut request = template(&c);
+    request.rhs.push((shift(-1), c.one()));
+    request.retained_conditions.push(
+        c.numerator_condition_with_limits(
+            &c.lift(&c.base().parameter("d").unwrap()).unwrap(),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    let copied = clone_for_export(&c, &request, 100, limits()).unwrap();
+    assert_eq!(
+        copied.contributions[0].weight,
+        request.contributions[0].weight
+    );
+    assert_eq!(copied.rhs, request.rhs);
+    assert_eq!(copied.retained_conditions, request.retained_conditions);
+    for reduced in [
+        project::Limits {
+            rows: 0,
+            ..limits()
+        },
+        project::Limits {
+            columns: 0,
+            ..limits()
+        },
+        project::Limits {
+            guards: 0,
+            ..limits()
+        },
+        project::Limits {
+            coefficient_terms: 4,
+            ..limits()
+        },
+    ] {
+        assert!(clone_for_export(&c, &request, 100, reduced).is_err());
+    }
+    assert!(clone_for_export(&c, &request, 0, limits()).is_err());
+}
+
+#[test]
+fn boundary_native_proof_refusal_cannot_release_retained_export_request() {
+    let (bytes, _) = native_export_fixture();
+    let mask = Mask::try_new([true]).unwrap();
+    let (family, _) = load_generated_candidate_owners::<1>(
+        &[CandidateOwnerBundle {
+            bytes: &bytes,
+            owner_sector: &mask,
+        }],
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let invalid = template(generator.context()); // Empty RHS is not this ordinary identity.
+    let retained = clone_for_export(generator.context(), &invalid, 100, limits()).unwrap();
+    let outcome = finish_proof(
+        &family,
+        invalid,
+        Default::default(),
+        Some(retained),
+        false,
+        json!({"fresh_original_source_certificate":false}),
+    );
+    assert_eq!(
+        outcome.report["status"],
+        "BOUNDARY_CORRECTION_PROOF_REFUSED"
+    );
+    assert_eq!(outcome.report["original_source_replay_verified"], false);
+    assert_eq!(outcome.report["fresh_original_source_certificate"], false);
+    assert!(outcome.export_request.is_none());
 }
 
 #[test]

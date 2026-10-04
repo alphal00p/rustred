@@ -2,7 +2,8 @@
 //! ingress: the incumbent is the actually checked stage-one native product.
 //! Pure pinched ordinary rows make the existing homogeneous projector affine:
 //! only the incumbent has the normalized target coefficient, hence its weight
-//! must remain one. This module never installs or exports a candidate.
+//! must remain one. Successful export requests remain typed and pass through
+//! the existing checked exporter; this module never installs a candidate.
 use super::*;
 use rustred::{
     algebra::IndexedCoefficientContext, foundry::artifact::CheckedOriginalSourceCombination,
@@ -11,6 +12,21 @@ use rustred::{
 use symbolica::domains::SelfRing;
 
 pub const SCHEMA: &str = "rustred.boundary-correction.v1";
+
+pub struct Outcome {
+    pub report: Value,
+    /// Available only after the complete stage-two original-source check.
+    pub export_request: Option<OriginalSourceCombinationRequest>,
+}
+
+impl From<Value> for Outcome {
+    fn from(report: Value) -> Self {
+        Self {
+            report,
+            export_request: None,
+        }
+    }
+}
 
 #[path = "boundary_dual.rs"]
 mod dual;
@@ -582,6 +598,84 @@ pub(super) fn missing_correction_columns(
         .collect()
 }
 
+// The native checker consumes its request. Charge the one export-only copy
+// before cloning it; the ordinary prove path creates no additional copy.
+// These are retained payload charges, not a bound on native scratch or RSS.
+fn clone_for_export(
+    c: &IndexedCoefficientContext,
+    request: &OriginalSourceCombinationRequest,
+    coordinate_limit: usize,
+    limits: project::Limits,
+) -> Result<OriginalSourceCombinationRequest> {
+    checked(project::bound(
+        request.contributions.len(),
+        limits.rows,
+        "export source copies",
+    ))?;
+    checked(project::bound(
+        request.rhs.len(),
+        limits.columns,
+        "export RHS copies",
+    ))?;
+    checked(project::bound(
+        request.retained_conditions.len(),
+        limits.guards,
+        "export guard copies",
+    ))?;
+    let mut coordinates = 0usize;
+    for count in [
+        request.root_sector.active_bits().len(),
+        request.sector.active_bits().len(),
+        request.lower.len(),
+        request.upper.len(),
+        request.fixed.len(),
+        request.fixed.len(),
+    ]
+    .into_iter()
+    .chain(
+        request
+            .contributions
+            .iter()
+            .map(|s| s.offset.values().len()),
+    )
+    .chain(request.rhs.iter().map(|(s, _)| s.values().len()))
+    {
+        coordinates = coordinates
+            .checked_add(count)
+            .ok_or("export coordinate count overflow")?;
+    }
+    checked(project::bound(
+        coordinates,
+        coordinate_limit,
+        "export coordinate copies",
+    ))?;
+    let mut terms = 0usize;
+    for value in request
+        .contributions
+        .iter()
+        .map(|s| &s.weight)
+        .chain(request.rhs.iter().map(|(_, v)| v))
+    {
+        checked(c.validate_with_limits(value, limits.arithmetic))?;
+        terms = terms
+            .checked_add(value.raw().numerator.nterms())
+            .and_then(|n| n.checked_add(value.raw().denominator.nterms()))
+            .ok_or("export coefficient count overflow")?;
+    }
+    for guard in &request.retained_conditions {
+        checked(c.validate_polynomial_with_limits(guard, limits.arithmetic))?;
+        terms = terms
+            .checked_add(guard.raw().nterms())
+            .ok_or("export guard count overflow")?;
+    }
+    checked(project::bound(
+        terms,
+        limits.coefficient_terms,
+        "export coefficient copies",
+    ))?;
+    Ok(request.clone())
+}
+
 pub fn run(
     r: &Value,
     generator: &ParametricIbpGenerator<'_>,
@@ -597,7 +691,8 @@ pub fn run(
     family: &rustred::family::IntegralFamily,
     p: OriginalSourceCombinationLimits,
     limits: project::Limits,
-) -> Result<Value> {
+    retain_export_request: bool,
+) -> Result<Outcome> {
     let c = generator.context();
     let cfg = &r["boundary_correction"];
     let sources = array(cfg, "correction_sources")?;
@@ -680,7 +775,9 @@ pub fn run(
         Err(error) => {
             return Ok(
                 json!({"schema":SCHEMA,"status":"BOUNDARY_ZERO_CONTROL_REFUSED",
-            "proof_error":error_json(&error),"affine_infeasibility_claim":false}),
+            "proof_error":error_json(&error),"affine_infeasibility_claim":false,
+            "original_source_replay_verified":false})
+                .into(),
             );
         }
     };
@@ -712,6 +809,7 @@ pub fn run(
         "correction_rows":corrections.images.len(),"original_union_rows":span.originals.len(),
         "full_image_columns":universe.len(),"forbidden_shifts":f.iter().map(|s|s.values()).collect::<Vec<_>>(),
         "fresh_original_source_certificate":false,"exported":false,"recursive_walk":false,
+        "original_source_replay_verified":false,
         "same_support_preserved":false,"new_rank_positive_columns":null,"conditions_discarded":false});
     if translated {
         report["correction_source_policy"] = json!({"translated_pinch_sources":true,
@@ -748,7 +846,7 @@ pub fn run(
     if !missing.is_empty() {
         report["status"] = json!("BOUNDARY_CORRECTION_SUPPORT_OBSTRUCTION");
         report["objective_filtered"] = json!(false);
-        return Ok(report);
+        return Ok(report.into());
     }
     let proposal = match checked(project::project_with_compaction(
         c,
@@ -792,7 +890,7 @@ pub fn run(
                         "error":"exact separator prerequisite incomplete","pairing_complete":false}),
                 };
             }
-            return Ok(report);
+            return Ok(report.into());
         }
         project::Projection::Target(proposal) => proposal,
     };
@@ -840,14 +938,44 @@ pub fn run(
                 .unwrap_or(0)
         );
     }
+    let export_request = if retain_export_request {
+        Some(clone_for_export(
+            c,
+            &request,
+            limit(r, "max_coordinate_cells")?,
+            limits,
+        )?)
+    } else {
+        None
+    };
+    Ok(finish_proof(
+        family,
+        request,
+        p,
+        export_request,
+        array(cfg, "cancel_rank_positive_shifts")?.is_empty(),
+        report,
+    ))
+}
+
+fn finish_proof(
+    family: &rustred::family::IntegralFamily,
+    request: OriginalSourceCombinationRequest,
+    p: OriginalSourceCombinationLimits,
+    mut export_request: Option<OriginalSourceCombinationRequest>,
+    control: bool,
+    mut report: Value,
+) -> Outcome {
+    report["original_source_replay_verified"] = json!(false);
     match check_original_source_combination(family, request, p) {
         Err(error) => {
+            export_request = None;
             report["status"] = json!("BOUNDARY_CORRECTION_PROOF_REFUSED");
             report["proof_error"] = error_json(&error);
             report["affine_infeasibility_claim"] = json!(false);
         }
         Ok(proof) => {
-            let control = array(cfg, "cancel_rank_positive_shifts")?.is_empty();
+            report["original_source_replay_verified"] = json!(true);
             report["status"] = json!(if control {
                 "EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED"
             } else {
@@ -857,7 +985,10 @@ pub fn run(
             report["proof_cells"] = proof_json(&proof);
         }
     }
-    Ok(report)
+    Outcome {
+        report,
+        export_request,
+    }
 }
 
 #[cfg(test)]

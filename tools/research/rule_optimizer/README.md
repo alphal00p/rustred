@@ -1268,7 +1268,7 @@ comparison followed. See the source-nomination section of
 `docs/research/banana_moment_nomination_2026-10-04.md` for the bounded result
 and its distinction from the earlier unconstrained first-target negative.
 
-### Pinched-source boundary correction (experimental, proof-only)
+### Pinched-source boundary correction (experimental)
 
 The optional `boundary_correction` object requests a two-stage search. First,
 the ordinary top-level source bank must produce a full-original relation and
@@ -1294,11 +1294,21 @@ The object has these fields:
 The initial interface requires all inactive parent indices to be explicitly
 fixed to zero, while active indices may remain free. This is a rank-zero
 **parent chart**, not a promise that its baseline descendants have rank zero.
-It uses `prove` with zero refinements; export, modular nomination and unsupported
-projection-mode combinations refuse. Absence of the option leaves the legacy
+It uses `prove` or checked `export` with zero refinements; modular nomination
+and unsupported projection-mode combinations refuse. Absence of the option leaves the legacy
 path unchanged. The top-level `fresh_original_source_certificate` applies to
 stage one; stage two composes native weighted provenance and always undergoes
 the full original-source check, not the unit-selection shortcut.
+
+Checked export passes the successful typed stage-two request to the existing
+native priority exporter; it never rebuilds coefficients from report strings
+or falls back to exporting stage one after a correction refusal. The exporter
+rechecks the source and the complete typed roundtrip, including RHS, case and
+exceptions. Proof success does not guarantee that every retained guard can be
+represented by the current runtime payload. A refusal preserves the complete
+proof/report and publishes no corrected artifact. `original_source_replay_verified`
+is the separate stage-two proof-success field; the weighted provenance policy
+`fresh_original_source_certificate:false` is unchanged.
 
 Every correction image must remain pinched, preserving the target and the
 entire unpinched/same-support recurrence. A mandatory zero-correction control
@@ -1323,7 +1333,7 @@ zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
 is confined to this frozen correction space; neither a hit nor fewer local
 tails establishes lower campaign work. No owner or overlay is installed.
 
-The implementation passed all150 focused tests. Its first fixed native probe
+The implementation passed all154 focused tests. Its first fixed native probe
 reproduced the313-tail stage-one proof and typed zero control; all nine nominated
 columns were present, but the complete26-row weighted search found no correction
 under the joint constraints. This is a finite-span negative, not a general
@@ -1388,3 +1398,11 @@ weighted/non-fresh provenance policy, not absence of the mandatory native
 original-source proof. Full evidence and the obstruction-guided source-selection
 mechanism are recorded in the conceptual note; the5.013s guarded two-proof
 group is feasibility accounting only.
+
+The subsequent independent checked-export pair produced the313-tail baseline
+payload but refused the294-tail correction: `priority proof guard is not
+retained by a surviving runtime RHS denominator`. The complete corrected
+source/proof/control report still matched the successful proof. No guard was
+removed and no corrected payload was published. The proposed three-arm
+weighted-routing comparison therefore did not start; no runtime or workload
+benefit has been measured for this correction.
