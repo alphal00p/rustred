@@ -7,6 +7,7 @@ use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
 
 mod overlays;
+mod preferences;
 mod routes;
 
 use super::{
@@ -16,6 +17,7 @@ use super::{
 use crate::application::candidate_bundle::validate_domain_overlay_ingress;
 use crate::{
     AppError, CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
+    load_generated_candidate_owners_with_preferences,
 };
 
 pub(super) fn prepare<const N: usize>(
@@ -73,6 +75,11 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     let Some(overlay_payloads) = overlays::read(request, selection, cancellation, observer)? else {
         return Ok(None);
     };
+    let Some(preferred_payloads) =
+        preferences::read::<N>(request, selection, cancellation, observer)?
+    else {
+        return Ok(None);
+    };
     // Hash each immutable input at most once. Default, non-checkpoint loads
     // without repairs retain their previous no-digest path.
     let owner_digests: Vec<[u8; 32]> = if fingerprints.is_some() || !overlay_payloads.is_empty() {
@@ -88,6 +95,7 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             owner_digests
                 .iter()
                 .chain(overlay_payloads.iter().map(|payload| &payload.digest))
+                .chain(preferred_payloads.iter().map(|payload| &payload.digest))
                 .map(|digest| blake3::Hash::from_bytes(*digest).to_hex().to_string())
                 .collect(),
         )
@@ -105,16 +113,40 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             owner_sector,
         })
         .collect::<Vec<_>>();
+    let preferred_inputs = preferred_payloads
+        .iter()
+        .map(|payload| CandidateOwnerBundle {
+            bytes: &payload.bytes,
+            owner_sector: &payload.owner,
+        })
+        .collect::<Vec<_>>();
     if !overlay_payloads.is_empty() {
         let patches = overlay_payloads
             .iter()
             .map(|payload| payload.bytes.as_slice())
             .collect::<Vec<_>>();
         // Whole-collection admission precedes the first Symbolica state import.
-        validate_domain_overlay_ingress(&inputs, &patches, limits)?;
+        if preferred_inputs.is_empty() {
+            validate_domain_overlay_ingress(&inputs, &patches, limits)?;
+        } else {
+            let combined = inputs
+                .iter()
+                .chain(&preferred_inputs)
+                .copied()
+                .collect::<Vec<_>>();
+            validate_domain_overlay_ingress(&combined, &patches, limits)?;
+        }
     }
-    let (family, programs) =
-        load_generated_candidate_owners::<N>(&inputs, limits, request.reduction_limits)?;
+    let (family, programs) = if preferred_inputs.is_empty() {
+        load_generated_candidate_owners::<N>(&inputs, limits, request.reduction_limits)?
+    } else {
+        load_generated_candidate_owners_with_preferences::<N>(
+            &inputs,
+            &preferred_inputs,
+            limits,
+            request.reduction_limits,
+        )?
+    };
     if family.fingerprint() != selection.family_fingerprint {
         return Err(AppError::input(
             "loaded family differs from selection fingerprint",
@@ -126,7 +158,9 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
         ));
     }
     drop(inputs);
+    drop(preferred_inputs);
     drop(bytes);
+    drop(preferred_payloads);
     let Some(programs) = overlays::install(
         Arc::new(programs),
         selection,
@@ -142,11 +176,14 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     drop(overlay_payloads);
     let owner_count = programs.owner_count();
     let terminal_count = programs.terminal_count();
-    observer(
-        json!({"event":"loaded", "owners":owner_count, "saved_terminals":terminal_count,
+    let mut loaded = json!({"event":"loaded", "owners":owner_count, "saved_terminals":terminal_count,
         "family_fingerprint":family.fingerprint(), "rank_bound":programs.context().scope().max_numerator_rank,
-        "finite_case_policy":format!("{:?}", programs.context().scope().finite_case_policy)}),
-    );
+        "finite_case_policy":format!("{:?}", programs.context().scope().finite_case_policy)});
+    if !selection.preferred_owner_programs.is_empty() {
+        loaded["preferred_owner_programs"] = selection.preferred_owner_programs.len().into();
+        loaded["preferred_residual_policy"] = "defer-to-baseline".into();
+    }
+    observer(loaded);
     let Some(routes) = routes::prepare::<N>(
         &family,
         &selection.initial_frontier_routes,

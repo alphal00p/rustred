@@ -45,7 +45,7 @@ pub use inspection::*;
 pub use load::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,
     load_generated_candidate_bundle, load_generated_candidate_checkpoint,
-    load_generated_candidate_owners,
+    load_generated_candidate_owners, load_generated_candidate_owners_with_preferences,
 };
 pub use model::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,

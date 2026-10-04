@@ -254,6 +254,11 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             let owner = self.owners.get(&overlay.sector).ok_or_else(|| {
                 OwnerFeedbackError::InvalidInput("overlay owner is not installed".into())
             })?;
+            if owner.batches[0].deferred_points.is_some() {
+                return Err(OwnerFeedbackError::InvalidInput(
+                    "repair overlays on a preferred-program owner are unsupported".into(),
+                ));
+            }
             if !Arc::ptr_eq(&self.lineage, &overlay.lineage)
                 || owner.root != overlay.root
                 || owner.ordering != overlay.ordering

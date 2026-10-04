@@ -74,6 +74,33 @@ pub fn load_generated_candidate_owners<const N: usize>(
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
+    load_owner_programs(inputs, &[], limits, reduction_limits)
+}
+
+/// Load optional preferred programs without changing the baseline terminal set.
+///
+/// Every preferred payload must match one baseline owner, including its saved
+/// root, mathematical order and solver scope. Its additional declared residual
+/// points defer to that owner's baseline rules, never become new terminals.
+/// Ordinary gaps also fall through; other evaluation failures do not. Both
+/// payload classes share the complete pre-import resource admission and native
+/// family/zero context. This is a trusted, fresh composition, not source replay,
+/// a closure claim, or an append-compatible update of a running reducer.
+pub fn load_generated_candidate_owners_with_preferences<const N: usize>(
+    inputs: &[CandidateOwnerBundle<'_>],
+    preferences: &[CandidateOwnerBundle<'_>],
+    limits: CandidateOwnerLoadLimits,
+    reduction_limits: ReductionLimits,
+) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
+    load_owner_programs(inputs, preferences, limits, reduction_limits)
+}
+
+fn load_owner_programs<const N: usize>(
+    inputs: &[CandidateOwnerBundle<'_>],
+    preferences: &[CandidateOwnerBundle<'_>],
+    limits: CandidateOwnerLoadLimits,
+    reduction_limits: ReductionLimits,
+) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
     if !(1..=16).contains(&N) {
         return Err(AppError::input("candidate owner/reducer arity mismatch"));
     }
@@ -82,9 +109,13 @@ pub fn load_generated_candidate_owners<const N: usize>(
     }
     // Owner count and all borrowed byte lengths are admitted before allocating
     // per-owner metadata or decoding a structural/native payload.
-    let mut ingress = IngressBudget::new(limits.bundle, inputs.len())?;
+    let count = inputs
+        .len()
+        .checked_add(preferences.len())
+        .ok_or_else(|| AppError::limit("selected owner/preference count overflow"))?;
+    let mut ingress = IngressBudget::new(limits.bundle, count)?;
     let mut input_bytes = 0;
-    for input in inputs {
+    for input in inputs.iter().chain(preferences) {
         charge(
             &mut input_bytes,
             input.bytes.len(),
@@ -92,16 +123,17 @@ pub fn load_generated_candidate_owners<const N: usize>(
             "selected owner aggregate input-byte budget exceeded",
         )?;
     }
-    let mut descriptors = Vec::new();
+    let mut descriptors: Vec<OwnerDescriptor<N>> = Vec::new();
     descriptors
-        .try_reserve_exact(inputs.len())
+        .try_reserve_exact(count)
         .map_err(|_| AppError::limit("selected owner descriptor allocation failed"))?;
     let mut owners = BTreeSet::new();
+    let mut preferred_owners = BTreeSet::new();
     let mut roots = BTreeSet::new();
     let mut state_bytes = 0;
     let mut family_fingerprint = None;
     let mut solver_policy = None;
-    for input in inputs {
+    for (ordinal, input) in inputs.iter().chain(preferences).enumerate() {
         let (envelope, record, _) = codec::read_structure(input.bytes, limits.bundle)?;
         ingress.admit_structure(&envelope, &record)?;
         charge(
@@ -131,8 +163,12 @@ pub fn load_generated_candidate_owners<const N: usize>(
             .as_slice()
             .try_into()
             .expect("checked arity");
-        if !owners.insert(sector) {
-            return Err(AppError::input("duplicate selected candidate owner mask"));
+        if ordinal < inputs.len() {
+            if !owners.insert(sector) {
+                return Err(AppError::input("duplicate selected candidate owner mask"));
+            }
+        } else if !owners.contains(&sector) || !preferred_owners.insert(sector) {
+            return Err(AppError::input("preferred owner is missing or duplicated"));
         }
         let root: [bool; N] = record
             .root_sector
@@ -158,10 +194,22 @@ pub fn load_generated_candidate_owners<const N: usize>(
         } else {
             solver_policy = Some(record.solver_policy.clone());
         }
+        let ordering = super::super::order::saved_policy(&record)?;
+        if ordinal >= inputs.len() {
+            let baseline: &OwnerDescriptor<N> = descriptors[..inputs.len()]
+                .iter()
+                .find(|baseline| baseline.sector == sector)
+                .expect("validated baseline owner");
+            if baseline.root != root || baseline.ordering != ordering {
+                return Err(AppError::input(
+                    "preferred owner root or mathematical order differs",
+                ));
+            }
+        }
         descriptors.push(OwnerDescriptor {
             sector,
             root,
-            ordering: super::super::order::saved_policy(&record)?,
+            ordering,
         });
     }
     let saved_policy = policy::parse(solver_policy.as_deref().expect("nonempty input"))?;
@@ -187,10 +235,10 @@ pub fn load_generated_candidate_owners<const N: usize>(
     );
     let mut decoded = Vec::new();
     decoded
-        .try_reserve_exact(inputs.len())
+        .try_reserve_exact(count)
         .map_err(|_| AppError::limit("selected owner program allocation failed"))?;
     let mut first = Some(first);
-    for (input, descriptor) in inputs.iter().zip(descriptors) {
+    for (input, descriptor) in inputs.iter().chain(preferences).zip(descriptors) {
         let bundle = match first.take() {
             Some(first) => first,
             None => {
@@ -220,8 +268,13 @@ pub fn load_generated_candidate_owners<const N: usize>(
             solution: solutions.pop().expect("checked single sector").1,
         });
     }
-    let programs = CandidateOwnerPrograms::try_new(context, decoded)
-        .map_err(|error| AppError::execution(error.to_string()))?;
+    let programs = if preferences.is_empty() {
+        CandidateOwnerPrograms::try_new(context, decoded)
+    } else {
+        let preferred = decoded.split_off(inputs.len());
+        CandidateOwnerPrograms::try_new_with_preferences(context, decoded, preferred)
+    }
+    .map_err(|error| AppError::execution(error.to_string()))?;
     Ok((family, programs))
 }
 

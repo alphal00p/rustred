@@ -397,6 +397,40 @@ fn reducer<const N: usize>(programs: Arc<CandidateOwnerPrograms<N>>) -> RoutedCa
 }
 
 #[test]
+fn preferred_owner_rejects_same_owner_repair_overlay_without_changing_other_owners() {
+    let family = Arc::new(crate::solver::tests::sunset());
+    let base = Arc::new(
+        CandidateOwnerPrograms::try_new_with_preferences(
+            context(family, Some(10), Default::default()),
+            [
+                input([true; 3], Some(10), vec![], &[[1, 1, 1]]),
+                input([true, true, false], Some(10), vec![], &[[1, 1, 0]]),
+            ],
+            [input([true; 3], Some(10), vec![], &[[1, 1, 1]])],
+        )
+        .unwrap(),
+    );
+    let refused = base
+        .append_residual_free_domain_overlays(
+            vec![synthetic(&base, [true; 3], vec![], &[])],
+            Default::default(),
+        )
+        .unwrap_err();
+    assert!(refused.to_string().contains("preferred-program owner"));
+    let next = base
+        .append_residual_free_domain_overlays(
+            vec![synthetic(&base, [true, true, false], vec![], &[])],
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(next.terminal_count(), base.terminal_count());
+    assert!(Arc::ptr_eq(
+        &base.owners[&[true; 3]],
+        &next.owners[&[true; 3]]
+    ));
+}
+
+#[test]
 fn real_bound_domain_search_appends_without_forging_a_sector_and_reuses_sources() {
     let before = PREPARATION_COUNT.with(|counter| counter.get());
     let base = tadpole(vec![], &[], Default::default());

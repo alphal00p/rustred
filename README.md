@@ -1155,6 +1155,49 @@ not replay scratch or arbitrary callback memory. `max_report_bytes` limits
 emitted JSON, not its construction; apply an external process-memory/time guard
 when examining large inputs.
 
+### Preferred saved-owner programs (research opt-in)
+
+Fresh saved-owner campaigns can try a different, trusted generated program
+before the original rules, while keeping **exactly the original terminal set**.
+Add the following optional field to the existing selection JSON; paths use
+the same owner-base directory as the baseline payloads:
+
+```json
+"preferred_owner_programs": [
+  {
+    "path": "preferred/alternative.rrbin",
+    "bytes": 12345,
+    "owner_mask": "111",
+    "residual_policy": "defer-to-baseline"
+  }
+]
+```
+
+Use the actual payload size and original-coordinate mask. Each preference must
+match an existing owner, family, saved root, mathematical order and generation
+scope. Discovery visitation strategies may differ. Duplicate preferences and
+preferences colliding with a repair overlay on the same owner are rejected.
+Other owners' repair overlays remain unchanged.
+
+Dispatch first recognizes baseline terminals. Preferred-only finite residuals
+are explicit holes that skip the entire preferred program, even when a formula
+overlaps them; they are **not additional masters**. Elsewhere preferred rules
+run first, with baseline fallback only for native `Uncovered`. A denominator
+exclusion is ordinary inapplicability; actual algebra, source-condition,
+descent or resource errors still propagate. Symbolic domains are partitioned
+exactly around the finite holes rather than approximated by a larger box.
+
+The Rust entry points are
+`CandidateOwnerPrograms::try_new_with_preferences` and
+`rustred_app::load_generated_candidate_owners_with_preferences`.
+The existing campaign CLI and Python staging use the same selection field;
+omitting it preserves the original path. Both immutable payloads and the
+explicit composition policy are bound into fresh checkpoints and cold loading.
+This is **not** an in-place update of an existing campaign, a new source proof,
+or a closure guarantee. Rule-local diagnostic APIs still inspect individual
+formulas and do not establish composed-program applicability. Performance
+benefits require matched full-worklist experiments, not rule-count comparisons.
+
 ## Durable closing artifacts
 
 The semantic generation selectors are `unit-mass-vacuum-k1` for the canonical

@@ -21,6 +21,9 @@ pub(super) struct Selection {
     /// Ordered source-replayed partial rules. Original owners stay immutable.
     #[serde(default)]
     pub domain_rule_overlays: Vec<DomainRuleOverlay>,
+    /// Trusted alternatives with the original owner's terminal boundary.
+    #[serde(default)]
+    pub preferred_owner_programs: Vec<PreferredOwnerProgram>,
     pub initial_frontier_routes: Vec<Route>,
     #[serde(default, deserialize_with = "unique_limits")]
     pub load_limits: BTreeMap<String, usize>,
@@ -63,6 +66,20 @@ pub(super) struct DomainRuleOverlay {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct PreferredOwnerProgram {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub owner_mask: String,
+    pub residual_policy: PreferredResidualPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub(super) enum PreferredResidualPolicy {
+    #[serde(rename = "defer-to-baseline")]
+    DeferToBaseline,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct Route {
     pub source_mask: String,
     pub owner_mask: String,
@@ -99,6 +116,7 @@ impl Selection {
             .owners
             .len()
             .checked_add(selection.domain_rule_overlays.len())
+            .and_then(|count| count.checked_add(selection.preferred_owner_programs.len()))
             .is_none_or(|count| count > limits.bundle.max_collection_entries)
             || selection.initial_frontier_routes.len() > MAX_ROUTES
         {
@@ -140,6 +158,35 @@ impl Selection {
             if size > limits.bundle.max_bundle_bytes || total > limits.max_total_input_bytes {
                 return Err(AppError::limit(
                     "owner and overlay bytes exceed declared ingress limits",
+                ));
+            }
+        }
+        let mut preferred = BTreeSet::new();
+        for program in &selection.preferred_owner_programs {
+            mask(&program.owner_mask, n)?;
+            if !owners.contains(&program.owner_mask) || !preferred.insert(&program.owner_mask) {
+                return Err(AppError::input("preferred owner is missing or duplicated"));
+            }
+            if selection
+                .domain_rule_overlays
+                .iter()
+                .any(|p| p.owner_mask == program.owner_mask)
+            {
+                return Err(AppError::input(
+                    "preferred owner and repair overlay collision is unsupported",
+                ));
+            }
+            let size = usize::try_from(program.bytes)
+                .map_err(|_| AppError::limit("preferred owner size overflow"))?;
+            total = total
+                .checked_add(size)
+                .ok_or_else(|| AppError::limit("input size overflow"))?;
+            if size == 0 {
+                return Err(AppError::input("preferred owner payload is empty"));
+            }
+            if size > limits.bundle.max_bundle_bytes || total > limits.max_total_input_bytes {
+                return Err(AppError::limit(
+                    "owner, overlay and preferred bytes exceed declared ingress limits",
                 ));
             }
         }
@@ -216,6 +263,75 @@ mod overlay_tests {
         let (parsed, n, _) = Selection::parse(&selection().to_string()).unwrap();
         assert_eq!(n, 1);
         assert!(parsed.domain_rule_overlays.is_empty());
+        assert!(parsed.preferred_owner_programs.is_empty());
+    }
+
+    #[test]
+    fn preferences_require_explicit_unique_residual_policy_and_existing_owner() {
+        let mut input = selection();
+        let preferred = json!({"path":"preferred.rrbin", "bytes":10,
+            "owner_mask":"1", "residual_policy":"defer-to-baseline", "sha256":"diagnostic-only"});
+        input["preferred_owner_programs"] = json!([preferred.clone()]);
+        assert!(Selection::parse(&input.to_string()).is_ok());
+        input["preferred_owner_programs"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("residual_policy");
+        assert!(Selection::parse(&input.to_string()).is_err());
+        input["preferred_owner_programs"] = json!([preferred.clone()]);
+        input["preferred_owner_programs"][0]["residual_policy"] = "promote-extra-terminals".into();
+        assert!(Selection::parse(&input.to_string()).is_err());
+        input["preferred_owner_programs"] = json!([preferred.clone(), preferred.clone()]);
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .message()
+                .contains("duplicated")
+        );
+        input["preferred_owner_programs"] = json!([preferred.clone()]);
+        input["preferred_owner_programs"][0]["owner_mask"] = "0".into();
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .message()
+                .contains("missing")
+        );
+        input["preferred_owner_programs"] = json!([preferred]);
+        input["domain_rule_overlays"] =
+            json!([{"path":"repair.rrbin", "bytes":10,"owner_mask":"1"}]);
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .message()
+                .contains("collision")
+        );
+    }
+
+    #[test]
+    fn preferences_share_all_three_payload_classes_ingress_admission() {
+        let mut input = selection();
+        input["owners"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"path":"second.rrbin","bytes":50,"mask":"0"}));
+        input["preferred_owner_programs"] = json!([{"path":"preferred.rrbin", "bytes":10,
+            "owner_mask":"1","residual_policy":"defer-to-baseline"}]);
+        input["domain_rule_overlays"] =
+            json!([{"path":"repair.rrbin","bytes":20,"owner_mask":"0"}]);
+        input["load_limits"] = json!({"max_total_input_bytes":180});
+        assert!(Selection::parse(&input.to_string()).is_ok());
+        input["load_limits"]["max_total_input_bytes"] = 179.into();
+        assert!(Selection::parse(&input.to_string()).is_err());
+        input["load_limits"] = json!({"max_collection_entries":3});
+        assert!(Selection::parse(&input.to_string()).is_err());
+        input["load_limits"] = json!({});
+        input["preferred_owner_programs"][0]["bytes"] = 0.into();
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .message()
+                .contains("payload is empty")
+        );
     }
 
     #[test]

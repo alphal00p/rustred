@@ -4620,6 +4620,68 @@ Independent lightweight staging/evaluator regression execution passes 47/47
 Python tests in 0.475 seconds. Native build/tests, flag-off/A/A controls and any
 integrated preferred-program cohort measurement remain separate pending gates.
 
+Corrected core semantic receipts subsequently pass 211 owner tests and 112
+routed tests (323 total), with zero failures, ignored tests or license skips.
+The selected suites include all six new preferred-program tests and the
+same-owner overlay refusal. Both groups drain. The first test compile's type
+inference failure is preserved; its sole test-only correction supplies explicit
+`CandidateReductionError` to the helper. The successful opt0 semantic-test
+compile takes 192.616796 seconds; owner/routed wrappers take 3.038713/6.746492
+seconds, with 0.50/4.38-second test bodies. These are not optimized performance
+measurements. A separate app compile inference repair annotates the existing
+descriptor vector type without changing admission policy; its failed receipt
+is also retained. Public loader/CP5/CP6 tests, CLI and native experiment gates
+remain pending at this entry. Evidence: `candidates/preferred-owner-build-v1/`;
+core-test artifact SHA `42b0bdc5...973a7b2`.
+
+Public checkpoint testing exposes two fixture assumptions, not library failures.
+The first reaches the Epoch half with default InspectAll scheduling; existing
+Epoch semantics require explicit TransferUnreserved. Independent pre-build
+review missed this precondition. The harness-only correction supplies the
+existing NonZeroUsize lookahead contract. The next run passes Epoch cold and
+changed-payload digest checks, then fails because its resume assertion expects
+the Ordered error text. Existing Epoch metadata groups owner-digest mismatch
+under its checkpoint/request-binding refusal. A policy-specific exact error
+assertion is approved, still requiring an actual error and successful resume
+after restoring the original bytes. Both failed receipts are retained; no
+library logic, workload or acceptance gate is weakened.
+
+The final public v6 harness passes all four tests, with zero ignored/filtered
+tests and explicit stderr evidence of both policy-specific changed-byte resume
+refusals. Both CP5/CP6 cold All/Off, valid-byte digest mismatch, changed-selection
+rejection and restored-byte resume assertions pass. This brings the independently
+audited focused total to 327 (211 owner + 112 routed + four public). The public
+wrapper takes 4.436459 seconds, test body 1.44 seconds; the optimized app build
+takes 512.905062 seconds. Twenty changed/new production/core-test files match
+the frozen v2 source exactly, and the live public harness matches tested v6.
+Evidence: `preferred-owner-build-v1/run_public_tests_v6/`; public-test SHA
+`670f55bb...726a9c`, optimized app SHA `876cd643...4ea5ce`. This clears source/unit/
+public-checkpoint approval, not the separate 4L A/A or five-loop cost gates.
+
+Final CLI SHA `59b51956...76b8a` is bound to those successful library/test
+receipts. The frozen 4L A/A plan preserves all 16 owners, 508 routes, 58 required
+queries, bounds and native controls; its candidate adds the same 16 immutable
+payloads as preferred programs. The independent control checker requires exact
+scheduled/native/event counts, sealed graph/input bytes, root semantics and both
+cold All/Off receipts, rather than applying the generic 20% benefit criterion.
+The 600-second CPU32–47 control is approved; no outcome is assumed here.
+Prospective five-loop metadata also preserves the previous four literal queries
+and inherited caps, full67/8246/two-overlay context and 1800-second budget, adding
+only owner3's preferred generated payload with explicit baseline deferral. Its
+execution remains conditional on completed A/A acceptance and drained workers.
+Historical rule146 edge cuts are explicitly not activation evidence for this
+whole-program comparison.
+
+The completed control independently passes all twelve checker gates, including
+a second read-only checker execution. Both arms have exactly 26,025 scheduled
+domains, 17,957 native records and 872,486 events; sealed domain/edge/input bytes
+and cold root semantics are identical. Both cold All/Off passes re-inspect every
+native record with zero errors/uncovered and certify all 58 queries. All six
+stage/walk/cold guards are clean and drained, with no pending/frontier debt.
+Inclusive time is 41.333960 seconds; candidate/baseline arm time is 1.0570, not a
+speedup claim. Evidence: `candidates/preferred-aa-whole58-v1/`. This clears the
+registered five-loop measurement gate, not promotion or a new source-proof seal.
+
 ### Boundary-polynomial backend: source and test gate only
 
 Independent source review approves the opt-in, finitely declared polynomial
@@ -4685,3 +4747,66 @@ candidate, not all kernel combinations or boundary-divisible rules. No bank
 growth, retry, chart narrowing, installation or performance claim follows.
 Evidence: `incidence-study/four-loop-boundary-v1/`; raw report SHAs
 `8c10ac85...bdacf` (control) and `be397c53...a2c70` (faces).
+
+Root then authorizes a separate opt-in primitive-original-weight proposal,
+without source-bank/degree growth. Source review confirms that an authenticated
+ordinary, injective unit frame binds each reconstructed coefficient to a unique
+RowId/offset. Native numerator GCD and exact division operate on all nonzero
+original weights, not endpoint coefficients; every quotient is independently
+multiplied back, authenticated, and checked against the declared monomial set.
+Original assumptions and preexisting poles remain retained. The divided weights
+form a new original-source proposal before its new target pivot exists; full
+image/F replay, target normalization, face/guard verification and native export
+authority remain unchanged. A noncommon target zero or genuine incoming pole
+cannot be repaired by this operation. No common factor is inferred from the
+previous refusal receipt.
+
+The initial source revision charged primitive coefficients against a stale
+assembly counter, omitting subsequent retained U/L terms from their cumulative
+allowance. Independent review caught this before compilation. The corrected
+path transfers the cumulative assembly-plus-U/L charge before primitive work;
+the added test admits that work alone but refuses it with prior retained terms.
+Native normalization term pairs are also charged. GCD scratch/internal work
+remains subject to the outer RSS/time guard, not falsely bounded by term pairs.
+Eight new tests are specified. Source approval is for coordinated build/tests
+only; actual 93-test receipt, cross-binary flag-off compatibility and the frozen
+single corrective pilot remain pending.
+
+The frozen primitive continuation subsequently passes all 93 optimized tests,
+including all eight new cases, with zero failures, ignored or filtered tests.
+Test compile takes 81.283470 inclusive seconds, execution 4.359972 seconds
+(0.93-second body), and final binary compile 82.401592 seconds; all owned groups
+drain. Test SHA is `d4a71fab...bad91f`, executable `31410c09...61d824d`.
+Independent JSON comparison confirms that both corrective requests equal the
+previous activation-face request after removing only the explicit false/true
+primitive flag: same 48 rows, 144 unknowns, degree one, guards and full chart.
+The pinned runner retains CPU69/70, 16GiB plus 150GB reserve, a 30-second strict
+mode-off compatibility/parser gate and one 300-second cumulative paired trial.
+Approval is conditional on full report equality except seconds and identical
+old/new/unit-control artifacts. No retry, enlarged ansatz or adaptive candidate
+search is authorized; results remain pending at this entry.
+
+Strict native compatibility now passes without a diagnostic exception: complete
+old/new reports agree after removing seconds, both parsers pass, and old/new/unit
+artifacts share SHA `915c3875...91fa3`. It takes 2.380939 inclusive seconds. The
+sole corrective pair drains cleanly in 1.743353 seconds (4.124292 combined), with
+one first-candidate attempt per arm, no refinement and no candidate export.
+Both retain 48 source rows, 219 columns and 38 cofinal exclusions. Native events
+report a common original-weight factor displayed as `n8` (zero-based axis 8),
+three exact divisions with independent multiplication checks, quotient ansatz
+membership and zero removed original conditions. Both candidates arise at
+basis prefix56.
+
+The off arm refuses normalization-pivot guard42 on axis8=0. Dividing the common
+original-weight factor permits the on arm to pass that guard, but native face
+specialization then finds a nonzero normalized coefficient at axis8=0 for shift
+`[-1,0,0,0,0,0,0,0,2,0]`. The diagnostic display is not parsed as proof; the native
+restriction and zero test cause the refusal. Common-weight division changes
+guard provenance, not the generic normalized rational image: removing the
+artificial pivot condition exposes a subsequent face failure. Axis8 is
+deliberately protected beyond the saved root, so this is not a native root/order
+impossibility witness. Both statuses are `REFUSED_OR_INCOMPLETE`; no statement
+about all kernel combinations follows. The registered corrective lane is parked
+without further bank/degree growth. Evidence:
+`incidence-study/four-loop-boundary-primitive-v1/`; raw SHAs `004b8048...83300d`
+(off) and `8c26ef2a...7f39ed8` (on).

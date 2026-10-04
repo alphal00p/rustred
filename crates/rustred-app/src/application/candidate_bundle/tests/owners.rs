@@ -126,6 +126,96 @@ fn selected_owner_loader_matches_monolithic_trace_and_shares_native_context() {
 }
 
 #[test]
+fn preferred_owner_a_a_keeps_terminal_boundary_and_trace_identical() {
+    let bundle = generated();
+    let saved = split(&bundle);
+    let (_, baseline) = load_generated_candidate_owners::<3>(
+        &inputs(&saved),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let (_, preferred) = load_generated_candidate_owners_with_preferences::<3>(
+        &inputs(&saved),
+        &inputs(&saved),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(baseline.terminal_count(), preferred.terminal_count());
+    let baseline =
+        RoutedCandidateReducer::try_new(Arc::new(baseline), [], Default::default()).unwrap();
+    let preferred =
+        RoutedCandidateReducer::try_new(Arc::new(preferred), [], Default::default()).unwrap();
+    let targets =
+        [[3, 2, 1], [0, 3, 2], [-2, 2, 1], [0, 0, 1]].map(|p| IntegralKey::try_new(p).unwrap());
+    assert_eq!(
+        baseline.trace_targets(targets.clone()).unwrap(),
+        preferred.trace_targets(targets).unwrap()
+    );
+}
+
+#[test]
+fn preferred_payloads_share_aggregate_admission_and_reject_duplicates_or_missing_owners() {
+    let saved = split(&generated());
+    let load = |base: &[(Mask, Vec<u8>)], preferred: &[(Mask, Vec<u8>)], limits| {
+        load_generated_candidate_owners_with_preferences::<3>(
+            &inputs(base),
+            &inputs(preferred),
+            limits,
+            Default::default(),
+        )
+    };
+    let limits = CandidateOwnerLoadLimits {
+        max_total_input_bytes: saved.iter().map(|(_, bytes)| bytes.len()).sum(),
+        ..Default::default()
+    };
+    assert!(load(&saved, &[], limits).is_ok());
+    assert!(
+        load(&saved, &saved[..1], limits)
+            .unwrap_err()
+            .message()
+            .contains("aggregate input-byte")
+    );
+    assert!(
+        load(&saved[..1], &saved[1..2], Default::default())
+            .unwrap_err()
+            .message()
+            .contains("missing")
+    );
+    assert!(
+        load(
+            &saved,
+            &[saved[0].clone(), saved[0].clone()],
+            Default::default()
+        )
+        .unwrap_err()
+        .message()
+        .contains("duplicated")
+    );
+    let state_bytes: usize = saved
+        .iter()
+        .map(|(_, bytes)| {
+            let (envelope, _, _) = codec::read_structure(bytes, Default::default()).unwrap();
+            envelope.section(SectionTag::SYMBOLICA_STATE).unwrap().len()
+        })
+        .sum();
+    assert!(
+        load(
+            &saved,
+            &saved[..1],
+            CandidateOwnerLoadLimits {
+                max_total_symbolica_state_bytes: state_bytes,
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .message()
+        .contains("aggregate Symbolica-state")
+    );
+}
+
+#[test]
 fn selected_owner_loader_rejects_ambiguous_or_incompatible_records() {
     let bundle = generated();
     let saved = split(&bundle);

@@ -37,6 +37,7 @@ impl<const N: usize> PreparedOwnerBatch<N> {
                 .collect(),
             rules,
             terminals,
+            deferred_points: None,
             coalescing_bound,
             overlay,
         }
@@ -63,6 +64,13 @@ impl<const N: usize> PreparedOwner<N> {
         for batch in &self.batches {
             if batch.terminals.contains(key) {
                 return Ok(OwnerStep::Terminal);
+            }
+            if batch
+                .deferred_points
+                .as_ref()
+                .is_some_and(|points| points.contains(key))
+            {
+                continue;
             }
             match evaluate(batch)? {
                 Ok(terms) => return Ok(OwnerStep::Applied(terms)),

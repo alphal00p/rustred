@@ -528,6 +528,62 @@ any representation expansion as well as all side exits. A literal translation
 witness may be much smaller than a general relation solver, if the data actually
 identify a useful corridor.
 
+**Completed cheap screen, October4.** The already cold-verified four-root graph
+contains19,074 nodes and101,338 edges. A read-only1.293s geometry scan finds15,501
+direct whole-native, same-owner singleton Apply edges with nonzero translations.
+Grouping by translation and all cap differences gives4,071 signatures:4,003
+have longest paths of one step,64 have two and four have three; none is longer.
+For each of the four longest candidates, retaining every side exit, every
+original root and shared reachability leaves **zero native nodes removable**.
+This is an optimistic fixed-graph diagnostic, not a proved macro or speedup.
+It excludes route/alias transport and does not identify selected rule IDs.
+Consequently it does not rule out broad symbolic or multi-rule acceleration,
+but does not justify implementing simple corridor acceleration for this cohort.
+Evidence: `TMP/rule-optimizer-20261003/profiles/translation-corridor-screen-v1.json`;
+script: `profiles/screen_translation_corridors.py` in the same evidence tree.
+No native solve, production mutation or new CAS was involved.
+
+### A different use of invariants: select rules for a compact enclosure
+
+Gawlitza and Monniaux compute strongest invariants within a fixed linear-template
+domain using strategy iteration and implicit control-flow paths. Their theorem
+is for a specified linear-arithmetic transition language, not rational IBP
+programs; complexity can be exponential, and choosing good templates is outside
+their result. Their distinction between enumerating iterations and solving for
+an invariant is useful here, without importing an SMT/LP framework.
+[Primary paper, §§1.2–1.3,6–7](https://arxiv.org/html/1209.0643).
+
+**Our prospective rule-generation objective:** seek rules which preserve a
+compact positive-weight bound, rather than first choosing arbitrary rules and
+then chasing their expanding images. For example, both same-sector tails
+`(A,R) -> (A+1,R-1)` and `(A-1,R+1)` preserve `A+R`, but the latter prevents
+using `A+2R` as a nonincreasing bound. An alternative *complete identity* with
+tail `(A-2,R+1)` could permit that stronger numerator penalty if all its other
+tails also obey it. These are illustrative shifts, not observed alternative
+rules or a claim of tighter overall coverage. A failed constraint is a useful
+source-search target, not permission to prune a tail. All daughter sectors,
+sign faces, transport images and exceptional cases remain accounted for.
+
+Independent critique emphasizes the logical structure: choose among applicable
+whole rules, but require the bound for **every** nonzero tail of the chosen rule.
+It is an OR over alternative rules and an AND over their successors, not an
+edge-by-edge choice. Fit inequalities on existing candidate alternatives first;
+polynomial guards and complete integer-cell coverage still need native authority.
+The paper's strategy iteration for a fixed transition system does not itself
+provide synthesis of an IBP rule-selection policy.
+
+This differs from calling a finite observed graph an invariant, from blindly
+widening pending regions, and from silently changing the integral order.
+Existing same-support SpIReD ordering already controls total excess (`A+R`
+up to a sector constant), and `source_port/total_excess.rs` already has an inductive-envelope service;
+the novelty would have to be **using envelope feasibility to choose/generate
+better whole programs**, with exact native validation, not reimplementing that
+service. The previous A-only positive-power candidate also failed its shared-work
+gate. A first test should therefore be a no-CAS screen of actual A/R changes,
+followed only if promising by one bounded source proposal. A successful finite
+sample is nomination only, never all-region authority. This remains a deferred
+research hypothesis while the two implemented candidate lanes finish testing.
+
 ### An easier-looking shortcut is already implemented
 
 Root and independent audit checked whether redundant caps on an identical

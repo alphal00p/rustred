@@ -59,6 +59,8 @@ impl Default for OwnerDomainMatchLimits {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OwnerDomainMatchStats {
     pub rules: usize,
+    /// Exact finite-point boundary tests: saved terminals and, when explicitly
+    /// enabled, preferred residual points that defer to the baseline batch.
     pub terminal_checks: usize,
     pub predicates: usize,
     /// Charged before optional whole-piece selection and callback, including a

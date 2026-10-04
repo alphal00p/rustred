@@ -71,6 +71,10 @@ pub(in crate::solver::candidate_reduction) struct PreparedOwnerBatch<const N: us
     /// Saved-order indices of post-baseline alternatives in this batch only.
     pub whole_piece_alternatives: Vec<usize>,
     pub terminals: BTreeSet<IntegralKey>,
+    /// A preferred program's declared residuals outside the baseline terminal
+    /// boundary. These exact points skip this entire batch, never become new
+    /// terminals. `None` is the unchanged ordinary/overlay dispatch path.
+    pub deferred_points: Option<BTreeSet<IntegralKey>>,
     pub coalescing_bound: usize,
     pub overlay: Option<super::feedback::OwnerOverlayMetadata<N>>,
 }

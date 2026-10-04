@@ -127,6 +127,80 @@ class AnchorPlanningTests(unittest.TestCase):
             self.assertTrue(receipt["query_bytes_unchanged"])
             self.assertNotIn("anchor_plan", receipt)
             self.assertFalse((staged / "queries-original.json").exists())
+            self.assertNotIn("preferred_owner_programs", receipt)
+            self.assertNotIn("preferred_owner_programs", json.loads((staged / "selection.json").read_bytes()))
+
+    def test_preferred_program_is_portable_preserved_and_verified(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, queries = self.fixture(root)
+            preferred = root / "choice.rrbin"
+            preferred.write_bytes(b"opaque preferred program, not mathematical authority")
+            selection = json.loads(manifest.read_bytes())
+            selection["preferred_owner_programs"] = [{
+                "owner_mask": "10", "path": str(preferred), "bytes": preferred.stat().st_size,
+                "sha256": STAGE.digest(preferred), "residual_policy": "defer-to-baseline"}]
+            manifest.write_text(json.dumps(selection))
+            campaign = root / "original"
+            receipt = STAGE.stage(manifest, queries, campaign / "inputs", root)
+            saved = receipt["preferred_owner_programs"][0]
+            self.assertEqual(saved["path"], "preferred/0000-10.rrbin")
+            self.assertEqual(saved["residual_policy"], "defer-to-baseline")
+            self.assertEqual(receipt["owner_count"], 2)
+            self.assertEqual(PRODUCTION.verify_inputs(campaign / "inputs")[0], 1)
+            copied = PRODUCTION.prepare_from(campaign, root / "copied", "preserve")
+            self.assertEqual(copied["preferred_owner_programs"][0]["sha256"], saved["sha256"])
+            self.assertEqual(PRODUCTION.verify_inputs(root / "copied/inputs")[0], 1)
+            target = campaign / "inputs" / saved["path"]
+            target.chmod(0o644)
+            target.write_bytes(b"corrupt")
+            with self.assertRaisesRegex(ValueError, "preferred program identity changed"):
+                PRODUCTION.verify_inputs(campaign / "inputs")
+
+    def test_preferred_declarations_are_explicit_and_nonconflicting(self):
+        for mutation in ("policy", "missing-owner", "duplicate", "overlay"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                manifest, queries = self.fixture(root)
+                selection = json.loads(manifest.read_bytes())
+                row = {"owner_mask": "10", "path": str(root / "owner.rrbin"),
+                       "bytes": (root / "owner.rrbin").stat().st_size,
+                       "residual_policy": "defer-to-baseline"}
+                selection["preferred_owner_programs"] = [row]
+                if mutation == "policy":
+                    del row["residual_policy"]
+                elif mutation == "missing-owner":
+                    row["owner_mask"] = "11"
+                elif mutation == "duplicate":
+                    selection["preferred_owner_programs"].append(dict(row))
+                else:
+                    selection["domain_rule_overlays"] = [dict(row)]
+                manifest.write_text(json.dumps(selection))
+                with self.assertRaises(ValueError):
+                    STAGE.stage(manifest, queries, root / "invalid", root)
+                self.assertFalse((root / "invalid").exists())
+
+    def test_preferred_inventory_cannot_be_omitted_or_relabelled(self):
+        for mutation in ("missing", "policy", "bytes", "path"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                manifest, queries = self.fixture(root)
+                selection = json.loads(manifest.read_bytes())
+                selection["preferred_owner_programs"] = [{
+                    "owner_mask": "10", "path": str(root / "owner.rrbin"),
+                    "bytes": (root / "owner.rrbin").stat().st_size,
+                    "residual_policy": "defer-to-baseline"}]
+                manifest.write_text(json.dumps(selection))
+                staged = root / "inputs"
+                receipt = STAGE.stage(manifest, queries, staged, root)
+                if mutation == "missing":
+                    del receipt["preferred_owner_programs"]
+                else:
+                    field = {"policy": "residual_policy", "bytes": "bytes", "path": "path"}[mutation]
+                    receipt["preferred_owner_programs"][0][field] = "changed"
+                (staged / "input-receipt.json").write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, "preferred program inventory differs"):
+                    PRODUCTION.verify_inputs(staged)
 
     def test_partial_rules_are_portable_ordered_and_verified_without_native_work(self):
         with tempfile.TemporaryDirectory() as temporary:

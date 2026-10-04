@@ -91,6 +91,25 @@ def payload_inventory(selection, owner_base):
     masks = [row["mask"] for row in result["owners"]]
     require(len(masks) == len(set(masks)), "duplicate owner masks")
     require(selection["owner_count"] == len(masks), "owner count mismatch")
+    preferred = selection.get("preferred_owner_programs", [])
+    require(isinstance(preferred, list), "preferred programs must be a list")
+    seen = set()
+    overlaid = {row["owner_mask"] for row in selection.get("domain_rule_overlays", [])}
+    for row in preferred:
+        mask = row.get("owner_mask")
+        require(mask in masks and mask not in seen, "preferred programs need unique existing owners")
+        require(mask not in overlaid, "preferred program has a same-owner repair overlay")
+        require(row.get("residual_policy") == "defer-to-baseline", "unsupported preferred residual policy")
+        seen.add(mask)
+        path = (owner_base / row["path"]).resolve(strict=True)
+        require(type(row["bytes"]) is int and row["bytes"] > 0
+                and path.stat().st_size == row["bytes"], "preferred payload size mismatch")
+        digest = sha256(path)
+        require(row.get("sha256", digest) == digest, "preferred payload digest mismatch")
+        result.setdefault("preferred_owner_programs", []).append({
+            "owner_mask": mask, "bytes": row["bytes"], "sha256": digest,
+            "residual_policy": row["residual_policy"]})
+        row["path"] = str(path)
     return result
 
 
@@ -114,6 +133,12 @@ def plan(request):
     inventories = {"baseline": payload_inventory(selection, owner_base)}
     candidate = copy.deepcopy(selection)
     replacements = request.get("replacements", [])
+    preferred_programs = request.get("preferred_programs", [])
+    require(isinstance(preferred_programs, list), "preferred programs must be a list")
+    changed_masks = {row["owner_mask"] for row in replacements}
+    existing_preferences = {row["owner_mask"] for row in candidate.get("preferred_owner_programs", [])}
+    require(not changed_masks.intersection(existing_preferences),
+            "replacement of an owner with a preferred program requires a fresh composition")
     require(len({row["owner_mask"] for row in replacements}) == len(replacements),
             "duplicate owner replacement")
     for replacement in replacements:
@@ -124,6 +149,17 @@ def plan(request):
         for provenance in replacement["source_provenance"]:
             bound_file(provenance)
         matches[0].update(path=str(path), bytes=path.stat().st_size, sha256=replacement["sha256"])
+    for program in preferred_programs:
+        require(program["owner_mask"] not in changed_masks,
+                "cannot replace and prefer the same owner in one treatment")
+        require(program.get("residual_policy") == "defer-to-baseline", "unsupported preferred residual policy")
+        path = bound_file(program)
+        require(program["source_provenance"], "preferred program needs explicit native source provenance")
+        for provenance in program["source_provenance"]:
+            bound_file(provenance)
+        candidate.setdefault("preferred_owner_programs", []).append({
+            "owner_mask": program["owner_mask"], "path": str(path), "bytes": path.stat().st_size,
+            "sha256": program["sha256"], "residual_policy": program["residual_policy"]})
     candidate["total_bundle_bytes"] = sum(row["bytes"] for row in candidate["owners"])
     inventories["candidate"] = payload_inventory(candidate, owner_base)
     # Existing repair overlays bind their base owner's bytes. They must be
@@ -202,7 +238,7 @@ def plan(request):
             native.extend(("--max-domains", str(budget["max_domains"])))
         arms[name] = {"selection": pool, "selection_source": str(source), "inventory": inventories[name],
                       "commands": {"stage": stage, "walk": walk, "cold": cold}, "expected_native_command": native}
-    return {"schema": SCHEMA, "cohort": request["cohort"], "destination": str(destination),
+    result = {"schema": SCHEMA, "cohort": request["cohort"], "destination": str(destination),
             "executable": request["executable"], "queries": baseline["queries"], "query_count": len(ids),
             "query_roles": roles, "arm_order": request["arm_order"], "resources": resources,
             "budget": budget, "criterion": criterion, "arms": arms, "replacements": replacements,
@@ -210,11 +246,14 @@ def plan(request):
             "scope": "one shared cohort including parent dispatch, Apply, Route and descendants",
             "source_authority": "provenance only here; independent native source replay remains required",
             "execution": "NOT RUN; existing outer guard must enforce these cumulative deadlines and drain owned groups"}
+    if preferred_programs:
+        result["preferred_programs"] = preferred_programs
+    return result
 
 
 def semantic_selection(selection):
     result = copy.deepcopy(selection)
-    for field in ("owners", "domain_rule_overlays"):
+    for field in ("owners", "domain_rule_overlays", "preferred_owner_programs"):
         for row in result.get(field, []):
             row.pop("path", None)
     return result
@@ -243,6 +282,11 @@ def arm_result(expected, documents, query_count, query_digest):
         actual = [{field: row.get(field) for field in (key, "bytes", "sha256")}
                   for row in stage.get(name, [])]
         check(actual == expected["inventory"][name], f"staged {name} differ")
+    preferred_fields = ("owner_mask", "bytes", "sha256", "residual_policy")
+    actual_preferred = [{field: row.get(field) for field in preferred_fields}
+                        for row in stage.get("preferred_owner_programs", [])]
+    check(actual_preferred == expected["inventory"].get("preferred_owner_programs", []),
+          "staged preferred programs differ")
     for document, label in ((supervisor, "supervisor"), (walk, "walk")):
         checkpoint = document.get("checkpoint", {})
         check(checkpoint.get("pending_domains") == 0 and checkpoint.get("paused") is False,
@@ -374,7 +418,9 @@ def plan_summary(evaluation_plan, written=False):
             "query_role_counts": {key: len(value) for key, value in evaluation_plan["query_roles"].items()},
             "arms": {name: {"owners": len(arm["inventory"]["owners"]),
                             "routes": len(arm["selection"].get("initial_frontier_routes", [])),
-                            "overlays": len(arm["inventory"]["domain_rule_overlays"])}
+                            "overlays": len(arm["inventory"]["domain_rule_overlays"]),
+                            **({"preferred_programs": len(arm["inventory"]["preferred_owner_programs"])}
+                               if arm["inventory"].get("preferred_owner_programs") else {})}
                      for name, arm in evaluation_plan["arms"].items()},
             "resources": evaluation_plan["resources"], "budget": evaluation_plan["budget"],
             "execution": evaluation_plan["execution"]}

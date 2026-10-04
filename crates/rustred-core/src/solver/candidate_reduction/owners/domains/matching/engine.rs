@@ -57,6 +57,10 @@ enum Phase<'a> {
         batch: usize,
         after: Option<&'a IntegralKey>,
     },
+    DeferredPoints {
+        batch: usize,
+        after: Option<&'a IntegralKey>,
+    },
     Rule {
         batch: usize,
         index: usize,
@@ -391,6 +395,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                         .next(),
                 };
                 let Some(key) = terminal else {
+                    if prepared.deferred_points.is_some() {
+                        return self.push(cell, Phase::DeferredPoints { batch, after: None });
+                    }
                     return self.push(
                         cell,
                         Phase::Rule {
@@ -426,6 +433,59 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                     cut,
                     Phase::Emit(OwnerDomainMatchDisposition::Terminal { batch }),
                     next,
+                )
+            }
+            Phase::DeferredPoints { batch, after } => {
+                let points = programs.owners[&self.owner].batches[batch]
+                    .deferred_points
+                    .as_ref()
+                    .expect("preferred batch");
+                let point = match after {
+                    None => points.iter().next(),
+                    Some(key) => points
+                        .range((Bound::Excluded(key), Bound::Unbounded))
+                        .next(),
+                };
+                let Some(key) = point else {
+                    return self.push(
+                        cell,
+                        Phase::Rule {
+                            batch,
+                            index: 0,
+                            stage: RuleStage::Fixed,
+                        },
+                    );
+                };
+                // This uses the same bounded exact finite-point partition as
+                // terminals, but emits no terminal or proof of any kind.
+                charge(
+                    &mut self.budget.stats.terminal_checks,
+                    1,
+                    self.budget.limits.max_terminal_checks,
+                    "finite boundary checks",
+                )?;
+                let fixed = key.powers().iter().enumerate().map(|(i, &n)| {
+                    (
+                        i,
+                        if self.owner[i] {
+                            (n - 1) as u64
+                        } else {
+                            n.unsigned_abs()
+                        },
+                    )
+                });
+                let cut = self.budget.restrict::<N>(&cell, fixed)?;
+                self.cut(
+                    cell,
+                    cut,
+                    Phase::Terminals {
+                        batch: batch + 1,
+                        after: None,
+                    },
+                    Phase::DeferredPoints {
+                        batch,
+                        after: Some(key),
+                    },
                 )
             }
             Phase::Rule {

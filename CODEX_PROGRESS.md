@@ -27,9 +27,9 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate and matched A1 control delivered | Current A1 reproduces saved owner bytes in 93.672 s; alternate gives 465 rules / 59 residuals in 86.530 s versus 584 / 58. No installation or shared-work benefit claimed. |
 | Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
 | Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
-| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Implemented;85 tests and registered4L pair audited | Whole-column control has no target; face candidate refused on an excluded face. No artifact or gain. One primitive-original-weight correction is being assessed without bank growth. |
+| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique |93 tests and both registered4L pairs audited; fixed ansatz parked | Common original-weight factor is removable, but the normalized endpoint still fails the stronger protected face. No artifact/gain; literature follow-up on target-normalization-aware discovery only. |
 | Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
-| Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Native implementation active after design GO; Python transport implemented/tested | Baseline terminals win, candidate-only residuals defer, only Uncovered falls through. Full native and4L controls precede5L cost comparison. |
+| Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit |327 native tests and47 Python tests pass; optimized CLI frozen | Baseline terminals win, candidate-only residuals defer, only Uncovered falls through. Combined4L control precedes the prepared5L cost comparison. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -37,6 +37,99 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Combined4L control passes; full-context5L comparison running — October4, 02:43 UTC
+
+[M] Preferred-program combined4L A/A completes in41.333960s inclusive. Both arms
+have26,025 domains,17,957 native inspections and872,486 events; all58 required
+queries pass fresh cold All/Off reinspection. All12 semantic checks pass,
+including exact domain/edge/query-root bytes, unchanged terminal payloads and
+historical flag-off counters. Root and independent auditor rerun the read-only
+checker. Baseline/candidate traversal5.119510/5.047732s and complete arms
+19.790377/20.919075s: correctness/overhead control, not a measured speedup.
+Evidence: `candidates/preferred-aa-whole58-v1/` under the October3 evidence tree.
+
+[M] Root launches the preregistered5L preferred-program comparison only after
+that control drains: `python -B TMP/rule-optimizer-20261003/run_pair.py --plan
+TMP/rule-optimizer-20261003/candidates/preferred-owner3-fourpoint-pair-v1/plan.json`.
+Same frozen optimized executable,16 workers on32–47,150GB plus150GB host reserve,
+1,800s inclusive. Baseline walk completes19,109 domains/17,485 inspections;
+its fresh cold phase and candidate arm follow. The older baseline had19,080/
+17,465. Independent metadata comparison finds identical selection, queries,
+caps and native options, but timing-versus-executable cause is not established.
+Do not claim historical5L flag-off identity; this fresh same-binary pair is the
+comparison. Production remains unchanged; no deployment recommendation.
+
+[M] Primitive correction's only paired4L run completes cleanly in1.743353s
+(4.124292s including compatibility preflight). Native GCD finds the common
+factor `n8` across three original-source weights; all three exact quotients,
+multiply-back checks and ansatz-membership checks pass. Their normalized
+rational identity is unchanged. Removing artificial target-pivot provenance
+exposes a nonzero endpoint on the deliberately protected ninth-index face;
+the saved root actually permits this activation, so this is **not** a native
+root/descent impossibility verdict. Both first candidates at prefix56 are
+refused; no export and no exhaustive-kernel conclusion. Evidence:
+`incidence-study/four-loop-boundary-primitive-v1/`. Park the fixed ansatz.
+Profiler now researches target-valuation-aware constraints versus a sufficient
+base-only pivot, without another solve, source-bank growth or implementation.
+
+### Preferred public gates pass; fresh shared-context plans frozen — October4, 02:35 UTC
+
+[M] Preferred-program public tests pass4/4 with zero ignored in1.44s native /
+4.436459s guarded time, making327 focused native tests overall. CP5 and CP6
+cold-load/reinspection, valid preferred-byte mutation refusal and unchanged-byte
+resume all execute successfully. Two earlier failed fixtures remain: the first
+omitted Epoch's existing TransferUnreserved scheduling precondition; the second
+expected CP5's mismatch wording from CP6. Only setup/error-text assertions were
+corrected with independent review; native behavior and rejection requirements
+were unchanged. Root reruns47 staging/evaluator tests: all pass in0.446s.
+
+[M] Existing unchanged CLI main links successfully against the optimized new
+libraries in18.014321s. Frozen binary:
+`TMP/rule-optimizer-20261003/candidates/preferred-owner-build-v1/rustred`,
+SHA256 `59b51956fd7d17755017b8896722d390f9de88ce1e2fb55b88d19f4cb0276b8a`.
+The implementer freezes the identical-payload combined4L58-query A/A plan;
+root reserves CPUs32–47 for it. It is a semantic/overhead control, not a new-rule
+gain claim. Root prepares, but does not launch, the unchanged four-point5L pair
+with all67 owners,8246 routes and two overlays plus the one preferred program.
+Its request is `candidates/preferred-owner3-fourpoint-pair-v1-request.json` in
+the same evidence tree, SHA `d5a054fd...24e937`. All original query caps remain;
+the old ray-specific graph cuts are explicitly historical only.
+
+[M] Primitive-weight research tests pass93/93 after81.283s compilation;
+body0.93s,guarded4.360s. Final optimized research binary and one fixed-input
+off/on comparison are still pending. Production remains untouched.
+
+### Native fallback gates and structural-literature falsifier — October4, 02:28 UTC
+
+[M] Boundary-search milestone committed and pushed as `35a360a4`; no production
+inputs or executable changed. Preferred-program optimized app compiles cleanly
+in512.905s after its retained type-inference-only failure. All323 core semantic
+tests pass (211owner/feedback/domain,112routed). These opt0 test bodies are
+correctness evidence, not optimized performance measurements. Public tests have
+three passes and one Epoch-fixture scheduling precondition failure; the narrow
+`TransferUnreserved` setup correction preserves all assertions and is independently
+reviewed before rerun. Public cold/checkpoint gates and combined4L A/A remain
+pending; root's unchanged four-point5L request is metadata-only until they pass.
+
+[M] Boundary primitive-original-weight correction receives source GO after an
+independent cumulative-term-budget fix. Eight new tests cover common factors,
+non-common endpoint factors, preserved poles, provenance and sparse ansatz escape.
+Builds and the identical48-row off/on pilot wait for the preferred build slot.
+No algebraic success is claimed from source review.
+
+[M] Root's1.293s read-only structural screen of the completed19,074-node graph
+finds4,071 fixed-translation/cap-change signatures. Only four have a longest
+path of three edges; none is longer. Preserving side exits and shared dependencies
+leaves zero native nodes removable in each. This parks simple corridor macros
+for this cohort; it excludes route/alias composition and is not a rule identity
+or general impossibility result. Evidence and bounded script:
+`TMP/rule-optimizer-20261003/profiles/{translation-corridor-screen-v1.json,screen_translation_corridors.py}`.
+First shell invocation lacked `python`; the resolved Nix Python completed the
+scan without native solving. New literature on template-invariant strategy
+iteration is recorded with a narrower prospective use: choose exact rules that
+preserve a compact joint A/R enclosure. Existing induction services and prior
+negative A-only results are explicitly retained; no new verifier/CAS is proposed.
 
 ### Registered boundary pilot completes; one evidence-directed correction — October4, 02:12 UTC
 

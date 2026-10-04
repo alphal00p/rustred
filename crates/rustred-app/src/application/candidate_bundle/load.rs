@@ -14,7 +14,10 @@ mod checkpoint;
 pub(super) mod ingress;
 mod owners;
 pub use checkpoint::load_generated_candidate_checkpoint;
-pub use owners::{CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners};
+pub use owners::{
+    CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
+    load_generated_candidate_owners_with_preferences,
+};
 
 /// Inspect candidate structure without importing Symbolica state or coefficients.
 /// Counts describe the saved payload; they do not authenticate algebra, replay

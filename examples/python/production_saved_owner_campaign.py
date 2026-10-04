@@ -620,7 +620,8 @@ def verify_inputs(directory):
         if directory.resolve() not in path.parents or path.stat().st_size != owner["bytes"] or digest(path) != owner["sha256"]:
             raise ValueError(f"staged owner identity changed: {owner['mask']}")
     overlays = receipt.get("domain_rule_overlays", [])
-    declared = json.loads((directory / "selection.json").read_bytes()).get("domain_rule_overlays", [])
+    selection = json.loads((directory / "selection.json").read_bytes())
+    declared = selection.get("domain_rule_overlays", [])
     fields = ("owner_mask", "path", "bytes")
     if ([tuple(row.get(key) for key in fields) for row in declared]
             != [tuple(row.get(key) for key in fields) for row in overlays]):
@@ -630,6 +631,16 @@ def verify_inputs(directory):
         if (directory.resolve() not in path.parents or path.stat().st_size != overlay["bytes"]
                 or digest(path) != overlay["sha256"]):
             raise ValueError(f"staged partial rule identity changed: {overlay['owner_mask']}")
+    preferred = receipt.get("preferred_owner_programs", [])
+    fields = ("owner_mask", "path", "bytes", "residual_policy")
+    if ([tuple(row.get(key) for key in fields) for row in selection.get("preferred_owner_programs", [])]
+            != [tuple(row.get(key) for key in fields) for row in preferred]):
+        raise ValueError("staged preferred program inventory differs from selection")
+    for program in preferred:
+        path = (directory / program["path"]).resolve()
+        if (directory.resolve() not in path.parents or path.stat().st_size != program["bytes"]
+                or digest(path) != program["sha256"]):
+            raise ValueError(f"staged preferred program identity changed: {program['owner_mask']}")
     for attachment in receipt.get("attachments", []):
         path = (directory / attachment["path"]).resolve()
         if (path.parent != directory.resolve() or path.stat().st_size != attachment["bytes"]
@@ -728,6 +739,10 @@ def prepare_from(source_campaign, campaign, query_order, queries_override=None, 
                 for row in staged.get("domain_rule_overlays", [])]
             != [(row["owner_mask"], row["bytes"], row["sha256"])
                 for row in original.get("domain_rule_overlays", [])]
+            or [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"])
+                for row in staged.get("preferred_owner_programs", [])]
+            != [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"])
+                for row in original.get("preferred_owner_programs", [])]
             or verify_inputs(source_inputs)[2] != original
             or verify_inputs(destination / "inputs")[0] != count):
         raise ValueError("source input identity changed during fresh preparation")

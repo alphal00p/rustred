@@ -118,6 +118,12 @@ fn concrete(p: &CandidateOwnerPrograms<3>, key: IntegralKey) -> OwnerDomainMatch
         if b.terminals.contains(&key) {
             return OwnerDomainMatchDisposition::Terminal { batch };
         }
+        if b.deferred_points
+            .as_ref()
+            .is_some_and(|points| points.contains(&key))
+        {
+            continue;
+        }
         for rule in &b.rules {
             match evaluator(std::slice::from_ref(rule)).apply(
                 &key,
@@ -297,6 +303,7 @@ fn later_batch_terminal_does_not_shadow_earlier_formula() {
         whole_piece_alternatives: vec![],
         rules: vec![],
         terminals: [IntegralKey::try_new([1, 1, 0]).unwrap()].into(),
+        deferred_points: None,
         coalescing_bound: 0,
         overlay: None,
     }));

@@ -127,6 +127,68 @@ class EvaluatorTests(unittest.TestCase):
         self.assertEqual(planned, original)
         self.assertIsNone(E.plan_summary(planned)["plan_file"])
 
+    def prefer(self):
+        path = self.root / "preferred.rrbin"
+        path.write_bytes(b"preferred program fixture")
+        self.write("provenance.json", {"note": "fixture only, not source authority"})
+        self.request["preferred_programs"] = [{
+            **self.pin("preferred.rrbin"), "owner_mask": "10",
+            "residual_policy": "defer-to-baseline",
+            "source_provenance": [self.pin("provenance.json")]}]
+
+    def test_preference_keeps_baseline_payload_and_is_a_distinct_treatment(self):
+        self.prefer()
+        planned, documents = self.results()
+        base, candidate = (planned["arms"][name] for name in E.ARMS)
+        self.assertEqual(base["selection"]["owners"], candidate["selection"]["owners"])
+        self.assertNotIn("preferred_owner_programs", base["selection"])
+        self.assertEqual(candidate["selection"]["preferred_owner_programs"][0]["residual_policy"],
+                         "defer-to-baseline")
+        result = E.compare(planned, documents)
+        self.assertTrue(result["completed_comparison"])
+        self.assertEqual(result["treatment"], "changed_owner_payload")
+        self.assertFalse(result["cohort_target_observed"])
+        self.assertEqual(E.plan_summary(planned)["arms"]["candidate"]["preferred_programs"], 1)
+
+    def test_preferred_receipt_and_policy_are_part_of_comparison(self):
+        self.prefer()
+        for mutation in ("missing", "policy", "digest", "path"):
+            with self.subTest(mutation=mutation):
+                planned, documents = self.results()
+                row = documents["candidate"]["input_receipt"]["preferred_owner_programs"][0]
+                if mutation == "missing":
+                    del documents["candidate"]["input_receipt"]["preferred_owner_programs"]
+                elif mutation == "policy":
+                    row["residual_policy"] = "accept-new-terminals"
+                elif mutation == "digest":
+                    row["sha256"] = "changed"
+                else:
+                    # Staging is allowed to change only payload paths.
+                    documents["candidate"]["selection"]["preferred_owner_programs"][0]["path"] = "preferred/relative.rrbin"
+                self.assertEqual(E.compare(planned, documents)["completed_comparison"], mutation == "path")
+
+    def test_bad_preferred_declarations_fail_before_execution(self):
+        self.prefer()
+        original = copy.deepcopy(self.request)
+        for mutation in ("policy", "missing-owner", "duplicate", "replacement", "digest", "proof"):
+            with self.subTest(mutation=mutation):
+                self.request = copy.deepcopy(original)
+                row = self.request["preferred_programs"][0]
+                if mutation == "policy":
+                    row["residual_policy"] = "accept-new-terminals"
+                elif mutation == "missing-owner":
+                    row["owner_mask"] = "11"
+                elif mutation == "duplicate":
+                    self.request["preferred_programs"].append(dict(row))
+                elif mutation == "replacement":
+                    self.request["replacements"] = [dict(row)]
+                elif mutation == "digest":
+                    row["sha256"] = "changed"
+                else:
+                    row["source_provenance"] = []
+                with self.assertRaises(ValueError):
+                    E.plan(self.request)
+
     def test_known_regression_not_target(self):
         planned, documents = self.results()
         documents["baseline"]["walk"].update(scheduled_nodes=26025, native_processed_nodes=17957)

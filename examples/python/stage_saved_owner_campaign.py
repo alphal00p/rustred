@@ -4,8 +4,8 @@
 No native loading, rule generation, or campaign launch. By default the supplied
 query document is copied byte for byte. Optional rank/power-bounded owner
 orthants are additional native query obligations, not certified coverage: every
-original query is retained and no descendant is clipped. Only owner and partial
-rule payload paths are changed to relative paths in the new folder.
+original query is retained and no descendant is clipped. Only owner, partial-rule
+and preferred-program payload paths are changed to relative paths in the new folder.
 Optional helpers-first ordering changes only query order, not query objects or
 native coverage authority; the owner-anchor- ID prefix is merely a heuristic.
 """
@@ -168,7 +168,7 @@ def plan_query_order(query_bytes, query_order):
 
 
 RESERVED_INPUT_NAMES = frozenset({"selection.json", "queries.json", "queries-original.json",
-                                  "input-receipt.json", "STAGING_INCOMPLETE", "owners", "overlays"})
+                                  "input-receipt.json", "STAGING_INCOMPLETE", "owners", "overlays", "preferred"})
 
 
 def check_attachments(attachments):
@@ -219,6 +219,18 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
             or type(row.get("bytes")) is not int or row["bytes"] <= 0
             or not isinstance(row.get("path"), str) or not row["path"] for row in overlays):
         raise ValueError("partial rule overlays need a selected owner, positive size and payload path")
+    preferred = selection.get("preferred_owner_programs", [])
+    if not isinstance(preferred, list) or any(
+            not isinstance(row, dict) or row.get("owner_mask") not in masks
+            or type(row.get("bytes")) is not int or row["bytes"] <= 0
+            or not isinstance(row.get("path"), str) or not row["path"]
+            or row.get("residual_policy") != "defer-to-baseline" for row in preferred):
+        raise ValueError("preferred programs need a selected owner, positive size, payload path and defer-to-baseline policy")
+    preferred_masks = [row["owner_mask"] for row in preferred]
+    if len(set(preferred_masks)) != len(preferred_masks):
+        raise ValueError("duplicate preferred owner program")
+    if set(preferred_masks).intersection(row["owner_mask"] for row in overlays):
+        raise ValueError("preferred program conflicts with same-owner partial rule overlay")
     if anchor_max_positive_power is not None and anchor_max_numerator_rank is None:
         raise ValueError("anchor positive power requires an explicit anchor rank")
     if anchor_positive_power_owners is not None and anchor_max_positive_power is None:
@@ -267,6 +279,21 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
         overlay_receipts.append({"owner_mask": row["owner_mask"], "source": str(source),
                                  "path": str(relative), "bytes": size, "sha256": source_hash})
         row["path"] = str(relative)
+    preferred_receipts = []
+    if preferred:
+        (destination / "preferred").mkdir()
+    for index, row in enumerate(preferred):
+        source = (owner_base / row["path"]).resolve()
+        if source.stat().st_size != row["bytes"]:
+            raise ValueError(f"declared preferred program size mismatch: {source}")
+        relative = Path("preferred") / f"{index:04d}-{row['owner_mask']}.rrbin"
+        size, source_hash = copy_read_only(source, destination / relative)
+        if size != row["bytes"] or row.get("sha256", source_hash) != source_hash:
+            raise ValueError(f"preferred program identity changed during staging: {source}")
+        preferred_receipts.append({"owner_mask": row["owner_mask"], "source": str(source),
+                                   "path": str(relative), "bytes": size, "sha256": source_hash,
+                                   "residual_policy": row["residual_policy"]})
+        row["path"] = str(relative)
     attachment_receipts = []
     for path in attachments:
         size, attachment_hash = copy_read_only(path, destination / path.name)
@@ -300,6 +327,9 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
     if overlay_receipts:
         receipt["domain_rule_overlays"] = overlay_receipts
         receipt["manifest_changes"] = "owner and partial rule payload paths only"
+    if preferred_receipts:
+        receipt["preferred_owner_programs"] = preferred_receipts
+        receipt["manifest_changes"] = "owner, partial rule and preferred program payload paths only"
     if attachment_receipts:
         receipt["attachments"] = attachment_receipts
     if anchor_plan is not None:

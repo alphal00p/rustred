@@ -16,6 +16,7 @@ mod factor_census;
 mod feedback;
 mod model;
 pub use factor_census::{FactorCensusLimits, FactorCensusRole, OwnerFactorCensus};
+mod preferred;
 mod prepare;
 pub(in crate::solver::candidate_reduction) use evaluation::OwnerStep;
 pub use feedback::{
