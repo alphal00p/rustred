@@ -632,7 +632,7 @@ def verify_inputs(directory):
                 or digest(path) != overlay["sha256"]):
             raise ValueError(f"staged partial rule identity changed: {overlay['owner_mask']}")
     preferred = receipt.get("preferred_owner_programs", [])
-    fields = ("owner_mask", "path", "bytes", "residual_policy")
+    fields = ("owner_mask", "path", "bytes", "residual_policy", "rule_ordinals")
     if ([tuple(row.get(key) for key in fields) for row in selection.get("preferred_owner_programs", [])]
             != [tuple(row.get(key) for key in fields) for row in preferred]):
         raise ValueError("staged preferred program inventory differs from selection")
@@ -739,9 +739,9 @@ def prepare_from(source_campaign, campaign, query_order, queries_override=None, 
                 for row in staged.get("domain_rule_overlays", [])]
             != [(row["owner_mask"], row["bytes"], row["sha256"])
                 for row in original.get("domain_rule_overlays", [])]
-            or [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"])
+            or [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"], row.get("rule_ordinals"))
                 for row in staged.get("preferred_owner_programs", [])]
-            != [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"])
+            != [(row["owner_mask"], row["bytes"], row["sha256"], row["residual_policy"], row.get("rule_ordinals"))
                 for row in original.get("preferred_owner_programs", [])]
             or verify_inputs(source_inputs)[2] != original
             or verify_inputs(destination / "inputs")[0] != count):

@@ -206,7 +206,7 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
           attachments=()):
     attachments = check_attachments(attachments)
     manifest_bytes = manifest.read_bytes()
-    selection = json.loads(manifest_bytes)
+    selection = json.loads(manifest_bytes, object_pairs_hook=unique_object)
     owners = selection.get("owners")
     if not isinstance(owners, list) or not owners:
         raise ValueError("selection must contain a nonempty owner list")
@@ -231,6 +231,13 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
         raise ValueError("duplicate preferred owner program")
     if set(preferred_masks).intersection(row["owner_mask"] for row in overlays):
         raise ValueError("preferred program conflicts with same-owner partial rule overlay")
+    for row in preferred:
+        ordinals = row.get("rule_ordinals")
+        if ordinals is not None and (not isinstance(ordinals, list)
+                or any(type(i) is not int or not 0 <= i < 2 ** 64 for i in ordinals)
+                or any(a >= b for a, b in zip(ordinals, ordinals[1:]))):
+            raise ValueError("preferred rule_ordinals must be null or strictly increasing unsigned integers")
+        # Native loading validates saved ordinals after admitting the entire payload.
     if anchor_max_positive_power is not None and anchor_max_numerator_rank is None:
         raise ValueError("anchor positive power requires an explicit anchor rank")
     if anchor_positive_power_owners is not None and anchor_max_positive_power is None:
@@ -292,7 +299,8 @@ def stage(manifest, queries, destination, owner_base, *, anchor_max_numerator_ra
             raise ValueError(f"preferred program identity changed during staging: {source}")
         preferred_receipts.append({"owner_mask": row["owner_mask"], "source": str(source),
                                    "path": str(relative), "bytes": size, "sha256": source_hash,
-                                   "residual_policy": row["residual_policy"]})
+                                   "residual_policy": row["residual_policy"],
+                                   **({"rule_ordinals": row["rule_ordinals"]} if "rule_ordinals" in row else {})})
         row["path"] = str(relative)
     attachment_receipts = []
     for path in attachments:

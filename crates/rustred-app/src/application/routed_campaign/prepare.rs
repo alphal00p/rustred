@@ -14,7 +14,9 @@ use super::{
     RoutedCampaignRequest,
     input::{Selection, mask},
 };
-use crate::application::candidate_bundle::validate_domain_overlay_ingress;
+use crate::application::candidate_bundle::{
+    load_generated_candidate_owners_with_preference_rule_subsets, validate_domain_overlay_ingress,
+};
 use crate::{
     AppError, CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
     load_generated_candidate_owners_with_preferences,
@@ -139,6 +141,28 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     }
     let (family, programs) = if preferred_inputs.is_empty() {
         load_generated_candidate_owners::<N>(&inputs, limits, request.reduction_limits)?
+    } else if selection
+        .preferred_owner_programs
+        .iter()
+        .any(|record| record.rule_ordinals.is_some())
+    {
+        let subsets = selection
+            .preferred_owner_programs
+            .iter()
+            .filter_map(|record| {
+                record.rule_ordinals.as_deref().map(|ordinals| {
+                    let bits = record.owner_mask.as_bytes();
+                    (std::array::from_fn(|axis| bits[axis] == b'1'), ordinals)
+                })
+            })
+            .collect();
+        load_generated_candidate_owners_with_preference_rule_subsets::<N>(
+            &inputs,
+            &preferred_inputs,
+            &subsets,
+            limits,
+            request.reduction_limits,
+        )?
     } else {
         load_generated_candidate_owners_with_preferences::<N>(
             &inputs,
@@ -182,6 +206,23 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     if !selection.preferred_owner_programs.is_empty() {
         loaded["preferred_owner_programs"] = selection.preferred_owner_programs.len().into();
         loaded["preferred_residual_policy"] = "defer-to-baseline".into();
+    }
+    if selection
+        .preferred_owner_programs
+        .iter()
+        .any(|record| record.rule_ordinals.is_some())
+    {
+        loaded["preferred_rule_subset_policy"] = super::input::PREFERRED_RULE_SUBSET_POLICY.into();
+        loaded["preferred_rule_subsets"] = selection
+            .preferred_owner_programs
+            .iter()
+            .filter_map(|record| {
+                record.rule_ordinals.as_ref().map(
+                    |ordinals| json!({"owner_mask":record.owner_mask,"rule_ordinals":ordinals}),
+                )
+            })
+            .collect::<Vec<_>>()
+            .into();
     }
     observer(loaded);
     let Some(routes) = routes::prepare::<N>(

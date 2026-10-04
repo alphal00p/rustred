@@ -14,6 +14,7 @@ mod checkpoint;
 pub(super) mod ingress;
 mod owners;
 pub use checkpoint::load_generated_candidate_checkpoint;
+pub(crate) use owners::load_generated_candidate_owners_with_preference_rule_subsets;
 pub use owners::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners,
     load_generated_candidate_owners_with_preferences,

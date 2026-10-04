@@ -206,6 +206,42 @@ gates. Promotion additionally needs counterbalanced pairs, complete controls,
 held-outs, generation-cost accounting and independent review. This helper
 always retains the incumbent and never authorizes a production switch.
 
+## Selecting a subset of preferred saved rules
+
+Each `preferred_programs` entry in an evaluation request, or
+`preferred_owner_programs` entry in a saved-owner selection, may supply
+`"rule_ordinals": [3, 11]`. These are original saved ordinals in that preferred
+payload, not positions in a filtered vector. The list must be strictly increasing:
+it selects eligibility, not a new rule order. Omission or `null` enables all
+preferred rules; `[]` enables none. Native admission rejects unknown ordinals
+and still validates **every** rule in the original payload before selecting.
+This is the preference-entry field, not `candidate-inspect`'s diagnostic rule
+filter: that separate API rejects an empty filter; omit it for the normal view.
+
+Baseline terminal precedence and the preferred program's entire residual-hole
+set are unchanged. Unselected rules are skipped; ordinarily inapplicable rules
+leave the remaining eligible preferred rules available in their saved order.
+Only an ordinary gap in the preferred batch, or an explicit residual hole,
+falls back to the original program. Algebra, source, resource and descent errors
+are not swallowed. Staging and fresh campaign copying preserve the subset, and
+evaluation receipts compare it alongside the actual payload identity.
+
+Use a fresh traversal for a different subset. Native checkpoint identity includes
+an opt-in subset-semantics marker, as well as the literal selection and payloads:
+an older binary could ignore this optional JSON field, so identical JSON alone
+would not establish identical semantics. Absent-field behavior is unchanged.
+An empty subset preserves baseline mathematical outcomes, not necessarily
+baseline-only batch IDs or matching counters: the preferred terminal/hole layer
+is still present. Selecting all saved IDs explicitly preserves native dispatch
+but intentionally binds the opt-in policy identity. Full input admission costs
+remain even for a small subset.
+
+Disabling earlier preferred rules can expose a later rule on previously
+shadowed domains. A list of observed rule hits is therefore only a candidate
+selector, not an exhaustive forecast of the new policy. Measure complete shared
+cohorts and cold-reinspect before claiming a gain; do not splice old dependency
+graphs together and call the result a native reduction.
+
 # Finite projected-source-bank diagnostic
 
 `projected_bank.rs` is a generic, input-directed native diagnostic. It reloads

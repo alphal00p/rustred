@@ -189,6 +189,43 @@ class EvaluatorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     E.plan(self.request)
 
+    def test_preferred_rule_subset_is_preserved_and_bound(self):
+        self.prefer()
+        for ordinals in (None, [], [0, 110, 464]):
+            with self.subTest(ordinals=ordinals):
+                self.request["preferred_programs"][0]["rule_ordinals"] = ordinals
+                planned, documents = self.results()
+                candidate = planned["arms"]["candidate"]
+                self.assertEqual(candidate["selection"]["preferred_owner_programs"][0]["rule_ordinals"], ordinals)
+                self.assertEqual(candidate["inventory"]["preferred_owner_programs"][0]["rule_ordinals"], ordinals)
+                self.assertTrue(E.compare(planned, documents)["completed_comparison"])
+                receipt = documents["candidate"]["input_receipt"]["preferred_owner_programs"][0]
+                receipt["rule_ordinals"] = [1] if ordinals != [1] else []
+                self.assertFalse(E.compare(planned, documents)["completed_comparison"])
+                receipt["rule_ordinals"] = ordinals
+                documents["candidate"]["selection"]["preferred_owner_programs"][0]["rule_ordinals"] = [1]
+                self.assertFalse(E.compare(planned, documents)["completed_comparison"])
+
+    def test_preferred_rule_subset_rejects_noncanonical_metadata(self):
+        self.prefer()
+        for ordinals in (False, 1, "110", [-1], [True], [1.0], [1 << 64], [1, 1], [2, 1]):
+            with self.subTest(ordinals=ordinals):
+                self.request["preferred_programs"][0]["rule_ordinals"] = ordinals
+                with self.assertRaisesRegex(ValueError, "rule_ordinals"):
+                    E.plan(self.request)
+
+    def test_existing_preferred_subset_inventory_is_preserved(self):
+        self.prefer()
+        self.request["preferred_programs"][0]["rule_ordinals"] = [110]
+        preferred_selection = E.plan(self.request)["arms"]["candidate"]["selection"]
+        self.write("selection.json", preferred_selection)
+        self.request["baseline"]["selection"] = self.pin("selection.json")
+        self.request["preferred_programs"] = []
+        planned, documents = self.results()
+        self.assertEqual(planned["arms"]["baseline"]["inventory"], planned["arms"]["candidate"]["inventory"])
+        self.assertTrue(E.compare(planned, documents)["completed_comparison"])
+        self.assertEqual(planned["arms"]["baseline"]["inventory"]["preferred_owner_programs"][0]["rule_ordinals"], [110])
+
     def test_known_regression_not_target(self):
         planned, documents = self.results()
         documents["baseline"]["walk"].update(scheduled_nodes=26025, native_processed_nodes=17957)

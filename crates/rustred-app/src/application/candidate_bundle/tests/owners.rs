@@ -156,6 +156,85 @@ fn preferred_owner_a_a_keeps_terminal_boundary_and_trace_identical() {
 }
 
 #[test]
+fn preferred_rule_subset_loader_preserves_baseline_and_full_admission() {
+    use std::collections::BTreeMap;
+    let bundle = generated();
+    let saved = split(&bundle);
+    let all: Vec<Vec<usize>> = bundle
+        .sectors
+        .iter()
+        .map(|s| (0..s.rules.len()).collect())
+        .collect();
+    let masks: Vec<[bool; 3]> = saved
+        .iter()
+        .map(|(m, _)| m.active_bits().try_into().unwrap())
+        .collect();
+    let full: BTreeMap<_, _> = masks
+        .iter()
+        .copied()
+        .zip(all.iter().map(Vec::as_slice))
+        .collect();
+    let empty: BTreeMap<_, &[usize]> = masks.iter().copied().map(|m| (m, &[][..])).collect();
+    let load = |subsets: &BTreeMap<[bool; 3], &[usize]>| {
+        load_generated_candidate_owners_with_preference_rule_subsets::<3>(
+            &inputs(&saved),
+            &inputs(&saved),
+            subsets,
+            Default::default(),
+            Default::default(),
+        )
+    };
+    let targets =
+        [[3, 2, 1], [0, 3, 2], [-2, 2, 1], [0, 0, 1]].map(|p| IntegralKey::try_new(p).unwrap());
+    let (_, base) = load_generated_candidate_owners::<3>(
+        &inputs(&saved),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let base = RoutedCandidateReducer::try_new(Arc::new(base), [], Default::default())
+        .unwrap()
+        .trace_targets(targets.clone())
+        .unwrap();
+    for subsets in [&BTreeMap::new(), &full, &empty] {
+        let (_, programs) = load(subsets).unwrap();
+        let trace = RoutedCandidateReducer::try_new(Arc::new(programs), [], Default::default())
+            .unwrap()
+            .trace_targets(targets.clone())
+            .unwrap();
+        assert_eq!(trace, base);
+    }
+    assert!(load(&BTreeMap::from([(masks[0], &[usize::MAX][..])])).is_err());
+    let mut limits = CandidateOwnerLoadLimits::default();
+    limits.bundle.max_collection_entries = 1;
+    assert!(
+        load_generated_candidate_owners_with_preference_rule_subsets::<3>(
+            &inputs(&saved),
+            &inputs(&saved),
+            &BTreeMap::from([(masks[0], &[0, 1][..])]),
+            limits,
+            Default::default()
+        )
+        .unwrap_err()
+        .message()
+        .contains("subset")
+    );
+    // An excluded candidate still crosses the ordinary payload/native admission boundary.
+    let mut damaged = saved.clone();
+    damaged[0].1[0] ^= 1;
+    assert!(
+        load_generated_candidate_owners_with_preference_rule_subsets::<3>(
+            &inputs(&saved),
+            &inputs(&damaged),
+            &empty,
+            Default::default(),
+            Default::default()
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn preferred_payloads_share_aggregate_admission_and_reject_duplicates_or_missing_owners() {
     let saved = split(&generated());
     let load = |base: &[(Mask, Vec<u8>)], preferred: &[(Mask, Vec<u8>)], limits| {

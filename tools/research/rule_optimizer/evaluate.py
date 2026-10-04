@@ -75,6 +75,19 @@ def replace_option(command, flag, value):
     command[command.index(flag) + 1] = str(value)
 
 
+def preferred_rule_fields(row):
+    """Preserve the optional native saved-ordinal policy, never select rules here."""
+    if "rule_ordinals" not in row:
+        return {}
+    ordinals = row["rule_ordinals"]
+    require(ordinals is None or (isinstance(ordinals, list)
+            and all(type(i) is int and 0 <= i < 2 ** 64 for i in ordinals)
+            and all(a < b for a, b in zip(ordinals, ordinals[1:]))),
+            "preferred rule_ordinals must be null or strictly increasing unsigned integers")
+    # Native admission also validates membership in the FULL saved payload.
+    return {"rule_ordinals": copy.deepcopy(ordinals)}
+
+
 def payload_inventory(selection, owner_base):
     """Bind the actual bytes, including older manifests without sha256 fields."""
     result = {}
@@ -108,7 +121,7 @@ def payload_inventory(selection, owner_base):
         require(row.get("sha256", digest) == digest, "preferred payload digest mismatch")
         result.setdefault("preferred_owner_programs", []).append({
             "owner_mask": mask, "bytes": row["bytes"], "sha256": digest,
-            "residual_policy": row["residual_policy"]})
+            "residual_policy": row["residual_policy"], **preferred_rule_fields(row)})
         row["path"] = str(path)
     return result
 
@@ -159,7 +172,8 @@ def plan(request):
             bound_file(provenance)
         candidate.setdefault("preferred_owner_programs", []).append({
             "owner_mask": program["owner_mask"], "path": str(path), "bytes": path.stat().st_size,
-            "sha256": program["sha256"], "residual_policy": program["residual_policy"]})
+            "sha256": program["sha256"], "residual_policy": program["residual_policy"],
+            **preferred_rule_fields(program)})
     candidate["total_bundle_bytes"] = sum(row["bytes"] for row in candidate["owners"])
     inventories["candidate"] = payload_inventory(candidate, owner_base)
     # Existing repair overlays bind their base owner's bytes. They must be
@@ -283,7 +297,8 @@ def arm_result(expected, documents, query_count, query_digest):
                   for row in stage.get(name, [])]
         check(actual == expected["inventory"][name], f"staged {name} differ")
     preferred_fields = ("owner_mask", "bytes", "sha256", "residual_policy")
-    actual_preferred = [{field: row.get(field) for field in preferred_fields}
+    actual_preferred = [{**{field: row.get(field) for field in preferred_fields},
+                         **({"rule_ordinals": row["rule_ordinals"]} if "rule_ordinals" in row else {})}
                         for row in stage.get("preferred_owner_programs", [])]
     check(actual_preferred == expected["inventory"].get("preferred_owner_programs", []),
           "staged preferred programs differ")

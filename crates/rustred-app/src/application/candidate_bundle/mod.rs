@@ -42,6 +42,7 @@ pub use domain_overlay::{
 };
 pub use generate::{family_candidates, family_candidates_with_progress};
 pub use inspection::*;
+pub(crate) use load::load_generated_candidate_owners_with_preference_rule_subsets;
 pub use load::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,
     load_generated_candidate_bundle, load_generated_candidate_checkpoint,

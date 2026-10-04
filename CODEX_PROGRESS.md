@@ -8,7 +8,21 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Current workboard — October3 profile-guided rule optimization
+## Active workboard — October4
+
+| Lane | Responsible | State / next action |
+| --- | --- | --- |
+| Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered frozen optimized CLI;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
+| Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} three-pair matrix released after4L diagnosis; all four5L training roots retained. No five-loop policy performance result yet. |
+| Literature / radical mechanisms | `lower_rule_evaluation` and independent critic | Shared-policy/finite-frame addendum delivered. Larger frame and block-transfer proposals remain deferred pending a measured witness. |
+| Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
+| Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
+| Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
+
+The ledger below preserves earlier results and rejected/deferred avenues.
+Its older prospective next steps are historical unless activated above.
+
+## Evidence ledger — profile-guided rule optimization
 
 | Lane | Responsible agent | State | Next executable decision |
 | --- | --- | --- | --- |
@@ -29,7 +43,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
 | Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique |93 tests and both registered4L pairs audited; fixed ansatz parked | Common original-weight factor is removable, but the normalized endpoint still fails the stronger protected face. No artifact/gain; literature follow-up on target-normalization-aware discovery only. |
 | Target-normalization-aware search | `lower_sector_discovery`, `lower_rule_evaluation`, independent auditor | Delivered capability; fixed4L pair negative |102 optimized tests and exact default-off identity pass. Both target templates exhaust144 unknowns with no target; no export. Park this finite ansatz; primitive exponent-offset bug corrected. |
-| Joint sharing-aware rule policy | Root, `lower_rule_evaluation`, independent auditor | Research, inventory and complete native boundaries delivered |45 distinct rule pairs across67 exact owner3 domains. Design a saved-rule subset view with baseline fallback; defer preparation reuse. No selected policy or campaign gain yet. |
+| Joint sharing-aware rule policy | `lower_sector_discovery` implementation, `lower_rule_evaluation` research, independent auditor | Cold-path subset implementation active |45 distinct rule pairs across67 exact owner3 domains. Fully admit then retain original saved ordinals, rebuild only private indexes, preserve baseline fallback; preparation reuse deferred. |
 | Pre-containment applied-obligation observer | `lower_sector_discovery` implementation, `lower_rule_evaluation` paired runner, `exact_and_cost_audit` review | Delivered;11 tests and all134 native observations independently audited | Both arms reproduce archived counters and dispatch. Complete boundaries preserve all caps and native binary coefficients; not a performance/closure claim. |
 | Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
 | Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Delivered/pushed `014b351b`;327 native+47 Python tests and combined4L control pass | Generic composition is usable. First5L alternative fails performance gate; keep baseline, confirm actual local dispatch only. |
@@ -40,6 +54,242 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Four-loop semantic coverage passes; stronger identity check does not — October4, 05:32 UTC
+
+[M] Corrected shape/count census completes16/16 owners in12.267s; all are
+nonempty ordinary-rule programs, with no whole-piece alternatives. The sparse
+identical-algebra control consequently selects saved ordinal0 for each owner.
+The native pair completes in40.924s inclusive, under its600s bound and ordinary
+stack settings. Both arms schedule26,025 domains, inspect17,957 natives and
+emit872,486 events, matching the old flag-off counters. Both cold All/Off
+checks pass all58 queries/32 admitted roots with zero pending, frontiers,
+uncovered successors or violations; all854,312 fresh emitted domains are
+covered directly by recorded targets.
+
+[M] Preserve the original checker **FAIL**: graph-byte and subsequently exact
+adjacency identity are false. Both ordered domain files, input roots, edge
+counts and cold semantics agree, but one of26,025 source adjacency multisets
+differs. Independently decoded Route node18532 has the same domain, caps,
+merge epoch663 and native statistics; its inspection snapshot is659 versus656.
+Two outgoing targets change from11371/11379 to11324/11327. All four targets are
+independently rechecked zero-sector leaves, with no children/errors/frontiers.
+Every other source adjacency matches. This is not merely edge serialization
+order and is not described as an identical graph.
+
+[M] The independent auditor checks the actual target records and native cold
+coverage mechanism (`verify_closure.rs`: every regenerated admitted image must
+fit a same-phase recorded target). Root accepts **semantic coverage**, not
+byte/adjacency identity, as the operational control after this concrete
+diagnosis. Neither physical obligations nor the performance acceptance metric
+are relaxed; no native code, query, terminal or assertion is changed. The
+stronger failed checks and original prospective plan remain intact. Evidence:
+`candidates/preferred-subset-aa-whole58-v1/`, especially
+`execution-result.json`, `sparse-aa-check.json`, `exact-adjacency-check.json`,
+both `cold-all.json` files and the separate diagnostic receipt.
+
+[E] Root authorizes the already frozen110,450 and joint five-loop pairs,
+sequentially under the existing guards. Each retains its own same-build fresh
+baseline, complete four-query context and independent cold check. No extra IDs,
+outcome-conditioned sweep, stack override, production change or promotion is
+authorized. Report any censored/failed pair explicitly.
+
+[M] A separate read-only preparation attribution finds approximately13.272s
+native owner preparation,19.796s overlay replay/setup and55.499s route
+verification/transition in the prior baseline. These are heartbeat phase
+intervals, not isolated profiler functions. Candidate intervals corroborate
+roughly14/20/54–55s. Thus a future policy-search acceleration should first
+consider an immutable verified route bank (already mask plus `Arc<Prepared>`),
+not assume family-context creation dominates. Individual loader sub-costs are
+unknown. No cache/session/reuse implementation is started; fresh walk state and
+ordinary cold promotion checks remain mandatory.
+
+### Tested native CLI delivered; experimental input correction — October4, 05:18 UTC
+
+[M] CLI is frozen at `preferred-subset-build-v1/rustred-cli`, SHA256
+`a3c9e542...2570ec`; full digest is in `compile_cli/result.json`.352 native tests
+pass across219 owner,112 routed,7 loader,6 parser,3 CP,1 old-fixture control and
+4 public tests, with zero ignored in those successful suites. The independent
+auditor reviews actual receipts and rehashes the binary. Compilation totals
+1316.583s separately; successful test guards42.796s (bodies8.39s). The two
+failed diagnostic guards total14.160s and remain failures in the evidence.
+Build0 is released; sources stayed frozen throughout.
+
+[M] The first16-owner inspection attempt is refused immediately in0.968s:
+the existing `candidate-inspect` API does **not** interpret an empty ordinal
+filter as count-only. This was an experiment-input mistake, not a new subset
+dispatch failure. No owner census or campaign work completed in that attempt.
+Root authorizes one corrected bounded shape/count inspection with the filter
+omitted and coefficient details off, using the existing API and default16MiB
+output cap. Preserve the failedv1 receipt; no Rust change or rebuild is needed.
+The native inspection and upcoming walks explicitly unset the test-only stack
+override. Final4L plan review and actual cold reinspection remain required.
+
+[E] The former implementation agent now checks whether previously registered
+held-out5L controls exist, without running or choosing a new cohort from future
+matrix outcomes. The research/evaluation and independent audit lanes own the
+fixed native matrix. Root remains integrator and production is still read-only.
+
+[M] Read-only held-out inventory identifies the earlier registration
+`profiles/completed-cohort-plan.json`, `subsequent_cohorts[1]`,
+`H1-smallest-frozen-holdout`: row1 of `profiles/panel/heldout-queries.json`,
+`heldout-high-positive-low-rank`, owner31, `(A,R)=(23,1)` at fixed indices.
+Its starting point is disjoint from the four training roots and67 nomination
+points, but descendant overlap is unknown. It appeared in an older censored
+331-tuple union, so it is **not wholly unseen data**. Standalone cold runtime is
+unknown; historical0.007928s is merely local inspection. The old registration's
+pool differs by one owner payload from the current67-owner/8246-route/two-overlay
+context; any future trial must use a fresh current-context matched baseline,
+not historical timings. No extraction or native execution is authorized yet;
+reopen after a worthwhile completed training result.
+
+### Optimized app built; checkpoint test-harness failure isolated — October4, 05:12 UTC
+
+[M] Optimized app compilation completes in547.415s; the internal semantic-test
+binary builds in420.641s under the original32GiB own-memory guard, without
+retry or source edits.7 loader and6 parser tests pass. The initial CP suite
+fails: its fixture's snapshot-relative `TMP` parent is absent, and one CP6
+fixture overflows the default libtest thread stack. Preserve that7.393s failure.
+No production behavior or passing assertion is changed.
+
+[M] A metadata-only continuation creates the snapshot-local `TMP` parent and
+tests the same frozen executable. A pre-existing neighboring CP6 fixture also
+overflows with `RUST_MIN_STACK` explicitly unset (failed diagnostic6.767s), but
+passes with a newly declared32MiB test stack (5.142s inclusive). The three new
+CP tests pass with that setting (6.966s inclusive). This is **not** a claimed
+established RustRed convention or proof about an older binary. The independent
+auditor confirms the comparisons, unchanged sources/assertions, normal drains
+and interpretation limits. Receipts are preserved under
+`preferred-subset-build-v1/{run_app_subset_tests,run_old_cp6_default,run_old_cp6_stack32,run_app_subset_tests_v3}`.
+Build plan v4 records the continuation; earlier plans and failures remain.
+
+[E] Public/CLI linking and the actual optimized four-loop cold-restore gate
+remain required. The test-only stack setting must not propagate to native
+inspection or campaign comparisons. CLI main and epoch inspector code have no
+new stack wrapper; there is no production stack change.
+
+### Weighted-bound screen does not explain the proposed policy — October4, 04:53 UTC
+
+[M] Research agent completes a0.185s, read-only screen on all67 complete saved
+boundaries, using fixed weights `A+wR`, `w=1,2,3`, with every nonzero tail retained.
+For each weight the alternative lowers the observed maximum at4 sources,
+leaves63 unchanged and raises none. All six observed uses of110, and the one
+use of450, leave these maxima unchanged. At450 both programs reach numerator
+rank2 and maximum `A+R=11` from source `(A,R)=(10,0)`, despite different fanouts.
+Thus the currently proposed shared-work policy is not explained by this simple
+weighted envelope. These are maxima over observed literal endpoints, not
+inductive rule-domain bounds, a new integral ordering or an excuse to discard
+tails. No new IDs enter the fixed native matrix. The independent auditor
+recomputes all67 rows from physical powers and every retained child and agrees
+with source A/R, maxima, excursions and counts.
+Evidence: `profiles/preferred-overlap-applied-v2/envelope-excursion-screen-v1.json`
+under the existing `TMP/rule-optimizer-20261003` evidence root.
+
+### Frozen subset build under test; production remains read-only — October4, 04:50 UTC
+
+[M] Independent source review passes. The optimized core compile completes in
+121.225s and core-test compilation in185.695s;219 owner tests pass, including
+all8 newly named subset tests. Compilation uses the frozen opt2 research profile,
+not a debug performance binary, and is separate from campaign timing. The
+implementer alone invokes build phases on CPUs0–15 under the existing build0
+lock and own-memory/host-headroom guards. The auditor catches a too-narrow app
+test filter before execution: preserved plan v2 includes `input::`, covering
+`input::overlay_tests` as well. No source change or restarted core compile is
+needed. App, routed, checkpoint and CLI results are still pending at this entry.
+Evidence: `TMP/rule-optimizer-20261003/candidates/preferred-subset-build-v1/`
+and `preferred-subset-build-plan-v2.json` beside it.
+
+[M] Read-only production snapshot at about04:48 records167,021,266 discovered
+domains,122,749,152 local completions,15,143,902 pending and zero frontiers.
+It is still running, with checkpoint18 resumable and no abandoned obligations.
+The13/67 root count and21,548,521 recursively closed count are from a snapshot
+6,856s old, so they do not measure present closure. RSS is146.26GB and the
+instantaneous CPU sample about4.9 cores. These observations give neither a
+completion ETA nor grounds to replace the live campaign. No production files,
+checkpoints or lifecycle actions are changed.
+
+### Fixed joint-choice matrix preregistered before native results — October4, 04:37 UTC
+
+[E] Root and independent critic agree to a small2x2 extension: unchanged baseline,
+preferred subsets{110},{450},{110,450}, with110 primary and the others explicitly
+secondary. A greedy gate that tries450 only if110 wins could miss the very
+interaction under study. No additional ordinals, changing source banks or fitted
+domain predicates enter this matrix. Each candidate retains the full original
+four-root context and receives a fresh same-build matched baseline, complete
+coldAll/Off and debt checks. Report baseline spread and each paired delta;
+publication variability prevents treating a difference-of-differences as an
+exact interaction when controls differ. Existing<=1800s-per-pair ceilings,
+resource reservations and separate build gates remain. The ignored registration
+document records this decision **before any native subset performance result**.
+
+[M] The research agent saves primary-source follow-up and exact nominations in
+`docs/research/shared_rule_policy_and_rank_frames_2026-10-04.md`; independent
+critique distinguishes database/e-graph planning from IBP authority, finite-rank
+frame transport from closure, and valid block elimination from abstract cycles.
+The larger frame/transfer designs remain prospective, not new engine work.
+The Python staging slice also now reuses its existing duplicate-JSON-key checker
+for manifests: duplicate selectors are rejected rather than silently changed.
+All32 staging tests pass independently; with21 evaluator and13 upgrade tests,
+the root-owned Python slice totals66 passing tests.
+
+### Portable subset steering and literature nomination — October4, 04:29 UTC
+
+[M] Root implements Python-only propagation of `rule_ordinals` through evaluator
+planning, staged selection/receipt and fresh campaign copying. Absent/null means
+all, [] means none, otherwise strictly increasing unsigned saved IDs; native
+membership/full-payload admission remains authoritative. Receipt mutations and
+noncanonical metadata fail before execution.21 evaluator tests and31 staging
+tests pass; independent auditor reruns both successfully.13 production-upgrade
+tests also pass. Commands use
+`TMPDIR=$PWD/TMP/rule-optimizer-20261003/candidates/preferred-subset-python-tests-v1/tmp`
+with `.venv/bin/python -B -m unittest discover`, respectively
+`-s tools/research/rule_optimizer -p test_evaluate.py -v`,
+`-s examples/python -p test_stage_saved_owner_campaign.py -v`, and
+`-s examples/python -p test_production_upgrade.py -v`.
+These are fixture tests, not native campaign measurements or production changes.
+
+[M] Research agent's0.172s read-only screen finds44 preferred saved-rule groups
+(45 baseline/preferred pairs). Observed group450 reduces its local children
+586->349 and the forced67-source immediate union by70. Group237 instead grows
+its local RHS33->50 but removes10 distinct shared children. Independent audit
+recomputes every group/marginal count. This illustrates nonlocal sharing, not a
+subset-policy prediction: all67 sources were forced present, later rules may
+become newly applicable, and no descendants were traversed. Evidence:
+`profiles/preferred-overlap-applied-v2/observed-rule-group-nomination-v1.json`
+under the existing evidence root.110-only remains the primary prospective trial;
+450 is a possible second input candidate, not an automatically installed rule.
+
+[E] Native subset code/tests and independent source review continue. Root freezes
+the prospective pilot scope in
+`TMP/rule-optimizer-20261003/candidates/preferred-subset-pilot-registration-v1.md`:
+unchanged shared four-query context, same new binary, complete native walk and
+coldAll/Off,32–47/16workers/150GB+150GBreserve,<=1800s inclusive. Compile separately.
+No native pair until source/tests and final executable/input plan pass review.
+
+### Observer milestone pushed; narrow cold-path rule policy authorized — October4, 04:23 UTC
+
+[M] Pushed `946d1ac9` to main: native observer,11 audited tests, completed67-domain
+observations, literature and negative results. Only nine owned files were staged;
+unrelated FeynKit and other untracked work is preserved. No production change.
+
+[E] Implementation and independent audit identify a smaller safe subset design:
+admit the entire preferred payload first, then move retained `PreparedRule`
+objects into a fresh unpublished batch, keeping original saved ordinals and
+relative order. Rebuild only positional whole-piece indexes/coalescing bounds.
+Existing applied/guarded lookup uses saved ordinals, so there is no need for a
+runtime mask, algebra clones, evaluator rewrite or new routing/session API.
+Root authorizes this narrow implementation with an optional input field and
+policy-bound checkpoint identity. Empty, all and sparse subsets, invalid even
+unselected rules, residual holes, terminal precedence, symbolic/concrete agreement
+and cross-policy restore refusal are required tests. Absent-field behavior stays
+unchanged. No new CAS primitive or native performance run is authorized yet.
+
+[E] The first proposed native candidate is preferred110-only for owner3; both
+starting applications use it. Auditor emphasizes that removing earlier preferred
+rules can expose110 in previously shadowed regions too, so the67 observed points
+do not enumerate the policy's effect. The full four-query shared walk and cold
+checks remain mandatory. This is a training-cohort test; any successful promotion
+still needs independent held-out evidence and repeated matched measurements.
 
 ### Complete native boundary evidence; next policy experiment narrowed — October4, 04:18 UTC
 

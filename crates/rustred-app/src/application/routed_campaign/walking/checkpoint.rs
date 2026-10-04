@@ -13,6 +13,8 @@
 //! the owner digests and `WALK_SEMANTICS_VERSION`; the executable digest is
 //! recorded and reported, never a refusal.
 pub(super) mod manifest;
+#[cfg(test)]
+mod preferred_subset_tests;
 #[cfg(all(test, feature = "cli"))]
 mod reinspection_tests;
 pub(super) mod restore;
@@ -179,6 +181,7 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
         "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
+    add_preferred_subset_binding(&mut value, request);
     // A10: the stop policy is semantic and bound; Record (the historical
     // behaviour) adds no key, so every existing CP5 binding is unchanged.
     if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
@@ -189,6 +192,16 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
         value["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
     }
     value
+}
+
+fn add_preferred_subset_binding(value: &mut Value, request: &OwnerDomainWalkRequest) {
+    // Older binaries ignored unknown selection fields while hashing the same
+    // raw JSON. A NEW marker outside that raw string prevents those old
+    // all-preferred checkpoints from masquerading as subset-policy states.
+    if super::super::input::has_preferred_rule_subsets(&request.matching.selection_json) {
+        value["preferred_rule_subset_policy"] =
+            super::super::input::PREFERRED_RULE_SUBSET_POLICY.into();
+    }
 }
 fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
     match policy {
@@ -1127,6 +1140,7 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes,
         "frontier_policy":request.frontier_policy.name()});
+    add_preferred_subset_binding(&mut value, request);
     // AllMiss preserves the original Epoch binding byte-for-byte. The
     // experimental mode is frozen across resume without a new scalar schema.
     if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {

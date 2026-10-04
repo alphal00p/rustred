@@ -180,6 +180,56 @@ class AnchorPlanningTests(unittest.TestCase):
                     STAGE.stage(manifest, queries, root / "invalid", root)
                 self.assertFalse((root / "invalid").exists())
 
+    def test_preferred_subset_roundtrips_and_cannot_change_in_receipt(self):
+        for ordinals in (None, [], [0, 110, 464]):
+            with self.subTest(ordinals=ordinals), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                manifest, queries = self.fixture(root)
+                selection = json.loads(manifest.read_bytes())
+                selection["preferred_owner_programs"] = [{
+                    "owner_mask": "10", "path": str(root / "owner.rrbin"),
+                    "bytes": (root / "owner.rrbin").stat().st_size,
+                    "residual_policy": "defer-to-baseline", "rule_ordinals": ordinals}]
+                manifest.write_text(json.dumps(selection))
+                campaign = root / "original"
+                receipt = STAGE.stage(manifest, queries, campaign / "inputs", root)
+                self.assertEqual(receipt["preferred_owner_programs"][0]["rule_ordinals"], ordinals)
+                self.assertEqual(PRODUCTION.verify_inputs(campaign / "inputs")[0], 1)
+                copied = PRODUCTION.prepare_from(campaign, root / "copied", "preserve")
+                self.assertEqual(copied["preferred_owner_programs"][0]["rule_ordinals"], ordinals)
+                self.assertEqual(PRODUCTION.verify_inputs(root / "copied/inputs")[0], 1)
+                receipt["preferred_owner_programs"][0]["rule_ordinals"] = [1]
+                (campaign / "inputs/input-receipt.json").write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, "preferred program inventory differs"):
+                    PRODUCTION.verify_inputs(campaign / "inputs")
+
+    def test_preferred_subset_is_canonical_before_any_staging(self):
+        for ordinals in (False, 1, "110", [-1], [True], [1.0], [1 << 64], [1, 1], [2, 1]):
+            with self.subTest(ordinals=ordinals), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                manifest, queries = self.fixture(root)
+                selection = json.loads(manifest.read_bytes())
+                selection["preferred_owner_programs"] = [{
+                    "owner_mask": "10", "path": str(root / "owner.rrbin"),
+                    "bytes": (root / "owner.rrbin").stat().st_size,
+                    "residual_policy": "defer-to-baseline", "rule_ordinals": ordinals}]
+                manifest.write_text(json.dumps(selection))
+                with self.assertRaisesRegex(ValueError, "rule_ordinals"):
+                    STAGE.stage(manifest, queries, root / "invalid", root)
+                self.assertFalse((root / "invalid").exists())
+
+    def test_duplicate_selector_fields_do_not_silently_change_staged_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, queries = self.fixture(root)
+            text = manifest.read_text().rstrip()
+            self.assertTrue(text.endswith("}"))
+            manifest.write_text(text[:-1] + ', "preferred_owner_programs": '
+                '[{"rule_ordinals": [], "rule_ordinals": [0]}]}')
+            with self.assertRaisesRegex(ValueError, "duplicate JSON field: rule_ordinals"):
+                STAGE.stage(manifest, queries, root / "invalid", root)
+            self.assertFalse((root / "invalid").exists())
+
     def test_preferred_inventory_cannot_be_omitted_or_relabelled(self):
         for mutation in ("missing", "policy", "bytes", "path"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:

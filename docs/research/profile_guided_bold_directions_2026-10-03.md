@@ -3,6 +3,11 @@
 Date: 2026-10-03; generation status updated 2026-10-04. Research and prospective
 experiments, not a promotion or closure claim.
 
+The [October4 shared-policy and finite-rank-frame addendum](shared_rule_policy_and_rank_frames_2026-10-04.md)
+records the completed native boundary census, the first saved-rule subset
+nominees, and follow-up primary literature. It distinguishes immediately
+executable rule selection from larger, still-unmeasured representation changes.
+
 ## October4: choose a cooperating set of rules, not local winners
 
 The new whole-program experiment is a useful negative. Replacing owner3's

@@ -5109,3 +5109,177 @@ boundary keys establish neither closure, termination nor a 20% campaign gain.
 No policy is selected or installed and no additional native run follows.
 Evidence: `profiles/preferred-overlap-applied-v2/execution-result.json`
 (`b9252659...498643`) and `boundary-inventory.json` (`25ad0341...197bb4`).
+
+#### Prospective saved-rule subset: admission and measurement boundary
+
+The independently recomputed 44-group nomination screen holds all 67 source
+domains present and swaps whole captured immediate boundaries. Group110 changes
+that fixed union by -39, group450 by -70, and group237 by -10 despite increasing
+its local successor references from 33 to 50. These are useful nominations, not
+filtered-program predictions: disabling an earlier preferred rule can expose a
+later rule at previously shadowed domains, and changed reachability can remove
+some of the 67 sources. Both starting owner3 domains use rule110, so mixed
+root choices require a domain predicate unavailable to an ordinal-only policy.
+The intended test remains the full four-query context, unchanged baseline
+terminals and complete preferred-residual fallback holes, with fresh native
+dispatch, walk and independent cold gates. No native subset result exists yet.
+
+The reviewed cold-only implementation draft fully admits every preferred rule
+before retaining an explicitly sorted saved-ordinal subset. Saved provenance
+IDs and relative order remain unchanged; private vector positions and their
+derived whole-piece lookup/coalescing bounds are rebuilt. The ordinary, literal,
+applied and guarded paths must all see that same immutable filtered batch.
+Neither an empty subset nor a removed rule removes any original residual hole
+or adds terminal authority. App checkpoint binding needs an explicit opt-in
+policy marker outside the raw selection JSON: an older binary could ignore an
+unknown selector while hashing the same raw JSON and payloads. Absent/null
+selection must retain historical all-preferred behavior and binding. These are
+source/test review requirements, not a claim that unexecuted Rust tests passed.
+
+Python steering preserves absent/null/all, empty/none and strictly increasing
+unsigned non-boolean ordinal lists through evaluator, staging, receipts and
+prepare-from. Native saved-ID membership remains a later full-admission check.
+Independent cheap tests pass: 21 evaluator tests and, after the prospective
+duplicate-key admission correction, 32 staging tests (0.369 seconds for the
+latter), using workspace-local `TMPDIR`. The staging parser's existing
+`unique_object` hook rejects duplicate selector keys before creating the
+destination; the regression exercises a nested duplicate. These tests do not
+invoke a native campaign or establish subset speed, closure or source proof.
+
+Final native source review grants guarded build/test GO, not experiment GO.
+The eight new core cases exercise sparse saved ID110 at private vector slot0
+through literal/matcher/applied/guarded entry points, optional whole-piece
+position rebuilding, exact holes/terminals, full admission of an invalid disabled
+rule, and non-descent/resource failure propagation. App loader tests compare
+absent/all/empty subsets over actual generated native payloads; parser tests
+cover type/order/admission bounds. CP5/CP6 tests exercise same-policy restoration,
+changed-policy rejection and binding separation from a legacy identical raw
+selector with no opt-in marker. These checkpoint fixtures test identity, not a
+source-proved physical subset walk; actual steering and cold reinspection remain
+required experimental controls. No native Rust test result is asserted yet.
+Frozen build plan `630144c6...639e9b` matches all 1,868 live source/fixture files.
+Metadata review catches a prospective empty test filter: `input::tests` does not
+select the new parser regression in `input::overlay_tests`. Preserved plan v2
+`a1959b90...968ba3` adds the broader `input::` phase and makes the public-test/CLI
+chain depend on it, without changing sources, compiler commands or guard limits.
+The knowingly empty phase is not executed.
+
+The first delivered native receipts pass independent review: optimized core
+compilation takes 121.224568 seconds, semantic-test compilation 185.694821
+seconds, and the 219 owner plus 112 routed tests all pass with zero failures or
+ignored tests. All eight new core subset tests actually execute. The routed
+suite's stderr contains its deliberate caught observer/worker panic fixtures,
+not failed tests. Every owned group drains cleanly within the unchanged 32GiB
+build guard. Independently rehashed core/test artifacts match receipts
+`121ca651...ebc8e4` and `98ef42d3...e8dcf5`. Optimized app, internal app/public
+tests and final CLI remain pending at this checkpoint; these semantic tests are
+not performance measurements.
+
+Optimized app compilation subsequently passes in 547.414806 seconds; internal
+opt0 test compilation passes in 420.641246 seconds under the original 32GiB
+guard (sampled peak 32,080,429,056 bytes), without a retry or limit increase.
+Both artifacts are independently rehashed against receipts. Seven native loader
+tests and six parser tests pass with zero failures/ignored tests, including the
+previously missed selector parser regression. The first three-test checkpoint
+phase does not pass: CP5 fails because its existing fixture uses `create_dir`
+under a missing snapshot-local `TMP` parent; CP6 aborts with stack overflow in
+the opt0 libtest process. The marker-binding test passes. The 7.393281-second
+failed receipt and clean group drain remain intact; later gates remain blocked.
+There is no established RustRed test-stack override to cite. Root authorizes
+a new explicit 32MiB libtest stack and the missing directory prerequisite only,
+plus a same-binary pre-existing CP6 fixture control at the unmodified stack.
+CLI main and epoch inspector workers retain their ordinary stack behavior;
+optimized full 4L cold/walk verification must not inherit this test-only setting.
+
+The exact pre-existing CP6 test also aborts at the explicitly unset default
+stack, in 6.767059 guarded seconds, with clean drain. With the new 32MiB libtest
+setting that same test passes in 5.142499 seconds; all three new checkpoint tests
+then pass in 6.965785 seconds (2.04-second body), with no failures or ignored
+tests and no binary/source change. This isolates dependence on the test-stack
+environment and excludes an active subset as a prerequisite for the abort; it
+does not prove that a pre-change binary had identical behavior. Both failed
+receipts remain failures. The experiment-only launch wrapper explicitly unsets
+`RUST_MIN_STACK`, records that fact and preserves the original paired-controller
+inclusive start clock. No source or production stack policy is changed.
+
+The four existing public integration tests subsequently pass over optimized
+libraries without the enlarged test-stack setting, including CP5/CP6 cold
+binding and changed-payload refusals. Together, the successful suites contain
+352 test executions with no failed/ignored tests; neither preserved aborted
+phase is counted as a pass. Final CLI linking takes 17.958335 seconds and drains
+cleanly. Its independently rehashed SHA256 is `a3c9e542...2570ec`. The compiled
+gate now passes, but the actual sparse-selector combined-4L cold control remains
+required before the five-loop portfolio.
+
+The first 16-owner metadata census is refused at owner0 after 0.967584 seconds:
+the existing inspection API rejects an explicitly empty ordinal filter, unlike
+the new preferred-policy selector. The audit missed that API distinction in
+preflight. No owner count is accepted, and the failed receipt is preserved.
+Root authorizes one corrected bounded shape/count census: omit the filter,
+retain the existing 16MiB output cap and keep RHS coefficient details off.
+This still emits guard diagnostic text and rule shapes, but performs no source
+generation, search, replay or dispatch. Complete rule/sector counts and saved
+ordinal sequences, not parsed coefficient strings, determine sparse eligibility.
+
+Before outcomes, the parent proposes freezing the complete small policy matrix
+baseline / {110} / {450} / {110,450}, with110 primary and the other two secondary.
+This tests interaction without conditioning the second nomination on the first
+winning. It permits no additional IDs or adaptive pool growth. Separate fresh
+baseline pairs must report their baseline spread: interaction arithmetic is
+descriptive, not an exact causal decomposition, if publication variability is
+comparable to the effect. Every arm retains the same full four-root workload.
+
+A separate fixed-weight screen is independently recomputed from all exact
+singleton physical powers and every retained native child. For A+wR at w=1,2,3,
+63 of 67 preferred boundaries have the same maximum and four lower it by w;
+none raises it. Every observed use of110 or450 has unchanged maximum. Source
+degrees, excursions and positive-excursion record counts also agree. This is a
+literal immediate-boundary diagnostic, not an inductive invariant, new policy
+or downstream-work estimate; it does not change the registered portfolio.
+
+The sole corrected metadata census completes all16 owners in12.267370 seconds,
+with complete sector/rule inventories, contiguous original saved ordinals and
+no whole-piece alternatives. Every owner has a nonempty ordinary program, so
+the deterministic sparse control uses `[0]` throughout. Together with the
+preserved initial refusal, census time is13.234954 seconds. Final control plan
+`45199131...01376c` passes the independent prospective gate: all58 query/cap
+bytes,16 owners/508 routes, native commands and600-second inclusive budget
+match the prior control except tested executable, destination and selectors.
+The wrapper explicitly removes the test-only stack override.
+
+The actual sparse control completes in40.923630 seconds, with all six owned
+phase groups drained, normal checkpoint-only walk exits4, and cold All/Off PASS
+for both arms. Both retain26,025 domains,17,957 native inspections and872,486
+events, identical domain-ID images, ledger, input roots/frontiers and cold root
+semantics. The raw graph-byte check **fails**, and a separate complete directed
+edge comparison also **fails**; these receipts remain failures, not an
+order-only discrepancy. Exactly one of26,025 source adjacency lists differs:
+Route node18532 replaces targets11371/11379 with11324/11327. Each graph has
+495,898 edges, no duplicate targets and identical run order. The source domain,
+caps, merge epoch663 and native statistics agree, while its recorded inspection
+snapshot differs659 versus656. All four changed target nodes are independently
+reinspected zero-sector Route leaves with no outgoing edges/errors/frontiers.
+Removing edges to just these four authenticated zero leaves makes the complete
+remaining adjacency equal; this diagnostic does not rewrite either graph.
+
+The separate physical-coverage control passes. Both cold receipts re-inspect
+all17,957 native nodes and cover all854,312 admitted domains directly, with zero
+uncovered images, alias-chain coverage or violations. The unchanged verifier
+in `walking/verify_closure.rs::reinspect` checks every fresh native image against
+same-phase exact containment by its recorded targets; native routing is
+unchanged at the differing Route source. This supports alternate valid
+coverage witnesses, not identical stored dependency graphs or a new algebraic
+termination claim. Root explicitly accepts this semantic-coverage result as
+the operational control gate, preserving both stronger graph-identity failures.
+
+The fixed five-loop matrix is independently input-audited before execution:
+matrix `c01296af...3222c3`, plans `567f39b5...bc5c8a`, `8d746165...f8e06bf`
+and `341e37ef...5045310`. Every baseline selection/inventory and every candidate
+payload, query/cap, route/overlay, source-authority field and native command is
+unchanged from the completed full-preference four-point comparison after only
+executable/destination substitution and the registered original saved-ordinal
+lists `[110]`, `[450]`, `[110,450]`. Full67/8246/2 context, original residual
+holes and terminal policy remain. Each fresh matched pair retains its original
+1,800-second inclusive guard,16 workers on32–47 and150GB process/150GB reserve;
+native runs explicitly unset `RUST_MIN_STACK`. Root releases the three frozen
+pairs after the qualified 4L control above. No outcome or gain is claimed here.

@@ -1,5 +1,5 @@
 //! Fresh, trusted rule-program composition; not terminal or closure authority.
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use super::{CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms};
 use crate::solver::CandidateReductionError;
@@ -26,12 +26,59 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         inputs: impl IntoIterator<Item = CandidateOwnerInput<N>>,
         preferences: impl IntoIterator<Item = CandidateOwnerInput<N>>,
     ) -> Result<Self, CandidateReductionError> {
+        Self::try_new_with_preference_rule_subsets(context, inputs, preferences, &BTreeMap::new())
+    }
+
+    /// Fresh cold composition with an optional saved-ordinal subset per
+    /// preferred owner. An absent owner entry enables every preferred rule;
+    /// an empty slice enables none. Slices must be strictly increasing.
+    ///
+    /// EVERY input rule receives full native admission before selection. Only
+    /// then are unselected prepared objects dropped, without renumbering or
+    /// copying retained formulas. Original preferred residual holes and the
+    /// baseline terminal boundary are independent of this selection. This is
+    /// not a mutation, append-lineage update, source proof, or closure claim.
+    pub fn try_new_with_preference_rule_subsets(
+        context: Arc<CandidateOwnerContext<N>>,
+        inputs: impl IntoIterator<Item = CandidateOwnerInput<N>>,
+        preferences: impl IntoIterator<Item = CandidateOwnerInput<N>>,
+        rule_subsets: &BTreeMap<[bool; N], &[usize]>,
+    ) -> Result<Self, CandidateReductionError> {
         let mut baseline = Self::try_new(context.clone(), inputs)?;
         let mut preferences = preferences.into_iter().peekable();
         if preferences.peek().is_none() {
+            if !rule_subsets.is_empty() {
+                return Err(CandidateReductionError::InvalidInput(
+                    "preferred rule subset has no corresponding preferred owner".into(),
+                ));
+            }
             return Ok(baseline);
         }
         let preferred = Self::try_new(context, preferences)?;
+        for (sector, ordinals) in rule_subsets {
+            let candidate = preferred.owners.get(sector).ok_or_else(|| {
+                CandidateReductionError::InvalidInput(
+                    "preferred rule subset has no corresponding preferred owner".into(),
+                )
+            })?;
+            let rules = &candidate.batches[0].rules;
+            if ordinals.len() > rules.len() || ordinals.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(CandidateReductionError::InvalidInput(
+                    "preferred rule ordinals must be a bounded strictly increasing subset".into(),
+                ));
+            }
+            // Admission assigns saved ordinals before any subset is considered.
+            // Membership is checked against actual admitted IDs, not Vec slots.
+            if ordinals.iter().any(|ordinal| {
+                rules
+                    .binary_search_by_key(ordinal, |rule| rule.ordinal)
+                    .is_err()
+            }) {
+                return Err(CandidateReductionError::InvalidInput(
+                    "preferred rule subset contains an unknown saved ordinal".into(),
+                ));
+            }
+        }
         // Validate every binding before assembling any replacement. All native
         // rules, including declared residuals, were admitted by `try_new` above.
         for (sector, candidate) in &preferred.owners {
@@ -52,6 +99,18 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             let mut candidate = Arc::try_unwrap(candidate).expect("fresh preferred owner");
             let mut first = Arc::try_unwrap(candidate.batches.pop().expect("one fresh batch"))
                 .expect("fresh preferred batch");
+            if let Some(ordinals) = rule_subsets.get(&sector) {
+                first
+                    .rules
+                    .retain(|rule| ordinals.binary_search(&rule.ordinal).is_ok());
+                // These are private Vec positions/derived work bounds, NOT
+                // saved provenance IDs. Rebuild both after compaction.
+                first = super::model::PreparedOwnerBatch::new(
+                    first.rules,
+                    first.terminals,
+                    first.overlay,
+                );
+            }
             let original = Arc::get_mut(baseline.owners.get_mut(&sector).expect("validated owner"))
                 .expect("fresh baseline owner");
             let mut fallback = Arc::try_unwrap(original.batches.pop().expect("one fresh batch"))
@@ -68,3 +127,6 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod subset_tests;

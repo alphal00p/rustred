@@ -13,6 +13,7 @@ use crate::{AppError, CandidateOwnerLoadLimits, MAX_CANDIDATE_BUNDLE_BYTES};
 
 pub(super) const MAX_STEERING_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_ROUTES: usize = 100_000;
+pub(super) const PREFERRED_RULE_SUBSET_POLICY: &str = "saved-ordinal-subset-v1";
 
 #[derive(Debug, Deserialize)]
 pub(super) struct Selection {
@@ -71,6 +72,35 @@ pub(super) struct PreferredOwnerProgram {
     pub bytes: u64,
     pub owner_mask: String,
     pub residual_policy: PreferredResidualPolicy,
+    /// Saved provenance IDs, never vector positions or a requested reordering.
+    /// None (also JSON null) preserves all-preferred behavior; [] enables none.
+    #[serde(default)]
+    pub rule_ordinals: Option<Vec<usize>>,
+}
+
+/// Identity marker only; authoritative admission remains Selection::parse and
+/// the native loader. Ignored fields avoid decoding route matrices a
+/// second time. Invalid JSON is still bound literally by checkpoint identity
+/// and will be refused by normal request admission, never executed here.
+pub(super) fn has_preferred_rule_subsets(text: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Probe {
+        #[serde(default)]
+        preferred_owner_programs: Vec<Entry>,
+    }
+    #[derive(Deserialize)]
+    struct Entry {
+        rule_ordinals: Option<de::IgnoredAny>,
+    }
+    if text.len() > MAX_STEERING_BYTES {
+        return false;
+    }
+    serde_json::from_str::<Probe>(text).is_ok_and(|probe| {
+        probe
+            .preferred_owner_programs
+            .iter()
+            .any(|entry| entry.rule_ordinals.is_some())
+    })
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -162,6 +192,7 @@ impl Selection {
             }
         }
         let mut preferred = BTreeSet::new();
+        let mut subset_entries = 0usize;
         for program in &selection.preferred_owner_programs {
             mask(&program.owner_mask, n)?;
             if !owners.contains(&program.owner_mask) || !preferred.insert(&program.owner_mask) {
@@ -188,6 +219,21 @@ impl Selection {
                 return Err(AppError::limit(
                     "owner, overlay and preferred bytes exceed declared ingress limits",
                 ));
+            }
+            if let Some(ordinals) = &program.rule_ordinals {
+                subset_entries = subset_entries
+                    .checked_add(ordinals.len())
+                    .ok_or_else(|| AppError::limit("preferred rule subset count overflow"))?;
+                if subset_entries > limits.bundle.max_collection_entries {
+                    return Err(AppError::limit(
+                        "preferred rule subset metadata exceeds admission limit",
+                    ));
+                }
+                if ordinals.windows(2).any(|pair| pair[0] >= pair[1]) {
+                    return Err(AppError::input(
+                        "preferred rule ordinals must be strictly increasing",
+                    ));
+                }
             }
         }
         let mut sources = BTreeSet::new();
@@ -332,6 +378,50 @@ mod overlay_tests {
                 .message()
                 .contains("payload is empty")
         );
+    }
+
+    #[test]
+    fn preferred_rule_subsets_are_optional_canonical_and_bounded() {
+        let mut input = selection();
+        input["preferred_owner_programs"] = json!([{"path":"p.rrbin","bytes":1,
+            "owner_mask":"1","residual_policy":"defer-to-baseline"}]);
+        let text = input.to_string();
+        assert!(
+            Selection::parse(&text).unwrap().0.preferred_owner_programs[0]
+                .rule_ordinals
+                .is_none()
+        );
+        assert!(!has_preferred_rule_subsets(&text));
+        for value in [json!(null), json!([]), json!([0, 2, 110])] {
+            input["preferred_owner_programs"][0]["rule_ordinals"] = value.clone();
+            let text = input.to_string();
+            let parsed = Selection::parse(&text).unwrap().0;
+            assert_eq!(
+                parsed.preferred_owner_programs[0].rule_ordinals.is_some(),
+                !value.is_null()
+            );
+            assert_eq!(has_preferred_rule_subsets(&text), !value.is_null());
+        }
+        for value in [
+            json!([1, 1]),
+            json!([2, 1]),
+            json!([-1]),
+            json!([true]),
+            json!([1.0]),
+            json!("all"),
+        ] {
+            input["preferred_owner_programs"][0]["rule_ordinals"] = value;
+            assert!(Selection::parse(&input.to_string()).is_err());
+        }
+        input["preferred_owner_programs"][0]["rule_ordinals"] = json!([0, 1, 2]);
+        input["load_limits"] = json!({"max_collection_entries":2});
+        assert!(
+            Selection::parse(&input.to_string())
+                .unwrap_err()
+                .message()
+                .contains("subset")
+        );
+        assert!(!has_preferred_rule_subsets("not JSON"));
     }
 
     #[test]

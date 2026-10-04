@@ -1,6 +1,6 @@
 //! Selective trusted immutable candidate inputs, independent of checkpoints.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use rustred::family::IntegralFamily;
@@ -74,7 +74,7 @@ pub fn load_generated_candidate_owners<const N: usize>(
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
-    load_owner_programs(inputs, &[], limits, reduction_limits)
+    load_owner_programs(inputs, &[], &BTreeMap::new(), limits, reduction_limits)
 }
 
 /// Load optional preferred programs without changing the baseline terminal set.
@@ -92,12 +92,40 @@ pub fn load_generated_candidate_owners_with_preferences<const N: usize>(
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
-    load_owner_programs(inputs, preferences, limits, reduction_limits)
+    load_owner_programs(
+        inputs,
+        preferences,
+        &BTreeMap::new(),
+        limits,
+        reduction_limits,
+    )
+}
+
+/// Crate-internal cold-path steering. All payload admission remains identical;
+/// the core filters fresh prepared rules only after their full admission.
+pub(crate) fn load_generated_candidate_owners_with_preference_rule_subsets<const N: usize>(
+    inputs: &[CandidateOwnerBundle<'_>],
+    preferences: &[CandidateOwnerBundle<'_>],
+    rule_subsets: &BTreeMap<[bool; N], &[usize]>,
+    limits: CandidateOwnerLoadLimits,
+    reduction_limits: ReductionLimits,
+) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
+    let entries = rule_subsets
+        .values()
+        .try_fold(0usize, |sum, ordinals| sum.checked_add(ordinals.len()))
+        .ok_or_else(|| AppError::limit("preferred rule subset count overflow"))?;
+    if rule_subsets.len() > preferences.len() || entries > limits.bundle.max_collection_entries {
+        return Err(AppError::limit(
+            "preferred rule subset metadata exceeds admission limit",
+        ));
+    }
+    load_owner_programs(inputs, preferences, rule_subsets, limits, reduction_limits)
 }
 
 fn load_owner_programs<const N: usize>(
     inputs: &[CandidateOwnerBundle<'_>],
     preferences: &[CandidateOwnerBundle<'_>],
+    rule_subsets: &BTreeMap<[bool; N], &[usize]>,
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
@@ -272,7 +300,12 @@ fn load_owner_programs<const N: usize>(
         CandidateOwnerPrograms::try_new(context, decoded)
     } else {
         let preferred = decoded.split_off(inputs.len());
-        CandidateOwnerPrograms::try_new_with_preferences(context, decoded, preferred)
+        CandidateOwnerPrograms::try_new_with_preference_rule_subsets(
+            context,
+            decoded,
+            preferred,
+            rule_subsets,
+        )
     }
     .map_err(|error| AppError::execution(error.to_string()))?;
     Ok((family, programs))
