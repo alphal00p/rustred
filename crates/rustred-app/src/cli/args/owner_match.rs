@@ -7,6 +7,7 @@ use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf
 /// The argument error is a static string; keep it in step with the shared cap.
 const MAX_WORKERS_MESSAGE: &str = "at most 256 symbolic workers";
 const _: () = assert!(MAX_WALK_WORKERS == 256, "update MAX_WORKERS_MESSAGE");
+mod finite_replay_args;
 
 #[cfg(test)]
 mod campaign_tests;
@@ -40,6 +41,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_guard_univariate_degree: usize,
     pub no_progress: bool,
     pub follow_successors: bool,
+    pub finite_replay: Option<crate::OwnerDomainWalkFiniteReplayLimits>,
     pub workers: usize,
     pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
@@ -105,6 +107,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_guard_univariate_degree: limits.guard_algebra.max_univariate_degree,
         no_progress: false,
         follow_successors: false,
+        finite_replay: None,
         workers: 1,
         inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
@@ -230,7 +233,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--apply-subdivision-cut" => "--apply-subdivision-cut",
             "--apply-cell-refinement-max-cardinality" => "--apply-cell-refinement-max-cardinality",
             "--help" | "-h" => return Ok(Command::Help),
-            _ => return Err(ArgError::UnknownOption(option)),
+            _ => finite_replay_args::option_name(&option)
+                .ok_or_else(|| ArgError::UnknownOption(option.clone()))?,
         };
         if !seen.insert(name) {
             return Err(ArgError::DuplicateOption(name));
@@ -241,6 +245,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--follow-successors" {
             result.follow_successors = true;
+            continue;
+        }
+        if name == finite_replay_args::ENABLE {
+            result
+                .finite_replay
+                .get_or_insert_with(finite_replay_args::defaults);
             continue;
         }
         if name == "--epoch-rolling" {
@@ -268,6 +278,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             continue;
         }
         let value = next_utf8_value(&mut arguments, name)?;
+        if finite_replay_args::option_name(name).is_some() {
+            let cap = parse_nonnegative_integer(name, value)?;
+            finite_replay_args::set_cap(
+                result
+                    .finite_replay
+                    .get_or_insert_with(finite_replay_args::defaults),
+                name,
+                cap,
+            );
+            continue;
+        }
         match name {
             "--apply-cell-refinement-max-cardinality" => {
                 result.apply_cell_refinement_max_cardinality =
@@ -776,6 +797,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--g2-activate-on-resume requires --resume and --g2-residual-anchors union",
         ));
     }
+    finite_replay_args::validate(&result, &seen)?;
     Ok(Command::OwnerDomainMatch(result))
 }
 

@@ -104,6 +104,12 @@ pub(super) fn open<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     lockstep_b: usize,
 ) -> io::Result<Restored<N>> {
+    if identity.finite_replay_enabled() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "finite replay runtime resume is unsupported; cold checkpoint verification remains available",
+        ));
+    }
     let mut publisher = publication::Store::open(directory)?;
     let mut warnings = Vec::new();
     let (decoded, roots, tracker) = match decoded(

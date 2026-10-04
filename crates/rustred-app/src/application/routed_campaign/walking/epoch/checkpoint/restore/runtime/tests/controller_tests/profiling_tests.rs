@@ -50,6 +50,7 @@ fn real_native_profile_on_off_preserve_records_graph_and_cold_checkpoint_section
                 overlap: &overlap,
                 cancellation,
                 g2: None,
+                finite_account: None,
             };
             match &collector {
                 Some(collector) => inspect_job_profiled(&context, bytes, None, collector),

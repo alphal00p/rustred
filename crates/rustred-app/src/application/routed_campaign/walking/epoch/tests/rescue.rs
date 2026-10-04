@@ -49,6 +49,7 @@ fn abandoned_result_is_explicit_uninspected_unsealed_and_does_not_frontier_stop(
         frontier_stop: true,
         lockstep: true,
         g2: false,
+        finite_replay: None,
     };
     let applied = merge_cut_with(&mut state, &mut dispatch, &mut rows, vec![r], config).unwrap();
     assert_eq!(state.ledger.tag(0), Some(Tag::Abandoned));

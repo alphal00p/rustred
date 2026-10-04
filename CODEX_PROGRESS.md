@@ -14,20 +14,140 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | --- | --- | --- |
 | Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered/pushed029e2bff;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
 | Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} matrix complete, all coldPASS: domain changes+1.99%/-0.403%/+1.45%; every whole arm slower. No promotion or automatic sweep. |
-| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Banana recurrence now passes native replay for arbitrary positive selected-numerator rank, seven free indices/eight boundary cells. Source-replayed repair-overlay composition passes. Shared-work measurement next; ISP-first literature discriminator under review. No new CAS. |
+| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | General-rank banana recurrence gives two completed ~26% shared-domain reductions. Direct quadratic-D13 isolation rejected: its Gram-minor coefficient introduces uncancelled higher-rank tails. Negative derivation retained, not a rejection of Baikov methods generally. No new CAS. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Caller-thread core implemented and compiled; app typed/cold replay integration under test. |
-| Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Both rank-one and general-positive-rank proofs, isolated exports and native repair-overlay re-exports pass; all83 original terminal keys retained. First cold-verified original four-root/full67-owner pair shows25.93% fewer domains with essentially flat total time. Counterbalanced repeat/current-pool/held-out controls remain; no production installation. |
+| Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Optimized build, focused semantic gates and 4L flag-off control pass. H55 same-build off/on both coldPASS: traversal34.147→13.427s; whole246.516→207.747s. Still356,202 physical exact states, not one unit of work. Singleton-only/default-off/fresh CP6; independent result audit active. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Source proofs, exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Two cold-verified original four-root pairs show25.93%/25.82% fewer domains, with whole time+0.83%/+2.38%. Baseline bytes equal current production pool. Held-out H1 launched08:50UTC under its1800s inclusive guard; no production installation. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Finite-region feasibility screen — October4, 08:54 UTC
+
+[M] `lower_sector_discovery` and the independent auditor count all116
+original required regions from the frozen query document, using bounded
+integer-count identities rather than enumerating integral tuples or running
+algebra. All116 regions are finite and nonempty, but none is a singleton:
+minimum260, median150,598, maximum35,299,160,944 starting points. Counts≤1,000,
+≤10,000,≤100,000 and≤1,000,000 occur for6,20,53 and78 regions respectively.
+These are per-region counts; overlapping rows are not summed as a unique
+request, and descendants/runtime are not bounded by these numbers.
+
+[E] This rules out pretending that the newly tested singleton-only opt-in
+already applies to production's116 required roots: it activates on none of
+them. A narrowly bounded whole-region joint trace may be useful for small
+regions, but rectangular iteration is unsuitable even for the smallest260
+point region (839,808 enclosing-box points). Existing bounded-sum iterator
+reuse must be investigated before any such extension; no new region support
+or enumeration engine has been implemented. Parametric-rule improvement
+remains necessary for the large regions.
+
+### Native exact-summary pilot completes; held-out rule test launched — October4, 08:51 UTC
+
+[M] Both same-build H55 arms complete, with independent fresh native All/Off
+replay, zero frontiers/errors/debt and clean process drain. Group wall454.803s
+including all setup and shutdown, below the registered600s ceiling. Evidence:
+`candidates/finite-replay-acceptance-v1/{h55-off,h55-on,h55-same-build}/`.
+
+| Boundary | Symbolic baseline | Exact singleton summary |
+| --- | ---: | ---: |
+| Preparation |89.593s|86.987s|
+| Traversal |34.147s|13.427s|
+| Cold verification, including fresh preparation |115.556s|100.725s|
+| Whole arm |246.516s|207.747s|
+| Waited child/descendant CPU, all phases |2098.744s|1705.471s|
+| Sampled peak process-tree RSS |5.431GB|5.181GB|
+
+[M] Traversal is60.68% lower and whole time15.73% lower in this **single**
+pair. The candidate records one replay recipe but really traverses356,202
+exact operational states,355,584 integral keys,164,074 rule applications and
+145,366 transport calls; all of these counts are repeated in cold replay.
+The symbolic baseline schedules386,206 domains. These are different retained
+representations, so386,206→1 is not a legitimate physical-work reduction.
+No new terminals or source identities are introduced. This first interface
+handles only the original first coordinate-singleton query; it does not yet
+solve an entire bounded parametric region or justify production activation.
+Independent measurement review passes and approves the default-off app
+milestone. The working app source is byte-identical to the v3 tested snapshot.
+
+[M] The native allocation was released and handed to `lower_rule_evaluation`.
+The frozen pre-existing H1 held-out row launched08:50:21UTC, baseline first,
+plan `0fcc46ef…0b85e`, CPUs32–47/W16 with1800s inclusive allowance. It tests
+the new banana rule in the unchanged full shared-owner pool, not finite replay.
+The prior exposure of this row inside a censored union remains disclosed;
+it was not used to fit the recurrence. No additional targets or candidates
+were selected after observing its outcome.
+
+### Four-loop compatibility accepted; five-loop summary comparison active — October4, 08:48 UTC
+
+[M] The fresh four-loop58 flag-off control completes in16.582s inclusive:
+26,025 scheduled domains,17,957 native inspections,872,486 events,8,068 aliases,
+1.183s preparation and5.189s traversal. Independent cold All/Off passes all32
+unique roots and58 query rows, with no frontier, uncovered obligation or debt.
+Independent auditor verifies domain/edge/input/input-frontier files are
+byte-identical to the prior control, and every record has the same semantic
+geometry, scope, native counts, merge epoch and dependencies. Only78 lookup
+snapshot-epoch observations differ, plus timings/hashes. This is a compatibility
+result, not a matched performance improvement. Evidence:
+`candidates/finite-replay-acceptance-v1/four-loop-off/`.
+
+[M] Root launched the approved same-build H55 off/on group at08:42UTC, on
+CPUs32–47 with a600s inclusive guard and ordinary stack. The off arm has
+completed walk and cold verification; the on arm is active. Exact command:
+`.venv/bin/python -B TMP/rule-optimizer-20261003/candidates/run_finite_replay_acceptance_v1.py --group h55-same-build`.
+The separately audited banana H1 validation waits for this allocation to drain.
+No concurrent competing pilot or new compilation is running.
+
+[M] The independent structural ISP review rejects the narrow direct-D13
+recurrence: its leading coefficient is a nonconstant cubic Gram minor, with
+twelve uncancellable terms increasing other inactive numerator powers under
+the saved order. Dividing by this integration-variable polynomial would change
+the family. The concrete derivation is retained in the structural-recurrence
+research note; no new algebra kernel or large intersection-theory engine was
+built to test this falsified proposal.
+
+[M] Read-only production at08:47UTC remains running:186.594M discovered,
+141.571M local completions,13.688M pending,zero frontiers,155.65GB RSS,
+checkpoint22. The13/67-root and23.871M-closed lower bounds are a10,397s-old
+snapshot, not evidence of zero closure during that interval. Pending change
+is−0.110 per completion over the observed hour. No closure ETA or production
+restart recommendation follows from these data.
+
+### Repeated structural-work reduction; optimized integration available — October4, 08:39 UTC
+
+[M] The candidate-first repeat also completes and independently cold-verifies
+all four original inputs. Baseline/candidate domains19,102/14,169,
+native inspections17,490/12,860, events159,333/124,444: reductions25.82%,
+26.47%,21.90%. Traversal1.023/0.820s, whole arms189.217/193.719s. Both
+complete with zero debt/frontiers/errors and drained processes; total385.755s.
+The≥20% shared-domain-work signal is reproduced in both execution orders,
+but whole-arm time remains slightly worse (+2.38% here). Waited total CPU
+also does not improve, including preparation and cold verification. Evidence:
+`candidates/banana-fourpoint-replication-results-v1.json` and its two raw pairs.
+
+[M] Optimized app and CLI build successfully in539.472s/18.888s (compilation,
+not solver time). Frozen CLI is `candidates/finite-replay-app-build-v3/rustred-cli`,
+SHA256 `c862ba6e…a121be`. All six prior semantic gates and independent source/
+runner audit pass. Root launched the same-input four-loop58 flag-off control
+at08:38:39 on CPUs32–47 with the approved300s inclusive guard, reusing immutable
+staged inputs but a fresh graph and cold process. Native outcomes remain pending.
+Only after actual four-loop semantic acceptance may the H55 off/on pilot run.
+
+[M] Research/first-comparison milestone `4666b1e0` is pushed. The pre-existing
+H1 row remains registered for separate rule validation; its earlier exposure
+inside a censored union is disclosed. The duplicate current-pool comparison
+is not executed, because independent actual-byte inventories prove equality.
+`lower_sector_discovery` is inspecting the actual quadratic-ISP discriminator
+without engine edits or unapproved algebra kernels while root handles native
+acceptance. Production remains unchanged; no full-scope closure or restart
+recommendation is inferred from these small controls.
 
 ### First completed structural-rule gain; app semantic gates pass — October4, 08:28 UTC
 

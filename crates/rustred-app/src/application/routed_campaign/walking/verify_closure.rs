@@ -51,6 +51,7 @@ mod e2e_tests;
 mod epoch_checkpoint;
 mod epoch_export;
 mod epoch_g2;
+mod finite_replay;
 #[cfg(test)]
 mod g2_e2e_tests;
 mod graph;
@@ -492,6 +493,8 @@ struct RecordRow {
     /// subdivided records always carry it).
     #[serde(default = "native_inspection_kind")]
     record_kind: String,
+    #[serde(default)]
+    finite_replay_recipe: Option<super::finite_replay::Recipe>,
     phase: String,
     owner: String,
     lower: Vec<u64>,
@@ -733,6 +736,7 @@ struct Loaded<const N: usize> {
     /// An epoch (walk semantics 3) S2 export: its raw ledger6, edge runs and
     /// anchors for the epoch-specific re-derivations.
     epoch: Option<epoch_export::EpochSections>,
+    finite_replay: Option<super::finite_replay::Recipe>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -863,6 +867,7 @@ fn load_records<const N: usize>(
     let mut g2 = BTreeMap::new();
     let mut positions = vec![u64::MAX; total];
     let mut records = 0usize;
+    let mut finite_replay = None;
     let epoch_records = epoch.as_ref().map(epoch_g2::View::new).transpose()?;
     for (segment, (path, count)) in raw.records.iter().enumerate() {
         let file: Box<dyn std::io::Read> = if let Some(references) = &cp6_records {
@@ -911,6 +916,17 @@ fn load_records<const N: usize>(
             if let Some(view) = &epoch_records {
                 view.normalize(&mut row, &domains)?;
             }
+            if let Some(recipe) = row.finite_replay_recipe {
+                if row.id != 0
+                    || row.record_kind != "finite_replay_summary"
+                    || epoch.is_none()
+                    || finite_replay.replace(recipe).is_some()
+                {
+                    violations.add("finite_replay", || {
+                        "summary recipe outside unique CP6 initial ID0".into()
+                    });
+                }
+            }
             record_node(
                 &row,
                 &domains,
@@ -942,6 +958,7 @@ fn load_records<const N: usize>(
         g2,
         positions,
         epoch,
+        finite_replay,
     })
 }
 
@@ -1012,6 +1029,25 @@ fn record_node<const N: usize>(
     }
     match row.record_kind.as_str() {
         "native_inspection" => {}
+        "finite_replay_summary" => {
+            if row.id != 0
+                || row.finite_replay_recipe.is_none()
+                || row.initial_overlap.is_some()
+                || row.g2.is_some()
+                || row.g2_residual_anchors.is_some()
+                || node.error
+                || node.frontiers != 0
+                || !node.finished
+                || node.abandoned
+                || node.events != Some(1)
+                || node.accepted != Some(1)
+                || node.successors.unwrap_or(0) != 0
+            {
+                violations.add("finite_replay", || {
+                    format!("malformed finite replay summary {id}")
+                });
+            }
+        }
         "partial_initial_overlap_inspection" => {
             node.kind = Kind::Partial;
             node.finished = row.residual_inspection_finished == Some(true);
@@ -1436,6 +1472,7 @@ struct Tally {
     errors: u64,
     count_mismatches_under_disabled_levers: u64,
     native_seconds: f64,
+    finite_replay_work: Option<Value>,
 }
 impl Tally {
     fn add(&mut self, other: &Tally) {
@@ -1453,9 +1490,12 @@ impl Tally {
         self.errors += other.errors;
         self.count_mismatches_under_disabled_levers += other.count_mismatches_under_disabled_levers;
         self.native_seconds += other.native_seconds;
+        if other.finite_replay_work.is_some() {
+            self.finite_replay_work = other.finite_replay_work.clone();
+        }
     }
     fn json(&self) -> Value {
-        json!({"inspected":self.inspected,"events":self.events,
+        let mut value = json!({"inspected":self.inspected,"events":self.events,
             "successor_events":self.successor_events,
             "admitted_domains":self.admits,
             "admitted_successor_domains":self.admits_successor,
@@ -1465,7 +1505,11 @@ impl Tally {
             "uncovered_after_reference_error":self.uncovered_after_reference_error,
             "frontiers":self.frontiers,"errors":self.errors,"native_seconds":self.native_seconds,
             "count_mismatches_under_disabled_levers":self.count_mismatches_under_disabled_levers,
-            "definitions":"admitted_domains = every Admit effect (successor domains plus Apply domains routed by Route natives); successor_events = events with successor=true (Admit, Frontier or reuse)"})
+            "definitions":"admitted_domains = every Admit effect (successor domains plus Apply domains routed by Route natives); successor_events = events with successor=true (Admit, Frontier or reuse)"});
+        if let Some(work) = &self.finite_replay_work {
+            value["finite_replay"] = work.clone();
+        }
+        value
     }
 }
 
@@ -1623,6 +1667,12 @@ fn reinspect<const N: usize>(
     tally: &mut Tally,
     violations: &mut Violations,
 ) {
+    if id == 0
+        && let Some(recipe) = ctx.loaded.finite_replay
+    {
+        finite_replay::reinspect(ctx, recipe, tally, violations);
+        return;
+    }
     let node = ctx.loaded.nodes[id];
     if node.kind == Kind::G2
         && ctx
@@ -2091,6 +2141,14 @@ fn verify<const N: usize>(
     )?;
     let mut loaded =
         load::<N>(options, options.result.is_some(), &mut violations).map_err(AppError::input)?;
+    if loaded.finite_replay.is_some()
+        && (options.reinspect != OwnerDomainWalkVerifyReinspect::All
+            || options.reference_levers != OwnerDomainWalkVerifyReferenceLevers::Off)
+    {
+        return Err(AppError::input(
+            "finite replay summaries require cold reinspect=All and reference-levers=Off",
+        ));
+    }
     if loaded.raw.publication_policy == "epoch" {
         super::epoch::admit_extensions(request)?;
     }
@@ -2105,6 +2163,7 @@ fn verify<const N: usize>(
     load.workers = options.threads.max(1);
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
+    super::finite_replay::configure_load(request, &mut load);
     let mut prepared_owners = None;
     let mut bind = |owners: Vec<String>| {
         prepared_owners = Some(owners);

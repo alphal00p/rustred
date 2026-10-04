@@ -193,6 +193,7 @@ fn walk_request(
     args: &OwnerDomainMatchArgs,
 ) -> OwnerDomainWalkRequest {
     let mut walk = OwnerDomainWalkRequest::new(request);
+    walk.finite_replay = args.finite_replay;
     walk.workers = args.workers;
     walk.inspection_workers = args.inspection_workers;
     walk.publication_policy = args.publication_policy;

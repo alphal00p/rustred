@@ -71,6 +71,7 @@ fn entry(phase: Phase, class: Class) -> CheckedResult<2> {
             refusals_truncated: true,
             scope: None,
             g2: None,
+            finite_replay: None,
             lookup: None,
             misses: vec![],
         },

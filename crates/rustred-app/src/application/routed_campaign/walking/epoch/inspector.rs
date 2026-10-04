@@ -20,6 +20,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+mod finite_replay;
 mod pool;
 pub(super) mod profile;
 pub(super) use pool::{
@@ -33,6 +34,7 @@ pub(super) struct Context<'a, const N: usize> {
     pub overlap: &'a InitialOverlapIndex<N>,
     pub cancellation: &'a AtomicBool,
     pub g2: Option<&'a super::super::g2::Store<N>>,
+    pub finite_account: Option<&'a super::super::finite_replay::Account>,
 }
 
 /// A C3 result without stats for a panic outside the native call (result
@@ -96,6 +98,7 @@ fn inspect_job_inner<const N: usize>(
     let mut resolver = snapshot.map_or_else(Resolver::<N>::new, Resolver::with_snapshot);
     let started = Instant::now();
     let mut observation = profile.map(|_| profile::Observation::new(started));
+    let finite = finite_replay::attempt(context, &job);
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         let mut emit = |event| {
             if let Some(observation) = &mut observation {
@@ -103,7 +106,12 @@ fn inspect_job_inner<const N: usize>(
             }
             resolver.emit(event)
         };
-        if job.flags & super::job::JOB_RESCUE_ABANDONED != 0 {
+        if let Some(finished) = finite
+            .as_ref()
+            .and_then(|outcome| finite_replay::finished(&job, outcome, &mut emit))
+        {
+            (finished, None)
+        } else if job.flags & super::job::JOB_RESCUE_ABANDONED != 0 {
             (
                 super::super::inspection::abandoned(&job.image.expand(), &mut emit),
                 None,
@@ -134,6 +142,10 @@ fn inspect_job_inner<const N: usize>(
             if let Some(part) = part {
                 result.kind = super::job::NativeKind::G2Residual;
                 result.g2 = Some(part);
+            }
+            if let Some(outcome) = &finite {
+                finite_replay::annotate(&mut result, outcome);
+                result.seconds = seconds();
             }
             if profile.is_some() {
                 observed_outcome.error |=

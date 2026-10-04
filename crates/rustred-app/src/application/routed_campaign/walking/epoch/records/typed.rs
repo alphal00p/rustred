@@ -141,6 +141,7 @@ pub(in crate::application::routed_campaign::walking) enum Scope {
         anchors: Vec<Anchor>,
         pieces: Vec<Piece>,
     },
+    FiniteReplay(super::super::super::finite_replay::Recipe),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
@@ -180,6 +181,7 @@ impl Native {
             2 => Ok(job::NativeKind::Route),
             3 => Ok(job::NativeKind::G2Residual),
             4 => Ok(job::NativeKind::Abandoned),
+            5 => Ok(job::NativeKind::FiniteReplay),
             _ => Err("epoch record native kind"),
         }
     }
@@ -242,7 +244,7 @@ impl Authority {
             n.kind()?;
             n.break_reason()?;
             n.error_kind()?;
-            if n.kind != job::NativeKind::Abandoned as u8
+            if !matches!(n.kind, 4 | 5)
                 && (n.kind == job::NativeKind::Route as u8) != self.image.route
             {
                 return Err("epoch record phase/kind mismatch");
@@ -255,7 +257,7 @@ impl Authority {
             }
             match &n.scope {
                 Scope::Whole => {
-                    if matches!(n.kind, 1 | 3) {
+                    if matches!(n.kind, 1 | 3 | 5) {
                         return Err("epoch record partial kind without scope");
                     }
                 }
@@ -280,6 +282,33 @@ impl Authority {
                         })
                     {
                         return Err("epoch record G2 shape");
+                    }
+                }
+                Scope::FiniteReplay(recipe) => {
+                    recipe.validate()?;
+                    if self.id != 0
+                        || n.kind != job::NativeKind::FiniteReplay as u8
+                        || n.class != 0
+                        || n.has_error
+                        || n.frontiers != 0
+                        || n.panic
+                        || n.error_kind != 0
+                        || n.break_reason != 0
+                        || n.distinct_edges != 0
+                        || n.self_edge
+                        || n.emitted != 1
+                        || n.accepted != 1
+                        || n.stats_events != 1
+                        || n.known_reuse != 0
+                        || n.job_duplicates != 0
+                        || n.resolver.successors != 0
+                        || n.resolver.conditional != 0
+                        || n.resolver.optional != [0; 3]
+                        || n.resolver.route_masks != 0
+                        || n.resolver.route_joint_pruned != 0
+                        || self.image.lower != self.image.upper
+                    {
+                        return Err("epoch finite replay record shape");
                     }
                 }
             }
@@ -342,7 +371,12 @@ impl Record {
                 _ => format!("{}: {detail}", r.break_reason.name()),
             })
         };
-        let scope = if let Some(a) = entry.anchors.as_ref().filter(|a| a.record.kind.is_g2()) {
+        let scope = if let Some(recipe) = r.finite_replay {
+            if entry.anchors.is_some() || r.scope.is_some() || r.g2.is_some() {
+                return Err("finite replay record with partial scope".into());
+            }
+            Scope::FiniteReplay(recipe)
+        } else if let Some(a) = entry.anchors.as_ref().filter(|a| a.record.kind.is_g2()) {
             let anchors::AnchorScope::Residual(pieces) = &a.record.scope else {
                 return Err("G2 record lacks residual scope".into());
             };
@@ -489,6 +523,17 @@ impl Record {
                 }
                 match &n.scope {
                     Scope::Whole => {}
+                    Scope::FiniteReplay(recipe) => {
+                        record["record_kind"] = json!("finite_replay_summary");
+                        record["finite_replay_recipe"] = json!(recipe);
+                        record["native_inspection_scope"] =
+                            json!("whole_initial_singleton_exact_replay");
+                        record["local_classification_discharged"] = json!(true);
+                        record
+                            .as_object_mut()
+                            .expect("record object")
+                            .remove("conservative_route_overcover");
+                    }
                     Scope::Initial {
                         anchor,
                         cut,
@@ -511,7 +556,7 @@ impl Record {
                             "residual":pieces.iter().map(|p|json!({"d_lo":p.d_lo,"d_hi":p.d_hi,"lower":p.lower,"upper":p.upper})).collect::<Vec<_>>(),"authority":"exact_union_cover_lattice"});
                     }
                 }
-                if n.scope != Scope::Whole {
+                if matches!(n.scope, Scope::Initial { .. } | Scope::G2 { .. }) {
                     record["local_inspection_finished"] = json!(false);
                     record["residual_inspection_finished"] = json!(n.finished());
                     record["local_classification_discharged"] = json!(false);

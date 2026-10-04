@@ -233,6 +233,7 @@ fn native_periodic_zero_interval_refuses_before_dispatch() {
             overlap: &overlap,
             cancellation: &cancellation,
             g2: None,
+            finite_account: None,
         },
         |_, _| panic!("invalid interval cannot publish"),
     )

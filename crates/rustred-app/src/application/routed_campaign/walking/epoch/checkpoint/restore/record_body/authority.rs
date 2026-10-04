@@ -63,7 +63,9 @@ pub(super) fn validate<const N: usize>(
     {
         return Err(invalid("epoch native record class, scope or run differs"));
     }
-    let expected_kind = if abandoned {
+    let expected_kind = if matches!(native.scope, Scope::FiniteReplay(_)) {
+        NativeKind::FiniteReplay
+    } else if abandoned {
         NativeKind::Abandoned
     } else if image.phase() == Phase::Route {
         NativeKind::Route
@@ -81,6 +83,7 @@ pub(super) fn validate<const N: usize>(
     }
     match (anchored, &native.scope) {
         (None, Scope::Whole) => {}
+        (None, Scope::FiniteReplay(_)) if source == 0 && targets.is_empty() => {}
         (
             Some(anchor),
             Scope::Initial {
@@ -174,6 +177,10 @@ pub(super) fn validate<const N: usize>(
         refusals_truncated: false,
         scope: None,
         g2: None,
+        finite_replay: match native.scope {
+            Scope::FiniteReplay(recipe) => Some(recipe),
+            _ => None,
+        },
         lookup: None,
         misses: Vec::new(),
     };
@@ -209,7 +216,7 @@ pub(super) fn validate<const N: usize>(
             return Err(invalid("epoch record terminal error class differs"));
         }
     }
-    if image.phase() == Phase::Route && !abandoned {
+    if expected_kind == NativeKind::Route && !abandoned {
         add(&mut totals.routed, 1)?;
     }
     totals.resolver.add(&delta).map_err(io::Error::other)?;

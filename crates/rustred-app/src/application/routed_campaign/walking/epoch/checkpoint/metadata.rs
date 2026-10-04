@@ -35,6 +35,10 @@ pub(super) struct Identity<'a> {
     epoch_result_escrow_jobs: usize,
     epoch_result_escrow_bytes: Option<usize>,
     adaptive: bool,
+    // Ephemeral capability gate only: never serialized into legacy scalars.
+    // Finite replay can be read cold, but its one-attempt runtime account is
+    // deliberately fresh-only in this first implementation.
+    finite_replay: bool,
     preparation: Preparation,
     amendments: Vec<super::super::super::rescue::Parsed>,
 }
@@ -96,9 +100,14 @@ impl<'a> Identity<'a> {
             epoch_result_escrow_jobs: request.epoch_result_escrow_jobs,
             epoch_result_escrow_bytes: request.epoch_result_escrow_bytes,
             adaptive: request.epoch_dispatch == crate::OwnerDomainWalkEpochDispatchPolicy::Adaptive,
+            finite_replay: request.finite_replay.is_some(),
             preparation: Preparation::from_request(request),
             amendments,
         })
+    }
+
+    pub(in super::super) fn finite_replay_enabled(&self) -> bool {
+        self.finite_replay
     }
 
     /// Bind small authenticated scalar metadata before allocating restored

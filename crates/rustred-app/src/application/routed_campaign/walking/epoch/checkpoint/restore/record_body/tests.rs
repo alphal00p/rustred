@@ -52,6 +52,7 @@ fn native(job: &Job<2>) -> JobResult<2> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        finite_replay: None,
         lookup: None,
         misses: Vec::new(),
     }
@@ -66,6 +67,7 @@ fn merge_rows(
         frontier_stop: true,
         lockstep: true,
         g2: false,
+        finite_replay: None,
     };
     let checked = merge::p1_check(
         state,

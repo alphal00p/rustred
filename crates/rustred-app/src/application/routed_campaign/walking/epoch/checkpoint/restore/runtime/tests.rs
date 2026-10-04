@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 mod admission_tests;
 mod controller_tests;
+mod finite_replay_tests;
 mod preferred_subset_tests;
 mod public_tests;
 mod rescue_tests;
@@ -793,6 +794,7 @@ fn replayed_error_is_terminal_across_actual_merge_save_restore() {
             refusals_truncated: false,
             scope: None,
             g2: None,
+            finite_replay: None,
             lookup: None,
             misses: if job.parent == 0 {
                 vec![
@@ -812,6 +814,7 @@ fn replayed_error_is_terminal_across_actual_merge_save_restore() {
         frontier_stop: true,
         lockstep: true,
         g2: false,
+        finite_replay: None,
     };
     let checked = merge::p1_check(
         &mut restored.state,

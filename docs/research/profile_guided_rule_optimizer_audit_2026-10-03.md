@@ -5817,6 +5817,15 @@ The candidate-first counterbalanced plan `cc32f082…79e076c` is independently
 equal in both arm selections, queries, controls, budgets and commands after
 destination normalization; only execution order is reversed.
 
+That repeat completes cleanly in385.755027s: baseline19,102 domains/17,490
+natives/159,333 events versus candidate14,169/12,860/124,444. Domain reduction
+is25.825%, native26.472%, events21.897%; traversal1.023080→0.820439s,
+whole arms189.217172→193.719385s (+2.379%). All four roots again pass native
+cold All/Off with zero uncovered obligations or work debt and all groups
+drained. Baseline scheduled count varies by one across the two runs;
+candidate varies by20. The count threshold is replicated in both execution
+orders, while neither pair demonstrates an end-to-end speedup.
+
 An intended current-pool transfer control is redundant: both inventories in
 `currentpool-fourpoint-v1` are exactly equal to the respective first-pair
 inventories for all67 owners and both overlays; family, all8,246 routes,
@@ -5826,6 +5835,63 @@ recommends retaining this identity result instead of another native pair.
 The separately prepared H1v2 query is exactly the previously registered panel
 row1, hence distinct from the banana fitting cohort, but was exposed in a
 prior censored union and is not globally untouched validation data.
+
+### Finite-replay default-off native control
+
+The final optimized app/CLI build gates pass, with CLI
+`c862ba6e…4a121be`; the acceptance runner binds those receipts and the six
+semantic groups. Its direct native commands preserve the archived input and
+control bytes, except executable/output paths; H55-on adds only the enable
+flag and six explicit finite-work caps. No restaging or implicit cap change
+is introduced, and the cold output path is checked before expensive loading.
+
+Actual four-loop flag-off control completes in16.581572s. The audit compares
+all CP6 domain, edge, input and input-frontier bytes exactly equal to the
+archived baseline, with26,025 scheduled/17,957 native/872,486 events. Decoding
+all26,025 records finds only timing/frame-hash differences and78 changed
+native `v0` lookup-snapshot epochs; all geometry, scope, native statistics,
+merge epochs and dependency edges agree. Thus there is no claim of raw
+record-byte identity. Cold All/Off verifies32 roots covering all58 required
+rows and854,312 native admissions with zero uncovered images; no finite
+report appears when disabled. Both phases drain. This passes semantic
+compatibility, not a matched timing claim, and releases the separately
+authorized same-build H55 off/on experiment.
+
+H55 off/on now passes independent acceptance in454.803156s inclusive, all
+four phase groups drained. Both runs use the same final CLI, immutable bank,
+original root geometry/caps and input bytes. Both cold All/Off results have
+valid request/owner bindings and zero violations, errors, frontiers or
+uncovered obligations. Enabled mode makes exactly one attempt and cold
+replays the typed finite summary rather than accepting stored success counts.
+Every reported online/cold work field agrees except elapsed time:
+356,202 operational states,355,584 physical keys,164,074 rule attempts and
+applications,145,366 transport calls,15,507,763 projected transport operations,
+2,763,255 projected endpoints,248 declared terminals and45,896 zero keys.
+The single published record does not replace those counts with one unit of
+algebraic work.
+
+Whole arm wall246.515539→207.747002s (−15.727%); traversal
+34.147099→13.426530s (−60.680%); waited-child/descendant CPU
+2098.743816→1705.470742s (−18.738%). Sampled phase-maximum RSS is
+5,431,058,432→5,180,555,264 B. Fresh preparation89.593079→86.986872s
+and cold native total115.556016→100.724741s are included in the accounting.
+The app milestone passes its declared default-off/singleton acceptance gates.
+This one training pair is not a20% whole-arm win, held-out performance result,
+coefficient back-substitution, larger finite-region certificate or production
+promotion. Shared-work costs across multiple summaries remain unmeasured.
+
+The production-input cardinality screen is independently checked against
+query SHA-256 `42a0c627…749ef64`:183 unique rows,116 uniquely declared
+required rows,15 axes, zero lowers, finite A/R and individually redundant
+coordinate upper caps. A separate hockey-stick sum over allowed positive
+degree for each numerator rank agrees with every row in
+`profiles/required-region-count-v1.json`, independently of its coordinate-sum
+DP. Counts are min260, median150,598, max35,299,160,944;
+6≤1,000,20≤10,000,53≤100,000,78≤1,000,000. These are per-row input
+cardinalities, not a unique union or descendant-work estimate. All116 are
+nonsingletons, so the delivered singleton-only mechanism cannot activate on
+those original production root regions. A larger finite-region summary would
+require separately proved complete enumeration and cumulative resource gates.
 
 ### Quadratic-ISP nomination boundary
 

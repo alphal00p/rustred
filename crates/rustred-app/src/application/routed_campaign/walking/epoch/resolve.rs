@@ -310,6 +310,7 @@ impl<'a, const N: usize> Resolver<'a, N> {
                         refusals_truncated: false,
                         scope: None,
                         g2: None,
+                        finite_replay: None,
                         lookup: self.lookup,
                         misses: Vec::new(),
                     };
@@ -346,6 +347,7 @@ impl<'a, const N: usize> Resolver<'a, N> {
             refusals_truncated: truncated,
             scope,
             g2: None,
+            finite_replay: None,
             lookup: self.lookup,
             misses: self.misses,
         }
@@ -382,6 +384,7 @@ impl<'a, const N: usize> Resolver<'a, N> {
             refusals_truncated: false,
             scope: None,
             g2: None,
+            finite_replay: None,
             lookup: self.lookup,
             misses: Vec::new(),
         }

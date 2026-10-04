@@ -124,7 +124,8 @@ fn continuation_uses_rows_not_unique_ids_and_preserves_roles_and_session() {
                     MergeConfig {
                         frontier_stop: true,
                         lockstep: true,
-                        g2: false
+                        g2: false,
+                        finite_replay: None,
                     },
                     &|| panic!("authorize before complete"),
                     &|_, _| panic!("inspect before complete"),
@@ -338,7 +339,8 @@ fn source_frontiers_keep_counts_monitor_reason_and_unprocessed_cap_row() {
                 MergeConfig {
                     frontier_stop: policy,
                     lockstep: true,
-                    g2: false
+                    g2: false,
+                    finite_replay: None,
                 },
                 prefix.roots.frontiers.len()
             ),

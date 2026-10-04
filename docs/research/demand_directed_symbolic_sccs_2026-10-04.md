@@ -501,15 +501,119 @@ the native acceptance controls will not inherit that override.
 
 Final optimized app and CLI linking passed in539.472s and18.888s respectively,
 with clean owned-process drain; the tested CLI is `c862ba6e…a121be`.
-Default-off native compatibility and the same-build H55 off/on native control
-remain acceptance gates. The prepared-only
-commands are in
-`TMP/rule-optimizer-20261003/candidates/finite-replay-acceptance-v1/plan.json`:
-original immutable staged inputs, fresh outputs, unchanged G2/D-band/rolling
-controls, direct existing guard and mandatory cold All/Off. The thin runner
-binds the final executable hash to its successful link receipt at launch;
-independent command/runner review passed. No finite-replay native acceptance
-or performance result exists yet.
+
+### Completed native acceptance: singleton only
+
+The four-loop default-off control passed in16.582s, with26,025 domains,
+17,957 native inspections and872,486 events matching the archived control.
+Domain, edge, input and frontier bytes match exactly. Decoded records match
+apart from timings/frame hashes and78 native v0 lookup-snapshot epochs; all
+other statistics, scopes and merge epochs match. Cold All/Off verifies all32
+initial roots and58 query rows, with zero uncovered obligations. This is a
+historical semantic compatibility control, not a contemporaneous speed pair.
+
+The same-build H55 off/on pair then completed with unchanged original
+singleton/caps and full67-owner/8246-route/two-overlay context. Both arms
+passed mandatory cold All/Off, with no errors/frontiers and clean owned drain.
+
+| Measured quantity | Ordinary symbolic | Finite replay |
+| --- | ---: | ---: |
+| Online preparation | 89.593s | 86.987s |
+| Online traversal | 34.147s | 13.427s |
+| Cold preparation | 88.243s | 87.038s |
+| Cold reinspection | 12.812s | 13.607s |
+| Cold native total, including load/checks | 115.556s | 100.725s |
+| Whole guarded arm, including cold | 246.516s | 207.747s |
+| Waited child/descendant CPU, online plus cold | 2,098.744s | 1,705.471s |
+| Sampled peak process-tree RSS across the two phases | 5.431GB | 5.181GB |
+
+The whole-arm reduction is15.727%, traversal60.680%, and waited CPU18.738%
+in this **single** pair; it does not meet a20% whole-arm target or establish
+repeatability/held-out benefit. The pair's inclusive clock is454.803s. The
+ordinary arm published386,206 domains and reinspected315,080 native/G2 records.
+The finite arm published one explicit replay record, but online **and again
+cold** actually processed356,202 operational states/355,584 physical keys,
+164,074 rule applications,145,366 transports,15,507,763 conservative transport
+operations and2,763,255 pre-coalescing endpoint reservations. Online exact
+trace time was13.312s and cold13.455s; non-time work counters match. One
+published record is therefore not one unit of physical reduction work and
+is not a386,206-fold work saving. Reduced graph encoding/loading/checking
+also contributes to the whole-arm difference.
+
+The proof is scoped reachable closure of the admitted physical key under the
+unchanged bank: cold reconstructs the full local obligations and reaches its
+existing terminal/zero boundary. It is not coefficient back-substitution,
+a new reusable parametric recurrence, or coverage of neighboring powers.
+The original A/R/D bounds are retained admission predicates; their presence
+does not enlarge a coordinate-singleton query into the surrounding capped
+region. The current option attempts only whole original ID0, declines a
+non-singleton or partial/G2 dispatch, and refuses enabled runtime resume.
+The singleton-only feature activates on **none of the116 original production
+required roots**, which are all non-singleton. No production recommendation
+or switch follows from this acceptance result.
+
+Commands, immutable bindings, raw walk/cold results, sampled resource receipts
+and per-arm measurements are under
+`TMP/rule-optimizer-20261003/candidates/finite-replay-acceptance-v1/`, especially
+`h55-{off,on}/measurement.json`, `h55-{off,on}/cold-all.json` and
+`h55-same-build/execution-result.json`. The plan retains original inputs,
+unchanged G2/D-band/rolling controls and the ordinary native thread stack.
+Independent result/authority review passed. No failed attempt is omitted.
+
+### Non-enumerating screen of the116 required regions
+
+Before proposing broader replay, a read-only integer count inspected the
+original183-row query file (116 required,67 auxiliary), SHA256
+`42a0c62771b6e7c53cc937d46ad9505e33c282db31a8d6f64846ecbca749ef64`, at
+`campaigns/five-loop-a1-currentnew37pool-frontier-repaired-20261003/inputs/queries.json`.
+All116 required rows have zero coordinate lowers, finite A/R caps, and
+individual coordinate uppers redundant after those aggregate caps. For k
+active axes and q=15−k inactive axes (both nonzero in this cohort), the exact
+per-row cardinality is
+
+```text
+sum over k≤a≤Amax, 0≤r≤Rmax, Dmin≤a−r≤Dmax:
+    binom(a−1,k−1) * binom(r+q−1,q−1).
+```
+
+Absent D bounds are omitted. Independent bounded coordinate-sum dynamic
+programming agrees with this stars-and-bars sum for every row. This evaluates
+only small scalar sums: **no integral tuples were enumerated, no native
+reduction or CAS was run, and overlapping rows were not added as unique keys**.
+The independent auditor reproduced all116 counts by a separately organized
+hockey-stick sum and checked the input/cap premises.
+
+| Per required row | Count |
+| --- | ---: |
+| Finite, nonempty, non-singleton | 116 of116 |
+| Minimum / median / maximum physical keys | 260 /150,598 /35,299,160,944 |
+| Rows with at most1,000 /10,000 /100,000 /1,000,000 keys | 6 /20 /53 /78 |
+
+The two smallest rows are
+`phys-d9-a10-r1-111000100111001` and
+`phys-d9-a10-r1-111010100100101`, each260 points (`8+36×7`). Even these
+have839,808 points in their A/R-capped enclosing rectangle; the median
+enclosing rectangle across116 rows has about1.206×10^11 points. Cardinality
+is neither a descendant-work prediction nor closure evidence. It supplies
+actual small whole-region candidates, but rejects naive rectangle scanning
+as the obvious generic implementation. Reproducer and all per-row results:
+`TMP/rule-optimizer-20261003/profiles/required_region_count_v1.py` and
+`profiles/required-region-count-v1.json` under the same TMP root.
+
+**Smallest next promotion to assess, not implement yet:** one whole finite
+initial region, complete bounded enumeration into one joint native trace,
+with shared exact-key deduplication only inside that attempt. Existing
+`FiniteRootAdmission` supplies exact cap membership/finiteness, not an
+enumeration certificate. The cold verifier's `Cell::for_each_point` supplies
+a conservative bounded rectangle oracle; a useful sum-layer/composition
+enumerator should first be sought in existing code, with independent
+completeness checks. New recipe semantics must bind original geometry,
+enumeration/seed/storage limits and exhaustion, then cold re-enumerate and
+replay; a stopped prefix is never a region proof. Keep the one-attempt,
+whole-initial-scope limitation and unchanged fallback/error gates. Do not
+broaden to internal/partial/G2 scopes or add a cross-attempt cache in this
+step. Whether hundreds of seeds close within a useful total budget remains
+unknown; no such region run or implementation is authorized by these counts.
 
 ## Conditional geometry lead: exact support as an integer-flow relation
 

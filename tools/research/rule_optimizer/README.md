@@ -1,5 +1,23 @@
 # Bounded campaign profiling
 
+## Experimental exact singleton summaries
+
+`rustred owner-domain-match` has an opt-in
+`--finite-replay-initial-singleton` mode for a **fresh epoch checkpoint**.
+It attempts the original first query only, and only when that entire query
+is one integral. It runs the existing exact routed reducer and retains a
+typed replay recipe instead of its expanded symbolic dependency graph.
+Cold verification must use `--reinspect all --reference-levers off` and
+recompute the reduction; recorded counters are not proof. Runtime resume and
+query amendments are not supported in this experimental mode.
+
+The six `--finite-replay-max-*` work allowances, fallback/error policy,
+native tests and measured limitations are documented in the
+[finite replay study](../../../docs/research/demand_directed_symbolic_sccs_2026-10-04.md#authorized-implementation-one-fresh-singleton-replay-acceptance-pending).
+This is not bounded-region enumeration or a production campaign setting.
+Keep its actual exact-reduction work in performance comparisons: one retained
+recipe does not mean one reduction operation.
+
 ## Native applied-obligation observation
 
 The `rule_optimizer_applied_observer` Cargo example is a read-only research

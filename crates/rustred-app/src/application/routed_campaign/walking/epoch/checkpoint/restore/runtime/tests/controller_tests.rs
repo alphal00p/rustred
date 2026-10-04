@@ -19,6 +19,7 @@ fn config() -> MergeConfig {
         frontier_stop: true,
         lockstep: true,
         g2: false,
+        finite_replay: None,
     }
 }
 
@@ -53,6 +54,7 @@ fn result(job: &Job<1>, failure: bool) -> Vec<u8> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        finite_replay: None,
         lookup: None,
         misses: Vec::new(),
     }
@@ -301,6 +303,7 @@ fn private_native_controller_checks_actual_worker_license_and_saves_valid_state(
         overlap: &overlap,
         cancellation: &cancellation,
         g2: None,
+        finite_account: None,
     };
     let worker_authorized = std::thread::spawn(symbolica::license::LicenseManager::is_licensed)
         .join()

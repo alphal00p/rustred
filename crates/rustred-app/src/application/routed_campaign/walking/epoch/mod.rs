@@ -470,6 +470,7 @@ pub(super) fn run<const N: usize>(
     load.workers = request.workers;
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
+    super::finite_replay::configure_load(request, &mut load);
     let mut owners = Vec::new();
     let reducer = {
         let mut bind = |digests: Vec<String>| {
@@ -582,6 +583,7 @@ pub(super) fn run<const N: usize>(
         frontier_stop: request.frontier_policy == OwnerDomainWalkFrontierPolicy::Stop,
         lockstep: true,
         g2: request.g2_residual_anchors == super::OwnerDomainWalkG2ResidualAnchors::Union,
+        finite_replay: request.finite_replay,
     };
     if config.g2 {
         g2::enable(&mut state);
@@ -595,6 +597,7 @@ pub(super) fn run<const N: usize>(
         overlap: &overlap,
         cancellation,
         g2: g2_store.as_deref(),
+        finite_account: None,
     };
     let job = |bytes: &[u8]| inspector::inspect_job(&context, bytes);
     let mut heartbeat = Instant::now();

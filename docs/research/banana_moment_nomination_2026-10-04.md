@@ -520,7 +520,7 @@ Evidence: `candidates/banana-owner0-broad-fourpoint-pair-v1/`, including
 `root-activation-diagnostic.json`. A separately frozen candidate-first repeat
 started at 08:31:29 UTC on the identical inputs. The pre-existing H1 validation
 point (independent of banana fitting, but previously exposed in a censored
-union) and four-loop controls remain subsequent gates. No new favorable point
+union) remains a subsequent gate. No new favorable point
 is selected from this result, and no production restart is recommended yet.
 
 A prospective current-new37 transfer check exposed a naming pitfall: the
@@ -534,3 +534,28 @@ prepared-only and is not run. Evidence:
 `candidates/banana-owner0-broad-currentpool-fourpoint-v1/input-identity.json`.
 This strengthens the relevance of the tested context but says nothing about
 the untested production query workload or its eventual closure.
+
+The candidate-first repeat also completed, in 385.755 seconds inclusive,
+with both full cold checks passing. Scheduled domains decreased
+19,102→14,169 (−25.82%), native inspections 17,490→12,860 (−26.47%),
+and events 159,333→124,444 (−21.90%). Traversal decreased
+1.023→0.820 seconds (−19.81%). Entire fresh-arm time was
+189.217→193.719 seconds (+2.38%), again preparation/cold dominated.
+The baseline domain variation between repeats is only one, compared with
+the approximately 4,950-domain treatment reduction. This reproduces the
+shared-work benefit under reversed arm order without implying byte-identical
+graphs or a measured production ETA.
+
+All sampled peak process-tree RSS values are 5.20–5.26 GB. Waited child CPU,
+including preparation and verifier subprocesses, is 1,584→1,698 seconds in
+the first pair and 1,673→1,700 seconds in the repeat; it is not pure traversal
+CPU and does not show an end-to-end CPU win here. The independent cold checks
+retain 925–946 abstract cycle nodes: their coverage result is not a proof of
+coefficient back-substitution through those cycles. Full measurements and
+raw input bindings are consolidated in
+`candidates/banana-fourpoint-replication-results-v1.json`. Predeclared H1
+validation is running. Separately, the consolidated engine's unchanged-algebra
+four-loop control completed on all 58 queries with cold PASS and exact graph
+identity; that is an engine control, not another measurement of this
+five-loop recurrence. Neither successful banana training pair authorizes
+a production switch by itself.

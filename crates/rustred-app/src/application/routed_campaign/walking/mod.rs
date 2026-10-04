@@ -10,6 +10,7 @@ pub(super) use epoch::force_resolver_break;
 #[cfg(test)]
 mod epoch_lookup_tests;
 mod execution;
+mod finite_replay;
 mod g2;
 mod index_report;
 mod initial_orthants;
@@ -43,6 +44,9 @@ pub use checkpoint::{
     OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OwnerDomainWalkCheckpointOptions,
 };
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
+pub use finite_replay::{
+    OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION, OwnerDomainWalkFiniteReplayLimits,
+};
 pub use g2::G2ResidualAnchors as OwnerDomainWalkG2ResidualAnchors;
 
 /// Resume binding for saved walk state. A CP5 checkpoint records this value
@@ -94,6 +98,10 @@ pub use work_policy::FrontierPolicy as OwnerDomainWalkFrontierPolicy;
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
     pub checkpoint: Option<OwnerDomainWalkCheckpointOptions>,
+    /// Experimental exact discharge of the whole initial ID0 singleton only.
+    /// Requires a fresh CP6 walk; successful summaries are cold-replayed.
+    /// None preserves the existing symbolic walk and checkpoint binding.
+    pub finite_replay: Option<OwnerDomainWalkFiniteReplayLimits>,
     /// Optional supervisor stop-file context for epoch checkpoint diagnostics.
     /// Operational only: excluded from mathematical binding; cancellation is
     /// authoritative even when this file is absent or malformed.
@@ -184,6 +192,7 @@ impl OwnerDomainWalkRequest {
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
         Self {
             checkpoint: None,
+            finite_replay: None,
             epoch_stop_file: None,
             apply_subdivision: None,
             matching,
@@ -216,6 +225,25 @@ impl OwnerDomainWalkRequest {
             max_route_masks: 100_000,
             amendments: Vec::new(),
         }
+    }
+
+    /// Runtime admission for the experimental finite replay path. Offline
+    /// verification uses the original fresh request and independently checks
+    /// every retained recipe; this is not a resume-capability promise.
+    pub fn validate_finite_replay(&self) -> Result<(), &'static str> {
+        if self.finite_replay.is_none() {
+            return Ok(());
+        }
+        if self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
+            || !self.checkpoint.as_ref().is_some_and(|cp| !cp.resume)
+            || !self.amendments.is_empty()
+            || self.g2_activate_on_resume
+        {
+            return Err(
+                "finite replay requires a fresh epoch checkpoint, without resume or amendments",
+            );
+        }
+        Ok(())
     }
 
     fn validate_epoch_inspector_lookup(&self) -> Result<(), &'static str> {
@@ -568,6 +596,7 @@ impl OwnerDomainWalkResult {
             "reuse_initial_d_bands",
             "partial_initial_inspections",
             "g2_residual_anchors",
+            "finite_replay",
             "initial_overlap_index",
             "requested_max_queries",
             "requested_max_query_bytes",
@@ -842,6 +871,7 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
             "rescue amendments (--amend-queries) require --resume of a checkpointed walk",
         ));
     }
+    request.validate_finite_replay().map_err(AppError::input)?;
     let diagnostic_pause = DiagnosticPause::from_environment().map_err(AppError::input)?;
     DiagnosticPause::admit(diagnostic_pause, request).map_err(AppError::input)?;
     if request.apply_subdivision.is_some()
@@ -955,6 +985,14 @@ fn walk_with_progress(
     }
     if request.g2_residual_anchors != OwnerDomainWalkG2ResidualAnchors::Off {
         admitted["g2_residual_anchors"] = json!(request.g2_residual_anchors.name());
+    }
+    if let Some(limits) = request.finite_replay {
+        admitted["finite_replay"] = json!({
+            "version": OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
+            "scope": "whole_initial_id0_singleton",
+            "limits": limits,
+            "cold_replay_required": true,
+        });
     }
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
         admitted["publication_policy"] = json!("owner_batched");

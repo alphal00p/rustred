@@ -27,6 +27,7 @@ use std::sync::atomic::AtomicBool;
 
 mod admission;
 mod compact_images;
+mod finite_replay;
 mod rescue;
 mod snapshot;
 mod union_witness;
@@ -91,6 +92,7 @@ fn result(job: &Job<2>, misses: &[Domain<2>]) -> JobResult<2> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        finite_replay: None,
         lookup: None,
         misses: misses
             .iter()
@@ -120,6 +122,7 @@ const CONFIG: MergeConfig = MergeConfig {
     frontier_stop: true,
     lockstep: true,
     g2: false,
+    finite_replay: None,
 };
 
 fn jobs(state: &mut EpochState<2>, dispatch: &mut Dispatch, want: usize) -> Vec<Job<2>> {
@@ -945,6 +948,7 @@ const G2: MergeConfig = MergeConfig {
     frontier_stop: true,
     lockstep: true,
     g2: true,
+    finite_replay: None,
 };
 
 #[test]

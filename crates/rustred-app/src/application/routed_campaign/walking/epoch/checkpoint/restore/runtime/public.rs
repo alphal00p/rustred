@@ -6,6 +6,7 @@ use super::super::super::{
 };
 use super::{Restored, admission, controller, open};
 use crate::AppError;
+use crate::application::routed_campaign::walking::finite_replay::Account;
 use crate::application::routed_campaign::{
     matching::input::Query,
     walking::{
@@ -493,6 +494,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     } else {
         false
     };
+    let finite_account = Account::default();
     let drained = if admission_stopped {
         false
     } else {
@@ -557,6 +559,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                     started,
                     prepared,
                     failed.get(),
+                    &finite_account,
                     observer,
                     cancellation,
                 );
@@ -575,6 +578,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             overlap: &overlap,
             cancellation,
             g2: g2_store.as_deref(),
+            finite_account: request.finite_replay.map(|_| &finite_account),
         };
         let outcome = controller::run_native_observed(
             &mut restored,
@@ -600,6 +604,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         started,
         prepared,
         failed.get(),
+        &finite_account,
         observer,
         cancellation,
     )
@@ -618,6 +623,7 @@ fn finish<const N: usize>(
     started: Instant,
     prepared: f64,
     observer_failed: bool,
+    finite_account: &Account,
     observer: &impl Fn(Value),
     cancellation: &AtomicBool,
 ) -> Result<OwnerDomainWalkResult, AppError> {
@@ -642,6 +648,10 @@ fn finish<const N: usize>(
         prepared,
         observer_failed,
     );
+    if request.finite_replay.is_some() {
+        document["finite_replay"] = finite_account.report();
+        document["resume_supported"] = false.into();
+    }
     if evaluate_required {
         let rows = identity.query_rows(
             restored

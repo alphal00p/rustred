@@ -416,6 +416,7 @@ fn interrupted_public_mode(
                     overlap: &overlap,
                     cancellation: if first == 1 { &cancel } else { worker_stop },
                     g2: None,
+                    finite_account: None,
                 };
                 let result = match mode {
                     OwnerDomainWalkEpochInspectorLookup::AllMiss => inspect_job(&context, bytes),
@@ -459,7 +460,8 @@ fn interrupted_public_mode(
                     MergeConfig {
                         frontier_stop: false,
                         lockstep: !rolling,
-                        g2: false
+                        g2: false,
+                        finite_replay: None,
                     },
                     &authorize,
                     &inspect,

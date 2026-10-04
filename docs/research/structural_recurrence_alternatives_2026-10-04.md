@@ -296,6 +296,78 @@ nomination with the explicit partial-integral convention above. Native
 applicability, endpoint terms, dimension/prefactor bookkeeping and an ordinary
 source certificate remain untested; no new rule follows merely from the formula.
 
+### Completed D13 discriminator: quadratic, but not a descending direct rule
+
+**No-go for this direct nomination, by the actual family coordinates.** This
+is a hand-derived structural obstruction, independently checked against the
+family and ordering code; it is not a native checker receipt or a CAS run.
+The existing [banana source proof](banana_moment_nomination_2026-10-04.md)
+is unaffected.
+
+Use the original Minkowski-convention family `D_i=q_i²−1`, not a massless
+replacement. Its owner0 active denominators are D5,D6,D9,D12,D14,D15.
+In the proposed chart D13 carries an arbitrary numerator power, while the
+other inactive indices are zero. Those zero indices do **not** set their
+integration variables D_i to zero.
+
+Let `G_ij=k_i·k_j`, `z=D13` and `P=det G` for the five loop momenta.
+Only `G45=G54=(D4+D5−z+1)/2` depends on z. Selecting both of these
+off-diagonal entries in the determinant therefore gives
+
+```text
+A = [z²]P = −¼ det G(k1,k2,k3)
+  = −¼ (abc + 2uvw − aw² − bv² − cu²),
+a=D1+1, b=D2+1, c=D3+1,
+u=(D14+D4−D7−D10)/2,
+v=(D1+D3−D6+1)/2, w=(D2+D3−D9+1)/2.
+```
+
+The expression for u uses the actual `q14=k1+k2−k4`; replacing D14 by
+a pairwise-difference denominator would change this conclusion. In
+particular, A contains `+(D3+1)D4²/16`, so P is genuinely quadratic in
+D13, but A is neither scalar nor monomial. More strongly,
+`+(D3+1)(D14+D4−D7−D10)²/16` contributes twenty distinct monomials
+quadratic in `{D14,D4,D7,D10}`. No other displayed determinant term has
+degree two in that set, so these terms cannot cancel. Twelve of them use
+only the inactive variables D3,D4,D7,D10. This is a structural subset
+count, not a full expanded-polynomial census.
+
+For five-loop vacuum Baikov variables, `γ=(d−6)/2`. To isolate the original
+numerator rank r in the proposed three-term identity, set `n=r−1`, so its
+J_r coefficient is `(r+d−5)A`. The twelve inactive-only monomials leave
+all active powers and the D13 power unchanged while adding two or three
+other numerator powers. They consequently increase absolute degree/corner
+distance and are nonlower in the saved SpIRed order. The B and C terms
+carry D13 ranks r−1 and r−2, so cannot cancel these same literal columns.
+The exceptional locus `r+d−5=0` removes the entire J_r coefficient; it
+does not rescue target isolation. Dividing by A as though it were an
+external coefficient would instead introduce an unrepresented denominator.
+The Baikov exponent and partial-integral convention are from the
+[primary paper, §II](https://arxiv.org/pdf/2312.03453); the coordinate/minor
+calculation and descent obstruction above are our deduction.
+
+Evidence is the original
+`campaigns/five-loop-a1-epoch-20260930/shared/family.toml`
+(SHA256 `9cca7932b85b38f374ab23845391527cdd04ef767bd5e33c5b2a311a3f89f55a`)
+and the already registered chart/order in
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-all-positive-rank-proof-v2/request.json`
+(SHA256 `ee97ca0e39b8a0b0f3704f1601a06a42503b431a4ce2049badca843a70314f52`).
+The ordering contract is in
+[`sector/ordering/policy.rs`](../../crates/rustred-core/src/sector/ordering/policy.rs).
+Pinned Symbolica exposes native `Matrix::det` and polynomial coefficient
+grouping, also described in its current public
+[matrix](https://symbolica.io/docs/matrices.html) and
+[polynomial](https://symbolica.io/docs/polynomials.html) documentation;
+existing RustRed determinant wrappers authenticate contexts and budgets.
+The minor identity makes a new algebra computation unnecessary here.
+
+Park this direct D13 recurrence: no source nomination, CAS calculation,
+native run, algorithm build or bank growth follows. This does not rule out
+combinations that eliminate the troublesome A-weighted terms, another
+variable/chart, or Baikov methods generally. Such alternatives would be
+new proposals requiring their own complete source and descent proof, not
+consequences of this negative.
+
 ## Decision discipline
 
 The source-order generation control measured about4% less solve time in one

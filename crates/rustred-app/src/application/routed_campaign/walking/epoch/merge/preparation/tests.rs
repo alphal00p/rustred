@@ -15,6 +15,7 @@ const CONFIG: MergeConfig = MergeConfig {
     frontier_stop: true,
     lockstep: true,
     g2: false,
+    finite_replay: None,
 };
 const LIMITS: Limits = Limits {
     obligations: 10_000,
@@ -65,6 +66,7 @@ fn result(job: &Job<2>, images: Vec<CompactDomain<2>>) -> JobResult<2> {
         refusals_truncated: false,
         scope: None,
         g2: None,
+        finite_replay: None,
         lookup: None,
         misses: images
             .into_iter()

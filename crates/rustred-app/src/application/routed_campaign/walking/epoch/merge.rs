@@ -19,6 +19,7 @@ use super::verify::{
 };
 use std::collections::HashMap;
 
+mod finite_replay;
 pub(super) mod preparation;
 
 /// Result classes (§9.1). `C4` is a C0 result with frontiers.
@@ -177,6 +178,7 @@ pub(super) struct MergeConfig {
     /// A bound G2' flag (W4). Never set in S2: a G2' result is then C5.
     /// Tests set it to exercise the G2' P1/P3 path.
     pub g2: bool,
+    pub finite_replay: Option<super::super::OwnerDomainWalkFiniteReplayLimits>,
 }
 
 fn fatal(message: impl Into<String>) -> Fatal {
@@ -417,6 +419,7 @@ pub(super) fn p1_check_bound<const N: usize>(
         let Entry6::Reserved(counters) = entry else {
             return Err(fatal(format!("P1: {parent} is not Reserved")));
         };
+        finite_replay::validate(state, &result, config, counters.attempts)?;
         if result.v0 > state.k || (config.lockstep && result.v0 != state.k) {
             return Err(fatal(format!(
                 "P1: result v0 {} beyond k {}",

@@ -304,6 +304,8 @@ pub(super) enum NativeKind {
     /// without a bound G2' flag).
     G2Residual = 3,
     Abandoned = 4,
+    /// Whole initial singleton, discharged only by bound cold exact replay.
+    FiniteReplay = 5,
 }
 
 /// The native `error_kind` values (`inspection.rs`), plus `Other` for any
@@ -518,6 +520,7 @@ pub(super) struct JobResult<const N: usize> {
     pub refusals_truncated: bool,
     pub scope: Option<Scope>,
     pub g2: Option<G2Part>,
+    pub finite_replay: Option<super::super::finite_replay::Recipe>,
     pub lookup: Option<LookupReport>,
     pub misses: Vec<Miss<N>>,
 }
@@ -609,6 +612,26 @@ impl<const N: usize> JobResult<N> {
                 w.u32(target);
             }
         }
+        if self.kind == NativeKind::FiniteReplay {
+            let recipe = self.finite_replay.expect("finite replay kind needs recipe");
+            w.u32(recipe.version);
+            let limits = recipe.limits;
+            for limit in [
+                limits.max_nodes,
+                limits.max_rule_applications,
+                limits.max_transport_calls,
+                limits.max_transport_operations,
+                limits.max_transport_endpoints,
+                limits.max_coalescing_additions,
+            ] {
+                w.u64(limit as u64);
+            }
+        } else {
+            assert!(
+                self.finite_replay.is_none(),
+                "recipe without finite replay kind"
+            );
+        }
         w.0
     }
 
@@ -626,6 +649,7 @@ impl<const N: usize> JobResult<N> {
             2 => NativeKind::Route,
             3 => NativeKind::G2Residual,
             4 => NativeKind::Abandoned,
+            5 => NativeKind::FiniteReplay,
             _ => return Err("invalid native kind"),
         };
         let error_kind = match r.u8()? {
@@ -715,6 +739,24 @@ impl<const N: usize> JobResult<N> {
                 target: if r.flag()? { Some(r.u32()?) } else { None },
             });
         }
+        let finite_replay = if kind == NativeKind::FiniteReplay {
+            let version = r.u32()?;
+            let mut limit =
+                || usize::try_from(r.u64()?).map_err(|_| "finite replay allowance range");
+            Some(super::super::finite_replay::Recipe {
+                version,
+                limits: super::super::OwnerDomainWalkFiniteReplayLimits {
+                    max_nodes: limit()?,
+                    max_rule_applications: limit()?,
+                    max_transport_calls: limit()?,
+                    max_transport_operations: limit()?,
+                    max_transport_endpoints: limit()?,
+                    max_coalescing_additions: limit()?,
+                },
+            })
+        } else {
+            None
+        };
         r.finish()?;
         let [
             emitted,
@@ -756,6 +798,7 @@ impl<const N: usize> JobResult<N> {
             refusals_truncated,
             scope,
             g2,
+            finite_replay,
             lookup,
             misses,
         })

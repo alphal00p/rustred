@@ -12,6 +12,8 @@
 //! decoding. Resume is bound to the request/policy digest,
 //! the owner digests and `WALK_SEMANTICS_VERSION`; the executable digest is
 //! recorded and reported, never a refusal.
+#[cfg(test)]
+mod finite_replay_tests;
 pub(super) mod manifest;
 #[cfg(test)]
 mod preferred_subset_tests;
@@ -182,6 +184,7 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
     add_preferred_subset_binding(&mut value, request);
+    add_finite_replay_binding(&mut value, request);
     // A10: the stop policy is semantic and bound; Record (the historical
     // behaviour) adds no key, so every existing CP5 binding is unchanged.
     if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
@@ -201,6 +204,18 @@ fn add_preferred_subset_binding(value: &mut Value, request: &OwnerDomainWalkRequ
     if super::super::input::has_preferred_rule_subsets(&request.matching.selection_json) {
         value["preferred_rule_subset_policy"] =
             super::super::input::PREFERRED_RULE_SUBSET_POLICY.into();
+    }
+}
+fn add_finite_replay_binding(value: &mut Value, request: &OwnerDomainWalkRequest) {
+    // No key in the flag-off path: historical request identity stays intact.
+    // The explicit version prevents old readers treating an unknown recipe
+    // as an ordinary locally empty inspection under an identical binding.
+    if let Some(limits) = request.finite_replay {
+        value["finite_replay"] = json!({
+            "version": super::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
+            "scope": "whole_initial_id0_singleton",
+            "limits": limits,
+        });
     }
 }
 fn policy_name(policy: OwnerDomainWalkPublicationPolicy) -> &'static str {
@@ -1141,6 +1156,7 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes,
         "frontier_policy":request.frontier_policy.name()});
     add_preferred_subset_binding(&mut value, request);
+    add_finite_replay_binding(&mut value, request);
     // AllMiss preserves the original Epoch binding byte-for-byte. The
     // experimental mode is frozen across resume without a new scalar schema.
     if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {

@@ -935,6 +935,7 @@ pub(super) fn run_native_observed<const N: usize>(
             overlap: context.overlap,
             cancellation: stop,
             g2: context.g2,
+            finite_account: context.finite_account,
         };
         if mode == LookupMode::AllMiss {
             return match &profiling {
@@ -976,6 +977,7 @@ pub(super) fn run_native_observed<const N: usize>(
                 == crate::OwnerDomainWalkFrontierPolicy::Stop,
             lockstep: !context.request.epoch_rolling,
             g2: context.g2.is_some(),
+            finite_replay: context.request.finite_replay,
         },
         &authorize,
         &inspect,
