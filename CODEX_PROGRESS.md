@@ -34,13 +34,49 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a: combined feature-gated FeynKit and default Python Rust checks plus7app/3core/8Python-unit/10actual-import tests PASS, independently audited. Community pinned to that commit; host build and end-to-end tests remain pending. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native old-host input-parity plus16 UI lifecycle/presentation tests pass; actual new-session generation/visual-live tests pending host build. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a: focused7app/3core/8Python-unit/10actual-import tests PASS. Optimized community host built; actual109-test gate exposed a FeynKit accessor mismatch. Independently reviewed three-line fix ready for pushed dependency pin and fresh real-host validation. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Presentation/source gates pass. Actual four-loop generation and live visual acceptance await corrected installed-host tests; PR will follow those gates, with BenRuijl requested as reviewer. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Embedded build completes; actual host exposes accessor mismatch — October4 23:50 UTC
+
+[M] The optimized community wheel built successfully in1537.403s inclusive
+(compiler25m24s), peak17.829GB. Evidence:
+`TMP/hepkit-community-native-build-20261004/`. Its installed native core exactly
+matches the wheel, and no standalone RustRed extension is loaded. The first
+actual host gate collected109 tests:20 passed,80 failed and9 setup errors,
+zero skips. Failures share the family-construction boundary: the converter
+attempted to extract `Symbols.edge_momentum` as an Expression instead of
+calling the pinned FeynKit API's zero-argument static method. The dimension
+getter is correct and is not changed. The default CLI check did not run after
+this failure. Evidence: `TMP/hepkit-installed-host-runtime-20261004/`.
+
+[M] Discovery agent fixed the native accessor and two analogous fixture
+head-accessor calls. Independent evaluation agent checked all three against
+the pinned GammaLoop8f834d9 API; no test assertion, algebra, foreign rustdoc or
+dimension handling changes. A temporary, process-local compatibility proxy
+against the old installed host isolates the diagnosis: v1 passes108/109 and
+identifies the second fixture call; v2 passes109/109, zero skips. These are
+explicitly **non-acceptance diagnostics**, not a substitute for compiling and
+testing the corrected native converter. Both process groups drained cleanly;
+receipts remain in `TMP/hepkit-installed-host-compat-diagnostic-20261004{,-v2}/`.
+
+[M] Fresh build and real-host wrappers are prepared under corresponding
+`-v2` evidence directories. Next: push the narrow audited fix, pin it in the
+community checkout, rebuild/install, rerun all109 tests without any proxy,
+then default CLI check and the actual one-worker four-loop notebook run.
+Only then publish the community PR. This integration correction does not
+change the separate frozen production CLI.
+
+[M] The second-campaign launch plan was rechecked without launching: executable,
+selection and query hashes match the documented pins;32 workers/CPUs64–95,
+600GB requested RAM,150GB reserve and hourly checkpoints remain configured.
+The user received the exact first-launch command again. Root did not start,
+stop or modify a production campaign.
 
 ### Native milestone pushed; embedded host build starts — October4 23:15 UTC
 

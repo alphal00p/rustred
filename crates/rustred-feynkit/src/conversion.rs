@@ -155,7 +155,7 @@ impl FamilyConversion {
         let module = kin.get_type().getattr("__module__")?.extract::<String>()?;
         let edge = match source.py().import(module.as_str())?.getattr("Symbols") {
             Ok(symbols) => Some(Momentum::new(
-                &symbols.getattr("edge_momentum")?.extract()?,
+                &symbols.call_method0("edge_momentum")?.extract()?,
             )?),
             Err(_) => None,
         };

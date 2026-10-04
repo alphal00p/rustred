@@ -190,7 +190,7 @@ def rejected_family(case):
     )
     kin = hep.Kinematics(d, momenta=[k, p1, p2])
     q1, q2 = vector(d, 1, "hep_probe::reject_q"), vector(d, 2, "hep_probe::reject_q")
-    edge = hep.Symbols.edge_momentum(2)
+    edge = hep.Symbols.edge_momentum()(2)
     value = {
         # FeynKit accepts these families, but each Gram entry depends on the
         # loop momentum, so treating it as a constant would be wrong.
@@ -271,7 +271,7 @@ def test_unassigned_external_scalar_products_must_still_be_assigned():
 
 def test_labeled_momenta_are_matched_by_their_labels():
     """FeynKit names momenta K(i) and P(i); only the family's own labels count."""
-    K, P = hep.Kinematics.loop_momentum, hep.Kinematics.external_momentum
+    K, P = hep.Kinematics.loop_momentum(), hep.Kinematics.external_momentum()
     d, s = S("labeled::d", "labeled::s")
 
     def bubble_family(loop, external, value):
