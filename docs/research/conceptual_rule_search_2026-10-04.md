@@ -1,6 +1,15 @@
 # Conceptual rule search: constrain the complete boundary, not the target order
 
-Date: 2026-10-04. Current result: the obstruction-directed100-row correction
+Date: 2026-10-04. Current recommendation: keep production unchanged. The new
+exact span-obstruction diagnostic and trace-directed source experiments improve
+our ability to find constrained identities, but do not yet establish a shared
+five-loop workload gain. On one actual19-input campaign region, boundary-preserving
+proofs improved from5 to11; the remaining eight still generate the full shared
+region we hoped to avoid. The11-point result now has a compact, exactly proved
+four-ray generalization, but it can open a different numerator direction. The
+next test targets the whole short excursion rather than just its first edge.
+
+Earlier result: the obstruction-directed100-row correction
 reduces a newly proved parametric owner31 baseline from313 to294 tails,
 preserving its unpinched recurrence and removing all nine nominated columns.
 After the preserved weighted-proof export refusal and typed guard diagnostic,
@@ -1460,3 +1469,200 @@ until translated/specialized natively. No source-rank inference from the
 unbounded inactive rays, coefficient-display calculation, source-bank solve,
 export, or efficacy claim follows. The next structural shortlist and separate
 finite-demand tests remain preregistration work.
+
+### Exact19-point discriminator: the same bank still misses14 inputs
+
+The preregistered batch tested every original admitted point, not a favorable
+subset. Each request fixed all15 indices, retained the same25 ordinary rows
+at−e_D12, D11 preservation, root policy and native strict descent, disabled
+only the cofinal nomination filter, and allowed at most120 existing typed
+shift refinements. Dimension d remained symbolic. No correlated-domain
+quotient, new source, exported point table or compact parametric rule was
+implemented.
+
+All19 calls completed cleanly in37.887317s total: five exact original-source
+singleton proofs and14 completed same-bank misses, without resource refusal
+or observer error. The five successes are exactly D8=D13=0; their RHS counts
+are13/14, with seven ordinary contributions and no retained nonconstant
+guards. Every admitted point with D8<0 or D13<0 misses. Thus restricting the
+prover to actual demand points does not rescue this fixed bank at those14
+inputs; a finite-demand quotient implementation is not justified by these
+results. This remains a bank-and-constraint statement, not absence of other
+IBP identities, nor coefficient equality to saved rule14.
+
+Evidence is `profiles/production-rule14-exact19-v1/`, result SHA
+`4786d85f1ed1222ecabcffd0d519afee62559b012725d18a713a8e8174a9e67a`.
+Independent final audit checked every refinement/product/F transition and
+terminal proof or miss; all19 owned groups drained and their PIDs were absent.
+No native rerun or source-bank expansion occurred within that registration.
+
+A retained-only raw-support Pareto screen names two comparatively modest
+active-dot transfers for possible future complete25-row blocks:
+−e_D7+e_D10−e_D12 and +e_D1−e_D2−e_D12. Neither changes a source's originally
+fixed-zero numerator axes. Their conservative full-block liabilities tie,
+and native nominee images cover only8/25 and1/25 rows respectively. The
+screen does not classify all new native cofinal exclusions or evaluate
+pairings at the actual19 points. Its broader eight-offset frontier includes
+trades into extra numerator directions or outside-root columns; it is not an
+offset-sweep recommendation. Any new bank still requires a separately
+chosen mechanism and full native proof, not selection by pairing count.
+
+### Combined75 direct demand test: six additional pointwise proofs
+
+One subsequent preregistration retained the original25 rows and added both
+complete25-row active-dot blocks named above. All19 physical inputs, D11
+preservation, root policy, ordering and final original-source proof remained
+unchanged. Both translated-row/proof allowances were explicitly75 while the
+native generator still produced exactly25 ordinary rows. The complete raw
+union had425 possible shifts, used only as the prospective refinement bound;
+no offset sweep or adaptive source growth was performed.
+
+The batch completed in39.767975s:11 exact singleton proofs and eight completed
+same-bank misses, with no resource, proof, refinement-cap or observer refusal.
+All19 groups drained. The prior five proofs were retained; six formerly
+unsolved points now passed. Exactly the11 points with D13=0 passed, while all
+eight with D13<0 still missed. Thus this is a positive six-point source-span
+feasibility result, not a solution of the entire19-point application.
+
+The six new proofs have nine original contributions and27–28 RHS terms, with
+no retained nonconstant guards. Each uses seven contributions at−e_D12 and
+two at+e_D1−e_D2−e_D12, namely `ordinary-ibp:1:1` and `ordinary-ibp:3:1`.
+None of their final contributions uses the other added block. This identifies
+the source direction in the actual checked identities; it does not predict
+the selector's behavior if a block were removed. The prior five complete
+products/source/proof-cell display JSONs also match their controls, used only
+as a diagnostic comparison, not as coefficient algebra.
+
+Evidence is `profiles/production-rule14-exact19-75-v1/`, including the full
+`point-comparison.json`; result SHA
+`7bf8635f3151425a3cd121223ef56e1356d9752b4c2e2f5c9deb93adcae4a3c4`.
+Independent final audit checked every native report and refinement chain.
+No compact parametric chart, exported bank, routing comparison, whole-query
+closure or downstream-work saving follows from these pointwise proofs.
+
+### Nine-source regional lift on D13=0
+
+One subsequent input-only test selected exactly the nine canonical bindings
+shared by all six new singleton proofs, without importing their coefficient
+displays as weights. It fixed D13=0 and retained the four rays D3,D8≤0 and
+D10,D12≥2, all other physical fixed powers, D11 preservation, root/cofinal
+nomination and native original-source proof. No refinement or source growth
+was allowed. This stronger chart contains all11 D13=0 points of the original
+19-point application; its rank/power correlations remain separate.
+
+The native checker proved the whole chart: nine contributions,28 generic RHS
+terms, U50/F11, and four D3/D8 zero/interior cells with22/23/27/28 RHS terms.
+Each cell retains two D12−1 guard factors. Execution drained cleanly in
+1.671308s inclusive. Evidence is
+`profiles/production-rule14-d13zero-lift-v1/`, result SHA
+`8dbf64bc9240204a3c8bffde61447ec76dd8b4c247249c39cd2687c052251afa`;
+independent final audit passed.
+
+This is a compact native original-source identity, not a closed D13=0
+subsystem: one retained shift is +e_D8−e_D12−e_D13, trading a D8 numerator
+toward a D13 numerator while lowering D12. The original D13-negative source
+piece in event29 still emits the entire shared D11-reentry domain, so treating
+only the D13=0 face cannot remove that dependency. Moreover the current
+`AfterBaselinePartitionWholePiece` export policy would not activate this
+narrower face on the original D13[-2,0] piece. No export, partition change,
+routing comparison or downstream-work claim follows. The eight actual
+D13-negative same-bank misses remain parked; a distinct restoration
+mechanism, not an offset sweep, is the next proposed discriminator.
+
+### Fresh ordinary-source restorer: proof and shape both pass
+
+A separate one-proposal test used all25 ordinary rows at the structurally
+nominated offset +e_D11−e_D5, with no saved-rule weights. The proof chart fixes
+D11=D8=−1,D5=4,D3=D13=0 and the other actual coordinates, leaving only
+D10≥2,D12≥1 free. It contains the two original re-entry points with D8=−1;
+it does not cover the prospective second stage at D8=0,D5=3. The native
+request preserved D12 and retained root/cofinal/fresh-source proof with zero
+refinements. The stronger desired RHS shape was a separate postcheck, not
+an invented complete forbidden-column list.
+
+The full native proof and postcheck both passed: four original contributions
+(`ordinary-ibp:1:1` through `ordinary-ibp:1:4`),15 RHS terms, U102/F35 and one
+two-ray proof cell with no guards. Fourteen tails raise D11 by one; the only
+nonrestoring tail is exactly w=−e_D5+e_D8. Every tail preserves D12. All side
+terms remain, including one opening a D4 numerator direction. The call drained
+in1.866218s inclusive and passed independent final audit. Evidence is
+`profiles/production-rule4-fresh-restorer-v1/`, result SHA
+`589216280414f2b459ef94ad345b4ca5c2344e7938feb3d9f4221c5ba160c305`.
+
+This establishes an ordinary-source restoration path on the declared chart,
+not equality to saved rule4, actual dispatcher selection, a completed
+depth-two composition, or reduced work. It motivates a separately registered
+full-source test on all19 original points; neither coefficient displays nor
+the saved rule's zero-sector quotient are imported into that test.
+
+### Restoration-path125 bank: all19 original points pass
+
+The next preregistered bank retained the original25 rows and added four
+complete25-row blocks along the recorded restoration path: u+r,v+r,u+w+r,
+v+w+r, where u/v are the two D11 exits, r=+e_D11−e_D5 and
+w=−e_D5+e_D8. This125 bank is an alternative to the earlier75 bank, not its
+superset. All19 original physical points, native order, D11 preservation and
+full original-source proof were retained. The conservative raw union690
+bounded typed shift refinements; no bank growth or retry occurred.
+
+All19 singleton proofs passed in37.787159s, versus5/19 for the original25
+bank and11/19 for the alternative75 bank. There were no refusals, misses or
+observer failures; every owned group drained. The native proofs use7–12
+contributions and13–51 RHS terms, with zero guards. Every actual tail keeps
+D11=0 and lowers D12 by one. Integer endpoint geometry also confirms that
+R,A and E=A−support+R never increase at these19 points; this is not a generic
+or routed-pool bound.
+
+All14 newly solved points have1–4 D4-numerator endpoints, with no D6
+numerator endpoints. Only the base and first-level u+r/v+r blocks contribute
+to final proofs; that observation does not license removal of the unused
+blocks without a separately declared test. Nor are the proofs literal
+compositions of the fresh restorer: their selected extra source IDs differ.
+Among the six prior75-bank gains, two retain27 RHS terms, two grow27→37 and
+two grow28→31. Thus complete local feasibility is positive, while boundary
+size and downstream cost are not uniformly improved.
+
+Evidence is `profiles/production-rule14-exact19-125-v1/`, result SHA
+`3a000c6b5be34cf4f663141358243f2d5cf38847cf4551316c8e6f0a26570095`,
+with the retained `pointwise-comparison.json`. These are separate exact
+point proofs, not an exported point table or a compact parametric rule.
+Independent final raw audit passed. The separately registered same125-bank
+five-ray lift below retained every source, without supplied weights.
+
+### Whole five-ray identity and checked export
+
+The unchanged125-bank lift also passed the original five-ray chart:
+D3,D8,D13≤0 and D10,D12≥2, with all ten physical fixed coordinates retained.
+It required no refinement. Fourteen ordinary contributions give67 generic
+RHS terms, U532/F68 and eight exact zero/interior cells with
+13/14/29/33/40/44/60/67 RHS terms. Each cell carries four nonzero guard factors
+that are constant multiples of D12−1. Every full-product tail preserves
+D11=0 and lowers D12 by one. The1.697418s call drained cleanly and passed
+independent final audit. Evidence is `profiles/production-rule14-five-ray-125-v1/`,
+result SHA `c5c6e65f1792ca52e8494568f46e4e28139feb3bc8950e99b194f9af079e40dd`.
+
+This supplies a single parametric identity containing the entire original
+19-point rule14 piece; the six-fixed-face fallback was unnecessary. It is
+not the same coefficient selection as the separate singleton proofs, so their
+RHS counts and observed R/A/E bounds must not be silently transferred to it.
+The broader rule retains D4-numerator side terms. Neither67 generic terms nor
+the removal of the D11 exit establishes a reduced recursively evaluated
+boundary.
+
+The same exact request was then admitted by the unchanged checked exporter,
+followed by cold saved-ordinal0 inspection. It preserves the original265
+rules and43 terminals and adds one67-RHS rule, using the existing
+`AfterBaselinePartitionWholePiece` policy. Full native proof-report parity
+passed; cold inspection confirms the intended ten-fixed/five-symbolic case.
+Unlike the earlier D13=0-only lift, this proof chart contains the whole
+observed rule14 piece, although actual matcher selection remains to be
+measured. No installation, production edit or routing was performed.
+
+Evidence is `profiles/production-rule14-five-ray-export-v1/`, result SHA
+`54ca738187587bce36323a5b69dc6f18cc3b5f4c24cfdefe8bc51c65cfaba5e7`.
+The4,665,814-byte candidate has SHA
+`e48ecfc23e90703b33f187bb2b2e6543bac5edd58f8afbf0c7b8da126a389adb`.
+Both phases drained in3.095146s inclusive; independent final export audit is
+complete. The native lower-cut exclusions retain both D10,D12≥2 floors;
+symbolic zeros in the saved target do not widen the domain. Whole-demand
+workload comparison, rather than RHS count, is the next decision gate.

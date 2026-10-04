@@ -24,12 +24,216 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Delivered fresh-source C export/168 tests. H1 routing parked: all43 retained production regions miss C. Actual rule14 baseline proves on a five-ray chart, but protecting its D11=0 face gives a completed25-source span miss. Active: generalize exact dual-witness source nomination to this ordinary target problem, then test one evidence-selected compact enrichment. No workload gain or production change claimed. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation/evaluation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed shared exact obstruction diagnostic/174 tests as fb276c64. Trace-directed125 bank now proves all19 actual points and one five-ray rule, exported/cold-inspected as e48ecfc2. Active: matched original29-point shared-context workload test. Earlier partial-face approach did not remove the common obligation. No workload gain or production change claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Admitted candidate ready for the actual shared-work gate — October4, 18:35 UTC
+
+[M] Existing checked export and cold ordinal0 inspection complete in3.095s
+inclusive, independently audited. Candidate`e48ecfc23e90703b33f187bb2b2e6543bac5edd58f8afbf0c7b8da126a389adb`
+is4,665,814bytes;265→266 rules, all43 terminals and the old rule suffix
+retained. Native source replay, codec and unchanged
+`AfterBaselinePartitionWholePiece` policy pass. Cold lower-cut guards explicitly
+exclude D10=1,D12=1, so symbolic target placeholders do not widen the proved
+positive-index floors. Evidence: `profiles/production-rule14-five-ray-export-v1/`.
+No original owner/campaign/checkpoint was overwritten or installed.
+
+[E] Matched workload pilot is prepared at
+`profiles/production-owner31-whole29-pair-v1/plan.json` (`0ee35cac…775e6b6b`).
+It keeps the original one-row29-point R/A/D domain, all67 owners,8,246 routes,
+two byte-identical overlays and production Epoch settings. Only owner31's
+payload differs between arms; finite replay is disabled. Use the existing V5
+engine and paired supervisor, eight workers on CPUs32–39, and a shared1800s
+budget including staging, preparation, cold checking and orderly shutdown.
+The baseline must complete and pass cold full reinspection with reference
+levers off before the candidate arm. An incomplete baseline parks the pair;
+no ratio or improvement claim. This particular cohort has no previously
+completed descendant-closure timing. Unrestricted foreign compiler activity
+is recorded as host contention, not changed.
+
+Independent paired preflight PASS; root's conditional invocation grant is met.
+Discovery handles retained-only eligibility/generalization analysis while
+the auditor checks lifecycle, actual candidate dispatch, full debt/closure and
+completed results. Further native variants or a second production campaign
+are not authorized by this research pilot's algebraic success.
+
+### Uniform excursion-eliminating parametric identity found — October4, 18:26 UTC
+
+[M] The same125 unweighted sources prove the original five-ray chart without
+any refinement: D3,D8,D13≤0,D10,D12≥2, other actual powers fixed. Native
+full-source proof succeeds over eight zero/interior cells, with14 contributions
+and67 generic RHS terms; four guard entries per cell are multiples of D12−1.
+Every tail preserves D11 and lowers D12 by one. Execution drains in1.697s
+inclusive (1.391s native). Evidence:
+`profiles/production-rule14-five-ray-125-v1/`,
+raw`af56da2d…beded23`, result`c5c6e65f…79e40dd`; final independent audit PASS.
+This is one new parametric identity, not a completed five-loop artifact or a
+generation-time comparison. Do not reuse the earlier singleton RHS counts
+for this different uniform identity.
+
+[E] This stronger chart contains the entire original19-point baseline piece,
+so existing whole-piece priority dispatch should suffice; no new partition API
+or finite-rank quotient is justified. Discovery prepares a fresh native export
+through the unchanged checked encoder, with no production installation.
+Evaluation prepares a matched shared-context test of the original29-point
+parent (including its unchanged10-point branch), all67 owners,8,246 routes and
+two overlays. Independent audit checks proof, export and input replacement.
+The larger generic RHS makes the downstream test essential; no second campaign
+is recommended from algebraic success alone.
+
+[M] A useful contrary comparison is retained: the incumbent rule14's24 native
+events represent335 nonzero point/endpoint occurrences and303 distinct immediate
+keys on the19 inputs; the alternative singleton proofs have520 occurrences and
+398 keys. Both preserve or lower A and R. These are different one-step programs,
+not equally expanded final boundaries: the old D11 exits still require further
+reduction. Neither their raw sizes nor the preserved resource bounds establish
+the winner. The uniform67-term identity also differs from those singleton
+solutions and needs its own native application measurement.
+
+### Trace-directed bank proves all19 demand points — October4, 18:18 UTC
+
+[M] The fixed125-row experiment completes in37.787s inclusive, with19 exact
+original-source singleton proofs and zero misses/refusals/observer failures.
+All owned process groups drain; peakRSS113.6MB. Every surviving endpoint
+preserves D11 and lowers D12 by one. RHS sizes range13–51, source counts7–12,
+and no nonconstant proof guards remain. This is a different bank from75,
+not its superset. All14 inputs missed by the original25 now have identities
+satisfying the declared boundary constraint. It is not five-loop closure.
+Evidence: `profiles/production-rule14-exact19-125-v1/`,
+result`3a000c6b…570095`; final independent audit PASS.
+
+[M] The final point identities use the original block and the first two
+trace-directed blocks; neither second-step block contributes. Their removal
+has not been tested and is not silently assumed. All14 new proofs introduce
+one to four D4-numerator endpoints, no D6 numerator. Four of the six earlier
+75-bank successes now have larger RHS counts. Independent integer geometry
+confirms all520 nonzero RHS occurrences preserve or lower total R and A.
+Crucially, the incumbent D11-exit edges also preserve total R: they transfer
+one numerator from D8 or D13 to D11 while lowering A by one. Rank monotonicity
+is therefore not a demonstrated new advantage. No shared-work saving follows.
+
+[E] Authorize one unchanged125-bank lift to the original five-ray chart,
+with no refinement/export, before considering any six-slice partition scheme.
+A uniform proof could cover the whole native19-point piece with the current
+dispatch policy. A failure would reject that stronger uniform chart only,
+not the completed singleton proofs. No new source search or Rust rebuild.
+
+### Fresh restoring identity supports a trace-directed source test — October4, 18:10 UTC
+
+[M] The25-source fresh-restorer call completes in1.866s inclusive (1.418s
+native), clean/drained. Native full original-source proof succeeds on the
+declared two-ray chart with four contributions,15 RHS terms and no guards.
+The full-RHS postcheck passes:14 tails restore D11 and one continues through
+−eD5+eD8; every tail preserves D12. One restoring tail creates a D4 numerator,
+so restoration alone remains no cost guarantee. Evidence:
+`profiles/production-rule4-fresh-restorer-v1/`, raw`d4ed2896…77abfb`,
+result`58921628…0c305`. Independent final audit PASS.
+
+[E] Root grants one subsequent all19-input test, after independent input
+review, of the fixed five ordinary-source blocks nominated by this short
+path. Offsets are−eD12,−eD12−eD5+eD8,−eD12−eD5+eD13,
+−eD12−2eD5+2eD8, and−eD12−2eD5+eD8+eD13. Every block retains all25 rows;
+all original guard/root/descent and D11-preservation obligations remain.
+This searches fresh identities rather than claiming equality to saved rule4
+or silently transporting its proof. No new engine code, automatic offset
+growth, production edit or launch. Discovery invokes; evaluation prepares
+inputs; separate auditor checks evidence. Keep complete old/new point and
+boundary outcomes, not only the number of successful D11 cancellations.
+
+### Compact face identity proved; its boundary is not invariant — October4, 18:06 UTC
+
+[M] The nine contributing source bindings lift, without supplied weights, to
+an exact four-ray identity in1.671s inclusive (1.380s native). All four native
+D3/D8 boundary/interior cells pass full original-source replay and strict
+descent. There are28 generic RHS terms,22/23/27/28 nonzero terms per cell and
+two D12−1 guard entries per cell. Independent final audit PASS; no export.
+Evidence: `profiles/production-rule14-d13zero-lift-v1/`, raw`887b2b9f…9a602d`,
+result`8dbf64bc…251afa`. This is a parametric proof, not extrapolation of the
+earlier11 fixed-point successes.
+
+[M] All D11 shifts vanish, but one surviving tail is+eD8−eD12−eD13: the
+identity can trade a D8 numerator for a D13 numerator. It therefore does not
+preserve its own D13=0 applicability face. Together with event29's surviving
+shared target and the whole-piece dispatch limitation, this prevents treating
+the face result as a campaign optimization. Continue the independently
+motivated whole-excursion source test rather than install this partial rule.
+
+### Shared-work falsifier directs the next conceptual test — October4, 18:03 UTC
+
+[M] Independent retained-event review defeats the immediate performance
+interpretation of the11/19 result: original event29 receives exactly the eight
+D13-negative fallback inputs and emits every point of the same shared D11
+reentry target. Improving only D13=0 therefore cannot remove that obligation.
+The existing whole-piece export policy also cannot select a D13=0 rule on the
+unsplit D13∈[−2,0] baseline piece. Neither issue invalidates the six new exact
+identities, but partitioning or RHS-size changes alone establish no shared gain.
+
+[E] One cheap nine-source lift tests whether their common source support gives
+a compact four-ray D13=0 identity. No export/partition implementation follows
+automatically. The stronger next hypothesis uses the existing restoration path
+to nominate sources for a **whole excursion-eliminating identity**. Retained
+integer support identifies +eD11−eD5 as the unique single translation whose
+ordinary-source support contains all26 saved rule4 tails. This is a necessary
+support condition, not coefficient equality or saved-circuit provenance.
+
+Evaluation prepares a fresh25-row restoring-rule proof at that translation,
+with D11=D8=−1,D5=4 and the actual other fixed powers, D10≥2,D12≥1.
+Only D11-restoring tails and the one continuing shift−eD5+eD8 are allowed;
+D12 is preserved. Discovery remains sole native invoker; auditor checks the
+exact chart and full original-source proof. If successful, a separately
+registered finite bank could combine the original block with four translated
+restorer blocks corresponding to the two observed exits and their one possible
+continuation. This avoids both blind source-shell growth and a new macro/CAS
+implementation. All side exits and poles remain. A compact final boundary,
+followed by unchanged-context workload tests, is still required for promotion.
+
+### Demand-level source improvement, not a campaign acceleration — October4, 17:54 UTC
+
+[M] Committed/pushed the shared Symbolica separator, complete raw-support
+preimage service and default-off ordinary-bank diagnostic as `fb276c64` on
+`main`. All174 focused tests and independent implementation/mathematical audit
+pass. Existing production binaries, rules and inputs remain untouched.
+
+[M] The same25-row bank was then tested on every one of the19 original physical
+inputs with all indices fixed and dimension symbolic. All19 completed in37.887s:
+five original-source proofs,14 complete span misses, no refusals. Proofs occur
+exactly when D8=D13=0. Evidence: `profiles/production-rule14-exact19-v1/` under
+`TMP/rule-optimizer-20261003/`; result`4786d85f…e67a`. Independent audit checked
+all typed refinement steps and process drainage. This falsifies the proposal
+that merely using the correlated physical domain rescues the unchanged bank;
+do not implement a finite-domain quotient service on this evidence.
+
+[M] One preregistered enrichment added complete25-row blocks at
+−eD7+eD10−eD12 and +eD1−eD2−eD12, retaining the original block at−eD12.
+The same19-point batch completes in39.768s:11 proofs/eight complete misses,
+zero refusals, peak113.4MB and all owned groups drained. Exactly the points with
+D13=0 succeed. Allfive baseline identities remain; six additional identities
+use seven original contributions and two from +eD1−eD2−eD12, with27–28 RHS
+terms and no nonconstant proof guards. No final contribution uses the other
+added block. This is checked source-span improvement, not reduced downstream
+cost, a compact parametric rule, or whole-region coverage. The eight remaining
+misses are not unreducible integrals: the existing rules reduce them by leaving
+the protected D11 boundary.
+
+Exact invocation: the registered Python interpreter with `-B
+TMP/rule-optimizer-20261003/profiles/production-rule14-exact19-75-v1/run.py
+--execute`. The frozen runner records the executable,59 input pins, CPU69,
+all three resource locks,16GiB process guard and shared300s batch deadline.
+Result`7bf8635f…a4a3c4`, complete point comparison retained; independent final
+audit PASS. No automatic retries or bank growth authorized.
+
+[E] Next responsibilities: discovery prepares a compact D13=0 face test and
+identifies the structural D13 obstruction; evaluation examines a bounded
+composition that restores D11 without exploring its intermediate region;
+auditor challenges whether either changes total shared work. All are conceptual
+rule changes, not scheduling/micro-optimizations. A second full campaign still
+lacks qualifying evidence. Read-only production17:50:232.81M discovered,
+188.50M local completions,8.78M pending,zero frontiers,183.34GB RSS. The13/67
+root-closure snapshot is4.275h old; no current closure rate or ETA follows.
 
 ### Complete exact preimage evaluation; rank-aware discriminator next — October4, 17:32 UTC
 
