@@ -11,6 +11,18 @@ pub struct Request {
     pub expected_successors: usize,
     pub expected_strict_subsupport_successors: usize,
     pub limits: Limits,
+    /// Omission preserves the original one-Apply, weighted-routing observer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plateau_cut: Option<PlateauCut>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlateauCut {
+    pub max_depth: usize,
+    pub max_parents: usize,
+    pub max_apply_calls: usize,
+    pub max_pending_terms: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -58,9 +70,9 @@ impl Request {
     pub fn validate(&self, queries: &Queries) -> Result<usize, String> {
         self.observation.validate()?;
         self.limits.expansion()?;
-        let n = queries.validate(1)?;
+        let n = queries.validate(self.plateau_cut.as_ref().map_or(1, |p| p.max_parents))?;
         if self.schema != "rustred.routed-cancellation.request.v1"
-            || self.expected_successors == 0
+            || (self.plateau_cut.is_none() && self.expected_successors == 0)
             || self.expected_strict_subsupport_successors > self.expected_successors
             || [
                 self.limits.max_route_calls,
@@ -71,13 +83,37 @@ impl Request {
                 self.limits.max_report_bytes,
             ]
             .contains(&0)
-            || queries.queries[0]
-                .lower
-                .iter()
-                .zip(&queries.queries[0].upper)
-                .any(|(lo, hi)| *hi != Some(*lo))
+            || queries.queries.iter().any(|q| {
+                q.lower
+                    .iter()
+                    .zip(&q.upper)
+                    .any(|(lo, hi)| *hi != Some(*lo))
+            })
         {
             return Err("requires one complete singleton and positive finite budgets".into());
+        }
+        if let Some(p) = &self.plateau_cut {
+            if p.max_depth == 0
+                || p.max_parents == 0
+                || p.max_apply_calls < queries.queries.len()
+                || p.max_pending_terms == 0
+                || self.observation.recorder_limits.max_queries < p.max_apply_calls
+                || self.expected_successors != 0
+                || self.expected_strict_subsupport_successors != 0
+            {
+                return Err(
+                    "invalid plateau cut/recording budgets or legacy count expectations".into(),
+                );
+            }
+            let mut keys = std::collections::BTreeSet::new();
+            for q in &queries.queries {
+                let sector: Vec<_> = q.owner.bytes().map(|b| b == b'1').collect();
+                let key = super::singleton(&sector, &q.lower, &q.upper)?;
+                super::plateau::check_query_point(q, &key)?;
+                if !keys.insert(key) {
+                    return Err("duplicate plateau parent integral".into());
+                }
+            }
         }
         Ok(n)
     }

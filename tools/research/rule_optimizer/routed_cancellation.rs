@@ -1,4 +1,4 @@
-//! One complete fixed-point identity, weighted native routing, no descendant IBP.
+//! Research weighted routing; optional bounded same-owner plateau substitutions.
 mod applied_observer {
     pub mod input;
     pub mod record;

@@ -34,6 +34,102 @@ Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
 
+### Weighted-cut controls complete: small cancellation signal — October4
+
+[M] Corrected build`85442d2e…4b2382c` passes21/21 focused tests, formatting
+and independent code/build review. The actual native matcher normalizes
+redundant caps; the corrected observer verifies identical fixed points under
+both cap sets. V2 reuses the literal v1 requests. Native results and complete
+BFS/native-event/ledger joins independently audited PASS:
+
+| Original cohort, depth2 | Applied roots | Native calls | Sum of per-parent distinct keys → nonzero keys | Shared raw-key union | Inclusive / preparation / cut seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Four-loop90 |90/90|254|1,814 →1,760|274 →274|2.263 /0.885 /0.188|
+| Five-loop29 |29/29|143|1,933 →1,923|1,499 →1,495|77.415 /73.007 /0.185|
+
+[M] No fallback, clipped child cap, unsupported transaction or surviving
+process in either run.4L has54 parent-key cancellations, but every one of
+their25 distinct keys remains needed by another parent.5L has ten parent-key
+cancellations on nine distinct keys; five remain needed elsewhere. All four
+globally removed5L keys come from the original scalar parent00. Pinches,
+including315 E-increasing4L parent-key endpoints, remain explicitly on the
+cut; E is not asserted to decrease across supports. This is exact collection
+at an identical cut, not a completed-work or production gain.
+
+[M] Evidence:`profiles/plateau-cut-original-controls-v2/`;4L receipt
+`a989c32e…c60413`,5L`206009b3…843ef6`. Both exact commands are in`run.py`;
+the default-off byte-parity regression and initial metadata refusal remain
+under v1. Root read the21-test receipt and source; the independent auditor
+reconstructed both complete native application trees and boundary accounting.
+
+[E] One final registered discriminator changes ONLY`max_depth`2→4 on BOTH
+complete original cohorts. After depth2,339 same-owner equal-E parent-key
+endpoints remain in the5L cut, so two substitutions may be too shallow to
+test composition across that level. This is not a depth sweep or permission
+to select parent00 alone. Same binary, bounds, pools and separate300s guards;
+no automatic allowance correction. Compare collection within each depth4
+cut, never different-depth boundary sizes as a speedup. If benefit remains
+small, park this fixed-policy composition rather than chase micro-optimizations.
+No second production campaign is recommended.
+
+### Weighted-cut implementation and controls — October4
+
+[M] Discovery/literature milestone`4e4d3eb4` is pushed to`main`. The new
+research-only adapter is opt-in via`plateau_cut`; its default-off one-step
+routed observer remains intact. Independent source review GO covers native
+index-specialized coefficient handling, atomic fallback, complete uncollected
+path expansion and final-cut collection. A global budget/recording failure
+does not become a successful boundary. Different parents have separate sums;
+the batch metric unions their surviving KEY sets without adding coefficients
+across independent input equations.
+
+[E] Controls are frozen in
+`profiles/plateau-cut-original-controls-v1/`:4L90 original points
+(6 rank0,84 rank1) and5L29 (1 rank0,8 rank1,20 rank2), baseline contexts
+16 owners/508 routes and67 owners/8,246 routes/two overlays. Parent caps
+are unchanged; singleton child application is deliberately not clipped to
+entry caps. Independent input audit PASS. Preparation uses W8/CPUs32–39,
+supervisor70; separate300s inclusive/16GiB guarded calls, existing heavy-job
+locks and host reserve. The first native call is a separately authorized
+default-off legacy regression against the archived original observer result,
+with its original worker setting and corresponding isolated CPU range.
+
+[E] `lower_rule_evaluation` owns adapter/test implementation and its cached
+optimized build; `lower_sector_discovery` owns the integer-preserving cohort
+preparation and guarded calls; `finite_region_audit` independently reviews
+code, inputs and results. All20 focused tests pass (ten legacy, ten new;
+none filtered or ignored). Cached optimized test compilation took18.981s;
+test wrapper3.526s, body0.01s. The optimized research executable linked in
+95.567s: SHA`b7820d6a…36ee54a`, under
+`candidates/plateau-cut-build-v1/`. These timings use opt2/no-LTO and pinned
+existing libraries, not a fresh full Cargo release benchmark. All owned build
+processes drained; independent final code/build audit GO. The three preapproved
+observations may now run. They are algebraic mechanism screens, not
+whole-campaign closure or speed comparisons.
+
+[M] Default-off native regression PASS in95.854s inclusive: selected rule,
+semantic report, native events and routing ledger match the archived original;
+all four coefficient-state/atom payloads are byte-identical. The original
+473 occurrences/372 keys/26 exact cancellations are unchanged. Receipt
+`59f15fdf…b2bebac`, clean owned-process drain.
+
+[M] The first4L90 enabled call stops before applying any rule: the native
+matcher tightens the redundant rank cap1 to0 on a rank-zero singleton while
+retaining exactly the same owner, bounds and A/D constraints. The new adapter's
+literal cap-equality check incorrectly rejects this equivalent representation.
+It is an observer defect, not an algebraic negative. The refusal takes2.157s,
+completes0/90 parents and drains cleanly; receipt`52142ad3…98c9e`. The5L call
+was not started.
+
+[E] The isolated correction retains exact owner/lower/upper equality and
+requires the unique physical point to satisfy BOTH original and native caps.
+Add the actual normalized-rank case and exclusion/widened-box regressions.
+Preserve all v1 receipts, then rerun the identical90/29 inputs with the audited
+v2 binary. Do not change the physical queries, silently accept different
+regions or count the failed call as a completed control. Legacy runtime code
+is unchanged by this new-mode-only correction; its v1 native regression stays
+valid evidence for that earlier build, not a claimed v2 native rerun.
+
 ### New source bank fails; change the explored state — October4
 
 [M] The registered cross-dot250 test completes all19 points in127.723s

@@ -1976,3 +1976,18 @@ Pointwise matching can select different rules from a whole-domain match; the
 experiment must say so and retain selected-rule identities. Even substantial
 local cancellation would still need a completed shared-context cost comparison
 and a reusable source-replayed rule before a production recommendation.
+
+The depth-two implementation now passes21 focused tests and both native
+controls. It found54 parent-key cancellations at four loops, but their shared
+raw-key union stayed274. At five loops, ten parent-key cancellations reduce
+the union from1,499 to1,495; all four globally removed keys belong to the
+original scalar corner. Every original parent was applied, with no fallback
+or incomplete native transaction. Thus local cancellation exists, but this
+short policy does not demonstrate a substantial shared-work reduction.
+
+One fixed depth-four follow-up uses the identical full cohorts, executable and
+resource limits. It probes whether a longer equal-degree episode changes that
+conclusion; there is no depth sweep, favorable-parent subset or cross-depth
+cost claim. Evidence is retained under`profiles/plateau-cut-original-controls-v2/`
+for depth two, including the earlier default-off regression and corrected
+observer's handling of redundant singleton cap normalization.

@@ -3,6 +3,19 @@
 Started October 3, 2026. This is the active development plan, superseding older
 stop directives. The completed frontier repair remains available independently.
 
+## October4 revised endpoint
+
+The user now requests finishing the fixed depth-four composition experiment,
+then winding down this research program, reviewing/integrating the existing
+pull request and consolidating a tested optimized release on`main`. Prepare
+a separate frozen full-scope campaign and exact user launch commands alongside
+the untouched live campaign. After commit/push and handoff, mark the revised
+delivery goal complete and stop. Report unachieved performance/closure aims
+as such; the original20% ambition below must not be retroactively claimed.
+Do not promote a weak or negative experiment merely to differentiate the
+second campaign. Select the best defensible tested setup and label remaining
+benefit uncertainty explicitly.
+
 ## User directive
 
 > Using the existing campaign data start an ambitious program along the lines of what you mentioned above.

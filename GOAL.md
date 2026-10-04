@@ -1,5 +1,27 @@
 # RustRed project goal
 
+## October4 delivery directive — finish research, integrate PR, hand off
+
+The latest user instruction supersedes the open-ended October3 optimization
+search below. Finish the already registered depth-four composition experiment
+on the original four- and five-loop cohorts. Wind down realistic remaining
+avenues rather than repeatedly tuning weak policies. Preserve negative results
+and distinguish exact local effects from a demonstrated whole-campaign win.
+
+Review and absorb the existing pull request, consolidate tested changes on
+`main`, and prepare a frozen optimized build and independent full-scope
+five-loop campaign for the user to launch alongside the existing one. Retain
+all116 required queries and67 helpers, exact guards/descent and successor
+obligations. Do not stop, restart, amend or overwrite the live campaign.
+Document which settings/rules differ and which benefits remain unproved;
+there is currently no repeatable material five-loop whole-campaign gain.
+
+Commit/push the clean owned changes, provide exact build/environment/launch
+commands and the independent campaign path, then mark this revised delivery
+goal complete and stop. This completes the requested optimization/release
+study, not five-loop mathematical closure or its original20% performance
+target. Preserve unrelated collaborator work when integrating the PR.
+
 ## Active October3 program — profile-guided rule optimization
 
 At the user's explicit request, implement

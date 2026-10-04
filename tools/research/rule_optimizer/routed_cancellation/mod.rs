@@ -1,6 +1,7 @@
-//! Research observation only: sum complete weighted routes of ONE exact parent.
-//! No Apply recursion, snapshot coverage, rule publication or exceptional-d claim.
+//! Research only: default one-parent weighted routing, or opt-in bounded Apply cut.
+//! Neither mode claims snapshot coverage, rule publication or exceptional-d validity.
 mod input;
+mod plateau;
 #[cfg(test)]
 mod tests;
 
@@ -615,6 +616,17 @@ fn observe<const N: usize>(
         .map_err(err)?
         .ok_or("preparation cancelled")?;
     let preparation_seconds = started.elapsed().as_secs_f64();
+    if let Some(config) = &request.plateau_cut {
+        return plateau::observe(
+            &session,
+            request,
+            config,
+            queries,
+            output,
+            cancel,
+            preparation_seconds,
+        );
+    }
     let selection: Selection = serde_json::from_str(selection_text).map_err(err)?;
     let query = &queries.queries[0];
     let owner = mask::<N>(&query.owner)?;

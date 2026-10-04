@@ -3,7 +3,7 @@
 ## Exact cancellation across one routed rule boundary
 
 `rule_optimizer_routed_cancellation` is a research diagnostic, not a new
-campaign execution mode. It observes one complete singleton rule application,
+campaign execution mode. By default it observes one complete singleton rule application,
 routes every weighted term using the admitted selection, and sums coefficients
 of equal canonical integral keys with Symbolica. It does not apply further
 IBPs or combine independent parent identities.
@@ -31,6 +31,52 @@ fixed-parent observation in the full shared-owner context, not a parametric
 rule, a production bottleneck census or a measured campaign speedup. Existing
 cold closure replay still requires the original successor obligations; the
 diagnostic does not authorize deleting those dependencies.
+
+### Optional weighted plateau cut
+
+The same executable accepts an optional `plateau_cut` request field. It
+composes saved-rule applications on fixed input integrals before collecting
+their complete boundary with Symbolica. No production campaign mode changes.
+For example, the following fields replace the legacy expected term counts:
+
+```json
+{
+  "expected_successors": 0,
+  "expected_strict_subsupport_successors": 0,
+  "plateau_cut": {
+    "max_depth": 2,
+    "max_parents": 90,
+    "max_apply_calls": 10000,
+    "max_pending_terms": 100000
+  }
+}
+```
+
+All other request fields remain required. Set the recorder's `max_queries`
+at least as high as `max_apply_calls`. The query file contains distinct
+singleton parents with their original entry caps; child singletons are not
+clipped to those caps. Depth two means the root application and at most one
+further application along each path. Only same-owner children with unchanged
+`E = total positive power - support size + numerator rank` are followed.
+Every other term remains on the boundary, including pinches and E increases.
+An incomplete, conditional or unmatched child application keeps the entire
+weighted child, never a partial RHS. An exhausted global resource or recording
+budget instead makes the observation incomplete.
+
+Each parent has its own coefficient sum. The report distinguishes occurrence
+deduplication from exact cancellation and also reports the union of surviving
+key supports across parents; it never adds coefficients across separate input
+equations. Collection occurs at the final fixed cut, not during expansion.
+Thus the result measures cancellation potential, not saved application calls.
+No routing or terminal declaration is performed in this mode.
+
+Dispatch is explicitly **pointwise** and may differ from the campaign's
+whole-domain rule selection. `complete` means that the requested cut was fully
+observed, possibly with reported fallback boundaries—not that its integrals
+were reduced or closed. Native event records, selected rules and binary
+coefficient tables preserve the saved-program evidence; the adapter does not
+claim a fresh flattened original-IBP proof, exceptional-dimension coverage,
+or a campaign speedup. Omit `plateau_cut` to retain the original observer.
 
 ## Experimental exact initial-domain summaries
 
