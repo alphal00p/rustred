@@ -17,6 +17,9 @@ fn limits() -> OwnerDomainWalkFiniteReplayLimits {
         max_transport_operations: 104,
         max_transport_endpoints: 105,
         max_coalescing_additions: 106,
+        max_positive_layers: 107,
+        max_seed_points: 108,
+        max_seed_bytes: 109,
     }
 }
 
@@ -36,7 +39,7 @@ fn finite_replay_bound_version_and_every_allowance_change_identity() {
     );
     assert_eq!(
         value["finite_replay"]["scope"],
-        "whole_initial_id0_singleton"
+        "whole_initial_id0_finite_domain"
     );
     for key in [
         "max_nodes",
@@ -45,6 +48,9 @@ fn finite_replay_bound_version_and_every_allowance_change_identity() {
         "max_transport_operations",
         "max_transport_endpoints",
         "max_coalescing_additions",
+        "max_positive_layers",
+        "max_seed_points",
+        "max_seed_bytes",
     ] {
         let mut changed = serde_json::to_value(limits()).unwrap();
         changed[key] = json!(changed[key].as_u64().unwrap() + 1);

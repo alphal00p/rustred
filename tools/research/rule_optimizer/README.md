@@ -1,20 +1,35 @@
 # Bounded campaign profiling
 
-## Experimental exact singleton summaries
+## Experimental exact initial-domain summaries
 
 `rustred owner-domain-match` has an opt-in
-`--finite-replay-initial-singleton` mode for a **fresh epoch checkpoint**.
-It attempts the original first query only, and only when that entire query
-is one integral. It runs the existing exact routed reducer and retains a
+`--finite-replay-initial-domain` mode for a **fresh epoch checkpoint**.
+It attempts the original first query only: either a whole singleton (including
+nonzero coordinate lowers) or a whole finite zero-lower A/R/D envelope whose
+equality to the original capped domain is proved natively. It never truncates
+a region to fit a budget. It runs the existing exact routed reducer and retains a
 typed replay recipe instead of its expanded symbolic dependency graph.
 Cold verification must use `--reinspect all --reference-levers off` and
 recompute the reduction; recorded counters are not proof. Runtime resume and
 query amendments are not supported in this experimental mode.
 
-The six `--finite-replay-max-*` work allowances, fallback/error policy,
-native tests and measured limitations are documented in the
-[finite replay study](../../../docs/research/demand_directed_symbolic_sccs_2026-10-04.md#authorized-implementation-one-fresh-singleton-replay-acceptance-pending).
-This is not bounded-region enumeration or a production campaign setting.
+The nine `--finite-replay-max-*` allowances include the six trace caps plus
+`positive-layers` (64), `seed-points` (1024), and `seed-bytes` (1048576).
+The byte allowance bounds retained seed-buffer payload, not total trace RSS.
+Exact Symbolica-backed counting precedes bounded complete seed collection;
+one joint trace shares exact-key work among all admitted seeds. Cancellation,
+iterator errors and incomplete enumeration cannot produce a summary.
+The v2 recipe and CLI replace the experimental v1 singleton interface; old
+enabled v1 checkpoints are rejected, while absent/default-off identity is
+unchanged. Bounded v2 acceptance passes: the four-loop default-off graph is
+unchanged, H55 reproduces its singleton gain, and a complete original
+260-integral five-loop physical region passes online and cold replay.
+That region's traversal is faster, but its whole-job time is effectively tied
+because setup dominates. These controls do not establish full-family coverage
+or a production speedup.
+Details are in the
+[finite replay study](../../../docs/research/demand_directed_symbolic_sccs_2026-10-04.md#whole-initial-domain-replay-v2-implementation-and-bounded-acceptance).
+This is not a production campaign setting.
 Keep its actual exact-reduction work in performance comparisons: one retained
 recipe does not mean one reduction operation.
 

@@ -2,14 +2,17 @@
 use super::{ArgError, BTreeSet, OwnerDomainMatchArgs};
 use crate::OwnerDomainWalkFiniteReplayLimits;
 
-pub(super) const ENABLE: &str = "--finite-replay-initial-singleton";
-const CAPS: [&str; 6] = [
+pub(super) const ENABLE: &str = "--finite-replay-initial-domain";
+const CAPS: [&str; 9] = [
     "--finite-replay-max-nodes",
     "--finite-replay-max-rule-applications",
     "--finite-replay-max-transport-calls",
     "--finite-replay-max-transport-operations",
     "--finite-replay-max-transport-endpoints",
     "--finite-replay-max-coalescing-additions",
+    "--finite-replay-max-positive-layers",
+    "--finite-replay-max-seed-points",
+    "--finite-replay-max-seed-bytes",
 ];
 
 pub(super) fn option_name(name: &str) -> Option<&'static str> {
@@ -26,6 +29,9 @@ pub(super) fn defaults() -> OwnerDomainWalkFiniteReplayLimits {
         max_transport_operations: 64_000_000,
         max_transport_endpoints: 4_000_000,
         max_coalescing_additions: 16_000_000,
+        max_positive_layers: 64,
+        max_seed_points: 1024,
+        max_seed_bytes: 1024 * 1024,
     }
 }
 
@@ -37,6 +43,9 @@ pub(super) fn set_cap(limits: &mut OwnerDomainWalkFiniteReplayLimits, name: &str
         "--finite-replay-max-transport-operations" => limits.max_transport_operations = cap,
         "--finite-replay-max-transport-endpoints" => limits.max_transport_endpoints = cap,
         "--finite-replay-max-coalescing-additions" => limits.max_coalescing_additions = cap,
+        "--finite-replay-max-positive-layers" => limits.max_positive_layers = cap,
+        "--finite-replay-max-seed-points" => limits.max_seed_points = cap,
+        "--finite-replay-max-seed-bytes" => limits.max_seed_bytes = cap,
         _ => unreachable!("finite replay option was already classified as a cap"),
     }
 }
@@ -47,7 +56,7 @@ pub(super) fn validate(args: &OwnerDomainMatchArgs, seen: &BTreeSet<&str>) -> Re
     }
     if !seen.contains(ENABLE) {
         return Err(ArgError::InvalidCombination(
-            "finite replay allowances require --finite-replay-initial-singleton",
+            "finite replay allowances require --finite-replay-initial-domain",
         ));
     }
     if !args.follow_successors
@@ -109,6 +118,7 @@ mod tests {
             format!("{BASE} {ENABLE} --amend-queries repair.json"),
             format!("--manifest m --queries q --output o {ENABLE}"),
             format!("{BASE} {ENABLE} {ENABLE}"),
+            format!("{BASE} --finite-replay-initial-singleton"),
         ] {
             assert!(args(&text).is_err(), "accepted {text}");
         }

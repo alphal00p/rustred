@@ -306,7 +306,8 @@ impl Authority {
                         || n.resolver.optional != [0; 3]
                         || n.resolver.route_masks != 0
                         || n.resolver.route_joint_pruned != 0
-                        || self.image.lower != self.image.upper
+                        || (self.image.lower.iter().any(|&lo| lo != 0)
+                            && self.image.lower != self.image.upper)
                     {
                         return Err("epoch finite replay record shape");
                     }
@@ -527,7 +528,7 @@ impl Record {
                         record["record_kind"] = json!("finite_replay_summary");
                         record["finite_replay_recipe"] = json!(recipe);
                         record["native_inspection_scope"] =
-                            json!("whole_initial_singleton_exact_replay");
+                            json!("whole_initial_domain_exact_replay");
                         record["local_classification_discharged"] = json!(true);
                         record
                             .as_object_mut()

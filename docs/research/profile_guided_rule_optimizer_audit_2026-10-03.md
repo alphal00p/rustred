@@ -5836,6 +5836,17 @@ The separately prepared H1v2 query is exactly the previously registered panel
 row1, hence distinct from the banana fitting cohort, but was exposed in a
 prior censored union and is not globally untouched validation data.
 
+H1 baseline then reaches its declared cooperative deadline and drains in
+731.161778s:6,932,981 scheduled domains,5,362,831 native inspections and
+780,624 queued domains remain. Preparation is87.344060s and the unfinished
+traversal630.554805s; no cold completion or paired result exists. A separately
+prospective candidate-only contingency retains the exact frozen candidate
+commands and original ordinal1 deadlines under the conservative original
+08:50:20 UTC clock, with no1800s budget reset. Only pair-level result paths
+are redirected to preserve the baseline censor. Its possible success would
+establish fixed-workload candidate feasibility, not a completed paired
+percentage improvement or an inferred baseline completion cost.
+
 ### Finite-replay default-off native control
 
 The final optimized app/CLI build gates pass, with CLI
@@ -5892,6 +5903,24 @@ cardinalities, not a unique union or descendant-work estimate. All116 are
 nonsingletons, so the delivered singleton-only mechanism cannot activate on
 those original production root regions. A larger finite-region summary would
 require separately proved complete enumeration and cumulative resource gates.
+
+Prospective whole-envelope design passes an API-level audit, not a runtime
+gate. Existing `FiniteEntryDomain::target_count` computes an exact binomial
+count independently of its composition iterator; native
+`DomainPowerSummary::contains` gives exact inclusion for the admitted fixed
+box/A/R/D vocabulary. Mutual inclusion can therefore authenticate the original
+domain against an untruncated zero-lower envelope. Checked conversions,
+positive-layer/count/seed-storage allowances and complete iterator exhaustion
+must precede any closure claim. Every key must satisfy original admission.
+The existing exact scheduler deduplicates initial keys before publishing
+`requested_targets`: equality of this count and the emitted count with the
+independent exact cardinality supplies a completeness/uniqueness check.
+Iterator errors, count inconsistencies and cancellation cannot become a
+successful prefix; cold replay must repeat these checks without fallback.
+The existing nonzero-lower singleton path must remain covered. A uniform
+experimental v2 recipe is acceptable with old enabled versions rejected and
+absent/default request identity unchanged. No implementation or region
+performance claim is established by this design review.
 
 ### Quadratic-ISP nomination boundary
 

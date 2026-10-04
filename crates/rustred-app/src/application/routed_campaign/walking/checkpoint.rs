@@ -213,7 +213,7 @@ fn add_finite_replay_binding(value: &mut Value, request: &OwnerDomainWalkRequest
     if let Some(limits) = request.finite_replay {
         value["finite_replay"] = json!({
             "version": super::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
-            "scope": "whole_initial_id0_singleton",
+            "scope": "whole_initial_id0_finite_domain",
             "limits": limits,
         });
     }

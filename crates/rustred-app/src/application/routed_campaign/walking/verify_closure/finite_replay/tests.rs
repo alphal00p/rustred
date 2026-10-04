@@ -58,6 +58,9 @@ fn fixture(label: &str) -> (Scratch, OwnerDomainWalkRequest) {
         max_transport_operations: 10000,
         max_transport_endpoints: 10000,
         max_coalescing_additions: 10000,
+        max_positive_layers: 64,
+        max_seed_points: 1024,
+        max_seed_bytes: 1024 * 1024,
     });
     request.reuse_initial_d_bands = true;
     request.g2_residual_anchors = crate::OwnerDomainWalkG2ResidualAnchors::Union;
@@ -90,6 +93,44 @@ fn rejected(request: &OwnerDomainWalkRequest) {
     ) {
         assert_eq!(report["verdict"], "FAIL", "{report}");
     }
+}
+
+#[test]
+fn finite_replay_whole_symbolic_envelope_closes_and_cold_repeats_every_seed() {
+    let (_dir, mut request) = fixture("finite-replay-envelope-cold");
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[{
+        "id":"whole-original-root","owner":"1","lower":[0],"upper":[null],
+        "max_numerator_rank":0,"power_bounds":{"max_positive_power":3,
+        "min_power_difference":1,"max_power_difference":3}
+    }]});
+    request.matching.queries_json = queries.to_string();
+    let report = walk(&request);
+    let work = &report["finite_replay"]["work"];
+    assert_eq!(work["status"], "closed", "{report}");
+    assert_eq!(work["input_targets"], 3);
+    assert_eq!(work["requested_targets"], 3);
+    assert_eq!(work["enumeration"]["seed_results"], 3);
+    assert_eq!(work["enumeration"]["exhausted"], true);
+    assert_eq!(report["scheduled_nodes"], 1);
+    let verified = cold(&request);
+    assert_eq!(verified["verdict"], "PASS", "{verified}");
+    let mut violations = Violations::new(50);
+    let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
+    assert_eq!(loaded.finite_replay.unwrap().version, 2);
+    assert!(loaded.raw.edges.is_empty());
+    let original: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
+    for key in ["max_positive_layers", "max_seed_points", "max_seed_bytes"] {
+        let mut changed = request.clone();
+        let mut caps = serde_json::to_value(changed.finite_replay.unwrap()).unwrap();
+        caps[key] = 0.into();
+        changed.finite_replay = Some(serde_json::from_value(caps).unwrap());
+        rejected(&changed);
+    }
+    let mut changed = request.clone();
+    let mut geometry = original;
+    geometry["queries"][0]["upper"] = json!([1]);
+    changed.matching.queries_json = geometry.to_string();
+    rejected(&changed);
 }
 
 #[test]
@@ -158,11 +199,17 @@ fn finite_replay_zero_budget_fallback_matches_default_off_symbolic_graph() {
 
 #[test]
 fn finite_replay_cold_requires_actual_trace_not_success_counters() {
-    let (_dir, request) = fixture("finite-replay-cold-refusal");
+    let (_dir, mut request) = fixture("finite-replay-cold-refusal");
+    let mut queries: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
+    queries["queries"][0]["lower"] = json!([0]);
+    queries["queries"][0]["upper"] = json!([null]);
+    queries["queries"][0]["power_bounds"]["min_power_difference"] = 1.into();
+    request.matching.queries_json = queries.to_string();
     walk(&request);
     let mut violations = Violations::new(50);
     let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
     assert!(violations.is_empty());
+
     let original_recipe = loaded.finite_replay.unwrap();
     let graph = Graph::from_edges(loaded.domains.len(), &loaded.raw.edges).unwrap();
     let containment = Containment::new(0, 0);
@@ -190,6 +237,16 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     assert_eq!(tally.errors, 0);
     assert!(violations.is_empty());
 
+    let old_recipe = Recipe {
+        version: 1,
+        ..original_recipe
+    };
+    let mut old_tally = Tally::default();
+    let mut old_errors = Violations::new(50);
+    reinspect(&ctx, old_recipe, &mut old_tally, &mut old_errors);
+    assert_eq!(old_tally.errors, 1);
+    assert!(!old_errors.is_empty());
+
     // Test the cold replay branch after its binding gate independently of the
     // global checkpoint digest tests above. Consistent local request/recipe
     // changes do not make the recorded successful counters a replay proof.
@@ -212,6 +269,28 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
         tally.finite_replay_work.unwrap()["status"],
         "aggregate_budget"
     );
+
+    // Consistent local request/recipe mutation passes the comparison gate but
+    // must still fail actual seed admission, rather than trust saved counters.
+    for cap in ["max_positive_layers", "max_seed_points", "max_seed_bytes"] {
+        let mut bounded = request.clone();
+        let mut values = serde_json::to_value(bounded.finite_replay.unwrap()).unwrap();
+        values[cap] = 0.into();
+        bounded.finite_replay = Some(serde_json::from_value(values).unwrap());
+        let changed_recipe = Recipe {
+            limits: bounded.finite_replay.unwrap(),
+            ..original_recipe
+        };
+        let changed_ctx = Ctx {
+            request: &bounded,
+            ..ctx
+        };
+        let mut tally = Tally::default();
+        let mut errors = Violations::new(50);
+        reinspect(&changed_ctx, changed_recipe, &mut tally, &mut errors);
+        assert_eq!(tally.errors, 1);
+        assert!(!errors.is_empty());
+    }
 
     let context = reducer.programs().context().clone();
     let scope = context.scope();

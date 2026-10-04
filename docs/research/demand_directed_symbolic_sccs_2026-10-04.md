@@ -2,9 +2,9 @@
 
 Research and bounded diagnostic record, 2026-10-04. The diagnostics below did
 not change scheduler, algebra, source-program, terminal or checkpoint semantics.
-A subsequent authorized **default-off finite replay implementation is under
-acceptance**, described separately below; it is not a production or performance
-claim.
+A subsequent authorized **default-off finite replay implementation has passed
+bounded native acceptance**, described separately below; this does not establish
+production performance or full five-loop coverage.
 The canceled local observer test is a negative result, not an unfinished
 optimization. The first discriminator completed with the existing concrete
 tracer on the **original four required singleton inputs**, not a newly selected
@@ -143,6 +143,39 @@ The required order and complete sector census must be checked, not assumed for
 every saved program. `walking/verify_closure/graph.rs` already accepts sealed
 SCCs coinductively. Neither a new SCC algorithm nor another loose finite box
 addresses the precision question.
+
+**Parked conditional descendant bound.** For the strict concrete kernel, let
+`C=A+R=sum |n_i|`, let `C0` and `k0` bound the finite roots' C and support size,
+and let `L=max_s sum |s_i|` over every retained rule shift, including all
+batches/overlays. If every admitted owner order is Spired's
+total-excess-primary order (or separately proves the same property), successful
+concrete descendants obey `C <= C0 + k0*L`. At fixed support, native descent
+cannot increase C; every other accepted Apply edge strictly drops support and
+raises C by at most L. There are at most k0 such edges on a path. Verified
+affine transport cannot increase C: an expansion monomial of degree `T<=R`
+with denominator cancellation c gives `C'=A+T-2c<=C`. See
+[ordering.rs:180](/common/dev/rustred/crates/rustred-core/src/sector/ordering.rs:180),
+[campaign/worker.rs:31](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/routed/campaign/worker.rs:31),
+and [transport.rs:9](/common/dev/rustred/crates/rustred-core/src/sector/symmetry/integral_transport/transport.rs:9).
+This supplies a computable conditional bound beyond the König argument; it is
+not an implemented invariant certificate, affordable work bound or terminal
+closure proof. No bank-shift census was run to instantiate L.
+
+The transfer to the existing symbolic walk remains rejected for the reasons
+in [finite_physics_domain_growth_2026-10-01.md](finite_physics_domain_growth_2026-10-01.md#total-excess-e-useful-relational-precision-not-yet-a-global-cap).
+A schematic transition-level countermodel is
+`(1,0,-m) -> (0,1,-m-1) -> (1,0,-m-1)`: the fixed shift `(-1,+1,-1)`
+decreases sector lexicographic priority while increasing C, and an axis-swap
+route resets the support. This illustrates the missing global premise; it is
+not an authenticated IBP rule or an observed cycle in the saved bank. The
+concrete kernel rejects the first same-cardinality support swap. Symbolic
+overcovers, broader containment lenders and genuinely unbounded auxiliary
+inputs have additional obligations that the finite-root argument does not
+bound. Existing A/R/D geometry also does not encode the correlated A+R bound.
+Using it to restrict required-query work would need separately authenticated
+propagation and demand-scoped coverage, with helpers retaining their own
+scope. This supporting observation is parked, with no clipping, promotion or
+new implementation proposed.
 
 **API boundary.** Pinned Symbolica3.0.0 provides exact polynomial grouping,
 restriction and rational arithmetic; RustRed's authenticated
@@ -409,10 +442,12 @@ accounting; no such cache may leak between policy trials. Measure aggregate
 duplicate work, cold replay, retained-state cost and whole-walk cost against a
 contemporaneous control before claiming benefit from prepared-bank reuse.
 
-## Authorized implementation: one fresh singleton replay, acceptance pending
+## Singleton replay v1: completed acceptance
 
-The narrow first slice adds `OwnerDomainWalkRequest::finite_replay: Option<
-OwnerDomainWalkFiniteReplayLimits>` and CLI `--finite-replay-initial-singleton`.
+The historical narrow first slice added `OwnerDomainWalkRequest::finite_replay:
+Option<OwnerDomainWalkFiniteReplayLimits>` and CLI
+`--finite-replay-initial-singleton`. This section records that accepted v1;
+the subsequent uniform v2 implementation is described below.
 Omission is the legacy path: no new request-binding marker, record trailer or
 finite-work report. Enabling it requires a **fresh CP6 epoch checkpoint**;
 runtime resume, amendments, CP5 and memory-only walks are explicitly refused.
@@ -546,9 +581,9 @@ existing terminal/zero boundary. It is not coefficient back-substitution,
 a new reusable parametric recurrence, or coverage of neighboring powers.
 The original A/R/D bounds are retained admission predicates; their presence
 does not enlarge a coordinate-singleton query into the surrounding capped
-region. The current option attempts only whole original ID0, declines a
+region. That v1 option attempts only whole original ID0, declines a
 non-singleton or partial/G2 dispatch, and refuses enabled runtime resume.
-The singleton-only feature activates on **none of the116 original production
+The measured singleton-only v1 feature activates on **none of the116 original production
 required roots**, which are all non-singleton. No production recommendation
 or switch follows from this acceptance result.
 
@@ -600,20 +635,158 @@ as the obvious generic implementation. Reproducer and all per-row results:
 `TMP/rule-optimizer-20261003/profiles/required_region_count_v1.py` and
 `profiles/required-region-count-v1.json` under the same TMP root.
 
-**Smallest next promotion to assess, not implement yet:** one whole finite
+The resulting next promotion is one whole finite
 initial region, complete bounded enumeration into one joint native trace,
 with shared exact-key deduplication only inside that attempt. Existing
 `FiniteRootAdmission` supplies exact cap membership/finiteness, not an
 enumeration certificate. The cold verifier's `Cell::for_each_point` supplies
-a conservative bounded rectangle oracle; a useful sum-layer/composition
-enumerator should first be sought in existing code, with independent
-completeness checks. New recipe semantics must bind original geometry,
+a conservative bounded rectangle oracle. The subsequent source review found
+the existing `FiniteEntryDomain` sum-layer/composition service, avoiding that
+rectangle; the next section records the authorized implementation. New recipe
+semantics must bind original geometry,
 enumeration/seed/storage limits and exhaustion, then cold re-enumerate and
 replay; a stopped prefix is never a region proof. Keep the one-attempt,
 whole-initial-scope limitation and unchanged fallback/error gates. Do not
 broaden to internal/partial/G2 scopes or add a cross-attempt cache in this
 step. Whether hundreds of seeds close within a useful total budget remains
-unknown; no such region run or implementation is authorized by these counts.
+unknown; no region performance or closure result follows from these counts.
+
+## Whole-initial-domain replay v2: implementation and bounded acceptance
+
+The authorized app-only extension uses the existing public
+`FiniteEntryDomain::{target_count,targets,contains}`. Its exact count uses
+Symbolica integer binomials and its A/R-shell iterator uses the existing
+Symbolica combination iterator. There is no new combinatorial/CAS kernel,
+core tracer change, thread pool, terminal, or cross-attempt cache. The feature
+is generic in owner support and bounds, with no topology or loop-count dispatch.
+
+`--finite-replay-initial-domain` replaces the beta singleton flag. The public
+limit structure has nine required fields: the six trace limits above plus
+`max_positive_layers` (default64), `max_seed_points` (1024), and
+`max_seed_bytes` (1MiB). The corresponding CLI flags have the
+`--finite-replay-` prefix. Explicit zero allowances remain meaningful. Uniform
+recipe/API version2 deliberately has no enabled-v1 compatibility shim; old
+enabled recipes fail cold validation. `None` still uses the exact legacy
+binding/wire path.
+
+The original whole first query/ID0 restriction, fresh-only policy, original
+source admission, no partial/G2 summaries, and mandatory cold All/Off remain.
+A coordinate singleton keeps its original nonzero lowers. Otherwise the
+original validated domain must be natively equal, by mutual
+`DomainPowerSummary` containment, to the **untruncated** zero-lower finite
+A/R/D envelope. Checked budget conversions and exact equality may decline
+unsupported geometry; no clipping, saturation, sampled prefix, or inferred
+physics envelope is allowed.
+
+Before seed allocation, bounded exact counting admits the layer work, seed
+count, native input/node caps, and checked Vec/object/coordinate payload bytes.
+A bounded buffer then consumes **every** fallible iterator result, checking
+cancellation and original native membership. Iterator errors, malformed
+geometry and internal count mismatches are hard failures. Cancellation cannot
+become ordinary fallback. True exhaustion and the exact emitted count are
+required; after the one joint native trace, live `input_targets` and its
+deduplicated `requested_targets` must both equal the independent exact count.
+Native membership plus that distinct cardinality supplies completeness, not
+an assumption that rerunning an iterator proves it omitted no points. Cold
+reconstructs the same envelope/count/cardinality argument and fully replays
+the trace; every decline/error fails certification. Seed-buffer bytes do not
+bound native scheduler copies or total memory, which retain their node/RSS
+guards. Counting is bounded but not internally interruptible; cancellation
+is checked before and after it and between enumeration results.
+
+New focused tests cover the original260-key region, restrictive boxes, strict
+D bands, zero/all support, nonzero singleton lowers, huge exact counts,
+layer/seed/storage admission, iterator errors/missing/duplicate seeds,
+cancellation, version/geometry/budget mutation, and an end-to-end small
+symbolic region. The frozen V4 semantic test groups pass with respective
+counts31/3/134/6/9/44/47 for finite replay, epoch wire, epoch restore, input,
+entry-domain, CLI-owner and cold verifier. Filters overlap: these are not a
+summed count of distinct tests. The cold group retains one pre-existing ignored
+sunset exploration aid. Both optimized application and CLI compile cleanly;
+the test-only32MiB stack setting is absent from the native pilots below.
+The first whole260-key cold comparison is completed below. Its diagnostic retains the entire original
+`phys-d9-a10-r1-111000100111001` row (owner13, not held-outs24/31) and full
+immutable pool. It is a selected whole-query diagnostic, not a claim that
+all116 production queries have been evaluated or that their first auxiliary
+query becomes eligible. No production change is authorized by this extension.
+
+### V4 default-off and H55 runtime controls
+
+The four-loop58 flag-off run completes in17.248s, with26,025 domains,
+17,957 native inspections and872,486 events. All58 query rows and32 unique
+roots pass cold All/Off. Domain, edge, root/input and input-frontier bytes
+exactly equal the accepted prior control. Independent decoding finds all
+26,025 persisted records semantically equal, excluding timing/frame metadata
+and60 snapshot-version observations. This is default-off compatibility,
+not a performance claim.
+
+The matched V4 H55 off/on group completes in454.242s including both cold
+loads/replays and cleanup, on CPUs32–47 with16 reserved workers and the
+unchanged explicit finite budgets. Both arms pass cold All/Off:
+
+| Quantity | Symbolic off | Finite replay on |
+| --- | ---: | ---: |
+| Preparation |88.867s|86.763s|
+| Traversal |34.589s|13.769s|
+| Cold total |114.582s|101.611s|
+| Whole arm |245.184s|208.147s|
+| Waited child/descendant CPU, all phases |2074.611s|1724.335s|
+| Sampled peak process-tree RSS |5.420GB|5.218GB|
+
+The finite arm enumerates the same one singleton seed completely. Online
+and cold replay agree on356,202 operational states,355,584 physical keys,
+164,074 rule applications,145,366 transport calls,248 declared terminals
+and45,896 zeros. Its one persisted recipe is not one unit of physical work,
+nor directly comparable to the baseline's386,044 symbolic domains. This
+single V4 pair reproduces the earlier singleton advantage: approximately60%
+less traversal time and15% less whole-arm time. It does not yet establish a
+multi-seed region advantage, production closure or scalable multicore usage.
+
+Evidence under `TMP/rule-optimizer-20261003/candidates/`:
+`finite-envelope-acceptance-v2/plan-v4.json` (`b125d583…ffd32172`),
+`four-loop-flag-off/semantic-graph-control.json` within that directory,
+and its `h55-{off,on}/` raw live/cold/measurement receipts. The tested CLI
+is `finite-replay-app-build-v4/rustred-cli` (`51978817…b9b9199e`).
+
+### Original260-seed physics-region control
+
+The preregistered on-first/off comparison completes in378.074s inclusive,
+with the exact original required row, all67 owners,8246 routes and both
+overlays unchanged. No banana replacement or source-rule change is involved.
+Both arms independently pass cold All/Off on that entire requested region.
+The finite arm has `whole_entry_envelope`, true exhaustion, and exactly260
+expected, emitted, retained, input and distinct requested seeds in both live
+and cold results. All native work counters agree between these two replays:
+69,772 operational states,69,512 physical keys,33,640 rule applications,
+23,349 transport calls,66 declared terminals and12,457 zeros. No seed,
+conditional obligation, cap or descendant was clipped.
+
+| Quantity | Symbolic off | Finite replay on |
+| --- | ---: | ---: |
+| Preparation |86.789s|88.441s|
+| Traversal |4.542s|2.711s|
+| Cold total |89.923s|89.847s|
+| Whole arm |188.659s|188.242s|
+| Waited child/descendant CPU, all phases |1723.257s|1686.810s|
+| Sampled peak process-tree RSS |5.123GB|5.095GB|
+
+Traversal is40.32% lower, but the whole arms are effectively tied (0.22%
+difference) because loading and verification dominate this small control.
+Thus the decisive result here is **complete multi-seed scoped closure and
+cold reproducibility**, not a demonstrated whole-campaign speedup. The
+baseline's59,192 symbolic domains and the finite arm's one retained recipe
+are different representations, not a59,192-fold reduction in physical work.
+Native walk exit4 in each arm is the accepted pre-certification status;
+mandatory cold verification exits0 and supplies the closure authority.
+Both guard groups finish with no stop, frontier, pending debt or orphaned
+owned process. This single original region is not the other115 required
+queries, and the separately proposed H1 test is outside this D9/R1 scope.
+
+The immutable raw receipts are in the same acceptance directory's
+`physical-envelope-{on,off}/`. The consolidated
+`runtime-summary-v4.json` (`3f5681e3…ce1437`) retains phase timings,
+resource measurements, actual finite work and raw exit codes for both the
+H55 and260 controls. Independent runtime/input/guard audits pass.
 
 ## Conditional geometry lead: exact support as an integer-flow relation
 

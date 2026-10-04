@@ -50,6 +50,9 @@ fn finite_replay_preparation_maps_only_explicit_trace_aggregate_policy() {
         max_transport_operations: 64_000_000,
         max_transport_endpoints: 4_000_000,
         max_coalescing_additions: 16_000_000,
+        max_positive_layers: 64,
+        max_seed_points: 1024,
+        max_seed_bytes: 1024 * 1024,
     });
     let mut cold = original.clone();
     configure_load(&request, &mut online);

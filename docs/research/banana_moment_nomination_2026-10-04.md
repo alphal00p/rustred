@@ -554,8 +554,134 @@ retain 925–946 abstract cycle nodes: their coverage result is not a proof of
 coefficient back-substitution through those cycles. Full measurements and
 raw input bindings are consolidated in
 `candidates/banana-fourpoint-replication-results-v1.json`. Predeclared H1
-validation is running. Separately, the consolidated engine's unchanged-algebra
+validation is censored as detailed below. Separately, the consolidated engine's
+unchanged-algebra
 four-loop control completed on all 58 queries with cold PASS and exact graph
 identity; that is an engine control, not another measurement of this
 five-loop recurrence. Neither successful banana training pair authorizes
 a production switch by itself.
+
+### Predeclared H1: both observations censored
+
+H1 is the already registered `heldout-high-positive-low-rank` owner31 point,
+with its original A23/R1 caps. It was not selected from the banana results
+and was not replaced by an easier tuple. Its baseline hit the registered
+cooperative deadline and drained cleanly after 731.162 seconds inclusive.
+It had scheduled 6,932,981 domains, performed 5,362,831 native inspections,
+and retained 780,624 pending obligations, with no frontiers or abandoned
+obligations. Native preparation took 87.344 seconds and traversal through
+the interrupted result took 630.555 seconds; sampled peak tree RSS was
+11.10 GB. The checkpoint is saved and resumable, but the baseline is **not
+completed or cold-verified**.
+
+A prospectively approved contingency ran the unchanged candidate alone,
+using the remaining **original** 1,800-second inclusive budget, original
+candidate phase deadlines and identical inputs. Its conservative clock
+starts at 08:50:20 UTC, before the actual first launch; it is not reset.
+The baseline failure stays intact. A candidate completion would establish
+only bounded validation feasibility after mandatory cold reinspection, not
+a completed paired speedup or an inferred baseline-time lower-bound gain.
+Both incomplete outcomes are retained.
+Evidence is under
+`candidates/banana-owner0-broad-currentpool-H1-validation-v2/`, with separately
+bound `candidate-only-contingency-v1/` metadata. Candidate execution began
+at 09:04:36 UTC and also reached its cooperative deadline. It drained cleanly
+at 1,511.053 seconds on the original cumulative clock, having scheduled
+6,295,995 domains with 4,805,983 native inspections and 756,869 pending
+obligations. Its preparation took 88.245 seconds and interrupted traversal
+553.371 seconds, with a 10.70-GB sampled peak and no frontiers or abandoned
+obligations. Its checkpoint is also saved and resumable.
+
+Neither arm was cold-reinspected or completed. Their unequal interrupted
+durations and remaining scopes preclude relative timing/work ratios; the
+smaller partial candidate count is **not** a gain. The earlier two completed
+training comparisons remain positive, but this harder predeclared validation
+does not establish their generality. The consolidated raw summary is
+`candidates/banana-owner0-broad-currentpool-H1-validation-v2/censored-observations.json`.
+No alternative easier validation point or automatic retry was substituted.
+
+A separate, prepared-only discriminator would run the **same H1 point**
+through the exact finite-key mechanism in both owner-treatment arms, retaining
+all source guards, routes, terminal boundaries and the checked repair overlay.
+That tests representation feasibility as well as the recurrence; it is not a
+timing comparison with the two censored symbolic observations. Concrete H1
+size is unmeasured, and the existing explicit aggregate limits may decline.
+The initial unrun one-million-node proposal remains preserved. Before any
+concrete H1 observation, root registered a larger aggregate-budget request:
+16 million nodes/rule applications/transport calls, 1,024 million transport
+operations, 128 million endpoints and 256 million coalescing additions,
+identical in both arms. Seed, positive-layer, retained-seed-byte, per-formula,
+RSS and inclusive-time limits are unchanged. The earlier six-million-domain
+symbolic expansion motivates avoiding a prematurely small aggregate ceiling;
+it is not a concrete cardinality estimate. The prospective request is
+`candidates/banana-H1-finite-feasibility-v2/plan.json`; no execution or
+post-outcome tuning is implied. The separate finite-envelope engine controls
+take precedence.
+
+### Complementary face: a directly proved mirrored ordinary-source chart
+
+The established chart excludes `b=D15=1`. A direct hand derivation nominates
+the disjoint face **`a=D12≥2, b=1, r=−D13≥1`**, retaining arbitrary positive
+powers on `D5,D6,D9,D14` and zero on every other inactive axis. This is not
+an exchange-symmetry assumption. In the actual original momentum basis,
+
+\[
+ V=\partial_{k1}+\partial_{k2}+\partial_{k3}+2\partial_{k4},
+ \quad Vp4=1,\quad Vp5=-1,\quad \operatorname{div}(V,p5)=-d.
+\]
+
+All four spectator momenta are invariant. For `X=D12,Y=D15,Z=D13`, direct
+contraction gives `p5·VX=X+Y+1−Z`, `p5·VY=−2(Y+1)`, and
+`p5·VZ=2(X−Y−1−Z)`. Applying this ordinary IBP to
+`H X^{−(a−1)}Y^{−b}Z^{r−1}` derives the target pivot `a−1` and
+
+\[
+\begin{split}
+T_r(a,1)={}&T_{r-1}(a,0)+T_{r-1}(a,1)
+ +\frac{d+a+2r-5}{a-1}T_{r-1}(a-1,1)
+ -\frac{2}{a-1}T_{r-1}(a-1,2)\\
+ &+\frac{2(r-1)}{a-1}
+ [T_{r-2}(a-1,0)-T_{r-2}(a-2,1)+T_{r-2}(a-1,1)].
+\end{split}
+\]
+
+The exact nominated source rows are `(2,i)` with weight `s_i` and `(3,i)`
+with weight `−s_i`, for `i=0,…,3`, `s=(1,1,1,2)`, in the existing
+`ordinary-ibp:contraction:differentiated` convention. Every row has physical
+offset `+e13−e12` (one-based). The sole denominator `a−1` is positive;
+same-support tails lower corner distance and all pinches remain explicit.
+At `r=1`, the last three coefficients vanish before positive-ISP activation.
+The prospective corner checks are `(2,1,1)`, yielding exactly
+`T0(2,0)+(d−1)T0(1,1)+T0(2,1)−2T0(1,2)`, and `(2,1,2)`, which must retain
+both the `D15=0` and `D12=0` pinches.
+
+The original-family map, source convention and existing Symbolica-backed
+translation/specialization/normalization/proof services were reread; an
+independent hand review agrees. Preparation performed no CAS or native run.
+The exact existing-schema request, short derivation and preserved prepared plan
+are under `TMP/rule-optimizer-20261003/candidates/banana-owner0-mirrored-b1-prepared-v1/`.
+Request SHA256 is `34dd331196b15f0225878dedf43d39cc8adf78a8c4549fbee19497ccc237c454`.
+The separately authorized sole prove-only attempt subsequently passed:
+`EXACT_ORIGINAL_SOURCE_CHART_PROVED`, in 2.339 seconds inclusive, with
+1.128 seconds native preparation and 0.002774 seconds isolated proof.
+It generated all 25 ordinary rows, selected the prescribed eight, retained
+the 36-term unspecialized source product, and derived pivot `n11−1=a−1`.
+Seven generic normalized shifts agree with the nomination. Four native sign
+cells split `a=2` from `a≥3` and `r=1` from `r≥2`; the respective RHS counts
+are four and seven, with the `a−1` condition retained in every cell. This
+includes the nominated `a=2,r=1` and `a=2,r=2` faces. The checker validates
+original sources, conditions, root admissibility and descent over the whole
+six-free-axis chart, not only those corners. The JSON retains generic
+coefficients and per-cell term counts, not separate per-corner coefficient
+arrays; no display was parsed into algebraic authority.
+
+The owned guard drained cleanly without a stop or failure; sampled peak tree
+RSS was 472,772,608 bytes. Evidence is
+`candidates/banana-owner0-mirrored-b1-proof-v1/{execution-result.json,guard/stdout}`
+under the same TMP tree; raw stdout SHA256 is
+`889e76546af33f8e07f2c01cd669b5edd118b5fe7e8dc1016855eae3e25f952f`.
+No export or installation followed. A future export must extend the existing
+`b≥2` candidate and natively rebind both repair rules to the new owner digest,
+preserving the exact terminal inventory and full comparison context. This
+fills one genuine omitted face without replacing the prior chart, but covers
+neither `a=b=1` nor mixed numerators and implies no campaign gain or closure.

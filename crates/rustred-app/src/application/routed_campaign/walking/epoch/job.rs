@@ -304,7 +304,7 @@ pub(super) enum NativeKind {
     /// without a bound G2' flag).
     G2Residual = 3,
     Abandoned = 4,
-    /// Whole initial singleton, discharged only by bound cold exact replay.
+    /// Whole initial finite domain, discharged only by bound cold exact replay.
     FiniteReplay = 5,
 }
 
@@ -623,6 +623,9 @@ impl<const N: usize> JobResult<N> {
                 limits.max_transport_operations,
                 limits.max_transport_endpoints,
                 limits.max_coalescing_additions,
+                limits.max_positive_layers,
+                limits.max_seed_points,
+                limits.max_seed_bytes,
             ] {
                 w.u64(limit as u64);
             }
@@ -743,7 +746,7 @@ impl<const N: usize> JobResult<N> {
             let version = r.u32()?;
             let mut limit =
                 || usize::try_from(r.u64()?).map_err(|_| "finite replay allowance range");
-            Some(super::super::finite_replay::Recipe {
+            let recipe = super::super::finite_replay::Recipe {
                 version,
                 limits: super::super::OwnerDomainWalkFiniteReplayLimits {
                     max_nodes: limit()?,
@@ -752,8 +755,13 @@ impl<const N: usize> JobResult<N> {
                     max_transport_operations: limit()?,
                     max_transport_endpoints: limit()?,
                     max_coalescing_additions: limit()?,
+                    max_positive_layers: limit()?,
+                    max_seed_points: limit()?,
+                    max_seed_bytes: limit()?,
                 },
-            })
+            };
+            recipe.validate()?;
+            Some(recipe)
         } else {
             None
         };

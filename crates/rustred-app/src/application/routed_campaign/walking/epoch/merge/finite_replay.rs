@@ -23,11 +23,12 @@ pub(super) fn validate<const N: usize>(
         || r.parent != 0
         || state.p0 == 0
         || attempts != 0
-        || domain
-            .lower
-            .iter()
-            .zip(&domain.upper)
-            .any(|(&lo, &hi)| hi != Some(lo))
+        || (domain.lower.iter().any(|&lo| lo != 0)
+            && domain
+                .lower
+                .iter()
+                .zip(&domain.upper)
+                .any(|(&lo, &hi)| hi != Some(lo)))
         || state.anchors.get(r.parent).is_some()
         || r.scope.is_some()
         || r.g2.is_some()
@@ -51,7 +52,7 @@ pub(super) fn validate<const N: usize>(
         || !r.misses.is_empty()
     {
         return Err(fatal(
-            "P1: finite replay is not the enabled whole initial singleton completion",
+            "P1: finite replay is not the enabled whole initial domain completion",
         ));
     }
     Ok(())

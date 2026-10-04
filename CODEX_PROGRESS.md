@@ -20,14 +20,249 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
-| Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Caller-thread core implemented and compiled; app typed/cold replay integration under test. |
-| Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Optimized build, focused semantic gates and 4L flag-off control pass. H55 same-build off/on both coldPASS: traversal34.147→13.427s; whole246.516→207.747s. Still356,202 physical exact states, not one unit of work. Singleton-only/default-off/fresh CP6; independent result audit active. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Source proofs, exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Two cold-verified original four-root pairs show25.93%/25.82% fewer domains, with whole time+0.83%/+2.38%. Baseline bytes equal current production pool. Held-out H1 launched08:50UTC under its1800s inclusive guard; no production installation. |
+| Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
+| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Whole-first-region v2 passes seven semantic groups and optimized4L/H55/original260 native+cold controls. H55 whole15.1% lower;260whole time tied despite40.3% traversal gain. Preparing audited code milestone. No production activation or fullscope claim. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Source proofs, exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Two cold-verified original four-root pairs show25.93%/25.82% fewer domains, with whole time+0.83%/+2.38%. H1 baseline and candidate both cleanly censored under original clock; no held-out closure/gain. Native allocation released; no production installation. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Complementary recurrence passes native original-source proof — October4, 10:03 UTC
+
+[M] The sole mirrored-chart attempt returns
+`EXACT_ORIGINAL_SOURCE_CHART_PROVED` with populated source/guard/descent
+checks in2.339s inclusive (1.783s guarded phase), no stop/error/hardkill and
+fully drained process group3348956. Sampled peak RSS472.8MB. All seven generic
+shifts match; the `a=2,b=1,r=1` cell has exactly four surviving tails and
+`a=2,b=1,r=2` retains seven with both pinch types. This supplies a second
+reusable rank-generic chart through ordinary sources, not a full banana
+solution or speed measurement. It has not been exported or installed.
+
+[M] After proof drain, root grants the frozen H1 two-arm exact replay pilot
+to the evaluator. It uses the previously tested old banana treatment only,
+not this new chart, preserving the prior preregistration. The full goal stays
+open: the current native controls are scoped evidence, and a completed held-out
+comparison plus a tested deliverable pool remain necessary.
+
+### Whole-region paired acceptance completes; no whole-job speedup — October4, 10:00 UTC
+
+[M] Original260 group completes in378.074s; both on and off cold All/Off
+checks independently close the same whole required region with zero errors,
+frontiers, uncovered successors or remaining work, and all owned processes
+drain. Independent audit passes. Finite-on whole arm188.242s versus
+symbolic-off188.659s is effectively tied (0.22% difference); traversal
+2.711s versus4.542s is40.3% lower. Setup dominates this small workload.
+Off has59,192 symbolic domains/50,244 native inspections; on has69,772
+operational states, so these different units must not be described as a
+physical-work count reduction. Runtime summary:
+`candidates/finite-envelope-acceptance-v2/runtime-summary-v4.json`,
+SHA256 `3f5681e3…ce1437`. This completes the v2 native acceptance controls,
+not the optimizer's global promotion gate or full116-region scope.
+
+[M] Root grants the now-free native allocation to the single mirrored
+prove-only attempt, existing plan `745e4106…5f0727`; no export yet.
+The separately preregistered H1 two-arm finite diagnostic has completed
+binding review (`e39ac720…f2f1ef8`) and waits for that proof's full drain
+and a separate resource grant. Its16M aggregate allowances predate any
+concrete H1 result; original H1, source pools and all other limits stay fixed.
+
+### First whole original physical region passes finite cold replay — October4, 09:56 UTC
+
+[M] The enabled arm for original required row
+`phys-d9-a10-r1-111000100111001` completes: all260 expected, enumerated,
+retained, input and unique requested seeds agree; the whole-entry iterator
+is exhausted. Native work is69,772 operational states/69,512 physical keys,
+33,640 rule applications and23,349 transport calls. Preparation88.441s,
+traversal2.711s including2.630s exact trace; no frontier or remaining debt.
+Fresh All/Off cold verification also passes the strict260-seed checks.
+This is scoped closure under the unchanged bank for **that entire original
+region**, not all116 required regions or unrestricted family closure.
+The unchanged off arm is running under the same frozen group clock;
+relative work, speed and memory claims remain pending its completion.
+
+### Singleton performance reproduces on v4 — October4, 09:51 UTC
+
+[M] H55 same-build group completes in454.242s, both online walks and cold
+All/Off checks drained with no errors/frontiers/uncovered debt. Symbolic
+versus finite-enabled whole-arm time245.184→208.147s (15.1% lower);
+traversal34.589→13.769s (60.2% lower); waited child CPU2074.61→1724.33s;
+sampled peak RSS5.420→5.218GB. Complete singleton admission and exhaustive
+seed iteration are checked online and cold, and the actual356,202 operational
+states/355,584 physical keys and all native work counters match prior v1.
+These are two consistent tests of one fixed input, not evidence for full
+five-loop-region speed or closure. No parametric rules changed in this pair.
+Independent final runtime review precedes the original260-seed region launch.
+
+[M] Independent final H55 review passes. Evaluator starts the original260
+group at09:52:47UTC, session67434, on-first under the unchanged1800s budget:
+on walk600/630s, cold810/840s, off walk1500/1530s, cold1740/1770s, all measured
+from one group clock. The original full physical row and67/8246/2 pool remain
+fixed. A failed/censored/nonactivated on arm stops this diagnostic; no easier
+subset or extra allowance may substitute for completion. The mirrored
+ordinary-source proof is prepared separately and will wait for the native
+allocation to be released before its single authorized prove-only attempt.
+
+### Four-loop regression passes; complementary rule chart nominated — October4, 09:43 UTC
+
+[M] V4 four-loop control completes in17.248s including walk and cold All/Off:
+all32 roots/58 queries pass, zero uncovered successors or violations. Domain,
+edge and original-input bytes equal the accepted v1 control; all26,025 typed
+records agree semantically, with only timing/frame metadata and60 lookup
+snapshot observations differing. Counters remain26,025 scheduled domains,
+17,957 native inspections and872,486 events. This validates default-off
+behavior, not a speedup. Evaluator owns the frozen H55 group started09:42:39UTC
+(session82168),600s inclusive, CPUs32–47. The260-region group follows only
+after acceptance; root launches no competing native work.
+
+[E] New narrowly scoped nomination assigned to `lower_sector_discovery`, with
+`finite_region_audit` as independent mathematical critic: complement the
+proved banana chart `a>=1,b>=2,r>=1` with its ordinary-source counterpart
+`a>=2,b=1,r>=1`. The candidate direction is differentiation with respect to
+p4, contracted with p5; in the archived basis this suggests contraction2
+weights+s and contraction3 weights−s for s=(1,1,1,2), translated by
+`+e13−e12`. Derive and replay the original sources rather than importing a
+symmetry identity. Expected mechanism: cover a currently excluded boundary
+with rank-lowering tails while leaving the existing b>=2 choice unchanged.
+Falsifiers: incorrect source map, non-descending/pole-producing tails, no
+additional admitted coverage, or no useful shared downstream improvement.
+No a=b=1, other-numerator, or complete-family claim; no native proof/export
+or engine edit authorized yet. Preparation proceeds while native controls
+run, and cannot alter their frozen rule banks or inputs.
+
+[M] Independent hand derivation agrees with the mirrored source map and pivot
+`a-1`. All surviving same-support tails lower the saved Spired corner distance;
+other tails pinch. The smallest falsifier is `a=2,b=1,r=1`, which must produce
+`T0(2,0)+(d-1)T0(1,1)+T0(2,1)-2T0(1,2)` with no positive-D13 obligation.
+The rank-two/a=2 check must retain both distinct pinches. This is a reviewed
+mathematical nomination only, not native proof, export or performance evidence.
+
+### Optimized v4 executable frozen; native control begins — October4, 09:39 UTC
+
+[M] Optimized app compilation537.688s and CLI link21.159s pass. The frozen
+CLI is `candidates/finite-replay-app-build-v4/rustred-cli`, SHA256
+`519788172fbd03732359460b10cbb7c7dc2b065e44a2751e7be7ffb3b9b9199e`.
+This is app opt2/noLTO with immutable optimized dependencies, not a fresh
+Cargo LTO build. Compilation is recorded separately from solver measurements.
+Independent final binding review passes: plan-v4 `b125d583…ffd32172`,
+wrapper `a766bd8a…d82f`, all seven semantic groups mandatory. No input,
+deadline, resource or test-scope changes were made while binding the build.
+
+[M] Root starts the prepared four-loop flag-off group with
+`python3 -B TMP/rule-optimizer-20261003/candidates/run_finite_envelope_acceptance_v4.py --group four-loop-flag-off`.
+It preserves all58 queries,16 owners and508 routes, under the native
+CPUs32–47/W16 allocation and300s inclusive guard. H55 and the original260
+region are gated on this result; production remains read-only. The previous
+goal turn made verified semantic-test and documentation progress; the intervening
+compile was a polled live process, not a stalled or restarted job.
+
+### Whole-region semantic gates pass; optimized build underway — October4, 09:28 UTC
+
+[M] Frozen v4 app test compilation completes in437.006s. All seven focused
+groups pass: finite replay31, epoch records3, restore134, app input6,
+entry-domain9, CLI44, and cold verification47 with one existing ignored test.
+These are overlapping filter groups, not a sum of distinct tests. Implementer
+and independent auditor reviewed the raw receipts; no failed tests, skipped
+license gates, resource stops or undrained processes. The semantic app tests
+use opt0 with immutable optimized dependencies and a32MiB test stack, not a
+performance profile. Source remains frozen; optimized app/CLI compilation is
+the next gate before native acceptance. Evidence: `candidates/finite-replay-
+app-build-v4/`; plan SHA256 `2a9f9422…5dd42`, test executable `3c97bc81…23b13`.
+
+[M] Read-only production observation at09:27:189.643M discovered domains,
+144.080M local completions,13.885M pending, zero frontiers,161.48GB RSS and
+checkpoint23. The refreshed conservative closure snapshot records26.244M
+closed domains and13/67 roots, versus23.871M in the earlier stale snapshot.
+This is additional recorded closure, not proof of eventual termination; the
+new snapshot was already232s old at observation. Production is unchanged.
+
+[E] The exact finite replay extension is an experiment in avoiding symbolic
+overcoverage, not another claim that all116 physical regions are affordable
+to enumerate. Prepared controls cover unchanged4L inputs, the prior H55
+singleton, and one complete original260-point required region. Native v2
+completion/performance and cold replay remain unmeasured. The conditional
+concrete descendant bound is documented separately and explicitly cannot
+truncate the existing symbolic worklist or auxiliary helpers.
+
+[E] Deliverable boundary confirmed by separate implementation review: replay
+keeps the existing reusable parametric owner/routing/overlay bank. Its small
+CP6 recipe binds only an exact original finite request and rechecks the trace;
+it is not a new parametric identity, numerical master table, standalone bank
+export or coefficient back-substitution result. Production's first auxiliary
+query is unbounded, so this intentionally narrow first-ID0 prototype would
+not accelerate that production request merely by enabling its flag. The
+260-point diagnostic selects one whole unchanged required row explicitly.
+
+### H1 diagnostic ends with two censored symbolic walks — October4, 09:16 UTC
+
+[M] The candidate contingency also reaches its original cumulative stop:
+the complete experiment drains by1511.053s from the conservative original
+clock, with no extension. Candidate preparation88.245s, interrupted traversal
+553.371s,6,295,995 scheduled domains,4,805,983 native completions and756,869
+pending obligations; zero frontiers/abandoned obligations and10.704GB sampled
+peak RSS. Its checkpoint is saved and resumable. The earlier baseline censor
+and all receipts are preserved. Neither arm completed or received a cold
+closure check. Their unequal truncated windows do not support a work ratio,
+speedup, regression or eventual-closure claim. The native CPU allocation is
+released. A separate exact-replay validation of the same H1 may be designed,
+but cannot be relabeled as completion of these symbolic walks.
+
+[M] Whole-first-region v2 implementation and focused tests are source-complete,
+with final formatting and independent audit pending the frozen build. It
+reuses existing Symbolica-backed finite-entry services and the unchanged core
+kernel; no new CAS or combinatorial enumeration kernel was written. Prepared
+native controls preserve4L58, H55, and the complete original260-point required
+region. None has yet executed with v2. All116 required queries and67 helpers
+remain unchanged in production.
+
+### H1 baseline reaches its preregistered limit — October4, 09:04 UTC
+
+[M] H1 baseline is censored, not closed: the guard sends its scheduled
+cooperative stop, the native process saves a clean checkpoint and all owned
+processes drain. Inclusive arm-group time731.162s; preparation87.344s,
+traversal630.555s. The saved state has6,932,981 scheduled domains,
+5,362,831 native completions and780,624 pending obligations, with no native
+errors/frontiers. Sampled peak process-tree RSS11.096GB. Its native exit4
+means a paused campaign here, not successful closure. Raw execution and
+checkpoint evidence remain in `banana-owner0-broad-currentpool-H1-validation-v2`.
+
+[E] Before the censor outcome, root and auditor authorized a single
+candidate-only contingency with the **same frozen H1 input and original
+1800s group clock**. It may establish feasibility if it completes and cold
+verifies, but cannot turn the censored baseline into a completed speed
+comparison or qualify the20% promotion gate. No easier target, larger budget,
+changed bank or clock reset is authorized; a second censor ends this diagnostic.
+The evaluator is validating that continuation against the remaining allowance.
+
+### Tested singleton milestone pushed; whole-region extension authorized — October4, 09:01 UTC
+
+[M] `6addb2e9` is pushed to origin/main. It contains the audited default-off
+app integration, focused tests, completed4L/H55 native acceptance and research
+results; unrelated FeynKit/untracked work remains untouched. The preceding
+goal turn made implementation and measurement progress, not only a status
+update. The full optimization goal remains open.
+
+[M] Existing `FiniteEntryDomain::target_count`, `targets` and `contains`
+already supply exact counts and composition-shell enumeration, using Symbolica
+integer binomials and `CombinationIterator`. No custom enumeration/CAS kernel
+is needed. Independent source review confirms native `DomainPowerSummary`
+mutual containment proves equality in the admitted box+A/R/D vocabulary;
+the core tracer deduplicates input keys before recording `requested_targets`.
+Exhausted iteration, exact cardinality, original membership and that unique
+input count can therefore check completeness rather than sampling it.
+
+[E] Authorized `lower_sector_discovery` to implement one whole-original-first-
+domain attempt: retain nonzero-lower singleton support, add only exactly
+equivalent finite starting envelopes, bound counting/seed-buffer work, and
+run one joint native trace with shared memoization. Cold replay must redo
+membership/equivalence/enumeration and full native reduction. Uniform
+experimental recipe v2 avoids compatibility scaffolding; absent/default-off
+identity must remain unchanged and old enabled versions must fail closed.
+The first proposed diagnostic uses an unchanged original260-point required
+region, not a clipped surrogate. No production activation, broad-region
+certificate or end-to-end benefit is assumed. Root owns builds/progress;
+the independent auditor owns mathematical/code review after source freeze.
 
 ### Finite-region feasibility screen — October4, 08:54 UTC
 

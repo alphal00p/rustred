@@ -98,7 +98,8 @@ pub use work_policy::FrontierPolicy as OwnerDomainWalkFrontierPolicy;
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
     pub checkpoint: Option<OwnerDomainWalkCheckpointOptions>,
-    /// Experimental exact discharge of the whole initial ID0 singleton only.
+    /// Experimental exact discharge of the whole initial ID0 singleton or
+    /// an exactly equivalent finite zero-lower A/R/D envelope.
     /// Requires a fresh CP6 walk; successful summaries are cold-replayed.
     /// None preserves the existing symbolic walk and checkpoint binding.
     pub finite_replay: Option<OwnerDomainWalkFiniteReplayLimits>,
@@ -989,7 +990,7 @@ fn walk_with_progress(
     if let Some(limits) = request.finite_replay {
         admitted["finite_replay"] = json!({
             "version": OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
-            "scope": "whole_initial_id0_singleton",
+            "scope": "whole_initial_id0_finite_domain",
             "limits": limits,
             "cold_replay_required": true,
         });

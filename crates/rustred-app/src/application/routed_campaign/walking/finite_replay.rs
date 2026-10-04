@@ -1,4 +1,6 @@
-//! Opt-in, whole-initial-singleton exact replay. No shared memo or new terminal.
+//! Opt-in, whole-initial-domain exact replay. No cross-attempt memo or new terminal.
+
+mod enumeration;
 
 #[cfg(test)]
 mod tests;
@@ -28,6 +30,11 @@ pub struct OwnerDomainWalkFiniteReplayLimits {
     pub max_transport_operations: usize,
     pub max_transport_endpoints: usize,
     pub max_coalescing_additions: usize,
+    /// Count preflight work, before allocating or enumerating seeds.
+    pub max_positive_layers: usize,
+    pub max_seed_points: usize,
+    /// Retained seed Vec/object/coordinate payload, NOT total trace memory.
+    pub max_seed_bytes: usize,
 }
 
 impl OwnerDomainWalkFiniteReplayLimits {
@@ -44,7 +51,7 @@ impl OwnerDomainWalkFiniteReplayLimits {
 }
 
 /// Opt-in semantic marker. Absent requests retain their existing identity.
-pub const OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION: u32 = 1;
+pub const OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION: u32 = 2;
 
 /// Symbolic walking did not previously use concrete aggregate trace caps.
 /// Bind those slots to this opt-in policy in BOTH online and cold preparation;
@@ -66,7 +73,7 @@ use super::{OwnerDomainWalkRequest, inspection, matching, queue::Domain};
 use rustred::family::IntegralKey;
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedCampaignFailure, CandidateRoutedCampaignSnapshot,
-    CandidateRoutedError, FiniteRootAdmission, RootRegionInput, RoutedCandidateReducer,
+    CandidateRoutedError, RoutedCandidateReducer,
 };
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -299,43 +306,33 @@ pub(super) fn run<const N: usize>(
     if let Err(error) = recipe.validate() {
         return fail(error.into());
     }
-    let target = match point(domain) {
-        Ok(Some(target)) => target,
-        Ok(None) => {
-            return Outcome::Declined {
-                work: empty("non_singleton"),
-            };
-        }
-        Err(error) => return fail(error),
+    let seed_cap = recipe
+        .limits
+        .max_nodes
+        .min(reducer.limits().max_input_targets)
+        .min(reducer.limits().max_unique_nodes)
+        .min(reducer.programs().context().limits().max_pending_frames);
+    let prepared = match enumeration::prepare(domain, recipe.limits, seed_cap, cancel) {
+        Ok(prepared) => prepared,
+        Err(failure) => return failure.outcome(cancel),
     };
-    let admission = match FiniteRootAdmission::try_new(
-        [RootRegionInput {
-            support: domain.owner,
-            lower: domain.lower.clone(),
-            upper: domain.upper.clone(),
-            rank: domain.rank,
-            powers: domain.powers,
-        }],
-        1,
-    ) {
-        Ok(admission) => admission,
-        Err(rustred::solver::RootAdmissionError::EmptyRegion { .. }) => {
-            return Outcome::Declined {
-                work: empty("empty_capped_domain"),
-            };
-        }
-        Err(error) => return fail(inspection::debug(&error)),
+    let expected = prepared.targets.len();
+    let seed_work = prepared.work;
+    let work = |s: &CandidateRoutedCampaignSnapshot<N>, status| {
+        let mut value = work_json(s, status);
+        value["enumeration"] = json!(seed_work);
+        value
     };
     // The caller's panic boundary converts a native panic into an error, never
     // a retryable summary miss. No completed-state cache is retained here.
     let result = reducer.trace_targets_inline_with_entry_admission_and_observer(
-        [target],
-        CandidateEntryAdmission::ExplicitFinite(&admission),
+        prepared.targets,
+        CandidateEntryAdmission::ExplicitFinite(&prepared.admission),
         recipe.limits.budget(),
         cancel,
         |snapshot| {
             if let Some(account) = account {
-                account.record(work_json(snapshot, "running"));
+                account.record(work(snapshot, "running"));
             }
         },
     );
@@ -346,7 +343,7 @@ pub(super) fn run<const N: usize>(
                 return Outcome::Failed {
                     error: "finite replay cancelled".into(),
                     cancelled: true,
-                    work: work_json(s, "cancelled"),
+                    work: work(s, "cancelled"),
                 };
             }
             if !s.finished
@@ -354,21 +351,26 @@ pub(super) fn run<const N: usize>(
                 || s.queued_nodes != 0
                 || s.failed_nodes != 0
                 || s.reserved_coalescing_additions != 0
+                || !enumeration::complete_cardinality(
+                    s.input_targets,
+                    s.requested_targets,
+                    expected,
+                )
             {
                 return Outcome::Failed {
                     error: "finite replay unfinished native result".into(),
                     cancelled: false,
-                    work: work_json(s, "invalid_completion"),
+                    work: work(s, "invalid_completion"),
                 };
             }
             if !report.trace().frontier().is_empty() {
                 Outcome::Declined {
-                    work: work_json(s, "frontier"),
+                    work: work(s, "frontier"),
                 }
             } else {
                 Outcome::Closed {
                     recipe,
-                    work: work_json(s, "closed"),
+                    work: work(s, "closed"),
                 }
             }
         }
@@ -378,13 +380,13 @@ pub(super) fn run<const N: usize>(
             let disposition = failure_disposition(error.reason(), cancel.load(Ordering::Acquire));
             if disposition == FailureDisposition::Decline {
                 Outcome::Declined {
-                    work: work_json(error.snapshot(), "aggregate_budget"),
+                    work: work(error.snapshot(), "aggregate_budget"),
                 }
             } else {
                 Outcome::Failed {
                     error: inspection::debug(error.reason()),
                     cancelled: disposition == FailureDisposition::Cancelled,
-                    work: work_json(error.snapshot(), "native_error"),
+                    work: work(error.snapshot(), "native_error"),
                 }
             }
         }

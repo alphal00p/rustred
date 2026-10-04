@@ -3,7 +3,7 @@ use super::*;
 
 fn recipe() -> Recipe {
     Recipe {
-        version: 1,
+        version: 2,
         limits: OwnerDomainWalkFiniteReplayLimits {
             max_nodes: 100,
             max_rule_applications: 100,
@@ -11,6 +11,9 @@ fn recipe() -> Recipe {
             max_transport_operations: 100,
             max_transport_endpoints: 100,
             max_coalescing_additions: 100,
+            max_positive_layers: 64,
+            max_seed_points: 1024,
+            max_seed_bytes: 1024 * 1024,
         },
     }
 }
@@ -41,7 +44,7 @@ fn finite_replay_p1_binds_policy_and_refuses_ordinary_or_partial_payload() {
     for defect in 0..10 {
         let (mut state, mut r) = setup();
         match defect {
-            0 => r.finite_replay.as_mut().unwrap().version = 2,
+            0 => r.finite_replay.as_mut().unwrap().version = 1,
             1 => r.finite_replay.as_mut().unwrap().limits.max_nodes += 1,
             2 => {
                 r.parent = 1;
@@ -90,7 +93,7 @@ fn finite_replay_typed_record_roundtrip_and_forged_authority_refusal() {
     assert_eq!(records::wire::read(&mut bytes.as_slice()).unwrap(), record);
     let projected = record.project().unwrap();
     assert_eq!(projected["record_kind"], "finite_replay_summary");
-    assert_eq!(projected["finite_replay_recipe"]["version"], 1);
+    assert_eq!(projected["finite_replay_recipe"]["version"], 2);
     for defect in 0..8 {
         let mut forged = record.clone();
         let records::typed::Body::Native(native) = &mut forged.authority.body else {
@@ -106,7 +109,7 @@ fn finite_replay_typed_record_roundtrip_and_forged_authority_refusal() {
             6 => native.frontiers = 1,
             _ => {
                 if let records::typed::Scope::FiniteReplay(recipe) = &mut native.scope {
-                    recipe.version = 2
+                    recipe.version = 1
                 }
             }
         }
@@ -118,7 +121,7 @@ fn finite_replay_typed_record_roundtrip_and_forged_authority_refusal() {
         br#"{"events":1,"finite_replay_recipe":{"version":99}}"#.to_vec();
     assert_eq!(
         diagnostics.project().unwrap()["finite_replay_recipe"]["version"],
-        1
+        2
     );
 }
 
@@ -127,9 +130,9 @@ fn finite_replay_result_wire_requires_conditional_recipe_and_no_trailing_bytes()
     let (_, r) = setup();
     let bytes = r.encode();
     assert_eq!(JobResult::<2>::decode(&bytes).unwrap(), r);
-    // The opt-in trailer is version u32 plus six u64 allowances. Removing it
+    // The opt-in trailer is version u32 plus nine u64 allowances. Removing it
     // must not turn kind5 into a generic no-successor native result.
-    assert!(JobResult::<2>::decode(&bytes[..bytes.len() - 52]).is_err());
+    assert!(JobResult::<2>::decode(&bytes[..bytes.len() - 76]).is_err());
     let mut trailing = bytes.clone();
     trailing.push(0);
     assert!(JobResult::<2>::decode(&trailing).is_err());
@@ -137,9 +140,9 @@ fn finite_replay_result_wire_requires_conditional_recipe_and_no_trailing_bytes()
     legacy.kind = NativeKind::Apply;
     legacy.finite_replay = None;
     let legacy_bytes = legacy.encode();
-    assert_eq!(legacy_bytes.len() + 52, bytes.len());
+    assert_eq!(legacy_bytes.len() + 76, bytes.len());
     assert_eq!(JobResult::<2>::decode(&legacy_bytes).unwrap(), legacy);
     let mut extra = legacy_bytes;
-    extra.extend_from_slice(&bytes[bytes.len() - 52..]);
+    extra.extend_from_slice(&bytes[bytes.len() - 76..]);
     assert!(JobResult::<2>::decode(&extra).is_err());
 }

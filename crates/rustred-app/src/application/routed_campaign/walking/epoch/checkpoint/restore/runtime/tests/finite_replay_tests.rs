@@ -20,6 +20,9 @@ fn limits() -> OwnerDomainWalkFiniteReplayLimits {
         max_transport_operations: 10000,
         max_transport_endpoints: 10000,
         max_coalescing_additions: 10000,
+        max_positive_layers: 64,
+        max_seed_points: 1024,
+        max_seed_bytes: 1024 * 1024,
     }
 }
 fn fixture() -> Fixture {
@@ -232,7 +235,7 @@ fn finite_replay_wrong_id_caps_partial_context_and_noninitial_query_cannot_subst
 }
 
 #[test]
-fn finite_replay_non_singleton_and_native_frontier_are_not_closed() {
+fn finite_replay_unsupported_envelope_and_native_frontier_are_not_closed() {
     let f = fixture();
     let mut domain = job(&f).image.expand();
     let recipe = Recipe {
