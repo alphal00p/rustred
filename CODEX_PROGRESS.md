@@ -21,14 +21,116 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
-| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e: whole-first-region v2 passes optimized4L/H55/original260 native+cold controls. New explicit aggregate-limit CLI and effective-budget diagnostics pass eight semantic groups and optimized app/CLI builds. Small default-off4L control and corrected H1 remain pending. No production activation or fullscope claim. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Complementary mirror exported as combined485 rules/unchanged83 terminals; first fresh484→485 pair has20.10% fewer domains, actual new-rule activation audited. Reverse pair running; combined485 H1 follows V5 control. No production installation. |
-| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Endpoint-locality research tool implemented;110 tests pass. Native fixed pair recovers8-source/7-tail spectator-preserving rules from all25 unweighted sources in5.045s, both whole charts proved. Charts/axes/windows remain supplied, not automatically nominated. Original15/10-tail unconstrained negative retained; no new CAS. |
+| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025-domain graph. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
+| Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Combined485 adds20.10%/20.32% marginal reduction over484 in two completed cold-passed pairs;83 terminals unchanged. Hard H1 remains incomplete in both arms. Original260-region treatment-heldout validation is proposed, not run. No production installation. |
+| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pusheddeca49ea.110 tests and exact native two-chart proof pass; portable tracked requests reproduce reports in4.448s. Charts/axes/windows still supplied. Now researching generalized no-raising/subloop constraints, not claiming automatic graph nomination. |
+| Conceptual descendant elimination | Evaluation implementation proposal; discovery literature; independent audit | Active: constrain complete source combinations before descendants arise; separately test exact cancellation after routing all terms of one parent identity. No cache/scheduler work or cap changes substituted for reduced mathematical workload. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Conceptual solve changes take priority — October4, 11:52 UTC
+
+[M] User explicitly prioritizes conceptual changes and literature over
+micro-optimizations, and permits a second campaign in parallel only when the
+improvement warrants it. Active plan now records that direction. Root delegates
+subloop/syzygy literature to discovery, single-parent routed cancellation and
+concrete witness selection to evaluation, and independent mathematical critique
+to the auditor. No production action or new heavy run is authorized by this
+research delegation. Existing successful local pairs are not global speedups.
+
+[M] Portable endpoint-locality reproduction passes in4.448408s. Both full native
+reports equal the previous successful reports after removing only elapsed time
+and historical request provenance. Independent audit checks tracked requests,
+commands, clean exits and drained processes. These three input/runbook files
+need no new engine build and perform no export or installation.
+
+[M] Bounded H1 fallback sampling reads16MiB in1.883s, preserving its window bias:
+owner31 has1,189/1,188 sampled Apply records in the two arms. A common complete
+singleton record has330 RHS terms and235 strict pinches. Its k3 dependence is
+confined to three active denominators, nominating a subloop-preserving source
+combination; this is not yet a new identity. The recorded high-dot stress lies
+outside the original physical entry cap, though descendants can leave entry
+bounds. No whole-trace or production saving is inferred from the sample.
+
+[E] Independent review accepts the complete original260-integral physical
+region as a prospective treatment-heldout check: its baseline was previously
+used for engine validation, so it must not be labelled globally unseen.
+Preserve all260 seeds, the full67-owner/8246-route/two-overlay context and old
+engine-control caps; retain both failed H1 stress tests. No such comparison has
+run yet. Even a successful260 check would not establish116-query closure.
+
+[E] For exact cancellation, process all weighted terms from ONE valid parent
+identity before discarding coefficients and publishing canonical endpoints.
+No cancellation between unrelated equations is allowed. Native exact transport
+and Symbolica already exist; first measure whether a complete frozen boundary
+actually loses downstream keys. This is conceptually different from caching
+already-deduplicated routed keys or relaxing the endpoint allowance.
+
+### Routing-cap interpretation and next bounded diagnosis — October4, 11:43 UTC
+
+[M] Agents resumed successfully after transient service failures. Evaluator
+preserves and independent auditor verifies candidate H1 refusal receipt
+`98a6141f…b71a41`, including the exact original ERB1 frame and clean cutoff.
+Source inspection establishes a critical interpretation: `transport_usage`
+charges `ExpansionUsage.projected_support` before Symbolica expansion. The
+128M endpoint allowance is a conservative cumulative reservation, not128M
+distinct integrals, surviving monomials or allocations. The retained101M
+dedup counter includes Apply and Route publications and cannot isolate route
+fanout. No live depth or per-route exact-emission census was recorded.
+
+[E] A whole-key route cache is rejected as redundant: the native worklist
+already deduplicates `(phase, owner, exact key)` before expansion. A cache of
+exact numerator polynomials across different positive-power bases might save
+arithmetic, but would not reduce the current logical work allowance or number
+of required descendants. Prior negative local-route scoring and H55 route-cut
+results remain in force. Root grants only a16MiB bounded diagnostic sample of
+the two stopped H1 symbolic-fallback sidecars on CPU68, using the existing
+strict decoder. This may nominate an expensive owner/chart; it is not a census
+of the preceding exact finite trace or permission to extrapolate new savings.
+
+[E] Discovery implements a portable input-only reproduction: two tracked JSON
+requests and a direct native Cargo-example runbook, no new process controller
+or CAS. They retain all operative fields of the audited locality experiment,
+removing only historical machine-local prose. Pending independent review,
+root grants one tiny guarded native proof of each tracked request using the
+already frozen research binary and original483 owner; no export/installation.
+The completion audit still finds held-out acceptance and full user-launch
+packaging incomplete, so the goal remains active and production unchanged.
+
+### Candidate held-out attempt also reaches endpoint cap — October4, 11:37 UTC
+
+[M] In response to the user's campaign-switch question, root directly checks
+the completed candidate-only receipts. The group stops cleanly at its registered
+cooperative deadline after602.158s, exit−2, no hard stop/failure and owned groups
+drained. Cold verification did not run. Root decodes only the first complete
+2,979-byte ERB1 diagnostic frame with the existing reader: combined485 finite
+replay declined after252.217s at aggregate routed endpoints128,008,444 requested
+versus128,000,000 allowed. It records7,250,782 operational states,
+5,501,746 completed,1,749,035 queued,3,165,202 applications and2,002,556 transports;
+there are no missing owners or rules reported before the resource refusal.
+The incomplete symbolic fallback subsequently reaches3,793,067 scheduled domains
+at its last heartbeat. These counters are not a closure certificate.
+
+[E] This harder case does not demonstrate a meaningful feasibility unlock:
+both original483 and combined485 encounter essentially the same routing cap
+after about253s. No percentage benefit is computed from these incomplete runs.
+The two completed local gains remain valid but cannot be extrapolated to the
+full production request. A changed rule bank requires fresh traversal because
+checkpoint bindings include the immutable owners/rules; no resume with a
+silently substituted pool is proposed. Root does not yet recommend replacing
+the live production campaign based on this evidence.
+
+[M] Budget fix and locality tool are pushed as `eeaa7806` and `deca49ea`.
+Live production is read-only: about200.0M discovered,154.85M locally completed,
+12.45M pending,zero frontiers,173.91GB RSS; checkpoint25. The last-hour pending
+growth is−0.1062 per local completion. Recorded13/67 closed roots are from a
+7,974-second-old scan; no current recursive closure rate or ETA is inferred.
+Agents' follow-up turns encountered service authentication/network failures;
+their earlier completed audited results remain available. Root gathered the
+new terminal process/receipt evidence directly; no production job was touched.
 
 ### Locality constraint recovers both compact rules — October4, 11:22 UTC
 

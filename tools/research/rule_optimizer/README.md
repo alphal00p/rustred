@@ -1200,6 +1200,10 @@ rule was source-proved but increased shared domain work by about 0.50%.
 
 ### Endpoint-axis locality (research opt-in)
 
+Portable example: [two tracked all25-row requests and a direct Cargo/native
+prove/export runbook](examples/endpoint_locality/README.md). You must supply
+the compatible native owner bundle; no campaign bank or output is tracked.
+
 `forbid_endpoint_changes_on_axes` is an optional sorted, unique list of
 zero-based index axes. Absent or `[]` preserves the existing search and report
 (apart from the literal request echo). A nonempty list adds every actual

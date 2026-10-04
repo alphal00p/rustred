@@ -682,10 +682,14 @@ feasibility failure, not another effective-budget mismatch.
 At the refusal,253.003 seconds of finite work had scheduled7,278,128 operational
 nodes representing7,272,139 physical keys, completed5,522,744, and left1,755,383
 queued. It performed3,186,441 rule applications and2,002,310 transport calls,
-with127,999,479 admitted endpoints and530,580,163 transport operations;
+with127,999,479 reserved pre-coalescing endpoint units and530,580,163
+conservative transport-operation units;
 279 declared terminals and327,828 zeros were visited. It did not finish or
 close H1. These counters do not expose stack depth and cannot identify a
-particular recurrence corridor as the cause of endpoint growth.
+particular recurrence corridor as the cause of endpoint growth. In particular,
+the endpoint counter is a prospective structural upper bound charged before
+Symbolica expansion, not the number of surviving emitted monomials. The record
+does not retain the latter or attribute global deduplication hits by phase.
 
 The existing symbolic fallback ran only until the registered cutoff. The group
 ended at601.851 seconds with a cooperative deadline, exit−2, no hard kill, and
@@ -704,7 +708,25 @@ measure the otherwise unrun treatment, not compare it to a censored baseline.
 Finite refusal retains the existing fallback only to the same cutoff; fallback
 closure would be reported separately, not as finite success. No budget growth,
 retry, switch to484, easier point, or ratio to the failed baseline is permitted.
-At this note update the separate diagnostic is prepared, not executed.
+The candidate-only diagnostic subsequently executed with the same correctly
+admitted limits. Its finite inspection also refused the endpoint allowance:
+128,008,444 requested against128,000,000, after252.217 seconds. The retained
+snapshot contains7,250,782 scheduled operational nodes,7,244,793 physical keys,
+5,501,746 completed,1,749,035 queued,3,165,202 applications and2,002,556
+transports;127,999,876 structural endpoint units and530,582,303 operation units
+had been charged. It reported279 terminals,327,823 zeros and no missing owner
+or rule. This is not a completed closure and is not compared by ratio with the
+censored original483 observation.
+
+Its fallback stopped at the registered cooperative cutoff,602.158 seconds
+inclusive, with no hard kill and all owned processes drained. No cold replay,
+final result or committed checkpoint exists. Peak sampled process-tree RSS was
+9.927GB. The independent receipt retains the complete2,979-byte root diagnostic
+and raw stop evidence under
+`banana-H1-combined-candidate-feasibility-v1/endpoint-refusal-diagnostic-v1/receipt.json`.
+Neither observation justifies raising the limit, restarting production, or
+claiming that H1 can never close; they establish that this fixed finite-work
+allowance was exhausted with both tested banks.
 
 ### Complementary face: a directly proved mirrored ordinary-source chart
 

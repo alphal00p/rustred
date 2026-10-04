@@ -782,6 +782,83 @@ Both guard groups finish with no stop, frontier, pending debt or orphaned
 owned process. This single original region is not the other115 required
 queries, and the separately proposed H1 test is outside this D9/R1 scope.
 
+### H1 endpoint refusal: what is measured and the next falsifiers
+
+The corrected original483 and separately run combined485 H1 observations both
+exhausted the same128-million aggregate endpoint allowance. Neither closed or
+reached cold replay; the complete negative receipts are linked from the
+[banana study](banana_moment_nomination_2026-10-04.md). The requested16-million
+node/application/pending policy was verified both before preparation and in
+the actual native work record. This is not the earlier1-million policy mismatch.
+
+The word *endpoint* requires care. `numerator_expansion/expand.rs::expand_native`
+calls the shared reservation with `projected_support` **before** exact Symbolica
+expansion. The current trace path is already a two-pass support-only iterator:
+it keeps the exact rational polynomial, checks virtual coefficient-output caps,
+then emits surviving keys without allocating a coefficient-wrapped endpoint
+vector. Global membership already deduplicates exact `(phase,owner,key)` work,
+so a cache of complete Route keys would not remove repeated native expansion.
+The retained H1 diagnostic lacks actual post-coalescing Route emission totals,
+per-route frequencies, the failed source key and maximum rank/dot counters
+(the latter fields exist in the core snapshot but are not serialized here).
+Consequently128M/2M is **reserved support per call**, not observed fanout, and
+101M global deduplication hits cannot be assigned to routing alone.
+
+Three different interventions must not be conflated:
+
+- Reusing the exact rational numerator polynomial for the same verified route
+  and negative-power signature across different positive bases could avoid
+  repeated polynomial arithmetic. Positive bases translate its exponent support;
+  each use must still check shifts, coefficients, per-call limits and every
+  resulting dependency. This cannot reduce the existing virtual endpoint charge
+  or prove fewer descendants, and repeated-signature frequency is not measured.
+- Native exact support size could diagnose conservative reservation slack. A
+  future reserve/settle policy would need bounded scratch and operation admission
+  before expansion, actual-support admission before publication, and separate
+  cumulative-work accounting. Simply counting new dedup misses instead of all
+  output work is unsound. Such accounting changes alone are not a workload win.
+- Within one complete Apply identity, coefficient-weighted transport of distinct
+  pinched terms might cancel shared canonical endpoints. Existing Apply locally
+  coalesces equal source keys before dropping weights for reachability; it does
+  not establish cross-route cancellation. The smallest discriminator is native
+  weighted transport plus native coefficient addition on one fixed complete
+  parent boundary, retaining every pole, zero-sector and pinch condition.
+  Cancellation across unrelated parents is forbidden. No such cancellation is
+  inferred from the global deduplication counter, and this diagnostic has not run.
+
+The previously negative H55 symbolic-route cut in
+[the frame study, §2](shared_rule_policy_and_rank_frames_2026-10-04.md) remains
+negative: symbolic geometric covers and exact finite polynomial routing are
+different representations. A bounded read-only H1 screen instead decoded four
+fixed2MiB windows from each stopped symbolic-fallback sidecar, excluding the
+initial finite inspection timing. It completed in1.883 seconds on CPU68 under
+a2GiB/60-second bound; all eight window bytes are pinned under
+`TMP/rule-optimizer-20261003/profiles/H1-fallback-window-screen-v1/`.
+This is16MiB of diagnostics, not whole-sidecar authentication or a representative
+estimate of the inner finite kernel's work.
+
+That screen nominates a concrete rule-locality target beyond banana owner0.
+Owner31 (`110010101101011`) appears in1,189/1,188 sampled Apply records with
+50,156/50,116 term visits and34,834/34,813 successors. The same whole singleton
+node2975 has physical powers
+`(6,5,0,0,2,0,1,0,2,1,0,1,0,1,1)`, rank0, A20 and inherited D20..21;
+its330 successors include235 strict pinches. These sampled counts are not
+comparative performance evidence. Unlike mixed G2 witnesses elsewhere in the
+sample, this is an exact complete singleton boundary suitable for a small
+subsequent diagnostic.
+
+In the actual common momentum basis, differentiating in `k3` touches only the
+three active denominators D9,D12,D15 of this owner. D1,D2,D5,D7,D10,D14 are
+spectators. Therefore a generic complete-source projection that forbids changes
+on those six spectators is a concrete nomination for a compact three-line
+subloop rule, preserving the heavy D1/D2 dots rather than redistributing them.
+First obtain the actual saved rule and guarded chart at the frozen point;
+then test one fixed source window with the existing complete25-row projector
+and native original-source/descent proof. A failed source projection or a rule
+that merely moves equal work into numerator transport is a negative result.
+No source window, selected rule or coefficient cancellation is guessed from
+the checkpoint counts, and no native test or engine change is authorized here.
+
 The immutable raw receipts are in the same acceptance directory's
 `physical-envelope-{on,off}/`. The consolidated
 `runtime-summary-v4.json` (`3f5681e3…ce1437`) retains phase timings,

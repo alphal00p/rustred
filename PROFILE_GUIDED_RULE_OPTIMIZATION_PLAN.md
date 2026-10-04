@@ -10,6 +10,15 @@ stop directives. The completed frontier repair remains available independently.
 
 ## Objective and definition of success
 
+October 4 clarification: prioritize conceptual changes to the reduction
+program, not implementation micro-optimizations. In particular, investigate
+relations which prevent expensive descendants from being generated and exact
+composition which cancels unnecessary intermediate obligations. Use primary
+literature to propose mechanisms with small decisive tests. The cluster can
+accommodate a second production campaign alongside the current one, but that
+is not a reason to launch before a significant improvement is demonstrated.
+The user remains responsible for production launch and lifecycle decisions.
+
 Develop a generic, profile-guided optimizer that finds exact parametric rules
 which reduce the **shared downstream workload**, rather than merely shortening
 individual right-hand sides. Use the frozen five-loop renormalizable-gauge
