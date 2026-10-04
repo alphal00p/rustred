@@ -243,6 +243,9 @@ fn solver_error(error: &SolverError) -> Value {
         SolverError::ExactReplay(message) => {
             json!({"kind":"exact-replay","message":bounded_message(message)})
         }
+        SolverError::Certification(message) => {
+            json!({"kind":"certification","message":bounded_message(message)})
+        }
         SolverError::SearchExhausted { depth, rows } => {
             json!({"kind":"search-exhausted","depth":depth,"rows":rows})
         }
