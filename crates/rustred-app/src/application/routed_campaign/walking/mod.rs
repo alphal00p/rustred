@@ -228,6 +228,13 @@ impl OwnerDomainWalkRequest {
         }
     }
 
+    /// Pure numeric policy projection, before owner admission or native work.
+    /// It is diagnostic only; actual execution/cold replay reports the same
+    /// projection from the admitted reducer. None preserves default-off output.
+    pub fn finite_replay_budget_summary(&self) -> Option<Value> {
+        finite_replay::budget_summary(self)
+    }
+
     /// Runtime admission for the experimental finite replay path. Offline
     /// verification uses the original fresh request and independently checks
     /// every retained recipe; this is not a resume-capability promise.
@@ -992,6 +999,7 @@ fn walk_with_progress(
             "version": OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
             "scope": "whole_initial_id0_finite_domain",
             "limits": limits,
+            "budget": request.finite_replay_budget_summary(),
             "cold_replay_required": true,
         });
     }

@@ -21,13 +21,266 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
-| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Whole-first-region v2 passes seven semantic groups and optimized4L/H55/original260 native+cold controls. H55 whole15.1% lower;260whole time tied despite40.3% traversal gain. Preparing audited code milestone. No production activation or fullscope claim. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Source proofs, exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Two cold-verified original four-root pairs show25.93%/25.82% fewer domains, with whole time+0.83%/+2.38%. H1 baseline and candidate both cleanly censored under original clock; no held-out closure/gain. Native allocation released; no production installation. |
+| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e: whole-first-region v2 passes optimized4L/H55/original260 native+cold controls. New explicit aggregate-limit CLI and effective-budget diagnostics pass eight semantic groups and optimized app/CLI builds. Small default-off4L control and corrected H1 remain pending. No production activation or fullscope claim. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Complementary mirror exported as combined485 rules/unchanged83 terminals; first fresh484→485 pair has20.10% fewer domains, actual new-rule activation audited. Reverse pair running; combined485 H1 follows V5 control. No production installation. |
+| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | All25 unweighted sources prove both nominated charts but select15/10-tail rules changing spectator powers, not the intended7-tail local mechanism. Negative compactness result retained; read-only investigation of existing protected-axis kernel/target-tail constraints. No blind retry or new CAS. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Repeat confirms local benefit; V5 native four-loop control passes — October4, 11:05 UTC
+
+[M] The baseline-first repeat finishes cleanly in384.438s. Independent raw
+audit verifies both four-root All/Off cold results, all six guards, frozen
+commands and drained process groups. Baseline14,136→candidate11,264 domains
+is20.3169% lower; native12,830→10,215 is20.3819% lower. Whole arm191.127→189.739s
+is only0.7262% lower. Together with the first pair, the complementary rule
+reproducibly reduces this completed local cohort's work by at least20%, but
+the preparation-dominated wall times do not show a comparable elapsed gain.
+No held-out result or full-campaign gain is inferred from these measurements.
+
+[M] Root runs the audited V5 flag-off control via
+`.venv/bin/python -B TMP/rule-optimizer-20261003/candidates/run_v5_flagoff.py
+--group four-loop-flag-off`: native walk plus complete cold reinspection
+finishes in17.014s, all58 queries and32 roots closed. Counts remain exactly
+26,025 domains/17,957 native inspections/872,486 events. The existing semantic
+graph checker, remapped only to fresh V5 paths, confirms identical input,
+domain/edge/root bytes and cold certification; all seven predicates pass.
+No finite replay or new aggregate override is enabled in this control.
+Graph receiptSHA256 `fa8f69b2a3fdb3826c723eeb1e3f7c712d3b15d80b8090f87f3b97bd946eb3fe`.
+The corrected combined485 H1 comparison is being bound to this tested binary;
+both numeric preflights precede any heavy owner preparation on its original
+1800-second inclusive clock.
+
+[M] Read-only production snapshot11:03UTC:197,620,046 discovered domains,
+152,504,912 local completions,12,653,216 pending, zero frontiers and173.85GB RSS.
+Last-hour pending growth per completion is−0.1147. Recorded13/67 closed roots
+and26,243,882 closed domains are from a snapshot6004s old: no current closure
+rate or completion ETA follows. Production inputs/process/checkpoints unchanged.
+
+[E] Following the negative raw25 compactness result, root authorizes a small
+research-projector-only endpoint-locality selector, implemented by discovery
+and independently audited later. It adds forbidden endpoint columns from the
+complete native source universe before row selection; it does not reject
+individual nonlocal rows whose combination cancels. Existing Symbolica
+projection and whole-chart proof remain authoritative. Core/app code stays
+frozen; the next native trial waits behind held-out validation.
+
+### Activation confirmed; reverse pair and final build — October4, 11:01 UTC
+
+[M] Independent audit confirms native selection of the complementary rule on
+actual descendants171 and6758: combined485 selects batch0/rule0 for the whole
+unchanged boxes. The corresponding cold-verified graph boundaries decrease
+from seven successors and28/27 term visits to four successors and seven visits.
+The132.671s probe drains cleanly. This establishes actual activation, not only
+compatibility of the rule's chart; it does not establish whole-campaign gain.
+
+[M] The sole reverse-order marginal repeat starts10:56:32UTC, session28207,
+fresh baseline first. Its planSHA256 is
+`a60c887c415c35278e6b332d5a7708f862ab4a8f8f1f97dac7e3d5ba14229e2a`;
+one stale nonoperative sentence was corrected before execution. Inputs,
+commands, caps and actual arm order match the independent preflight. Native
+resources pass to root for the V5 default-off4L control after clean drain.
+
+[M] V5 optimized app compilation completes in589.751s; CLI linking23.224s,
+binarySHA256 `217c152704c48ef6ba8fa0d84eaf5800a8f1caf9327368f80c3d00598bc4970c`.
+These are build times, not solver performance. Root prepares the unchanged
+58-query4L native/cold control with only this binary and fresh outputs:
+`candidates/finite-budget-v5-flagoff/plan-v5.json`, planSHA256
+`37fbc55c8eb8596ac1b2255d002ee684ffd841ef4f6e4f40b03bb3152611a14f`.
+Execution remains gated on independent review and native resource handoff.
+
+[M] Raw25 source-weight rediscovery completes cleanly in5.122s. Both native
+whole-chart source proofs pass, but the predeclared compactness/locality test
+fails: b≥2 selects one source with15 generic tails, while b=1 selects two with
+10; both shift spectator propagator powers. Independent audit confirms the
+raw commands/proofs/guards and no exported artifact. This is evidence that
+the first-target objective lacks the desired locality, not that the known
+seven-tail source combination is absent. The next assignment is read-only
+design using existing protected-axis/target-tail services, not a new trial.
+
+### Prospective held-out candidate selection and source rediscovery — October4, 10:49 UTC
+
+[E] Before any corrected16M H1 attempt, root selects the combined485-rule
+candidate for that held-out comparison, based on its completed training-cohort
+result. The prepared-only corrected484 plans remain preserved and deferred;
+they are not executed, overwritten or relabelled. Evaluator must freeze a new
+separately versioned comparison: unchanged original baseline and H1 query,
+same limits/timing/resources, but candidate owner0 plus its native-rebound
+overlay replaced by485. Both native effective-budget preflights still precede
+all heavy preparation. There is no automatic switch back to484 if the held-out
+test fails. This avoids two costly validations of successively superseded
+candidates; it does not use a held-out485 result to choose the candidate.
+
+[E] Existing native services can test source-weight rediscovery without new
+Rust code: two unchanged banana charts, each using all25 unweighted ordinary
+rows at its nominated common offset, with fresh original-source and whole-chart
+checks and zero refinements. Independent preflight approves the prepared
+`banana-owner0-raw25-rediscovery-v1` pair (`b51bd07c…934115`), maximum300s
+including shutdown. Charts/windows remain hand-informed; only the coefficients
+are being discovered. Root grants execution after explicit coordination with
+the evaluator's tiny actual-activation probe; no heavy native overlap or
+feedback from the newly exported rules is allowed. The original483 owner is
+the source context. This is a source-proof experiment, not CP6 closure.
+
+### Eight v5 semantic groups pass; marginal rule pair completes — October4, 10:46 UTC
+
+[M] V5 app test compilation completes in444.467s, executable SHA256
+`63c20acd0ec92bde5708244772f940f45ade95ed2543835e24d4d35dcf488cb5`.
+All eight focused groups pass: finite replay39, epoch wire3, restore134,
+input6, entry-domain9, CLI arguments47, CLI execution5, cold verification48
+with one pre-existing ignored case. These filters overlap; do not sum them.
+They include actual native two-step refusals from either limit tier, success
+when both permit the trace, three-seed cold parity and changed-binding rejection.
+Root starts optimized app compilation, same v5 plan, session3225 on CPUs0–15;
+CLI linking, the small4L flag-off control and corrected H1 remain pending.
+
+[M] The single candidate-first484-versus485 pair completes in392.698s;
+independent raw-receipt review passes both complete All/Off cold checks for
+all four roots, with no errors, frontiers or remaining obligations. Fresh
+baseline14,132 versus candidate11,291 scheduled domains is20.1033% lower;
+native inspections12,833→10,231 is20.2759% lower. Whole arms195.755→193.595s
+differ by only1.1032%, not strong timing evidence. Traversal0.7691→0.6493s;
+input and cold preparation dominate. Both arms use the same v4 binary and
+full shared context; no finite replay. All native processes drain.
+
+[E] Exact support comparison alone does not prove the new mirror was selected.
+Evaluator is preparing the smallest direct native selected-rule/boundary check
+on an actual descendant; a second paired run is not yet launched. Treat the
+observed completed graph difference as one paired result, not a qualified
+full-campaign benefit or closure claim. Original H1 remains held out, unchanged
+and gated on the v5 native effective-budget preflight.
+
+### Marginal rule comparison running; broader nomination remains read-only — October4, 10:38 UTC
+
+[M] The previous goal turn made concrete progress: audited app implementation,
+native mirrored-rule export and repair-overlay cold validation, plus frozen v5
+test compilation. Root re-polls the same live build session1448; no restart or
+compile failure. The independent auditor approves the frozen marginal pair
+`d11e15bf…4800fd`. Evaluator starts it at10:37:35UTC, session88346, launcher
+3688382; candidate native3688853 is preparing on CPUs32–47. It uses the existing
+v4 executable, original four required inputs, full67-owner/8246-route/two-overlay
+context and no finite-replay flag. Candidate comes first, then old484 baseline;
+the original1800s inclusive clock covers both preparations, walks, cold checks
+and shutdown. Completed outputs and actual descendant-rule selection remain
+necessary before attributing any benefit to the added chart.
+
+[E] `lower_sector_discovery` receives a read-only follow-up: compare a generic
+momentum-incidence-local nomination with existing Symbolica linear algebra,
+RustRed local-tangent services and full-source RREF before proposing more code.
+The smallest proposed test is autonomous rediscovery of both proved charts,
+not supplying their eight source weights or importing a massless formula.
+No new native job or implementation is authorized by this research assignment.
+`finite_region_audit` retains independent code, math and measurement review.
+
+### Explicit-budget fix passes source audit; v5 test build starts — October4, 10:36 UTC
+
+[M] Independent source review finds no blocking issues in the app-only fix:
+three separate CLI aggregate controls, cheap numeric preflight from the real
+typed request, admitted/effective live and cold diagnostics, and typed refusal
+details. Defaults, native minimum intersections, per-formula bounds and existing
+checkpoint bindings remain unchanged. Ten focused regressions were added;
+their execution is pending, not claimed passed.
+
+[M] Root freezes app source v5 and starts the existing guarded compile using
+the unchanged tested optimized core. Command:
+`.venv/bin/python -B TMP/rule-optimizer-20261003/candidates/run_replay_build.py
+TMP/rule-optimizer-20261003/candidates/finite-replay-app-build-plan-v5.json
+compile_app_tests`. Plan SHA256
+`4a2e9353a0f0471cc5cf81c6d6bb7ea3413bb6dca93593306a8dc810d47e4206`;
+session1448, CPUs0–15,32GiB own process-tree guard and150GB host reserve.
+The seven existing semantic filters plus explicit CLI execution tests gate
+optimized app/CLI compilation. New pure numeric preflight must demonstrate
+the intended H1 effective allowances before any corrected native attempt.
+
+[E] The separately prepared484-versus485 marginal rule comparison uses the
+existing v4 binary on CPUs32–47, not this evolving build. Root grants it only
+after independent plan review. Concurrent build/other-user contention must be
+recorded; the primary metric is completed shared domain work, not a comparison
+against historical timings. Production remains unchanged.
+
+### Complementary banana chart exported without rebuilding the engine — October4, 10:28 UTC
+
+[M] The independently reviewed mirrored export completes in3.349s inclusive,
+with native status `CHECKED_PRIORITY_OWNER_EXPORTED`, no failure/stop/hardkill
+and a drained process group. Sampled peak RSS866MB. The existing484-rule
+candidate becomes485 rules with the exact83-terminal inventory unchanged;
+normalized sources, coefficients, conditions and native proof agree with the
+prior prove-only result. Both rank-generic charts are retained. New candidate
+SHA256 `ebd0def4ae1c77cab74c2f377dc706ad5a9c03af4d0155781b022f3ed856b397`,
+86,019,683bytes, under
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-combined-mirrored-export-v1/artifact/`.
+This is input-only use of an existing optimized exporter, not another build,
+a completed campaign, or a measured combined-rule benefit.
+
+[E] Evaluator may next natively re-export the two existing owner0 repair
+rules against this actual485-rule payload, subject to independent binding
+review and unchanged guards/terminals/other-owner overlay. No production
+installation or recursive comparison is authorized by the export result alone.
+
+[M] That subsequent native overlay re-export completes in36.421s inclusive,
+status `SOURCE_REPLAYED_REEXPORT_COLD_CHECKED`, clean/drained and without any
+stop. It replays both original repair rules in the old/new contexts and cold
+loads the result; the obsolete digest is rejected. Overlay SHA256
+`f330f7082f102a1dfd056be4904ca19ac90300ec0199e52620da73d1e4be38eb`,
+220,735bytes; evidence in `candidates/banana-owner0-combined-mirrored-overlay-v1/`.
+Independent final receipt review remains before any recursive comparison.
+Root requests a separate old484-versus-combined485 original four-root paired
+control using the existing optimized CLI while the app-only budget fix builds.
+This will measure the added chart's marginal shared-work effect; it does not
+replace or modify the separately planned old484 H1 held-out comparison.
+
+### Read-only production and research update — October4, 10:20 UTC
+
+[M] Live new37 reports193,389,730 scheduled domains,148,079,184 local
+completions,13,178,765 pending and zero frontiers. RSS170.43GB, approximately
+4.04 observed cores at that sample; checkpoint24 is saved/resumable. Recorded
+recursive closure is26,243,882 domains and13/67 roots, but its snapshot is
+3358s old. These are timestamped observations, not eventual-closure evidence,
+a current closure rate, or grounds for changing production.
+
+[E] Root cross-checked Forcer's simultaneous numerator/dot reductions and
+recurrence-combination discussion against the two proved banana charts.
+Recorded a narrow prospective incidence-local source nomination in
+`docs/research/profile_guided_bold_directions_2026-10-03.md`, including the
+important negative: an invertible source-basis change alone cannot improve
+the existing exact RREF at fixed columns. Existing tangent-source failures
+remain relevant. No new algebra kernel or source-discovery implementation is
+authorized by that note; export, held-out validation and the explicit-cap
+configuration fix remain first.
+
+### Pushed whole-region milestone; H1 exposes an effective-budget mismatch — October4, 10:15 UTC
+
+[M] Audited whole-region replay and completed controls are committed and pushed
+to main as `3492584e`. Unrelated FeynKit and untracked work remain untouched.
+The mirrored banana recurrence also passes independent native proof review;
+its export is being prepared separately and is not in production.
+
+[M] H1 finite baseline declined after67.113s at exactly1,000,000 applications:
+the intended16M allowance was intersected with the existing matching reducer's
+1M default. Pending frames likewise retained1M and coalescing16M, rather than
+the requested16M/256M. This is not evidence that H1 fails at16M, nor an algebraic
+failure. After fallback to the already-tested symbolic walk, root authorized
+early interruption. The pilot fully drained at332.972s, native exit−2; there
+was no final result, cold check, candidate run, or resumable checkpoint. Its
+complete first diagnostic frame and command/source identities are preserved in
+`TMP/rule-optimizer-20261003/candidates/banana-H1-finite-feasibility-v2/`
+`effective-limit-diagnostic-v1/receipt.json`, SHA256
+`6d3525c456ac211cdc9a98104bdeffa0697ac1d6997e251750f9473f37af54aa`.
+Scheduled2,577,437 states is not the pending-frame count; the latter counts
+queued and active states. No paired speed/work claim follows from this run.
+
+[E] Root accepts the independent auditor's narrow remedy: expose the three
+existing matching aggregate limits as separate explicit CLI settings, preserve
+defaults and all native minimum intersections/per-formula bounds, and report
+requested/admitted/effective budgets before preparation and in live/cold
+diagnostics. Preserve the typed resource/requested/limit refusal instead of
+only `aggregate_budget`. Implementation: `lower_sector_discovery`; independent
+review: `finite_region_audit`; new frozen experiment preparation:
+`lower_rule_evaluation`. No core algebra change or silent safety-cap override.
+The earlier below-ceiling controls remain valid. Production stays read-only.
 
 ### Complementary recurrence passes native original-source proof — October4, 10:03 UTC
 

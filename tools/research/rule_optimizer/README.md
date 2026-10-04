@@ -16,6 +16,27 @@ query amendments are not supported in this experimental mode.
 The nine `--finite-replay-max-*` allowances include the six trace caps plus
 `positive-layers` (64), `seed-points` (1024), and `seed-bytes` (1048576).
 The byte allowance bounds retained seed-buffer payload, not total trace RSS.
+These additional allowances are intersected with the admitted reducer's
+aggregate limits. Separate explicit controls expose those existing limits:
+`--reduction-max-rule-applications` (default 1000000),
+`--reduction-max-pending-frames` (1000000), and
+`--reduction-max-coalescing-additions` (16000000). Zero is meaningful;
+`--unbounded-work` changes neither tier. Raising only a finite-replay allowance
+does not override a smaller admitted limit, and these controls do not loosen
+per-formula algebra or transport expansion limits.
+
+Add `--finite-replay-budget-preflight` to the same fresh finite-walk request,
+without event/stop paths, to write numeric requested/admitted/effective limits
+to `--output` and exit before owner preparation or checkpoint creation. This
+reads manifest/query text but does not admit their contents. Live and cold
+work report the same budget projection from the actual reducer; budget
+refusals also retain native resource/requested/limit fields. The first H1
+finite attempt exposed the inherited one-million rule-attempt ceiling despite
+a sixteen-million additional allowance; its preserved decline is not evidence
+that the intended sixteen-million budget is insufficient. The explicit CLI
+controls and diagnostics pass focused native tests and the unchanged full
+four-loop control; the corrected hard H1 performance comparison is separate.
+
 Exact Symbolica-backed counting precedes bounded complete seed collection;
 one joint trace shares exact-key work among all admitted seeds. Cancellation,
 iterator errors and incomplete enumeration cannot produce a summary.

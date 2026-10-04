@@ -51,6 +51,13 @@ pub(super) fn set_cap(limits: &mut OwnerDomainWalkFiniteReplayLimits, name: &str
 }
 
 pub(super) fn validate(args: &OwnerDomainMatchArgs, seen: &BTreeSet<&str>) -> Result<(), ArgError> {
+    if args.finite_replay_budget_preflight
+        && (args.finite_replay.is_none() || args.events.is_some() || args.stop_file.is_some())
+    {
+        return Err(ArgError::InvalidCombination(
+            "finite replay budget preflight requires finite replay and no event/stop paths",
+        ));
+    }
     if args.finite_replay.is_none() {
         return Ok(());
     }
@@ -138,5 +145,23 @@ mod tests {
         }
         let bounded = args(&format!("{BASE} {ENABLE} --unbounded-work")).unwrap();
         assert_eq!(bounded.finite_replay, Some(defaults()));
+    }
+
+    #[test]
+    fn finite_replay_budget_preflight_is_explicit_diagnostic_only() {
+        assert!(
+            args(&format!("{BASE} {ENABLE} --finite-replay-budget-preflight"))
+                .unwrap()
+                .finite_replay_budget_preflight
+        );
+        for suffix in ["", "--events e", "--stop-file stop"] {
+            let enable = if suffix.is_empty() { "" } else { ENABLE };
+            assert!(
+                args(&format!(
+                    "{BASE} {enable} --finite-replay-budget-preflight {suffix}"
+                ))
+                .is_err()
+            );
+        }
     }
 }

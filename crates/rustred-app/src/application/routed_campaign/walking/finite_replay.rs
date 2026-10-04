@@ -1,5 +1,6 @@
 //! Opt-in, whole-initial-domain exact replay. No cross-attempt memo or new terminal.
 
+mod budget;
 mod enumeration;
 
 #[cfg(test)]
@@ -52,6 +53,10 @@ impl OwnerDomainWalkFiniteReplayLimits {
 
 /// Opt-in semantic marker. Absent requests retain their existing identity.
 pub const OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION: u32 = 2;
+
+pub(super) fn budget_summary(request: &OwnerDomainWalkRequest) -> Option<Value> {
+    budget::preparation(request)
+}
 
 /// Symbolic walking did not previously use concrete aggregate trace caps.
 /// Bind those slots to this opt-in policy in BOTH online and cold preparation;
@@ -297,7 +302,12 @@ pub(super) fn run<const N: usize>(
     cancel: &AtomicBool,
     account: Option<&Account>,
 ) -> Outcome {
-    let empty = |status| json!({"status":status,"attempted":false});
+    let policy = budget::summary(
+        recipe.limits,
+        reducer.limits(),
+        reducer.programs().context().limits(),
+    );
+    let empty = |status| json!({"status":status,"attempted":false,"budget":policy});
     let fail = |error: String| Outcome::Failed {
         error,
         cancelled: cancel.load(Ordering::Acquire),
@@ -314,13 +324,22 @@ pub(super) fn run<const N: usize>(
         .min(reducer.programs().context().limits().max_pending_frames);
     let prepared = match enumeration::prepare(domain, recipe.limits, seed_cap, cancel) {
         Ok(prepared) => prepared,
-        Err(failure) => return failure.outcome(cancel),
+        Err(failure) => {
+            let mut outcome = failure.outcome(cancel);
+            match &mut outcome {
+                Outcome::Closed { work, .. }
+                | Outcome::Declined { work }
+                | Outcome::Failed { work, .. } => work["budget"] = policy.clone(),
+            }
+            return outcome;
+        }
     };
     let expected = prepared.targets.len();
     let seed_work = prepared.work;
     let work = |s: &CandidateRoutedCampaignSnapshot<N>, status| {
         let mut value = work_json(s, status);
         value["enumeration"] = json!(seed_work);
+        value["budget"] = policy.clone();
         value
     };
     // The caller's panic boundary converts a native panic into an error, never
@@ -378,15 +397,22 @@ pub(super) fn run<const N: usize>(
             // Deliberately small typed decline set. UnsupportedSupportTransition,
             // source/context/order/algebra failures and panics are HARD errors.
             let disposition = failure_disposition(error.reason(), cancel.load(Ordering::Acquire));
+            let failed_work = |status| {
+                let mut value = work(error.snapshot(), status);
+                if let Some(refusal) = budget::refusal(error.reason()) {
+                    value["refusal"] = refusal;
+                }
+                value
+            };
             if disposition == FailureDisposition::Decline {
                 Outcome::Declined {
-                    work: work(error.snapshot(), "aggregate_budget"),
+                    work: failed_work("aggregate_budget"),
                 }
             } else {
                 Outcome::Failed {
                     error: inspection::debug(error.reason()),
                     cancelled: disposition == FailureDisposition::Cancelled,
-                    work: work(error.snapshot(), "native_error"),
+                    work: failed_work("native_error"),
                 }
             }
         }

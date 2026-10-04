@@ -106,6 +106,10 @@ fn finite_replay_whole_symbolic_envelope_closes_and_cold_repeats_every_seed() {
     request.matching.queries_json = queries.to_string();
     let report = walk(&request);
     let work = &report["finite_replay"]["work"];
+    assert_eq!(
+        work["budget"],
+        request.finite_replay_budget_summary().unwrap()
+    );
     assert_eq!(work["status"], "closed", "{report}");
     assert_eq!(work["input_targets"], 3);
     assert_eq!(work["requested_targets"], 3);
@@ -114,6 +118,10 @@ fn finite_replay_whole_symbolic_envelope_closes_and_cold_repeats_every_seed() {
     assert_eq!(report["scheduled_nodes"], 1);
     let verified = cold(&request);
     assert_eq!(verified["verdict"], "PASS", "{verified}");
+    assert_eq!(
+        verified["reinspection"]["tally"]["finite_replay"]["budget"],
+        work["budget"]
+    );
     let mut violations = Violations::new(50);
     let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
     assert_eq!(loaded.finite_replay.unwrap().version, 2);
@@ -131,6 +139,52 @@ fn finite_replay_whole_symbolic_envelope_closes_and_cold_repeats_every_seed() {
     geometry["queries"][0]["upper"] = json!([1]);
     changed.matching.queries_json = geometry.to_string();
     rejected(&changed);
+}
+
+#[test]
+fn finite_replay_two_step_trace_obeys_both_rule_budget_tiers_and_cold_binding() {
+    for (label, admitted, additional, closes) in [
+        ("finite-budget-admitted", 1, 3, false),
+        ("finite-budget-additional", 3, 1, false),
+        ("finite-budget-both", 3, 3, true),
+    ] {
+        let (_dir, mut request) = fixture(label);
+        request.matching.reduction_limits.max_rule_applications = admitted;
+        request
+            .finite_replay
+            .as_mut()
+            .unwrap()
+            .max_rule_applications = additional;
+        let expected = request.finite_replay_budget_summary().unwrap();
+        let report = walk(&request);
+        let work = &report["finite_replay"]["work"];
+        assert_eq!(work["budget"], expected);
+        assert_eq!(
+            work["budget"]["effective"]["max_rule_applications"],
+            admitted.min(additional)
+        );
+        if closes {
+            assert_eq!(work["status"], "closed", "{work}");
+            assert_eq!(work["rule_applications"], 2);
+            let verified = cold(&request);
+            assert_eq!(verified["verdict"], "PASS", "{verified}");
+            assert_eq!(
+                verified["reinspection"]["tally"]["finite_replay"]["budget"],
+                expected
+            );
+            let mut changed = request.clone();
+            changed.matching.reduction_limits.max_rule_applications = 4;
+            rejected(&changed);
+        } else {
+            assert_eq!(work["status"], "aggregate_budget", "{work}");
+            assert_eq!(work["rule_attempts"], 1);
+            assert_eq!(
+                work["refusal"],
+                json!({"kind":"routed_resource_limit",
+                "resource":"rule attempts","requested":2,"limit":1})
+            );
+        }
+    }
 }
 
 #[test]

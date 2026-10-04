@@ -103,3 +103,20 @@ fn finite_replay_keeps_other_domain_reuse_policies_available() {
     request.reuse_initial_d_bands = true;
     assert!(request.validate_finite_replay().is_ok());
 }
+
+#[test]
+fn finite_replay_existing_reduction_aggregate_fields_remain_bound_in_both_formats() {
+    let mut request = request();
+    request.finite_replay = Some(limits());
+    let original = (binding(&request), epoch_request_binding(&request));
+    for index in 0..3 {
+        let mut changed = request.clone();
+        match index {
+            0 => changed.matching.reduction_limits.max_rule_applications += 1,
+            1 => changed.matching.reduction_limits.max_pending_frames += 1,
+            _ => changed.matching.reduction_limits.max_coalescing_additions += 1,
+        }
+        assert_ne!(binding(&changed), original.0);
+        assert_ne!(epoch_request_binding(&changed), original.1);
+    }
+}

@@ -8,6 +8,8 @@ use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf
 const MAX_WORKERS_MESSAGE: &str = "at most 256 symbolic workers";
 const _: () = assert!(MAX_WALK_WORKERS == 256, "update MAX_WORKERS_MESSAGE");
 mod finite_replay_args;
+#[cfg(test)]
+mod reduction_budget_tests;
 
 #[cfg(test)]
 mod campaign_tests;
@@ -42,6 +44,10 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub no_progress: bool,
     pub follow_successors: bool,
     pub finite_replay: Option<crate::OwnerDomainWalkFiniteReplayLimits>,
+    pub finite_replay_budget_preflight: bool,
+    pub reduction_max_rule_applications: usize,
+    pub reduction_max_pending_frames: usize,
+    pub reduction_max_coalescing_additions: usize,
     pub workers: usize,
     pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
@@ -85,6 +91,7 @@ pub(crate) struct OwnerDomainMatchArgs {
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let limits = rustred::solver::OwnerDomainMatchLimits::default();
     let applied = rustred::solver::OwnerAppliedLimits::default();
+    let reduction = rustred::reduction::ReductionLimits::default();
     let mut result = OwnerDomainMatchArgs {
         manifest: PathBuf::new(),
         queries: PathBuf::new(),
@@ -108,6 +115,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         no_progress: false,
         follow_successors: false,
         finite_replay: None,
+        finite_replay_budget_preflight: false,
+        reduction_max_rule_applications: reduction.max_rule_applications,
+        reduction_max_pending_frames: reduction.max_pending_frames,
+        reduction_max_coalescing_additions: reduction.max_coalescing_additions,
         workers: 1,
         inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
@@ -193,6 +204,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--no-progress" => "--no-progress",
             "--follow-successors" => "--follow-successors",
+            "--finite-replay-budget-preflight" => "--finite-replay-budget-preflight",
+            "--reduction-max-rule-applications" => "--reduction-max-rule-applications",
+            "--reduction-max-pending-frames" => "--reduction-max-pending-frames",
+            "--reduction-max-coalescing-additions" => "--reduction-max-coalescing-additions",
             "--workers" => "--workers",
             "--publication-policy" => "--publication-policy",
             "--epoch-inspector-lookup" => "--epoch-inspector-lookup",
@@ -245,6 +260,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--follow-successors" {
             result.follow_successors = true;
+            continue;
+        }
+        if name == "--finite-replay-budget-preflight" {
+            result.finite_replay_budget_preflight = true;
             continue;
         }
         if name == finite_replay_args::ENABLE {
@@ -419,6 +438,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--max-bounded-refinement-cells-per-query" => {
                 result.max_bounded_refinement_cells = parse_nonnegative_integer(name, value)?;
+            }
+            "--reduction-max-rule-applications" => {
+                result.reduction_max_rule_applications = parse_nonnegative_integer(name, value)?;
+            }
+            "--reduction-max-pending-frames" => {
+                result.reduction_max_pending_frames = parse_nonnegative_integer(name, value)?;
+            }
+            "--reduction-max-coalescing-additions" => {
+                result.reduction_max_coalescing_additions = parse_nonnegative_integer(name, value)?;
             }
             "--manifest" | "--queries" | "--output" | "--owner-base" | "--events"
             | "--stop-file" | "--checkpoint" | "--resume" => {

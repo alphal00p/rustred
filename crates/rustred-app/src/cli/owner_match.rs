@@ -21,8 +21,35 @@ mod query_admission_tests;
 pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     OwnerDomainMatchRequest::validate_query_allowances(args.max_queries, args.max_query_bytes)
         .map_err(|message| CliError::Input(message.into()))?;
+    if args.finite_replay_budget_preflight {
+        return budget_preflight(&args);
+    }
     super::routed::preflight_inner_pools()?;
     run_admitted(args)
+}
+
+fn budget_preflight(args: &OwnerDomainMatchArgs) -> Result<(), CliError> {
+    if args.events.is_some() || args.stop_file.is_some() || !args.follow_successors {
+        return Err(CliError::Input(
+            "invalid finite budget preflight paths/mode".into(),
+        ));
+    }
+    preflight_output_destination(&StreamPath::File(args.output.clone()), false)?;
+    let request = walk_request(match_request(args)?, args);
+    request
+        .validate_finite_replay()
+        .map_err(|e| CliError::Input(e.into()))?;
+    let budget = request
+        .finite_replay_budget_summary()
+        .ok_or_else(|| CliError::Input("finite budget preflight requires finite replay".into()))?;
+    let document = json!({"schema":"rustred.finite-replay-budget-preflight.v1",
+        "status":"NUMERIC_POLICY_ONLY", "version":crate::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
+        "budget":budget,"native_prepared":false,"inputs_admitted":false,"checkpoint_created":false});
+    crate::application::atomic_file::write_file_atomically_with(&args.output, false, |file| {
+        serde_json::to_writer_pretty(&mut *file, &document).map_err(|e| e.to_string())?;
+        file.write_all(b"\n").map_err(|e| e.to_string())
+    })
+    .map_err(CliError::OutputIo)
 }
 
 fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
@@ -184,7 +211,14 @@ fn match_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainMatchRequest,
     request.match_limits.max_bounded_refinement_cells = args.max_bounded_refinement_cells;
     request.match_limits.refinement_axes = args.refinement_axes;
     request.match_limits.guard_algebra.max_univariate_degree = args.max_guard_univariate_degree;
+    set_reduction_aggregates(&mut request, args);
     Ok(request)
+}
+
+fn set_reduction_aggregates(request: &mut OwnerDomainMatchRequest, args: &OwnerDomainMatchArgs) {
+    request.reduction_limits.max_rule_applications = args.reduction_max_rule_applications;
+    request.reduction_limits.max_pending_frames = args.reduction_max_pending_frames;
+    request.reduction_limits.max_coalescing_additions = args.reduction_max_coalescing_additions;
 }
 
 /// The walk `--follow-successors` runs over `request`.

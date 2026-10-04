@@ -2164,6 +2164,11 @@ fn verify<const N: usize>(
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
     super::finite_replay::configure_load(request, &mut load);
+    if let Some(budget) = request.finite_replay_budget_summary() {
+        observer(
+            json!({"event":"finite_replay_budget", "phase":"cold_preparation", "budget":budget}),
+        );
+    }
     let mut prepared_owners = None;
     let mut bind = |owners: Vec<String>| {
         prepared_owners = Some(owners);
