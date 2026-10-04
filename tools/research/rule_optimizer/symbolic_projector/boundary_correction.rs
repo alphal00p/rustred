@@ -14,6 +14,8 @@ pub const SCHEMA: &str = "rustred.boundary-correction.v1";
 
 #[path = "boundary_dual.rs"]
 mod dual;
+#[path = "source_nomination.rs"]
+mod nomination;
 
 pub fn enabled(r: &Value) -> bool {
     r.get("boundary_correction").is_some()
@@ -38,6 +40,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
                     | "forbid_new_rank_positive"
                     | "max_numerator_rank"
                     | "exact_dual_separator"
+                    | "witness_preimage_nomination"
             )
         }),
         "unknown boundary correction field",
@@ -48,6 +51,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
     )?;
     rank_cap(r)?;
     checked(dual::enabled(cfg))?;
+    nomination::enabled(cfg)?;
     require(
         number(r, "max_refinements")? == 0,
         "boundary correction does not refine or grow its bank",
@@ -556,6 +560,7 @@ pub fn run(
     r: &Value,
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
+    inventory: &rustred::identity::SelectedTranslatedSourceBatch,
     ids: &BTreeMap<String, usize>,
     baseline: &source::Span,
     checked_request: &OriginalSourceCombinationRequest,
@@ -718,7 +723,7 @@ pub fn run(
             report["status"] = json!("NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN");
             report["visited_rows"] = json!(rows);
             report["conditions"] = guards_json(&guards);
-            dual::append_report(
+            let separator = dual::append_report(
                 c,
                 cfg,
                 &corrections.images,
@@ -728,6 +733,25 @@ pub fn run(
                 limits,
                 &mut report,
             );
+            if nomination::enabled(cfg)? {
+                report["witness_preimage_nomination"] = match separator {
+                    Some((columns, certificate)) => nomination::run(
+                        r,
+                        generator,
+                        completed,
+                        inventory,
+                        family,
+                        target,
+                        &columns,
+                        &certificate,
+                        p,
+                        limits,
+                    ),
+                    None => json!({"schema":"rustred.witness-preimage-nomination.v1",
+                        "status":"WITNESS_PREIMAGE_REFUSED_OR_INCOMPLETE",
+                        "error":"exact separator prerequisite incomplete","pairing_complete":false}),
+                };
+            }
             return Ok(report);
         }
         project::Projection::Target(proposal) => proposal,

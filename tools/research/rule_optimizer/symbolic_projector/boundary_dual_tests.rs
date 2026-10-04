@@ -25,7 +25,7 @@ fn baseline_only_column_is_kept_and_proves_separation() {
     let baseline = Row::from([(shift(-1), c.integer(2))]);
     let columns = BTreeSet::from([shift(-2), shift(-1), shift(0)]);
     let mut report = json!({"status":"NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN"});
-    append_report(
+    let _ = append_report(
         &c,
         &json!({"exact_dual_separator":true}),
         &corrections,
@@ -158,7 +158,7 @@ fn dense_allocation_and_work_are_precharged_and_miss_status_is_preserved() {
             _ => l.columns = 0,
         }
         let mut report = json!({"status":"NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN"});
-        append_report(
+        let _ = append_report(
             &c,
             &json!({"exact_dual_separator":true}),
             &rows,
@@ -190,7 +190,7 @@ fn optional_flag_is_strict_boolean_and_default_off_is_byte_value_identity() {
         json!({"status":"NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN","conditions":[]});
     for cfg in [json!({}), json!({"exact_dual_separator":false})] {
         let mut report = original.clone();
-        append_report(
+        let _ = append_report(
             &c,
             &cfg,
             &[],

@@ -31,6 +31,105 @@ Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
 
+### Witness-directed census completed; actual strict correction selected — October4, 15:07 UTC
+
+[M] The sole corrected nomination call completes in3.066s, cleanly drained;
+independent audit passes. Its963 source bindings are exactly the prior census:
+605 have nonzero native pairing with the separator and358 pair to zero. There
+are no empty images, target leaks or D7 reactivations. The895 pinch-zero seeds
+give537 nonzero pairings; all68 pinch-minus-one seeds give nonzero pairings.
+Full-image maximum numerator ranks0/1/2/3 occur2/59/513/389 times. Thus breaking
+the old obstruction is not equivalent to meeting the final rank objective.
+The unchanged baseline, cap-one search and dual reports reproduce exactly.
+All145 research tests pass; executable is `bedf101a…2646bc0`. Evidence:
+`TMP/rule-optimizer-20261003/profiles/owner31-witness-preimage-v2/`.
+
+[E] Preregister the next **actual** correction, not another diagnostic: retain
+the old25 rows and add complete25-row ordinary blocks at each of the three
+scalar-source, nonreactivating witness-breaking translations
+`+e_D1-e_D2-e_D7`, `+e_D1-e_D5-e_D7`, `+e_D1-e_D9-e_D7`. All three directions
+are selected by that geometry, not by a post-solve score; full blocks retain
+zero-pairing rows that can cancel newly introduced columns. The bank is100
+rows, fixed before the solve. Return to the original strict P9/no-new-positive-
+rank-column objective, preserving the other84 existing numerator columns.
+The weaker rank-one cap could merely replace P9 with more dotted numerator
+tails, for example through the vacuum scaling identity. Strict success still
+allows new scalar tails and is not automatically a downstream-work win.
+
+Evaluator owns the minimal default-off translated-pinch ingress and tests;
+discovery owns fixed inputs and the sole300s/16GiB native trial; the independent
+auditor reviews both. Original-source composition, full-image pinch checks,
+all exceptional guards and strict descent remain mandatory. No production
+change, larger automatic source sweep, or second full campaign is authorized.
+
+### Complete source census; translation allowance corrected once — October4, 14:58 UTC
+
+[M] The nomination hook passes145 tests and independent source/build audit.
+Its first native call completes the full census:522 raw source terms and two
+witness columns give1044 candidate bindings,992 satisfy the nonpositive-pinch
+filter and deduplicate to963 `(RowId,offset)` pairs. Of these895 have source
+pinch exponent0 and68 have exponent-1. The native translator then refuses its
+unchanged10000-term allowance: the exact required count is20826. No source was
+translated and no pairing/image result exists. This is a2.486s clean resource
+noncompletion, not an algebraic negative. Auditor independently reconstructs
+every census pair and the20826 count; old cap-one/dual report parity passes.
+
+[E] Authorize one fresh v2 call with only `max_terms:10000 -> 32768` changed,
+covering the measured fixed census. Same binary,963 candidates, chart, witness,
+seed policy, other arithmetic limits and16GiB/300s guard. No source search is
+enlarged, no corrected rule is attempted, and the v1 refusal remains recorded.
+Discovery runs it after the one-field delta check; no redundant rebuild/audit.
+
+### Do not exclude numerator-bearing correction sources — October4, 14:47 UTC
+
+[E] Before source freeze or a nomination run, refine the declared source-only
+filter from pinch-source zero to **nonpositive**. Independent inspection of
+the ordinary generator confirms endpoint shifts0,+e_j,+e_j-e_k. A negative
+pinch-source exponent can rise by at most one without becoming positive; at
+zero the raising coefficient vanishes. For the present witness's pinch output
+zero, inverse supports therefore admit source exponents0 and-1 only. Every
+actual native image must still be checked; other axes can become active, so
+this is not an assertion that the whole source belongs to a parent subsector.
+
+This remains the same finite inverse-support census, not a deeper search shell
+or post-failure relaxation. The already completed25-row bank and dual result
+are unchanged. The selected hook retains zero-pairing candidates too: they
+cannot break this witness alone but may cancel extra columns opened by another
+source. A rank cap constrains the final collected identity, not all auxiliary
+seeds. Seven focused tests are under independent review;145 total are expected,
+not yet a new passing build. The actual corrected-rule ingress is still absent.
+
+### Dual milestone pushed; one targeted nomination slice selected — October4, 14:40 UTC
+
+[M] Exact dual implementation,138-test/native results and research notes are
+committed/pushed as `6c6d7e2e` on main. Only seven owned files were included;
+unrelated FeynKit edits, untracked work, reference material and campaign data
+remain untouched. Independent final audit confirms the complete cap-one report
+is unchanged after removing the optional diagnostic.
+
+[E] The retained evidence cannot supply raw pre-fixed supports, so discovery
+did not substitute the old structural superset. Activate a small native
+`witness_preimage_nomination` hook consuming the already available completed
+zero-offset inventory and the typed separator in the same process. It will
+enumerate the complete finite `(RowId,t=f-tau)` preimage, require pinch-source
+zero, translate before fixed specialization, and pair with the exact witness.
+No reconstruction, new CAS or elimination is needed for that pairing. The
+single prepared input adds the flag and raises only the source-row allowance
+316 to1024; sources, objective, chart, ordering and other limits are unchanged.
+A census exceeding admission is incomplete, never silently truncated.
+
+Evaluator implements; discovery owns the input/native probe; auditor reviews
+independently; root integrates. Collective cancellation from291 rows remains
+pending rather than a second parallel framework. The intended next gate after
+a useful nomination is the actual unchanged P9 corrected identity and then
+complete downstream work. Production-switch criteria are not weakened.
+
+[M] Read-only production at14:33UTC:214.67M discovered,169.40M local
+completions,11.18M pending, zero frontiers,13/67 recorded closed roots and
+29.67M recorded closed domains; closure snapshot about60minutes old. CP28
+is saved/resumable, process-tree RSS182.32GB. The hour-window pending change
+is-0.066 per local completion. No ETA or new closure conclusion follows.
+
 ### Exact two-column obstruction identified — October4, 14:31 UTC
 
 [M] The optional diagnostic passes all138 tests and completes its unchanged

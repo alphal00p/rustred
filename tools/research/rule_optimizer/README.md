@@ -1288,6 +1288,7 @@ The object has these fields:
 | `forbid_new_rank_positive` | `true` forbids rank-positive columns absent from the baseline. `false` requires the explicit rank cap below. |
 | `max_numerator_rank` | Nonnegative integer, present only with `forbid_new_rank_positive:false`; bounds the sum of all negative endpoint powers over the whole chart, including the formerly active pinch axis. |
 | `exact_dual_separator` | Optional boolean, default `false`; after a complete miss, request an exact diagnostic separator for the frozen forbidden-column system. It does not change the search or produce a rule. |
+| `witness_preimage_nomination` | Optional boolean, default `false`, requiring `exact_dual_separator:true`; use the native separator support and complete raw ordinary inventory to enumerate translated source preimages and inspect their exact pairings. Nomination only: no new correction solve or bank mutation. |
 
 The initial interface requires all inactive parent indices to be explicitly
 fixed to zero, while active indices may remain free. This is a rank-zero
@@ -1321,7 +1322,7 @@ zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
 is confined to this frozen correction space; neither a hit nor fewer local
 tails establishes lower campaign work. No owner or overlay is installed.
 
-The implementation passed all138 focused tests. Its first fixed native probe
+The implementation passed all145 focused tests. Its first fixed native probe
 reproduced the313-tail stage-one proof and typed zero control; all nine nominated
 columns were present, but the complete26-row weighted search found no correction
 under the joint constraints. This is a finite-span negative, not a general
@@ -1344,3 +1345,25 @@ the rational-function result does not certify exceptional parameter slices.
 It explains this frozen-span obstruction, not a master-integral functional,
 physical rule or authority to grow the source bank or ignore guards. The
 conceptual note records the exact column bindings and raw evidence.
+
+The preimage diagnostic is a separate experimental step. It derives offsets
+`t=f-tau` from a nonzero separator column `f` and
+an actual raw ordinary-row shift `tau`, before fixed-index specialization.
+It retains sources whose fixed pinch power becomes nonpositive, including
+numerator-bearing seeds; it does not filter source rank or other-axis
+activation. The complete deduplicated census must fit `max_source_rows`
+before translation; a cap refusal does not translate a prefix. Existing
+translation, coefficient, condition and output limits still apply. Reports
+retain the raw support, all zero/nonzero pairings, source geometry and complete
+translated image shifts. A nonzero pairing can motivate a source nomination,
+but neither guarantees a feasible correction nor authorizes adding it to a
+bank. No coefficient display is parsed or normalized into a new rule.
+
+The first native census completed963 pairs but translation refused its10,000
+term-entry allowance before any pairing. The preserved, explicitly authorized
+32,768-term continuation admitted the measured20,826 entries without changing
+the census or any other input. All963 exact pairings completed:605 nonzero and
+358 zero, with no target/D7-restoration leaks. However,902 individual images
+have rank2 or3 and268 activate another parent-inactive axis. These are
+nomination data, not accepted corrections under the unchanged final rank cap1;
+no new source bank, correction solve or workload claim follows automatically.

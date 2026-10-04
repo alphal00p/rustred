@@ -927,15 +927,24 @@ the actual obstruction rather than retain irrelevant equations indiscriminately.
 For a translated ordinary row E to have nonzero E lambda, some supported
 separator column f must equal t+tau for an actual raw shift tau of that RowId.
 This gives a finite necessary shortlist `(RowId,t=f-tau)`, deduplicated across
-the two f values. The nominated fixed pinch imposes only `t[D7]=-1` at this
-stage. Source sign and numerator rank are diagnostic metadata, not rejection
+the two f values. The initial read-only proposal restricted the source D7
+power to zero. Before implementation acceptance or any census run, this was
+corrected to source D7 power **nonpositive**: the raw ordinary generator raises
+an index by at most one, and a raising term carries that source power as a
+factor. A zero source power therefore kills restoration; a negative source
+power cannot produce a positive endpoint. For these witness columns, the
+finite inverse support can supply D7 source powers0 or−1 (offsets−1 or−2),
+without adding a source shell. The exact translated image must still verify
+the pinching property. Other activated axes must be reported; D7 pinching
+alone does not establish that the entire image is a parent subsector.
+Source sign and numerator rank otherwise are diagnostic metadata, not rejection
 criteria: numerator-bearing auxiliary seeds may be needed even when the
 **collected final image** must obey rank cap1. Translation must precede fixed
 specialization because coefficients can revive; exact native pairing is still
 required because overlapping support can vanish or cancel. Nonzero pairing
 would not by itself satisfy new forbidden columns, guards or descent.
 
-The bounded read-only evidence check found no retained raw pre-substitution
+The initial bounded read-only evidence check found no retained raw pre-substitution
 per-RowId support. Source-support reports retain IDs/offsets/counts, circuit
 replay retains canonical contributions, and the projector's U is post-fixed.
 Therefore no actual census count or pair list is claimed, and the earlier
@@ -945,7 +954,76 @@ ordinary generator is translated at zero offset into `inventory`, whose
 `sources().terms()` and provenance expose the raw typed support before
 `Span::ordinary` performs fixed specialization. A small research-tool hook
 could consume this inventory in-process without a new core accessor or CAS;
-that native census/pairing is a separate, not yet executed step.
+that native census/pairing required a separate step, recorded below.
+
+### Complete native support-preimage census: nominations, not a correction
+
+The optional `witness_preimage_nomination:true` diagnostic was implemented
+using that existing raw inventory and translated-source service; all145
+focused tests passed. Its sole input added the flag and explicitly raised
+`max_source_rows` from316 to1024. The old291-row baseline, old25-row correction
+block, P9, cap1, order and original chart were unchanged. Source D7<=0 was
+registered before execution; no source-rank or other-axis activation filter
+was introduced.
+
+The first run completed the finite census but the native translation preflight
+refused20,826 required term entries against `max_terms:10000`, before translating
+any row or computing any pairing. That receipt is preserved; it is a resource
+refusal, not an algebraic negative. One explicitly authorized continuation
+changed only `max_terms` to32768, with the same binary and outer resources.
+Its raw inventory and canonical census exactly match the first run.
+
+There are25 raw ordinary rows and522 nonzero pre-substitution terms. The two
+separator columns induce1044 support pairs;992 pass the nonpositive D7 seed
+test and deduplicate to963 `(RowId,offset)` pairs. The complete native raw
+inventory permits independent integer reconstruction of every pair and support
+witness; no structural superset or coefficient display was substituted.
+
+| D7 source power | Canonical pairs | Exact zero pairings | Exact nonzero pairings | Source/image rows activating another parent-inactive axis |
+|---|---:|---:|---:|---:|
+|0|895|358|537|242|
+|−1|68|0|68|26|
+|Total|963|358|605|268|
+
+Every translated full image is nonempty, has no target term and has no positive
+D7 endpoint. The source and image activation counts happen to agree; pinching
+D7 does not establish a whole-parent-subsector relation when another axis is
+activated. The remaining695 rows have no such activation. Only one nominated
+pair is already in the old25-row correction bank, and its pairing is zero as
+required by the existing separator replay. The nomination does not replace
+that bank or silently discard its other24 rows.
+
+| Maximum whole-chart numerator rank | Sources | Full images |
+|---|---:|---:|
+|0|36|2|
+|1|521|59|
+|2|406|513|
+|3|0|389|
+
+These rank counts are geometry of the complete typed shifts, evaluated at the
+original free-positive lower bounds, not a source eligibility filter. All605
+nonzero pairings are generic, unnormalized exact native products; they need
+not remain nonzero at every chart specialization. The report retains4704
+condition entries. Crucially,902 individual images exceed the final rank cap1.
+A future collected correction would have to cancel all forbidden high-rank,
+root-violating or other unwanted columns, retain the full leading recurrence,
+and pass original-source/guard/descent proof. Even a valid P9 cancellation can
+trade into more dots or more expensive descendants. Pairing nonzero, pinching,
+or a shorter displayed boundary therefore proves no workload improvement.
+
+Both old cap1 search and dual reports remain exactly unchanged after removing
+the new diagnostic. No candidate bank, source combination, correction solve,
+export or campaign run followed this census. Full records and the retained
+preflight refusal are under
+`TMP/rule-optimizer-20261003/profiles/owner31-witness-preimage-v{1,2}/`.
+The completed request is
+`981efcbae360ac7fc716785c478497b940bc54eb77e1f9ba8d03dba3c4ba86ea`,
+raw report `9bca7b518fac1beb74932412580f46ceb1d17a3e4993f510c2517d8986578dbe`.
+The unchanged69/70,16GiB+150GB reserve,270/285/300-second guard completed in
+3.066s inclusive, with the owned group drained and PID absent. This is
+feasibility accounting only, not a comparative performance result.
+Independent final audit passed, including census parity, every source binding
+and the complete source/image rank, activation and D7-pinch geometry.
 
 ### A separate collective-correction hypothesis, not a magic-relation claim
 

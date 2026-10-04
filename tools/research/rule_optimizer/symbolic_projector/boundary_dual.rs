@@ -21,11 +21,11 @@ pub(super) fn enabled(cfg: &Value) -> project::Result<bool> {
     }
 }
 
-struct Certificate {
-    values: Vec<IndexedCoefficient>,
-    guards: Vec<Guard>,
-    dense_slots: usize,
-    operation_charge: usize,
+pub(super) struct Certificate {
+    pub(super) values: Vec<IndexedCoefficient>,
+    pub(super) guards: Vec<Guard>,
+    pub(super) dense_slots: usize,
+    pub(super) operation_charge: usize,
 }
 
 fn mul(a: usize, b: usize) -> project::Result<usize> {
@@ -252,9 +252,9 @@ pub(super) fn append_report(
     incoming: &[Guard],
     limits: Limits,
     report: &mut Value,
-) {
+) -> Option<(Vec<IndexShift>, Certificate)> {
     if matches!(enabled(cfg), Ok(false)) {
-        return;
+        return None;
     }
     // Called ONLY after full projection NoTarget. Its status is never changed
     // by this optional diagnostic, including native/budget/replay refusal.
@@ -277,8 +277,11 @@ pub(super) fn append_report(
     });
     let result =
         enabled(cfg).and_then(|_| solve(c, corrections, baseline, &columns, incoming, limits));
-    match result {
-        Err(error) => diagnostic["error"] = json!(error.to_string()),
+    let certificate = match result {
+        Err(error) => {
+            diagnostic["error"] = json!(error.to_string());
+            None
+        }
         Ok(certificate) => {
             diagnostic["status"] = json!("EXACT_FINITE_SPAN_SEPARATOR");
             diagnostic["independent_replay"] = json!({"correction_products":corrections.len(),
@@ -288,9 +291,11 @@ pub(super) fn append_report(
             diagnostic["conditions"] = guards_json(&certificate.guards);
             diagnostic["lambda"] = json!(certificate.values.iter().enumerate().filter(|(_,v)|!v.is_zero())
                 .map(|(j,v)|json!({"column":j,"shift":columns[j].values(),"coefficient":v.raw().to_string(),"display_only":true})).collect::<Vec<_>>());
+            Some(certificate)
         }
-    }
+    };
     report["exact_dual_separator"] = diagnostic;
+    certificate.map(|certificate| (columns, certificate))
 }
 
 #[cfg(test)]

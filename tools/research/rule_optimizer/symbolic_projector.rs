@@ -774,6 +774,7 @@ fn run_mode<const N: usize>(
                         r,
                         &generator,
                         &completed,
+                        &inventory,
                         &ids,
                         &span,
                         &request,
