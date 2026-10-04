@@ -32,6 +32,15 @@ pub(super) struct Replay<const N: usize> {
     pub additional_exceptions: Vec<Case<N>>,
     /// Retain with the rule and exact domain at the next installation boundary.
     pub ordinary: super::certificate::OriginalSourceReplay<N>,
+    /// Opt-in observation of the actual winning pivot. Never inferred from a
+    /// saved canonical target, and never an installation or descent seal.
+    pub raw_pivot: Option<RawReplayPivot<N>>,
+}
+
+pub(super) struct RawReplayPivot<const N: usize> {
+    pub target: crate::solver::Integral<N>,
+    pub coefficient: Coefficient,
+    pub recenter: [i16; N],
 }
 
 pub(super) fn replay_rule<const N: usize>(
@@ -44,6 +53,32 @@ pub(super) fn replay_rule<const N: usize>(
     rule: &SectorRule<N>,
     boxes: &[LatticeBox],
     preconditioner: Option<&PreconditionProvenance>,
+) -> Result<Replay<N>, SourcePortAuditError> {
+    replay_rule_retaining(
+        system,
+        original_row_ids,
+        original_sources,
+        basis,
+        order,
+        zero_sectors,
+        rule,
+        boxes,
+        preconditioner,
+        false,
+    )
+}
+
+pub(super) fn replay_rule_retaining<const N: usize>(
+    system: &SourceSystem<N>,
+    original_row_ids: &[crate::identity::RowId],
+    original_sources: &super::normalization::OriginalSourceCorpus,
+    basis: &[PolynomialRow<N>],
+    order: &IntegralOrder<N>,
+    zero_sectors: &[[bool; N]],
+    rule: &SectorRule<N>,
+    boxes: &[LatticeBox],
+    preconditioner: Option<&PreconditionProvenance>,
+    capture_pivot: bool,
 ) -> Result<Replay<N>, SourcePortAuditError> {
     let candidate = &rule.candidate;
     if candidate.target != candidate.case.integral() || !candidate.case.is_in_sector(order.sector())
@@ -313,6 +348,13 @@ pub(super) fn replay_rule<const N: usize>(
         return Ok(Replay {
             additional_exceptions,
             ordinary,
+            raw_pivot: capture_pivot.then(|| RawReplayPivot {
+                target: *raw_target,
+                // Transfer an already computed coefficient; count-only replay
+                // does not clone or retain any new coefficient payload.
+                coefficient: physical.into_iter().next().unwrap().coefficient,
+                recenter: shifts,
+            }),
         });
     }
     Err(error(

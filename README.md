@@ -1094,6 +1094,67 @@ maturin develop --features extension-module
 python -c 'import rustred'
 ```
 
+### Selected saved-rule circuit diagnostics
+
+`SourcePortAudit::replay_sector_rule_circuits` optionally retains the exact
+ordinary-IBP weights already recovered by native source replay, together with
+their declared coordinate case, exceptions, denominator conditions and actual
+raw pivot/recentering. The existing count-only replay APIs remain unchanged.
+The returned batch borrows one audit context and its authenticated zero-sector
+evidence; no coefficient strings are parsed and no new CAS implementation is
+involved. Affine cases or affine exclusions currently return a typed refusal.
+
+These are identities on the **declared guarded domain, modulo authenticated
+zero sectors**—not unrestricted polynomial identities, descent proofs or closing
+artifacts. Copied weights are proposals only: composition must retain the full
+original-source product and pass the existing exact admission pipeline anew.
+In particular, canonical source offsets already include the recovered recenter;
+the separately reported raw recenter must not be applied a second time.
+
+For a saved native candidate bundle, the scoped application adapter is
+`rustred_app::with_replayed_candidate_rule_circuits`. A fallible consumer can
+return `Ok(analyze(batch))` with its own `Result<T, E>` as the owned result,
+keeping consumer errors separate from native replay errors. The input-driven
+diagnostic example accepts a sector and strictly increasing, sector-local rule ordinals:
+
+```bash
+nix develop --command cargo run --release --locked -p rustred-app \
+  --example replay_saved_rule_circuits -- request.json
+```
+
+For example, `request.json` for the first rule of a one-denominator candidate is:
+
+```json
+{
+  "bundle": "owner.candidates.rrbin",
+  "sector": [true],
+  "ordinals": [0],
+  "max_bundle_bytes": 134217728,
+  "max_total_coefficient_bytes": 268435456,
+  "max_collection_entries": 1000000,
+  "max_coefficient_bytes": 16777216,
+  "max_report_bytes": 1048576,
+  "retention": {
+    "max_rules": 2,
+    "max_source_entries": 4096,
+    "max_rhs_terms": 4096,
+    "max_conditions": 65536,
+    "max_coefficient_terms": 1000000,
+    "max_coefficient_clone_owned_bytes": 67108864,
+    "max_coordinate_cells": 1000000
+  }
+}
+```
+
+Use the sector and ordinals of your own bundle; they are runtime inputs, not
+compiled topology choices. Successful output reports
+`REPLAYED_DECLARED_DOMAIN_MODULO_AUTHENTICATED_ZEROS`, source offsets, case boxes,
+guard counts and replay time. It never installs a rule or writes an artifact.
+Retention limits are cumulative, pre-copy bounds on the retained observations,
+not replay scratch or arbitrary callback memory. `max_report_bytes` limits
+emitted JSON, not its construction; apply an external process-memory/time guard
+when examining large inputs.
+
 ## Durable closing artifacts
 
 The semantic generation selectors are `unit-mass-vacuum-k1` for the canonical

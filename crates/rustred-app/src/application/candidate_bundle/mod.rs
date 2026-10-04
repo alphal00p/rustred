@@ -7,6 +7,7 @@
 
 mod certify;
 mod checkpoint;
+mod circuit_replay;
 mod codec;
 mod domain_overlay;
 mod generate;
@@ -34,6 +35,7 @@ pub use strategy::{
 
 pub use certify::{certify_candidates, certify_candidates_with_progress};
 pub use checkpoint::CandidateCheckpointOptions;
+pub use circuit_replay::with_replayed_candidate_rule_circuits;
 pub use domain_overlay::{
     CandidateDomainOverlayLoadLimits, encode_generated_domain_overlay,
     load_generated_domain_overlay, validate_domain_overlay_ingress,

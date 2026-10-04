@@ -31,7 +31,10 @@ pub use progress::{
 mod domain_replay;
 mod replay;
 mod rule_replay;
-pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};
+pub use rule_replay::{
+    ReplayCircuitLimits, ReplayedSourceCircuit, ReplayedSourceCircuitBatch, SourcePortReplayedRule,
+    SourcePortRuleReplayAudit,
+};
 mod total_excess;
 pub use total_excess::SourcePortTotalExcessAudit;
 pub(in crate::foundry::artifact) use total_excess::{EnvelopeBudget, visit_successor_degrees};

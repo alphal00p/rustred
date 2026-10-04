@@ -26,8 +26,10 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Pushed `a808a7b2`; exact broad candidate and stronger-filter diagnostic complete | 75 optimized tests and one-ray byte identity pass. Full-chart exact candidate refused; stronger whole-column filter misses at all three samples. Park this finite-bank ansatz. |
 | Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate and matched A1 control delivered | Current A1 reproduces saved owner bytes in 93.672 s; alternate gives 465 rules / 59 residuals in 86.530 s versus 584 / 58. No installation or shared-work benefit claimed. |
 | Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
-| Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Active implementation; borrowed-audit design approved | Narrow opt-in selected-rule API and scoped app adapter; preserve all guards and zero evidence, then source audit, focused optimized tests and rules 1/43 only. No bulk hybrid or macro installation yet. |
-| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Active read-only literature/API study | Distinguish face divisibility from whole-column annihilation and prior protected-source failures. One exact falsifiable proposal, no native retry or new CAS. |
+| Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered;47 focused tests and real1/43 replay independently pass | Ready for a narrow code milestone. No bulk hybrid, macro installation or new closing rules yet. |
+| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Research delivered and conceptually audited | Exact face-divisibility differs from whole-column annihilation. Registered a bounded two-free-index four-loop experiment; no implementation or native retry yet. |
+| Whole-owner extra-terminal normalization | `lower_sector_discovery` + `exact_and_cost_audit` | Exact guarded step passes; launcher correction pending audit |101 actual successors,29 zero terms. Supervisor-affinity mistake stopped before native walk; one input-only correction authorized, preserving failed evidence. No terminal deletion or free work. |
+| Preferred whole-program plus baseline fallback | Root + implementation + independent audit | Pending extra-leaf outcome and current API delivery | Existing batches permit a narrow generic composition; baseline terminals must win, candidate-only residuals defer, and only Uncovered falls through. Then4L control and full-context5L measurements. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -35,6 +37,127 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Exact selected circuits recovered; extra-leaf guard succeeds — October4, 01:21 UTC
+
+[M] All47 focused tests pass, followed by the optimized runtime-input probe on
+saved five-loop rules1 and43. Native process time is8.746s, of which selected
+replay is6.906ms; including three input-refusal checks and process supervision,
+the bounded pilot takes15.503s and about225MB peak. These are **two existing
+rule identities**, not generation or closure of K6, five loops or a family.
+Rule1 recovers one ordinary source and13 RHS terms; rule43 recovers two ordinary
+sources and7 RHS terms despite having one saved preconditioned seed. This is
+why seed ordinals alone could not supply the needed composition weights.
+Actual raw recenters are +e1−e8 and +e1−e5. The scoped batch preserves5,566
+authenticated zero-sector certificates and all declared conditions. No export,
+installation or new descent/closure claim occurs. Final independent source,
+test, native receipt and formatting review passes. The optimized executable
+is `7dfad2f2…0d8a4c`; the three expected input-error checks also pass. Evidence:
+`TMP/rule-optimizer-20261003/candidates/selected-replay-circuit-pilot-v1/`.
+
+[M] The extra-leaf exact guarded application also succeeds:101 actual nonzero
+successors,18 same-support and83 strict-subsector, with29 zero terms removed
+from the saved130. No conditional or unsupported events occur. The subsequent
+walk does not start: the shared supervisor inherited outer affinity{70} while
+requested nativeCPU69 must be in its permitted set. This is a launcher error,
+not a mathematical refusal. The attempt drains cleanly after105.89s; no cold
+verification or complete normalization exists. Root authorizes one audited
+input-only correction using `taskset69` on that launcher, a new destination,
+and reuse of the pinned successful guarded result. Preserve both clocks and
+stop after this correction if another failure appears.
+
+[E] Boundary-polynomial follow-on is now implementation-authorized after the
+profiler finishes monitoring this correction: two private research-tool files
+and a small opt-in dispatch, using existing ordinary Span provenance and
+Symbolica polynomial/sparse-reducer APIs. No core/vendor edits or native4L
+solve is authorized yet; source review and exact unit tests come first. The
+generic mechanism,48-row pressure input and falsifier are in the research note.
+Preferred whole-program integration remains a separate lane and depends on
+the extra-leaf cost result, not on the selected-circuit timing.
+
+### Baseline covers the extra leaf; typed replay validation progresses — October4, 01:01 UTC
+
+[M] Independently audited read-only diagnostic completes all four phases in
+107.750s inclusive, about5.14GB peak, and drains its owned processes. Exact
+inventories confirm58 old terminal keys are a strict subset of59 candidate
+keys. In the unchanged67-owner/8246-route/two-overlay context, the sole extra
+point matches owner3, batch0, rule514 rather than an incumbent terminal.
+Load/preparation is101.811s; singleton matching itself is0.001185s. This is
+one available first step, not a complete or cheap normalization: the rule has
+130 saved RHS terms,125 seeds and a single free D13 axis. Actual nonzero
+successors and complete descendant closure remain unmeasured. The profiler
+is preparing a separately bounded native closure test; a whole-owner fair
+comparison remains gated on full boundary preservation and charged work.
+Evidence: `TMP/rule-optimizer-20261003/discovery-owner3-extra-terminal-v1/`.
+
+[E] Subsequent independent API review identifies a leaner whole-program
+comparison path than individually re-exporting465 trusted native rules. Core
+owners already have ordered batches, but the public loader rejects duplicate
+masks and per-batch terminal recognition would prematurely accept the new
+leaf. A future explicit preferred-program composition must keep the complete
+baseline terminal boundary, defer candidate-only residuals to fallback, bind
+both unchanged payloads and the policy, and advance only on exact `Uncovered`.
+Poles, non-descent and resource failures are not fallback. This is a trusted
+finite-cost experiment boundary, not a new source-proof/closure seal. No such
+loader is implemented yet. The58 keys are owner3's baseline subset, not the
+entire67-owner terminal catalogue.
+
+[M] Typed replay's independent source audit passes. Optimized core/app library
+builds complete in122.230s and540.309s inclusive respectively. The first
+semantic suite passes9/10 tests; the failing byte-budget expectation counted
+post-clone capacities rather than the intentionally conservative pre-copy
+allocation charge. Independent audit approves a test-only correction, with
+production limits unchanged and the failed receipt preserved. Update01:07:
+corrected core suites pass10 rule/circuit tests,7 exact-replay tests and29
+ordinary-replay tests, independently audited with no skips. The application
+test and runtime-input probe are still building. Semantic tests use an
+unoptimized harness and are not benchmark timings; the core/app libraries and
+forthcoming native probe are optimized. None of these are new rule generation,
+closure, speedup or deployment claims.
+
+[E] Root has read the complete boundary-preserving research note. Its proposed
+four-loop48-row/degree-one constraint experiment uses Symbolica polynomial
+splitting and sparse exact elimination, not a new module/CAS kernel. It must
+survive normalization and retain every source pole; multiplying an entire
+identity by a boundary factor would not solve the problem. This is a concrete
+future discriminator, not yet another performance result. Regional block
+compilation and whole-program source/dispatch choices remain complementary.
+Production is untouched; the last00:53 snapshot has13/67 roots,19,717,751
+conservatively closed domains and a33-minute-old recursive scan.
+
+### Literature-backed next discriminator and production observation — October4, 00:38 UTC
+
+[M] Completed evidence/research checkpoint `a3c65331` is committed and pushed
+to main. The typed replay implementation remains separate, under source review;
+none of its partial code was included. CPUs0–15 with at most eight compiler
+workers are reserved for its isolated optimized core/app/test build after the
+independent review, with the existing 32GiB process guard and 150GB host reserve.
+No CLI/Python rebuild or production restart is requested.
+
+[E] The new literature/API study identifies boundary-preserving coefficient
+constraints as a different problem from whole-column elimination. Symbolica
+already supplies coefficient splitting, substitution, polynomial remainder and
+sparse field linear algebra. A bounded polynomial-weight ansatz may use these
+services, but unrestricted rational weights turn the desired boundary factors
+into units; a field kernel alone is insufficient. Pivot normalization and
+pre-cancellation poles also matter. No custom syzygy/CAS engine is authorized.
+Root additionally reviewed the 2026 intermediate-basis paper: its sparse matrix
+representation warns against expanding every regional macro and confusing fewer
+graph steps with cheaper coefficients. Neither paper establishes five-loop
+convergence for RustRed.
+
+[M] New read-only production snapshot remains running, zero frontiers,
+143,781,907 discovered domains and 130.4GB tree RSS. A newer recursive scan
+records 19,717,751 closed (previously18,005,178), still13/67 roots; snapshot age
+615s. Closure has advanced, but these conservative, batched counters imply
+neither convergence nor an ETA. Production CPUs96–127 and inputs are untouched.
+
+[E] After completing the boundary note, the profiler will prepare a cheap
+native-match diagnostic for the source-order candidate's single extra leaf.
+An ordinary baseline reduction of that leaf could normalize a fair later
+whole-program comparison under the unchanged integral order. This is not a
+permission to delete its terminal record, count the leaf as free work, bulk
+merge465 rules or bypass source/guard/descent checks. No native run yet.
 
 ### Stronger boundary diagnostic parked; exact reuse boundary underway — October4, 00:29 UTC
 

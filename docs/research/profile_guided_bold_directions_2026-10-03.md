@@ -113,6 +113,19 @@ local numerator representation, but does not prove that removing our constant
 mass shifts improves an IBP program.
 [Loop-by-Loop Baikov Representation, §§3.1–3.2](https://arxiv.org/html/2412.01804v2).
 
+**Do not expand every useful intermediate away.** Song's intermediate-basis
+algorithm represents reductions as products of small, low-degree rational
+matrices, rather than reconstructing their expanded product. It starts from a
+sufficient finite IBP system and an ordered integral list; this is not a proof
+that our symbolic worklist closes. The useful caution for the regional compiler
+is that removing an intermediate state can lower graph work while making exact
+coefficients much more expensive. Keep the source circuit factored during
+discovery where existing Symbolica services permit it, and compare the final
+candidate's arithmetic and guard costs as well as endpoint count. The paper's
+reconstruction savings must not be presented as expected five-loop campaign
+speedups. [Taming Symbolic IBP Reduction with Intermediate Bases,
+§II.2](https://arxiv.org/html/2606.22500v1).
+
 The repo has already studied these boundaries. In particular, the
 [global-degree literature/experiments](global_degree_order_literature_2026-10-01.md)
 cover triangular endpoints, failed finite target banks, dependency traces and
@@ -123,6 +136,30 @@ replay. The [parametric frontier](parametric_ibp_literature_2026.md) discusses
 Ore/Janet/generating-function completion. Renaming those proposals is not new
 evidence. The additional contribution here is a shared-cost regional objective,
 an actual matched motif, and narrowly falsifiable transport/dispatch tests.
+
+**A stronger search policy need not mean a larger learning project.** SAILIR
+§III.5 reduces one integral by one weight level using bounded episodes, then
+memoizes the resulting lower problems. Its actual benchmark uses specialized
+finite-field coefficients; that is not parametric, guard-complete authority.
+Our transferable experiment would be a small beam of exact-source proposals
+scored by their collected endpoint boundary and measured shared cost, not a
+trained neural replacement for the verifier. The previous audit already noted
+that a greedy local term-count improvement can increase integral weight. Any
+such beam must first beat deterministic whole-program controls with its search
+cost included; no model training or new search implementation is authorized by
+this note. [SAILIR, §§III.5–III.6 and IV.1](https://arxiv.org/html/2604.05034v1).
+
+FIRE7 §3.2 offers a useful restraint: its presolve combines symbolic-index IBPs
+without applying shifts, and adds backward elimination to forward elimination.
+It explicitly acknowledges cases where presolve should be disabled. RustRed
+already preconditions sources; simply adding another elimination pass is not
+automatically a new mechanism. Likewise, FIRE7 §2.6 explains that reducing
+combinations can save reconstruction work even while individual integral
+reductions remain necessary. That is not evidence that our regional compiler
+will shrink the shared traversal. A follow-on preconditioner experiment needs
+a genuinely different source-program effect, an API audit and a matched control,
+not another name for existing preprocessing.
+[FIRE7, §§2.6 and 3.2](https://arxiv.org/html/2510.07150v1).
 
 ## 1. Compile a small region, not another isolated forbidden column
 

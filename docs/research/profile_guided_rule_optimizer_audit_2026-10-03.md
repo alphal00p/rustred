@@ -4412,3 +4412,143 @@ whose coefficients vanish precisely on unsafe boundary faces, nor constitute
 an exact span impossibility. Evidence:
 `incidence-study/owner3-rule146-orthant-root-boundary-v1/guard/stdout`, SHA
 `596ec00f1400c81c236f251593f4499338d2ca247994ffb9c141511e5bf911ca`.
+
+### Opt-in typed replay bridge: source review
+
+Independent source review admits a controlled build/test of the selected-rule
+retention bridge, not an actual incumbent pilot or installation. Its immutable
+batch borrows the original audit context and authenticated zero certificates;
+it retains exact coordinate cases, exceptional OR-of-conjunction guards,
+application boxes, normalized original-row weights/offsets, RHS and source/pole
+conditions. The recovered raw pivot is explicitly pre-recenter, whereas
+retained offsets and coefficients are canonical. Affine ownership refuses
+instead of widening to rectangles. Copied getter data remains a proposal:
+full original-product reconstruction and the unchanged producer are required
+before any descent/export authority, including all zero-dependent tails.
+
+Cumulative coefficient term/clone-byte, source, RHS, guard and coordinate
+allowances are charged before retention copies. The scoped app callback cannot
+return borrowed audit evidence. Its diagnostic report byte cap bounds emission,
+not prior JSON allocation; retention counts and the external RSS guard bound
+that work. Count-only replay keeps capture disabled with no new coefficient,
+context or zero-evidence copies; runtime/performance identity is not established
+by this source review. Added tests target actual recentering, source/offset
+mutation, omitted poles, invalid context/order/guards, cumulative byte limits,
+affine refusal and rejection when authenticated zero evidence is removed.
+Compilation and test execution remain pending at this checkpoint.
+
+Subsequent validation completes with 47 focused tests: 10 rule/circuit, seven
+replay, 29 ordinary-source and one scoped-adapter test, all passing without
+skips. The first cumulative-byte fixture failed because its post-copy estimate
+was 952 bytes, whereas conservative pre-copy charges were 1,000 bytes per rule.
+A test-only accessor measures those original charges: 1,000 admits each rule
+separately and rejects their 2,000-byte combined retention. Production admission
+was not weakened; the failed receipt is retained. Probe-only compilation fixes
+use public stable row IDs and its own error layer, without changing library
+visibility or proof logic. Final source differs from the tested library/test
+snapshots only by harmless reexport formatting/order; the example is byte-equal
+to tested v4, SHA `237c1cb5...327bd28`. README scope/limits agree with the API.
+
+The sole actual owner3 rules1/43 pilot then passes, together with no-argument,
+malformed-JSON and empty-selection refusals. All owned groups drain; inclusive
+time is 15.503354 seconds, native total 8.746454 seconds, selected replay
+0.006905539 seconds and sampled peak 224,956,416 bytes. Rule1 retains one
+original row (`ordinary-ibp:4:4`), canonical offset +e1-e8, 13 RHS terms and
+14 conditions. Rule43 retains two original rows (`0:4`, `4:4`), canonical
+offset +e1-e5, seven RHS terms and nine conditions. Here e-labels are one-based
+physical axes. Both retain two exceptional branches and their exact declared
+cases, with 5,566 borrowed authenticated zero certificates. Recovered raw
+recentering agrees with these offsets; it must not be applied again. This
+establishes the selected scoped replay observations only, not composition,
+uniform descent, closure, literal unrestricted identity or performance gain.
+No artifact is exported or installed. Evidence:
+`candidates/selected-replay-circuit-pilot-v1/guard/stdout`, SHA
+`dbf61cf39a7bace8b8bf7bb04436b2dd04ed1f0e2f3af249b6c4d08a19431ff5`;
+result SHA `b1232065...9d7881`; optimized probe SHA `7dfad2f2...0d8a4c`.
+
+### Extra-terminal baseline diagnostic
+
+The separately authorized read-only diagnostic passes independent receipt and
+summary checks. Persisted inventories have exactly the original 58 owner3
+terminal keys as a strict subset of the candidate's 59, with no removed key
+and sole addition `[0,1,0,1,1,1,0,1,2,0,0,0,-1,0,1]`. Family, physical root,
+SpIRed order and null priority remain identical. The new literal singleton
+has A8/R1/D7; these are exact point bounds, not inherited parent-domain caps.
+Matching uses the unchanged 67-owner/8,246-route/two-overlay baseline context,
+with no candidate loaded, no successor expansion and no truncated piece.
+All four inventory/match/shape phases exit cleanly and drain in 107.749632
+inclusive seconds, with sampled peak 5,139,550,208 bytes under the 16GB guard.
+
+Native matching selects baseline batch0 rule514, not a terminal. Its saved
+coordinate case fixes all axes except D13 (zero-based12), with 130 RHS terms,
+125 retained seeds and D13 shifts 0:6, +1:97, +2:27. Excluded-all-zero branches
+are `[[1389],[74]]`; their diagnostic displays are `2*n12-1` and `n12`, not
+algebra inputs. Applicability at n12=-1 comes from the complete native match.
+The 27 shift-two shapes could activate D13 geometrically; no actual coefficient
+application was performed, so they are neither proved nonzero emissions nor
+evidence of a root-gate failure.
+
+This proves an incumbent first step only. It does not yet normalize the extra
+terminal to the unchanged full baseline terminal/zero boundary, establish
+finite descendant closure or price that normalization. A controlled whole-owner
+cost comparison remains premature until actual guarded RHS/descent, complete
+baseline leaf closure with cold verification, and sound candidate-to-baseline
+handoff are established and their costs charged. Removing terminal bytes or
+treating a matched leaf as free is not such a handoff. Evidence:
+`discovery-owner3-extra-terminal-v1/`; execution SHA `31789674...207607`,
+terminal-delta SHA `7834e2df...e6d529`, match SHA `dc0c2b94...581447`,
+shape SHA `5d5a1adb...bd4a95`.
+
+The first separately authorized application/closure run obtains a complete
+guarded rule514 application: 130 term visits, 29 exact zero terms and 101
+uniform nonzero successors (18 same-support, 83 strict-subsector), with no
+problems or conditional/unsupported successors. Original denominator witnesses,
+exceptional branches and the incoming-complement residual remain in the raw
+report. The subsequent Python walk launcher exits2 before native execution:
+it inherits supervisor CPU70 while validating requested native CPU69. No native
+walk request, checkpoint or cold result exists. This wrapper affinity failure
+is neither an algebraic negative nor closure evidence. Both started process
+groups drain; failed-attempt inclusive time is 106.048584 seconds. Raw guarded
+report SHA `f3fb89ac...26a90f5` in
+`discovery-owner3-extra-terminal-closure-v1/`. Root separately authorizes one
+wrapper-only correction with fresh evidence, pinned reuse of this guarded
+result and both attempts' clocks retained; no automatic retry follows from the
+failed plan itself.
+
+### Preferred whole program: smallest honest composition boundary
+
+Read-only API review finds ordered-batch machinery, but no public composition
+loader for a preferred complete program and incumbent of the same owner.
+[`load_generated_candidate_owners`](/common/dev/rustred/crates/rustred-app/src/application/candidate_bundle/load/owners.rs:72)
+rejects duplicate owner masks and explicitly confers neither source replay nor
+closure authority. Core
+[`evaluate_step`](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/owners/evaluation.rs:50)
+tries immutable batches, advancing only on exact `Uncovered`; each batch's
+terminal lookup precedes its rules. The
+[domain matcher](/common/dev/rustred/crates/rustred-core/src/solver/candidate_reduction/owners/domains/matching/engine.rs:381)
+has the same terminal precedence. Thus candidate59 followed by baseline58
+would still stop at the extra leaf. Existing source-replayed overlays are
+append-only and residual-free, not a ready preferred-program switch.
+
+A narrow prospective composition loader could bind both unmodified trusted
+native payloads to the same family, physical root, order and generation scope;
+retain all preferred465 and fallback584 rules/guards in saved order; stop at
+baseline terminals before any preferred rule; and explicitly defer the one
+candidate-only residual to baseline fallback. Only `Uncovered` advances:
+undefined poles, nonlower RHS, unsupported predicates and resource errors
+must remain failures. Both payloads and the deferral/dispatch policy require
+fresh immutable checkpoint identity. This is a new composition-policy boundary,
+not permission to silently strip terminal bytes.
+
+Such a trusted-generated-program performance study need not individually
+re-export all465 identities: existing native preparation/application, routing
+and cold graph verification can evaluate the composed program under the same
+trust level as the incumbent loader. It does not mint a new original-source
+proof seal or global parametric completeness claim. Require actual complete
+cold-verified cohort closure against the unchanged full67-owner terminal/zero
+catalog (58 is owner3's portion), and charge preparation, normalization,
+fallback and shared graph costs. Standalone extra-leaf closure is a useful
+prerequisite/falsifier, not proof the whole hybrid is cheap or complete. Two
+separate traces may support a labelled decomposition study, but are not an
+integrated preferred-program timing. No implementation is authorized by this
+review.

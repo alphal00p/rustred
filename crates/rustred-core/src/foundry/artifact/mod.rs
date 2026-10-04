@@ -51,10 +51,11 @@ pub(crate) use source_port::sign_partition_with_limits;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, CheckedOriginalSourceCombination,
     OriginalSourceCombinationLimits, OriginalSourceCombinationRequest, OriginalSourceContribution,
-    SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent, SourcePortLimits,
-    SourcePortReplayedRule, SourcePortRuleReplayAudit, SourcePortSectorAudit,
-    SourcePortSuccessorAttempt, SourcePortSuccessorCounts, SourcePortSuccessorSnapshot,
-    SourcePortSuccessorStage, SourcePortTotalExcessAudit, check_original_source_combination,
+    ReplayCircuitLimits, ReplayedSourceCircuit, ReplayedSourceCircuitBatch, SourcePortAudit,
+    SourcePortAuditError, SourcePortInstallEvent, SourcePortLimits, SourcePortReplayedRule,
+    SourcePortRuleReplayAudit, SourcePortSectorAudit, SourcePortSuccessorAttempt,
+    SourcePortSuccessorCounts, SourcePortSuccessorSnapshot, SourcePortSuccessorStage,
+    SourcePortTotalExcessAudit, check_original_source_combination,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

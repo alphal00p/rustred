@@ -77,6 +77,10 @@ fn weighted_original_replay_proves_two_point_activation_only_after_combination()
     // Full unprojected replay leaves -n0*(n0+1)*I(n0+2,0): the bulk is
     // independently zero-sector, and BOTH points {-1,0} are exactly zero.
     native::verify(&rows, &desired, &weights, &order, zero_product).unwrap();
+    assert!(
+        native::verify(&rows, &desired, &weights, &order, |_| Ok(false)).is_err(),
+        "an identity modulo authenticated zero sectors is not a literal full-image identity"
+    );
 
     weights[1] = &weights[1] + &context.one();
     assert!(native::verify(&rows, &desired, &weights, &order, zero_product).is_err());

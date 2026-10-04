@@ -74,6 +74,7 @@ pub use candidate_bundle::{
     inspect_generated_candidate_source_support, load_generated_candidate_bundle,
     load_generated_candidate_checkpoint, load_generated_candidate_owners,
     load_generated_domain_overlay, validate_domain_overlay_ingress,
+    with_replayed_candidate_rule_circuits,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

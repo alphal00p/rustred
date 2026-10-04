@@ -14,6 +14,9 @@ use crate::solver::{
 
 use super::{SourcePortAudit, SourcePortAuditError, error, geometry, replay};
 
+mod circuit;
+pub use circuit::{ReplayCircuitLimits, ReplayedSourceCircuit, ReplayedSourceCircuitBatch};
+
 /// One candidate-rule ordinal whose exact identity and complete declared
 /// application domain replay against the regenerated original ordinary IBPs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +136,43 @@ impl<const N: usize> SourcePortAudit<N> {
         source_rules: &[SectorRule<N>],
         ordinals: impl ExactSizeIterator<Item = usize>,
     ) -> Result<SourcePortRuleReplayAudit<N>, SourcePortAuditError> {
+        let (ordering, rules, elapsed) = self.with_replayed_sector_rule_iter(
+            sector,
+            permutation,
+            order,
+            source_rules,
+            ordinals,
+            false,
+            |ordinal, _, _, checked| {
+                Ok(SourcePortReplayedRule {
+                    ordinal,
+                    original_source_entries: checked.ordinary.contributions.len(),
+                })
+            },
+        )?;
+        Ok(SourcePortRuleReplayAudit {
+            sector,
+            ordering,
+            rules,
+            elapsed,
+        })
+    }
+
+    fn with_replayed_sector_rule_iter<T>(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        order: &IntegralOrder<N>,
+        source_rules: &[SectorRule<N>],
+        ordinals: impl ExactSizeIterator<Item = usize>,
+        capture_pivot: bool,
+        mut retain: impl FnMut(
+            usize,
+            &SectorRule<N>,
+            geometry::ApplicationPartition,
+            replay::Replay<N>,
+        ) -> Result<T, SourcePortAuditError>,
+    ) -> Result<(OrderingPolicy, Vec<T>, Duration), SourcePortAuditError> {
         self.limits.validate()?;
         let started = Instant::now();
         if !Mask::try_new(sector)
@@ -173,7 +213,10 @@ impl<const N: usize> SourcePortAudit<N> {
                     "rule {ordinal} has an empty declared application domain"
                 )));
             }
-            let checked = replay::replay_rule(
+            if capture_pivot {
+                circuit::require_coordinate(rule, &stored, &sector)?;
+            }
+            let checked = replay::replay_rule_retaining(
                 &self.sources,
                 &self.original_row_ids,
                 &self.original_sources,
@@ -183,6 +226,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 rule,
                 &stored.boxes,
                 Some(&preconditioner),
+                capture_pivot,
             )
             .map_err(|issue| {
                 issue.with_message_context(|| format!("rule {ordinal} original-source replay"))
@@ -193,17 +237,9 @@ impl<const N: usize> SourcePortAudit<N> {
                     checked.additional_exceptions.len()
                 )));
             }
-            rules.push(SourcePortReplayedRule {
-                ordinal,
-                original_source_entries: checked.ordinary.contributions.len(),
-            });
+            rules.push(retain(ordinal, rule, stored, checked)?);
         }
-        Ok(SourcePortRuleReplayAudit {
-            sector,
-            ordering,
-            rules,
-            elapsed: started.elapsed(),
-        })
+        Ok((ordering, rules, started.elapsed()))
     }
 }
 
