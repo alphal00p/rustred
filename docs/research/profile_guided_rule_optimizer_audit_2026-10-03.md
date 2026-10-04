@@ -4515,6 +4515,47 @@ wrapper-only correction with fresh evidence, pinned reuse of this guarded
 result and both attempts' clocks retained; no automatic retry follows from the
 failed plan itself.
 
+The single authorized correction fixes affinity but also fails before successor
+expansion. Native preparation reaches the fresh epoch lifecycle, then reports
+typed input `preparation_error: No such file or directory`, with
+`rhs_successors_expanded=false`. The wrapper creates only its destination;
+the absent `checkpoints/` parent violates the native fresh checkpoint writer's
+nonrecursive `create_dir(main)` precondition. Independent preflight missed this
+launcher precondition. The subsequent wrapper `KeyError: checkpoint` is a
+secondary reporting failure, not the native cause. Supervisor state is failed,
+awaiting first save; no checkpoint, cold result or root/RHS join exists. All
+groups drain without a resource stop. Corrected-attempt time is 105.951428
+seconds; together with the original 106.048584 seconds, total charged time is
+212.000012 seconds. Evidence: `discovery-owner3-extra-terminal-closure-v2/`.
+The earlier guarded 101 nonzero/29 zero observations remain valid, but baseline
+leaf normalization and the preferred-program cost gate remain unestablished.
+No further retry or algebraic impossibility conclusion follows.
+
+Root subsequently authorizes and independently reviews a v3 harness-only
+correction: create the checkpoint parent before launch, retain CPU69/70
+placement, and validate input/output paths and filesystem primitives before
+the expensive pool load. Both previous attempts remain unchanged and charged.
+The same singleton and immutable baseline context then pass: 3,056 scheduled
+domains, 2,656 native inspections, 13,452 graph edges, 28,494 events and
+0.844345 seconds traversal after 99.923851 seconds preparation. Cold All/Off
+reinspects all 2,656 candidates with zero errors, frontiers or uncovered
+admissions; the sole root is independently verified and bindings agree.
+Independent bounded decoding of the sealed input/root and adjacency records
+confirms the complete 101 guarded nonzero successors biject to the root's
+101 distinct physical children, with original point caps retained.
+
+The successful attempt takes 210.496814 inclusive seconds; all three attempts
+charge 422.496826 seconds, with clean process-group drain and sampled peak
+5,140,865,024 bytes. Evidence:
+`discovery-owner3-extra-terminal-closure-v3/{execution-result,summary,cold-all,root-rhs-join}.json`.
+This clears the standalone extra-leaf **sealed dependency coverage** gate under
+the unchanged baseline terminal/zero catalog. It does not establish exact
+coefficient backsubstitution or global termination: the verifier explicitly
+accepts sealed cycles, and reports 549 nodes on cycles (engine closure remains
+false). The scope is therefore not a proved reduction of the extra leaf to
+58 coefficients. No candidate handoff or integrated whole-program performance
+gain has yet been measured.
+
 ### Preferred whole program: smallest honest composition boundary
 
 Read-only API review finds ordered-batch machinery, but no public composition
@@ -4552,3 +4593,95 @@ prerequisite/falsifier, not proof the whole hybrid is cheap or complete. Two
 separate traces may support a labelled decomposition study, but are not an
 integrated preferred-program timing. No implementation is authorized by this
 review.
+
+The subsequently authorized implementation passes independent pre-build source
+review. The new core `owners/preferred.rs` constructs two fully admitted batches:
+preferred rules with exactly baseline terminals and explicit preferred-only
+residual holes, followed by baseline rules with no additional terminals.
+Literal evaluation checks terminals before holes; the domain matcher uses the
+existing bounded exact point cut to send holes to fallback without emitting a
+terminal. Both retain ordinary `Uncovered` fallback only. A declared denominator
+exclusion is existing native inapplicability, not a caught algebra error;
+singular evaluation, source-condition, non-descent and resource failures still
+propagate. Same-owner repair overlays are rejected.
+
+The public preference loader and campaign preparation admit the combined byte,
+structure and coefficient load before native import, require the same owner,
+family, root, mathematical order and saved solver scope, and bind actual ordered
+payload digests plus the explicit `defer-to-baseline` selection policy into fresh
+checkpoint identity. Empty preferences retain the prior path. Rule-local
+diagnostic APIs remain explicit formula inspection, not composed-program
+activation evidence. The CP5/CP6 test now changes a native-valid stored source
+comment, independently loads the changed payload, and only then requests digest
+rejection; arbitrary damaged bytes would test decoding instead. These are
+source/test-design findings, not reported Rust test passes or a new proof seal.
+
+Independent lightweight staging/evaluator regression execution passes 47/47
+Python tests in 0.475 seconds. Native build/tests, flag-off/A/A controls and any
+integrated preferred-program cohort measurement remain separate pending gates.
+
+### Boundary-polynomial backend: source and test gate only
+
+Independent source review approves the opt-in, finitely declared polynomial
+weight assembly for compilation/testing, not pilot behavior. Elimination stays
+over native base-parameter scalars; endpoint face restrictions act on collected
+columns, not individual sources. Index-dependent source denominators are refused.
+Original full-product replay, mandatory forbidden columns, normalized target
+pivot, all retained poles and guards, and final native source/root/descent/export
+checks remain authoritative. The first target-bearing kernel candidate can be
+refused after normalization; this is explicitly not exhaustive infeasibility.
+The revised admission charges unknown identities, retained entries/terms and
+labels before insertion, and bounds native grouping, every face restriction and
+guard specialization by the shared operation allowance.
+
+The first compile fails on two calls to a private base-variable accessor. The
+frozen v2 continuation changes only those counts to public `parameter_names()`;
+the native context constructor establishes equal ordered name/variable counts.
+The failed receipt remains. Independent v2 receipts show clean compilation in
+82.089171 inclusive seconds and all 85 optimized tests passing, with zero failed,
+ignored or filtered tests, including all ten boundary-specific cases. The test
+wrapper takes 4.419144 seconds (0.94-second test body). Evidence:
+`candidates/boundary-polynomial-build-v2/{compile_tests,run_tests}/`; test artifact
+SHA `8a1ca5c6...751925`. Final executable/control and the frozen paired 4L native
+pilot are separate gates; these source/unit results establish no new reduction
+or workload saving.
+
+The frozen 4L pair passes independent input review: the same 48 ordinary rows
+at centers 0, +e9 and +e10, weights 1, n9 and n10 (144 unknowns), eight fixed active
+powers and the complete n9,n10<=0 chart. The only paired request difference is
+whole-column versus activation-face constraints. Protecting n9 as well as n10
+is deliberately stronger than this owner's saved root, which permits n9
+activation; a miss is not a necessary-root-admissibility result. No refinement,
+bank growth or chart narrowing is allowed.
+
+The four native compatibility/parser phases drain cleanly in 2.298003 inclusive
+seconds. The strict wrapper comparison fails because its older control binary
+omits the later diagnostic `exact_projection_rows`; the new report has 1,
+equal to its `finite_bank_rows`. Independent full comparison confirms that
+this field and seconds are the only differences. Old/new/unit-control exported
+artifacts are each 1,258 bytes with identical SHA `915c3875...91fa3`; both 4L
+parser validations pass. The failed strict receipt is preserved. Root permits
+a pinned compatibility receipt with precisely this diagnostic exception, not
+another native preflight. This clears the sole registered paired 300-second
+pilot gate; it reports no pilot outcome in advance.
+
+The sole paired run now completes cleanly in 1.747757 inclusive seconds
+(4.045760 seconds including the one native preflight). Both arms retain exactly
+the pinned request, 48 source rows, 219 image columns and 38 cofinal exclusions;
+there are 182 potential activation faces. The whole-column control has 598
+constraints and actually visits all 144 basis rows before
+`NO_TARGET_IN_BOUNDARY_POLYNOMIAL_ANSATZ`. The face arm has 388 constraints and
+reaches a first target-bearing dependency, full replay and normalization, but
+then refuses because a retained pole/pivot/source condition excludes an entire
+required activation face. Its status is `REFUSED_OR_INCOMPLETE`, with
+`SYMBOLIC_PROJECTION_REFUSED` and refinement prohibited. The retained report
+does not identify the particular offending guard, so none is inferred from
+coefficient display text.
+
+Neither arm produces a native chart certificate or candidate artifact; both
+owned groups drain without a resource stop. The control is a miss in its
+exhausted finite declared ansatz; the face result rejects only the first
+candidate, not all kernel combinations or boundary-divisible rules. No bank
+growth, retry, chart narrowing, installation or performance claim follows.
+Evidence: `incidence-study/four-loop-boundary-v1/`; raw report SHAs
+`8c10ac85...bdacf` (control) and `be397c53...a2c70` (faces).

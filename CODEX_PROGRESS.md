@@ -26,10 +26,10 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Pushed `a808a7b2`; exact broad candidate and stronger-filter diagnostic complete | 75 optimized tests and one-ray byte identity pass. Full-chart exact candidate refused; stronger whole-column filter misses at all three samples. Park this finite-bank ansatz. |
 | Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate and matched A1 control delivered | Current A1 reproduces saved owner bytes in 93.672 s; alternate gives 465 rules / 59 residuals in 86.530 s versus 584 / 58. No installation or shared-work benefit claimed. |
 | Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
-| Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered;47 focused tests and real1/43 replay independently pass | Ready for a narrow code milestone. No bulk hybrid, macro installation or new closing rules yet. |
-| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Research delivered and conceptually audited | Exact face-divisibility differs from whole-column annihilation. Registered a bounded two-free-index four-loop experiment; no implementation or native retry yet. |
-| Whole-owner extra-terminal normalization | `lower_sector_discovery` + `exact_and_cost_audit` | Exact guarded step passes; launcher correction pending audit |101 actual successors,29 zero terms. Supervisor-affinity mistake stopped before native walk; one input-only correction authorized, preserving failed evidence. No terminal deletion or free work. |
-| Preferred whole-program plus baseline fallback | Root + implementation + independent audit | Pending extra-leaf outcome and current API delivery | Existing batches permit a narrow generic composition; baseline terminals must win, candidate-only residuals defer, and only Uncovered falls through. Then4L control and full-context5L measurements. |
+| Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
+| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Implemented;85 tests and registered4L pair audited | Whole-column control has no target; face candidate refused on an excluded face. No artifact or gain. One primitive-original-weight correction is being assessed without bank growth. |
+| Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
+| Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Native implementation active after design GO; Python transport implemented/tested | Baseline terminals win, candidate-only residuals defer, only Uncovered falls through. Full native and4L controls precede5L cost comparison. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
 | Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
@@ -37,6 +37,165 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Registered boundary pilot completes; one evidence-directed correction — October4, 02:12 UTC
+
+[M] Four-loop control and activation-face arms complete cleanly in1.747757s
+inclusive, both using48 ordinary rows,144 degree-one weight unknowns,219 endpoint
+columns and38 cofinal exclusions. Whole-column control exhausts144 rows with
+598 constraints and no target. Face constraints reduce this to388 and find a
+target-bearing dependency, but its retained condition excludes an entire
+activation face: native chart proof/export is never reached. No rule or workload
+gain. Evidence: `TMP/rule-optimizer-20261003/incidence-study/four-loop-boundary-v1/`;
+command: `python -B TMP/rule-optimizer-20261003/incidence-study/run_four_loop_boundary_v2.py run`.
+Independent auditor verifies requests, both receipts and exact result scopes.
+
+[M] Mode-off compatibility has byte-identical old/new/unit artifacts. The first
+strict-report wrapper rejects an added diagnostic `exact_projection_rows=1`
+(old absent, equal to finite-bank count); independent review confirms this and
+timing are the only report differences. It is corrected by recorded comparison,
+not another algebra run. Preflight plus pair4.045760s. Original failure retained.
+
+[E] The source weights and offending factor are not in this refusal receipt.
+Code inspection localizes the first possible index-dependent exclusion to target
+normalization, but cannot establish a removable common factor. Root authorizes
+one separate generic opt-in correction study: exact native division of a common
+factor of ALL original-source weights, followed by a newly replayed identity,
+not cancellation of endpoint coefficients or deletion of old guards. Quotients
+must remain inside the declared polynomial ansatz; every original source/pole
+condition and final gate remains. Profiler owns implementation/API review after
+this milestone is committed; auditor independently critiques it. No bank/degree
+increase or native rerun yet. Stop after the registered correction if it does
+not demonstrate a useful admissible rule.
+
+[M] Preferred optimized core compiles in121.163s. Its test compile needs one
+explicit generic error annotation (failed50.491s retained); app compilation
+needs one explicit descriptor-vector type (failed19.123s retained). These are
+narrow compiler-inference fixes, not mathematical changes. Corrected frozen
+test/app builds continue under the guarded serialized build allocation.
+
+### Boundary unit gate passes; redundant-cap shortcut parked — October4, 02:00 UTC
+
+[M] Boundary research-tool optimized tests pass85/85, including10 new boundary
+cases, in0.94s native/4.419s supervised time. First compile failed on two private
+variable-map accessors; the audited public `parameter_names` replacement preserves
+the same ordered arity. Corrected compile82.089s, earlier failed compile5.758s;
+neither is a solver timing. Final executable compile then passes81.838s,
+SHA256 `11c2e709f6b822675db0fc3103d3b25bcd67ed6ec58879924afedac30538d516`;
+the preferred-program core/app lane receives the shared build slot. No4L boundary
+solve has run yet. Evidence: `TMP/rule-optimizer-20261003/candidates/boundary-polynomial-build-v2/`.
+
+[M] Preferred native source receives independent pre-build GO, including valid
+payload-byte mutation tests for checkpoint binding. Core semantic tests and
+the public integration harness remain pending compilation. Root points the
+implementer to the existing combined4L58-query A/A control, retaining its exact
+inputs and caps; native controls precede any5L preferred-program comparison.
+
+[M] Root and independent auditor investigate redundant fixed-point cap identity.
+The unlimited queue already uses exact `DomainPowerSummary` inclusion and has
+an explicit equivalent-description reuse test. Raw cap hashing is not a newly
+discovered source of repeated native work. Rewriting caps before routing can
+change conservative successor covers and is not graph-neutral. No code change;
+park this shortcut without evidence of material remaining lookup cost.
+
+[E] New primary-literature follow-up on exact repeated-transition acceleration
+is recorded in `docs/research/profile_guided_bold_directions_2026-10-03.md`.
+It suggests a graph-first test for long fixed-translation corridors with all
+side exits retained. Octagonal-relation results do not cover arbitrary IBP
+guards, weighted recurrences or all A/R/D constraints. Research-only backlog,
+not another implementation competing with the two current lanes.
+
+### Extra-leaf full-context traversal completes; program composition underway — October4, 01:44 UTC
+
+[M] Root reviews and explicitly launches the v3 setup-only correction after
+cheap dry preflight and independent isolated filesystem checks. The unchanged
+baseline singleton walk and fresh ColdAllOff reinspection complete successfully:
+3056 scheduled domains,2656 native inspections,28494 events,zero pending and
+frontiers. Actual traversal is0.844345s; preparation is99.923851s. Cold includes
+101.684720s preparation and0.800550s reinspection. All101 actual guarded RHS
+points match the root children. No terminal is added or accepted by fiat.
+
+[M] Complete corrected attempt210.496814s,peak5.14GB; including both preserved
+setup failures422.496826s. Evidence:
+`TMP/rule-optimizer-20261003/discovery-owner3-extra-terminal-closure-v3/`.
+Exact command: `/nix/store/2dkfxh789byan1h81sjhjzsijjsfb57m-python3-3.11.15-env/bin/python -B TMP/rule-optimizer-20261003/profiles/run_owner3_extra_terminal_closure_v3.py --execute`.
+All owned groups drained. The cold graph reports549 cyclic abstract domains:
+this is authenticated sealed dependency coverage under the existing native
+checker, **not** coefficient backsubstitution or a general termination theorem.
+It clears the known extra-leaf traversal obstacle for a future finite-cost
+comparison, not the performance gate for the complete465-rule alternative.
+The same physical point reached with wider inherited domain caps remains a
+different workload obligation; the integrated cohort must retain those caps.
+The standalone0.844345s is not a transferable normalization price.
+
+[M] Separate native preferred-program implementation is active after independent
+design approval. Root implements the thin Python payload plumbing in staging,
+fresh-copy verification and the paired evaluator: baseline payloads stay
+unchanged; preferred programs carry explicit `defer-to-baseline` policy and
+portable paths; absent preferences preserve old output structure. All47 combined
+staging/evaluator tests pass in0.439s, and independent source review finds no
+blocking issue. These are transport/policy tests on opaque fixtures, not native
+mathematical tests. Existing production/supervisor/G2 regressions pass47 tests
+in8.060s with `PYTHONPATH=/common/dev/rustred/examples/python`; the first
+invocation omitted that path and had40 passes plus one import error before
+rerunning. Test inputs and assertions were not changed to address that setup
+error. Tests use `TMPDIR=/common/dev/rustred/TMP/python-tests` and `python -B`.
+The final extra-leaf independent audit independently decodes the checkpoint
+and confirms the complete101-successor/root-child join and exact stated scope.
+
+[E] A further literature note distinguishes Möller's dimension-labelled
+numerator elimination from the dense fixed-d product already rejected here.
+It remains research-only: removing numerator coordinates can introduce dot
+growth and shifted-dimension obligations requiring a different exact interface.
+The current implementation lanes remain boundary-aware coefficient constraints
+and whole-program fallback, not another dimension-shift engine.
+
+### Independent lanes continue; setup failures are not algebraic results — October4, 01:34 UTC
+
+[M] Corrected extra-leaf attempt v2 stops after native input preparation with
+`ENOENT`, before any successor traversal: the wrapper omitted the parent of
+the checkpoint directory. Independent source/receipt review confirms this
+precondition; the later Python missing-checkpoint exception is secondary.
+All owned processes drained. V2 costs105.951428s; both attempts charge
+212.000012s. Neither provides closure, cold verification or hybrid cost data.
+Root now explicitly authorizes preparing a separate v3 path-only correction
+and cheap preflight, not an automatic retry or a change of mathematical scope.
+
+[E] To avoid serializing unrelated progress, the boundary-polynomial research
+tool is being implemented separately from the preferred-program loader design.
+The latter can implement generic precedence/refusal/checkpoint tests before
+the extra-leaf cost gate, but cannot claim a measured5L improvement from them.
+The independent auditor reviews both and does not approve its own changes.
+
+[E] Further primary-literature review of Schabinger, arXiv:1111.4220, §§2–3,
+reinforces the bounded coefficient-splitting experiment while warning that
+larger field nullspaces may only reproduce polynomial multiples of existing
+module generators. We will test the normalized target rule and actual admitted
+faces, not count kernel vectors as new useful relations. This is not a proposal
+to implement a custom module/syzygy solver.
+
+[M] Read-only production observation: running, zero frontiers,148,799,142
+discovered domains,106,007,536 local completions,15,877,343 pending and132.46GB
+RSS. The13/67 roots and19,717,751 recursively closed come from a stale72-minute
+scan; no present closure rate, convergence or completion time is inferred.
+Production inputs, executable and lifecycle remain untouched.
+
+### Replay milestone pushed; corrected leaf experiment active — October4, 01:25 UTC
+
+[M] Code, tests, README and literature/audit notes are committed and pushed
+to main as `0257b9e28ac52bfcd5d01a993c20b3902ab825bd`. Only the18 owned paths
+were included; existing unrelated FeynKit edits and untracked work remain.
+All build and selected-replay process groups drain before the handoff. The
+new API is opt-in; no production input, schema or running executable changed.
+
+[M] Independent preflight approves the extra-leaf launcher correction. The
+fresh walk/Cold run is active under the same900s inclusive limit, CPU69/native
+and70/outer supervisor,16GB process and150GB host reserve, reusing the exact
+guarded101-successor result. Correcting the earlier clock label: the original
+**whole attempt is106.048584s**;105.89s was an inner guard clock, not the whole
+attempt. Both this original cost and the corrected run are retained. Evidence:
+`TMP/rule-optimizer-20261003/discovery-owner3-extra-terminal-closure-v2/`.
+No complete normalization, hybrid installation or performance result yet.
 
 ### Exact selected circuits recovered; extra-leaf guard succeeds — October4, 01:21 UTC
 

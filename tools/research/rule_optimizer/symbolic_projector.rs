@@ -1,6 +1,8 @@
 //! Finite symbolic source projection with conservative failed-descent refinement.
 //! Native Symbolica owns algebra; existing source/chart proof and exporter own
 //! authority. No sampled-weight authority, source-bank growth, chart change or walk.
+#[path = "symbolic_projector/boundary.rs"]
+mod boundary;
 #[path = "symbolic_projector/certificate.rs"]
 mod certificate;
 #[path = "symbolic_projector/cofinal.rs"]
@@ -301,6 +303,7 @@ fn validate(r: &Value) -> Result<usize> {
         require(f.insert(shift), "duplicate forbidden shift")?;
     }
     number(r, "max_refinements")?;
+    boundary::config(r)?;
     Ok(n)
 }
 fn guards_json(guards: &[project::Guard]) -> Value {
@@ -357,6 +360,11 @@ fn run_mode<const N: usize>(
     let exact_selection = selection::ordinals(r, array(r, "sources")?.len())?;
     let compact = compact_coefficients(r)?;
     let fresh_certificate = certificate::enabled(r)?;
+    let boundary_config = boundary::config(r)?;
+    require(
+        !(nomination_only && boundary_config.is_some()),
+        "boundary polynomial constraints require exact mode",
+    )?;
     let started = Instant::now();
     progress::reset();
     progress::event(
@@ -382,6 +390,12 @@ fn run_mode<const N: usize>(
         family.fingerprint() == r["family_fingerprint"].as_str().unwrap(),
         "family fingerprint differs",
     )?;
+    if boundary_config.is_some() {
+        require(
+            family.power_shifts().iter().all(|shift| shift.is_zero()),
+            "boundary activation faces require unshifted integral powers",
+        )?;
+    }
     let programs = Arc::new(programs);
     let owner = checked(programs.bind_owner_search(sector, Default::default()))?;
     require(
@@ -576,7 +590,19 @@ fn run_mode<const N: usize>(
             "projection_requested",
             || json!({"attempt":attempts.len(),"refinements":added,"f_size":forbidden.len()}),
         );
-        let projected = if reconstructed::enabled(r) {
+        let projected = if let Some(config) = &boundary_config {
+            checked(span.validate_fresh_ordinary(c, limits))?;
+            boundary::project(
+                c,
+                &span.images,
+                &target,
+                &forbidden,
+                &span.guards,
+                p.cell.indexed_algebra,
+                limits,
+                config,
+            )
+        } else if reconstructed::enabled(r) {
             reconstructed::project(
                 r,
                 c,
@@ -619,7 +645,9 @@ fn run_mode<const N: usize>(
         };
         let proposal = match projection {
             project::Projection::NoTarget { guards, rows } => {
-                status = if exact_selection.is_some() {
+                status = if boundary_config.is_some() {
+                    "NO_TARGET_IN_BOUNDARY_POLYNOMIAL_ANSATZ"
+                } else if exact_selection.is_some() {
                     "NO_TARGET_IN_SELECTED_EXACT_FRAME_WITH_CURRENT_F"
                 } else {
                     "NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F"

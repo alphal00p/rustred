@@ -161,6 +161,35 @@ a genuinely different source-program effect, an API audit and a matched control,
 not another name for existing preprocessing.
 [FIRE7, §§2.6 and 3.2](https://arxiv.org/html/2510.07150v1).
 
+**A bounded polynomial search is not a module-basis claim.** Schabinger
+§§2–3 converts fixed-degree polynomial constraints into linear algebra, but
+explicitly demonstrates how a larger degree-two nullspace can consist entirely
+of polynomial multiples of a degree-one generator. This supports a small
+coefficient-splitting experiment without authorizing a new syzygy engine.
+For our boundary search, a larger kernel is therefore not success: normalize
+the target, preserve poles, and test whether the admitted rule and its boundary
+coverage genuinely change. Our bounded ansatz is incomplete and must not be
+described as this paper's complete module algorithm.
+[Primary paper, §§2–3](https://arxiv.org/html/1111.4220#S2).
+
+**A more radical representation alternative.** Möller's five-loop thesis
+§§2.5–2.7 replaces irreducible numerator indices by a dimension-shift label:
+a sector with `t` active propagators uses `t+1` effective indices instead of
+the complete family's `M` indices. The trade-off is real: removing one scalar
+product raises dimension by two and total positive power by `L−1`. The
+conclusion also cautions that ordinary IBPs with selected symmetries may be
+more practical. [Thesis, §§2.5–2.7 and conclusion](https://inspirehep.net/files/0fbc59c61d16820ade7904ceec0aa3af).
+
+Our inference: carrying that extra label through a bounded local block is
+different from immediately expanding the dense fixed-d `U(A)P(B)` product,
+which our [existing experiment](dimensional_recurrence_shortcuts_2026-10-01.md)
+found unattractive. Initial numerator-rank bounds alone do not bound subsequent
+shifted-dimension descendants. A feasibility study would need an explicit
+joint dimension/dot bound and exact return map, or a well-founded block order,
+before claiming less work. This remains research-only: current native
+transport deliberately rejects dimension changes. Do not silently reinterpret
+a dimension index as a propagator or reopen the rejected dense-product trial.
+
 ## 1. Compile a small region, not another isolated forbidden column
 
 **Mechanism.** Select a bounded set of recurring target states and a literal
@@ -233,13 +262,15 @@ There is a more direct existing foundation than guessed-bank rediscovery:
 reconstructs the native preconditioned trace, searches its pivots for the saved
 canonical candidate, recovers the corresponding recentering and exact ordinary
 weights, and replays the complete identity. It rejects newly required exceptional
-branches absent from the stored rule domain. Its public result currently returns
-rule ordinals and source-entry counts, while the typed ordinary circuit remains
-internal. The useful missing seam is therefore a proof-bearing batch result
-which retains those authenticated circuits, domains and guards for composition
-or a whole-program hybrid. This does not make the current support inspector's
-unknown recentering known, and identity replay alone does not certify descent,
-sector cover or terminal independence.
+branches absent from the stored rule domain. At the start of this study its
+public result retained only counts. Milestone `0257b9e2` adds opt-in
+`replay_sector_rule_circuits` and the scoped application callback, retaining
+typed ordinary circuits, domains and guards without changing the default
+replay path. Forty-seven focused tests and the saved-rule1/43 probe pass.
+That probe recovers one and two ordinary contributions respectively; the old
+support inventory still has no recentering authority. No regional macro or
+whole-program benefit follows merely from retaining those circuits, and
+identity replay alone does not certify descent, cover or terminal independence.
 
 The replay's mathematical context is also essential: it may discharge tails
 using the audit owner's authenticated zero-sector certificates. A retained
@@ -452,3 +483,66 @@ diagnostic, not the performance objective; a finite-rank basis pilot remains a
 separate bounded experiment rather than an automatic fallback search. Further
 boundary-divisibility work would need an explicit native constraint/proof plan,
 not automatic bank growth or narrowing of the failed full chart.
+
+## October4 follow-up: summarize repeated transitions, not just individual rules
+
+A different structural possibility is to compile a repeated **region transition**
+once instead of rediscovering each translated region. Konečný proves that the
+powers of an integer difference-bound or octagonal relation have a polynomial-time
+constructible existential-Presburger closed form. The result concerns conjunctions
+of inequalities involving at most two signed variables, not arbitrary polynomial
+guards, arbitrary unions of transitions, or rational IBP coefficients. Its
+flat-counter-system application also does not cover arbitrary interacting loops.
+See [the primary paper, §§1,7–8](https://arxiv.org/html/1402.2102#S7).
+
+**Our inference, not that paper's IBP result.** A fixed rule path can act like
+`(a,b) -> (a-1,b+1)` until a checked boundary is reached. Retaining the invariant
+`a+b` and a symbolic iteration count could describe the entire corridor. This is
+different from performing the same one-step projection repeatedly. The possible
+gain is less domain traversal, not cheaper rational arithmetic per step.
+
+However, an IBP usually has several RHS terms. A summary must include every
+side exit at every iteration, all guard-zero cases, routing changes and the
+terminal boundary. A cycle in an abstract dependency graph is not such a
+summary, and reachability alone neither supplies coefficient backsubstitution
+nor proves termination. For example, compressing only the chain in
+`I(a,b)=c(a,b)I(a-1,b+1)+J(a,b)` while dropping the sequence of `J` obligations
+would be wrong. Also the actual A/R/D sums generally exceed the octagonal
+language; adding aggregate variables does not remove their defining equations.
+
+**Registration before any implementation.** On an already completed small
+native graph, identify repeated paths with identical checked rule/routing
+provenance and a fixed translation. Count all retained side exits and shared
+dependencies, and estimate the graph work removable after those obligations
+are kept. Reject the candidate if long corridors are rare or the side exits
+dominate. Only a material opportunity justifies a narrowly checked summary
+service; no new Presburger/CAS engine or authority shortcut is proposed now.
+This differs from the previously measured seventeen-diamond motif, whose small
+exclusive work already ruled it out as a large performance candidate.
+
+Independent critique adds two necessary screens. Matching rule IDs and shifts
+at visited nodes does not prove that first-priority applicability, pole guards,
+support and routing remain invariant at every intermediate iteration. Also a
+compact existential relation need not fit the current box+A/R/D visitor: charge
+any representation expansion as well as all side exits. A literal translation
+witness may be much smaller than a general relation solver, if the data actually
+identify a useful corridor.
+
+### An easier-looking shortcut is already implemented
+
+Root and independent audit checked whether redundant caps on an identical
+fixed integral cause unavoidable duplicate native work. Raw checkpoint images
+do retain all caps, but the unlimited queue already uses native
+`DomainPowerSummary` tight coordinate/A/R/D extrema for exact semantic inclusion
+after a raw-key miss. The regression
+`queue/tests/semantic.rs::equivalent_power_descriptions_reuse_pending_domain_without_rewriting_raw_keys`
+explicitly covers this. G2 also checks native point membership. A finite
+comparison-budget mode deliberately keeps syntactic containment instead.
+
+Thus a new canonical key might save some lookup cost, but does not establish
+another large source of duplicate inspections. Canonicalizing *before routing*
+would additionally change conservative successor envelopes: the constrained
+route path and retained D lower bound influence the image. That would be a
+separate semantic/performance experiment, not harmless key cleanup. Park this
+idea unless profiles show significant unresolved lookup cost. No source or
+production inputs were changed for this inspection.
