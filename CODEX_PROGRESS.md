@@ -21,15 +21,118 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
-| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025-domain graph. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
+| Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed306e8182 diagnostic;26 exact routed cancellations still leave91 numerator-bearing keys. New generic two-stage boundary correction is active: keep a full-source-proved leading recurrence, add only pinched-source identities, and use the existing weighted Symbolica projector. No new CAS or production change. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Generic two-stage correction and explicit whole-chart rank cap implemented;131 tests pass. Both strict P9 and rank-one-relaxed P9 exhaust the same26-row span without a correction. Independent audit passes. This source block is parked; a source-selection diagnostic needs new evidence before another probe. No new CAS or production change. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Rank-window ablation rules out support lock as the sole explanation — October4, 14:07 UTC
+
+[M] The generic research interface now permits an explicit whole-chart total
+numerator-rank cap instead of the strict new-column ban. All131 tests pass,
+including cap parsing, all-axis rank sums, previously active pinch axes,
+unchanged strict behavior, and a zero-correction control independent of the
+candidate objective. Independent implementation/mathematical/build audits pass.
+Cached optimized test compilation takes85.661s, the full suite4.592s inclusive
+(0.95s body), and optimized linking83.338s. These are research opt2/no-LTO
+build timings, not full Cargo release builds or IBP solver performance.
+
+[M] The sole rank-one ablation completes in2.324s inclusive and exhausts all
+26 weighted rows without a target. It has the same proved313-tail baseline,
+full typed zero-control, actual81-column correction inventory, all nine target
+columns present and371-column union as the strict test. Its forbidden set is
+exactly the inherited447 plus P9, totaling456: all30 extra rank-one exclusions
+have been removed. Therefore their suppression was not the sole explanation
+for the failure of this fixed correction block. No candidate reaches a guard
+refusal, and neither test is resource-censored. This is a finite-span negative,
+not a theorem that lower-sector coupling cannot improve. Independent raw audit
+passes; both native groups drain. Evidence:
+`profiles/owner31-boundary-correction-rank-cap-v1/` under the TMP research root;
+raw `e1399ada…3854992`, execution `afc03928…75bc622`.
+
+[E] The promised one-correction-and-retest limit is reached: park this bank/P9,
+with no source-depth, offset or objective-subset sweep. A pending research-only
+next step is to expose a finite-system rank obstruction and ask whether it can
+identify useful independent source blocks. That is not an authorized experiment
+or a completeness claim. A new probe must supply a mechanism beyond mere bank
+growth. Full weighted-boundary and completed held-out work comparisons remain
+mandatory for any future positive rule. No new full campaign is prepared.
+
+[M] Production remains untouched. Read-only observation at14:02UTC reports
+212.31M discovered,167.35M locally completed,11.10M pending, zero frontiers,
+13/67 recorded closed roots and29.67M recorded closed domains (snapshot about
+28minutes old). Checkpoint27 is resumable; process-tree RSS is182.45GB.
+The hour-window pending change is−0.116 per local completion. These values do
+not establish a closure ETA or justify switching production.
+
+### Exact correction test misses; distinguish support from rank — October4, 13:53 UTC
+
+[M] The optimized research adapter passes all126 tests and an independent
+source/mathematical/receipt audit. Discovery's sole frozen P9 experiment finishes
+in2.315s inclusive, cleanly drained. Both the313-tail baseline and its weighted
+zero-correction replay prove on all four cells. The actual25-row correction
+bank has81 columns and contains all nine requested cancellation columns; its
+union with the baseline has371 columns. Projection exhausts all26 weighted
+rows without a target. Original forbidden columns447 grow to486: nine requested
+cancellations plus30 newly introduced rank-one columns. This is an exact miss
+for the joint constrained span, not a missing-source-column obstruction,
+timeout, guard failure, or impossibility theorem for boundary optimization.
+Evidence: `profiles/owner31-boundary-correction-v1/` under the TMP research
+root; raw `3ff90b6c…f7f38d85`, execution `4ae02526…cbaea98`.
+
+[E] Register one discriminating continuation, not another source-bank sweep:
+allow replacement numerator terms while bounding the **total numerator rank**
+by one everywhere on the chart. Keep the exact same25 correction sources,
+P9 objective, leading recurrence, ordering, chart and source proof. The prior
+ban on every new rank-positive column is stricter than a rank bound and may
+forbid useful trades into other rank-one descendants. Use the exact sum of
+negative endpoint powers at the rectangular chart minima, including formerly
+active indices; retain every original forbidden/root/cofinal/guard obligation.
+The research interface gains an explicit generic rank cap; no new CAS or
+loop-specific code. Evaluator implements/tests, discovery prepares the single
+cap-one input, and auditor independently reviews. A second span miss parks
+this bank. A proof hit still needs full weighted routing and completed held-out
+work comparisons before any campaign recommendation. No production action.
+
+This mechanism is consistent with the lower-sector freedom discussed as
+future work in [the reduction/geometry paper, section6](https://arxiv.org/html/2511.15381v1#S6),
+but that paper supplies neither this correction algorithm nor a five-loop
+performance guarantee. Its proposed freedom and our measured outcome are
+kept distinct. Existing negative source and policy experiments remain parked.
+
+### Boundary-correction implementation and a fresh closure snapshot — October4, 13:44 UTC
+
+[M] The research-only two-stage correction adapter and nine focused tests
+pass independent source/mathematical review by `finite_region_audit`.
+`lower_rule_evaluation` is compiling the existing117 tests plus the new nine
+against frozen cached libraries (optimized opt2/no-LTO; not a new full release
+engine). The first compile exposed only a fixture ownership error; the failed
+receipt is retained and the test construction is corrected without weakening
+assertions. Native results remain pending. The zero-correction control compares
+typed original-source weights, retained conditions and checked cells, not
+merely a printed identity. No production engine or CAS kernel is changed.
+
+[E] Discovery has prepared one fixed experiment: the complete25 ordinary
+sources seeded at the fixed D7 pinch, attempting to cancel all nine eligible
+rank-one columns of the actual313-tail baseline. Eligibility was first screened
+structurally; actual native support is still required. A missing column,
+exhausted finite span and a failed guard check are distinct outcomes. The first
+run is authorized only after the optimized focused suite passes. There is no
+automatic source-growth sweep and no permission to replace production rules.
+
+[M] Read-only production now reports a refreshed29,674,649 recursively closed
+domains (up3,430,767),13/67 roots,210,780,061 discovered,165,765,360 locally
+completed,11,309,689 pending and zero frontiers. The snapshot is about11minutes
+old, no longer the previous four-hour-old closure count. The hour-window
+pending change is−0.111 per local completion; recorded discovery still exceeds
+recorded closure by roughly501domains/s. Checkpoint27 is resumable. These are
+different metrics, neither a termination guarantee nor an ETA. No campaign
+lifecycle change or new-campaign recommendation is made.
 
 ### A discriminating control and a genuinely different correction — October4, 13:23 UTC
 

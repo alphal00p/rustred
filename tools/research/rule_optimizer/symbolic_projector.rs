@@ -3,6 +3,8 @@
 //! authority. No sampled-weight authority, source-bank growth, chart change or walk.
 #[path = "symbolic_projector/boundary.rs"]
 mod boundary;
+#[path = "symbolic_projector/boundary_correction.rs"]
+mod boundary_correction;
 #[path = "symbolic_projector/certificate.rs"]
 mod certificate;
 #[path = "symbolic_projector/cofinal.rs"]
@@ -307,6 +309,7 @@ fn validate(r: &Value) -> Result<usize> {
     }
     number(r, "max_refinements")?;
     boundary::config(r)?;
+    boundary_correction::validate(r, n)?;
     Ok(n)
 }
 fn guards_json(guards: &[project::Guard]) -> Value {
@@ -356,6 +359,10 @@ fn run_mode<const N: usize>(
     nomination_only: bool,
 ) -> Result<(Value, Option<Vec<u8>>)> {
     require(!(export && nomination_only), "nomination cannot export")?;
+    require(
+        !boundary_correction::enabled(r) || (!export && !nomination_only),
+        "boundary correction is proof-only",
+    )?;
     require(
         !nomination_only || r.get("exact_source_ordinals").is_none(),
         "exact source selection cannot alter the modular nomination bank",
@@ -510,6 +517,12 @@ fn run_mode<const N: usize>(
     let derived_root_new_count = derived_root_columns.difference(&forbidden).count();
     forbidden.extend(derived_root_columns.iter().cloned());
     let cofinal_enabled = cofinal::enabled(r)?;
+    if boundary_correction::enabled(r) {
+        require(
+            family.power_shifts().iter().all(|shift| shift.is_zero()),
+            "boundary correction refuses shifted powers",
+        )?;
+    }
     progress::event(
         "cofinal_start",
         || json!({"enabled":cofinal_enabled,"image_columns":universe.len(),"f_size":forbidden.len()}),
@@ -756,6 +769,53 @@ fn run_mode<const N: usize>(
                 attempt["status"] = json!(status);
                 attempt["proof_cells"]=json!(proof.cells().enumerate().map(|(i,cell)|json!({"lower":proof.cell_bounds(i).unwrap().0,"upper":proof.cell_bounds(i).unwrap().1,
                     "rhs_terms":cell.rule().right_hand_side().len(),"guards":cell.rule().nonzero_guards().iter().map(|g|g.polynomial().raw().to_string()).collect::<Vec<_>>()})).collect::<Vec<_>>());
+                if boundary_correction::enabled(r) {
+                    let correction = boundary_correction::run(
+                        r,
+                        &generator,
+                        &completed,
+                        &ids,
+                        &span,
+                        &request,
+                        &proposal.image,
+                        &proof,
+                        &target,
+                        &forbidden,
+                        &family,
+                        p,
+                        limits,
+                    );
+                    let correction = match correction {
+                        Ok(report) => report,
+                        Err(detail) => json!({"schema":boundary_correction::SCHEMA,
+                            "status":"BOUNDARY_CORRECTION_REFUSED_OR_INCOMPLETE", "detail":detail,
+                            "affine_infeasibility_claim":false}),
+                    };
+                    // The outer circuit remains the proved stage-one control;
+                    // the nested report owns every stage-two outcome/circuit.
+                    status = match correction["status"].as_str() {
+                        Some("EXACT_BOUNDARY_CORRECTION_CHART_PROVED") => {
+                            "EXACT_BOUNDARY_CORRECTION_CHART_PROVED"
+                        }
+                        Some("EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED") => {
+                            "EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED"
+                        }
+                        Some("BOUNDARY_CORRECTION_SUPPORT_OBSTRUCTION") => {
+                            "BOUNDARY_CORRECTION_SUPPORT_OBSTRUCTION"
+                        }
+                        Some("NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN") => {
+                            "NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN"
+                        }
+                        Some("BOUNDARY_ZERO_CONTROL_REFUSED") => "BOUNDARY_ZERO_CONTROL_REFUSED",
+                        Some("BOUNDARY_CORRECTION_PROOF_REFUSED") => {
+                            "BOUNDARY_CORRECTION_PROOF_REFUSED"
+                        }
+                        _ => "BOUNDARY_CORRECTION_REFUSED_OR_INCOMPLETE",
+                    };
+                    attempt["boundary_correction"] = correction;
+                    trace::append(&mut attempts, attempt, trace_detail);
+                    break;
+                }
                 if export {
                     progress::event("export_start", || json!({"base_bytes":bytes.len()}));
                     let before =

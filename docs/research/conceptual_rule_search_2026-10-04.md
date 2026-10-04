@@ -8,6 +8,10 @@ The fixed banana no-raising discriminator proves a valid but locally larger
 boundary, not an owner31 result or a campaign improvement.
 The subsequent single150-row owner31 rank-zero nomination exhausted its fixed
 source window without a target; that window is parked, with no automatic growth.
+The later two-stage boundary-correction adapter and rank-cap option pass131
+tests. Both fixed P9 probes exhaust their spans without a correction; their
+source block is also parked. These are localized negatives, not family-closure
+or performance results; details and literature distinctions appear below.
 
 ## Recommendation and the actual witness
 
@@ -716,4 +720,141 @@ request `e0dab916db62b0e157629f57073202846bdad76384d84079de9189a6b7ad2643`,
 raw report `ceac5575ffa8aded9141e380dbde9c2af30ca4238e69cd2b2da2a01b0608bda8`;
 inclusive time1.968s. Both native groups drained cleanly. Timings remain
 contended-host feasibility accounting, not speed comparisons. Independent
-final paired receipt review is pending.
+final paired receipt review passed.
+
+The next **prepared-only** nomination instead preserves this proved313-tail
+relation's same-support recurrence and attempts a lower-sector correction.
+It uses all25 ordinary rows at one prescribed offset−e_D7, where the original
+chart fixes D7=1. After translation, that source exponent is0; its raising
+factor vanishes, so the correction remains D7≤0 and cannot alter the target
+or any same-support coefficient. D7 may itself become negative, so forbidding
+new numerator columns must inspect all15 indices, not only the original six
+inactive ones.
+
+The actual313-tail image has57 D7=0 columns,23 rank-positive. Nine lie in
+this block's121-shape structural superset;14 do not. These nine are not yet
+known to occur in its actual nonzero image. Before elimination, the complete
+native correction-column inventory must check every nominated column; any
+missing member is a structural negative, never permission to solve a partial
+subset. The prospective objective cancels all9 while preserving the unpinched
+recurrence and forbidding new rank-positive columns. Scalar pinched
+coefficients may change and new scalar pinches may appear. Reachability is only
+necessary: native derivative coefficients, exact weighted cancellation, retained guards,
+full-original replay and whole-chart descent proof still decide feasibility.
+The original330-tail rule is a comparator, not stage-one authority. No
+adaptive source/offset growth or performance claim follows this nomination.
+Input/geometry/test design is in
+`TMP/rule-optimizer-20261003/profiles/owner31-boundary-correction-inputs-v1/`;
+the following single run subsequently tested that unchanged nomination.
+
+### Fixed P9 correction: native support present, complete constrained-span miss
+
+The generic two-stage research implementation passed all126 focused tests,
+including nine new correction tests. A preserved first compile failure was
+test-fixture-only; the audited continuation compiled and linked cleanly. The
+sole authorized proof used the unchanged P9 request, all291 stage-one pairs
+and all25 correction rows at−e_D7, with no supplied weights or refinement.
+
+Stage one reproduced the previously proved313-tail relation, including its
+full displayed product, original contributions, F and four proof cells. The
+mandatory **typed** zero-correction control then passed full-original replay
+and native proof, preserving its image, contribution map, incoming conditions
+and cell coverage. Those controls are not correction success.
+
+The complete actual correction-only image has81 columns, and **all nine**
+nominated columns are present. Thus the121-shape structural screen was useful
+but did not decide this outcome. The combined weighted image has371 columns.
+The retained F list grows from447 to486: nine nominated cancellations plus30
+new rank-one columns absent from the baseline. Inherited mandatory F remains
+in place; this list is not a count of nonzero columns in the weighted image.
+The native projector exhausts all26 weighted rows (B0 plus25 ordinary rows)
+and returns `NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN`. No correction
+target, proof refusal, export or installation occurred; this was not a time
+or memory censor.
+
+This is a complete miss only for the **joint** fixed objective and source
+space. Forbidding new rank-positive column identities is stricter than bounding
+numerator rank: it can reject useful trades into different rank-one descendants.
+The retained linear outcome does not isolate that restriction from simultaneous
+cancellation of P9. The nine columns being individually present is necessary,
+not evidence that their prescribed coefficients can be cancelled jointly.
+At this stage no ablation, source growth or alternate pinch block had been run,
+and no claim of general inability to optimize this boundary followed. The
+separately authorized rank-cap counterpart is recorded below.
+
+Evidence is
+`TMP/rule-optimizer-20261003/profiles/owner31-boundary-correction-v1/`;
+request `3c808a26a9e76fd613466318f6cf251951fc11bd35f9576c6b7741af86f91a64`,
+binary `9fbfd3552bcab1af9a2c648c4aa3c3301b3c2f866a5a349ad9c29d29fb3c98e8`,
+raw report `3ff90b6cc41fbd29aca4bc398c4a26993b18abe722b5ff0800cab2e9f7f38d85`.
+The run finished in2.315s inclusive under the approved69/70,16GiB+150GB
+reserve,270/285/300-second guard; its owned group drained and PID was absent.
+This is contended-host feasibility accounting, not a performance comparison.
+Independent final receipt review passed, including the complete26-row miss,
+baseline parity, typed zero control and all15-axis rank classification above.
+
+### Relation to lower-sector freedom in the literature
+
+Bree et al. explicitly identify freedom between forms equivalent under their
+maximal-cut ordering but differing in lower-sector terms; optimizing those
+couplings remains unimplemented in that work. This motivates investigating
+boundary changes, not assuming an available optimization theorem.
+[Section6](https://arxiv.org/html/2511.15381v1#S6).
+
+The unequal-mass banana example uses a master-basis-dependent projection that
+changes tadpole couplings in its differential equations. Tadpoles remain
+separate master integrals; projection is not a physical proof that they vanish.
+Our full-image source proof cannot import that quotient as permission to drop
+pinches. [Section3.5](https://arxiv.org/html/2507.23594v1#S3.SS5).
+
+Critical-syzygy construction combines generators and imposes linear vanishing
+constraints on out-of-power-counting monomials. Its cut-based completeness
+argument is modulo pinch integrals, with pinch topologies handled separately.
+[Sections3.4 and5.1.2](https://arxiv.org/html/2509.17681v1#S5.SS1.SSS2).
+Our smaller diagnostic instead keeps the full original-family weighted image,
+all pinches and native proof conditions, while preserving the leading recurrence.
+Relaxing column identity to a rank cap tests one chosen boundary objective;
+it neither implements those full algorithms nor establishes campaign benefit.
+
+### Same P9 with total rank cap1: support relaxation does not rescue this block
+
+One separately authorized counterpart changed only the correction policy:
+`forbid_new_rank_positive:false` and `max_numerator_rank:1`. P9, the291-pair
+stage-one bank, all25 correction rows, chart, saved order, all resource limits
+and zero refinements remained identical. The generic option passed all131
+focused tests; no core or algebra implementation changed.
+
+The complete candidate union is already structurally bounded by rank1.
+After the−e_D7 translation the source is rank zero; an ordinary0/e_j/e_j−e_k
+shift can create only one negative unit, either on an originally zero index
+or on D7 itself. Other active minima remain nonnegative. The proved B0 image
+also has maximum rank1. Thus cap1 does not remove any column of this union.
+The native F comparison confirms the intended discrimination: F486 becomes
+F456, removing **exactly all30** previously forbidden new rank-one columns.
+The remaining list is precisely inherited F447 union P9, with no additions.
+
+Stage-one proof and the typed zero control again pass unchanged. All9 nominated
+columns remain present in actual correction-only U81; the weighted union still
+has371 columns. The native projector again exhausts all26 weighted rows and
+returns `NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN`. There is no proposed
+corrected RHS whose added/dropped or final rank-one terms could be scored.
+Had a proposal existed, at least the other84 old rank-one shapes would have
+remained; the relaxed policy could permit up to30 new ones, so proof alone
+would not have guaranteed a smaller rank-one boundary.
+
+This second miss rules out the strict prohibition on new rank-one identities
+as the sole explanation **within this fixed correction block and mandatory
+conditions**. It does not prove each of the nine cancellations individually
+impossible, nor exclude different source spaces or boundary objectives. The
+registered block is parked: no smaller-P search, offset growth, alternate
+pinch, export or campaign experiment followed.
+
+Evidence is
+`TMP/rule-optimizer-20261003/profiles/owner31-boundary-correction-rank-cap-v1/`;
+request `a88aac78b92571b4db75a39949627fccc7586c42da784b71b80381ba549c32bb`,
+binary `bb8650669e0dd2294dd9afbd11a9ab2d7df743b0eda777802aeac545dd105db7`,
+raw report `e1399adad70c5a80bd7885c711e51638a53683fcd966782d5cbc678b43854992`.
+Inclusive time2.324s; the unchanged69/70,16GiB+150GB,270/285/300 guard
+completed cleanly, with the owned group drained and PID absent. Timing remains
+feasibility accounting only. Independent final receipt review passed, including
+the exact30-column F relaxation and complete native miss.

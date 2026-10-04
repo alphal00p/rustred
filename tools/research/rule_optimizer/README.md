@@ -1267,3 +1267,67 @@ Charts/windows/spectator axes remained hand-informed; no export or new workload
 comparison followed. See the source-nomination section of
 `docs/research/banana_moment_nomination_2026-10-04.md` for the bounded result
 and its distinction from the earlier unconstrained first-target negative.
+
+### Pinched-source boundary correction (experimental, proof-only)
+
+The optional `boundary_correction` object requests a two-stage search. First,
+the ordinary top-level source bank must produce a full-original relation and
+pass its native whole-chart proof. That **actual newly proved relation** is
+the baseline, not an imported saved-rule identity or a zero-sector quotient.
+Second, a complete ordinary-source block at one fixed pinch supplies weighted
+corrections. No coefficient displays or user-supplied weights are parsed.
+
+The object has these fields:
+
+| Field | Meaning |
+|---|---|
+| `schema` | `rustred.boundary-correction.v1` |
+| `fixed_pinch_axis` | Zero-based axis fixed to a positive value on the entire parent chart. |
+| `correction_sources` | Complete native ordinary RowId inventory, using the existing `source_row`/`offset` format; every offset changes only the pinch axis so its source power becomes zero. |
+| `cancel_rank_positive_shifts` | Explicit full-arity shifts of nonzero baseline terms to cancel; each must be a uniformly pinched, rank-positive column. Empty means a zero-objective control, not an improvement. |
+| `forbid_new_rank_positive` | `true` forbids rank-positive columns absent from the baseline. `false` requires the explicit rank cap below. |
+| `max_numerator_rank` | Nonnegative integer, present only with `forbid_new_rank_positive:false`; bounds the sum of all negative endpoint powers over the whole chart, including the formerly active pinch axis. |
+
+The initial interface requires all inactive parent indices to be explicitly
+fixed to zero, while active indices may remain free. This is a rank-zero
+**parent chart**, not a promise that its baseline descendants have rank zero.
+It uses `prove` with zero refinements; export, modular nomination and unsupported
+projection-mode combinations refuse. Absence of the option leaves the legacy
+path unchanged. The top-level `fresh_original_source_certificate` applies to
+stage one; stage two composes native weighted provenance and always undergoes
+the full original-source check, not the unit-selection shortcut.
+
+Every correction image must remain pinched, preserving the target and the
+entire unpinched/same-support recurrence. A mandatory zero-correction control
+replays the baseline through this same weighted path before searching. Check
+all nominated columns against the complete actual **correction-only** image
+universe: structural reachability or presence in the baseline is insufficient.
+A missing member must not be silently removed from the objective. New scalar
+pinches may survive only if the unchanged full source, guard, root and descent
+checks prove them; all genuine incoming conditions and normalization poles
+remain retained. The two boundary policies are distinct. Forbidding every new
+rank-positive **column** also excludes trades into different rank-one descendants,
+even when they could be cheaper downstream. A total-rank cap permits different
+columns within the cap, but retains the same cancellation objective and all
+native proof gates. Neither policy establishes downstream cost by itself.
+
+Existing source/matrix/coefficient limits govern the combined declared bank
+and weighted provenance. Set both source-row allowances deliberately:
+`max_source_rows` bounds the combined inputs, and `max_complete_source_rows`
+also bounds the composed original-source proof, not merely generator inventory.
+Outer time/RSS supervision remains necessary. Reports keep stage-one proof,
+zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
+is confined to this frozen correction space; neither a hit nor fewer local
+tails establishes lower campaign work. No owner or overlay is installed.
+
+The implementation passed all131 focused tests. Its first fixed native probe
+reproduced the313-tail stage-one proof and typed zero control; all nine nominated
+columns were present, but the complete26-row weighted search found no correction
+under the joint constraints. This is a finite-span negative, not a general
+optimization or performance result. The fixed input, raw evidence and scope
+limitations are documented in
+[the conceptual search note](../../../docs/research/conceptual_rule_search_2026-10-04.md).
+The sole matched cap1 probe removed all30 new-rank-one-column prohibitions
+without changing the sources, chart or P9, and also exhausted all26 weighted
+rows without a correction. Both typed zero controls passed. The fixed block
+is parked; these misses do not establish a general optimization impossibility.
