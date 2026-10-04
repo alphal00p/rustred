@@ -372,6 +372,103 @@ class EvaluatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             json.loads('{"x":1,"x":2}', object_pairs_hook=E.unique_object)
 
+    def overlay_replacement(self):
+        for name in ("old-overlay.rrbin", "new-overlay.rrbin", "other-overlay.rrbin", "donor.rrbin"):
+            (self.root / name).write_bytes(name.encode())
+        self.write("overlay-proof.json", {"note": "fixture provenance, not native authority"})
+        selection = E.read_json(self.root / "selection.json")
+        # An unaffected row is deliberately first, so order/index are tested.
+        selection["domain_rule_overlays"] = [
+            {"owner_mask": "01", "path": "other-overlay.rrbin",
+             "bytes": (self.root / "other-overlay.rrbin").stat().st_size},
+            {"owner_mask": "10", "path": "old-overlay.rrbin", "note": "retain metadata",
+             "bytes": (self.root / "old-overlay.rrbin").stat().st_size},
+        ]
+        self.write("selection.json", selection)
+        self.request["baseline"]["selection"] = self.pin("selection.json")
+        self.request["replacements"] = [{"owner_mask": "10", **self.pin("donor.rrbin"),
+                                         "source_provenance": [self.pin("overlay-proof.json")]}]
+        self.request["overlay_replacements"] = [{"owner_mask": "10", "overlay_index": 1,
+            "original_sha256": self.pin("old-overlay.rrbin")["sha256"],
+            **self.pin("new-overlay.rrbin"), "source_provenance": [self.pin("overlay-proof.json")]}]
+
+    def test_explicit_overlay_reexport_keeps_inventory_order_and_unchanged_rows(self):
+        self.overlay_replacement()
+        planned, documents = self.results()
+        before = planned["arms"]["baseline"]["selection"]["domain_rule_overlays"]
+        after = planned["arms"]["candidate"]["selection"]["domain_rule_overlays"]
+        self.assertEqual(len(before), len(after))
+        self.assertEqual(before[0], after[0])
+        self.assertEqual(after[1]["note"], "retain metadata")
+        self.assertEqual(after[1]["owner_mask"], before[1]["owner_mask"])
+        self.assertEqual(before[1]["path"], str(self.root / "old-overlay.rrbin"))
+        self.assertEqual(after[1]["path"], str(self.root / "new-overlay.rrbin"))
+        self.assertEqual(planned["overlay_replacements"], self.request["overlay_replacements"])
+        self.assertTrue(E.compare(planned, documents)["completed_comparison"])
+        # A native cold failure must still reject correctly staged replacements.
+        documents["candidate"]["cold"]["verdict"] = "FAIL"
+        self.assertFalse(E.compare(planned, documents)["completed_comparison"])
+
+    def test_overlay_reexport_rejects_missing_duplicate_unpaired_and_bad_bindings(self):
+        self.overlay_replacement()
+        original = copy.deepcopy(self.request)
+        for mutation in ("missing", "duplicate", "unpaired", "wrong-index", "bool-index",
+                         "owner", "old-digest", "new-digest", "proof", "proof-digest"):
+            with self.subTest(mutation=mutation):
+                self.request = copy.deepcopy(original)
+                row = self.request["overlay_replacements"][0]
+                if mutation == "missing":
+                    self.request["overlay_replacements"] = []
+                elif mutation == "duplicate":
+                    self.request["overlay_replacements"].append(dict(row))
+                elif mutation == "unpaired":
+                    self.request["replacements"] = []
+                elif mutation == "wrong-index":
+                    row["overlay_index"] = 0
+                elif mutation == "bool-index":
+                    row["overlay_index"] = True
+                elif mutation == "owner":
+                    row["owner_mask"] = "01"
+                elif mutation == "old-digest":
+                    row["original_sha256"] = "wrong"
+                elif mutation == "new-digest":
+                    row["sha256"] = "wrong"
+                elif mutation == "proof":
+                    row["source_provenance"] = []
+                else:
+                    row["source_provenance"][0]["sha256"] = "wrong"
+                with self.assertRaises(ValueError):
+                    E.plan(self.request)
+
+    def test_multiple_same_owner_overlays_require_complete_explicit_reexports(self):
+        self.overlay_replacement()
+        selection = E.read_json(self.root / "selection.json")
+        selection["domain_rule_overlays"].append(copy.deepcopy(selection["domain_rule_overlays"][1]))
+        self.write("selection.json", selection)
+        self.request["baseline"]["selection"] = self.pin("selection.json")
+        with self.assertRaises(ValueError):
+            E.plan(self.request)
+        second = copy.deepcopy(self.request["overlay_replacements"][0])
+        second["overlay_index"] = 2
+        self.request["overlay_replacements"].append(second)
+        self.assertEqual(len(E.plan(self.request)["arms"]["candidate"]["inventory"]["domain_rule_overlays"]), 3)
+
+    def test_overlay_reexport_staging_cannot_drop_or_exchange_rows(self):
+        self.overlay_replacement()
+        for mutation in ("drop", "reorder", "old-payload", "metadata"):
+            with self.subTest(mutation=mutation):
+                planned, documents = self.results()
+                rows = documents["candidate"]["input_receipt"]["domain_rule_overlays"]
+                if mutation == "drop":
+                    rows.pop()
+                elif mutation == "reorder":
+                    rows.reverse()
+                elif mutation == "old-payload":
+                    rows[1]["sha256"] = self.pin("old-overlay.rrbin")["sha256"]
+                else:
+                    documents["candidate"]["selection"]["domain_rule_overlays"][1]["note"] = "changed"
+                self.assertFalse(E.compare(planned, documents)["completed_comparison"])
+
 
 if __name__ == "__main__":
     unittest.main()

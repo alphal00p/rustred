@@ -126,6 +126,38 @@ def payload_inventory(selection, owner_base):
     return result
 
 
+def replace_replayed_overlays(candidate, baseline_inventory, changed_masks, replacements):
+    """Transport explicitly re-exported overlays; native replay remains authority.
+
+    Index, original digest and owner jointly select a row. Every overlay bound
+    to a changed owner must be supplied exactly once; none is dropped/reordered.
+    This never edits an overlay header or interprets a proof receipt as a proof.
+    """
+    require(isinstance(replacements, list), "overlay replacements must be a list")
+    overlays = candidate.get("domain_rule_overlays", [])
+    required = {i for i, row in enumerate(overlays) if row["owner_mask"] in changed_masks}
+    seen = set()
+    for replacement in replacements:
+        index = replacement.get("overlay_index")
+        require(type(index) is int and index in required and index not in seen,
+                "overlay replacement needs a unique affected baseline overlay index")
+        old = baseline_inventory[index]
+        require(replacement.get("owner_mask") == old["owner_mask"]
+                and replacement.get("original_sha256") == old["sha256"],
+                "overlay replacement differs from its original owner/digest binding")
+        provenance = replacement.get("source_provenance")
+        require(isinstance(provenance, list) and provenance,
+                "overlay replacement needs explicit native re-export provenance")
+        for entry in provenance:
+            bound_file(entry)
+        path = bound_file(replacement)
+        overlays[index].update(path=str(path), bytes=path.stat().st_size,
+                               sha256=replacement["sha256"])
+        seen.add(index)
+    require(seen == required,
+            "replacement has a base-bound repair overlay; every affected overlay needs a native re-export")
+
+
 def plan(request):
     require(request["schema"] == SCHEMA, "unknown evaluation schema")
     require(sorted(request["arm_order"]) == sorted(ARMS), "one baseline and candidate required")
@@ -146,6 +178,7 @@ def plan(request):
     inventories = {"baseline": payload_inventory(selection, owner_base)}
     candidate = copy.deepcopy(selection)
     replacements = request.get("replacements", [])
+    overlay_replacements = request.get("overlay_replacements", [])
     preferred_programs = request.get("preferred_programs", [])
     require(isinstance(preferred_programs, list), "preferred programs must be a list")
     changed_masks = {row["owner_mask"] for row in replacements}
@@ -162,6 +195,8 @@ def plan(request):
         for provenance in replacement["source_provenance"]:
             bound_file(provenance)
         matches[0].update(path=str(path), bytes=path.stat().st_size, sha256=replacement["sha256"])
+    replace_replayed_overlays(candidate, inventories["baseline"]["domain_rule_overlays"],
+                              changed_masks, overlay_replacements)
     for program in preferred_programs:
         require(program["owner_mask"] not in changed_masks,
                 "cannot replace and prefer the same owner in one treatment")
@@ -176,11 +211,6 @@ def plan(request):
             **preferred_rule_fields(program)})
     candidate["total_bundle_bytes"] = sum(row["bytes"] for row in candidate["owners"])
     inventories["candidate"] = payload_inventory(candidate, owner_base)
-    # Existing repair overlays bind their base owner's bytes. They must be
-    # regenerated natively for a changed base, never silently rebound here.
-    overlaid = {row["owner_mask"] for row in inventories["baseline"]["domain_rule_overlays"]}
-    require(not overlaid.intersection(row["owner_mask"] for row in replacements),
-            "replacement has a base-bound repair overlay; a native re-export is required")
     executable = bound_file(request["executable"])
     template = read_json(bound_file(request["walk_template"]))["command"]
     require(isinstance(template, list) and all(isinstance(word, str) for word in template),
@@ -262,6 +292,8 @@ def plan(request):
             "execution": "NOT RUN; existing outer guard must enforce these cumulative deadlines and drain owned groups"}
     if preferred_programs:
         result["preferred_programs"] = preferred_programs
+    if overlay_replacements:
+        result["overlay_replacements"] = copy.deepcopy(overlay_replacements)
     return result
 
 

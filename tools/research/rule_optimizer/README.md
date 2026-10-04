@@ -160,6 +160,17 @@ Exact stage/walk/cold argv arrays are included. The ordinary staging tool copies
 owner/overlay payloads and preserves query bytes. Replacing a base-bound repair
 overlay's owner requires a suitable native re-export; Python does not rebind it.
 
+For such an owner replacement, provide `overlay_replacements` with one entry
+for **every affected overlay**, using its zero-based `overlay_index`,
+`owner_mask`, baseline `original_sha256`, and the new native-exported `path`
+and `sha256`. Each entry also supplies a nonempty `source_provenance` list of
+pinned `{path, sha256}` receipts. The planner preserves overlay ordering,
+count and other metadata, leaves unrelated overlays untouched, and derives
+the replacement byte count from the file. Missing or duplicate replacements,
+incorrect baseline bindings, and replacements without a matching owner change
+are rejected. These pins establish experiment inputs, not mathematical
+authority: native loading and cold original-source replay must still pass.
+
 Run phases through the existing owned-process guard with its heavy/build locks,
 process-tree memory checks, CPU allocation and cumulative deadlines. The native
 supervisor's `--objective-hours` is telemetry, not a timeout. Setup and draining

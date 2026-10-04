@@ -14,7 +14,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | --- | --- | --- |
 | Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered/pushed029e2bff;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
 | Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} matrix complete, all coldPASS: domain changes+1.99%/-0.403%/+1.45%; every whole arm slower. No promotion or automatic sweep. |
-| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Banana investigation produced a native-replayed eight-source/four-tail ordinary IBP on a six-free rank-one chart; isolated export passes. Safe composition and shared-work measurement next. No new CAS. |
+| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Banana recurrence now passes native replay for arbitrary positive selected-numerator rank, seven free indices/eight boundary cells. Source-replayed repair-overlay composition passes. Shared-work measurement next; ISP-first literature discriminator under review. No new CAS. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
@@ -22,12 +22,63 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Caller-thread core implemented and compiled; app typed/cold replay integration under test. |
 | Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Original-source/descent proof and isolated rank-one export pass. Source-replayed repair-overlay re-export is being prepared, with original payload untouched. A broader positive-rank identity is prepared for one separately audited proof-only discriminator. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Both rank-one and general-positive-rank proofs, isolated exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Original four-root/full67-owner context comparison is frozen; no production installation or workload gain claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Broader recurrence composed safely; app tests and literature — October4, 08:18 UTC
+
+[M] Core milestone `18382f75` is pushed to origin/main. The evaluator now
+accepts explicitly paired native overlay re-exports when their base owner is
+replaced. It preserves overlay count/order, requires every affected row, and
+does not edit payload headers or substitute JSON receipts for native replay.
+Independent source audit and all25 Python evaluator tests pass; README documents
+the opt-in request. Root rerun:25PASS in0.169s. This is research steering,
+not a change to production loading or mathematical scope.
+
+[M] `lower_rule_evaluation` generalized the eight-source banana identity to
+arbitrary positive rank of the selected numerator, retaining all six active
+powers as parameters. Native source replay, guards and descent pass on all
+eight boundary cells. The resulting rule has seven generic tails and four
+at rank one; no extra terminals are introduced. Proof2.205s and isolated
+export3.621s are **not campaign timings**. Both original repair rules then
+source-replay against the replacement owner and independently cold-load;
+rank-one/broad re-export takes38.556s/36.778s inclusive, respectively. Old
+owner-digest misuse is rejected. Evidence lives under
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-*`.
+
+[M] The complete original four-root comparison request is frozen at
+`candidates/banana-owner0-broad-fourpoint-pair-v1-request.json` (SHA256
+`3c61ac8c…081654`), retaining all67 owners,8246 routes and both overlays.
+No smaller local RHS is counted as a shared-work gain. Only after completed
+walks and independent cold verification can this experiment supply a result.
+
+[M] App semantic v2 compile passes439.333s. Focused suites:21 finite replay,
+3 wire,134 restore,44 CLI and46 cold-verifier tests pass (with one existing
+ignored interactive exploration aid). These counts overlap. The input gate
+correctly rejects an empty test run caused by an incorrect harness filter;
+it is retained as failed evidence, not reported as successful testing. Fresh
+v3 corrects that filter and includes the audited late-cancellation wrapper
+regression. Compilation is active; no final app/performance acceptance yet.
+Exact command: `candidates/run_replay_build.py` with
+`candidates/finite-replay-app-build-plan-v3.json`, phase `compile_app_tests`.
+
+[E] Root is reading Jiang–Lian–Yang's ISP-first top-down reduction alongside
+the existing generating-function and boundary-preserving studies. Potential
+benefit: eliminate numerator variables without discarding pinched-sector
+remainders. A quadratic-ISP relation is a possible small nomination test,
+not a new intersection-theory engine or permission to treat integration-variable
+denominators as external coefficients. Independent critique is pending.
+
+[M] Production observation at08:17UTC:184.478M discovered,139.504M local
+completions,13.894M pending,zero frontiers,156.15GB owned RSS,checkpoint22.
+The13/67 roots and23.871M closed are an8609s-old conservative snapshot; the
+dashboard correctly marks recursive rate awaiting a scan. Pending change is
+−0.126 per completion over one hour; no fresh closure rate or ETA follows.
+Production and its inputs remain untouched.
 
 ### Caller-thread core milestone independently accepted — October4, 07:57 UTC
 
