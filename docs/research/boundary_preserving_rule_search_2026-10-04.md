@@ -1,8 +1,9 @@
 # Boundary-preserving search for reusable IBP rules
 
 October 4, 2026. Research followed by an independently reviewed, opt-in
-research-tool implementation: 93 focused unit tests pass. The registered
-four-loop pilot and primitive-weight correction completed with no accepted rule,
+research-tool implementation: 102 focused unit tests pass. The registered
+four-loop pilot, primitive-weight correction, and two-template follow-up all
+completed with no accepted rule,
 as recorded below. Neither this note nor
 a search result authorizes installation, order changes, enlarged terminals, or
 closure/performance claims. The rejected five-loop whole-column bank remains parked.
@@ -511,6 +512,15 @@ rescaling preserves the declared index-monomial ansatz; any introduced base
 denominator remains a retained condition. The template is an input hypothesis
 motivated by the negative, not a parsed certificate from its display.
 
+An illustrative identity, **not a physical IBP**, makes the distinction clear:
+`0=n[(d-3-n-m)I(n,m)-I(n+1,m)]`. Its raw endpoint vanishes at `n=0`, but the
+normalized successor coefficient is `1/(d-3-n-m)`, which does not. Dividing a
+common factor from the original source weights cannot change that ratio.
+Target-template search instead seeks a genuinely different source combination:
+target proportional to `P=d-3-n-m` while the collected unwanted endpoint still
+has its required factor `n`. The current negative combination is not a solution
+to those joint equations.
+
 This is one fixed paired feasibility test, not a sweep of target shapes or
 kernel vectors. The six previously observed target coefficient slots suggest
 only a small linear extension; admit the exact union with template monomials
@@ -612,6 +622,65 @@ unknown weights lie in `Q(d)`, extracting a coefficient of `d` is not a
 `Q(d)`-linear operation on those unknowns. Use a fixed template for a linear
 search, or apply the existing coefficient witness **after** exact solving;
 do not smuggle a new bounded ansatz in `d` into the comparison.
+
+### Authorized target-template implementation checkpoint
+
+The next opt-in slice declares `boundary_polynomial.target_template` as sparse
+integer-monomial numerator/denominator data with an exact base-parameter name
+map and full index arity. It uses only native constructors and arithmetic;
+there is no coefficient-string parser. The denominator must be base-only and
+its raw polynomial is retained before any cancellation. For canonical nonzero
+template coefficient `P_p`, the compiler adds `C_m P_p-C_p P_m=0` over the
+complete target/template monomial union and nominates only nonzero `C_p`.
+There are still 144 original source-weight unknowns, no hidden scalar unknown.
+Full original replay must verify nonzero base-field proportionality again
+**after** any primitive-weight division. All existing normalization, face,
+source, root, descent and export gates are unchanged; absence of the field
+retains the old path. Independent source review passed, followed by all 102
+optimized tests (nine new cases, none ignored or filtered). The source and tests
+are isolated in
+[`boundary/target_template.rs`](/common/dev/rustred/tools/research/rule_optimizer/symbolic_projector/boundary/target_template.rs)
+and its test module. The cached-library test build took 82.446 seconds and the
+guarded suite 4.358 seconds (0.93-second test body); the
+[receipts](/common/dev/rustred/TMP/rule-optimizer-20261003/candidates/boundary-template-build-v1/run_tests/result.json)
+retain exact source/library pins. The final executable linked in 82.863 seconds;
+all three owned phases drained, and the build slot was released. This is
+capability verification, not a physical reduction or performance claim.
+
+The fresh native API audit also found a prior generic membership bug:
+Symbolica grouping keys contain base coordinates before index coordinates,
+but the primitive quotient test omitted that offset. The corrected test uses
+`base_count+axis`, with multi-index regressions for a forbidden quotient and a
+valid last-axis quotient. The previous 93-test receipts remain genuine tests
+that passed, not proof that this missed case was covered. In the actual prior
+degree-one pilot, a common linear `n8` factor leaves index-constant quotients;
+the observed nonzero endpoint and negative conclusion are unchanged. This is
+a generic sparse-ansatz enforcement correction, not new source authority.
+
+### Completed target-template result: both fixed shapes miss
+
+Independent input review preceded the sole
+[two-template run](/common/dev/rustred/TMP/rule-optimizer-20261003/incidence-study/four-loop-boundary-template-v1/result.json).
+Both `P=1` and `P=d-3-n8-n9` returned
+`NO_TARGET_IN_BOUNDARY_POLYNOMIAL_ANSATZ`, without a selected target proposal or
+exported artifact. Unlike the earlier first-candidate face refusals, these are
+completed exact no-target results for the two constrained finite ansatzes.
+The unchanged inputs retained 48 ordinary rows, 144 weight unknowns, 219
+endpoint columns, 38 mandatory cofinal exclusions and 182 endpoint-face
+instances. Each six-monomial target/template union added five proportionality
+constraints, giving 393 total constraints and one eligible target coefficient.
+No extra scalar unknown or kernel-candidate sweep was introduced.
+
+The pair completed in 1.701 seconds inclusive, after a 2.392-second
+[compatibility/parser preflight](/common/dev/rustred/TMP/rule-optimizer-20261003/incidence-study/four-loop-boundary-template-preflight-v1/result.json).
+The unaffected mode-off toy reports matched exactly except timing, and old,
+new and unit-fixture artifacts were byte-identical. This is not a claim that
+the corrected primitive sparse-membership bug preserves every former result.
+Both native arms exited cleanly and all owned groups drained; CPU69/70 were
+released. The fixed 48-row/144-weight search is now parked: no automatic source
+growth, degree increase, new target templates, face weakening or valuation
+sweep. These negatives do not refute other pivots or polynomial modules, and
+establish no closure, termination or performance improvement.
 
 As a separate concrete motivation, native guarded application of the sole
 extra leaf of the 465-rule/59-terminal source-order variant selected baseline

@@ -84,6 +84,7 @@ fn config(mode: Mode) -> Config {
         max_nonzeros: 100000,
         max_activation_faces: 64,
         primitive_original_weights: false,
+        target_template: None,
     }
 }
 
@@ -123,6 +124,9 @@ fn primitive_config() -> Config {
     config.primitive_original_weights = true;
     config
 }
+
+#[path = "template_tests.rs"]
+mod template_tests;
 
 #[test]
 fn primitive_true_original_weight_multiple_rescues_only_new_circuit() {

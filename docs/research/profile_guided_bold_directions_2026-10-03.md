@@ -3,6 +3,133 @@
 Date: 2026-10-03; generation status updated 2026-10-04. Research and prospective
 experiments, not a promotion or closure claim.
 
+## October4: choose a cooperating set of rules, not local winners
+
+The new whole-program experiment is a useful negative. Replacing owner3's
+584-rule program by a465-rule alternative, with exact baseline fallback for
+its extra residual, increases completed four-point work from19,109 to19,279
+domains. Both starting owner3 points really select the alternative; this is
+not an inactive-flag result. A smaller rule file is not a smaller reduction.
+
+A distinct hypothesis is **joint, sharing-aware policy extraction**. Preserve
+several already valid whole-rule alternatives for a bounded set of exact
+domains, and select their *combination* by the cost of the union of descendants.
+The current generation portfolio ranks local features, while the preferred
+program experiment chooses an entire program first. Neither searches this
+intermediate policy space. This is not permission to restart the rejected
+all-preferred candidate unchanged.
+
+The relevant outside-field precedent is optimal e-graph extraction.
+Goharshady, Lam and Parreaux prove that sharing-aware extraction is hard even
+to approximate generally, but give a parameterized method for low-treewidth
+graphs. Their result concerns a specified finite graph and cost model, not
+IBP completeness or our guard geometry. It explains why adding descendant
+costs independently can choose badly; it does not promise a cheap global
+optimum for RustRed. [Primary paper, §§2–4](https://doi.org/10.1145/3689801).
+
+Here is a deliberately synthetic, non-IBP example. Two roots each use a
+different ten-node descendant set, costing20 nodes in total. Each has an
+alternative using the same fifteen-node set, disjoint from both old sets.
+Switching just one root costs25
+nodes; switching both costs15. Every one-at-a-time greedy improvement is
+rejected, yet a coordinated switch saves25%. All nodes of every selected
+alternative are mandatory: this is **OR between complete rules, AND over
+their nonzero tails**. One may not cherry-pick the cheapest term of an IBP.
+
+Our proposed mechanism is narrower than a new equality-saturation system:
+
+1. Use completed, cold-checked controls to identify domains with actual
+   alternative saved rules, retaining owner, routing phase, exact bounds,
+   guards, terminal policy and ordering. A physical index tuple alone is not
+   a domain key. Canonical equalities must come from existing native services.
+2. Store each admitted rule application as a hyperedge containing **all** of
+   its successor obligations. Charge source preparation, native checking,
+   coefficient/guard cost and newly required domains. Do not treat a merely
+   recorded or unresolved descendant as free.
+3. Search a small, preregistered set of paired switches before considering
+   larger beams. Use union cost, not a sum of individual reachability sizes.
+   Frozen held-out cohorts and complete native reruns remain the real test.
+4. Export only a deterministic, domain-valid preference over admitted native
+   rules, with unchanged baseline fallback. Native saved-rule validation must
+   not be relabelled as independent ordinary-source replay. A graph score is no algebraic
+   authority. If new compositions are needed, regenerate and replay their
+   complete ordinary-source circuits with Symbolica.
+
+There are important reasons **not** to implement this immediately. Alternative
+graphs can differ because of publication-dependent reuse rather than different
+IBPs. Their matching node labels alone do not authorize mixing their edges.
+The completed controls also contain abstract cycles; ordinary acyclic e-graph
+extraction cannot simply replace those with zero-cost self-dependencies.
+Conditional applicability cannot be erased by declaring two RHSs globally
+equal. A treewidth algorithm would require evidence of small width; sparsity
+alone is insufficient. No treewidth solver, optimizer dependency or custom CAS
+has been added.
+
+**Smallest falsifier, before implementation:** make a read-only inventory of
+exact-domain overlap and changed complete outgoing obligations between the
+already completed baseline/preferred four-point graphs. Retain aliases,
+coverage dependencies and side exits. If there are few genuine alternatives,
+or even paired choices have negligible exclusive downstream work, park this mechanism on
+that cohort. If the inventory is promising, independently validate a tiny
+paired-switch nominee through native application before estimating savings.
+An isolated-edge cut cannot disprove a paired-switch opportunity. An optimistic
+graph cut is only a screen, never a proved performance bound.
+
+**First read-only inventory, October4:** a2.818s,689MB scan finds17,730 exact
+owner/phase/domain/cap matches between the completed baseline and preferred
+graphs. Of799 whole-Apply records with different outgoing edge sets, only67
+belong to the changed owner3;732 belong to unchanged owners. Native publication
+resolves emitted images against the existing snapshot and may replace them
+with containment dependencies. CP6 stores those resolved dependencies, not
+selected rule IDs and original guarded RHSs. Thus the799 records are **not799
+independently admissible algebraic alternatives**. No selector or saving is
+inferred. The67 owner3 records are singleton domains of ranks0–3 and can be
+examined with the existing match-only interface, retaining their original caps.
+That interface lacks RHS output; the separate guarded-apply CLI rejects power
+bounds. Dropping the bounds would not supply the required same-context transfer
+experiment. Additional native provenance, not a graph heuristic, is needed
+before the paired-switch falsifier can be evaluated honestly.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-rule-choice-inventory-v1.json`.
+
+The follow-up native match-only census completes in5.337s: all67 composed
+queries select the preferred batch, with45 distinct baseline/preferred saved
+rule-index pairs, including six146→110 pairs and four240→175 pairs. It retains
+all original caps and reports complete matching pieces. This establishes actual
+dispatch alternatives on those singleton domains, not their full successor
+obligations, fresh source replay or a policy gain. Evidence:
+`TMP/rule-optimizer-20261003/profiles/preferred-overlap-match-v1/`.
+
+### Other literature directions: what is genuinely different here?
+
+Smith–Zeng's operator-level work constrains propagator growth, fixes positive
+powers and row-reduces constant/index-linear components before targeted
+symbolic solves. It can reduce the number of free indices, but its paper also
+reports cases where syzygy constraints do not improve performance. Our earlier
+component-wise and tangent-source probes already tested limited pieces of this
+idea, with negative whole-workload outcomes. The current target-template
+experiment addresses a different missing constraint: the target coefficient
+must not undo boundary cancellation after normalization.
+[Primary paper, §§2.3,3.1,5](https://arxiv.org/html/2507.11140v2).
+
+Blade separates selected-integral block discovery from expensive subsequent
+reconstruction and adapts polynomial ansatz weights using lower-dimensional
+probes. These are kinematic-variable relations, not automatically symbolic
+index rules. The useful proposed transfer is to nominate a small useful output
+boundary before exact elimination, not to claim sampled fits as identities.
+Our current fixed-target trial intentionally does **not** grow the source bank
+or polynomial degree after a miss. [Primary paper, §3.1](https://arxiv.org/html/2405.14621v2).
+
+Finite-frame/Pfaffian closure and dimension-labelled recurrences remain more
+radical possibilities, but are already extensively studied in this repository.
+Their basis/restriction, boundary and expression-growth obligations are not
+removed by renaming a regional compiler. Reopen them only for a measured
+recurring block with a compact exact boundary; see the existing
+[finite-frame analysis](finite_frame_breakthrough_2026.md) and
+[native feasibility audit](symbolica_finite_frame_feasibility.md).
+
+This research follow-up adds an explicit non-greedy shared-cost hypothesis,
+not a claim that the live campaign has become faster or will terminate.
+
 The strongest next algebraic bet is a **bounded regional compiler**: eliminate a
 small recurring layer of the operator program offline, but keep the result only
 if exact collection removes endpoints or native application reduces domain

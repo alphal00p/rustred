@@ -4849,3 +4849,102 @@ about all kernel combinations follows. The registered corrective lane is parked
 without further bank/degree growth. Evidence:
 `incidence-study/four-loop-boundary-primitive-v1/`; raw SHAs `004b8048...83300d`
 (off) and `8c26ef2a...7f39ed8` (on).
+
+Subsequent target-template implementation review exposes a generic primitive
+membership-check bug missed by the earlier source audit and 93-test suite.
+Symbolica's grouped exponent keys retain the full base-plus-index variable map,
+but quotient projection used `powers[axis]` instead of
+`powers[base_count + axis]`. The existing sparse-ansatz test only divides an
+index by itself to obtain a constant, so it cannot distinguish these offsets.
+The implementation owner will correct the offset and add nonzero-base-count,
+multi-index regressions; new tests have not yet run at this entry. This does
+not weaken or alter native proof/export authority. The completed corrective
+pilot exported nothing; in its particular degree-one bank, division by the
+authenticated degree-one common factor necessarily leaves base-only weights.
+Thus its negative outcome remains, but the old generic ansatz-enforcement
+claim must not be treated as validated for arbitrary sparse monomial sets.
+
+The separately authorized fixed-target slice now passes independent source
+review for isolated build/tests. Its structured declaration is assembled by
+authenticated native coefficient operations, with exact parameter/coordinate
+maps and retained raw denominator conditions. Over the complete union of source
+and template index monomials it adds `C_m P_p - C_p P_m = 0`, using a canonical
+nonzero base-field template coefficient. It adds no weight unknown: the fixed
+pilot still has 48 ordinary rows and 144 polynomial-weight unknowns. Full replay
+independently checks nonzero base-field proportionality after any primitive
+division and before target normalization. Missing monomials in either direction
+cannot disappear from the equations; original poles, finite-face verification,
+source/descent proof and export authority remain unchanged.
+
+The corrected quotient-coordinate regression uses a nonzero base-variable count
+and two indices: the old offset would falsely accept a quotient monomial absent
+from a sparse declared ansatz. It also checks valid last-index membership.
+Template tests cover zero/foreign inputs, raw cancelled poles, post-primitive
+shape changes and cumulative assembly/U-L verification limits. The mode-off unit
+test was renamed to describe its actual determinism and absent/null parsing
+checks; it is not an old/new differential experiment. Source GO is only for the
+coordinated cached build and expected 102 tests. Their actual receipts, strict
+cross-binary compatibility and final paired input/guard review remain required
+before any experimental outcome is claimed.
+
+The frozen template suite subsequently passes all 102 optimized tests, including
+the nine new cases, with zero failures, ignored or filtered tests. Compile takes
+82.446488 inclusive seconds and test execution 4.358066 seconds (0.93-second
+body); both owned groups drain without a stop. Test artifact SHA is
+`77519786...21090b`. Independent JSON comparison confirms that the prospective
+two pilot requests differ from the prior primitive-on request only by their
+structured templates, exactly `1` and `d-3-n8-n9`. Final executable linkage and
+cross-binary compatibility remain pending at this entry.
+
+Final linkage subsequently succeeds in 82.862681 inclusive seconds with no stop
+and owned groups drained; executable SHA is `910f7f0e...eeedcc`. Independent
+comparison of the native compatibility receipts confirms full old/new report
+equality after removing seconds, both input parsers passing, and old/new/unit
+artifact identity `915c3875...91fa3`. This preflight takes 2.391563 seconds.
+The sole fixed pair then completes cleanly in 1.700785 seconds (4.092349 seconds
+combined), with both owned groups drained and no candidate artifact.
+
+Both requests return `NO_TARGET_IN_BOUNDARY_POLYNOMIAL_ANSATZ`, after visiting
+all 144 declared basis rows. Actual native events independently confirm the same
+48 source rows, 219 full image columns, 38 cofinal exclusions and 182 activation
+faces. The complete target/template union has six monomials; five homogeneous
+proportionality constraints raise the constraint count from 388 to 393, with
+one target-coefficient column and zero added weight unknowns. Neither run reaches
+a target-bearing candidate, primitive division, chart proof or export. This is
+an exhausted finite declared linear ansatz over the base field for each fixed
+template, not a first-candidate guard refusal, universal nonexistence result,
+boundary proof, performance improvement or evidence about higher-degree/larger
+banks. No retry, bank growth or further native run is authorized for this ansatz.
+Evidence: `incidence-study/four-loop-boundary-template-preflight-v1/` and
+`four-loop-boundary-template-v1/`; raw report SHAs `e5378672...429c3a` (`1`) and
+`93d6ccb3...dd100a` (`d-3-n8-n9`).
+
+### Shared-graph screening: provenance is not an algebraic alternative
+
+The read-only completed-pair inventory finds 17,730 byte-exact domain overlaps
+and 799 changed complete recorded whole-Apply adjacency sets. Only 67 belong
+to modified owner3; the other 732 retain identical complete application `stats`
+maps, whereas all 67 owner3 maps differ. This is a diagnostic discriminator,
+not source-rule proof. `walking/epoch/resolve.rs::Resolver::emit` can replace an
+emitted image by a snapshot-contained stored target, so checkpoint adjacency is
+not raw RHS support, even for a complete native Apply record. The inventory
+retains every recorded child and does not select policies, cut dependencies,
+price cycles as zero, or claim savings.
+
+The prepared 67-query owner-local dispatch census preserves each exact coordinate
+box, rank and inherited A/D caps; independent joining checks every row. Native
+matching can report selected batch/rule or fallback provenance, but no-follow
+matching does not expand RHS obligations. The existing rule-local guarded adapter
+explicitly rejects power bounds; silently stripping those caps would change this
+experiment. No RHS adapter, graph-mixing authority or performance claim follows
+from preparing the census.
+
+The authorized census then completes in 5.336638 inclusive seconds. Both phases
+exit zero, with no stop and owned groups drained. Independent raw-result checks
+confirm 67/67 complete singletons per arm, exact original rank/power caps, no
+summary truncation and `rhs_successors_expanded=false`. All baseline cases select
+their original batch0; all composed cases select preferred batch0, with no
+baseline fallback observed in this nominated set. Different rule ordinals across
+payloads are provenance, not a claim of different rational identities. This does
+not supply raw RHS hyperedges or authorize combining checkpoint successors.
+Evidence: `profiles/preferred-overlap-match-v1/`.

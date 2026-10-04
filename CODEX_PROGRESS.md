@@ -28,6 +28,8 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
 | Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Delivered and pushed as `0257b9e2`;47 focused tests and real1/43 replay independently pass | No bulk hybrid, macro installation or new closing rules yet. |
 | Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique |93 tests and both registered4L pairs audited; fixed ansatz parked | Common original-weight factor is removable, but the normalized endpoint still fails the stronger protected face. No artifact/gain; literature follow-up on target-normalization-aware discovery only. |
+| Target-normalization-aware search | `lower_sector_discovery`, `lower_rule_evaluation`, independent auditor | Delivered capability; fixed4L pair negative |102 optimized tests and exact default-off identity pass. Both target templates exhaust144 unknowns with no target; no export. Park this finite ansatz; primitive exponent-offset bug corrected. |
+| Joint sharing-aware rule policy | Root, `lower_rule_evaluation`, independent auditor | Research, inventory and dispatch census delivered |45 distinct rule pairs confirmed across67 exact owner3 domains. Need cap-preserving pre-containment native RHS provenance before any joint-policy cost test. No selector implementation yet. |
 | Whole-owner extra-terminal normalization | Root + `exact_and_cost_audit` | Fresh baseline traversal and ColdAllOff independently pass |3056 domains,2656 native inspections,0.844345s traversal;101 actual root successors independently joined. No new terminals. Preserve549 cyclic abstract domains and no termination/backsubstitution claim. |
 | Preferred whole-program plus baseline fallback | `lower_rule_evaluation` + root + independent audit | Delivered/pushed `014b351b`;327 native+47 Python tests and combined4L control pass | Generic composition is usable. First5L alternative fails performance gate; keep baseline, confirm actual local dispatch only. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
@@ -37,6 +39,104 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Fixed target-template test completes with two bounded misses — October4, 03:25 UTC
+
+[M] Cross-binary default-off reports/artifact bytes and parser checks pass in
+2.391563s. The sole fixed4L pair then completes cleanly in1.700785s, both arms
+returning `NO_TARGET_IN_BOUNDARY_POLYNOMIAL_ANSATZ`, with no artifact exported.
+Native projection times are0.053231s and0.050260s; these are neither campaign
+timings nor evidence of closure. Each visits all144 original-weight rows with
+unchanged48 sources,219 endpoint columns,38 cofinal exclusions and182 activation
+faces. Six target-union monomials add exactly five proportionality constraints,
+giving393 constraints; there is no extra lambda unknown or source-bank growth.
+The full compatibility-plus-pair boundary is4.092348s; compilation is separate.
+
+[E] These exact finite-ansatz misses reject the two prescribed target shapes
+within this bank, not boundary-preserving IBPs in general. No retry, degree
+increase, alternative kernel sweep or production mutation follows. Root parks
+this ansatz after the independent receipt review. All69/70 groups are drained.
+Evidence: `TMP/rule-optimizer-20261003/incidence-study/four-loop-boundary-template-v1/`
+and its sibling `four-loop-boundary-template-preflight-v1/`.
+
+[E] The next shared-policy step is a read-only API design for collecting complete
+native per-application obligations **before** snapshot containment rewrites,
+including original caps, rule/batch provenance and guard obligations. Current
+CP6 adjacency is inadequate. Evaluator owns that design; no selector, new CAS,
+RHS adapter or additional native experiment is authorized at this checkpoint.
+Keep production unchanged: no qualifying shared-work improvement yet.
+
+### Target-template tests and dispatch census complete — October4, 03:24 UTC
+
+[M] All102 optimized research tests pass, none ignored or filtered. Nine new
+cases cover template constraints and the primitive full-variable-map correction.
+Root verifies test stdout and matching frozen/current source hashes; independent
+audit verifies receipts and drained process groups. Compilation82.446s,
+guarded tests4.358s (body0.93s), final link82.863s; builds are not solver timings.
+The research executable is
+`TMP/rule-optimizer-20261003/candidates/boundary-template-build-v1/symbolic-projector`,
+SHA prefix `910f7f0e`. Cached optimized0257 core/app libraries are intentional;
+this slice changes the standalone research search, not the production engine.
+Evaluator now runs default-off/parser compatibility and only the fixed template
+pair after independent preflight. Build0 is released; no source-bank growth.
+
+[M] The separate67-domain match-only census completes in5.336638s, clean/drained
+on65/66. All67 composed matches use preferred batch0, not baseline fallback;
+there are45 distinct baseline/preferred rule-index pairs. The most frequent
+is146→110 (six domains), then240→175 (four). Original caps and complete matching
+pieces are preserved. Native matcher times0.087743/0.075901s are **not** a
+descendant-work comparison. No RHS was expanded or source proof inferred.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-overlap-match-v1/`.
+The next shared-choice ingredient remains complete, cap-preserving native RHS
+provenance, not a more aggressive graph heuristic.
+
+### Shared-choice inventory exposes a provenance limit — October4, 03:19 UTC
+
+[M] Evaluator's read-only scan completes in2.818s at689MB peak onCPU68:
+17,730 identical owner/phase/domain/cap keys,799 different whole-Apply adjacency
+sets, only67 in the changed owner3. The other732 are in unchanged owners.
+Source inspection confirms epoch publication can replace emitted native images
+with snapshot containment tokens. CP6 edges therefore do not preserve complete
+original RHSs or selected-rule IDs. These are not799 authenticated rule choices;
+no selector, graph-cut performance claim or production change follows.
+Evidence: `TMP/rule-optimizer-20261003/profiles/preferred-rule-choice-inventory-v1.json`.
+
+[M] A prepared-only67-query owner3 match plan preserves all singleton geometry
+and caps. Match-only exposes selected rule/batch metadata but no RHS, while the
+existing guarded-apply command rejects power bounds. Do not silently remove
+those bounds to obtain an apparently comparable transfer. The minimal missing
+evidence is same-context native full-RHS provenance. Independent critique and
+target-template implementation/testing remain active; the latter has priority.
+
+### Target-template implementation and a prior generic validation gap — October4, 03:07 UTC
+
+[M] Independent API/code review found that primitive source-weight ansatz
+membership projected a full Symbolica exponent key using `powers[axis]` rather
+than `powers[base_count + axis]`. The prior93 tests missed this indexing error.
+The implementer is correcting it with multiple-index/base-variable regressions;
+the independent auditor makes this a blocking gate for the new slice. Earlier
+real48-row experiments produced no artifact. Their degree-one weights divided
+by the authenticated degree-one `n8` factor necessarily become index-constant,
+so their recorded negative is retained, but the broader generic membership
+guarantee was not justified by those earlier tests alone. No production payload
+or campaign is affected by this research-only correction.
+
+[M] Read-only production observation around03:07: running, zero frontiers,
+158,747,725 scheduled domains,114,555,888 local completions,16,064,168 pending,
+about140.1GB RSS, resumable checkpoint generation17 and no abandoned obligations.
+The closure scan has advanced to21,548,521 recorded closed domains, still13/67
+starting roots; that snapshot is approximately13.4 minutes old. Its1,830,770
+newly recorded closures over the displayed hour are scan-batched, not a measured
+instantaneous closure throughput. The observed conservative unresolved gap is
+still growing; no convergence or completion-time inference is justified.
+
+[E] Root is also researching shared-DAG extraction as a **joint whole-rule
+selection** objective. A locally worse pair of alternatives may jointly create
+more sharing; the earlier all-preferred result does not test such a policy.
+This is a prospective, guarded graph-selection experiment, not a new CAS or an
+authorization to combine proofs from incompatible domains. A cheap exact-domain
+overlap/alternative inventory must establish an opportunity before any selector
+implementation or new native comparison. No gain or optimality is claimed.
 
 ### Next bounded slice authorized after independent research critique — October4, 02:58 UTC
 

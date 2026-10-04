@@ -25,6 +25,11 @@ pub enum Mode {
     WholeColumns,
 }
 
+#[path = "boundary/target_template.rs"]
+mod target_template;
+use target_template::{CompiledTemplate, compile_template, template_constraints, verify_template};
+pub use target_template::{TargetTemplate, TemplateTerm};
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -39,6 +44,8 @@ pub struct Config {
     pub max_activation_faces: usize,
     #[serde(default)]
     pub primitive_original_weights: bool,
+    #[serde(default)]
+    pub target_template: Option<TargetTemplate>,
 }
 
 pub fn config(r: &Value) -> super::Result<Option<Config>> {
@@ -128,6 +135,7 @@ impl Config {
 enum Constraint {
     Global(IndexShift, Vec<u16>),
     Face(IndexShift, usize, i64, Vec<u16>),
+    Template(Vec<u16>),
 }
 struct BasisRow {
     source: usize,
@@ -422,7 +430,7 @@ fn primitive_weights(
             let monomial = config
                 .polynomial_axes
                 .iter()
-                .map(|&axis| powers[axis])
+                .map(|&axis| powers[c.base().parameter_names().len() + axis])
                 .collect::<Vec<_>>();
             if !config.weight_monomials.contains(&monomial) {
                 super::progress::event("boundary_primitive_ansatz_refused", || {
@@ -703,6 +711,21 @@ fn project_bound(
         "identity entry admission",
     )?;
     let mut label_count = 0usize;
+    let template = config
+        .target_template
+        .as_ref()
+        .map(|spec| {
+            compile_template(
+                c,
+                spec,
+                config,
+                &mut admission,
+                &mut operations,
+                &mut guards,
+                limits,
+            )
+        })
+        .transpose()?;
     for (source, row) in rows.iter().enumerate() {
         for monomial in &monomials {
             let mut b = BasisRow {
@@ -770,6 +793,20 @@ fn project_bound(
             }
             basis.push(b);
         }
+    }
+    if let Some(template) = &template {
+        template_constraints(
+            c,
+            &mut basis,
+            &mut labels,
+            &mut target_labels,
+            &mut label_count,
+            template,
+            config,
+            &mut admission,
+            &mut operations,
+            limits,
+        )?;
     }
     if target_labels.is_empty() {
         return Ok(Projection::NoTarget {
@@ -920,6 +957,21 @@ fn project_bound(
             !target_value.is_zero() && forbidden.iter().all(|s| !raw_image.contains_key(s)),
             "boundary full target/F replay",
         )?;
+        if let Some(template) = &template {
+            // Includes the primitive option: dividing original weights may
+            // change target shape. Recheck AFTER that change, never before it.
+            admission.terms = admission.terms.max(retained_terms);
+            verify_template(
+                c,
+                target_value,
+                template,
+                config,
+                &mut admission,
+                &mut operations,
+                &mut guards,
+                limits,
+            )?;
+        }
         super::progress::event("boundary_target_before_normalization", || {
             serde_json::json!({
             "prefix_rows":ordinal+1,"original_weights":weights.len(),
