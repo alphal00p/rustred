@@ -12,12 +12,13 @@ Root orchestrator owns this log; agents report evidence for integration here.
 
 | Lane | Responsible | State / next action |
 | --- | --- | --- |
-| Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered frozen optimized CLI;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
-| Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} three-pair matrix released after4L diagnosis; all four5L training roots retained. No five-loop policy performance result yet. |
-| Literature / radical mechanisms | `lower_rule_evaluation` and independent critic | Shared-policy/finite-frame addendum delivered. Larger frame and block-transfer proposals remain deferred pending a measured witness. |
+| Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered/pushed029e2bff;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
+| Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} matrix complete, all coldPASS: domain changes+1.99%/-0.403%/+1.45%; every whole arm slower. No promotion or automatic sweep. |
+| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Shared-policy/frame/factorization/demanded-summary review delivered. Top5 Route joint-cut screen negative; frame implementation parked for these groups. Demand-slice inheritance witness audit active, no scheduler change. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
+| Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Read-only audit delivered: actual1→220-point alias found, but its removal saves no nodes because14 demands share the lender. Auxiliary-only provenance/net gain remain unproved. Next gate is genuine restricted images for joint demands, not a scheduler rewrite. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
@@ -54,6 +55,120 @@ Its older prospective next steps are historical unless activated above.
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Three-pair matrix complete; no useful winner — October4, 05:58 UTC
+
+[M] Joint110+450 pair completes in381.658s; independent raw audit confirms
+six clean/drained phases, full cold All/Off reinspection of all four roots,
+matching input bindings and zero uncovered/debt. Domains19,197→19,475
+(+1.448%), inspections17,565→17,757, events163,220→159,569 (-2.237%).
+Preparation87.440→89.761s, traversal1.0246→1.0275s and whole arms
+186.466→191.614s (+2.761%). Fewer events do not outweigh more domains and
+higher complete cost. All three fixed policies fail the20% objective; no
+held-out/promotion repetition or expanded sweep is triggered.
+
+[M] The three identical-baseline domain counts span19,112–19,197 (85 nodes),
+which exceeds the77-node improvement of450 and the descriptive26-node joint
+interaction. Do not treat those tiny differences as a robust causal gain.
+Every arm retains the full67-owner/8246-route/two-overlay context and same
+original four training roots; these are not full five-loop closure results.
+The implementer is recording the full matrix and CPU/RSS definitions, and the
+independent auditor is finalizing the measurement note. No native jobs remain
+authorized in this matrix. Production remains read-only and unchanged.
+
+[M] Follow-up demand audit uses only compact completed four-root evidence
+(about2.2s read time), finding an actual T3 Apply alias1707→2738: a singleton
+A6/R3/D3 maps to a220-point lender in the same owner. The alias is merge46;
+the lender's G2 residual inspection is later at161. The lender cone has2,331
+nodes/1,912 native records but14 incoming edges; deleting the one alias loses
+zero reachable nodes. All four inputs are required. Final required-root
+reachability does not reveal historical emission ancestry or establish an
+auxiliary-only blocker. The research note records the exact tuple/caps and
+second1→429-point control. No native run, production scan or feature followed.
+Reopening now needs complete restricted native images and the joint set of
+demands on a lender; do not count its whole cone as removable work.
+
+### Second subset and joint-route screen — October4, 05:52 UTC
+
+[M] Rule450 pair completes in380.858s, all phases clean, both four-root cold
+All/Off checks pass with zero debt. Domains19,119→19,042 (-0.403%), inspections
+17,504→17,403, events159,518→158,737. Whole arms187.535→189.749s (+1.18%);
+traversal1.0239→1.0459s. This is a small work reduction, not a timing win or
+promotion. The independently audited preregistered joint pair is running.
+
+[M] Read-only frame/route research found no coefficient-expansion hotspot in
+symbolic Route: that visitor performs no coefficient arithmetic. The selected
+high-fanout singleton's49 outputs are geometric covers. Removing all49 from
+the frozen H55 graph disconnects just18 nodes. A stronger fixed screen selects
+the five most frequent native Route source masks before evaluation, retaining
+all roots and noncut edges. Deleting all232,654 outputs of61,242 records jointly
+disconnects8,675/385,477 nodes (2.25%) and1.861s of summed overlapping inspection
+time. Individual and joint results are in the research note; input graph pins
+remain in the H55 receipts and new calculations in agent tool output. This
+22.628s/CPU69 read-only screen is uncensored. It is not a valid IBP replacement
+or bound on a changed campaign. Park a frame/exact-support feature for these
+groups; no native algebra, new CAS or production access was used.
+
+[E] A separate primary-literature follow-up on demanded summarization supports
+reexamining the earlier demand-slice proposal, not claiming a new solution.
+The independent auditor confirms current PhysicsQueries verification can leave
+auxiliary roots open, but required coverage must still be through admitted
+oracle-closed input roots. A restricted child alone is insufficient. Evidence
+of actual wider-anchor inheritance and a fixture surviving coordinator
+re-aliasing are prerequisites; no scheduler semantics are changed.
+
+[E] Independent code/mathematical review establishes a useful conditional
+distinction: the concrete visitor's finite exact RHS/transport, same-owner
+well-founded descent, and strictly decreasing support count between owners
+exclude infinite paths; finite branching then implies a finite concrete
+exploration from finitely many fixed inputs. It may still end in an uncovered
+case/error. This is not an exported proof, runtime bound, guarantee of desired
+terminals, or termination of the symbolic/helper worklist. The research note
+records the premises and actual code boundary rather than claiming an absent
+single coordinate-invariant order makes arbitrary concrete cycles possible.
+
+### First subset comparison complete; negative — October4, 05:43 UTC
+
+[M] Independent raw-receipt audit confirms the110 pair completes in382.921s:
+all six phases drain cleanly; both arms cold-recheck all four roots in All/Off
+mode, with zero pending/frontiers/uncovered obligations. Domains19,112→19,493
+(+1.99%), native inspections17,479→17,729 (+1.43%), events158,463→161,400.
+Preparation87.361→88.808s, traversal1.006→1.090s, whole arm186.979→192.225s.
+The original full67-owner/8246-route/two-overlay context is retained, with the
+candidate selector exactly `[110]`. This is a negative result, not a promotion
+nominee. Evidence: `candidates/preferred-subset110-fourpoint-v1/`.
+
+[M] The preregistered450 pair is now running; the joint pair follows whether
+or not either single rule wins. No extra IDs or outcome-driven scope changes.
+Root's read-only live snapshot at05:41 finds171.6M discovered/127.1M local
+completions/14.84M pending, zero frontiers, about150GB RSS and resumable
+checkpoint19. The displayed13/67 root closure comes from a9989s-old snapshot;
+do not infer current closure rate, eventual termination or an ETA from it.
+
+[E] Literature follow-up adds a narrowly qualified factorized-obligation idea:
+avoid flattening an exact product/union representation before subsequent
+operations, rather than merely compressing the queue afterwards. Current
+boxes, correlated caps and containment may already capture the useful
+structure. The research note states a concrete reopening condition; no new
+domain engine or CAS implementation is started.
+
+### Saved-rule subset milestone pushed — October4, 05:38 UTC
+
+[M] Commit `029e2bff` is pushed to `origin/main`: generic immutable saved-rule
+subsets, complete baseline fallback, checkpoint policy binding, steering/tests
+and independently audited research/control results. Only the22 owned paths
+were staged; unrelated FeynKit edits and untracked/reference/campaign material
+remain untouched. The frozen binary and native sources used by the ongoing
+matrix are unchanged. This is an implementation milestone, not a performance
+promotion or campaign-switch recommendation.
+
+[M] The fixed110/450/joint matrix is running sequentially under the existing
+guards; each has its own fresh baseline and cold check. The first baseline
+completes at19,112 domains/17,479 native inspections, differing slightly from
+historical counts. All conclusions will use contemporaneous matched arms.
+The auditor reviews measurement receipts independently; the former
+implementation agent is checking existing routing evidence for a concrete
+finite-rank frame witness, without starting new native jobs or modifying code.
 
 ### Four-loop semantic coverage passes; stronger identity check does not — October4, 05:32 UTC
 

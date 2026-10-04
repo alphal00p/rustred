@@ -5283,3 +5283,43 @@ holes and terminal policy remain. Each fresh matched pair retains its original
 1,800-second inclusive guard,16 workers on32–47 and150GB process/150GB reserve;
 native runs explicitly unset `RUST_MIN_STACK`. Root releases the three frozen
 pairs after the qualified 4L control above. No outcome or gain is claimed here.
+
+### Completed fixed subset matrix
+
+All three preregistered matched comparisons complete; no further native policy
+is added. Independent checks cover each raw walk, cold All/Off report, staged
+saved-ordinal selector, immutable owner/request binding, four required roots,
+zero pending/frontier/uncovered obligations and all six drained phase groups.
+Every arm retains67 owners/8,246 routes/two overlays and the original terminal
+and residual-hole policy. The stack override remains explicitly absent.
+
+| Preferred IDs | Scheduled domains B→C | Native inspections B→C | Events B→C | Domain change | Whole-arm seconds B→C |
+| --- | --- | --- | --- | --- | --- |
+|110|19,112→19,493|17,479→17,729|158,463→161,400|+1.9935%|186.979→192.225|
+|450|19,119→19,042|17,504→17,403|159,518→158,737|−0.4027%|187.535→189.749|
+|110,450|19,197→19,475|17,565→17,757|163,220→159,569|+1.4481%|186.466→191.614|
+
+Pair inclusive times are382.921247,380.857819 and381.658451 seconds,
+respectively (1,145.437517 seconds total). Preparation is87.361→88.808,
+87.481→88.447 and87.440→89.761 seconds; traversal is1.006391→1.090381,
+1.023881→1.045950 and1.024570→1.027495 seconds. Whole-arm measurements include
+fresh staging/preparation, traversal and cold verification; summed child CPU
+is separately1699.390→1710.090,1697.971→1701.001 and1691.992→1738.044 seconds.
+Sampled process-tree peaks range5.215–5.442GB. None of these preparation,
+summed-CPU or verification times is a scalar back-substitution benchmark.
+
+The fresh baseline spread is85 domains (0.445%),86 native inspections (0.492%)
+and4,757 events (3.002%); baseline domain images also differ. It exceeds450's
+77-domain reduction. The matched-delta interaction is−26 domains,+43 native
+inspections and−5,807 events, **descriptive only**, not causal evidence of
+synergy. Equal counts or domain bytes would not alone establish identical
+baseline adjacency either. Every candidate is judged against its own fresh
+baseline, not a more favorable historical run.
+
+No treatment approaches the registered20% work-gain threshold, and all three
+whole-arm times increase. Retain baseline; no promotion, extra IDs, adaptive
+search or repetition is nominated by these results. The read-only summary
+`candidates/preferred-subset-fixed-matrix-v1-results.json` has all input pins,
+ratios, six per-arm metrics and cold counts independently checked. Successful
+cold dependency coverage still retains abstract cycles and does not assert
+full-family closure, concrete back-substitution or production completion.

@@ -72,8 +72,8 @@ native dependencies. Score the union reached from the original four roots with
 a fresh native walk, not the sum of per-rule fanouts. Both payloads and the
 ordinal subset must be immutable checkpoint inputs.
 
-The selected prospective experiment is the subset `{110}`; its decision record
-exists, but final executable-bound requests are not frozen yet. It changes
+The first selected experiment is the subset `{110}`; its executable-bound
+request and the two secondary requests were frozen before measurements. It changes
 the two starting choices together while avoiding the unselective all-preferred
 intervention that failed. A narrow subset is not a topology-specific engine
 special case: ordinals are input data bound to the payload digest.
@@ -207,6 +207,54 @@ substitution. No custom polynomial engine, no new tensor reducer, no positive
 auxiliary-denominator poles, and no new terminal authority. This remains
 research, not a reason to postpone the inexpensive policy experiment.
 
+**Current-code falsifier, October4.** The symbolic Route visitor explicitly
+performs no coefficient arithmetic or numerator expansion; it emits conservative
+geometric covers. The completed H55 census attributes5.019s of summed inspection
+time to242,012 Route calls versus111.178s to Apply. These overlapping totals are
+not wall time. Thus no polynomial-expansion CPU bottleneck has been demonstrated
+in that visitor. A recorded high-fanout singleton `(A,R,D)=(8,3,5)` emits49
+geometric images in0.206ms;49 is not its polynomial monomial count.
+
+There are two different hypotheses: make a real polynomial transport cheaper,
+or tighten a conservative geometric image so fewer downstream Apply obligations
+are created. The first needs a different measured hotspot. The second can have
+value even when the Route call itself is cheap, but needs a same-tuple exact
+support comparison and complete downstream-cost measurement. Neither the5.019s
+nor the49 outputs bounds that possible downstream saving. Existing native
+`Prepared::transport` already uses Symbolica to compute exact finite numerator
+images; no replacement algebra kernel is warranted. The agent's current task is
+read-only witness/API identification, not an engine change.
+
+The follow-up frozen-graph screen is negative even when grouping routes. The
+five native Route source-mask groups were selected before cuts by record count
+(lexicographic tie-break; previously held-out masks excluded). Keep root0 and
+every noncut edge, then hypothetically delete all outputs of each group and of
+their union:
+
+| Source mask | Native records | Disconnected nodes | Disconnected summed inspection seconds |
+| --- | ---: | ---: | ---: |
+| `000011001001010` |17,508|1,252|0.221|
+| `010111011000000` |14,287|3,427|1.097|
+| `000010001001011` |11,851|425|0.031|
+| `000011000001011` |9,482|223|0.005|
+| `010111010000001` |8,114|1,168|0.181|
+| All five jointly |61,242|8,675|1.861|
+
+The joint cut removes232,654 edges but disconnects only2.25% of385,477 nodes,
+including3,298 Apply records. Its1.861s is1.60% of summed inspection time, not
+wall time. Deleting every output is not a valid replacement; this is an
+optimistic screen in a fixed graph, not a mathematical bound on a changed
+program with different publication/reuse. Nevertheless, it does not justify
+an expensive exact-support/frame feature for these selected groups. The
+singleton witness alone disconnects18 nodes when all49 edges are removed.
+
+The read-only joint analysis completes uncensored in22.628s onCPU69 under2GiB
+and120s limits, without native algebra or production access. The existing
+H55 census/graph receipts and completed baseline diagnostic records establish
+the selection and graph inputs. The new cut numbers are retained in the
+agent's tool output and this note, not a newly written machine-readable receipt.
+Retain this negative; reopen only with a different high-leverage witness.
+
 ## 3. Bounded boundary blocks: reuse a transfer, not a guessed universal basis
 
 Blade constructs smaller block-triangular reduction systems for selected
@@ -250,10 +298,170 @@ composition bridge retaining zero-sector tails, guards and block boundary
 semantics is not yet the same thing as the read-only circuit observer. It must
 not be implemented merely because small-matrix elimination sounds inexpensive.
 
+## 4. Compute with factored obligations, rather than only compressing them
+
+Olteanu and Závodný distinguish tree-like factorized relations from circuits
+sharing repeated subexpressions. Their size bounds depend on the query's
+dependency structure; computing the factorized result directly can avoid
+materializing an exponentially larger flat relation. Optimal unrestricted
+factorization is hard. These are relational-data results, not a theorem about
+IBP recurrences or their termination.
+[Size Bounds for Factorised Representations of Query Results, §§1,5,8–9](https://www.cs.ox.ac.uk/dan.olteanu/papers/oz-tods15.pdf).
+
+The potential RustRed transfer is to preserve an exact product/union circuit
+of successor sets through several compatible transforms, not simply compress
+an already generated queue. For a synthetic example, the products
+`{a,b} × {u,v,w}` need not immediately become six separate records if every
+subsequent operation can act on the product. A monomial expansion followed by
+per-child evaluation destroys that opportunity; ordinary hash-consing only
+recovers equal children after paying the expansion cost.
+
+This is a hypothesis with a substantial boundary: RustRed already represents
+rectangular domains with correlated rank/power caps and shares contained
+results. Those mechanisms may already capture the useful factorization.
+Guards, routing and different child recurrences can destroy the product
+structure. A Boolean obligation circuit also cannot establish cancellation of
+coefficient-weighted integral terms. The proposed numerator frames concern
+that separate algebraic representation and must use Symbolica.
+
+**Reopening condition:** find repeated, large native expansions whose exact
+guarded successor relation has a compact product structure *not already
+represented by current boxes/caps*, and demonstrate that the next native
+operation preserves it. Mere compression of a completed edge list, another
+duplicate-key table, or a smaller synthetic diagram is insufficient. No
+decision-diagram framework or new domain representation is implemented here.
+
+## Demand-specific reuse: a distinct next question
+
+Stein, Chang and Sridharan's demanded-summarization framework creates analysis
+summaries for requested contexts and tracks dependencies for consistent reuse.
+Its termination theorem relies on the underlying abstract interpreter's
+convergent widening; it is not an IBP termination result. The useful analogy is
+separating an existing broad summary from the precise demand that motivated a
+call, rather than treating all summary work as equally necessary.
+[Interactive Abstract Interpretation with Demanded Summarization, §§4–5](https://www.bennostein.org/toplas24.pdf).
+
+RustRed already has an unimplemented demand-slice proposal; this literature
+does not make it new. A requested finite region `Q` can be contained in a wider
+locally inspected but unfinished helper `A`. Reusing `A` may make `Q` wait on
+descendants outside `Q`'s actual image. A selective alternative would reapply the
+same admitted rules to `Q`, preserve every guard and resulting successor, and
+retain `A` as unfinished. It must survive later containment/retirement without
+being redirected immediately back to `A`. No new master, omitted required
+input, or declaration that `A` is solved is permitted.
+
+The outstanding evidence question is whether this happens often enough in the
+actual frozen physics scope to pay for restricted reinspection and lost
+sharing. The earlier constructed4L fixture is a correctness discriminator, not
+a measured live blocker. Full4L inputs already require their wider anchors, so
+closing a subset earlier does not remove those anchors' eventual work. The5L
+case also needs an honest required-query completion boundary: retaining all
+auxiliary declarations is different from demanding all their cones finish.
+Current `PhysicsQueries` cold verification is relevant, but does not itself
+implement demand scheduling. No scheduler or checkpoint semantics are changed
+by this research note.
+
+**Recorded, not constructed, witness.** A bounded read of the completed four-root
+graph finds Apply alias1707→2738 on owner `101010000110001`. The former is one
+exact point, `(1,-2,1,0,1,0,0,0,0,1,1,-1,0,0,1)`, with `(A,R,D)=(6,3,3)`.
+The latter fixes the same six active powers to1 and allows the nine inactive
+coordinates to share total rank at most3:220 points, with A≤6 and D∈[3,6].
+The alias is a delegated, uninspected T3 record at merge46; the lender's later
+G2 residual inspection occurs at merge161. Do not describe it as an already
+inspected lender at alias time.
+
+Its final cone contains2,331 nodes/1,912 native records and1.061 summed
+inspection seconds. But14 edges enter the lender, and removing this one alias
+disconnects **zero** nodes from the original four required roots. An abstract
+417→1707→2738→417 cycle is present; it does not establish a concrete cycle.
+The final graph shows required-root reachability, not historical emission
+ancestry or an auxiliary-only cause. A second one→429-point alias has the same
+zero-exclusive-work limitation. These2.2s read-only checks establish actual
+broadening, not a performance opportunity or the proposed required/helper
+blocker. A further test must evaluate genuine restricted native images and
+account jointly for all other demands on the lender; clipping the saved graph
+or treating its full cone as removable would be invalid. Input pins are in
+`profiles/lower-owner-0-3-pointgraph-result-v1.json` under the local evidence root.
+
+### A useful conditional finiteness argument
+
+Source inspection and independent mathematical review support the following
+argument for the **concrete routed visitor**, not the symbolic campaign:
+
+1. Start from finitely many exact integral keys. Each successful saved-rule
+   step and fixed-index numerator transport produces finitely many children.
+2. A same-support Apply child stays in the same owner and strictly decreases
+   that owner's admitted well-founded ordering. Signed index coordinates are
+   covered by nonnegative complexity keys; unrestricted signed lexicographic
+   order is not being assumed.
+3. Leaving that owner for Route requires a strict decrease in the number of
+   positive indices. A route preserves its root cardinality and returns to
+   Apply at that cardinality, or pinches further. Hence an infinite path could
+   have only finitely many owner-changing support drops, after which it would
+   contradict the local well-founded order.
+4. A finitely branching tree without an infinite path is finite (König's
+   lemma). Thus this concrete successful-step exploration is finite, assuming
+   the admitted premises hold. It can still end at an uncovered case or typed
+   error rather than the desired terminal basis.
+
+Relevant code is `routed/campaign/worker.rs` (support/phase checks) and
+`candidate_reduction/evaluator.rs` (nonzero-child order check), together with
+the admitted order definitions. This is a code-backed mathematical inference,
+not a newly implemented certificate, practical cardinality bound or ETA.
+It does **not** transfer to symbolic overcovers, broad auxiliary input cones or
+reuse edges that make a narrow demand depend on a wider domain. That distinction
+motivates the demand-specific audit without promising that enumerating all
+physical points is computationally affordable.
+
+## Completed policy evidence
+
+All three preregistered pairs completed and were independently audited. Each
+used its own fresh same-build baseline, the unchanged four required queries
+and caps, all 67 owners, 8,246 routes and two overlays, with 16 workers on
+CPUs 32–47. Only the preferred saved-rule subset changed; baseline fallback
+and terminal boundaries remained intact. Times below are seconds, shown as
+baseline → candidate. Whole-arm time includes preparation and cold checking;
+compilation is excluded.
+
+| Preferred subset | Scheduled domains | Native inspections | Whole arm | Traversal | Inclusive pair |
+|---|---:|---:|---:|---:|---:|
+| `{110}` | 19,112 → 19,493 (+1.99%) | 17,479 → 17,729 | 186.979 → 192.225 | 1.006 → 1.090 | 382.921 |
+| `{450}` | 19,119 → 19,042 (−0.40%) | 17,504 → 17,403 | 187.535 → 189.749 | 1.024 → 1.046 | 380.858 |
+| `{110,450}` | 19,197 → 19,475 (+1.45%) | 17,565 → 17,757 | 186.466 → 191.614 | 1.025 → 1.027 | 381.658 |
+
+Every arm drained its work queue and passed fresh-process `All` reinspection
+with reference levers `Off`, all four required roots checked, and zero
+frontiers or uncovered successors. Native runs explicitly did not inherit
+the enlarged stack used for the separate opt0 libtest fixture. Abstract graph
+cycles remain in these results: this is a finite cohort traversal/coverage
+comparison, not a new unrestricted termination, back-substitution or
+five-loop family-closure proof.
+
+The baseline spread is 85 domains (19,112–19,197), 86 native inspections
+(17,479–17,565), and 4,757 emitted events (158,463–163,220). The 77-domain
+reduction for `{450}` is smaller than that domain spread and accompanies a
+1.18% whole-arm slowdown. The joint difference-of-matched-deltas is −26
+domains, +43 native inspections and −5,807 events; it is descriptive only,
+because the three baselines do not have identical graphs. In particular,
+fewer emitted events in the joint arm did not mean fewer scheduled domains.
+There is no demonstrated stable gain, beneficial interaction, 20% target
+hit or reason to promote one of these choices to production.
+
+The pinned local summary
+`TMP/rule-optimizer-20261003/candidates/preferred-subset-fixed-matrix-v1-results.json`
+retains all six arms, phase receipts, preparation and cold-process wall
+times, waited-child user+system CPU sums, sampled peak owned-process-tree
+RSS, and graph identities. CPU sums range from 1,692 to 1,738 seconds and
+sampled peaks from 5.22 to 5.44 GB; these are not instantaneous utilization
+or a proof of the true peak. Preparation takes 87.36–89.76 seconds per arm,
+and cold checking 89.90–93.26 seconds. All owned process groups drained;
+no further policy IDs or native trials were added after seeing results.
+
 ## Recommendation and what remains unproved
 
-Execute the existing-rule110 policy test first, followed by the preregistered
-450 and joint secondary tests, not automatic deployment. The frame atlas
+Keep the baseline: the fixed subset matrix did not turn the promising local
+boundary-sharing screen into a useful whole-cohort improvement. Do not expand
+the ordinal search without a new mechanism or representative witness. The frame atlas
 has larger structural upside but needs a new high-cost routing witness before
 implementation. Bounded transfer blocks need a larger exclusive-work witness
 than the already rejected motifs.
