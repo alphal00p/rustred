@@ -7,6 +7,8 @@ use std::{ops::ControlFlow, sync::atomic::AtomicBool};
 
 #[path = "endpoint_locality_tests.rs"]
 mod endpoint_locality_tests;
+#[path = "endpoint_no_raising_tests.rs"]
+mod endpoint_no_raising_tests;
 
 fn context() -> IndexedCoefficientContext {
     IndexedCoefficientContext::try_new(

@@ -1,5 +1,37 @@
 # Bounded campaign profiling
 
+## Exact cancellation across one routed rule boundary
+
+`rule_optimizer_routed_cancellation` is a research diagnostic, not a new
+campaign execution mode. It observes one complete singleton rule application,
+routes every weighted term using the admitted selection, and sums coefficients
+of equal canonical integral keys with Symbolica. It does not apply further
+IBPs or combine independent parent identities.
+
+```bash
+cargo build --release --locked -p rustred-app --example rule_optimizer_routed_cancellation
+target/release/examples/rule_optimizer_routed_cancellation REQUEST.json FRESH_OUTPUT_DIRECTORY
+```
+
+The request embeds the existing applied-observer request and explicit
+route/coefficient/recording limits; see `routed_cancellation/input.rs`.
+Exactly one singleton is required, together with expected complete native
+successor and pinch counts. The full selection is admitted before observation.
+The output retains the original native events, a routing ledger, binary
+Symbolica coefficient tables, and distinct counts for endpoint occurrences,
+unique keys and keys removed by exact coefficient cancellation. Incomplete
+encoding, cancellation, conditional source coefficients or route failures do
+not produce a successful complete report. Resource guards remain external;
+the public transport API exposes per-call limits, not the aggregate charge
+used by the finite campaign tracer.
+
+On the frozen five-loop H1 stress parent tested on October4,473 routed
+occurrences become372 distinct keys, of which26 cancel exactly. This is a
+fixed-parent observation in the full shared-owner context, not a parametric
+rule, a production bottleneck census or a measured campaign speedup. Existing
+cold closure replay still requires the original successor obligations; the
+diagnostic does not authorize deleting those dependencies.
+
 ## Experimental exact initial-domain summaries
 
 `rustred owner-domain-match` has an opt-in

@@ -57,6 +57,11 @@ name = "rule_optimizer_applied_observer"
 path = "../../tools/research/rule_optimizer/applied_observer.rs"
 required-features = ["cli"]
 
+[[example]]
+name = "rule_optimizer_routed_cancellation"
+path = "../../tools/research/rule_optimizer/routed_cancellation.rs"
+required-features = ["cli"]
+
 # These integration tests compare the library against the CLI executable.
 [[test]]
 name = "application_api"

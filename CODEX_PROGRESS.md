@@ -23,13 +23,135 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025-domain graph. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Combined485 adds20.10%/20.32% marginal reduction over484 in two completed cold-passed pairs;83 terminals unchanged. Hard H1 remains incomplete in both arms. Original260-region treatment-heldout validation is proposed, not run. No production installation. |
-| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pusheddeca49ea.110 tests and exact native two-chart proof pass; portable tracked requests reproduce reports in4.448s. Charts/axes/windows still supplied. Now researching generalized no-raising/subloop constraints, not claiming automatic graph nomination. |
-| Conceptual descendant elimination | Evaluation implementation proposal; discovery literature; independent audit | Active: constrain complete source combinations before descendants arise; separately test exact cancellation after routing all terms of one parent identity. No cache/scheduler work or cap changes substituted for reduced mathematical workload. |
+| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Strict locality pusheddeca49ea. New generic no-raising selector passes117 tests. Native no-raising proof gives10 tails versus7; adding original-zero-index preservation recovers the known7-tail identity. No new performance gain; charts/axes/windows remain supplied. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery literature; `finite_region_audit` independent audit | One-parent diagnostic implemented/audited;10 tests pass. Complete330-term parent yields372 canonical keys,26 cancel exactly. Investigate expensive surviving/cancelled classes before a new source-window nomination. No campaign pruning or speedup claim. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Complete weighted routing removes26 descendant keys — October4, 12:28 UTC
+
+[M] The research-only routed-cancellation adapter passes10 focused optimized
+tests and independent implementation/native audit. Full-context native run
+finishes cleanly in97.470s, with about5.12GiB sampled peak RSS. Preparation
+takes89.352s, original source observation0.024s and weighted routing0.140s.
+Actual selection is owner31/batch0/rule210; all330 source successors and235
+strict pinches match the original stress witness. No descendant IBP is applied.
+
+[M] The259 route calls materialize402 route terms. Together with untransported
+terms they give473 final occurrences,372 distinct canonical keys and346 nonzero
+coefficient sums. The101 duplicate additions are separate from26 exact Q(d)
+cancellations: each cancelled key receives two contributions from different
+terms of the SAME complete parent identity. Raw/normalization assumptions and
+the original coefficient evidence remain retained. This is6.99% fewer distinct
+immediate routed obligations, not a6.99% campaign speedup or saved prospective
+transport charge. Evidence:
+`TMP/rule-optimizer-20261003/profiles/routed-cancellation-owner31-v1/`;
+native result SHA256 starts`6c32df63`, frozen binary`89824d68`.
+
+[E] This demonstrates a conceptual opportunity absent from plain support-union
+traversal. It does not yet justify dropping recorded Route/Apply dependencies:
+production needs a replayed composite boundary or an ordinary-source-proved
+replacement. The witness is a high-dot H1 stress descendant, not demonstrated
+ancestry of the live campaign. Next inspect the owners/ranks of cancelled and
+surviving keys and choose one costly class to forbid during source selection.
+The full260-integral physical-region comparison remains queued behind this
+diagnostic, preserving the two H1 budget failures.
+
+[E] A fresh primary-paper review of Liu–Mitov, arXiv2512.05923, confirms its
+forbidden-column/target elimination is already available here. The transferable
+choice is a stricter allowed RHS, including controlled numerator growth across
+pinches. Its fixed-positive-power examples and empirical source-depth cutoff
+do not establish arbitrary-dotted five-loop closure. At this rank-zero witness,
+requiring a rank decrease on every pinch would disallow every nonzero pinch;
+a rank-nonincreasing alternative is only a proposed finite-window objective.
+Prior Euler-transfer ordering obstructions and unsuccessful protected-source
+experiments are retained; no rebranded solver or custom CAS is introduced.
+
+### Constrained-source result and complete-parent diagnostic — October4, 12:20 UTC
+
+[M] The no-raising research selector passes117 optimized tests, including
+seven new tests for full-source-universe constraints, weighted cancellation,
+retained poles/pinches, malformed axes and absent/empty-option identity.
+Frozen binary SHA256 starts`2fe997e8`; no core library or campaign semantics
+changed. All three native proof processes finish cleanly in6.591s: both strict
+portable controls reproduce their earlier reports, while the new broad-chart
+no-raising rule uses4 original contributions and10 tails instead of8 and7.
+It allows spectator lowering but also opens two previously absent numerator
+directions. This is an exact alternative, not demonstrated better shared work.
+
+[M] One input-only correction preserves precisely the eight originally fixed
+zero-index directions while retaining spectator no-raising. The same25-source
+window proves in3.036s and recovers the existing seven-tail rule, with unchanged
+eight native cells and guard. The complete forbidden-column sets differ, but
+the composed identity agrees. There was no export, retry, rule-pool change or
+campaign launch. Evidence and literature are in
+`docs/research/conceptual_rule_search_2026-10-04.md`; independent final receipt
+review passes. Do not treat this recovery as an additional optimization.
+
+[M] The separate routed-cancellation adapter has passed independent source
+review. The review caught incomplete optional coefficient encoding and a late
+cancellation-check gap; both are fixed before native use. The first test build
+failed only on two calls to a test-only constructor unavailable in an external
+example; the public-constructor correction is isolated and the failure is
+retained. Focused tests/link are ongoing. The Cargo example registration passes
+`cargo metadata --locked --offline --no-deps`.
+
+[E] Root authorizes one complete330-term/235-pinch parent diagnostic after
+tests and input audit, with all67 owners,8246 routes and both overlays admitted.
+Prior identical-context preparation took88.899s with16workers, so use CPUs32–47,
+16GiB owned memory plus150GB host reserve and a300s inclusive pilot, not a
+serial partial-context shortcut. Discovery's tiny probes have drained. No
+descendant Apply, independent-parent cancellation or production edit is allowed.
+The next search objective is to eliminate an empirically expensive routed
+endpoint class, rather than optimize raw tail count; no class is chosen until
+the complete weighted boundary is observed.
+
+[M] Read-only production at about12:18UTC is running with203.14M discovered,
+157.56M local completions,12.53M pending, zero frontiers and resumable checkpoint26.
+Recorded13/67 closed roots and26.24M closed domains have a10,410-second-old
+snapshot. Hour-window pending growth is+0.0036 per local completion. These are
+not current recursive-closure rates, a completion prediction or a switch gate.
+
+### Literature-backed source objective and composite-boundary probe — October4, 12:04 UTC
+
+[M] The portable locality inputs, negative H1 findings and clarified active
+plan are committed and pushed on main as `601b1334`. Production remains
+unchanged. Root's read-only snapshot at about11:52UTC records201.11M discovered,
+155.89M local completions,12.39M pending and zero frontiers. Pending growth per
+local completion over the last hour is−0.1283. The13/67-root closure snapshot
+is8,815 seconds old; no new recursive closure or completion time is inferred.
+
+[M] Discovery's primary-source review identifies a useful distinction between
+exact spectator preservation and forbidding only power increases. The latter
+permits spectator pinches and changes which complete IBP combinations can be
+found. Root authorizes a research-projector-only extension, independently
+reviewed, with no new algebra implementation or core/closure changes. All117
+focused tests pass, including seven new no-raising tests. A fixed native test
+will change only this constraint in the existing25-source banana chart; its
+result is pending. This is not yet a new rule or performance improvement.
+
+[E] Evaluation implements a separate generic single-parent diagnostic using
+existing native applied-term observation, verified transport and Symbolica
+coefficient arithmetic. The frozen330-term/235-pinch parent is from the H1
+stress-panel fallback, not demonstrated production ancestry. The discriminator
+compares the complete unweighted routed support against the exact weighted
+sum for that one parent. No cancellation across independent parents is allowed.
+No engine deployment or descendant pruning is authorized by a positive result.
+Existing cold coverage still requires every native successor; a future change
+would need a replayed composite identity or a new ordinary-source rule.
+
+[E] Independent critique notes that generic routed keys have the form
+`P*n+delta`, not necessarily `n+shift`. A positive fixed-index cancellation
+can be lifted only where exact endpoint maps agree and coefficient sums vanish
+identically, with all guards retained. Coincidences at equal powers require
+their own domain restriction; sampled cancellation is not a parametric proof.
+The stronger-looking global excess-bound idea is deferred: existing native
+total-excess machinery already supports sector-dependent envelopes. A uniform
+bound would require all reached rules and helper obligations to satisfy it,
+and finite cardinality alone would not imply practical campaign performance.
 
 ### Conceptual solve changes take priority — October4, 11:52 UTC
 
