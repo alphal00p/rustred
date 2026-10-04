@@ -68,6 +68,148 @@ fn config() -> Value {
         "cancel_rank_positive_shifts":[[-2]],"forbid_new_rank_positive":true}})
 }
 
+fn admitted_config() -> Value {
+    let (_, mut r) = crate::tests::tadpole();
+    r["max_refinements"] = json!(0);
+    r["chart"] = config()["chart"].clone();
+    r["boundary_correction"] = config()["boundary_correction"].clone();
+    r
+}
+
+#[test]
+fn translated_pinch_policy_requires_explicit_boolean_and_preserves_old_admission() {
+    let mut r = admitted_config();
+    validate(&r, 1).unwrap();
+    r["boundary_correction"]["translated_pinch_sources"] = json!(false);
+    validate(&r, 1).unwrap();
+    r["boundary_correction"]["correction_sources"][0]["offset"] = json!([-2]);
+    assert!(validate(&r, 1).is_err());
+    r["boundary_correction"]
+        .as_object_mut()
+        .unwrap()
+        .remove("translated_pinch_sources");
+    assert!(validate(&r, 1).is_err());
+    for bad in [Value::Null, json!(1), json!("true"), json!([])] {
+        r["boundary_correction"]["translated_pinch_sources"] = bad;
+        assert!(validate(&r, 1).is_err());
+    }
+}
+
+#[test]
+fn translated_pinch_bindings_deduplicate_full_pairs_not_rowids() {
+    let mut r = admitted_config();
+    r["boundary_correction"]["translated_pinch_sources"] = json!(true);
+    r["boundary_correction"]["correction_sources"] = json!([
+        {"source_row":"ordinary-ibp:0:0","offset":[-1]},
+        {"source_row":"ordinary-ibp:0:0","offset":[-2]}]);
+    validate(&r, 1).unwrap();
+    r["boundary_correction"]["correction_sources"][1]["offset"] = json!([-1]);
+    assert!(
+        validate(&r, 1)
+            .unwrap_err()
+            .contains("duplicate correction RowId/offset")
+    );
+    r["boundary_correction"]["correction_sources"][1]["offset"] = json!([0]);
+    assert!(validate(&r, 1).unwrap_err().contains("nonpositive"));
+}
+
+#[test]
+fn translated_source_rank_and_other_axis_activation_do_not_bypass_final_checks() {
+    let mut r = admitted_config();
+    r["owner_mask"] = json!("10");
+    r["chart"] = json!({"lower":[0,0],"upper":[0,0],"fixed":[[0,1],[1,0]]});
+    r["boundary_correction"]["translated_pinch_sources"] = json!(true);
+    r["boundary_correction"]["cancel_rank_positive_shifts"] = json!([[-1, -1]]);
+    for offset in [json!([-2, -3]), json!([-1, 1])] {
+        r["boundary_correction"]["correction_sources"][0]["offset"] = offset;
+        validate(&r, 2).unwrap();
+    }
+    let c = context("translated-native-gates");
+    let mut one = config();
+    one["boundary_correction"]["translated_pinch_sources"] = json!(true);
+    assert!(
+        verify_corrections(
+            &one,
+            &[project::Row::from([(shift(0), c.one())])],
+            &shift(0)
+        )
+        .is_err()
+    );
+    assert!(
+        verify_corrections(
+            &one,
+            &[project::Row::from([(shift(1), c.one())])],
+            &shift(0)
+        )
+        .is_err()
+    );
+    let baseline = project::Row::from([(shift(0), c.one()), (shift(-1), c.one())]);
+    let candidate = project::Proposal {
+        weights: project::Weights::from([(0, c.one())]),
+        image: project::Row::from([
+            (shift(0), c.one()),
+            (shift(-1), c.one()),
+            (shift(-2), c.one()),
+        ]),
+        guards: vec![],
+        prefix_rows: 1,
+    };
+    assert!(verify_preserved(&one, &baseline, &candidate).is_err());
+}
+
+#[test]
+fn explicit_false_keeps_complete_native_zero_control_report_identical() {
+    let (bytes, mut r) = crate::tests::tadpole();
+    r["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    r["max_refinements"] = json!(0);
+    r["chart"] = json!({"lower":[1],"upper":[1],"fixed":[[0,2]]});
+    r["boundary_correction"] = config()["boundary_correction"].clone();
+    r["boundary_correction"]["correction_sources"][0]["offset"] = json!([-2]);
+    r["boundary_correction"]["cancel_rank_positive_shifts"] = json!([]);
+    let old = crate::run::<1>(&bytes, &r, false).unwrap().0;
+    r["boundary_correction"]["translated_pinch_sources"] = json!(false);
+    let off = crate::run::<1>(&bytes, &r, false).unwrap().0;
+    assert_eq!(old["attempts"], off["attempts"]);
+    assert_eq!(old["status"], "EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED");
+}
+
+#[test]
+fn native_multi_offset_corrections_keep_zero_control_and_full_source_proof() {
+    let (bytes, mut r) = crate::tests::tadpole();
+    r["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    r["max_refinements"] = json!(0);
+    r["chart"] = json!({"lower":[1],"upper":[1],"fixed":[[0,2]]});
+    r["boundary_correction"] = config()["boundary_correction"].clone();
+    r["boundary_correction"]["translated_pinch_sources"] = json!(true);
+    r["boundary_correction"]["correction_sources"] = json!([
+        {"source_row":"ordinary-ibp:0:0","offset":[-2]},
+        {"source_row":"ordinary-ibp:0:0","offset":[-3]}]);
+    r["boundary_correction"]["cancel_rank_positive_shifts"] = json!([]);
+    crate::validate(&r).unwrap();
+    let (report, export) = crate::run::<1>(&bytes, &r, false).unwrap();
+    assert!(export.is_none());
+    assert_eq!(
+        report["status"], "EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED",
+        "{report}"
+    );
+    let b = &report["attempts"][0]["boundary_correction"];
+    assert_eq!(b["correction_rows"], 2);
+    assert_eq!(b["zero_control"]["original_contribution_map_equal"], true);
+    assert_eq!(b["zero_control"]["incoming_conditions_retained"], true);
+    assert_eq!(
+        b["correction_source_policy"]["bindings"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        b["correction_source_policy"]["complete_native_images_target_and_unpinched_zero"],
+        true
+    );
+    assert_eq!(b["same_support_preserved"], true);
+}
+
 fn frame(c: &IndexedCoefficientContext, offset: i64, row: project::Row) -> source::Span {
     source::Span {
         provenance: source::SpanProvenance::Ordinary,

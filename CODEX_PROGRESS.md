@@ -24,12 +24,83 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Both strict and rank-one-relaxed P9 searches miss in the same26-row span. Delivered exact dual diagnostic:138 tests and native probe pass; a two-column P9 coupling explains this bank's failure. Selected next slice is native witness-directed source nomination; collective291 cancellation stays pending. No corrected rule, new CAS or production change. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Exact obstruction-guided strict100 trial succeeds:313→294 tails,93→81 numerator columns, no new numerator columns, all leading coefficients preserved.150 tests and independent native proof audit pass; guards32→40 per cell. Active: typed export and three-arm routed-boundary comparison (saved330/B0313/corrected294). Collective291 cancellation stays pending. No downstream-work gain or production change claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### First exact obstruction-guided correction succeeds — October4, 15:20 UTC
+
+[M] The fixed100-row trial returns
+`EXACT_BOUNDARY_CORRECTION_CHART_PROVED`:294 RHS columns instead of313,
+81 numerator-bearing columns instead of93, all nine requested P9 columns
+absent, and no new numerator columns. It drops21 shifts and adds two scalar
+shifts while retaining every unpinched coefficient and the normalized target.
+The composed271 original-source contributions pass the native source, guard
+and descent checker on four cells. This is a reusable parametric chart, not
+only the nominated integer point. The preceding old strict25 control matches
+its full prior report modulo timing/provenance. The two-run group takes5.013s
+inclusive, cleanly drained; the candidate guard itself takes2.451s. These are
+local algebra/proof timings, not campaign closure or a speed comparison.
+
+[E] This supplies the missing proof-of-concept for **obstruction-guided source
+selection**: a failed finite span gave an exact separator; inverse source
+support and native pairings identified new directions; complete scalar-source
+blocks then produced the wanted correction without the previously forbidden
+trade into new numerator columns. It does not prove that this strategy always
+terminates or that the new rule reduces total campaign work.
+
+The next gate is a typed export and three-arm native comparison: the actual
+saved330-term rule, the independently generated313-term B0, and corrected294.
+Neither display strings nor the saved rule substitute for original-source
+provenance. Preserve every guard, fallback owner and routing obligation. The
+weighted report's `fresh_original_source_certificate:false` denotes retention
+of weighted-source/computational guards, not failure of the native replay;
+do not set it true merely because the native checker succeeds. A separately
+named replay-success field may clarify this in the next slice.
+
+Evidence: `TMP/rule-optimizer-20261003/profiles/owner31-witness-scalar-block-correction-v1/`;
+candidate raw `3a7ba30d…2331dfc`, execution `9e4ad4aa…81850d1`, binary
+`235d5f0e…406e94db`. Independent final result audit passes. Cell bounds are
+unchanged; guard lists grow32 to40 and retain every old guard. These additional
+pivot conditions must survive export/application, not be removed to ease
+admission. The native proof is therefore of the retained guarded charts, not
+an assertion of identical guard sets. No artifact export, recursive-cost measurement, production
+installation or second full campaign has occurred.
+
+### Translated-pinch ingress passes focused tests — October4, 15:16 UTC
+
+[M] The minimal default-off research ingress passes150 tests (zero failed,
+ignored or filtered;0.97s test body). Independent code/mathematical/test audit
+passes. It admits explicitly supplied unique `(RowId,offset)` pairs with a
+nonpositive fixed pinch source power; no automatic search, source-rank filter,
+new algebra service or production-engine change. All whole-image leak checks,
+original-source composition, strict boundary constraints and guard/descent
+proofs remain in place. Cached opt2/no-LTO test compilation takes88.262s;
+native linked probe results are pending. Do not mistake these tests for a
+successful100-row correction or performance evidence.
+
+### Source milestone pushed; current campaign remains an observation — October4, 15:13 UTC
+
+[M] Nomination implementation,145-test result and both native receipts are
+committed/pushed on main as `f3857752`. The independent auditor accepts the
+strict100 experiment: all three extra source directions remain scalar on the
+entire chart, but their native images can contain new numerator columns which
+must cancel. Input `0e1dafb8…fdd37ca3` requires7944 raw term entries, within
+the existing10000 allowance. Only combined source/proof row allowances become
+391. The new research ingress is under audit/build; it does not change the
+production engine. One default-off strict25 parity control precedes the100-row
+probe, both within the same300s/16GiB native reservation.
+
+[M] Read-only production at15:09UTC:217.68M discovered,172.83M local
+completions and10.44M pending, zero frontiers,13/67 recorded closed roots.
+The29.67M closed-domain lower bound is from a95-minute-old snapshot, so the
+hour-window recorded zero is not a measured absence of closure. Hour-window
+pending change is-0.1215 per local completion; mean computing inspectors3.23.
+Process-tree RSS186.02GB; CP28 remains resumable. No ETA, lifecycle action,
+campaign-switch recommendation or production input change follows.
 
 ### Witness-directed census completed; actual strict correction selected — October4, 15:07 UTC
 

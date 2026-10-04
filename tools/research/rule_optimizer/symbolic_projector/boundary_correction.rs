@@ -41,6 +41,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
                     | "max_numerator_rank"
                     | "exact_dual_separator"
                     | "witness_preimage_nomination"
+                    | "translated_pinch_sources"
             )
         }),
         "unknown boundary correction field",
@@ -52,6 +53,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
     rank_cap(r)?;
     checked(dual::enabled(cfg))?;
     nomination::enabled(cfg)?;
+    let translated = translated_pinch_sources(cfg)?;
     require(
         number(r, "max_refinements")? == 0,
         "boundary correction does not refine or grow its bank",
@@ -107,6 +109,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
         "combined original-source bank exceeds allowance",
     )?;
     let mut seen = BTreeSet::new();
+    let mut seen_pairs = BTreeSet::new();
     for source in corrections {
         let fields = source
             .as_object()
@@ -122,14 +125,25 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
             .filter(|v| !v.is_empty())
             .ok_or("correction RowId required")?;
         let offset = integers(&source["offset"], n)?;
-        require(
-            offset
-                .iter()
-                .enumerate()
-                .all(|(i, &v)| v == if i == pin { -value } else { 0 }),
-            "correction offset must make only the declared fixed pinch zero",
-        )?;
-        require(seen.insert(id), "duplicate correction RowId")?;
+        if translated {
+            require(
+                i128::from(value) + i128::from(offset[pin]) <= 0,
+                "translated correction source must keep the declared pinch nonpositive",
+            )?;
+            require(
+                seen_pairs.insert((id, offset)),
+                "duplicate correction RowId/offset",
+            )?;
+        } else {
+            require(
+                offset
+                    .iter()
+                    .enumerate()
+                    .all(|(i, &v)| v == if i == pin { -value } else { 0 }),
+                "correction offset must make only the declared fixed pinch zero",
+            )?;
+            require(seen.insert(id), "duplicate correction RowId")?;
+        }
     }
     let mut selected = BTreeSet::new();
     for shift in array(cfg, "cancel_rank_positive_shifts")? {
@@ -140,6 +154,18 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Explicit admission of a frozen translated-source list, not permission to
+/// search offsets or grow a bank. The native full-image/proof gates below are
+/// identical in both modes; source rank and other-axis activations are not
+/// substitutes for those gates.
+fn translated_pinch_sources(cfg: &Value) -> Result<bool> {
+    match cfg.get("translated_pinch_sources") {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        _ => Err("translated_pinch_sources must be boolean".into()),
+    }
 }
 
 fn pin_value(r: &Value) -> Result<(usize, i64)> {
@@ -575,10 +601,13 @@ pub fn run(
     let c = generator.context();
     let cfg = &r["boundary_correction"];
     let sources = array(cfg, "correction_sources")?;
-    require(
-        sources.len() == ids.len(),
-        "correction bank must be one complete ordinary inventory",
-    )?;
+    let translated = translated_pinch_sources(cfg)?;
+    if !translated {
+        require(
+            sources.len() == ids.len(),
+            "correction bank must be one complete ordinary inventory",
+        )?;
+    }
     let requested = sources
         .iter()
         .map(|source| {
@@ -601,6 +630,10 @@ pub fn run(
         requested,
         p.translated_sources,
     ))?;
+    require(
+        batch.len() == sources.len(),
+        "native correction list lost a duplicate binding",
+    )?;
     let corrections = checked(source::Span::ordinary(
         c,
         &batch,
@@ -680,6 +713,13 @@ pub fn run(
         "full_image_columns":universe.len(),"forbidden_shifts":f.iter().map(|s|s.values()).collect::<Vec<_>>(),
         "fresh_original_source_certificate":false,"exported":false,"recursive_walk":false,
         "same_support_preserved":false,"new_rank_positive_columns":null,"conditions_discarded":false});
+    if translated {
+        report["correction_source_policy"] = json!({"translated_pinch_sources":true,
+            "source_pinch":"nonpositive","source_rank_filtered":false,
+            "bindings":corrections.bindings.iter().map(|b|json!({
+                "source_row":b.row.stable_string(),"offset":b.offset.values()})).collect::<Vec<_>>(),
+            "complete_native_images_target_and_unpinched_zero":true});
+    }
     if let Some(cap) = rank_cap(r)? {
         report["rank_policy"] = json!({"forbid_new_rank_positive":false,
             "max_numerator_rank":cap,"scope":"whole chart, all axes, every candidate column"});

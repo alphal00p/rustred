@@ -1012,7 +1012,7 @@ trade into more dots or more expensive descendants. Pairing nonzero, pinching,
 or a shorter displayed boundary therefore proves no workload improvement.
 
 Both old cap1 search and dual reports remain exactly unchanged after removing
-the new diagnostic. No candidate bank, source combination, correction solve,
+the new diagnostic. At that census stage no candidate bank, source combination, correction solve,
 export or campaign run followed this census. Full records and the retained
 preflight refusal are under
 `TMP/rule-optimizer-20261003/profiles/owner31-witness-preimage-v{1,2}/`.
@@ -1039,3 +1039,117 @@ not an implementation of their algorithm or evidence of a magic relation;
 independence, full-image proof and useful downstream work would remain open.
 No critical-variety calculation or collective-kernel experiment was run.
 [Sections3.1,4.4 and6, v2](https://arxiv.org/pdf/2605.29789).
+
+### Obstruction-guided complete blocks: an actual strict correction
+
+The next solve was registered before execution, not selected from repeated
+attempts. Among the complete963 native nominations, all scalar sources with
+no newly active parent-inactive axis and nonzero exact pairing occur at just
+three offsets (D labels one-based):
+
+* `+e_D1-e_D2-e_D7`;
+* `+e_D1-e_D5-e_D7`;
+* `+e_D1-e_D9-e_D7`.
+
+Their nonzero nominees number1,1,8, respectively; these counts did not rank
+or select offsets. All three directions were included, and each supplied the
+**complete25 ordinary-row block**, including zero-pairing cancellation partners.
+Together with the original25 rows at `-e_D7`, this gives100 distinct correction
+pairs and391 distinct pairs in the combined stage-one/correction bank. The
+new opt-in `translated_pinch_sources:true` admits these explicit pairs; it does
+not discover another shell or prefilter numerator-bearing sources. Native
+complete-image checks still require every correction to be target-free and
+pinched on the whole chart. The measured raw entry allowance7944 fits the
+unchanged10,000-term cap. Both row/proof allowances were explicitly391.
+
+The input restored the **original strict P9/no-new-rank-positive-column**
+objective, with no cap1, dual or nomination flag. It retained the exact291
+stage-one sources, original two-free-index chart, saved order and all other
+limits. All150 tests passed. Before the one new solve, the new binary
+reproduced the entire old strict25 report, differing only in timing/request
+provenance. The actual100-row attempt then returned
+`EXACT_BOUNDARY_CORRECTION_CHART_PROVED`:
+
+| Complete native result | Baseline B0 | Corrected |
+|---|---:|---:|
+| RHS terms per proof cell |313|294|
+| Rank-positive full-image shapes |93|81|
+| Proof cells |4|4|
+| Guard entries per cell |32|40|
+
+The typed baseline and zero-correction controls passed. All nine nominated
+columns are present in the actual correction-only universe and disappear from
+the result. No new rank-positive column appears; maximum whole-chart numerator
+rank remains1. Native equality checks preserve the full unpinched recurrence.
+Of21 dropped shifts,12 are rank-positive and9 scalar; two new scalar shifts
+remain: `-e_D7+e_D14-e_D15` and `+e_D2-e_D7-e_D9`. The latter raises D2 dots,
+so even these local changes do not establish cheaper descendants. Actual
+correction-only U has284 columns, weighted U566 and F588. The accepted circuit
+has271 original contributions, compared with266 in B0; no user weights or
+coefficient-display reconstruction were used.
+
+The four cell boxes are unchanged: physical D1=2 or D1>=3, crossed with D2=3
+or D2>=4; the other13 indices remain fixed. **Guard scope is not unchanged:**
+all32 old entries are retained and eight added in every cell. The added native
+displays include `n0*(-23-12*n1+11*d)` and
+`n0*(-29-12*n1+11*d)`; they were not reparsed or discarded as apparent
+redundancies. The report retains1498 condition entries, not1498 distinct
+exceptional loci. `fresh_original_source_certificate:false` is the intended
+weighted/non-fresh provenance policy, not a proof-verification bit: successful
+stage two underwent the mandatory original-source, guard, root and descent
+checks. This294-tail rule corrects the newly proved313-tail B0, **not** the
+saved330-tail rule210; both comparisons must stay separate.
+
+The conceptual change is obstruction-guided equation selection: solve the
+wanted boundary; derive an exact finite-span separator; invert actual raw
+support to enumerate only rows capable of changing its pairing; inspect exact
+native pairings and source geometry; retain complete blocks for cancellation
+partners; then solve the original full objective again. This changes the
+equations admitted to the correction space, rather than accelerating the same
+elimination. It supplies neither convergence/completeness nor a workload
+improvement theorem.
+
+Evidence is
+`TMP/rule-optimizer-20261003/profiles/owner31-witness-scalar-block-correction-v1/`;
+request `0e1dafb84bb3ce2e62c463e8f56bae9c3bd972d41b536cc57855a96dfdd37ca3`,
+candidate raw report `3a7ba30d09807913bcb6360c10909ab140b0d3f44f0de3b75ba8c1f902331dfc`,
+result `9e4ad4aadb758049f78fb24e0524575071498fbee5236f17d7c76993381850d1`.
+The unchanged69/70,16GiB+150GB, cumulative135/145 then270/285 under300-second
+guard completed both proofs in5.013s, cleanly drained with both PIDs absent.
+Independent final audit passed. Timing is feasibility accounting under shared
+host contention, not a performance comparison. No export, installation or
+recursive campaign occurred. The next scoped comparison requires separate
+typed exports of B0 and the correction against the same original owner, actual
+guarded selection at the unchanged witness, and complete weighted routing
+against saved330/B0313/corrected294. That comparison is not yet measured.
+
+### Transverse geometry check: no additional probe or new authority
+
+The transverse-integration paper motivates projection orthogonal to a subloop's
+external momenta; its general construction involves inverse Gram matrices and
+may map into different families. This is background, not evidence for our
+five-loop correction. [Sections4.1–4.2](https://arxiv.org/html/2409.04783v2#S4.SS1).
+
+After D7 is pinched, write k=k1, q=k2-k4 and p=k3. The k-dependent proper
+denominators are X=D1=k²-1 and Y=D14=(k+q)²-1. Here q²=D10+1 is an integrated
+variable, so dividing by q² would introduce an internal massless denominator,
+not an external scalar coefficient. Equal-mass reflection exchanges the X/Y
+powers and does not preserve this chart's arbitrary a and fixed1.
+
+Our denominator-cleared polynomial check instead uses
+`V=((k+q)·q)p-((k+q)·p)q`. Direct differentiation gives div_k V=0,
+V·(k+q)=0 and V·k=T=q²(k·p)-(q·p)(k·q). Thus the integrated ordinary IBP for
+`X^(-(a-1))*Y^(-1)`, with k-independent spectators, is
+`-2(a-1) integral[T*X^(-a)*Y^(-1)]=0`; it is not a pointwise integrand identity.
+In the actual family,
+
+`4T = 2(D10+1)(D1+D3-D6+1) - (D2-D4-D9+D15)(D14-D1-D10-1)`.
+
+D4 opens a new numerator direction, while D10 can pinch. D3 and D6 have
+opposite coefficients. For the corresponding common carrier this would pair
+to zero against an equal-entry two-column witness; equality of displayed λ
+strings remains explanatory only, and native exact pairing is the authority.
+The independently checked hand derivation therefore does not establish a new
+obstruction breaker or a cheaper recurrence. No transverse source was added,
+proved or benchmarked. This is distinct from the earlier isolated-owner2
+factorization discussion and does not evade the actual-family restrictions.

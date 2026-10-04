@@ -1274,7 +1274,7 @@ The optional `boundary_correction` object requests a two-stage search. First,
 the ordinary top-level source bank must produce a full-original relation and
 pass its native whole-chart proof. That **actual newly proved relation** is
 the baseline, not an imported saved-rule identity or a zero-sector quotient.
-Second, a complete ordinary-source block at one fixed pinch supplies weighted
+Second, an explicitly admitted pinched ordinary-source bank supplies weighted
 corrections. No coefficient displays or user-supplied weights are parsed.
 
 The object has these fields:
@@ -1283,7 +1283,8 @@ The object has these fields:
 |---|---|
 | `schema` | `rustred.boundary-correction.v1` |
 | `fixed_pinch_axis` | Zero-based axis fixed to a positive value on the entire parent chart. |
-| `correction_sources` | Complete native ordinary RowId inventory, using the existing `source_row`/`offset` format; every offset changes only the pinch axis so its source power becomes zero. |
+| `correction_sources` | Native RowId/offset pairs. By default these must be the complete ordinary inventory at the single offset that makes the fixed pinch power zero; see the translated opt-in below. |
+| `translated_pinch_sources` | Optional boolean, default `false`; admit an explicit finite, duplicate-free translated RowId/offset bank with nonpositive source pinch power. Source rank and other-axis activation are not prefiltered. Every complete native image must still have zero target and zero unpinched terms. |
 | `cancel_rank_positive_shifts` | Explicit full-arity shifts of nonzero baseline terms to cancel; each must be a uniformly pinched, rank-positive column. Empty means a zero-objective control, not an improvement. |
 | `forbid_new_rank_positive` | `true` forbids rank-positive columns absent from the baseline. `false` requires the explicit rank cap below. |
 | `max_numerator_rank` | Nonnegative integer, present only with `forbid_new_rank_positive:false`; bounds the sum of all negative endpoint powers over the whole chart, including the formerly active pinch axis. |
@@ -1322,7 +1323,7 @@ zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
 is confined to this frozen correction space; neither a hit nor fewer local
 tails establishes lower campaign work. No owner or overlay is installed.
 
-The implementation passed all145 focused tests. Its first fixed native probe
+The implementation passed all150 focused tests. Its first fixed native probe
 reproduced the313-tail stage-one proof and typed zero control; all nine nominated
 columns were present, but the complete26-row weighted search found no correction
 under the joint constraints. This is a finite-span negative, not a general
@@ -1367,3 +1368,23 @@ the census or any other input. All963 exact pairings completed:605 nonzero and
 have rank2 or3 and268 activate another parent-inactive axis. These are
 nomination data, not accepted corrections under the unchanged final rank cap1;
 no new source bank, correction solve or workload claim follows automatically.
+
+One subsequently preregistered solve kept the original strict P9/no-new-rank-
+positive-column objective. It retained the old25-row block and added all25
+ordinary rows at each of the three scalar, non-activating witness-breaking
+offsets, for100 correction rows. The new binary first reproduced the old25
+complete report exactly, apart from timing/request provenance. The actual100-
+row solve then passed native full-original-source, guard and descent proof on
+all four original cells:313 baseline tails became294, with93 rank-positive
+shapes becoming81. All nine objectives disappeared, no new rank-positive
+column appeared, and the unpinched recurrence was preserved. There were21
+dropped shifts and two new scalar shifts. The guard lists grew from32 to40
+entries per cell, retaining all old entries; applicability is not unchanged.
+
+This is an accepted parametric correction, not a campaign improvement: no
+export, installation, routing comparison or recursive workload followed in
+this proof group. Stage two's `fresh_original_source_certificate:false` means
+weighted/non-fresh provenance policy, not absence of the mandatory native
+original-source proof. Full evidence and the obstruction-guided source-selection
+mechanism are recorded in the conceptual note; the5.013s guarded two-proof
+group is feasibility accounting only.
