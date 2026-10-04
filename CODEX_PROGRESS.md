@@ -25,12 +25,250 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
 | Conceptual descendant elimination | `lower_rule_evaluation` implementation/evaluation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed shared exact obstruction diagnostic/174 tests as fb276c64. Trace-directed125 bank proves all19 actual points and one five-ray rule, exported/cold-inspected as e48ecfc2. Both whole29 attempts censor near610s. Complete observer confirms new rule on19/29; native first boundary grows42→85 successors, including2conditional. Performance promotion parked; no workload gain or production change claimed. |
-| Exit-complete chart programs | Discovery research; auditor mathematical/code critique; root triage | Pending representation experiment, not implementation.59/67 new generic tails leave fixed-coordinate chart; complete guarded case-to-case transfers may avoid repeated demand boxes. Existing concrete ranking/total-excess services cover only part; heterogeneous routes, whole-piece policy and all exits remain prerequisites. No new CAS or closure claim. |
+| Exit-complete chart programs | `lower_sector_discovery`4L diagnostic; `lower_rule_evaluation`5L actual-exit census; `finite_region_audit` independent review | Completed/audited:4L90 points→66 matching pieces/32 rules;5L39 complete exit queries→89 pieces/1,840 successors. D11 returns on uniform obligation chains, without R/A/E growth. Entry fragmentation does not disprove recursive reuse; no graph quotient implemented or closure gain claimed. |
+| Degree-plateau block elimination | `lower_sector_discovery` existing-binary experiment; `lower_rule_evaluation` full-boundary analysis; `finite_region_audit` independent critique | Both complete-bank tests negative:125 rows/19 refinements and witness-guided250 rows/137 refinements miss at all19 points. Exact separator/source preimages distinguish new directions from pivot changes, but do not supply a sufficient bank. No new rule or campaign gain. Further bank enlargement parked. |
+| Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Active research-only MVP: bounded same-owner equal-E composition, separate coefficient sums per parent, all off-plateau and unresolved branches retained. Prepare original4L90 and5L29 controls; explicit pointwise dispatch, not claimed identical whole-piece campaign dispatch. No production activation. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### New source bank fails; change the explored state — October4
+
+[M] The registered cross-dot250 test completes all19 points in127.723s
+inclusive, with no source/observer/resource refusal and no surviving process.
+Every point ends in a complete250-row miss after137 native descent refinements;
+no successful final RHS exists to score. Point00's exclusions consist of111
+rank/degree-increasing shifts and26 equal-degree transfers rejected by native
+coordinate ordering. Full native column universes are842–963; no new columns
+were clipped. Evidence: `profiles/production-rule14-exact19-plateau250-v1/`,
+result`978f1beb…8b52796`. Independent input and final-result audits PASS,
+including all2,603 replay/refinement chains. Explicit preparation changes include row caps250,
+the full1,306-shift refinement allowance, matrix allowance400k and output64MiB;
+the pilot's300s/16GiB envelope was unchanged.
+
+[E] Breaking one separator is necessary but not sufficient for a useful
+identity: the additional source blocks introduce other inadmissible endpoints.
+Park further source-bank growth here. This does not disprove lower-degree
+recurrences or imply that the current five-loop campaign cannot complete.
+
+[E] Root approves a small research-only weighted-cut adapter, reusing the
+existing native applied observer and Symbolica coefficient arithmetic. For
+each original fixed parent separately, apply its saved rule, then apply once
+more to same-owner children at equal E. Carry every strict-degree decrease,
+increase, support drop, terminal and unresolved child as a weighted boundary.
+If native child application is conditional/refused/incomplete, retain that
+ENTIRE child atomically, not its partial RHS. Exact coalescing is compared
+with distinct uncollected support at the same cut, not with unmatched depths.
+All29 five-loop inputs and the prior90-point four-loop row are the controls.
+
+[E] Singleton rule dispatch can differ from whole-piece campaign dispatch;
+label this a pointwise saved-program experiment and retain selected rules.
+Native saved-rule authority suffices for the observational identity. Fresh
+flattened original-source replay and completed shared-work comparisons remain
+requirements before promotion, not a reason to build another CAS now.
+Implementation is confined to the existing research adapter; no production
+engine, rule pool, terminal set, checkpoint or process is modified.
+
+### Exact obstruction identifies missing source directions — October4, 20:00 UTC
+
+[M] The point00 v4 diagnostic completes in8.060s including its wrapper
+(5.677s guarded native execution, about774MB sampled tree RSS). It verifies
+the same125-row separator and all11,798 original-source preimages:8,332
+nonzero pairings,3,466 zero, over3,017 offsets. All25 nominees overlapping
+the old bank pair to zero. Independent final audit PASS; no owned process
+survives. Evidence: `profiles/production-rule14-plateau-obstruction-v4/`,
+result`77b98178…3976c7d`; full report144,002,883 bytes. Earlier operation,
+serialization and coordinate refusals remain distinct from algebraic misses.
+
+[M] Five structurally natural target-preimage centers, −D2/−D5/−D7/−D9/−D10,
+have respectively4/5/10/10/8 exactly nonzero original-row pairings. They stay
+scalar and retain support at point00. The old −D12 center and unit-line
+centers −D1/−D14/−D15 have no nonzero pairings. This is not a ranking of all
+3,017 offsets or an all19 feasibility result. It identifies genuinely missing
+directions instead of choosing another pivot inside an exhausted row span.
+
+[E] Root authorizes one mechanism-directed test: retain all old125 sources
+and add all25 ordinary rows at EACH of those five centers, giving250 after
+canonical deduplication. Test the original19 inputs, six plateau exclusions,
+native ordering and full regenerated forbidden universe. No favorable-row
+filtering, new terminals, clipped columns or production changes. Discovery
+owns the existing-binary probe; the independent auditor checks inputs/results.
+Use CPU69/70,16GiB, host reserve and a300s inclusive pilot boundary. Complete
+source blocks may introduce new obligations, so witness breaking is not itself
+a corrected rule or a predicted speedup.
+
+[E] In parallel the evaluation agent examines exact weighted cuts before
+descendant scheduling: can several substitutions cancel intermediate terms
+before they become campaign obligations? Keep separate coefficients for each
+original target, every routing coefficient/guard and all side exits. This is
+a conceptual change in the explored state, unlike an additional CAS solver.
+No implementation or second production campaign is yet justified by this lane.
+
+### Equal-degree block falsifier complete — October4, 19:42 UTC
+
+[M] All19 original physical cases were tested with the same125-source bank,
+removing D11-only preservation and adding the six shared equal-E transfer
+columns to F. All19 finish with `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`
+after125 rows and19 native descent refinements each. No resource refusal,
+observer failure, hidden successful subset or surviving process;39.547818s
+inclusive. Evidence: `profiles/production-rule14-exact19-plateau-v1/`,
+execution`fb0ee5bf…1ca6b93`; exact `run.py` and all19 requests retained.
+Independent final audit PASS, including all361 intermediate full-original
+replays and typed exclusion transitions. The frozen plan's
+inherited D11 prose describes the prior experiment only; actual request deltas
+and postchecks explicitly remove that constraint. No output was exported.
+
+[E] This falsifies reuse of this particular restoration-path bank to bypass
+the six transfers while satisfying the current native descent conditions.
+It is not a proof that lower-E rules do not exist, that a different ordering
+cannot help, or that strict-E descent alone would be faster. In particular,
+simply changing GPLU pivot choice within an exhausted source span cannot fix
+this miss. Existing exact dual/preimage diagnostics can identify additional
+source directions; a future experiment must justify a new bank from such
+evidence instead of escalating shell depth blindly.
+
+[M] The independent retained-column census further separates two mechanisms:
+at every point,17 rejected shifts raise both R and E by one without changing A;
+two merely redistribute dots at equal E in the wrong coordinate-order direction
+(`+D14−D12`, `+D15−D12`). No support activation or pinch caused these19
+refinements. Across19 points that is323 genuinely higher-E and38 equal-E
+offenders. Thus the miss is not just a coordinate-tie-break annoyance.
+
+[E] Root grants one diagnostic, not a larger solve: take the first lexicographic
+point00, freeze its exact final217-column F and125 sources, disable refinement,
+and use the existing native exact separator/source-preimage service. Dedicated
+diagnostic allowances remain32,768 sources/one million translated terms; original
+proof/shared caps stay unchanged. This may yield source directions or an honest
+diagnostic refusal; no automatic bank expansion or retry is authorized.
+
+[M] That diagnostic refuses before constructing a separator: the existing
+native dense-dual conservative charge is7,008,624 field operations, exceeding
+the unchanged one-million shared allowance. No witness, preimage or algebraic
+negative was obtained. It drains in2.083391s; result`23a60c1e…1ff0777` in
+`profiles/production-rule14-plateau-obstruction-v1/`; independent audit PASS.
+Root makes one explicit evidence-backed correction: a fresh v2 may raise
+`max_term_operations` to8,000,000, retaining every source/column/point and all
+other limits, plus the300s/16GiB external guard. This is a shared allowance,
+not a silently separate diagnostic setting. Final-miss parity must hold;
+no further cap increase or source-bank solve is authorized in this slice.
+
+[M] V2 then hit report serialization, not an algebraic miss: its measured
+17,637,422-byte report exceeds the retained16MiB output allowance. Native exits2
+with empty stdout; no separator or pairing content is exposed and none is claimed.
+The job drains in2.135122s. Root explicitly permits a third, output-only repair
+to32MiB, with all v2 mathematics/work allowances and300s/16GiB guards unchanged.
+This supersedes the prior no-more-allowance restriction solely for this known
+serialization size. Preserve both refusal receipts; do not turn a small,
+measured report-size mismatch into a research blocker or another solver sweep.
+
+[M] V3 exposes and independently replays an exact separator: all125 source
+products vanish and the target coordinate is one. Its25 nonzero columns are
+the target, all six named plateau terms and18 of19 native descent exclusions;
+none of the192 initial mandatory/root columns participates. The complete raw
+support inverse census has11,798 canonical source/offset pairs and13,050
+witnesses. Pairings themselves refuse before translation because the conservative
+coordinate charge7,814,130 exceeds the shared one-million allowance. Runtime
+2.483968s inclusive; result`24134246…3b1dbb`, native output`a5a7dfad…dbaf74`.
+No candidate row is yet known to break this separator.
+
+[E] To finish the already finite census, not broaden its algebra, root approves
+a preflight-sized v4: eight million coordinate cells and256MiB output, retaining
+v3's eight-million field-work allowance and all other proof/source/300s/16GiB
+bounds. Inspect remaining dimension-only charges before running; do not discover
+every output-cap mismatch by another invocation. This explicit correction changes
+no point, row, forbidden column or target, and does not authorize a larger solve.
+
+[E] Concurrent primary-literature review is testing whether coefficient-carrying
+short reduction episodes could cancel complete boundaries before the domain
+campaign schedules them. Existing native algebra already supports finite shared
+GPLU and original-source weight composition; no competing solver is needed.
+SAILIR supplies an expression-state search example, not an exact five-loop
+closure guarantee. FIRE7 distinguishes reconstruction savings from eliminating
+individual reduction work. Research notes and independent critique will be
+integrated before choosing implementation; no second campaign is warranted.
+
+### Two-layer result redirects the conceptual search — October4, 19:37 UTC
+
+[M] The corrected no-follow4L90 control completes in2.849234s inclusive
+(native guard2.224s). Its90 original points partition exactly into66 nonempty,
+disjoint applicability pieces using32 saved rules;56 pieces are singletons.
+There are no gaps, terminals, zero sectors or unresolved predicates. This
+measures entry partitioning, not RHS expansion or recursive graph cost. The
+initial invocation's walk-only `--workers` option caused a parser refusal;
+that receipt remains, and the sole correction removes the option. Independent
+input/result audit PASS. Evidence:
+`TMP/rule-optimizer-20261003/profiles/four-loop-90-ordered-match-v2/`.
+
+[M] The complete5L exit batch also passes after restoring the original query
+schema envelope omitted from its first packaging attempt. All39 query rows
+are unchanged: exact deduplication of59 same-owner exits from the new rule,
+including five domains straddling its chart. All eight first-layer pinches
+remain separate obligations. In80.168425s inclusive it produces89 selected
+pieces and1,840 successors:1,419 same-owner,421 pinched, eight conditional.
+No problems/refusals or unsupported events; clean drain and independent audit
+PASS. Query014 has conditional-only incoming ancestry and is kept separate.
+Evidence: `profiles/production-owner31-candidate-exits-v2/` under the same
+local research root; execution SHA`d7a57a21…76c688`, exact command `run.py`
+and request/resource bindings retained. Neither parser refusal is algebraic
+evidence. No third-layer run was started.
+
+[M] Fifty-five second-layer events reintroduce D11 numerators. Thirty queries
+have uniformly nonzero incoming/outgoing obligation chains, accounting for200
+point-pairs and14 distinct original parents; two events in the remaining query
+retain conditional-only ancestry. These are retained terms, not the result
+of summing all weighted paths. Every observed step has nonpositive changes in
+R,A,E. Specifically ALL55 D11-return events lower A by one and E by one or two.
+Thus the troublesome direction returns WITHOUT rank/resource inflation.
+All1,840 events have ΔE in[-5,0];515 have ΔE=0, of which293 stay in the same
+support and222 pinch. This is not a global invariant or completion estimate.
+
+[E] Canceling one numerator direction is therefore an inadequate objective.
+More discriminating next test: eliminate equal-degree dot redistribution as a
+block. Both the old rule14 and the new rule0 retain precisely six same-support
+equal-E shifts, `+D{1,2,5,7,9,10}−D12`, over all19 original inputs (114
+point-pairs). They are not the D11-return events above. Root grants one cheap
+existing-binary test using the same125 original-source bank, explicit six-column
+cancellation, and full-output strict-E postchecks. Preserve all guards, pinches,
+original requests and any new plateau terms; a miss is scoped to this bank.
+This tests a change in algebraic objective, not worker scheduling or a new CAS.
+No support for a second production campaign has been demonstrated yet.
+
+[M] Read-only production at approximately19:34 remains running with fresh
+heartbeat:241,629,917 scheduled,197,044,528 local completions,8,369,315 pending,
+zero frontiers and207.19GB RSS. Its13/67 roots and33,707,399 closed descendants
+are from a stale snapshot3,372s old. Production was not modified or controlled.
+
+### Continuation: actual exit programs and a representation falsifier — October4, 19:17 UTC
+
+[M] Previous goal turn is progress: exact new-rule activation and two censored
+whole-context walks rule out promotion of that local prototype and change the
+next action. Milestone`76df0420` is on`main` and`origin/main`; reinspection
+finds only preserved unrelated worktree changes. No owned native job survives.
+
+[E] Delegate discovery to the original90-point four-loop row and existing
+no-follow ordered-match command, keeping its16 owners/508 routes. Delegate
+evaluation to all actual out-of-chart same-owner exits from the candidate's
+19-point piece; retain both conditional coefficients and every pinch as debt.
+Independent auditor checks both inputs and results. Use existing binaries and
+APIs, integer-preserving JSON preparation and the existing nonproduction resource
+locks. Four-loop native call first; five-loop batching needs a finite-count
+preflight before a single full-context preparation. Neither a two-layer pass
+nor few entry fragments proves closure or a cheaper completed graph.
+
+[E] A finite resource halo is sufficient, not necessary, for ranked chart
+induction. Unbounded charts may be proved pointwise using well-founded descent.
+Do not clip the required unbounded-positive anchor queries or rebrand the
+finite90-point diagnostic as the full58-query control. Existing single-family
+total-excess admission is not a routed multi-owner certificate; current
+whole-piece alternatives also depend on baseline query-piece context.
+
+[M] Production remains untouched. At19:16:59 its live status has a fresh
+heartbeat,240,132,111 scheduled domains,195,410,720 local completions,
+8,613,483 pending and zero frontiers. The13/67 roots and33,707,399 closed
+descendants are from a snapshot2,338s old; they do not measure current closure
+rate. Resource sample:206.30GB RSS,4.37 observed cores.
 
 ### Actual candidate activation confirmed; no deployment win — October4, 19:10 UTC
 

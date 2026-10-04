@@ -1763,3 +1763,216 @@ Read-only research and independent code/mathematical audit are retained in
 `profiles/invariant-chart-bundle-research-20261004.md` and
 `profiles/concrete_chart_bundle_ranking_audit_2026-10-04.md` under the local
 research evidence root. No new campaign is warranted by these proposals.
+
+### Second-layer evidence: redistribution, not rank growth
+
+The first4L representation diagnostic completes in2.849s: the original
+90-point row partitions into66 applicability fragments across32 saved rules,
+with56 singleton fragments. Coverage is exact and gap-free, but no RHS was
+expanded. This gives weak entry compression; it does **not** falsify a quotient
+that could share repeated recursive work. Nor are32 rule identifiers32 linear
+unknowns: each rule acts on shifted integral keys, with translated coefficients
+and guards. A rule-ID adjacency matrix cannot replace that algebra.
+
+The new5L rule's59 same-owner first-layer exits deduplicate to39 complete query
+domains. All were inspected, including five partly inside the new rule's chart;
+no favourable subsets were substituted. Eight first-layer pinch exits remain
+uninspected lower-sector obligations. The39-query second layer completes in
+80.168s and returns89 selected pieces,1,840 successor events (1,419 same-owner,
+421 pinches), eight conditional coefficients and no refusals. Query014 has
+conditional-only incoming ancestry; the other38 have uniform incoming coverage.
+Independent full-result audit passes. Evidence:
+`profiles/production-owner31-candidate-exits-v2/`, execution`d7a57a21…76c688`.
+The first attempt omitted the query schema envelope and failed before algebra;
+its receipt remains and the corrected39 rows are exactly unchanged.
+
+D11 numerators return in55 events from31 queries. Fifty-three events in30
+queries have uniformly nonzero incoming and outgoing obligation chains; the
+remaining two belong to conditional-only query014. Inverse shifts recover14
+distinct actual original parents. These are exact terms of individual identities,
+not a statement that their sum over all paths has a nonzero coefficient.
+For example, one uniform chain has resource triples
+`(R,A,E)=(2,20,13)→(1,18,10)→(1,17,9)` while D11 changes `0→0→−1`.
+Here `A` is total positive power, `R` total numerator power, and
+`E=A−support_count+R`. The detailed integral keys and coefficient-table
+references are retained in `boundary-summary.json`.
+
+Crucially, all55 D11-return events lower A by one and E by one or two.
+Across the complete second layer, no observed event increases R,A or E:
+
+| Second-layer category | Events | Interpretation |
+| --- | ---: | --- |
+| Strict E decrease |1,325|Local progress, not a small descendant graph |
+| Same-support E unchanged |293|Dot/numerator redistribution inside a degree level |
+| Pinch with E unchanged |222|A lower-support exit, not a same-support plateau |
+
+These are event counts, not distinct reached integrals, coefficients after
+coalescing, or work fractions. They establish neither a global resource
+invariant nor the cost of eliminating a class. In particular, a ban on D11 is
+not intrinsically aligned with faster reduction: D11 can return during genuine
+degree progress.
+
+### A more discriminating algebraic objective
+
+The old rule14 and fresh rule0 share exactly the same six equal-E, same-support
+transfers `+e_j−e_D12`, for `j∈{D1,D2,D5,D7,D9,D10}`. Each acts over all19
+original inputs with identical source and target geometry:114 point-pairs in
+each program. This is not an assertion of coefficient equality. The previous
+D11 cancellation did not remove any of these redistributions.
+
+This motivates **degree-plateau elimination**: combine original IBPs so that a
+target bypasses a set of same-degree transfers and exits to lower degree or
+lower support. RustRed's current cofinal policy is weaker: it accepts equal-E
+terms that descend under the remaining degree/coordinate tie-breaks. The
+algebraic objective therefore changes, without changing the source identities,
+their exact replay, or the CAS.
+
+The smallest registered falsifier uses the same125-source bank at all19 exact
+points, removes D11-only preservation, and forbids the six known-present columns.
+Full-output checks must detect any newly introduced equal/higher-E same-support
+terms. A successful six-column cancellation is **not** necessarily a strict-E
+rule; a miss is only a finite-bank negative. Pinches, zero-sector provenance,
+all original guards and numerical terminals remain explicit. No large halo
+enumeration, new kernel, arbitrary terminal declaration or production launch is
+licensed by this experiment.
+
+The experiment completed in39.548s: **all19 cases miss** after125 rows and19
+native descent refinements each. No algebra/resource/observer refusal occurred
+and every owned process drained. Evidence:
+`profiles/production-rule14-exact19-plateau-v1/`, execution`fb0ee5bf…1ca6b93`.
+This is a negative for the frozen restoration-path source span with its final
+accumulated forbidden columns and unchanged native ordering. It is not global
+strict-E infeasibility. An alternative pivot within that complete span cannot
+create a missing relation; additional original-source directions or a genuinely
+different admissibility objective need separate justification. No parametric
+rule or performance comparison was produced by this test.
+
+The19 exclusions are identical at all19 points. Seventeen introduce a
+same-support numerator with ΔR=ΔE=+1 and ΔA=0. The other two are equal-E dot
+transfers `+D14−D12` and `+D15−D12`, disallowed by the coordinate tie-break.
+The obstruction is therefore mostly genuine degree growth, not merely an
+unfortunate tie-break. The next bounded diagnostic freezes point00's final F
+and asks the existing exact dual/preimage service which additional original
+sources can break that particular obstruction. A nonzero witness pairing would
+nominate sources, not prove a useful rule or a smaller final boundary.
+
+Existing machinery already supplies much of a prospective block method:
+`SectorSolver::solve_numeric_cases` shares one GPLU system across finite targets;
+the source projector composes exact weights back to original rows; and the
+native reducer coalesces weighted terms. The concrete routed campaign, however,
+drops coefficients after each local application and follows all remaining keys.
+Whole-block cancellation *before* that publication could avoid intermediate
+obligations; merely adding another linear solver would not. Any chart-level
+composition must use shifted coefficients `c(n) d(n+s)`, shifted guards and
+actual route maps. All uncancelled external columns remain obligations.
+
+### Literature implications, not imported performance claims
+
+[SAILIR, §§III.5–6 and AppendixD](https://arxiv.org/html/2604.05034) searches
+over weighted expressions and short reduction episodes, rather than choosing
+each rewrite only from its target. Its finite-field two-loop study motivates
+looking at cancellation across multiple substitutions. It does not establish
+exact all-parameter guards, five-loop performance, or unconditional termination
+of a heuristic search. For RustRed, a small heuristic episode proposer followed
+by existing exact original-source replay is a more proportionate first test
+than training a topology-specific model. This is a proposed transfer, not an
+implemented SAILIR port.
+
+Independent review rejects a beam restricted to the same125-row span and
+accumulated F: flexible row selection cannot reverse its complete exact miss.
+The prospective useful role is choosing a better feasible expression boundary
+or nominating genuinely new source rows, then exact replay. The existing public
+modular nomination interface returns source support, not an expression-state
+beam; that extension is deferred rather than described as already available.
+
+[Kira3, §3.2](https://arxiv.org/html/2505.20197v1) supports target-directed
+equation selection through finite-field elimination. RustRed already has a
+related dependency-trace mechanism; another sparse solver is not the missing
+piece. [Blade, §3](https://arxiv.org/html/2405.14621v2) provides block-triangular
+reduction methods but uses numerical reductions to a master basis as input.
+That prerequisite prevents treating it as a ready certificate for our unknown
+five-loop boundary. Neither paper supplies a practical universal source-depth
+bound for this campaign.
+
+[FIRE7, §§2.6 and3.2](https://arxiv.org/html/2510.07150) provides an important
+counterweight: its linear-combination workflow principally reduces the amount
+of coefficient reconstruction, not necessarily the individual reductions
+needed underneath. Its symbolic presolve combines relations without shifted
+operator application. Neither feature alone proves a smaller RustRed dependency
+graph. The needed evidence remains cancellation of a complete, weighted boundary
+and then a cheaper completed cohort in the unchanged shared-owner context.
+
+The current experiment and research do not justify a second production
+campaign. They specifically replace an unproductive one-direction objective
+with a test of joint algebraic progress; ordinary campaign optimization and
+unproved terminal inflation are not being substituted for that test.
+
+### From an exact obstruction to source selection
+
+The follow-up point00 diagnostic now completes. With its final217 forbidden
+columns frozen, native Symbolica elimination supplies an exact separator
+`lambda`: every one of the125 source rows has zero pairing with it, while
+the target coordinate is one. A desired target identity therefore cannot
+come from this bank with these constraints. Changing pivots cannot alter
+that conclusion. The separator's25 nonzero columns are the target, all six
+plateau columns and18 of19 descent exclusions, not the initial root-forbidden
+columns. This is a finite-bank obstruction, not a theorem of IBP irreducibility.
+
+Inverting the complete raw source support nominates11,798 canonical
+ordinary-row/translation pairs. All were evaluated exactly at point00:
+8,332 pair nontrivially with this separator;3,466 pair to zero. All25
+nominees already present in the old bank pair to zero. The complete census,
+not a favorable subset, is retained and independently audited. The diagnostic
+costs8.060s inclusive,5.677s guarded native time and approximately774MB
+sampled tree RSS. Evidence:
+`profiles/production-rule14-plateau-obstruction-v4/`, result`77b98178…3976c7d`.
+Earlier bounded-operation, output-size and coordinate-charge refusals are
+preserved separately; they were not algebraic negatives.
+
+The useful structural subset consists of sources based one power below the
+target at each other dotted line: `n-e_j` for
+`j in {D2,D5,D7,D9,D10}`. Each center stays scalar and in the same support
+at point00, and each has exactly verified witness-breaking rows. In contrast,
+the old `n-e_D12` center and the tested unit-line centers do not break this
+separator. These are not selected by the number of successful pairings; they
+are the complete alternate positive-dot target-preimage star.
+
+The next registered solve retains the old125 rows and adds the complete25
+ordinary IBPs at all five centers:250 rows, the same19 target cases and the
+same six plateau exclusions. Every new image column is admitted to the native
+forbidden/descent analysis. No row is discarded just because it contributes
+an inconvenient endpoint. A nonzero pairing escapes only one obstruction;
+the expanded system may still miss, acquire new obstructions, or yield a
+costlier rule. This is targeted new-source selection, not a proven adaptive
+closure algorithm or a campaign performance result.
+
+That250-row test now completes in127.723s: all19 points miss after137
+native descent refinements, with no budget or observer refusal. All2,603
+intermediate full-source replay/refinement chains pass independent audit.
+The identical137 excluded shifts at each point consist of111 higher-rank,
+higher-E successors and26 equal-E transfers rejected by the coordinate
+ordering. Thus the new directions break the first witness but are still
+insufficient under the same endpoint requirements. Further bank growth is
+parked; this is not a reason to relabel another pivot sweep as a new algorithm.
+Evidence: `profiles/production-rule14-exact19-plateau250-v1/`,
+result`978f1beb…8b52796`.
+
+### Next implementation: collect a complete short plateau cut
+
+The complementary experiment changes what is propagated, not the source bank.
+For each fixed input independently, compose its saved rule with one further
+application to same-owner, equal-E children. Keep every other child as an
+explicit weighted boundary, including pinches and any E increase. A conditional,
+unmatched or failed child application retains the whole original child; partial
+RHS output must never replace it. At this identical, bounded cut compare the
+distinct uncollected boundary with its native exact coefficient sums.
+
+This research-only adapter reuses native rule application and Symbolica
+addition/multiplication/zero tests. It does not sum different original input
+equations into one, declare new masters, clip lower sectors, or replace the
+production traversal. Start with the original90-point four-loop control and
+all29 original five-loop parents, not only the19 previously studied points.
+Pointwise matching can select different rules from a whole-domain match; the
+experiment must say so and retain selected-rule identities. Even substantial
+local cancellation would still need a completed shared-context cost comparison
+and a reusable source-replayed rule before a production recommendation.
