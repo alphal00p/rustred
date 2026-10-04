@@ -165,6 +165,20 @@ specified sealed segment, beginning at 1/8, 3/8, 5/8 and 7/8 of its bytes.
 Actual sample execution also enforces the 32 MiB limit and rejects overlapping
 windows, changed files, wrong schema and inconsistent committed bounds.
 
+The default planner requires a stopped campaign. An explicit
+`--live-sealed-only` opts into a smaller read-only diagnostic: exactly one
+campaign and two distinct generations older than its captured committed
+manifest, with the same four fixed windows per segment and at most8MiB total.
+Only the captured committed registry can select segments; active tails,
+unlisted/orphan files and the latest sealed generation are excluded. Immutable
+registry/meta snapshots are rechecked; `latest.json` may advance without
+reselection. Each segment is read through one no-follow read-only descriptor,
+checking device/inode/size/mtime/ctime and path identity before and after.
+Pin both `profile_records.py` and its sibling `profile_sealed.py` in the
+execution receipt. This does not hash whole record bodies, restore a checkpoint,
+take a production lock or alter its lifecycle. Retained regions remain
+nomination evidence, not selected-rule, required-root ancestry or closure proof.
+
 ```bash
 nix develop /common/dev/rustred --command taskset -c 0 python -B \
   tools/research/rule_optimizer/profile_records.py sample \
@@ -1290,6 +1304,8 @@ The object has these fields:
 | `max_numerator_rank` | Nonnegative integer, present only with `forbid_new_rank_positive:false`; bounds the sum of all negative endpoint powers over the whole chart, including the formerly active pinch axis. |
 | `exact_dual_separator` | Optional boolean, default `false`; after a complete miss, request an exact diagnostic separator for the frozen forbidden-column system. It does not change the search or produce a rule. |
 | `witness_preimage_nomination` | Optional boolean, default `false`, requiring `exact_dual_separator:true`; use the native separator support and complete raw ordinary inventory to enumerate translated source preimages and inspect their exact pairings. Nomination only: no new correction solve or bank mutation. |
+| `export_guard_diagnostic` | Optional boolean, default `false`; after a successful correction proof, report typed cell/guard origins and the existing priority export guard-transport checks. Diagnostic only: no condition removal or admission-policy change. |
+| `fresh_original_frame_reproof` | Optional boolean, default `false`; after the weighted correction proof, regenerate the complete declared original-source frame and independently prove the identical collected identity with fresh native provenance. Checked export requires this nested proof to succeed when requested; no fallback or exporter-policy relaxation. |
 
 The initial interface requires all inactive parent indices to be explicitly
 fixed to zero, while active indices may remain free. This is a rank-zero
@@ -1333,7 +1349,7 @@ zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
 is confined to this frozen correction space; neither a hit nor fewer local
 tails establishes lower campaign work. No owner or overlay is installed.
 
-The implementation passed all154 focused tests. Its first fixed native probe
+The implementation passed all168 focused tests. Its first fixed native probe
 reproduced the313-tail stage-one proof and typed zero control; all nine nominated
 columns were present, but the complete26-row weighted search found no correction
 under the joint constraints. This is a finite-span negative, not a general
@@ -1406,3 +1422,24 @@ source/proof/control report still matched the successful proof. No guard was
 removed and no corrected payload was published. The proposed three-arm
 weighted-routing comparison therefore did not start; no runtime or workload
 benefit has been measured for this correction.
+
+A flag-only prove diagnostic subsequently preserved that complete proof/report
+and checked all160 cell/guard pairs natively. Twenty checks failed transport
+(3/6/4/7 across the four cells), all with `OriginalDomainCondition` provenance.
+The report retains exact guard ordinals, native normalized denominator matches
+and first/all mismatches; polynomial displays remain non-authoritative text.
+No corrected artifact or routing result follows from this diagnostic.
+
+A subsequent one-flag fresh-original-frame continuation regenerated391
+declared bindings, replayed271 contributions and proved the same294 RHS terms
+and four cells. The old weighted report remained unchanged. The fresh proof's
+32 guards per cell passed the unchanged checked exporter and full typed
+roundtrip: an independent corrected owner payload was produced,265→266 rules
+with43 terminals retained. The earlier export refusal remains recorded; no
+guard list was manually filtered. This is proof/export feasibility, not an
+installation or cost result. The planned H1 three-arm routing comparison is
+parked: the corrected stress chart is disjoint from all43 retained owner31
+production sample records. An actual full-region observation instead selected
+rules4/14; its two D11-face-exit terms share one target domain and do not yet
+establish the next rule dispatched. See the conceptual note for these distinct
+production and stress-test scopes.

@@ -1,17 +1,19 @@
 # Conceptual rule search: constrain the complete boundary, not the target order
 
-Date: 2026-10-04. Primary-literature/API review and explicitly bounded native
-source probes; no rule export, campaign, or performance claim. The small research
-projector extension described below is separately authorized; its117 focused
-tests pass. Both native strict-mode controls reproduce the prior results.
-The fixed banana no-raising discriminator proves a valid but locally larger
-boundary, not an owner31 result or a campaign improvement.
-The subsequent single150-row owner31 rank-zero nomination exhausted its fixed
-source window without a target; that window is parked, with no automatic growth.
-The later two-stage boundary-correction adapter and rank-cap option pass131
-tests. Both fixed P9 probes exhaust their spans without a correction; their
-source block is also parked. These are localized negatives, not family-closure
-or performance results; details and literature distinctions appear below.
+Date: 2026-10-04. Current result: the obstruction-directed100-row correction
+reduces a newly proved parametric owner31 baseline from313 to294 tails,
+preserving its unpinched recurrence and removing all nine nominated columns.
+After the preserved weighted-proof export refusal and typed guard diagnostic,
+the168-test fresh-original-frame reconstruction proved the identical294-term
+identity and exported it through the unchanged native exporter. This is an
+admitted experimental payload, not an installed rule or a campaign improvement.
+Its H1 stress chart is disjoint from all43 retained owner31 production samples;
+the planned H1 routing comparison is parked. A separate full-region production
+observation selected rules4/14, not rule210, and motivates a different face
+invariance question. No production efficacy has been demonstrated.
+The evidence chronology below preserves
+the preceding locality, finite-window and25-row correction negatives, followed
+by the exact separator, native source nomination and successful100-row solve.
 
 ## Recommendation and the actual witness
 
@@ -194,7 +196,7 @@ Absent/empty options preserve the old path. No engine, coefficient algebra,
 module kernel, ordering, or closure policy changes. All117 optimized research
 tests pass (seven new); the binary links to the same cached0257 core/app
 libraries. Evidence: `TMP/rule-optimizer-20261003/candidates/endpoint-no-raising-build-v1/`.
-No owner31 native result exists.
+At that stage no owner31 native result existed; subsequent results are recorded below.
 
 ### Completed fixed-window discriminator: valid, but less compact
 
@@ -1191,5 +1193,120 @@ corrected raw report
 result `9a9e41249f2ced59aa3d05fbf9ea3d87aba7a62ea9d5f674a4c3167a424fff19`.
 Both native groups finished cleanly and drained in5.106s inclusive under the
 same69/70,16GiB+150GB reserve,300-second total guard. This remains feasibility
-accounting, not a timing comparison. The planned original330/B0313/C294
+accounting, not a timing comparison. Independent final receipt audit passed,
+including B0 artifact integrity, exact C proof/control parity and absence of
+any C artifact or routing. The planned original330/B0313/C294
 full-context weighted-routing comparison is explicitly unexecuted.
+
+### Typed guard diagnostic: exact obstruction, unchanged proof
+
+The optional `export_guard_diagnostic:true` was the only change to the
+successful strict100 request. After160 tests and the optimized link, one
+prove-only run reproduced its complete proof/control/product/source report,
+apart from the diagnostic and explicit replay-success metadata. Native checks
+examined all160 guard/cell pairs. Twenty failed the existing transport test:
+3,6,4,7 in the original four cells. All24 associated origin entries were
+`OriginalDomainCondition`; none was an exclusively generic-field-weight pole,
+and none matched a surviving runtime RHS denominator after native primitive
+normalization. The first mismatch is cell0/guard33, whose native displays are
+`-23*n0-12*n0*n1+11*d*n0`, specialized `-118+22*d`, primitive `-59+11*d`.
+These displays explain the report; they are not algebra inputs or permission
+to drop conditions. Some mismatches are index-dependent in the open cells, so
+the result must not be summarized as only constant-in-index dimension poles.
+
+Evidence is `profiles/owner31-export-guard-diagnostic-v1/` under the research
+TMP root. Raw report SHA
+`31d1a6dc61b41ca3bd903e2cce04c94dea6e48dd27ec96081bdcb9a559473146`;
+result `f166434a03660c8d556630b0e5f706434e2b199f1450f11e53b9a1269ad61d64`.
+The single69/70,16GiB+150GB,300-second reservation completed in2.964s, cleanly
+drained; no export, relaxation or routing occurred. The diagnostic mirrors
+the existing checked exporter and explicitly carries no export authority.
+
+### Actual production sample: owner presence is not corrected-chart exposure
+
+A separately authorized Python-only reader sampled exactly8MiB from committed
+record generations27 and28 under captured manifest29 of
+`five-loop-a1-currentnew37pool-frontier-repaired-20261003`. Four fixed1MiB
+windows per segment were registered before outcomes. Both reader modules,
+immutable registry/meta and file identities were bound and checked; no active
+tail, checkpoint restore, full-body hash or lifecycle action was used. The
+new sealed-read tests passed14/14, and the complete Python suite passed39/39.
+The sample took1.521s on CPU68 and decoded15,175 records:953 delegation records,
+3,038 G2 residual inspections and11,184 other native inspections.
+
+Owner31 Apply appears502 times in this bounded sample, with5,455 emitted events,
+5,968 summed distinct-edge counters and2.614 summed inspector seconds. These
+counters are not newly admitted descendants or critical-path costs. The
+43 retained owner31 records comprise33 whole and10 G2 inspections. Every one
+is already coordinate-box disjoint from C's exact two-free-index chart;
+retained rank/A/D caps can only shrink the disjoint boxes. This is not a claim
+about all502 sampled owner31 records or the whole campaign. Selected rules,
+required/helper ancestry and recursive closure remain unknown.
+
+Two baseline-only regional nominations illustrate the real workload:
+
+| Recorded node | Actual scope | Recorded work | Relation to C |
+|---|---|---|---|
+|194979899, owner31|Whole region, R≤2,A≤20,D=18|46 emitted events,34 distinct edges,0.07848 inspector seconds|D1 is fixed to physical1; disjoint from C's D1≥2.|
+|194978689, owner `011001110110100`|G2 residual; original parent, anchors and residual piece retained|736 emitted events,364 distinct edges,0.36003 inspector seconds|Different owner; not a C efficacy case.|
+
+Evidence is `profiles/production-sealed-window-v1/{plan,sample,execution-result,retained-chart-screen}.json`.
+The first nomination is the slowest retained whole owner31 record; the second
+is the slowest retained record overall. This is a biased diagnostic nomination,
+not a global hotspot ranking or recurrence-prevalence estimate. No frozen
+original required query has been selected as an efficacy control: a sampled
+node is not a whole-query closure obligation, and C exposure is not established.
+Independent retained-only receipt/geometry audit passed without another
+production read. The earlier H1 stress witness remains distinct from this
+actual production evidence.
+
+### Fresh original-frame proof and checked export
+
+The sole continuation added `fresh_original_frame_reproof:true` to the exact
+strict100 request. It regenerated the complete391 declared original bindings,
+replayed the271 final contributions and independently proved the identical294
+RHS terms on the same four cells. The original weighted report stayed intact;
+its40-guard lists were not filtered. The fresh native proof has32 guards per
+cell, zero reconstructed original-assumption entries and561 retained replay
+diagnostic conditions. These counts are not a display-based classification of
+guard origins. The unchanged exporter accepted the fresh typed proof and its
+complete payload roundtrip. No exporter policy or actual input assumption was
+relaxed, and no weighted/baseline fallback was used.
+
+The4,696,732-byte corrected artifact is
+`profiles/owner31-fresh-frame-export-v1/export/candidate.rrbin`, SHA
+`5359cd04d81558870fb8dc0ef1941ff392e1c411778e043fbf505eb40c1159d3`:
+265 original rules become266, with43 terminals retained. The168-test suite and
+independent final native audit passed; the single guarded export completed in
+3.259s and drained. An earlier malformed request copied from truncated tool
+output was rejected before invocation and retained as a harness failure; the
+executed request was recreated from the exact source file and independently
+checked as a one-flag delta. There is no installation, routing measurement or
+production recommendation.
+
+### Actual whole production region: two rules, not the stress chart
+
+One existing native observer visited the complete retained node194979899 box,
+R≤2,A≤20,D=18, using the actual67-owner/8246-route/two-overlay production
+context. Its lower-corner preparation key did not replace the independent
+full-region query. All historical native/matching statistics reproduced:
+46 events,42 successors,36 same-support and6 strict pinches, with complete
+uniform-nonzero coefficient observations. Rule4 handles the D11-numerator
+piece (18 successors); rule14 handles the D11=0 face (24 successors). No route
+transport was performed. Evidence is
+`profiles/production-owner31-node194979899-v1/native/`; independent receipt
+audit passed. The96.482s total includes89.485s preparation, with unrelated host
+contention; this is not a performance comparison.
+
+Rule4's children have rank caps≤1 and A≤20; five have exact D=19 rather than
+the parent's18. Rule14's children retain rank caps≤2,A≤20 and exact D=17 or18.
+Thus the observed Apply step does not increase the rank or positive-power cap;
+rank, dot powers, D-band changes and possible later routing inflation must not
+be conflated. Two different rule14 shifts (events29/34) reactivate D11 from0
+to−1 but yield the **same full target geometry**, hence one distinct domain
+obligation. Its D12 range includes power1, outside the observed rule4 piece;
+dispatch back to rule4 over the complete target is not established. A possible
+next conceptual objective is avoiding this D11-face exit while retaining all
+other required terms and native proof,
+but only after saved-rule metadata and destination applicability are checked.
+No new source bank, candidate solve or whole-query ancestry is inferred.

@@ -227,7 +227,7 @@ fn frame(c: &IndexedCoefficientContext, offset: i64, row: project::Row) -> sourc
     }
 }
 
-fn template(c: &IndexedCoefficientContext) -> OriginalSourceCombinationRequest {
+pub(super) fn template(c: &IndexedCoefficientContext) -> OriginalSourceCombinationRequest {
     OriginalSourceCombinationRequest {
         root_sector: Mask::try_new([true]).unwrap(),
         sector: Mask::try_new([true]).unwrap(),
@@ -618,13 +618,16 @@ fn boundary_native_proof_refusal_cannot_release_retained_export_request() {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let invalid = template(generator.context()); // Empty RHS is not this ordinary identity.
     let retained = clone_for_export(generator.context(), &invalid, 100, limits()).unwrap();
-    let outcome = finish_proof(
+    let (outcome, _) = finish_proof(
+        generator.context(),
         &family,
         invalid,
         Default::default(),
         Some(retained),
         false,
         json!({"fresh_original_source_certificate":false}),
+        None,
+        limits(),
     );
     assert_eq!(
         outcome.report["status"],

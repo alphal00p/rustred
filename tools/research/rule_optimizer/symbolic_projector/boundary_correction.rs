@@ -30,8 +30,12 @@ impl From<Value> for Outcome {
 
 #[path = "boundary_dual.rs"]
 mod dual;
+#[path = "boundary_guard_diagnostic.rs"]
+mod guard_diagnostic;
 #[path = "source_nomination.rs"]
 mod nomination;
+#[path = "boundary_reproof.rs"]
+mod reproof;
 
 pub fn enabled(r: &Value) -> bool {
     r.get("boundary_correction").is_some()
@@ -58,6 +62,8 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
                     | "exact_dual_separator"
                     | "witness_preimage_nomination"
                     | "translated_pinch_sources"
+                    | "export_guard_diagnostic"
+                    | "fresh_original_frame_reproof"
             )
         }),
         "unknown boundary correction field",
@@ -70,6 +76,8 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
     checked(dual::enabled(cfg))?;
     nomination::enabled(cfg)?;
     let translated = translated_pinch_sources(cfg)?;
+    guard_diagnostic::enabled(cfg)?;
+    reproof::enabled(cfg)?;
     require(
         number(r, "max_refinements")? == 0,
         "boundary correction does not refine or grow its bank",
@@ -938,7 +946,10 @@ pub fn run(
                 .unwrap_or(0)
         );
     }
-    let export_request = if retain_export_request {
+    let fresh_reproof = reproof::enabled(cfg)?;
+    // Reproof needs the exact typed final request after its independent
+    // weighted check consumes the original. Charge the same bounded copy.
+    let export_request = if retain_export_request || fresh_reproof {
         Some(clone_for_export(
             c,
             &request,
@@ -948,33 +959,89 @@ pub fn run(
     } else {
         None
     };
-    Ok(finish_proof(
+    let diagnostic = if guard_diagnostic::enabled(cfg)? {
+        Some(guard_diagnostic::prepare(
+            c,
+            family.fingerprint(),
+            &request,
+            p.cell.indexed_algebra,
+            limit(r, "max_coordinate_cells")?,
+            limits,
+        ))
+    } else {
+        None
+    };
+    let (mut outcome, proof) = finish_proof(
+        c,
         family,
         request,
         p,
         export_request,
         array(cfg, "cancel_rank_positive_shifts")?.is_empty(),
         report,
-    ))
+        diagnostic,
+        limits,
+    );
+    if fresh_reproof {
+        let fresh = match (proof, outcome.export_request.take()) {
+            (Some(proof), Some(request)) => reproof::run(
+                r,
+                generator,
+                completed,
+                ids,
+                baseline,
+                checked_request,
+                &span,
+                target,
+                &proposal.image,
+                request,
+                &proof,
+                family,
+                p,
+                limits,
+                retain_export_request,
+            ),
+            _ => json!({"schema":reproof::SCHEMA,
+                "status":"FRESH_ORIGINAL_FRAME_REPROOF_SKIPPED_NO_WEIGHTED_PROOF",
+                "original_source_replay_verified":false,
+                "fresh_original_source_certificate":false})
+            .into(),
+        };
+        outcome.report["fresh_original_frame_reproof"] = fresh.report;
+        outcome.export_request = fresh.export_request;
+    }
+    Ok(outcome)
 }
 
 fn finish_proof(
+    c: &IndexedCoefficientContext,
     family: &rustred::family::IntegralFamily,
     request: OriginalSourceCombinationRequest,
     p: OriginalSourceCombinationLimits,
     mut export_request: Option<OriginalSourceCombinationRequest>,
     control: bool,
     mut report: Value,
-) -> Outcome {
+    diagnostic: Option<Result<guard_diagnostic::Prepared>>,
+    limits: project::Limits,
+) -> (Outcome, Option<CheckedOriginalSourceCombination>) {
     report["original_source_replay_verified"] = json!(false);
-    match check_original_source_combination(family, request, p) {
+    let proof = match check_original_source_combination(family, request, p) {
         Err(error) => {
             export_request = None;
             report["status"] = json!("BOUNDARY_CORRECTION_PROOF_REFUSED");
             report["proof_error"] = error_json(&error);
             report["affine_infeasibility_claim"] = json!(false);
+            if diagnostic.is_some() {
+                report["export_guard_diagnostic"] = json!({"complete":false,
+                    "status":"GUARD_DIAGNOSTIC_SKIPPED_NO_CHECKED_PROOF"});
+            }
+            None
         }
         Ok(proof) => {
+            if let Some(input) = diagnostic {
+                report["export_guard_diagnostic"] =
+                    guard_diagnostic::report(c, &proof, input, p.cell.indexed_algebra, limits);
+            }
             report["original_source_replay_verified"] = json!(true);
             report["status"] = json!(if control {
                 "EXACT_BOUNDARY_ZERO_OBJECTIVE_CHART_PROVED"
@@ -983,12 +1050,16 @@ fn finish_proof(
             });
             report["zero_objective_control_only"] = json!(control);
             report["proof_cells"] = proof_json(&proof);
+            Some(proof)
         }
-    }
-    Outcome {
-        report,
-        export_request,
-    }
+    };
+    (
+        Outcome {
+            report,
+            export_request,
+        },
+        proof,
+    )
 }
 
 #[cfg(test)]

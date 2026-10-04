@@ -12,10 +12,15 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 import hashlib
 import heapq
+import importlib.util
 import json
 import math
 from pathlib import Path
 import struct
+
+_sealed_spec = importlib.util.spec_from_file_location("rule_optimizer_profile_sealed", Path(__file__).with_name("profile_sealed.py"))
+profile_sealed = importlib.util.module_from_spec(_sealed_spec)
+_sealed_spec.loader.exec_module(profile_sealed)
 
 MAGIC = b"ERB1"
 MAX_AUTH = 128 << 20
@@ -229,14 +234,21 @@ def synchronize(data):
             candidate += len(MAGIC)
 
 
-def inventory(campaign):
+def inventory(campaign, live_sealed_only=False):
     campaign = Path(campaign).resolve()
     receipt_path = campaign / "inputs/input-receipt.json"
-    receipt_bytes = receipt_path.read_bytes()
+    snapshots = {}
+    def metadata(path, role):
+        if not live_sealed_only:
+            return path.read_bytes()
+        snap = profile_sealed.snapshot(path)
+        snapshots[role] = snap
+        return snap["text"].encode("utf-8")
+    receipt_bytes = metadata(receipt_path, "receipt")
     receipt = json.loads(receipt_bytes)
-    active = read_json(campaign / "active-run.json")
+    active = json.loads(metadata(campaign / "active-run.json", "active"))
     run = Path(active["run_directory"])
-    status_bytes = (run / "status.json").read_bytes()
+    status_bytes = metadata(run / "status.json", "status")
     status = json.loads(status_bytes)
     out = dict(campaign=str(campaign), collected_utc=datetime.now(timezone.utc).isoformat(),
                input_receipt_sha256=digest(receipt_bytes), input_receipt=receipt,
@@ -246,18 +258,18 @@ def inventory(campaign):
     cp = campaign / "checkpoints/main"
     latest = cp / "latest.json"
     if latest.exists():
-        raw = latest.read_bytes()
+        raw = metadata(latest, "latest")
         envelope = json.loads(raw)
         manifest = envelope["manifest"]
         if manifest["format"] != "RUSTRED-WALK-CP6" or manifest["schema"] != 3:
             raise ValueError("unsupported checkpoint schema")
         meta_entry = next(f for f in manifest["files"] if f["key"] == "meta")
-        meta_bytes = (cp / meta_entry["file"]).read_bytes()
+        meta_bytes = metadata(cp / meta_entry["file"], "meta")
         meta = json.loads(meta_bytes)
         if len(meta_bytes) != meta_entry["bytes"] or meta["record_schema"] != 1:
             raise ValueError("unsupported record schema or meta size mismatch")
         segments_entry = next(f for f in manifest["files"] if f["key"] == "record-segments")
-        segments_bytes = (cp / segments_entry["file"]).read_bytes()
+        segments_bytes = metadata(cp / segments_entry["file"], "registry")
         if len(segments_bytes) != segments_entry["bytes"]:
             raise ValueError("record segment inventory size mismatch")
         out.update(latest_manifest=envelope, latest_manifest_sha256=digest(raw),
@@ -265,24 +277,30 @@ def inventory(campaign):
                    record_segments_inventory_sha256=digest(segments_bytes),
                    record_segments= json.loads(segments_bytes))
     result = run / "result.json"
-    if result.exists():
+    if result.exists() and not live_sealed_only:
         out["result"] = read_json(result)
+    if live_sealed_only:
+        out["sealed_snapshots"] = snapshots
+        profile_sealed.validate_source(out)
     return out
 
 
-def make_plan(specs, extra_inventory):
+def make_plan(specs, extra_inventory, live_sealed_only=False):
+    if live_sealed_only and (len(specs) != 1 or extra_inventory):
+        raise ValueError("live sealed mode requires exactly one source campaign")
     sources, windows = [], []
     for spec in specs:
         directory, generations = spec.rsplit(":", 1)
-        source = inventory(directory)
-        if source["status"]["progress"].get("native_status") != "stopped":
+        source = inventory(directory, live_sealed_only)
+        if not live_sealed_only and source["status"]["progress"].get("native_status") != "stopped":
             raise ValueError("sampling requires a stopped campaign")
         source_id = len(sources)
         sources.append(source)
         for gen in map(int, generations.split(",")):
             segment = next(s for s in source["record_segments"] if s["generation"] == gen)
             path = Path(directory).resolve() / "checkpoints/main" / segment["file"]
-            st = path.stat()
+            st = path.lstat() if live_sealed_only else path.stat()
+            binding = profile_sealed.identity(st) if live_sealed_only else None
             if st.st_size != segment["bytes"]:
                 raise ValueError("committed segment size mismatch")
             for numerator in (1, 3, 5, 7):
@@ -292,9 +310,11 @@ def make_plan(specs, extra_inventory):
                     start=start, bytes=count, stat_size=st.st_size, stat_mtime_ns=st.st_mtime_ns,
                     segment_blake3_claim=segment["blake3"], committed_records=segment["count"],
                     committed_record_first=segment["first"]))
+                if live_sealed_only:
+                    windows[-1]["stat_identity"] = binding
     if sum(w["bytes"] for w in windows) > 32 << 20:
         raise ValueError("sample exceeds approved 32MiB read bound")
-    return dict(schema="rustred-profile-window-plan-v1", created_utc=datetime.now(timezone.utc).isoformat(),
+    plan = dict(schema="rustred-profile-window-plan-v1", created_utc=datetime.now(timezone.utc).isoformat(),
         method="four fixed 1MiB windows starting at 1/8,3/8,5/8,7/8 of each selected sealed segment",
         sources=sources, metadata_only_sources=[inventory(p) for p in extra_inventory], windows=windows,
         total_requested_bytes=sum(w["bytes"] for w in windows), full_checkpoint_authenticated=False,
@@ -309,6 +329,11 @@ def make_plan(specs, extra_inventory):
             "job_duplicates":"same canonical image previously emitted as an Admit in this job",
             "inspector_lookup_stored_hits":"stored snapshot lookup hits; separate aggregate only, not in per-record counters"},
         missing_authority=["selected rule identity", "distinct newly admitted child nodes", "required/helper root ancestry", "recursive closure"])
+    if live_sealed_only:
+        plan["live_sealed_only"] = True
+        validate_plan(plan)
+        profile_sealed.verify_source(sources[0])
+    return plan
 
 
 def accumulate(acc, record):
@@ -329,6 +354,10 @@ def accumulate(acc, record):
 def validate_plan(plan):
     if plan.get("schema") != "rustred-profile-window-plan-v1":
         raise ValueError("unsupported sampling plan")
+    if plan.get("live_sealed_only", False) is not False:
+        if plan["live_sealed_only"] is not True:
+            raise ValueError("invalid live sealed mode")
+        profile_sealed.validate_plan(plan)
     ranges, total = defaultdict(list), 0
     for window in plan["windows"]:
         start, count = window["start"], window["bytes"]
@@ -356,20 +385,24 @@ def validate_plan(plan):
 
 def run_sample(plan, plan_bytes):
     validate_plan(plan)
+    live_data = profile_sealed.read_windows(plan) if plan.get("live_sealed_only") else None
     phase, owners, strata = (defaultdict(Counter) for _ in range(3))
     kinds, windows, top, representatives = Counter(), [], [], {}
     serial = 0
     for window_id, window in enumerate(plan["windows"]):
         path = Path(window["path"])
-        before = path.stat()
-        if (before.st_size, before.st_mtime_ns) != (window["stat_size"], window["stat_mtime_ns"]):
-            raise ValueError("planned immutable segment changed")
-        with path.open("rb") as f:
-            f.seek(window["start"])
-            data = f.read(window["bytes"])
-        after = path.stat()
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-            raise ValueError("segment changed during bounded read")
+        if live_data is not None:
+            data = live_data.pop(window_id)
+        else:
+            before = path.stat()
+            if (before.st_size, before.st_mtime_ns) != (window["stat_size"], window["stat_mtime_ns"]):
+                raise ValueError("planned immutable segment changed")
+            with path.open("rb") as f:
+                f.seek(window["start"])
+                data = f.read(window["bytes"])
+            after = path.stat()
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise ValueError("segment changed during bounded read")
         if len(data) != window["bytes"]:
             raise ValueError("short bounded read")
         offset = synchronize(data)
@@ -416,6 +449,11 @@ def run_sample(plan, plan_bytes):
             phase_totals={k:dict(v) for k,v in phase_window.items()}))
     def rows(mapping):
         return [dict(key=list(k), **dict(v)) for k, v in sorted(mapping.items(), key=lambda x: -x[1]["seconds"])]
+    if live_data is not None:
+        profile_sealed.verify_source(plan["sources"][0])
+        for window in plan["windows"]:
+            if profile_sealed.identity(Path(window["path"]).lstat()) != window["stat_identity"]:
+                raise ValueError("sealed segment changed before sample completion")
     return dict(schema="rustred-profile-sample-v1", collected_utc=datetime.now(timezone.utc).isoformat(),
         plan_sha256=digest(plan_bytes), script_sha256=digest(Path(__file__).read_bytes()),
         full_checkpoint_authenticated=False, sample_only=True, kinds=dict(kinds), windows=windows,
@@ -543,6 +581,8 @@ def main():
     plan = sub.add_parser("plan")
     plan.add_argument("--source", action="append", required=True, help="CAMPAIGN:GEN,GEN,...")
     plan.add_argument("--metadata-only", action="append", default=[])
+    plan.add_argument("--live-sealed-only", action="store_true",
+                      help="explicit live opt-in: two older committed generations, eight fixed windows, at most 8MiB; nomination only")
     plan.add_argument("--out", required=True)
     sample = sub.add_parser("sample")
     sample.add_argument("--plan", required=True)
@@ -560,7 +600,7 @@ def main():
     matched.add_argument("--out", required=True)
     args = parser.parse_args()
     if args.command == "plan":
-        result = make_plan(args.source, args.metadata_only)
+        result = make_plan(args.source, args.metadata_only, args.live_sealed_only)
     elif args.command == "sample":
         plan_bytes = Path(args.plan).read_bytes()
         result = run_sample(json.loads(plan_bytes), plan_bytes)

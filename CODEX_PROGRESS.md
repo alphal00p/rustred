@@ -24,12 +24,195 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Exact obstruction-guided strict100 succeeds:313→294 tails,93→81 numerator columns, no new numerator columns, leading coefficients preserved; guards32→40 per cell.154 tests and independent audit pass. B0 typed export succeeds; C refuses a proof guard not retained by surviving RHS denominators. Active: exact guard/provenance diagnosis; three-arm routed test is unstarted. Collective291 cancellation stays pending. No downstream-work gain or production change claimed. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Strict100 proves313→294 tails and93→81 numerator columns.168 tests pass. Separate fresh391-original-source reproof now exports C through unchanged runtime policy: same271 weights/294 tails,32 guards per cell; old weighted proof unchanged. H1 routing remains parked because all43 sampled production regions miss C. Actual production rule14's D11-face re-entry is the next source objective, pending source/chart inspection. No workload gain or production change claimed. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Exact correction becomes a runtime payload — October4, 16:31 UTC
+
+[M] The independent ordinary-frame reproof/export succeeds in3.259s inclusive.
+It regenerates391 ordinary sources, replays the same271 final contributions
+to exactly294 RHS terms, and proves the same four cells with32 guards each.
+The earlier weighted proof/report is unchanged, including its40 guards; the
+new proof does not relabel or weaken it. Original raw sources here have no
+separate initial assumptions; real-assumption preservation is covered in the
+168-test suite. Existing runtime export policy and all core code are unchanged.
+C now has a4,696,732-byte checked payload:265→266 rules and43 unchanged
+terminals, digest`5359cd04…c1159d3`. This demonstrates the conceptual source
+enrichment-to-runtime workflow, not current-campaign efficacy or closure.
+
+Evidence: `profiles/owner31-fresh-frame-export-v1/` under the research TMP root;
+fresh binary`91561d6f…6de52a4`, plan`4ad30ff8…2140f78`. A malformed draft
+copied from truncated tool output was rejected before native execution and
+retained with its diagnostic. The actual input was reconstructed from exact
+filesystem bytes and checked to differ only by the new reproof flag.
+
+[E] Actual production nominates a different objective: rule14 can re-enter
+the already-zero D11 numerator face. Sequences29/34 carry different shifts
+and source subregions but the **same complete target geometry**, hence one
+canonical dependency, not two. Both lower total dot-excess plus rank by1;
+this is not a concrete cycle. Its target includes physical D12=1, outside
+the earlier observed rule4 piece, so routing it into rule4 is unproved.
+Inspect the actual source/chart and target match before testing whether a
+complete same-sector D11-face-invariant identity removes this dependency.
+Retain all lower-sector tails. The Liu–Mitov/LoopIn/TIDE literature motivates
+this boundary objective, not a new CAS or a guarantee it improves total work.
+
+### Actual production rule boundary reproduced — October4, 16:28 UTC
+
+[M] One full-region applied observation of recorded node194979899 reproduces
+every archived native/matching statistic exactly. The actual production
+selection, all67 owners,8,246 routes and two overlays remain unchanged. It
+finishes in96.482s inclusive, of which89.485s is preparation and0.00857s is the
+native visitor; this is an inspection receipt, not a performance comparison.
+There are two selected pieces: batch0/rule4 when inactive D11 has a numerator,
+and batch0/rule14 when D11=0. Their18+24 successors include36 same-support
+images and six pinches, all with uniform nonzero coefficients. Independent
+input, complete-event, full-stat and drained-process audit passes.
+
+[M/E] This identifies a different mechanism from scalar rule210/C. Rule4's
+children have rank caps at most1 versus the parent's2, but five images raise
+the net-power band from18 to19. Rule14 preserves rank≤2 and positive power≤20,
+with net-power bands17 or18. Consequently merely importing the previous
+numerator-tail cancellation objective is unjustified. Next inspect the actual
+routed boundary and compare the rank/dot exchange and canonical destination
+union; fewer displayed tails alone is insufficient. No candidate source bank
+or replacement traversal is started from these observations yet.
+
+Evidence: `TMP/rule-optimizer-20261003/profiles/production-owner31-node194979899-v1/`,
+plan`ac066a17…5ac9feb`, exact request`f87b45aa…ec426d5`. The preflight caught
+and corrected a JSON floating-point roundtrip of `usize::MAX` before native
+execution; the native run was not retried. Research/source reproof separately
+passes168 tests and its optimized cached link; its actual C export is next.
+The production campaign remains live and unmodified (read-only16:24 snapshot:
+224.4M discovered,9.95M pending,13/67 in the conservative closure snapshot,
+zero frontiers; that closure snapshot is stale, so no current closure rate
+or ETA follows).
+
+### Live records change efficacy priorities — October4, 16:15 UTC
+
+[M] The audited sealed-record sampler reads exactly8MiB in1.521s on CPU68:
+four fixed windows from each of generations27/28 in captured checkpoint29.
+It decodes15,175 records (953 aliases,3,038 G2 residual and11,184 ordinary
+native records); all identity checks pass, with no checkpoint restoration or
+production mutation. Actual owner31 Apply occurs502 times in these windows.
+The retained43 distinct owner31 records (33 whole,10 G2) are **all disjoint**
+from C's chart already at coordinate-box level, independently confirmed. Rank
+and power cuts cannot restore intersection. This is not a claim about the
+unretained459 owner31 records or the whole campaign.
+
+[E] Park the unexecuted900s H1 routed comparison: it would measure the stress
+mechanism but not establish current campaign relevance. Finish the independent
+C reproof/export as a reusable conceptual workflow test, without deployment
+claims. Move the next performance nomination to actual recorded regions.
+Discovery is preparing one baseline-only native whole-box inspection of
+owner31 node194979899, preserving its complete rank/power restrictions and the
+actual production pool/routes/overlays. This sampled record has46 events and
+34 distinct edges; neither counts new nodes or exclusive downstream cost.
+Required/helper ancestry and selected rule are still unknown. Exact command
+and input review precede the single ≤300s native probe. Do not replace it by
+an easier integer point or begin a new candidate search without its result.
+
+Evidence: `profiles/production-sealed-window-v1/`, sample`0b7e30f7…85d87c12`,
+execution`33d828fa…ab4615`. Existing stopped-only sampler behavior is preserved;
+its new opt-in live-sealed path and dynamic-import regression are tested and
+independently audited. The active campaign itself remains untouched.
+
+### Native guard diagnosis identifies the precise blocker — October4, 16:10 UTC
+
+[M] The new diagnostic passes160 tests and independent review. Its one frozen
+C prove-only call completes in2.964s including preparation/drain; native report
+time1.995s. All prior C source/control/proof content is unchanged. Of160 typed
+guard/cell evaluations,20 fail the existing transport test (3/6/4/7 by cell).
+They are seven newly retained guard identities32–38; all original0–31 and
+new39 pass. Every mismatch has exclusively `OriginalDomainCondition` origins,
+24 origin entries in total. The first is retained condition886, specializing
+at D1=2,D2=3 to `-118+22*d`, primitive `-59+11*d`, with no surviving RHS
+primitive denominator match. A weight-only exporter relaxation would therefore
+not repair this actual request. No export, routing or policy change occurred.
+
+Evidence: `profiles/owner31-export-guard-diagnostic-v1/` under the research
+TMP root; raw`31d1a6dc…473146`, result`f166434a…ad61d64`, binary
+`757e98ee…30f69ae0`. Build-v1's9.150s compile failure was a JSON serialization
+trait mismatch for an ordering ID; v2 changes only that display conversion.
+The160-test run and83.768s optimized link pass. One independently reviewed
+rustfmt-only test line wrap does not require another native build.
+
+[E] Activate one remedy, not a guard-policy relaxation: independently rebuild
+the canonical391-row ordinary source frame, map the existing271 typed final
+weights, and replay exactly the C294 full identity. Preserve all genuine raw
+source and caller assumptions, refuse ambiguous weighted-baseline provenance,
+and let the original-source checker derive final weight/RHS conditions for a
+new request. Keep the existing weighted proof and conditions intact. Only this
+new successful proof may feed the unchanged checked exporter. Evaluator owns
+the minimal default-off `fresh_original_frame_reproof` module; independent
+auditor reviews mutations, real-assumption preservation and refusal/no-fallback.
+No further source search, core build or automatic admission relaxation.
+
+### Ground the next nomination in current production — October4, 15:56 UTC
+
+[M] Discovery's bounded existing-receipt screen finds only aggregate production
+heartbeats/telemetry: no concrete owner/domain/rule identities. Existing H1
+receipts establish stress-chart exposure, not current-production prevalence.
+The candidate's owner31 convenience required rows also do not directly meet its
+D1/D2 chart; descendant exposure remains unknown. No production record contents
+were scanned in that screen.
+
+[E] Discovery and independent auditor now review a small explicit live-sealed
+extension of the existing `profile_records.py` sampler. The proposed read is
+8MiB total across two old committed record generations, with pinned manifest
+inventory, exclusion of the active append file and before/after immutability
+checks. It must first be established that the checkpoint writer never appends
+to those sealed files. This is regional nomination evidence only, not whole-
+checkpoint authentication, prevalence, ancestry, a rule identity or closure.
+No restoration, production writes or process lifecycle actions. If safe, this
+can run independently of the native guard diagnostic and prevents treating a
+favourable artificial stress point as a representative campaign workload.
+
+### Conceptual scaling critique and efficacy-control correction — October4, 15:50 UTC
+
+[E] Independent criticism: the separator is one exact obstruction in a
+finite source span, not a complete recipe for closure. A newly proposed row
+with nonzero pairing can leave other obstructions and introduce new forbidden
+columns. Source-support preimages, complete row blocks, rational coefficients
+and guard conditions can still grow. Strict no-new-numerator support does not
+exclude more expensive scalar dot excursions after routing. Keep the successful
+strict100 correction as evidence of the mechanism, not a termination theorem
+or a measured campaign improvement.
+
+[M/E] The earlier completed260-integral control starts with8 active lines;
+the corrected owner31 chart has9. Under the fixed nonincreasing-support
+routing it cannot exercise this correction. Retain that control for regression,
+not efficacy. Discovery now searches existing baseline-only records for one
+whole original required entry exposed to this chart, before any cost result.
+No cherry-picked post-result replacement or new pilot is authorized. H1 is
+already training/stress data, not a fresh held-out success. If a representative
+complete test cannot be obtained within the pilot envelope, report that limit
+instead of promoting the rule from its local tail count.
+
+### Export milestone pushed; narrow guard diagnosis registered — October4, 15:46 UTC
+
+[M] The154-test typed export bridge, actual B0 success/C refusal and evidence
+are committed/pushed to main as`cbd12fe1`. Production remains unchanged.
+Independent code review also confirms that the original-source checker already
+validates every guard on every exact integer cell over the generic parameter
+field. The stricter exporter additionally requires parameter assumptions to be
+represented at runtime; its refusal is not evidence of an uncovered integer
+cell in the proved chart.
+
+[E] Register one default-off, research-only native diagnostic of the actual
+typed corrected request/proof against the current exporter guard policy. It
+reports mismatching cell/guard/origins using Symbolica specialization and
+primitive equality, with source-version binding, but grants no admission or
+guard-discharge authority. Preserve the no-flag path, all inputs and every
+condition. Evaluator implements, auditor checks, discovery alone runs the one
+C prove-only call after focused tests/link; existing300s CPU69/70,16GiB and
+150GB host-reserve envelope. Do not spend a full core build or redesign the
+artifact until this explains the real blocker. The conditional three-arm
+routing reservation remains unused.
 
 ### Actual corrected export refuses; exact identity remains proved — October4, 15:43 UTC
 
