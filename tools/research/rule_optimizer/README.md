@@ -809,6 +809,15 @@ exclusions, and native full-source/chart/guard proof remains required.
 Single-axis witness and annotation formats are unchanged. Multifree witnesses
 report the free-axis list and its threshold vector, including an explicit
 product-tail scope when the derived exclusion list is empty.
+The orthant extension passes all 75 optimized research tests, including native
+mixed-sign and support-tie comparisons, finite-face non-exclusion, restrictive
+geometry refusal, carrier overflow, witness admission, and the existing
+474-column regression. Both the toy export and the actual negative-ray exact
+export remain byte-identical to the preceding build; the actual full report is
+identical except for elapsed seconds. Evidence is retained under ignored
+`candidates/projector-orthant-build-v1/` and
+`candidates/projector-orthant-one-ray-control-v1/`. These establish compatibility
+and nomination correctness, not faster traversal or family closure.
 
 `RUSTRED_SYMBOLIC_PROJECTOR_PROGRESS=1` enables observational stderr JSON for
 source preparation, projection, proof/refinement and export. Sparse row

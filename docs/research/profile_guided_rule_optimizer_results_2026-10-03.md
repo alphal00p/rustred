@@ -23,9 +23,12 @@ The next experiments address a different scale of intervention:
 - A fresh whole-owner3 source-order trial completes in 86.530 s native
   generation time, producing 465 rules and 59 finite residuals. The saved owner
   has 584 rules and 58 residuals, so this is not an interchangeable candidate
-  under the unchanged-terminal comparison. No owner is installed. The archived
-  and current generator binaries also differ; this is not yet a controlled
-  attribution to source order alone.
+  under the unchanged-terminal comparison. No owner is installed. A subsequent
+  A1 control on the same current binary takes 93.672 s native and reproduces
+  the saved 584-rule/58-residual owner byte-for-byte. The descriptor therefore
+  explains the observed output difference in this controlled experiment;
+  neither the generation timing nor the smaller rule count demonstrates a
+  shared-work gain. All 58 old residual keys remain, with one additional key.
 - The completed graph exposes substantial reconvergence: two lower-owner roots
   share 8,970 of their 9,211/9,037 reachable nodes. Seventeen repeated parents
   contain a common two-child pattern. Exact block composition and broader
@@ -34,6 +37,17 @@ The next experiments address a different scale of intervention:
 
 Production remains unchanged. No new full-campaign speedup, termination claim
 or closure ETA follows from these results.
+
+The six-free-coordinate candidate now has a completed exact result: 106 ordinary
+source contributions produce and replay 365 terms in 2.263 s inclusive. Native
+proof refuses the result because a surviving term leaves the owner's allowed
+root on a finite boundary. No artifact is exported. The limiting issue is
+boundary admissibility, not arithmetic growth. Its next diagnostic must retain
+the full chart and distinguish sufficient whole-column exclusions from genuinely
+necessary boundary-vanishing conditions.
+
+The primary-paper review and independently critiqued next experiments are in
+[the bold-directions study](profile_guided_bold_directions_2026-10-03.md).
 
 ## Historical stage: exact chart proof and a cost-directed candidate
 

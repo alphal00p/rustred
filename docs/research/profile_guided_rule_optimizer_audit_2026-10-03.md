@@ -4270,3 +4270,145 @@ strategy-only causal attribution additionally needs an appropriate control.
 `family-candidates` explicitly produces uncertified candidates: native source
 authority and exact terminal-key equality remain later gates. Evidence:
 `profiles/owner3-whole-program-mechanism-proposal-v3.json` (`ae5dbfda...aa6f42`).
+
+The six-free modular run completes cleanly in 2.022907 seconds: all three
+samples hit with identical 180 typed source ordinals/pairs, F356 and rank
+233→234, using a 238-row/4,974-term prefix. Independent joins recover every
+selected pair from the unchanged full 250-source bank. The product-tail
+witnesses name all six free axes; source proof and export remain false.
+Raw receipt: `incidence-study/owner3-rule146-orthant-plus-e13-v1/guard/stdout`,
+SHA `43e022b8...a4cb6`.
+
+The separately authorized single exact lift preserves that whole chart,
+bank, guard policy and F356. All ten bound pins and the exact-only request
+delta pass audit. Native direct-L recovery and full original multiplication
+succeed: 106 unique contributions lie in selected180/full250, and the full
+365-shift product has target coefficient one and no F356 term. Nevertheless,
+the native producer refuses the candidate with
+`original RHS activates support outside the declared owner root`, classified
+`OTHER_PROOF_REFUSAL`, with no refinement permitted. This gate follows exact
+sign partitioning and coefficient-vanishing checks on each cell; it is not a
+failure to account for coefficients vanishing at a boundary. Cofinal bans
+were only necessary tail constraints, not full-chart admissibility. Stronger
+whole-column bans could be sufficient, but are not necessary where exact
+boundary divisibility cancels an activating term.
+
+The refusal is clean/drained, one attempt, zero refinements, 1.470489 native
+and 2.263423 inclusive seconds, with 184,508,416 sampled peak bytes and no
+resource stop. No artifact directory or checked export is created. This is
+neither a refutation of the complete source span nor permission to narrow the
+chart or waive the root gate. Evidence:
+`candidates/symbolic-owner3-rule146-orthant-plus-e13-noh-direct-v1/`, raw SHA
+`a9ffb6b207aacc00b3e555596494750530e771609d9aa751919e7f7cb59fe83f`.
+
+The whole-owner generation also completes cleanly: 86.530441 native and
+87.461299 inclusive seconds, 465 rules and 59 residuals versus the saved
+584 rules and 58 residuals. Two bounded read-only native `candidate-inspect`
+calls establish the exact terminal delta, not merely a count discrepancy:
+all 58 old keys remain, none is removed, and the sole added key is
+`(0,1,0,1,1,1,0,1,2,0,0,0,-1,0,1)` (A8/R1/D7). Selecting existing rule0
+for inspection does not filter the reported terminal inventory. Family,
+root and order match. The new residual is not thereby an independent master;
+terminal equality fails, so this candidate cannot replace the baseline or
+enter the controlled pair. Evidence:
+`candidates/owner3-active-positive-generation-v1/`.
+
+A design-only hybrid review finds useful primitives but no ready checked
+whole-program composition API. The priority exporter preserves the baseline
+suffix and terminals while proving one explicit ordinary-source combination.
+Native `replay_sector_rule_batch` can already rediscover a saved raw pivot,
+recenter it, recover ordinary weights and reject missing guard branches;
+however, its public identity-only result exposes ordinals/counts, not a
+proof-bearing rule suitable for the priority exporter, and certifies neither
+descent nor coverage. Generated encoding is transport-only, the shared-owner
+loader rejects duplicate owner masks, and general candidate certification
+rejects these numerator-rank-scoped inputs. A hybrid would need a bounded
+proof-bearing batch bridge retaining every original application guard/domain,
+uniform descent, explicit dispatch, the entire baseline suffix and exact 58
+terminal keys. It is not terminal-byte stripping or a flag-only experiment,
+and no all-465-rule replay success is established. No implementation or run
+is authorized by this feasibility review.
+
+One further bridge distinction is essential: saved-rule ordinary replay can
+accept residual product terms through authenticated global zero-sector
+evidence, whereas the current explicit original producer supplies no zero
+sectors to its cell verifier. Any future typed replay circuit must retain that
+zero-sector dependence and the complete original product; it is not thereby
+an unrestricted polynomial identity or a transferable export seal. Composition
+must re-enter proof without silently dropping those tails.
+
+The final three-point diamond diagnostic is independently consistent: all
+seven match/shape/support phases exit cleanly and drain, in 108.906476 seconds
+inclusive. Actual batch0 rules are 487/1/43, with 119/13/7 complete saved RHS
+terms and 62/1/1 retained seeds. Their 17/1/1 distinct saved offsets nominate
+425/25/25 ordinary pairs; historical recentering and source replay remain
+unproved. Rule487 leaves D1/D11 free, but the translated rule43 child requires
+D11=0; the joint shape is therefore only a D1 ray. The 17 matching physical
+diamonds do not establish 17 uses of this same guarded rule triple. Evidence:
+`discovery-owner3-shared-diamond-v1/`.
+
+Independent critique of `profile_guided_bold_directions_2026-10-03.md` finds
+the literature transfer appropriately limited: selected-integral blocks are
+not arbitrary-index rules ([Blade](https://arxiv.org/html/2405.14621v2));
+matrix/triangular forms have coefficient-growth and fixed-positive/no-dots
+restrictions ([Liu–Mitov](https://arxiv.org/html/2512.05923v1)); bounded
+linear-algebra windows do not ensure completeness or harmless index division
+([Barakat et al.](https://arxiv.org/html/2210.05347)); and coordinate choice
+does not prove an improvement for this family
+([Frellesvig](https://arxiv.org/html/2412.01804v2)). The literal diamond is a
+negative-screening fixture, not positive evidence for a scalable regional
+compiler. Before a broader algebra pilot, identify a translated chart with
+at least two free axes and measured complete-cohort cost reach. Composition
+must retain every unchanged parent tail and shifted child guard; finite-rank
+foreign-chart gains must survive bidirectional transport and parent-source
+replay. No new native experiment follows from this literature review.
+
+The current-binary archived-A1 attribution control passes independent input
+and runner preflight. Relative to the completed active-positive command,
+only the archived A1 descriptor and three fresh checkpoint/output/report
+paths differ. All pins match, independent dry validation creates no output,
+and the existing 48–63/16-worker, 150GB process plus 150GB reserve,
+1,740/1,770/1,800-second owned guard is retained. Root's separate explicit
+authorization admits one control run; the preserved prepared-only plan does
+not grant downstream evaluation or installation. Plan SHA `f568c8c7...697187`,
+runner SHA `7b7e3e33...84c5d5`.
+
+That attribution control completes cleanly/drained in 94.418354 inclusive
+seconds (93.672098 native; 220,913,664 sampled peak bytes), with 584 rules and
+58 residuals. Independent byte comparison is stronger than the requested
+terminal-key comparison: all 22,937,072 bytes equal the archived owner3 payload,
+SHA `563a2e6f37d1bd2373c88bc63112801c47a6385a2b8136f560d2f1712d6d657c`.
+No additional native inventory inspection is needed. Current A1 and current
+active-positive reports retain identical mathematical/resource controls;
+descriptor, resulting counts/size, checkpoint and timings differ. Thus binary
+drift did not change this A1 payload, and the extra terminal is associated
+with source-descriptor choice in this matched experiment. This single control
+does not establish general generation determinism or master independence.
+Evidence: `candidates/owner3-current-a1-control-v1/`.
+
+The one subsequently authorized stronger-boundary modular hypothesis also
+fails its sample screen. Its complete-bank inventory is independently
+reconstructed without coefficient-text parsing: the archived native generic
+25-row supports generate 1,216 columns for these 250 translations. Native
+ordinary rows have only zero, +e_j and +e_j-e_k shifts, with raising factor
+n_j. On fixed-zero axes 9/11 the source offsets are only -1 or 0, so every
+positive final shift there has offset0 and a vanishing n_j factor. Removing
+those 145 columns leaves a 1,071-column superset of the actual fixed-specialized
+universe. The native exact receipt counts 1,071 columns before any 180-row
+selection, proving equality by inclusion and cardinality. This is a
+code-backed inventory deduction joined to a native count, not a new proof seal.
+
+Exactly 952 columns can activate excluded root axes 10/12/13 on some boundary
+face. Their explicit whole-column ban, united with old cofinal F356, gives
+F1023 (667 additions). Input audit verifies only forbidden-shift/provenance
+changes: the full 250-source bank, six-free chart, samples, limits and both
+native root/cofinal policies remain unchanged. Native execution admits and
+reports exactly that union. All three samples miss with forbidden rank250
+equal to augmented rank250, evaluating all 250 rows and 5,220 structural terms
+each. Execution is clean/drained in 2.095972 seconds, sampled peak182,624,256
+bytes; no exact lift, export or retry follows. Whole-column cancellation is
+only a sufficient admissibility ansatz: these misses do not refute alternatives
+whose coefficients vanish precisely on unsafe boundary faces, nor constitute
+an exact span impossibility. Evidence:
+`incidence-study/owner3-rule146-orthant-root-boundary-v1/guard/stdout`, SHA
+`596ec00f1400c81c236f251593f4499338d2ca247994ffb9c141511e5bf911ca`.

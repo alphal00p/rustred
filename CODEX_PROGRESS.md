@@ -23,16 +23,114 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Native positive-power envelope | `rule_optimizer_impl` + independent auditor | Delivered capability; tested candidate rejected | 68 optimized tests pass; exact joint export valid but386131→387578 domains. No A-only lift or more local filters. |
 | Shared lower-owner bottlenecks | `lower_sector_discovery` + root | Four-point graph completed and audited; marginal A-raising cost negligible | Profile broader reusable recurrence/dispatch mechanisms; preserve held-out owners. |
 | Lower-owner exact alternative | `lower_rule_evaluation` + independent auditor | Paired traversal audited; small nonqualifying gain | 19080->18949 domains (-0.687%); retain baseline, no promotion repeat of this narrow chart. |
-| Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Implemented; 75 optimized tests pass | Actual one-ray report/artifact compatibility passes; audit and run one preregistered six-free-coordinate modular probe. |
-| Shared lower-sector program regeneration | Root + profiler + independent auditor | Delivered candidate; incompatible residual count | Generation finishes in 86.530 s with 465 rules / 59 finite residuals versus saved 584 / 58; do not install or claim benefit. |
-| Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Active | Investigate block recurrence composition, matrix-diagonal reduction and sector-adapted numerator bases; give each a mechanism, falsifier and small native pilot. |
+| Multi-index cofinal source nomination | `lower_rule_evaluation` + independent auditor | Pushed `a808a7b2`; exact broad candidate and stronger-filter diagnostic complete | 75 optimized tests and one-ray byte identity pass. Full-chart exact candidate refused; stronger whole-column filter misses at all three samples. Park this finite-bank ansatz. |
+| Shared lower-sector program regeneration | Root + profiler + independent auditor | Candidate and matched A1 control delivered | Current A1 reproduces saved owner bytes in 93.672 s; alternate gives 465 rules / 59 residuals in 86.530 s versus 584 / 58. No installation or shared-work benefit claimed. |
+| Bold literature-backed mechanisms | `lower_sector_discovery` + independent auditor | Delivered and independently critiqued | Regional compiler, finite-rank numerator-basis transport and whole-program/dispatch selection have explicit falsifiers. Present 17-diamond motif is not yet a scalable performance nominee. |
+| Typed saved-rule circuit retention | `lower_rule_evaluation` + `exact_and_cost_audit` | Active implementation; borrowed-audit design approved | Narrow opt-in selected-rule API and scoped app adapter; preserve all guards and zero evidence, then source audit, focused optimized tests and rules 1/43 only. No bulk hybrid or macro installation yet. |
+| Boundary-preserving coefficient blocks | `lower_sector_discovery` + independent critique | Active read-only literature/API study | Distinguish face divisibility from whole-column annihilation and prior protected-source failures. One exact falsifiable proposal, no native retry or new CAS. |
 | Factorized exact coefficients | Root | Deferred | Existing Symbolica/core factorized services identified; reopen only if the reconstruction bridge fails or profiles justify a separate controlled alternative. |
-| Mathematical and measurement review | `exact_and_cost_audit` | Active | Four-root graph and lower-owner exact lift pass; preflight/audit the matched candidate traversal. |
+| Mathematical and measurement review | `exact_and_cost_audit` | Active | Completed shared-work, boundary-refusal and A1-control receipts pass within their scope. Independently audit the new retention source and tests. |
 | Whole-context cost comparison | Root + independent auditor | H55 pair completed, both coldPASS | Keep baseline; audit activation and attribute the slight workload increase. No deployment or promotion repeat for this negative candidate. |
 | Cofinal higher-column planning | Implementation + auditor | Implemented; augmented probe censored |6,448 necessary forbidden columns avoid repeated refinements, but exact arithmetic still grows. Preserve this negative outcome. |
 | Fresh direct certificates | Implementation + auditor | Research-only opt-in audited; all62 compiled tests pass | Preserve every original assumption, validate ordinary identity/permutation provenance, and generate a new proof from the final exact source circuit. No exporter/default changes. |
 | Exact lower-cut publication | Implementation + auditor | Delivered / pushed `7b847b8b` | Fourteen app and21 optimized research tests pass; toy and radial old-bound export bytes are unchanged. No guard admission is weakened. |
 | Production deployment | Root / user | Not ready | Require representative measured benefit; the user alone switches campaigns. |
+
+### Stronger boundary diagnostic parked; exact reuse boundary underway — October4, 00:29 UTC
+
+[M] The separately audited boundary diagnostic completes in 2.096 s inclusive,
+182.6 MB peak, with all owned processes drained. All three samples miss after
+250 rows, with forbidden and augmented ranks both 250. The 1,023-column filter
+includes 952 potentially root-escaping columns; unlike the earlier six-free
+hit, it forbids them everywhere, not only on their activation faces. This parks
+the present stronger-filter finite bank. It is not an exact nonexistence result
+or a negative result for coefficients which vanish only on the boundary.
+Evidence: `TMP/rule-optimizer-20261003/incidence-study/owner3-rule146-orthant-root-boundary-v1/`.
+
+[E] The bold-directions literature note is complete and independently critiqued.
+Its first implementation dependency is a narrow, opt-in typed retention of
+circuits which existing native saved-rule replay already reconstructs. The
+implementation agent is adding a borrowed-audit batch and scoped application
+callback, not a new algebra engine, artifact schema, whole-program hybrid or
+default-path replay. The borrowed lifetime preserves non-Clone zero evidence;
+new owned payloads receive cumulative precharged retention budgets. Retained
+identities hold only on their exact guarded domain modulo authenticated zero
+sectors. They are not export/descent/closure seals. Selected saved rules 1 and
+43, focused mutation/limit tests and an independent source audit precede any
+larger experiment.
+
+[E] A fresh read-only primary-literature lane examines boundary-divisibility
+constraints on whole coefficient-weighted blocks. This is deliberately separate
+from retrying the rejected whole-column filter: a coefficient may be allowed
+inside a sector but must vanish on each finite slice which would activate an
+absent propagator. The agent must distinguish this from earlier protected-source
+and Smith–Zeng trials, audit Symbolica APIs and propose a smallest falsifiable
+exact experiment. No implementation or production change is implied by the
+research. The running campaign remains untouched; no deployment-worthy gain
+has yet been established by these new candidates.
+
+### Current-generator control removes the version confound — October4, 00:12 UTC
+
+[M] The current-binary A1 control completes in 94.418 s inclusive, 93.672 s
+native, with 584 rules and 58 residuals. Its 22,937,072-byte owner artifact is
+byte-identical to the saved production owner (`563a2e6f…d657c`). Thus the
+different executable did not change this A1 payload. In the matched current
+generator comparison, the active-positive descriptor gives 465 rules / 59
+residuals in 86.530 s native. These single generation timings are not a
+campaign speed claim. The extra residual is associated with the strategy
+change here; it still must not be counted as free work in a comparison.
+Independent final receipt and byte comparison pass. No second inventory run
+was needed once full byte equality was established.
+
+[E] Existing source-replay services already recover raw pivots, recentering,
+ordinary weights and complete identities from saved rule traces. However,
+their public result exposes audit counts, not the typed circuit needed by the
+checked priority exporter. A small proof-bearing replay-to-composition boundary
+is therefore a more credible future capability than inventing new algebra or
+guessing historical source translations. Bulk rule-set hybridization would
+still require domain/guard/descent checks and unchanged terminal handling;
+it is not equivalent to deleting the 59th terminal from serialized data.
+
+### Boundary obstruction identified; bold directions narrowed — October4, 00:07 UTC
+
+[M] Milestone `a808a7b2` is pushed to main. The broader six-free exact solve
+then completes in 2.263 s inclusive (1.470 s native), 184.5 MB peak. It recovers
+106 ordinary-source contributions and exactly replays a 365-term product.
+The unchanged native proof refuses it because a surviving RHS term activates
+an index outside the declared owner root on a finite boundary. No artifact is
+exported. This is not expression swell, a cofinal-filter failure or a resource
+limit. The producer tests coefficient vanishing before the root check; do not
+weaken the check or call it a bug from the refusal alone. Independent audit
+confirms the full source/product/F binding and the negative result.
+
+[E] Profiler now diagnoses the actual outside-root shifts and whether a single
+stronger, input-only modular constraint can remove them. Such whole-column
+exclusion would be sufficient but not necessary: a valid coefficient may vanish
+on the offending face without vanishing everywhere. No chart narrowing, bank
+growth or automatic exact retry is authorized. The implementation lane prepares
+one same-current-binary A1 generation control to separate source-order effects
+from the archived/current executable difference.
+
+[M] Public native inventory inspection confirms that the 59-residual candidate
+retains all 58 old keys and adds exactly
+`(0,1,0,1,1,1,0,1,2,0,0,0,-1,0,1)` (A8/R1). This is not proof of a new independent
+master or an invalid relation; it prevents an unchanged-terminal cost comparison.
+No terminal is stripped and no production owner is changed.
+
+[E] The requested primary-literature review is saved in
+`docs/research/profile_guided_bold_directions_2026-10-03.md`; independent critique
+is active. Its three directions are a bounded regional recurrence compiler,
+finite-rank sector-adapted numerator coordinates, and whole-program/dispatch
+selection by shared cost. The actual diamond's child cases restrict its direct
+composition to a single ray, so its 17 occurrences alone cannot justify a large
+gain. Broader candidates must demonstrate endpoint cancellation or reduced
+fragmentation, not merely bypass already-shared intermediate nodes.
+
+[M] Read-only production observation remains running with zero frontiers, about
+141.25 million discovered domains and 125.6 GB tree RSS. The 13/67 root and
+18,005,178 recursively closed lower bounds are over 6,500 s stale; no current
+closure rate, eventual completion or ETA is inferred. No production lifecycle
+action or input mutation occurred.
 
 ### Whole-sector candidate and multi-index discovery outcomes — October3, 23:53 UTC
 
