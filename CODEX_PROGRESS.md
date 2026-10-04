@@ -24,12 +24,129 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation/evaluation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed shared exact obstruction diagnostic/174 tests as fb276c64. Trace-directed125 bank now proves all19 actual points and one five-ray rule, exported/cold-inspected as e48ecfc2. Active: matched original29-point shared-context workload test. Earlier partial-face approach did not remove the common obligation. No workload gain or production change claimed. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation/evaluation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed shared exact obstruction diagnostic/174 tests as fb276c64. Trace-directed125 bank proves all19 actual points and one five-ray rule, exported/cold-inspected as e48ecfc2. Both whole29 attempts censor near610s. Complete observer confirms new rule on19/29; native first boundary grows42→85 successors, including2conditional. Performance promotion parked; no workload gain or production change claimed. |
+| Exit-complete chart programs | Discovery research; auditor mathematical/code critique; root triage | Pending representation experiment, not implementation.59/67 new generic tails leave fixed-coordinate chart; complete guarded case-to-case transfers may avoid repeated demand boxes. Existing concrete ranking/total-excess services cover only part; heterogeneous routes, whole-piece policy and all exits remain prerequisites. No new CAS or closure claim. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Actual candidate activation confirmed; no deployment win — October4, 19:10 UTC
+
+[M] The existing applied observer completes79.131s inclusive, clean/drained,
+and proves actual batch0/rule0 selection over all19 intended inputs; old rule4,
+now ordinal5, retains the other10. Preparation73.222s; visitor0.010683s.
+Its entire native statistics match the stopped candidate's root0 record.
+The two pieces emit67+18=85 successor domains, versus24+18=42 in the original
+observer:75 same-support and10 pinch successors, including2 conditional
+coefficients. No problem, refusal, unsupported successor or omitted event.
+Conditional successors are retained obligations, not proved nonzero at every
+point. This verifies activation and the first boundary, not later fallback,
+closure or acceleration. Both traversal attempts remain censored.
+
+Evidence: `profiles/production-owner31-candidate-applied-v1/`,
+execution`c0fc4c18…86f2da0`, raw`native/events.jsonl`, and
+`profiles/production-owner31-whole29-candidate-only-v1/stopped-root-records.json`.
+Exact command is the retained `run.py --execute` in the observer
+directory, under the recorded Nix Python interpreter. Initial preparation had
+rounded maximum integer limits via a JavaScript JSON roundtrip; audit rejected
+it before invocation. The rejected request remains, and the executed request
+restores exact original caps verified by integer-preserving Python. No solver
+limit, production input, checkpoint or native binary was changed.
+Independent final observer audit PASS, including disjoint19+10 input coverage
+and both conditional events45/51. All owned native jobs have drained.
+
+[E] Next executable steps, not deployment instructions: retain this algebraic
+success and workload negative; inspect every actual out-of-chart exit before
+assuming a self-preserving bundle; test entry-case compactness on the original
+90-point four-loop query`phys-d7-a8-r1-0111100110` using existing ordered-match
+services. Its entry E≤3 is not a proved descendant halo. The full58-query
+control contains unbounded-positive anchors and cannot be silently replaced
+by that finite row. A useful routed case-quotient still needs priority context,
+all route/guard boundaries and an authenticated envelope; no new framework or
+micro-optimization was implemented. Research and independent critique are
+integrated in`docs/research/conceptual_rule_search_2026-10-04.md`.
+
+### Both whole29 attempts incomplete; local-rule promotion parked — October4, 19:01 UTC
+
+[M] Candidate-only run drains after609.980s inclusive at its registered
+cooperative deadline. No hard stop/failure/frontier/abandoned obligation;
+paused CP6 generation1 saved. Partial totals:4,494,302 scheduled domains,
+3,628,033 native local completions,48,640,031 events and273,539 pending.
+Preparation74.152s,traversal523.514s. Root closure is not certified, no cold
+verification ran and there is no completed ratio. Evidence:
+`profiles/production-owner31-whole29-candidate-only-v1/`.
+The earlier baseline and this separately registered treatment are both
+right-censored, not successful closure or a measured slowdown/speedup.
+
+[E] Park this single-rule performance prototype; no further traversal retry
+or production installation. The conditional, separately scoped next call uses
+the existing full-parent applied observer to check actual ordinal0 selection
+and all nonzero exits. It is a diagnostic, not another performance arm.
+Independent review identifies59/67 generic tails leaving fixed coordinates;
+that is not yet actual fallback/reentry evidence. Research now distinguishes
+an exit-complete rule bundle from first-step numerator cancellation, preserving
+all guards, pinches, exact routes and a coherent concrete ranking. A proposed
+case-quotient representation must also retain whole-piece selection semantics;
+saved rule IDs alone do not identify today's context-dependent dispatcher.
+
+### Candidate-only underway; production closure refresh observed — October4, 18:52 UTC
+
+[M] Independent proposal audit PASS. Evaluator starts exactly the separately
+registered candidate-only plan`754c2167…78c95def` using the existing driver;
+nativePID1346865,supervisor1346846. Stage completes4.163s; the first walk
+sample is full-context preparation, not rule application evidence. The
+checkpoint format does not directly retain selected-rule ordinals, so root
+record statistics alone must not be labelled ordinal0 activation. If needed,
+an existing native observer can check dispatch separately after this run;
+no new exporter/engine feature is justified for that question.
+
+[M] Read-only production status at18:51–18:52 is running, with237,041,560
+scheduled domains,192,512,080 local completions,8,589,999 pending and zero
+frontiers. The independently refreshed recursive snapshot reports33,707,399
+closed descendants and13/67 roots; that snapshot is already about822s old.
+AggregateRSS is203.54GB and observed utilization4.73cores in the later resource
+sample. The new closure count must not be confused with the earlier stale
+count or treated as a termination/ETA prediction. No production operation.
+
+### Whole29 control censored; candidate feasibility separated — October4, 18:50 UTC
+
+[M] The registered baseline-first pair stops after610.0119s inclusive. The
+baseline hits its cooperative deadline and saves CP6 generation1; no hard
+stop, failure, abandoned obligation or surviving owned process. Independent
+audit PASS. Partial totals:4,394,398 scheduled domains,3,546,145 native local
+completions,47,158,556 events and267,154 pending domains. Native preparation
+was74.513s and traversal523.094s. Root closure is not certified, with zero
+frontiers. Neither cold verification nor the candidate arm ran. Evidence:
+`profiles/production-owner31-whole29-pair-v1/baseline-censor-summary.json`.
+These are censored costs, not completed closure measurements or proof failure.
+
+[E] Root authorizes preparation of a separate candidate-only feasibility test
+through the existing `run_pair.py --only-arm candidate`, with the original
+whole29 domain,67 owners,8,246 routes,two overlays,W8/CPUs32–39 and unchanged
+Epoch settings. It has a fresh clock and destination, the same600/630s walk
+boundary,810/840s cold boundary and900s total allowance. The original paired
+receipt is immutable; a future success is one-arm closure against a censored
+control, not a normal paired speed ratio or deployment gate. Native invocation
+is conditional on independent preflight. No new solver/driver code or production
+operation. Discovery concurrently investigates exact invariant/correlation
+mechanisms from primary literature, not implementation micro-optimizations.
+
+### Algebraic milestone pushed; shared-context pilot running — October4, 18:37 UTC
+
+[M] Committed/pushed the independently audited conceptual results as `8eaf1b03`
+on `main`; earlier implementation milestone remains`fb276c64`. Only the two
+owned Markdown files were staged; foreign work and all payloads stay excluded.
+
+[M] Evaluator launched the approved existing paired driver with
+`python -B TMP/rule-optimizer-20261003/candidates/launch_preferred_subset_pair.py
+--plan TMP/rule-optimizer-20261003/profiles/production-owner31-whole29-pair-v1/plan.json`.
+Baseline stage completed in3.784s; at52.15s native walk remains in full-bank
+map verification, approximately6.82 observed cores and4.52GB RSS. This is
+preparation activity, not demonstrated steady-state speedup. NativePID1209332,
+supervisor1209331; candidate not yet started. The shared deadline and
+baseline-first cold-closure gate remain in force. Production is untouched.
 
 ### Admitted candidate ready for the actual shared-work gate — October4, 18:35 UTC
 

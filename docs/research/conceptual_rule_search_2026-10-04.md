@@ -4,10 +4,15 @@ Date: 2026-10-04. Current recommendation: keep production unchanged. The new
 exact span-obstruction diagnostic and trace-directed source experiments improve
 our ability to find constrained identities, but do not yet establish a shared
 five-loop workload gain. On one actual19-input campaign region, boundary-preserving
-proofs improved from5 to11; the remaining eight still generate the full shared
-region we hoped to avoid. The11-point result now has a compact, exactly proved
-four-ray generalization, but it can open a different numerator direction. The
-next test targets the whole short excursion rather than just its first edge.
+proofs improved from5 to11 and then to all19 using125 trace-directed ordinary
+sources. The latter bank also proves a single five-ray parametric identity,
+subsequently exported and cold-inspected. It preserves D11 while lowering D12;
+its larger boundary makes a downstream cost test essential. The original29-input
+parent, including its unchanged10-input branch, did not close in the registered
+baseline pilot:4.39million domains were discovered before cooperative stopping.
+The separate candidate-only test also stops without closure at its registered
+deadline. Neither supplies a completed timing denominator or a workload gain.
+The single-rule promotion is parked; production remains unchanged.
 
 Earlier result: the obstruction-directed100-row correction
 reduces a newly proved parametric owner31 baseline from313 to294 tails,
@@ -1666,3 +1671,95 @@ Both phases drained in3.095146s inclusive; independent final export audit is
 complete. The native lower-cut exclusions retain both D10,D12≥2 floors;
 symbolic zeros in the saved target do not widen the domain. Whole-demand
 workload comparison, rather than RHS count, is the next decision gate.
+
+### Workload gate and the stronger program-level question
+
+The original29-input parent was tested with all67 owners,8,246 routes and
+two unchanged overlays, not an isolated replacement rule. The baseline-first
+pilot stopped cooperatively after610.012s inclusive, with4,394,398 scheduled
+domains and267,154 pending. It saved a checkpoint, drained and had no frontier,
+but did not close or receive cold verification. Its candidate arm consequently
+did not run. Evidence: `profiles/production-owner31-whole29-pair-v1/`.
+A separately declared candidate-only feasibility arm uses the same query,
+context and phase allowance; it is not a repaired or completed paired result.
+It too stops cooperatively after609.980s inclusive, with4,494,302 scheduled
+domains and273,539 pending, no frontier and no cold check. Both runs preserve
+paused checkpoints and drain without hard termination. This local-rule
+performance prototype is parked, not promoted or automatically rerun.
+
+| Whole29 attempt | Preparation | Traversal before stop | Scheduled, partial | Pending at stop | Root closure |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Original control |74.513s|523.094s|4,394,398|267,154|Not certified |
+| Separate candidate-only |74.152s|523.514s|4,494,302|273,539|Not certified |
+
+These are right-censored diagnostics, not total-work comparisons. Greater
+scheduled work within the allowance does not identify either a faster engine
+or a larger completed reduction graph.
+
+The subsequent existing applied observer completes in79.131s inclusive and
+confirms actual new rule0 selection on all19 intended inputs, with old rule4
+(now5) on the remaining10. Its complete native statistics match the stopped
+candidate root0. The first boundary grows from24+18=42 to67+18=85 successor
+domains:75 same-support,10 pinch and2 conditionally nonzero successors.
+All events are retained with no problems/refusals. These are domain counts,
+not85 distinct exact integral keys or85 coefficients uniformly nonzero over
+their domains. This rules out nonactivation as the explanation for the
+unimpressive workload result; it does not prove that later fallback recreates
+D11. Evidence: `profiles/production-owner31-candidate-applied-v1/`,
+execution`c0fc4c18…86f2da0` and native events/typed coefficient table.
+
+The independent support audit identifies why first-step cancellation need not
+be enough. Of the new rule's67 generic tails,59 change at least one fixed
+coordinate: D5 changes in45, D2 in14, D9 in11 and D4 becomes a numerator in5
+(overlapping counts). All tails lower D12, reaching its applicability boundary
+from D12=2. These are generic support counts, not specialized nonzero endpoints
+or observations that a later fallback actually recreates D11. Simply freeing
+D5 cannot make this a closed recurrence program.
+
+The next conceptual candidate is an **exit-complete chart bundle**: a finite
+collection of guarded rules whose every concrete image stays in another
+covered chart or reaches an independently justified exit. Existing concrete
+descent checks compose through support cardinality, Route/Apply phase and the
+owner-local well-order. They can justify induction once all transfer and
+boundary premises hold. They do not rank symbolic containment/hull edges or
+make unresolved lower sectors free. The previously rejected334-node SCC
+omitted independent incoming demands; invoking induction does not fix that.
+See the existing [concrete finiteness discussion](demand_directed_symbolic_sccs_2026-10-04.md).
+
+One possible representation partitions an authenticated resource envelope by
+saved applicability cases and retains transfers between those cases, rather
+than creating a new node for every translated demand box. The single-family
+`total_excess.rs` audit already supplies part of this machinery, under its
+ordering and census assumptions. The missing study is routed multi-owner
+integration with rule priority, sign/guard faces and complete side exits.
+Case count does not guarantee graph size: intersections may fragment badly,
+and a broad envelope may encounter genuine uncovered cases. First falsify
+that representation on a completed control; do not promise a shortcut to
+five-loop closure or start a new proof-system implementation from this note.
+Furthermore, `AfterBaselinePartitionWholePiece` activation depends on the
+baseline query piece. A quotient keyed only by owner/batch/rule IDs would lose
+that context; preserve it explicitly or begin with ordinary Partition rules.
+
+Primary program-analysis literature supports composing paths before joins and
+checking inductive transfer relations, not importing an IBP solver or ignoring
+weighted tails. [Monniaux–Gonnord](https://arxiv.org/pdf/1106.2637) motivate
+path-focused fixed-point analysis; [Monniaux](https://arxiv.org/pdf/1005.4844)
+distinguishes whole-block abstraction from composing per-step abstractions.
+[Frohn](https://arxiv.org/pdf/2001.01516) treats guarded single-path integer
+acceleration, whose premises do not automatically cover branching IBPs.
+Our proposed transfer is a research inference. No custom CAS, polyhedral
+kernel or blanket loop-acceleration claim follows.
+
+The completed first diagnostic is the existing full-parent applied observer:
+actual candidate dispatch and the full classified first boundary. A later,
+separately bounded batch could inspect all out-of-chart exits for fallback
+and resource growth. A two-layer pass is not induction or a cost win; unequal
+recurrence depths must not be compared by raw endpoint counts. Also, native
+UniformNonzero Apply images already preserve their A/R/D geometry exactly.
+An actual precision-loss diagnosis must involve demonstrated Route/publication
+overcoverage, not a generic complaint about boxes.
+
+Read-only research and independent code/mathematical audit are retained in
+`profiles/invariant-chart-bundle-research-20261004.md` and
+`profiles/concrete_chart_bundle_ranking_audit_2026-10-04.md` under the local
+research evidence root. No new campaign is warranted by these proposals.
