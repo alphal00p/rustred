@@ -1,8 +1,9 @@
 # Boundary-preserving search for reusable IBP rules
 
 October 4, 2026. Research followed by an independently reviewed, opt-in
-research-tool implementation: 85 focused unit tests pass. The registered
-four-loop pilot completed with no accepted rule, as recorded below. Neither this note nor
+research-tool implementation: 93 focused unit tests pass. The registered
+four-loop pilot and primitive-weight correction completed with no accepted rule,
+as recorded below. Neither this note nor
 a search result authorizes installation, order changes, enlarged terminals, or
 closure/performance claims. The rejected five-loop whole-column bank remains parked.
 
@@ -367,6 +368,112 @@ bounded-ansatz no-target result; the face result rejects only the first selected
 candidate, not every kernel combination. No candidate artifact, closure, or
 performance improvement resulted. The registered bank/degree is stopped here:
 no automatic source growth, chart narrowing, condition removal, or retry.
+
+### Registered follow-on: primitive original weights, not image division
+
+The failed receipt did not retain its pivot or source weights. A subsequent
+code audit narrows the possible cause: there were no incoming source guards,
+and all guards before target normalization were base-parameter-only. The first
+possible index-dependent guard is therefore the target-normalization pivot.
+This is a code deduction, not an observed factor/face or evidence that the
+original weight circuit has a removable common factor.
+
+The next authorized, default-off research option is
+`boundary_polynomial.primitive_original_weights`. It accepts only a validated
+ordinary source frame with unique `(RowId, offset)` bindings and an injective
+unit/permuted selection. Summing monomial contributions per such row coalesces
+the actual original weights. Native polynomial GCD of their authenticated
+numerators nominates a common factor; index-independent denominators make this
+sufficient up to base-field units. Native exact division and an independent
+`w_i = g v_i` multiplication check are required for **every** nonzero weight.
+The quotients must remain polynomial in the declared index axes and inside the
+exact declared monomial set, not merely below a total-degree limit.
+
+The pinned Symbolica APIs are `MultivariatePolynomial::gcd` and `try_div`
+(`poly/gcd.rs:3642`, `poly/polynomial.rs:5513`); RustRed's own bounded sum
+implementation uses this combination with output-map authentication. The
+[current public API](https://docs.rs/symbolica/latest/symbolica/poly/polynomial/struct.MultivariatePolynomial.html#method.try_div)
+also documents exact quotient refusal and variable-map behavior. The code uses
+the pinned library, not a new CAS. Term-pair and cumulative-operation admission
+does not bound native GCD scratch space or internal work; the outer process
+guard remains mandatory.
+
+Division constructs a new original-source proposal **before** adding any
+target-normalization pivot. It removes no existing source/caller condition or
+pre-cancellation pole, introduces no `g != 0` workaround, and never divides
+only the endpoint image. The full image, forbidden columns, new pivot, face
+conditions and native chart/export proof are rebuilt. A genuine source pole,
+non-common weight factor, ansatz escape, or remaining singular pivot must still
+refuse. Bounded observational diagnostics identify a proposed divisor and its
+per-weight checks, and the actual refusing face/guard origin; displays are not
+algebraic authority.
+
+Independent source review approved this slice, including a cumulative-budget
+regression covering already retained reducer payload. All 93 optimized unit
+tests passed, including eight new primitive-weight cases. The new executable's
+default-off toy report matched the previous executable exactly except timing,
+and old/new/unit-test exported bytes were identical. Both input parsers passed.
+
+The separately audited, unchanged 48-row/degree-one
+[off/on correction](/common/dev/rustred/TMP/rule-optimizer-20261003/incidence-study/four-loop-boundary-primitive-v1/result.json)
+then finished in 1.743 seconds inclusive, after 2.381 seconds for the compatibility
+preflight. Both arms selected the first target-bearing dependency at ansatz-row
+prefix 56, using three nonzero original-source weights. Native GCD found the
+common factor displayed as `n8` (zero-based axis 8, physical index 9); all three
+native exact divisions, independent multiplication checks, and quotient-ansatz
+checks passed. No existing condition was removed.
+
+Dividing every original weight by `g` scales every endpoint and the target by
+the same factor. Consequently `(C_s/g)/(C_0/g) = C_s/C_0`: the generic normalized
+rational identity is unchanged. Rebuilding the divided original circuit can
+avoid introducing an artificial target-pivot condition, but cannot improve its
+normalized endpoint coefficients. The later face test can therefore expose a
+nonzero endpoint that was already present but hidden by the first refusal.
+
+With the option off, the diagnostic identifies guard 42 as the original target
+normalization pivot, vanishing on axis 8 at zero. With it on, the divided original
+circuit was replayed and renormalized, but the native restriction test found a
+nonzero normalized endpoint coefficient at that same face, for physical shift
+`[-1,0,0,0,0,0,0,0,2,0]`. Thus removable source-circuit scaling really existed,
+but removing it did **not** produce a boundary-valid rule. Neither arm reached
+full-chart proof or export; both owned process groups drained cleanly.
+
+Axis 8 is deliberately protected by this pilot even though the saved parent
+root allows it. The result rejects the stronger sector-preserving proposal,
+not an observed outside-root or native finite-face-order proof. The first
+candidate's refusal does not exhaust the kernel. This registered correction is
+stopped: no bank growth, degree increase, chart change, guard deletion, or further
+automatic attempt. No performance or closure claim follows.
+
+### Research-only next criterion: target and endpoint valuations together
+
+Raw endpoint zeros alone are insufficient when the raw target also vanishes.
+For a required face `ell = n_j+k = 0`, let `nu_ell` denote the exact polynomial
+factor multiplicity, after honoring every original pole/condition. In this
+polynomial-over-base-field setting, a normalized coefficient vanishes
+generically along that face only if
+`nu_ell(C_s) >= nu_ell(C_0)+1`; the zero endpoint satisfies this automatically.
+This must hold on every relevant activation face. It is not a sampling test,
+does not discharge guard intersections, and does not prove native descent.
+It also does not allow dividing a circuit unless its original weights admit
+the verified division above.
+
+The smallest conservative future search change would constrain the target
+coefficient to a **nonzero base-parameter-only pivot**, while keeping the exact
+endpoint face equations. Native coefficient grouping could move every
+nonconstant target monomial into the linear constraint block and leave only
+its constant coefficient as an eligible pivot. Then target face valuation is
+zero, so raw endpoint face zeros survive normalization, subject to the same
+source poles and final native proof. This is a sufficient filter, not a general
+solution: it excludes potentially valid index-dependent pivots and might have
+no target in the fixed bank/degree. General simultaneous valuation search is
+more involved because target valuation is unknown; guessing valuations or
+sweeping kernel combinations would be additional, separately bounded work.
+
+Recommendation: retain that base-only-pivot criterion as a small research
+backlog, not another automatic attempt on this parked ansatz. No implementation,
+rerun, widened chart, new source bank, or performance promise is authorized by
+this discussion.
 
 As a separate concrete motivation, native guarded application of the sole
 extra leaf of the 465-rule/59-terminal source-order variant selected baseline

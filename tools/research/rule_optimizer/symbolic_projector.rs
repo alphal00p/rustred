@@ -591,13 +591,11 @@ fn run_mode<const N: usize>(
             || json!({"attempt":attempts.len(),"refinements":added,"f_size":forbidden.len()}),
         );
         let projected = if let Some(config) = &boundary_config {
-            checked(span.validate_fresh_ordinary(c, limits))?;
-            boundary::project(
+            boundary::project_original(
                 c,
-                &span.images,
+                &span,
                 &target,
                 &forbidden,
-                &span.guards,
                 p.cell.indexed_algebra,
                 limits,
                 config,

@@ -83,7 +83,457 @@ fn config(mode: Mode) -> Config {
         max_constraints: 8192,
         max_nonzeros: 100000,
         max_activation_faces: 64,
+        primitive_original_weights: false,
     }
+}
+
+// Algebra-only ordinary-unit frame fixture: native source proof is separately
+// mandatory in the executable. Each selected row binds a unique RowId+offset.
+fn ordinary_frame(
+    c: &IndexedCoefficientContext,
+    rows: Vec<Row>,
+    guards: Vec<Guard>,
+) -> super::super::source::Span {
+    use super::super::source::{SourceBinding, Span, SpanProvenance};
+    Span {
+        provenance: SpanProvenance::Ordinary,
+        bindings: (0..rows.len())
+            .map(|i| SourceBinding {
+                row: rustred::identity::RowId::OrdinaryIbp {
+                    contraction_momentum: 0,
+                    differentiated_loop: 0,
+                },
+                offset: IntegralShift::try_new(vec![i as i64; c.index_count()]).unwrap(),
+            })
+            .collect(),
+        weights: (0..rows.len())
+            .map(|i| Weights::from([(i, c.one())]))
+            .collect(),
+        images: rows.clone(),
+        originals: rows,
+        guards,
+    }
+}
+
+fn primitive_config() -> Config {
+    let mut config = config(Mode::ActivationFaces);
+    // Deliberately put a nonprimitive representative first. This is a unit
+    // counterexample, not a new source/monomial order for the real pilot.
+    config.weight_monomials = vec![vec![1], vec![0]];
+    config.primitive_original_weights = true;
+    config
+}
+
+#[test]
+fn primitive_true_original_weight_multiple_rescues_only_new_circuit() {
+    let c = context(1);
+    let span = ordinary_frame(
+        &c,
+        vec![Row::from([
+            (shift(0), c.one()),
+            (shift(1), c.index(0).unwrap()),
+        ])],
+        vec![],
+    );
+    let mut cfg = primitive_config();
+    cfg.primitive_original_weights = false;
+    let off = project_original(
+        &c,
+        &span,
+        &shift(0),
+        &BTreeSet::new(),
+        Default::default(),
+        limits(),
+        &cfg,
+    )
+    .err()
+    .unwrap();
+    assert!(
+        off.to_string()
+            .contains("excludes an entire activation face")
+    );
+    cfg.primitive_original_weights = true;
+    let found = proposal(
+        project_original(
+            &c,
+            &span,
+            &shift(0),
+            &BTreeSet::new(),
+            Default::default(),
+            limits(),
+            &cfg,
+        )
+        .unwrap(),
+    );
+    assert_eq!(found.weights, Weights::from([(0, c.one())]));
+    assert_eq!(found.image, span.originals[0]);
+    verify_faces(
+        &c,
+        &found.image,
+        &cfg,
+        Default::default(),
+        &mut found.guards.clone(),
+        limits(),
+        &mut 0,
+    )
+    .unwrap();
+}
+
+#[test]
+fn primitive_endpoint_common_factor_is_not_original_weight_divisibility() {
+    let c = context(1);
+    let n = c.index(0).unwrap();
+    let n2 = c.mul_with_limits(&n, &n, limits().arithmetic).unwrap();
+    let span = ordinary_frame(&c, vec![Row::from([(shift(0), n), (shift(1), n2)])], vec![]);
+    let mut cfg = primitive_config();
+    cfg.weight_monomials = vec![vec![0]];
+    let error = project_original(
+        &c,
+        &span,
+        &shift(0),
+        &BTreeSet::new(),
+        Default::default(),
+        limits(),
+        &cfg,
+    )
+    .err()
+    .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("excludes an entire activation face")
+    );
+    // Even removing a TRUE common original-weight factor leaves a genuine
+    // target zero here. The unchanged new-pivot/face test must still reject.
+    cfg.weight_monomials = vec![vec![1], vec![0]];
+    let error = project_original(
+        &c,
+        &span,
+        &shift(0),
+        &BTreeSet::new(),
+        Default::default(),
+        limits(),
+        &cfg,
+    )
+    .err()
+    .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("excludes an entire activation face")
+    );
+}
+
+#[test]
+fn primitive_preserves_incoming_conditions_and_refuses_index_poles() {
+    let c = context(1);
+    let n = c.index(0).unwrap();
+    let guard = Guard {
+        polynomial: c
+            .numerator_condition_with_limits(&n, limits().arithmetic)
+            .unwrap(),
+        origin: "genuine original n pole condition".into(),
+    };
+    let span = ordinary_frame(
+        &c,
+        vec![Row::from([(shift(0), c.one()), (shift(1), n.clone())])],
+        vec![guard],
+    );
+    let error = project_original(
+        &c,
+        &span,
+        &shift(0),
+        &BTreeSet::new(),
+        Default::default(),
+        limits(),
+        &primitive_config(),
+    )
+    .err()
+    .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("excludes an entire activation face")
+    );
+    let mut weights = Weights::from([(
+        0,
+        c.div_with_limits(&c.one(), &n, limits().arithmetic)
+            .unwrap(),
+    )]);
+    let error = primitive_weights(
+        &c,
+        &mut weights,
+        &primitive_config(),
+        &mut Admission::default(),
+        &mut 0,
+        limits(),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("index-dependent source denominators")
+    );
+}
+
+#[test]
+fn primitive_requires_original_binding_and_preserves_selected_permutation() {
+    let c = context(1);
+    let row = Row::from([(shift(0), c.one()), (shift(1), c.index(0).unwrap())]);
+    let mut span = ordinary_frame(
+        &c,
+        vec![Row::from([(shift(-1), c.one())]), row.clone()],
+        vec![],
+    );
+    span.images = vec![row];
+    span.weights = vec![Weights::from([(1, c.one())])];
+    let found = proposal(
+        project_original(
+            &c,
+            &span,
+            &shift(0),
+            &BTreeSet::new(),
+            Default::default(),
+            limits(),
+            &primitive_config(),
+        )
+        .unwrap(),
+    );
+    let (contributions, _) = span.compose(&c, &found, limits()).unwrap();
+    assert_eq!(contributions.len(), 1);
+    assert_eq!(contributions[0].offset, span.bindings[1].offset);
+    assert_eq!(contributions[0].weight, c.one());
+    assert!(
+        project(
+            &c,
+            &span.images,
+            &shift(0),
+            &BTreeSet::new(),
+            &[],
+            Default::default(),
+            limits(),
+            &primitive_config()
+        )
+        .is_err()
+    );
+    span.provenance = super::super::source::SpanProvenance::Weighted;
+    assert!(
+        project_original(
+            &c,
+            &span,
+            &shift(0),
+            &BTreeSet::new(),
+            Default::default(),
+            limits(),
+            &primitive_config()
+        )
+        .is_err()
+    );
+    span.provenance = super::super::source::SpanProvenance::Ordinary;
+    span.bindings[1] = span.bindings[0].clone();
+    assert!(
+        project_original(
+            &c,
+            &span,
+            &shift(0),
+            &BTreeSet::new(),
+            Default::default(),
+            limits(),
+            &primitive_config()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn primitive_exact_quotients_must_remain_in_sparse_declared_ansatz() {
+    let c = context(1);
+    let mut cfg = primitive_config();
+    cfg.weight_monomials = vec![vec![1]];
+    let before = Weights::from([(0, c.index(0).unwrap())]);
+    let mut weights = before.clone();
+    let error = primitive_weights(
+        &c,
+        &mut weights,
+        &cfg,
+        &mut Admission::default(),
+        &mut 0,
+        limits(),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("escaped the declared monomial ansatz")
+    );
+    assert_eq!(weights, before);
+}
+
+#[test]
+fn primitive_retained_budget_includes_preexisting_reducer_payload() {
+    let c = context(1);
+    let mut bounded = limits();
+    bounded.coefficient_terms = 10;
+    let before = Weights::from([(0, c.index(0).unwrap())]);
+    let mut standalone = before.clone();
+    primitive_after_reducer(
+        &c,
+        &mut standalone,
+        &primitive_config(),
+        &mut Admission::default(),
+        0,
+        &mut 0,
+        bounded,
+    )
+    .unwrap();
+    let mut cumulative = before.clone();
+    let error = primitive_after_reducer(
+        &c,
+        &mut cumulative,
+        &primitive_config(),
+        &mut Admission::default(),
+        9,
+        &mut 0,
+        bounded,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("primitive retained coefficient terms")
+    );
+    assert_eq!(cumulative, before);
+}
+
+#[test]
+fn primitive_native_gcd_divides_each_original_weight_and_authenticates_maps() {
+    let c = context(1);
+    let n = c.index(0).unwrap();
+    let mut weights = Weights::from([
+        (0, n.clone()),
+        (
+            1,
+            c.mul_with_limits(&c.integer(2), &n, limits().arithmetic)
+                .unwrap(),
+        ),
+    ]);
+    let g = primitive_weights(
+        &c,
+        &mut weights,
+        &primitive_config(),
+        &mut Admission::default(),
+        &mut 0,
+        limits(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(g, n);
+    assert_eq!(weights, Weights::from([(0, c.one()), (1, c.integer(2))]));
+    let other = IndexedCoefficientContext::try_new(
+        &CoefficientContext::try_new(["d"]).unwrap(),
+        "foreign-primitive",
+        1,
+    )
+    .unwrap();
+    let mut foreign = Weights::from([(0, other.index(0).unwrap())]);
+    assert!(
+        primitive_weights(
+            &c,
+            &mut foreign,
+            &primitive_config(),
+            &mut Admission::default(),
+            &mut 0,
+            limits()
+        )
+        .is_err()
+    );
+    for cap in [0, 2, 4] {
+        let mut bounded = limits();
+        bounded.operations = cap;
+        let mut weights = Weights::from([(0, c.index(0).unwrap()), (1, c.index(0).unwrap())]);
+        assert!(
+            primitive_weights(
+                &c,
+                &mut weights,
+                &primitive_config(),
+                &mut Admission::default(),
+                &mut 0,
+                bounded
+            )
+            .is_err()
+        );
+    }
+    let mut bounded = limits();
+    bounded.coefficient_terms = 1;
+    let mut weights = Weights::from([(0, c.index(0).unwrap())]);
+    assert!(
+        primitive_weights(
+            &c,
+            &mut weights,
+            &primitive_config(),
+            &mut Admission::default(),
+            &mut 0,
+            bounded
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn primitive_explicit_off_preserves_full_export_report_and_bytes() {
+    let (bytes, mut request) = super::super::tests::tadpole();
+    request["sources"] = json!([{"source_row":"ordinary-ibp:0:0","offset":[-1]}]);
+    request["max_refinements"] = json!(0);
+    // This old mode-off request has no boundary configuration at all.
+    let (mut old, old_bytes) = super::super::run::<1>(&bytes, &request, true).unwrap();
+    let (mut repeated, repeated_bytes) = super::super::run::<1>(&bytes, &request, true).unwrap();
+    old.as_object_mut().unwrap().remove("seconds");
+    repeated.as_object_mut().unwrap().remove("seconds");
+    assert_eq!(old, repeated);
+    assert_eq!(old_bytes, repeated_bytes);
+    // Serde omission and explicit false preserve the boundary config semantics.
+    let mut cfg = primitive_config();
+    cfg.primitive_original_weights = false;
+    let c = context(1);
+    let span = ordinary_frame(
+        &c,
+        vec![Row::from([
+            (shift(0), c.one()),
+            (shift(1), c.index(0).unwrap()),
+        ])],
+        vec![],
+    );
+    let a = project(
+        &c,
+        &span.images,
+        &shift(0),
+        &BTreeSet::new(),
+        &[],
+        Default::default(),
+        limits(),
+        &cfg,
+    )
+    .err()
+    .unwrap()
+    .to_string();
+    let b = project_original(
+        &c,
+        &span,
+        &shift(0),
+        &BTreeSet::new(),
+        Default::default(),
+        limits(),
+        &cfg,
+    )
+    .err()
+    .unwrap()
+    .to_string();
+    assert_eq!(a, b);
+    assert!(
+        diagnostic(&"x".repeat(5000))["truncated"]
+            .as_bool()
+            .unwrap()
+    );
 }
 
 fn phi2(c: &IndexedCoefficientContext) -> IndexedCoefficient {
@@ -437,7 +887,28 @@ fn config_is_explicit_generic_bounded_and_off_by_default() {
     let mut request = json!({"owner_mask":"00","chart":{"lower":[0,0],"upper":[null,null],"fixed":[]},
         "max_refinements":0,"boundary_polynomial":{"mode":"activation-faces","polynomial_axes":[0,1],"protected_axes":[0,1],
         "weight_monomials":[[0,0],[1,0],[0,1]],"max_total_degree":1,"max_unknowns":144,"max_constraints":8192,"max_nonzeros":100000,"max_activation_faces":64}});
-    assert!(super::config(&request).unwrap().is_some());
+    assert!(
+        !super::config(&request)
+            .unwrap()
+            .unwrap()
+            .primitive_original_weights
+    );
+    request["boundary_polynomial"]["primitive_original_weights"] = json!(false);
+    assert!(
+        !super::config(&request)
+            .unwrap()
+            .unwrap()
+            .primitive_original_weights
+    );
+    request["boundary_polynomial"]["primitive_original_weights"] = json!("true");
+    assert!(super::config(&request).is_err());
+    request["boundary_polynomial"]["primitive_original_weights"] = json!(true);
+    assert!(
+        super::config(&request)
+            .unwrap()
+            .unwrap()
+            .primitive_original_weights
+    );
     for invalid in [json!([0, 0]), json!([2]), json!([])] {
         request["boundary_polynomial"]["protected_axes"] = invalid;
         assert!(super::config(&request).is_err());

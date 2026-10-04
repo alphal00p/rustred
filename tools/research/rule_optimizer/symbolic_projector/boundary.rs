@@ -8,7 +8,10 @@ use rustred::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 use symbolica::{
     domains::{SelfRing, rational_polynomial::FromNumeratorAndDenominator},
     prelude::Z,
@@ -34,6 +37,8 @@ pub struct Config {
     pub max_constraints: usize,
     pub max_nonzeros: usize,
     pub max_activation_faces: usize,
+    #[serde(default)]
+    pub primitive_original_weights: bool,
 }
 
 pub fn config(r: &Value) -> super::Result<Option<Config>> {
@@ -261,6 +266,216 @@ fn split(
     Ok(result)
 }
 
+// Small observational witnesses only. Formatting cannot grow this retained
+// buffer beyond its cap; displays never enter a coefficient/proof constructor.
+fn diagnostic(value: &impl fmt::Display) -> Value {
+    struct Bounded(String);
+    impl fmt::Write for Bounded {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            if text.len() > 4096 - self.0.len() {
+                return Err(fmt::Error);
+            }
+            self.0.push_str(text);
+            Ok(())
+        }
+    }
+    let mut text = Bounded(String::new());
+    let truncated = fmt::write(&mut text, format_args!("{value}")).is_err();
+    serde_json::json!({"display":text.0,"truncated":truncated,"display_only":true})
+}
+
+fn primitive_work(left: usize, right: usize, operations: &mut usize, limits: Limits) -> Result<()> {
+    let pairs = left
+        .checked_mul(right)
+        .ok_or(Error::Budget("primitive term pairs"))?;
+    // This admission count does not bound native GCD scratch/internal work.
+    // The outer owned-process RSS/time limits remain required.
+    work(operations, add(pairs, 1)?, limits)
+}
+
+fn primitive_admit(
+    c: &IndexedCoefficientContext,
+    raw: Coefficient,
+    admission: &mut Admission,
+    limits: Limits,
+) -> Result<IndexedCoefficient> {
+    let value = c.admit_native_result_with_limits(raw, limits.arithmetic)?;
+    let count = add(
+        value.raw().numerator.nterms(),
+        value.raw().denominator.nterms(),
+    )?;
+    let total = add(admission.terms, count)?;
+    bound(
+        total,
+        limits.coefficient_terms,
+        "primitive retained coefficient terms",
+    )?;
+    admission.terms = total;
+    Ok(value)
+}
+
+/// A new polynomial ORIGINAL-weight proposal, before any target pivot exists.
+/// Numerator GCD suffices up to base-field units because every denominator is
+/// index-independent. Never divide an endpoint image or introduce a g!=0 guard.
+fn primitive_weights(
+    c: &IndexedCoefficientContext,
+    weights: &mut Weights,
+    config: &Config,
+    admission: &mut Admission,
+    operations: &mut usize,
+    limits: Limits,
+) -> Result<Option<IndexedCoefficient>> {
+    require(!weights.is_empty(), "empty primitive original circuit")?;
+    bound(weights.len(), limits.rows, "primitive original weights")?;
+    for value in weights.values() {
+        polynomial_input(c, value, config, limits)?;
+        require(!value.is_zero(), "explicit zero primitive weight")?;
+    }
+    let mut iter = weights.values();
+    let first = iter.next().expect("nonempty checked");
+    primitive_work(first.raw().numerator.nterms(), 1, operations, limits)?;
+    let mut common = primitive_admit(
+        c,
+        native(|| {
+            Coefficient::from_num_den(
+                first.raw().numerator.clone(),
+                c.one().raw().denominator.clone(),
+                &Z,
+                true,
+            )
+        })?,
+        admission,
+        limits,
+    )?;
+    for value in iter {
+        if !index_positions(c).any(|p| common.raw().numerator.contains(p)) {
+            break;
+        }
+        primitive_work(
+            common.raw().numerator.nterms(),
+            value.raw().numerator.nterms(),
+            operations,
+            limits,
+        )?;
+        let numerator = native(|| common.raw().numerator.gcd(&value.raw().numerator))?;
+        common = primitive_admit(
+            c,
+            native(|| {
+                Coefficient::from_num_den(numerator, c.one().raw().denominator.clone(), &Z, true)
+            })?,
+            admission,
+            limits,
+        )?;
+    }
+    require(!common.is_zero(), "native primitive divisor is zero")?;
+    if !index_positions(c).any(|p| common.raw().numerator.contains(p)) {
+        super::progress::event("boundary_primitive_skipped", || {
+            serde_json::json!({
+            "reason":"index-constant divisor","original_weights":weights.len(),"divisor":diagnostic(common.raw())})
+        });
+        return Ok(None);
+    }
+    polynomial_input(c, &common, config, limits)?;
+    super::progress::event("boundary_primitive_divisor_candidate", || {
+        serde_json::json!({
+        "original_weights":weights.len(),"divisor":diagnostic(common.raw()),
+        "division_authorized":false,"endpoint_image_division":false})
+    });
+    let mut divided = Weights::new();
+    for (&source, weight) in weights.iter() {
+        primitive_work(
+            weight.raw().numerator.nterms(),
+            common.raw().numerator.nterms(),
+            operations,
+            limits,
+        )?;
+        let numerator = native(|| weight.raw().numerator.try_div(&common.raw().numerator))?
+            .ok_or_else(|| {
+                Error::Invalid("primitive original-weight division was not exact".into())
+            })?;
+        primitive_work(
+            numerator.nterms(),
+            weight.raw().denominator.nterms(),
+            operations,
+            limits,
+        )?;
+        let quotient = primitive_admit(
+            c,
+            native(|| {
+                Coefficient::from_num_den(numerator, weight.raw().denominator.clone(), &Z, true)
+            })?,
+            admission,
+            limits,
+        )?;
+        polynomial_input(c, &quotient, config, limits)?;
+        primitive_work(
+            common.raw().numerator.nterms(),
+            quotient.raw().numerator.nterms(),
+            operations,
+            limits,
+        )?;
+        require(
+            c.mul_with_limits(&common, &quotient, limits.arithmetic)? == *weight,
+            "primitive original-weight multiplication check failed",
+        )?;
+        for powers in split(c, &quotient, config, limits, admission, operations)?.keys() {
+            let monomial = config
+                .polynomial_axes
+                .iter()
+                .map(|&axis| powers[axis])
+                .collect::<Vec<_>>();
+            if !config.weight_monomials.contains(&monomial) {
+                super::progress::event("boundary_primitive_ansatz_refused", || {
+                    serde_json::json!({
+                    "selected_frame_ordinal":source,"quotient_monomial":monomial,
+                    "original_weight":diagnostic(weight.raw()),"quotient":diagnostic(quotient.raw())})
+                });
+                return Err(Error::Invalid(
+                    "primitive quotient escaped the declared monomial ansatz".into(),
+                ));
+            }
+        }
+        require(
+            !quotient.is_zero(),
+            "nonzero original weight divided to zero",
+        )?;
+        bound(
+            add(divided.len(), 1)?,
+            config.max_nonzeros.min(limits.nonzeros),
+            "primitive quotient entries",
+        )?;
+        divided.insert(source, quotient);
+    }
+    super::progress::event("boundary_primitive_original_weights", || {
+        serde_json::json!({
+        "original_weights":weights.len(),"quotient_weights":divided.len(),
+        "native_exact_divisions":divided.len(),"independent_multiplication_checks":divided.len(),
+        "quotient_ansatz_checked":true,"original_conditions_removed":0,
+        "divisor":diagnostic(common.raw()),"endpoint_image_division":false})
+    });
+    *weights = divided;
+    Ok(Some(common))
+}
+
+fn primitive_after_reducer(
+    c: &IndexedCoefficientContext,
+    weights: &mut Weights,
+    config: &Config,
+    admission: &mut Admission,
+    retained_terms: usize,
+    operations: &mut usize,
+    limits: Limits,
+) -> Result<Option<IndexedCoefficient>> {
+    // The reducer counter includes the earlier assembly charge and every U/L
+    // native payload. Transfer that total, not a second independent allowance.
+    require(
+        retained_terms >= admission.terms,
+        "primitive retained-term chronology",
+    )?;
+    admission.terms = retained_terms;
+    primitive_weights(c, weights, config, admission, operations, limits)
+}
+
 fn faces(
     shift: &IndexShift,
     config: &Config,
@@ -317,18 +532,32 @@ fn verify_faces(
     for (shift, value) in image {
         for face in faces(shift, config, &mut count, limits)? {
             let restricted = restriction(c, value, face, arithmetic, guards, limits, operations)?;
-            require(
-                restricted.is_zero(),
-                "normalized endpoint does not vanish on an activation face",
-            )?;
-            for guard in guards.iter() {
+            if !restricted.is_zero() {
+                super::progress::event("boundary_face_endpoint_refused", || {
+                    serde_json::json!({
+                    "axis":face.0,"physical_value":face.1,"endpoint_shift":shift.values(),
+                    "normalized_endpoint":diagnostic(value.raw()),"restriction":diagnostic(restricted.raw())})
+                });
+                return Err(Error::Invalid(
+                    "normalized endpoint does not vanish on an activation face".into(),
+                ));
+            }
+            for (ordinal, guard) in guards.iter().enumerate() {
                 work(operations, 1, limits)?;
                 let on_face =
                     c.specialize_fixed_polynomial(&guard.polynomial, &[face], arithmetic)?;
-                require(
-                    !on_face.is_zero(),
-                    "a retained pole/pivot/source condition excludes an entire activation face",
-                )?;
+                if on_face.is_zero() {
+                    super::progress::event("boundary_face_guard_refused", || {
+                        serde_json::json!({
+                        "axis":face.0,"physical_value":face.1,"endpoint_shift":shift.values(),
+                        "guard_ordinal":ordinal,"guard_origin":diagnostic(&guard.origin),
+                        "guard":diagnostic(guard.polynomial.raw()),"normalized_endpoint_vanishes":true})
+                    });
+                    return Err(Error::Invalid(
+                        "a retained pole/pivot/source condition excludes an entire activation face"
+                            .into(),
+                    ));
+                }
             }
         }
     }
@@ -336,6 +565,56 @@ fn verify_faces(
 }
 
 pub fn project(
+    c: &IndexedCoefficientContext,
+    rows: &[Row],
+    target: &IndexShift,
+    forbidden: &BTreeSet<IndexShift>,
+    input_guards: &[Guard],
+    arithmetic: IndexedAlgebraLimits,
+    limits: Limits,
+    config: &Config,
+) -> Result<Projection> {
+    require(
+        !config.primitive_original_weights,
+        "primitive weights require authenticated ordinary source bindings",
+    )?;
+    project_bound(
+        c,
+        rows,
+        target,
+        forbidden,
+        input_guards,
+        arithmetic,
+        limits,
+        config,
+    )
+}
+
+/// The unit frame is injective by (RowId, offset), so the per-row sum over
+/// monomials below is already exactly coalesced ORIGINAL-source provenance.
+pub fn project_original(
+    c: &IndexedCoefficientContext,
+    span: &super::source::Span,
+    target: &IndexShift,
+    forbidden: &BTreeSet<IndexShift>,
+    arithmetic: IndexedAlgebraLimits,
+    limits: Limits,
+    config: &Config,
+) -> Result<Projection> {
+    span.validate_fresh_ordinary(c, limits)?;
+    project_bound(
+        c,
+        &span.images,
+        target,
+        forbidden,
+        &span.guards,
+        arithmetic,
+        limits,
+        config,
+    )
+}
+
+fn project_bound(
     c: &IndexedCoefficientContext,
     rows: &[Row],
     target: &IndexShift,
@@ -622,6 +901,17 @@ pub fn project(
         // This is the first target-bearing dependency in declared basis order.
         // A later normalization/guard/proof refusal rejects this candidate only;
         // it does not establish absence of another useful kernel combination.
+        if config.primitive_original_weights {
+            primitive_after_reducer(
+                c,
+                &mut weights,
+                config,
+                &mut admission,
+                retained_terms,
+                &mut operations,
+                limits,
+            )?;
+        }
         let raw_image = project::replay(c, rows, &weights, &mut guards, limits)?;
         let target_value = raw_image
             .get(target)
@@ -630,6 +920,12 @@ pub fn project(
             !target_value.is_zero() && forbidden.iter().all(|s| !raw_image.contains_key(s)),
             "boundary full target/F replay",
         )?;
+        super::progress::event("boundary_target_before_normalization", || {
+            serde_json::json!({
+            "prefix_rows":ordinal+1,"original_weights":weights.len(),
+            "primitive_original_weights":config.primitive_original_weights,
+            "full_original_image_replayed":true,"target":diagnostic(target_value.raw())})
+        });
         retain(
             c,
             &mut guards,
