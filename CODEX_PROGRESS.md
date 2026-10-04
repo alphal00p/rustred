@@ -31,16 +31,81 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Exit-complete chart programs | `lower_sector_discovery`4L diagnostic; `lower_rule_evaluation`5L actual-exit census; `finite_region_audit` independent review | Completed/audited:4L90 points→66 matching pieces/32 rules;5L39 complete exit queries→89 pieces/1,840 successors. D11 returns on uniform obligation chains, without R/A/E growth. Entry fragmentation does not disprove recursive reuse; no graph quotient implemented or closure gain claimed. |
 | Degree-plateau block elimination | `lower_sector_discovery` existing-binary experiment; `lower_rule_evaluation` full-boundary analysis; `finite_region_audit` independent critique | Both complete-bank tests negative:125 rows/19 refinements and witness-guided250 rows/137 refinements miss at all19 points. Exact separator/source preimages distinguish new directions from pivot changes, but do not supply a sufficient bank. No new rule or campaign gain. Further bank enlargement parked. |
 | Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Delivered/audited then parked:21 tests; depth2 and depth4 complete original4L90/5L29 controls. Depth4 shared support unchanged at4L and only1.66% lower at5L. Research observer remains opt-in, not production-enabled. |
-| PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb integrated; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L/cold5L release controls prepared, not yet run. Foreign root edits preserved. |
-| Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Active delivery: retain entire currentnew37 context and add the two complementary exact owner0 rules with correctly rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
+| PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
+| Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. AMFlow own adapter still needs migration. Post-push message retry failed (tool unavailable); user received relay text and handoff. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root adversarial review; independent integration checks next | Source ready: bounded native events, cooperative cancellation, fork rejection, lazy coefficient decoding and bounded native printing. Embedded-host feature plumbing prepared. Native compile and end-to-end tests pending. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native input-parity tests plus eight UI lifecycle tests pass; actual new-session generation/visual-live tests pending host build. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Combined feature-gated FeynKit Rust check PASS; two integration errors corrected. Focused runtime gates compiling. Native-host Python and end-to-end tests remain pending. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native input-parity plus13 UI lifecycle/presentation tests pass; actual new-session generation/visual-live tests pending host build. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Final campaign controls pass; second campaign frozen — October4 22:20 UTC
+
+[M] Frozen optimized CLI `05386e85…26e6c1` passes both unchanged release
+controls. Whole4L58 finishes and independently cold-verifies in17.295s inclusive
+with26,025 records,17,957 native inspections,872,486 events and495,898 edges;
+all58 physics queries (32 admitting roots,26 absorbed) pass,zero frontiers.
+Finite5L260 finishes in183.027s inclusive (walk86.902s,cold89.741s,peak5.18GB),
+with69,682 operational states,69,422 physical keys,33,561 rule applications,
+23,338 transports,66 declared terminals and12,457 zeros. All work counts match
+their archived references, live and cold. Processes drained cleanly. The
+five-loop control uses its established finite-replay mode; production does not.
+Its outer symbolic walk remains `incomplete`/exit4, exactly as in the reference;
+only the exhaustive finite trace and independent cold verification are PASS.
+No measured speedup or full-family closure is inferred. Independent command/
+input review covered91 five-loop pins and the complete four-loop query scope.
+Evidence: `TMP/rule-optimizer-20261003/profiles/release-v4-controls-20261004/`.
+
+[M] Root froze the same executable and current nine steering modules in
+`campaigns/five-loop-a1-banana485-20261004/`, preserving all67 owners,8,246
+routes,116 required queries,67 helpers and both repairs. Settings retain Epoch/
+G2 union,CPU64–95/W32,600GB requested RAM,150GB host reserve and hourly saves.
+Preparation and a second frozen-script `--json` check report
+`launch_requested=false`. No production work was started; the live campaign
+onCPU96–127 remains untouched. The new campaign needs fresh traversal because
+its owner payloads differ. Exact first-launch/resume/rollback instructions and
+limits are in `docs/research/five_loop_banana485_launch_2026-10-04.md`.
+The generic input replacement utility again passes all nine tests.
+
+[M] Combined native API typechecking now passes in20.546s after the Arc/error
+mapping fixes. Its optimized runtime-test link is running separately. Community
+notebook delivery is not yet complete: actual host build, Python/native tests,
+four-loop notebook run, live visual audit and the reviewer-requested PR remain.
+
+### Downstream arity adoption observed — October4 22:16 UTC
+
+[M] A read-only check of `/common/dev/amflow/src/native.rs` now finds the
+shared `rustred::dispatch_arity!` and compiled-capability getter replacing the
+local1–12 dispatcher. AMFlow's Cargo manifest uses the local RustRed core path.
+That source was changed by its own task, not this one. No downstream build or
+physics-parity result is inferred, and no successful cross-task send is claimed.
+
+### Embedded-host integration and release controls — October4 22:10 UTC
+
+[M] Main and origin/main are at `a5735e02`, including the tested arity change
+`33fd03ec`. The foreign expanded FeynKit rustdoc has been restored from its
+preserved three-way proposal; comparison verified identical non-documentation
+code before adding the two owned, feature-gated campaign module/registration
+lines. The collaborator's Python-test edits remain untouched. Keep those
+foreign changes unstaged; the exact backup and targeted stash are retained.
+
+[M] The first combined `rustred-feynkit --features campaign-api` check exposed
+two ordinary integration errors: the native family must be shared as its
+existing `Arc`, not cloned, and an existing exhaustive application-error map
+needs the new cancellation variant. The implementer is correcting them. This
+is not yet a passing native session gate. Offline lockfile resolution added
+only three dependency edges among existing packages (PyO3/inventory,
+FeynKit/Python adapter, Python adapter/Serde); no versions or sources changed.
+
+[M] Notebook preparation currently passes17 checks:13 presentation/lifecycle
+checks and four genuine existing-host DOT-to-family parity checks. Actual
+new-host generation, Python arity smoke, live dashboard and lazy-explorer
+validation remain pending. Prepared frozen-CLI whole4L and finite5L controls
+are next in the heavy-resource queue, independently reviewed by the release
+agent. Existing production remains untouched.
 
 ### Arity native release gate passes — October4
 

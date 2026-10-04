@@ -10,9 +10,10 @@ The cross-task notification outcome is recorded below separately.
 
 `rustred::solver::SectorSolver<const N: usize>` is not intrinsically limited to
 twelve scalar-product coordinates. Two independently compiled front doors
-currently select only `N = 1, …, 12`:
+were identified as selecting only `N = 1, …, 12`:
 
-- RustRed's `solver::bridge` dynamic solve and certificate dispatch.
+- RustRed's `solver::bridge` dynamic solve and certificate dispatch (fixed in
+  the pushed revision above).
 - AMFlow's `src/native.rs`, which uses the generic solver directly rather than
   passing through that bridge for its factorized-coefficient path.
 
@@ -115,7 +116,11 @@ session. No coordination message has been delivered through that channel yet.
 Root retried the supported send tool after the successful push; it returned
 the same unavailable-tool error. The user was given the exact revision and a
 copy-pasteable relay message. Notification must not be reported as delivered.
-No AMFlow source has been edited. The receiving task must replace its local
-dispatcher and migrate the incoming PR2 bridge arguments above. Pin the tested
+No AMFlow source has been edited by this task. A later read-only check at
+22:16 UTC found its adapter already using `rustred::dispatch_arity!` and the
+capability getter, via its local-path RustRed dependency. This is evidence of
+downstream source adoption, not successful downstream compilation or physics
+validation, and does not mean the failed message was delivered. The receiving
+task should validate its PR2 argument migration and actual workload. Pin the tested
 Git revision (or use a clean checkout of it); this working tree also contains
 ongoing, uncommitted native-session work unrelated to the arity fix.

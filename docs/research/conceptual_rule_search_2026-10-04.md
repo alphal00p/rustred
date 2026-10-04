@@ -1985,9 +1985,30 @@ original scalar corner. Every original parent was applied, with no fallback
 or incomplete native transaction. Thus local cancellation exists, but this
 short policy does not demonstrate a substantial shared-work reduction.
 
-One fixed depth-four follow-up uses the identical full cohorts, executable and
-resource limits. It probes whether a longer equal-degree episode changes that
-conclusion; there is no depth sweep, favorable-parent subset or cross-depth
-cost claim. Evidence is retained under`profiles/plateau-cut-original-controls-v2/`
-for depth two, including the earlier default-off regression and corrected
-observer's handling of redundant singleton cap normalization.
+One fixed depth-four follow-up now completes using the identical full cohorts,
+executable and resource limits. At four loops657 native calls produce6,816
+boundary occurrences; collection removes306 parent-key pairs, but the shared
+key union stays235. At five loops2,269 calls produce37,943 occurrences;
+collection removes263 parent-key pairs and reduces the shared union from5,352
+to5,263 (89 keys,1.663%). All roots and native calls complete, without fallback;
+independent audits reconstruct the complete path and coefficient accounting.
+Inclusive observations are2.876s and83.040s respectively, not a clean matched
+performance comparison. The depth-four evidence is in
+`profiles/plateau-cut-original-controls-depth4-v1/`.
+
+This ends the fixed-policy experiment: **park it rather than tune deeper**.
+Local exact cancellation is real, but the shared-boundary effect remains
+small and no completed whole-campaign speedup was demonstrated. Different
+depths expose different boundaries and cannot be compared as a work reduction.
+The opt-in research observer is retained; it is not enabled in the second
+campaign requested by the user. That delivery instead uses the separately
+validated complementary banana rules and explicitly reports their limited
+whole-cohort evidence. There is no claim that the new campaign will close or
+outperform the current run.
+
+Depth-two evidence remains under`profiles/plateau-cut-original-controls-v2/`;
+the earlier default-off regression is under
+`profiles/plateau-cut-original-controls-v1/legacy-default-off/`. The corrected
+observer handles redundant singleton cap normalization. The final audit also
+retains all off-plateau exits and per-parent sums; it does not sum unrelated
+input equations together to manufacture cancellation.
